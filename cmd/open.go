@@ -5,22 +5,24 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
 
 // openCmd represents the open command
 var openCmd = &cobra.Command{
-	Use:   "open",
+	Use:   "open PATH",
 	Short: "Open a runbook",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Long:  `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("open called")
+		if len(args) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: You must specify a path to a runbook file or directory\n")
+			os.Exit(1)
+		}
+		path := args[0]
+
+		openRunbook(path)
 	},
 }
 
@@ -36,4 +38,8 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// openCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+}
+
+func openRunbook(path string) {
+	fmt.Printf("Opening runbook: %s\n", path)
 }
