@@ -31,7 +31,7 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 		path := args[0]
 
 		// TODO: Handle this goroutine properly, catching failure, etc.
-		api.StartServer(path, 7825)
+		api.StartBackendServer(path, 7825)
 	},
 }
 

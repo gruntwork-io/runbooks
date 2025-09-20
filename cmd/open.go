@@ -48,11 +48,10 @@ func init() {
 func openRunbook(path string) {
 	slog.Info("Opening runbook", "path", path)
 
-	// Start web server in a goroutine
 	// TODO: Handle this goroutine properly, catching failure, etc.
-	go api.StartServer(path, 7825)
+	api.StartServer(path, 7825)
 
-	// TODO: Start frontend server
+	// TODO: Document build info
 	// Right now I manually run `yarn dev` in the http directory to launch vite
 	// For the runbooks consumer, they should run a single command and get the server and api all on the same port
 
@@ -61,7 +60,7 @@ func openRunbook(path string) {
 	//time.Sleep(250 * time.Millisecond)
 
 	// Open browser and keep server running
-	// TODO: Implement browser opening functionality
+	// TODO: Add browser opening functionality
 	// browserPort := 5173
-	// api.OpenBrowserAndWait(browserPort)
+	// browser.LaunchAndWait(browserPort)
 }
