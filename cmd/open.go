@@ -53,52 +53,53 @@ func openRunbook(path string) {
 
 	// Start web server in a goroutine
 	// TODO: Handle this goroutine properly, catching failure, etc.
-	go startHttpServer(path)
+	go startHttpServer(path, port)
 
 	// Wait a moment for the server to start
 	// TODO: Enable this in production only
 	//time.Sleep(250 * time.Millisecond)
 
-	// Open browser to localhost:7825
-	err := openBrowser("http://localhost:7825")
+	// Open browser to localhost:5173
+	port := "5173"
+	err := openBrowser("http://localhost:" + port)
 	if err != nil {
 		slog.Warn("Failed to open browser", "error", err)
-		slog.Info("Manual browser access", "url", "http://localhost:7825")
+		slog.Info("Manual browser access", "url", "http://localhost:"+port)
 	}
 
 	// Keep the main thread alive so the web server continues running
-	slog.Info("Web server started", "url", "http://localhost:7825")
+	slog.Info("Web server started", "url", "http://localhost:"+port)
 	fmt.Println("Press Ctrl+C to stop the server")
 
 	// Wait indefinitely to keep the server running
 	select {}
 }
 
-func startHttpServer(path string) {
+func startHttpServer(path string, port string) {
 	// TODO: Update gin to run in release mode (not debug mode, except by flag)
 	// TODO: Deal with this issue:
 	// [GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
 	// Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
 	r := gin.Default()
-	
+
 	// Serve static files from the http/dist directory
 	r.Static("/static", "./http/dist")
-	
+
 	// Serve the main HTML file
 	r.GET("/", func(c *gin.Context) {
 		c.File("./http/dist/index.html")
 	})
-	
+
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/file", func(c *gin.Context) {
 		// Determine the actual file path to read
 		filePath := path
-		
+
 		// If path is a directory, look for runbook.md inside it
 		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
 			filePath = filepath.Join(path, "runbook.md")
 		}
-		
+
 		// Check if the file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -107,7 +108,7 @@ func startHttpServer(path string) {
 			})
 			return
 		}
-		
+
 		// Read the file contents
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -118,7 +119,7 @@ func startHttpServer(path string) {
 			return
 		}
 		defer file.Close()
-		
+
 		// Read all content
 		content, err := io.ReadAll(file)
 		if err != nil {
@@ -128,7 +129,7 @@ func startHttpServer(path string) {
 			})
 			return
 		}
-		
+
 		// Return the file contents
 		c.JSON(http.StatusOK, gin.H{
 			"path":    filePath,
@@ -137,7 +138,7 @@ func startHttpServer(path string) {
 	})
 
 	// listen and serve on 0.0.0.0:7825 | localhost:7825
-	r.Run(":7825")
+	r.Run(":" + port)
 }
 
 // openBrowser opens the specified URL in the default browser

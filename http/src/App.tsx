@@ -25,55 +25,8 @@ function App() {
         console.error('Error fetching file content:', err)
         setError(err.message)
         setLoading(false)
-        // Fallback to static content if API fails
-        setMarkdownContent(`# Error Loading Runbook
-
-Unable to load the runbook file. Please make sure the runbooks server is running.
-
-**Error:** ${err.message}
-
-## Fallback Content
-
-This is a demonstration of various markdown features and syntax.
-
-### Headers
-
-# Level 1 Header
-## Level 2 Header
-### Level 3 Header
-
-### Text Formatting
-
-**Bold text** and *italic text* and ***bold italic text***
-
-~~Strikethrough text~~
-
-\`Inline code\` and regular text.
-
-### Code Blocks
-
-\`\`\`go
-func main() {
-    fmt.Println("Hello, World!")
-}
-\`\`\`
-
-### Links
-
-[Link to Google](https://www.google.com)
-
-### Tables
-
-| Column 1 | Column 2 | Column 3 |
-|----------|----------|----------|
-| Row 1    | Data 1   | Data 2   |
-| Row 2    | Data 3   | Data 4   |
-
-### Blockquotes
-
-> This is a blockquote.
-> 
-> It can span multiple lines.`)
+      })
+  })
 
   return (
     <>
