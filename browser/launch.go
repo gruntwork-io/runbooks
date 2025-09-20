@@ -1,5 +1,12 @@
 package browser
 
+import (
+	"fmt"
+	"log/slog"
+	"os/exec"
+	"runtime"
+)
+
 // TODO: Refactor this function, or consider if I even need it
 // launchAndWait opens the browser and keeps the server running
 func launchAndWait(port int) {
@@ -34,3 +41,4 @@ func launch(url string) error {
 	}
 
 	return cmd.Start()
+}

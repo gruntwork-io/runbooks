@@ -30,8 +30,13 @@ function App() {
 
   return (
     <>
-      <div className="flex flex-col items-center justify-center pt-8">
-        <h1>Gruntwork Runbooks</h1>
+      <div className="flex flex-col items-center justify-center">
+        
+        <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold">
+          Gruntwork Runbooks
+        </header>
+        
+        <div className="text-center mt-8 text-gray-500">
         {loading ? (
           <p>Loading runbook...</p>
         ) : error ? (
@@ -39,11 +44,18 @@ function App() {
         ) : (
           <p>Runbook loaded successfully</p>
         )}
-        <div className="mt-8 max-w-4xl mb-8">
+        </div>
+
+        <div className="mt-8 max-w-4xl">
           <div className="markdown-body p-8 border border-gray-200 rounded-lg box-shadow-md">
             <ReactMarkdown>{markdownContent}</ReactMarkdown>
           </div>
         </div>
+
+        <footer className="w-full text-gray-500 text-center p-10">
+          <p className="font-semibold mb-2">Made with ❤️ by <a href="https://gruntwork.io">Gruntwork</a></p>
+          <p>Copyright 2025 Gruntwork Inc. All rights reserved.</p>
+        </footer>
       </div>
     </>
   )
