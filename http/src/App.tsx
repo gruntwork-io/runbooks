@@ -1,14 +1,13 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
 import './App.css'
 
 function App() {
 
   return (
     <>
-      <h1>Gruntwork Runbooks</h1>
-      <p>This is a placeholder for the runbook consumer.</p>
+      <div className="flex flex-col items-center justify-center pt-8">
+        <h1>Gruntwork Runbooks</h1>
+        <p>This is a placeholder for the runbook consumer.</p>
+      </div>
     </>
   )
 }

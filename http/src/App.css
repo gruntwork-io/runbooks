@@ -1,48 +1,18 @@
+@layer theme, base, components, utilities;
+
 @import "tailwindcss";
 
+@theme {
+  --color-arctic-100: oklch(0.95 0.01 231);
+  --color-arctic-500: oklch(0.64 0.10 231);
+}
+
 body {
-  @apply bg-gray-100;
+  @apply bg-arctic-100;
 }
 
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+@layer base {
+  h1 {
+    @apply font-sans text-3xl font-bold mb-1;
   }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
 }
