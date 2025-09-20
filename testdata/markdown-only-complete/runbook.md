@@ -50,7 +50,7 @@ def hello_world():
 
 [Link to Google](https://www.google.com)
 
-![Alt text for image](https://via.placeholder.com/150)
+![Alt text for image](https://pbs.twimg.com/profile_images/1826715661256810497/pA7zdjcb_400x400.png)
 
 ## Tables
 

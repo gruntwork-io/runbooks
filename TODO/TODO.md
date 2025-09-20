@@ -6,3 +6,4 @@
    - `runbooks open` for runbook consumers
    - `runbooks watch` for runbook authors 
    See IMPLEMENT_WATCH_COMMAND.md
+1. Support rendering tables in markdown correctly
