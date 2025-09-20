@@ -5,10 +5,12 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	"github.com/gin-gonic/gin"
@@ -51,7 +53,7 @@ func openRunbook(path string) {
 
 	// Start web server in a goroutine
 	// TODO: Handle this goroutine properly, catching failure, etc.
-	go startHttpServer()
+	go startHttpServer(path)
 
 	// Wait a moment for the server to start
 	// TODO: Enable this in production only
@@ -72,15 +74,65 @@ func openRunbook(path string) {
 	select {}
 }
 
-func startHttpServer() {
+func startHttpServer(path string) {
 	// TODO: Update gin to run in release mode (not debug mode, except by flag)
 	// TODO: Deal with this issue:
 	// [GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
 	// Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
 	r := gin.Default()
+	
+	// Serve static files from the http/dist directory
+	r.Static("/static", "./http/dist")
+	
+	// Serve the main HTML file
 	r.GET("/", func(c *gin.Context) {
+		c.File("./http/dist/index.html")
+	})
+	
+	// API endpoint to serve the runbook file contents
+	r.GET("/api/file", func(c *gin.Context) {
+		// Determine the actual file path to read
+		filePath := path
+		
+		// If path is a directory, look for runbook.md inside it
+		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
+			filePath = filepath.Join(path, "runbook.md")
+		}
+		
+		// Check if the file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "File not found",
+				"path":  filePath,
+			})
+			return
+		}
+		
+		// Read the file contents
+		file, err := os.Open(filePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to open file",
+				"path":  filePath,
+			})
+			return
+		}
+		defer file.Close()
+		
+		// Read all content
+		content, err := io.ReadAll(file)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to read file",
+				"path":  filePath,
+			})
+			return
+		}
+		
+		// Return the file contents
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Hello, World!",
+			"path":    filePath,
+			"content": string(content),
 		})
 	})
 
