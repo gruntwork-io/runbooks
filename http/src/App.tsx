@@ -10,7 +10,7 @@ function App() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetch('/api/file')
+    fetch('http://localhost:7825/api/file')
       .then(response => {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)

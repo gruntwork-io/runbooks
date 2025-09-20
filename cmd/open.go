@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
@@ -53,42 +54,37 @@ func openRunbook(path string) {
 
 	// Start web server in a goroutine
 	// TODO: Handle this goroutine properly, catching failure, etc.
-	go startHttpServer(path, port)
+	apiServerPort := 7825
+	go startApiServer(path, apiServerPort)
 
-	// Wait a moment for the server to start
+	// TODO: Start frontend server
+	// Right now I manually run `yarn dev` in the http directory to launch vite
+	// For the runbooks consumer, they should run a single command and get the server and api all on the same port
+
 	// TODO: Enable this in production only
+	// Wait a moment for the server to start
 	//time.Sleep(250 * time.Millisecond)
 
-	// Open browser to localhost:5173
-	port := "5173"
-	err := openBrowser("http://localhost:" + port)
-	if err != nil {
-		slog.Warn("Failed to open browser", "error", err)
-		slog.Info("Manual browser access", "url", "http://localhost:"+port)
-	}
-
-	// Keep the main thread alive so the web server continues running
-	slog.Info("Web server started", "url", "http://localhost:"+port)
-	fmt.Println("Press Ctrl+C to stop the server")
-
-	// Wait indefinitely to keep the server running
-	select {}
+	// Open browser and keep server running
+	browserPort := 5173
+	openBrowserAndWait(browserPort)
 }
 
-func startHttpServer(path string, port string) {
+func startApiServer(path string, port int) {
 	// TODO: Update gin to run in release mode (not debug mode, except by flag)
 	// TODO: Deal with this issue:
 	// [GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
 	// Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
 	r := gin.Default()
 
-	// Serve static files from the http/dist directory
-	r.Static("/static", "./http/dist")
-
-	// Serve the main HTML file
-	r.GET("/", func(c *gin.Context) {
-		c.File("./http/dist/index.html")
-	})
+	// Configure CORS to allow requests from the frontend on port 5173 to a different port
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
 
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/file", func(c *gin.Context) {
@@ -137,8 +133,25 @@ func startHttpServer(path string, port string) {
 		})
 	})
 
-	// listen and serve on 0.0.0.0:7825 | localhost:7825
-	r.Run(":" + port)
+	// listen and serve on 0.0.0.0:$port | localhost:$port
+	r.Run(":" + fmt.Sprintf("%d", port))
+}
+
+// openBrowserAndWait opens the browser and keeps the server running
+func openBrowserAndWait(port int) {
+	// Open browser to localhost
+	err := openBrowser("http://localhost:" + fmt.Sprintf("%d", port))
+	if err != nil {
+		slog.Warn("Failed to open browser", "error", err)
+		slog.Info("Manual browser access", "url", "http://localhost:"+fmt.Sprintf("%d", port))
+	}
+
+	// Keep the main thread alive so the web server continues running
+	slog.Info("Web server started", "url", "http://localhost:"+fmt.Sprintf("%d", port))
+	fmt.Println("Press Ctrl+C to stop the server")
+
+	// Wait indefinitely to keep the server running
+	select {}
 }
 
 // openBrowser opens the specified URL in the default browser
