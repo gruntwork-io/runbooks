@@ -1,3 +1,9 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-gray-100;
+}
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
