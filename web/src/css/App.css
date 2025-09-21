@@ -3,16 +3,28 @@
 @import "tailwindcss";
 
 @theme {
-  --color-arctic-100: oklch(0.95 0.01 231);
-  --color-arctic-500: oklch(0.64 0.10 231);
+  --color-bg-default: hsl(48deg, 33.3%, 97.1%);
+  --breakpoint-lg: 1140px;
 }
 
 body {
-  @apply bg-arctic-100;
+  @apply bg-bg-default;
 }
 
 @layer base {
   h1 {
     @apply font-sans text-3xl font-bold mb-1;
+  }
+
+  h2 {
+    @apply text-2xl font-semibold mb-1;
+  }
+
+  h3 {
+    @apply text-xl font-semibold mb-1;
+  }
+
+  h4 {
+    @apply text-lg font-semibold mb-1;
   }
 }

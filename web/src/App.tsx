@@ -41,14 +41,22 @@ function App() {
           <p>Loading runbook...</p>
         ) : error ? (
           <p className="text-red-600">Error: {error}</p>
-        ) : (
-          <p>Runbook loaded successfully</p>
-        )}
+        ) : null}
         </div>
 
-        <div className="mt-8 max-w-4xl">
-          <div className="markdown-body p-8 border border-gray-200 rounded-lg box-shadow-md">
+        <div className="m-8 flex gap-8">
+
+          {/* Markdown content */}
+          <div className="markdown-body flex-1 max-w-4xl min-w-lg p-8 border border-gray-200 rounded-lg box-shadow-md">
             <ReactMarkdown>{markdownContent}</ReactMarkdown>
+          </div>
+
+          {/* Artifacts */}
+          <div className="hidden lg:block lg:flex-1 lg:min-w-xl">
+            <div className="p-8 border border-gray-200 rounded-lg box-shadow-md bg-white">
+              <h3>Generated code goes here!</h3>
+              <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+            </div>
           </div>
         </div>
 
