@@ -3,13 +3,47 @@ import './css/github-markdown.css'
 import './css/github-markdown-light.css'
 import ReactMarkdown from 'react-markdown'
 import { useState, useEffect } from 'react'
+import Editor from '@monaco-editor/react'
 
 function App() {
   const [markdownContent, setMarkdownContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [editorHeight, setEditorHeight] = useState(200)
+  const [editorContent, setEditorContent] = useState(`# Example Infrastructure Code
+
+# Security group for web server
+resource "aws_security_group" "web_sg" {
+  name_prefix = "web-sg-"
+  
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  tags = {
+    Name = "WebServerSecurityGroup"
+  }
+}`)
 
   useEffect(() => {
+    // Get the markdown file content from the API
     fetch('http://localhost:7825/api/file')
       .then(response => {
         if (!response.ok) {
@@ -27,6 +61,18 @@ function App() {
         setLoading(false)
       })
   })
+
+  // Handle editor mount to enable auto-height
+  // This is necessary to set the editor height to automatically match the content height on mount
+  const handleEditorDidMount = (editor: any) => {
+    const updateHeight = () => {
+      const contentHeight = editor.getContentHeight()
+      setEditorHeight(contentHeight)
+    }
+
+    // Set initial height
+    updateHeight()
+  }
 
   return (
     <>
@@ -53,9 +99,30 @@ function App() {
 
           {/* Artifacts */}
           <div className="hidden lg:block lg:flex-1 lg:min-w-xl">
-            <div className="p-8 border border-gray-200 rounded-lg box-shadow-md bg-white">
-              <h3>Generated code goes here!</h3>
-              <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+            <div className="border border-gray-200 rounded-lg box-shadow-md bg-white overflow-hidden">
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-700 pt-1">Generated Code</h3>
+              </div>
+              <div>
+                <Editor
+                  height={`${editorHeight}px`}
+                  defaultLanguage="hcl"
+                  value={editorContent}
+                  onChange={(value) => setEditorContent(value || '')}
+                  onMount={handleEditorDidMount}
+                  theme="vs"
+                  options={{
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    fontSize: 14,
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                    automaticLayout: true,
+                    padding: { top: 16, bottom: 16 },
+                    fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
