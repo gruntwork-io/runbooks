@@ -99,11 +99,14 @@ resource "aws_security_group" "web_sg" {
 
           {/* Artifacts */}
           <div className="hidden lg:block lg:flex-1 lg:min-w-xl">
-            <div className="border border-gray-200 rounded-lg box-shadow-md bg-white overflow-hidden">
+            <div className="border border-gray-200 rounded-lg box-shadow-md bg-bg-default overflow-hidden">
               <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
                 <h3 className="text-sm font-medium text-gray-700 pt-1">Generated Code</h3>
               </div>
-              <div>
+              <div className="m-4 border border-gray-200">
+                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                  <h3 className="text-sm font-medium text-gray-700 pt-1">main.tf</h3>
+                </div>
                 <Editor
                   height={`${editorHeight}px`}
                   defaultLanguage="hcl"
