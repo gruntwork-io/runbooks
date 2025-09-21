@@ -4,6 +4,7 @@ import './css/github-markdown-light.css'
 import ReactMarkdown from 'react-markdown'
 import { useState, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
+import type { editor } from 'monaco-editor'
 
 function App() {
   const [markdownContent, setMarkdownContent] = useState('')
@@ -60,18 +61,30 @@ resource "aws_security_group" "web_sg" {
         setError(err.message)
         setLoading(false)
       })
-  })
+  }, []) // Empty dependency array - only run once on mount
 
   // Handle editor mount to enable auto-height
   // This is necessary to set the editor height to automatically match the content height on mount
-  const handleEditorDidMount = (editor: any) => {
+  const handleEditorDidMount = (editor: editor.IStandaloneCodeEditor) => {
     const updateHeight = () => {
       const contentHeight = editor.getContentHeight()
       setEditorHeight(contentHeight)
     }
 
-    // Set initial height
-    updateHeight()
+    // Use requestAnimationFrame to ensure DOM is fully rendered
+    // Prior to this, we had a race condition where the editor was
+    // not fully initialized when we tried to set the height
+    requestAnimationFrame(() => {
+      // Add a small delay to ensure the editor is fully initialized
+      setTimeout(() => {
+        updateHeight()
+        
+        // Also listen for content changes to update height
+        editor.onDidContentSizeChange(() => {
+          updateHeight()
+        })
+      }, 100)
+    })
   }
 
   return (
@@ -108,6 +121,7 @@ resource "aws_security_group" "web_sg" {
                   <h3 className="text-sm font-medium text-gray-700 pt-1">main.tf</h3>
                 </div>
                 <Editor
+                  key="monaco-editor"
                   height={`${editorHeight}px`}
                   defaultLanguage="hcl"
                   value={editorContent}
