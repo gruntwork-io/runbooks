@@ -34,3 +34,4 @@ dist-ssr
 !.yarn/sdks
 !.yarn/versions
 .yarnrc.yml
+.pnp.*
