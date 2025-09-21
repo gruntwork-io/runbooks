@@ -4,20 +4,27 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "dev": "bun run vite",
+    "build": "bun run tsc -b && bun run vite build",
+    "lint": "bun run eslint .",
+    "preview": "bun run vite preview",
+    "start": "bun run dev",
+    "type-check": "bun run tsc --noEmit"
   },
+  "packageManager": "bun@1.1.0",
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-tabs": "^1.1.13",
     "@tailwindcss/vite": "^4.1.13",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.544.0",
     "monaco-editor": "^0.53.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.13"
   },
   "devDependencies": {
@@ -30,9 +37,9 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.4.0",
+    "tw-animate-css": "^1.3.8",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.43.0",
     "vite": "^7.1.6"
-  },
-  "packageManager": "yarn@4.10.2+sha512.0b0e54ad5381f0a35184957bd3ea44e37f5a4fb1960b903b0fb9a3c7c2c009190455c41ef2a1977b1dbd3b72c5f152da696e9c52e2bc78a011b6adea8ee73ba3"
+  }
 }
