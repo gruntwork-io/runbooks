@@ -368,9 +368,9 @@ function App() {
 
         {/* Desktop Layout - Side by side */}
         <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19">
-          <div className="flex gap-8 min-h-screen">
+          <div className="flex gap-8 h-screen overflow-hidden">
             {/* Markdown content */}
-            <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md">
+            <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md overflow-y-auto">
               <ReactMarkdown>{markdownContent}</ReactMarkdown>
             </div>
 
