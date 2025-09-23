@@ -10,7 +10,7 @@ import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@he
 import { cn } from './lib/utils'
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { dark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 
 import './css/headless-tree.css'
@@ -145,7 +145,54 @@ const CodeTabContent = () => {
 
       <div className="flex-1">
         
-        <SyntaxHighlighter language="hcl" style={dark}>
+        <div className="text-xs text-gray-600 border border-gray-300 p-2 -mb-2 font-sans bg-gray-100">
+          main.tf
+        </div>
+        <SyntaxHighlighter 
+          language="hcl" 
+          style={coy}
+          showLineNumbers={true}
+          customStyle={{
+            fontSize: '12px',
+            border: '1px solid #ddd',
+            borderRadius: '2px',
+            padding: '14px 0px'
+          }}
+          lineNumberStyle={{
+            color: '#999',
+            fontSize: '11px',
+            paddingRight: '12px',
+            borderRight: '1px solid #eee',
+            marginRight: '8px'
+          }}
+        >
+          {codeString}
+        </SyntaxHighlighter>
+        <div className="flex-1">
+          ...
+        </div>
+
+        <div className="text-xs text-gray-600 border border-gray-300 p-2 -mb-2 font-sans bg-gray-100">
+          vars.tf
+        </div>
+        <SyntaxHighlighter 
+          language="hcl" 
+          style={coy}
+          showLineNumbers={true}
+          customStyle={{
+            fontSize: '12px',
+            border: '1px solid #ddd',
+            borderRadius: '2px',
+            padding: '14px 0px'
+          }}
+          lineNumberStyle={{
+            color: '#999',
+            fontSize: '11px',
+            paddingRight: '12px',
+            borderRight: '1px solid #eee',
+            marginRight: '8px'
+          }}
+        >
           {codeString}
         </SyntaxHighlighter>
         

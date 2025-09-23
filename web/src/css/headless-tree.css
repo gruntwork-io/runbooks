@@ -6,7 +6,7 @@
     font-size: calc(12 / 16 * 1rem);
     max-width: 175px;
     min-height: 100px;
-    color: hsl(0deg, 0%, 0%, 0.7);
+    color: hsl(0deg, 0%, 0%, 0.6);
     flex-shrink: 0;
     overflow-x: auto;
     overflow-y: hidden;
@@ -59,7 +59,7 @@
 
 .treeitem.selected {
     color: hsl(0deg, 0%, 0%, 1.0);
-    background-color: hsl(48deg, 33.3%, 90%);
+    font-weight: 500;
 }
 
 button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
