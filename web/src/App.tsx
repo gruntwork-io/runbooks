@@ -2,7 +2,7 @@ import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
 import ReactMarkdown from 'react-markdown'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, FileText, BookOpen } from "lucide-react"
 import { useTree } from '@headless-tree/react'
@@ -13,6 +13,7 @@ import './css/headless-tree.css'
 
 // Shared tab content components
 const CodeTabContent = () => {
+  const [treeWidth, setTreeWidth] = useState(200);
 
   const tree = useTree<string>({
     initialState: { expandedItems: ["folder-1"] },
@@ -33,10 +34,44 @@ const CodeTabContent = () => {
     features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
   });
 
+  // Get tree items
+  const treeItems = tree.getItems();
+
+  // Calculate the optimal width based on the longest item name
+  const optimalWidth = useMemo(() => {
+    if (treeItems.length === 0) return 200;
+
+    // Find the longest item name
+    const longestName = treeItems.reduce((longest, item) => {
+      const name = item.getItemName();
+      return name.length > longest.length ? name : longest;
+    }, '');
+
+    // Calculate width based on character count (roughly 8px per character + padding)
+    const baseWidth = 40; // Base padding
+    const charWidth = 8; // Approximate width per character
+    const calculatedWidth = baseWidth + (longestName.length * charWidth);
+    
+    // Constrain between min and max widths
+    const minWidth = 150;
+    const maxWidth = 300;
+    
+    return Math.max(minWidth, Math.min(maxWidth, calculatedWidth));
+  }, [treeItems]);
+
+  // Update tree width when optimal width changes
+  useEffect(() => {
+    setTreeWidth(optimalWidth);
+  }, [optimalWidth]);
+
   return (
     <div className="p-1 w-full min-h-[200px] flex">
 
-      <div {...tree.getContainerProps()} className="tree">
+      <div 
+        {...tree.getContainerProps()} 
+        className="tree"
+        style={{ width: `${treeWidth}px` }}
+      >
         {tree.getItems().map((item) => (
           <button
             {...item.getProps()}

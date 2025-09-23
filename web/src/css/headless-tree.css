@@ -4,9 +4,12 @@
 
 .tree {
     font-size: calc(12 / 16 * 1rem);
-    max-width: 200px;
+    max-width: 175px;
     min-height: 100px;
-    color: hsl(0deg, 0%, 0%, 0.7)
+    color: hsl(0deg, 0%, 0%, 0.7);
+    flex-shrink: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .tree button[role="treeitem"] {
@@ -26,6 +29,7 @@
     border-radius: 4px;
     transition: background-color .2s ease;
     cursor: pointer;
+    white-space: nowrap;
 }
 .treeitem:hover {
     background-color: var(--selected-color);
