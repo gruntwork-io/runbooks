@@ -86,6 +86,7 @@ const ArtifactsTabs = ({ className = "" }: { className?: string }) => (
 
 function App() {
   const [markdownContent, setMarkdownContent] = useState('')
+  const [pathName, setPathName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'tabs'>('markdown')
@@ -101,6 +102,7 @@ function App() {
       })
       .then(data => {
         setMarkdownContent(data.content || '')
+        setPathName(data.path || '')
         setLoading(false)
       })
       .catch(err => {
@@ -113,9 +115,13 @@ function App() {
   return (
     <>
       <div className="flex flex-col items-center justify-center">
-        
-        <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold">
-          Gruntwork Runbooks
+        <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex">
+          <div className="hidden md:block">Gruntwork Runbooks</div>
+          <div className="flex-1 flex items-center gap-2 justify-center">
+            <div className="text-sm text-gray-500 font-mono font-normal">
+              {pathName}
+            </div>
+          </div>
         </header>
         
         <div className="text-center text-gray-500">
