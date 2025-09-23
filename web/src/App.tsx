@@ -107,29 +107,33 @@ const LogsTabContent = () => (
 // Shared tabs component
 const ArtifactsTabs = ({ className = "" }: { className?: string }) => (
   <Tabs defaultValue="code" className={className}>
-    <TabsList className="w-full justify-start">
-      <TabsTrigger value="code" className="flex items-center gap-2">
-        <Code className="size-4" />
-        Code
-      </TabsTrigger>
-      <TabsTrigger value="checks" className="flex items-center gap-2">
-        <CheckCircle className="size-4" />
-        Checks
-      </TabsTrigger>
-      <TabsTrigger value="logs" className="flex items-center gap-2">
-        <FileText className="size-4" />
-        Logs
-      </TabsTrigger>
-    </TabsList>
-    <TabsContent value="code" className="mt-0 w-full">
-      <CodeTabContent />
-    </TabsContent>
-    <TabsContent value="checks" className="mt-0 w-full">
-      <ChecksTabContent />
-    </TabsContent>
-    <TabsContent value="logs" className="mt-0 w-full">
-      <LogsTabContent />
-    </TabsContent>
+    <div className="sticky top-0 z-20 bg-bg-default pt-2 translate -translate-y-2">
+      <TabsList className="w-full justify-start">
+        <TabsTrigger value="code" className="flex items-center gap-2">
+          <Code className="size-4" />
+          Code
+        </TabsTrigger>
+        <TabsTrigger value="checks" className="flex items-center gap-2">
+          <CheckCircle className="size-4" />
+          Checks
+        </TabsTrigger>
+        <TabsTrigger value="logs" className="flex items-center gap-2">
+          <FileText className="size-4" />
+          Logs
+        </TabsTrigger>
+      </TabsList>
+    </div>
+    <div className="overflow-y-auto max-h-[calc(100vh-8rem)]">
+      <TabsContent value="code" className="mt-0 w-full">
+        <CodeTabContent />
+      </TabsContent>
+      <TabsContent value="checks" className="mt-0 w-full">
+        <ChecksTabContent />
+      </TabsContent>
+      <TabsContent value="logs" className="mt-0 w-full">
+        <LogsTabContent />
+      </TabsContent>
+    </div>
   </Tabs>
 )
 
@@ -182,7 +186,7 @@ function App() {
         </div>
 
         {/* Desktop Layout - Side by side */}
-        <div className="hidden lg:block lg:m-8 translate translate-y-12">
+        <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19">
           <div className="flex gap-8 min-h-screen">
             {/* Markdown content */}
             <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md">
@@ -190,7 +194,7 @@ function App() {
             </div>
 
             {/* Artifacts */}
-            <div className="flex-2 sticky top-4 w-2xl self-start">
+            <div className="flex-2 w-2xl self-start">
               <ArtifactsTabs />
             </div>
           </div>
