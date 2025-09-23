@@ -9,7 +9,58 @@ import { useTree } from '@headless-tree/react'
 import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
 import { cn } from './lib/utils'
 
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { dark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+
 import './css/headless-tree.css'
+
+// Simple OpenTofu example
+const codeString = `# Simple OpenTofu configuration
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "us-west-2"
+}
+
+# Create a VPC
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "main-vpc"
+  }
+}
+
+# Create a security group
+resource "aws_security_group" "web" {
+  name_prefix = "web-"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+output "vpc_id" {
+  value = aws_vpc.main.id
+}`
 
 // Shared tab content components
 const CodeTabContent = () => {
@@ -93,22 +144,11 @@ const CodeTabContent = () => {
       </div>
 
       <div className="flex-1">
-        <div className="text-sm text-gray-600 mb-3">
-          Infrastructure code and configuration files
-        </div>
-        <div className="bg-gray-50 rounded-md p-3 font-mono text-xs text-gray-700 space-y-1">
-          <div># Example Infrastructure Code</div>
-          <div># Security group for web server</div>
-          <div>resource "aws_security_group" "web_sg" {`{`}</div>
-          <div>  name_prefix = "web-sg-"</div>
-          <div>  ingress {`{`}</div>
-          <div>    from_port   = 80</div>
-          <div>    to_port     = 80</div>
-          <div>    protocol    = "tcp"</div>
-          <div>    cidr_blocks = ["0.0.0.0/0"]</div>
-          <div>  {`}`}</div>
-          <div>{`}`}</div>
-        </div>
+        
+        <SyntaxHighlighter language="hcl" style={dark}>
+          {codeString}
+        </SyntaxHighlighter>
+        
       </div>
       </div>
   )
