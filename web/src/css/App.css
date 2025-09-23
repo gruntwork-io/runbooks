@@ -7,7 +7,7 @@
 
 @theme {
   --color-bg-default: hsl(48deg, 33.3%, 97.1%);
-  --breakpoint-lg: 1225px;
+  --breakpoint-lg: 1280px;
 }
 
 /* Added by shadcn/ui install script */
