@@ -164,10 +164,10 @@ function App() {
   return (
     <>
       <div className="flex flex-col items-center justify-center">
-        <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex">
-          <div className="hidden md:block">Gruntwork Runbooks</div>
+        <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default">
+          <div className="hidden md:block md:absolute md:left-5 md:top-1/2 md:transform md:-translate-y-1/2">Gruntwork Runbooks</div>
           <div className="flex-1 flex items-center gap-2 justify-center">
-            <div className="text-sm text-gray-500 font-mono font-normal">
+            <div className="text-xs md:text-sm text-gray-500 font-mono font-normal">
               {pathName}
             </div>
           </div>
@@ -182,7 +182,7 @@ function App() {
         </div>
 
         {/* Desktop Layout - Side by side */}
-        <div className="hidden lg:block lg:m-8">
+        <div className="hidden lg:block lg:m-8 translate translate-y-12">
           <div className="flex gap-8 min-h-screen">
             {/* Markdown content */}
             <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md">
@@ -197,7 +197,7 @@ function App() {
         </div>
 
         {/* Mobile Layout - Tabbed interface */}
-        <div className="lg:hidden w-full">
+        <div className="lg:hidden w-full pt-20">
           {/* Mobile Navigation */}
           <div className="flex items-center justify-center mb-6 mt-8">
             <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">

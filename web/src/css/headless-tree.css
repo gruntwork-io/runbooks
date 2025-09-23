@@ -3,6 +3,7 @@
 }
 
 .tree {
+    font-size: calc(12 / 16 * 1rem);
     max-width: 200px;
     min-height: 100px;
 }
