@@ -7,26 +7,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, FileText, BookOpen } from "lucide-react"
 
 // Shared tab content components
-const CodeTabContent = () => (
-  <div className="p-4 w-full min-h-[200px]">
-    <div className="text-sm text-gray-600 mb-3">
-      Infrastructure code and configuration files
+const CodeTabContent = () => {
+
+  return (
+    <div className="p-4 w-full min-h-[200px]">
+
+      <div className="text-sm text-gray-600 mb-3">
+        Infrastructure code and configuration files
+      </div>
+      <div className="bg-gray-50 rounded-md p-3 font-mono text-xs text-gray-700 space-y-1">
+        <div># Example Infrastructure Code</div>
+        <div># Security group for web server</div>
+        <div>resource "aws_security_group" "web_sg" {`{`}</div>
+        <div>  name_prefix = "web-sg-"</div>
+        <div>  ingress {`{`}</div>
+        <div>    from_port   = 80</div>
+        <div>    to_port     = 80</div>
+        <div>    protocol    = "tcp"</div>
+        <div>    cidr_blocks = ["0.0.0.0/0"]</div>
+        <div>  {`}`}</div>
+        <div>{`}`}</div>
+      </div>
     </div>
-    <div className="bg-gray-50 rounded-md p-3 font-mono text-xs text-gray-700 space-y-1">
-      <div># Example Infrastructure Code</div>
-      <div># Security group for web server</div>
-      <div>resource "aws_security_group" "web_sg" {`{`}</div>
-      <div>  name_prefix = "web-sg-"</div>
-      <div>  ingress {`{`}</div>
-      <div>    from_port   = 80</div>
-      <div>    to_port     = 80</div>
-      <div>    protocol    = "tcp"</div>
-      <div>    cidr_blocks = ["0.0.0.0/0"]</div>
-      <div>  {`}`}</div>
-      <div>{`}`}</div>
-    </div>
-  </div>
-)
+  )
+}
 
 const ChecksTabContent = () => (
   <div className="p-4 w-full min-h-[200px]">
@@ -133,15 +137,15 @@ function App() {
         </div>
 
         {/* Desktop Layout - Side by side */}
-        <div className="hidden lg:block m-8">
-          <div className="flex gap-8">
+        <div className="hidden lg:block lg:m-8">
+          <div className="flex gap-8 min-h-screen">
             {/* Markdown content */}
             <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md">
               <ReactMarkdown>{markdownContent}</ReactMarkdown>
             </div>
 
             {/* Artifacts */}
-            <div className="flex-2 sticky top-4 w-2xl">
+            <div className="flex-2 sticky top-4 w-2xl self-start">
               <ArtifactsTabs />
             </div>
           </div>
