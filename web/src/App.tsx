@@ -34,7 +34,7 @@ const CodeTabContent = () => {
   });
 
   return (
-    <div className="p-1 w-full min-h-[200px]">
+    <div className="p-1 w-full min-h-[200px] flex">
 
       <div {...tree.getContainerProps()} className="tree">
         {tree.getItems().map((item) => (
@@ -57,23 +57,25 @@ const CodeTabContent = () => {
         ))}
       </div>
 
-      <div className="text-sm text-gray-600 mb-3">
-        Infrastructure code and configuration files
+      <div className="flex-1">
+        <div className="text-sm text-gray-600 mb-3">
+          Infrastructure code and configuration files
+        </div>
+        <div className="bg-gray-50 rounded-md p-3 font-mono text-xs text-gray-700 space-y-1">
+          <div># Example Infrastructure Code</div>
+          <div># Security group for web server</div>
+          <div>resource "aws_security_group" "web_sg" {`{`}</div>
+          <div>  name_prefix = "web-sg-"</div>
+          <div>  ingress {`{`}</div>
+          <div>    from_port   = 80</div>
+          <div>    to_port     = 80</div>
+          <div>    protocol    = "tcp"</div>
+          <div>    cidr_blocks = ["0.0.0.0/0"]</div>
+          <div>  {`}`}</div>
+          <div>{`}`}</div>
+        </div>
       </div>
-      <div className="bg-gray-50 rounded-md p-3 font-mono text-xs text-gray-700 space-y-1">
-        <div># Example Infrastructure Code</div>
-        <div># Security group for web server</div>
-        <div>resource "aws_security_group" "web_sg" {`{`}</div>
-        <div>  name_prefix = "web-sg-"</div>
-        <div>  ingress {`{`}</div>
-        <div>    from_port   = 80</div>
-        <div>    to_port     = 80</div>
-        <div>    protocol    = "tcp"</div>
-        <div>    cidr_blocks = ["0.0.0.0/0"]</div>
-        <div>  {`}`}</div>
-        <div>{`}`}</div>
       </div>
-    </div>
   )
 }
 
@@ -107,7 +109,7 @@ const LogsTabContent = () => (
 // Shared tabs component
 const ArtifactsTabs = ({ className = "" }: { className?: string }) => (
   <Tabs defaultValue="code" className={className}>
-    <div className="sticky top-0 z-20 bg-bg-default pt-2 translate -translate-y-2">
+    <div className="sticky top-0 z-20 bg-bg-default pt-6 translate -translate-y-6">
       <TabsList className="w-full justify-start">
         <TabsTrigger value="code" className="flex items-center gap-2">
           <Code className="size-4" />
@@ -123,7 +125,7 @@ const ArtifactsTabs = ({ className = "" }: { className?: string }) => (
         </TabsTrigger>
       </TabsList>
     </div>
-    <div className="overflow-y-auto max-h-[calc(100vh-8rem)]">
+    <div className="overflow-y-auto max-h-[calc(100vh-8rem)] -mt-5">
       <TabsContent value="code" className="mt-0 w-full">
         <CodeTabContent />
       </TabsContent>

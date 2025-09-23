@@ -1,11 +1,12 @@
 :root {
-    --selected-color: #f0f2f5;
+    --selected-color: hsl(48deg, 33.3%, 97.1%);
 }
 
 .tree {
     font-size: calc(12 / 16 * 1rem);
     max-width: 200px;
     min-height: 100px;
+    color: hsl(0deg, 0%, 0%, 0.7)
 }
 
 .tree button[role="treeitem"] {
@@ -19,10 +20,10 @@
 .treeitem {
     width: 100%;
     text-align: left;
-    background-color: white;
+    background-color: transparent;
     padding: 6px 10px;
     position: relative;
-    border-radius: 8px;
+    border-radius: 4px;
     transition: background-color .2s ease;
     cursor: pointer;
 }
@@ -33,7 +34,7 @@
 .renaming-item {
     background-color: var(--selected-color);
     margin-bottom: 2px;
-    border-radius: 8px;
+    border-radius: 4px;
     padding: 4px 10px 5px 24px;
 }
 .renaming-item input {
@@ -53,7 +54,8 @@
 }
 
 .treeitem.selected {
-    background-color: #eee;
+    color: hsl(0deg, 0%, 0%, 1.0);
+    background-color: hsl(48deg, 33.3%, 90%);
 }
 
 button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
@@ -86,22 +88,11 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
     padding-left: 24px;
 }
 
-.treeitem.selected:after {
-    content: " ";
-    position: absolute;
-    top: 5px;
-    left: -2px;
-    height: 16px;
-    width: 4px;
-    background-color: #0366d6;
-    border-radius: 99px;
-}
-
 .description {
     font-family: sans-serif;
     font-size: .8rem;
     background-color: #eee;
-    border-radius: 8px;
+    border-radius: 4px;
     padding: 8px 12px;
 }
 
