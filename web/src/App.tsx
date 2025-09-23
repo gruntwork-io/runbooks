@@ -5,12 +5,57 @@ import ReactMarkdown from 'react-markdown'
 import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, FileText, BookOpen } from "lucide-react"
+import { useTree } from '@headless-tree/react'
+import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
+import { cn } from './lib/utils'
+
+import './css/headless-tree.css'
 
 // Shared tab content components
 const CodeTabContent = () => {
 
+  const tree = useTree<string>({
+    initialState: { expandedItems: ["folder-1"] },
+    rootItemId: "folder",
+    getItemName: (item) => item.getItemData(),
+    isItemFolder: (item) => !item.getItemData().endsWith("item"),
+    dataLoader: {
+      getItem: (itemId) => itemId,
+      getChildren: (itemId) => [
+        `${itemId}-1`,
+        `${itemId}-2`,
+        `${itemId}-3`,
+        `${itemId}-1item`,
+        `${itemId}-2item`,
+      ],
+    },
+    indent: 20,
+    features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
+  });
+
   return (
-    <div className="p-4 w-full min-h-[200px]">
+    <div className="p-1 w-full min-h-[200px]">
+
+      <div {...tree.getContainerProps()} className="tree">
+        {tree.getItems().map((item) => (
+          <button
+            {...item.getProps()}
+            key={item.getId()}
+            style={{ paddingLeft: `${item.getItemMeta().level * 20}px` }}
+          >
+            <div
+              className={cn("treeitem", {
+                focused: item.isFocused(),
+                expanded: item.isExpanded(),
+                selected: item.isSelected(),
+                folder: item.isFolder(),
+              })}
+            >
+              {item.getItemName()}
+            </div>
+          </button>
+        ))}
+      </div>
 
       <div className="text-sm text-gray-600 mb-3">
         Infrastructure code and configuration files
