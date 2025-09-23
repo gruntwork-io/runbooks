@@ -4,7 +4,9 @@ import './css/github-markdown-light.css'
 import ReactMarkdown from 'react-markdown'
 import { useState, useEffect, useMemo } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Code, CheckCircle, FileText, BookOpen } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Code, CheckCircle, FileText, BookOpen, Copy, FolderOpen, Check } from "lucide-react"
 import { useTree } from '@headless-tree/react'
 import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
 import { cn } from './lib/utils'
@@ -62,9 +64,20 @@ output "vpc_id" {
   value = aws_vpc.main.id
 }`
 
+// Copy functions
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    console.error('Failed to copy text: ', err);
+  }
+};
+
 // Shared tab content components
 const CodeTabContent = () => {
   const [treeWidth, setTreeWidth] = useState(200);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(false);
 
   const tree = useTree<string>({
     initialState: { expandedItems: ["folder-1"] },
@@ -115,6 +128,20 @@ const CodeTabContent = () => {
     setTreeWidth(optimalWidth);
   }, [optimalWidth]);
 
+  // Handle copy code with checkmark feedback
+  const handleCopyCode = async () => {
+    await copyToClipboard(codeString);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  // Handle copy path with checkmark feedback
+  const handleCopyPath = async () => {
+    await copyToClipboard("main.tf");
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2000);
+  };
+
   return (
     <div className="p-1 w-full min-h-[200px] flex">
 
@@ -145,8 +172,41 @@ const CodeTabContent = () => {
 
       <div className="flex-1">
         
-        <div className="text-xs text-gray-600 border border-gray-300 p-2 -mb-2 font-sans bg-gray-100">
-          main.tf
+        <div className="text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between">
+          <div>main.tf</div>
+          <div className="flex gap-2">
+          <Tooltip delayDuration={1000}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCopyCode}
+                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
+              >
+                {copiedCode ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{copiedCode ? "Copied!" : "Copy code"}</p>
+            </TooltipContent>
+          </Tooltip>
+          
+          <Tooltip delayDuration={1000}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCopyPath}
+                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
+              >
+                {copiedPath ? <Check className="h-3 w-3 text-green-600" /> : <FolderOpen className="h-4 w-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{copiedPath ? "Copied!" : "Copy local path"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
         </div>
         <SyntaxHighlighter 
           language="hcl" 
@@ -168,9 +228,6 @@ const CodeTabContent = () => {
         >
           {codeString}
         </SyntaxHighlighter>
-        <div className="flex-1">
-          ...
-        </div>
 
         <div className="text-xs text-gray-600 border border-gray-300 p-2 -mb-2 font-sans bg-gray-100">
           vars.tf
