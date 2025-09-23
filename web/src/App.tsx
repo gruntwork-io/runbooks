@@ -108,7 +108,7 @@ resource "aws_security_group" "web_sg" {
         <div className="m-8 flex gap-8">
 
           {/* Markdown content */}
-          <div className="markdown-body lg:flex-1 max-w-3xl min-w-lg p-8 border border-gray-200 rounded-lg box-shadow-md">
+          <div className="markdown-body lg:flex-1 max-w-3xl min-w-lg p-8 border border-gray-200 rounded-lg shadow-md">
             <ReactMarkdown>{markdownContent}</ReactMarkdown>
           </div>
 
