@@ -40,14 +40,14 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex h-full flex-1 items-center justify-center gap-2 border-l border-r border-gray-200 px-3 text-sm font-medium whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex h-full flex-1 items-center justify-center gap-2 px-3 text-sm font-medium whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
         "text-gray-600 hover:text-gray-900 hover:bg-white/50",
         "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
         "cursor-pointer",
         // Rounded corners for first and last tabs, straight edges for interior tabs
         "first:rounded-l-full last:rounded-r-full",
-        // Add top and bottom borders to first and last tabs to match container
-        "first:border-t last:border-t first:border-b last:border-b",
+        // Add internal borders - only right border for separators, no overlapping with container
+        "border-r border-gray-200 last:border-r-0",
         // Remove any default rounded corners
         "rounded-none",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
