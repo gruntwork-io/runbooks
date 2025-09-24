@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Code, CheckCircle, FileText, BookOpen, Copy, FolderOpen, Check } from "lucide-react"
+import { Code, CheckCircle, SquareChevronRight, BookOpen, Copy, FolderOpen, Check } from "lucide-react"
 import { useTree } from '@headless-tree/react'
 import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
 import { cn } from './lib/utils'
@@ -359,8 +359,8 @@ const ArtifactsTabs = ({ className = "" }: { className?: string }) => (
           Checks
         </TabsTrigger>
         <TabsTrigger value="logs" className="flex items-center gap-2">
-          <FileText className="size-4" />
-          Logs
+          <SquareChevronRight className="size-4" />
+          Commands
         </TabsTrigger>
       </TabsList>
     </div>
