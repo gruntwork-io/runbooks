@@ -2,26 +2,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, SquareChevronRight } from "lucide-react"
 import { CodeFileCollection } from './artifacts/code/CodeFileCollection'
 import { CheckSummaryCollection } from './artifacts/checks/CheckSummaryCollection'
+import { CommandSummaryCollection } from './artifacts/commands/CommandSummaryCollection'
 
 import { sampleCodeFileData } from './artifacts/code/sampleData'
 import { sampleCheckData } from './artifacts/checks/sampleData'
+import { sampleCommandData } from './artifacts/commands/sampleData'
 
-
-const LogsTabContent = () => (
-  <div className="p-4 w-full min-h-[200px]">
-    <div className="text-sm text-gray-600 mb-3">
-      Execution logs and deployment history
-    </div>
-    <div className="bg-gray-50 rounded-md p-3 font-mono text-xs text-gray-700 space-y-1">
-      <div>[2025-01-27 10:30:15] Starting deployment...</div>
-      <div>[2025-01-27 10:30:16] Validating configuration...</div>
-      <div>[2025-01-27 10:30:17] Creating security group...</div>
-      <div>[2025-01-27 10:30:18] Security group created successfully</div>
-      <div>[2025-01-27 10:30:19] Applying tags...</div>
-      <div>[2025-01-27 10:30:20] Deployment completed successfully</div>
-    </div>
-  </div>
-)
 
 interface ArtifactsContainerProps {
   className?: string;
@@ -53,7 +39,7 @@ export const ArtifactsContainer = ({ className = "" }: ArtifactsContainerProps) 
         <CheckSummaryCollection data={sampleCheckData} />
       </TabsContent>
       <TabsContent value="logs" className="mt-0 w-full">
-        <LogsTabContent />
+        <CommandSummaryCollection data={sampleCommandData} />
       </TabsContent>
     </div>
   </Tabs>
