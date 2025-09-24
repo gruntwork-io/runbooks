@@ -1,7 +1,6 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import ReactMarkdown from 'react-markdown'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -10,6 +9,8 @@ import { Code, CheckCircle, SquareChevronRight, BookOpen, Copy, FolderOpen, Chec
 import { useTree } from '@headless-tree/react'
 import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
 import { cn } from './lib/utils'
+import { Header } from './components/Header'
+import { MarkdownContainer } from './components/MarkdownContainer'
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -408,21 +409,10 @@ function App() {
 
   return (
     <>
-      <div className="flex flex-col items-center justify-center">
-        <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default">
-          <div className="hidden md:block md:absolute md:left-5 md:top-1/2 md:transform md:-translate-y-1/2">
-            Gruntwork Runbooks
-          </div>
-          <div className="flex-1 flex items-center gap-2 justify-center">
-            <div className="text-xs md:text-sm text-gray-500 font-mono font-normal">
-              {pathName}
-            </div>
-          </div>
-          <div className="hidden md:block md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md hover:underline decoration-current">
-            <a href="https://gruntwork.io" target="_blank">About</a>
-          </div>
-        </header>
+      <div className="flex flex-col">
+        <Header pathName={pathName} />
         
+        { /* TODO: Componentize the error and loading messages and show in a better way */}
         <div className="text-center text-gray-500">
         {loading ? (
           <p>Loading runbook...</p>
@@ -435,9 +425,10 @@ function App() {
         <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
           <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden">
             {/* Markdown content */}
-            <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md overflow-y-auto">
-              <ReactMarkdown>{markdownContent}</ReactMarkdown>
-            </div>
+            <MarkdownContainer 
+              content={markdownContent}
+              className="flex-1 max-w-3xl min-w-xl p-8"
+            />
 
             {/* Artifacts */}
             <div className="flex-2 w-2xl self-start relative">
@@ -484,9 +475,10 @@ function App() {
                 ? 'opacity-100 translate-x-0' 
                 : 'opacity-0 translate-x-full absolute inset-0 pointer-events-none'
             }`}>
-              <div className="markdown-body p-6 border border-gray-200 rounded-lg shadow-md w-full max-h-[calc(100vh-9.5rem)] overflow-y-auto">
-                <ReactMarkdown>{markdownContent}</ReactMarkdown>
-              </div>
+              <MarkdownContainer 
+                content={markdownContent}
+                className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
+              />
             </div>
 
             {/* Tabs Section */}
