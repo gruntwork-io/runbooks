@@ -390,7 +390,7 @@ function App() {
         {/* Mobile Layout - Tabbed interface */}
         <div className="lg:hidden w-full pt-20">
           {/* Mobile Navigation */}
-          <div className="flex items-center justify-center mb-6 mt-8">
+          <div className="flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2">
             <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
               <button
                 onClick={() => setActiveMobileSection('markdown')}
@@ -418,14 +418,14 @@ function App() {
           </div>
 
           {/* Mobile Content */}
-          <div className="relative w-full px-4">
+          <div className="relative w-full px-4 mt-15">
             {/* Markdown Section */}
             <div className={`transition-all duration-300 ease-in-out ${
               activeMobileSection === 'markdown' 
                 ? 'opacity-100 translate-x-0' 
                 : 'opacity-0 translate-x-full absolute inset-0 pointer-events-none'
             }`}>
-              <div className="markdown-body p-6 border border-gray-200 rounded-lg shadow-md w-full">
+              <div className="markdown-body p-6 border border-gray-200 rounded-lg shadow-md w-full max-h-[calc(100vh-9.5rem)] overflow-y-auto">
                 <ReactMarkdown>{markdownContent}</ReactMarkdown>
               </div>
             </div>
@@ -436,7 +436,7 @@ function App() {
                 ? 'opacity-100 translate-x-0' 
                 : 'opacity-0 -translate-x-full absolute inset-0 pointer-events-none'
             }`}>
-              <div className="w-full border border-gray-200 rounded-lg shadow-md">
+              <div className="w-full max-h-[calc(100vh-12rem)] overflow-y-auto">
                 <ArtifactsTabs className="w-full" />
               </div>
             </div>
