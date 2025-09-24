@@ -367,7 +367,7 @@ function App() {
         </div>
 
         {/* Desktop Layout - Side by side */}
-        <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19">
+        <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
           <div className="flex gap-8 h-screen overflow-hidden">
             {/* Markdown content */}
             <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md overflow-y-auto">
@@ -375,8 +375,8 @@ function App() {
             </div>
 
             {/* Artifacts */}
-            <div className="flex-2 w-2xl self-start">
-              <ArtifactsTabs />
+            <div className="flex-2 w-2xl self-start relative">
+              <ArtifactsTabs className="absolute top-0 left-0 right-0 h-screen" />
             </div>
           </div>
         </div>
