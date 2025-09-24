@@ -143,11 +143,11 @@ const CodeTabContent = () => {
   };
 
   return (
-    <div className="p-1 w-full min-h-[200px] flex">
+    <div className="p-1 w-full min-h-[200px]">
 
       <div 
         {...tree.getContainerProps()} 
-        className="tree"
+        className="tree absolute"
         style={{ width: `${treeWidth}px` }}
       >
         {tree.getItems().map((item) => (
@@ -170,7 +170,8 @@ const CodeTabContent = () => {
         ))}
       </div>
 
-      <div className="flex-1">
+      {/* <div className="ml-[200px]"> */}
+      <div style={{ marginLeft: `${treeWidth}px` }}>
         
         <div className="text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between">
           <div>main.tf</div>
@@ -350,11 +351,16 @@ function App() {
     <>
       <div className="flex flex-col items-center justify-center">
         <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default">
-          <div className="hidden md:block md:absolute md:left-5 md:top-1/2 md:transform md:-translate-y-1/2">Gruntwork Runbooks</div>
+          <div className="hidden md:block md:absolute md:left-5 md:top-1/2 md:transform md:-translate-y-1/2">
+            Gruntwork Runbooks
+          </div>
           <div className="flex-1 flex items-center gap-2 justify-center">
             <div className="text-xs md:text-sm text-gray-500 font-mono font-normal">
               {pathName}
             </div>
+          </div>
+          <div className="hidden md:block md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md hover:underline decoration-current">
+            <a href="https://gruntwork.io" target="_blank">About</a>
           </div>
         </header>
         
@@ -368,7 +374,7 @@ function App() {
 
         {/* Desktop Layout - Side by side */}
         <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
-          <div className="flex gap-8 h-screen overflow-hidden">
+          <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden">
             {/* Markdown content */}
             <div className="markdown-body flex-1 max-w-3xl min-w-xl p-8 border border-gray-200 rounded-lg shadow-md overflow-y-auto">
               <ReactMarkdown>{markdownContent}</ReactMarkdown>
@@ -436,11 +442,6 @@ function App() {
             </div>
           </div>
         </div>
-
-        <footer className="w-full text-gray-500 text-center p-10">
-          <p className="font-semibold mb-2">Made with ❤️ by <a href="https://gruntwork.io">Gruntwork</a></p>
-          <p>Copyright 2025 Gruntwork Inc. All rights reserved.</p>
-        </footer>
       </div>
     </>
   )
