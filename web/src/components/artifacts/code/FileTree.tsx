@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTree } from '@headless-tree/react'
 import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
-import { cn } from '../../lib/utils'
+import { cn } from '../../../lib/utils'
 
 // Configure headless file tree styles
-import '../../css/headless-tree.css'
+import '../../../css/headless-tree.css'
 
 // Import CodeFileData from CodeFileCollection
 export interface CodeFileData {

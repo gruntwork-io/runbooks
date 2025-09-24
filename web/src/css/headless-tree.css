@@ -24,7 +24,7 @@
     width: 100%;
     text-align: left;
     background-color: transparent;
-    padding: 6px 10px;
+    padding: 2px 10px;
     position: relative;
     border-radius: 4px;
     transition: background-color .2s ease;
@@ -89,7 +89,7 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
 }
 
 .treeitem:not(.folder) {
-    padding-left: 24px;
+    padding-left: 12px;
 }
 
 .description {

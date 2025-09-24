@@ -1,4 +1,4 @@
-import { CodeFileData } from './FileTree';
+import type { CodeFileData } from './FileTree';
 
 // Sample data structure for demonstration
 export const sampleCodeFileData: CodeFileData[] = [

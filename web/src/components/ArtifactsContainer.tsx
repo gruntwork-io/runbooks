@@ -1,7 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, SquareChevronRight } from "lucide-react"
-import { CodeFileCollection } from './artifacts/CodeFileCollection'
-import { sampleCodeFileData } from './artifacts/sampleData'
+import { CodeFileCollection } from './artifacts/code/CodeFileCollection'
+import { sampleCodeFileData } from './artifacts/code/sampleData'
 
 
 const ChecksTabContent = () => (
