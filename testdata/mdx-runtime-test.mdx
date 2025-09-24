@@ -1,0 +1,35 @@
+# MDX Runtime Compilation Test
+
+This document demonstrates the new MDX runtime compilation capabilities.
+
+## Features
+
+1. **True JSX Parsing**: Components are parsed as actual JSX, not regex replacements
+2. **Smart Autocomplete**: Editors like Cursor will provide proper autocomplete for MDX components
+3. **Extensible**: Easy to add more components in the future
+
+## Test Components
+
+Here are some HelloWorld components with different props:
+
+<HelloWorld message="First component with proper JSX parsing!" />
+
+<HelloWorld message="Second component - this is true MDX!" />
+
+<HelloWorld message="Third component - no more regex magic!" />
+
+## Benefits
+
+- **Better Developer Experience**: Proper TypeScript support and autocomplete
+- **More Reliable**: No regex parsing that could break with edge cases
+- **Future-Proof**: Easy to extend with new components
+- **Standards Compliant**: Uses actual MDX specification
+
+## Code Example
+
+```jsx
+// This is now properly parsed as JSX
+<HelloWorld message="Hello from MDX!" />
+```
+
+Instead of regex replacement, this is compiled using @mdx-js/mdx's evaluate function.

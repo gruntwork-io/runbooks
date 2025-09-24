@@ -4,7 +4,7 @@ import './css/github-markdown-light.css'
 import { useState, useEffect } from 'react'
 import { BookOpen, Code } from "lucide-react"
 import { Header } from './components/Header'
-import { MarkdownContainer } from './components/MarkdownContainer'
+import { MDXContainer } from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
 
@@ -54,8 +54,8 @@ function App() {
         {/* Desktop Layout - Side by side */}
         <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
           <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden">
-            {/* Markdown content */}
-            <MarkdownContainer 
+            {/* Markdown/MDX content */}
+            <MDXContainer 
               content={markdownContent}
               className="flex-1 max-w-3xl min-w-xl p-8"
             />
@@ -86,13 +86,13 @@ function App() {
 
           {/* Mobile Content */}
           <div className="relative w-full px-4 mt-15">
-            {/* Markdown Section */}
+            {/* Markdown/MDX Section */}
             <div className={`transition-all duration-300 ease-in-out ${
               activeMobileSection === 'markdown' 
                 ? 'opacity-100 translate-x-0' 
                 : 'opacity-0 translate-x-full absolute inset-0 pointer-events-none'
             }`}>
-              <MarkdownContainer 
+              <MDXContainer 
                 content={markdownContent}
                 className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
               />

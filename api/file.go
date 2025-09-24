@@ -16,9 +16,15 @@ func HandleFileRequest(path string) gin.HandlerFunc {
 		// Determine the actual file path to read
 		filePath := path
 
-		// If path is a directory, look for runbook.md inside it
+		// If path is a directory, look for runbook.md or runbook.mdx inside it
 		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
-			filePath = filepath.Join(path, "runbook.md")
+			// First try runbook.mdx, then fall back to runbook.md
+			mdxPath := filepath.Join(path, "runbook.mdx")
+			if _, err := os.Stat(mdxPath); err == nil {
+				filePath = mdxPath
+			} else {
+				filePath = filepath.Join(path, "runbook.md")
+			}
 		}
 
 		// Check if the file exists
