@@ -6,6 +6,7 @@ import { BookOpen, Code } from "lucide-react"
 import { Header } from './components/Header'
 import { MarkdownContainer } from './components/MarkdownContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
+import { ViewContainerToggle } from './components/ViewContainerToggle'
 
 
 function App() {
@@ -71,28 +72,15 @@ function App() {
           {/* Mobile Navigation */}
           <div className="flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2">
             <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
-              <button
-                onClick={() => setActiveMobileSection('markdown')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-                  activeMobileSection === 'markdown'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <BookOpen className="size-4" />
-                Markdown
-              </button>
-              <button
-                onClick={() => setActiveMobileSection('tabs')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-                  activeMobileSection === 'tabs'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Code className="size-4" />
-                Artifacts
-              </button>
+              <ViewContainerToggle
+                activeView={activeMobileSection}
+                onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'tabs')}
+                views={[
+                  { label: 'Markdown', value: 'markdown', icon: BookOpen },
+                  { label: 'Artifacts', value: 'tabs', icon: Code }
+                ]}
+                className="w-full"
+              />
             </div>
           </div>
 
