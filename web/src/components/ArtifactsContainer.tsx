@@ -2,18 +2,59 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, SquareChevronRight } from "lucide-react"
 import { CodeFileCollection } from './artifacts/code/CodeFileCollection'
 import { sampleCodeFileData } from './artifacts/code/sampleData'
+import { CheckSummary } from './artifacts/checks/CheckSummary'
 
 
-const ChecksTabContent = () => (
-  <div className="p-4 w-full min-h-[200px]">
-    <div className="text-sm text-gray-600 mb-3">
-      Validation checks and compliance rules
+const ChecksTabContent = () => {
+  return (
+    <div className="p-4 space-y-3">
+      <CheckSummary
+        status="success"
+        summary="The repo github.com/acme/terraform-aws-lambda-function-url exists."
+        logs={[
+          '[2025-01-27 10:30:15] Checking repository existence...',
+          '[2025-01-27 10:30:16] Repository found: github.com/acme/terraform-aws-lambda-function-url',
+          '[2025-01-27 10:30:17] Validating repository access...',
+          '[2025-01-27 10:30:18] Repository access confirmed',
+          '[2025-01-27 10:30:19] Check completed successfully'
+        ]}
+      />
+      <CheckSummary
+        status="success"
+        summary="Terraform configuration validation passed."
+        logs={[
+          '[2025-01-27 10:30:20] Running terraform validate...',
+          '[2025-01-27 10:30:21] Validating main.tf...',
+          '[2025-01-27 10:30:22] Validating vars.tf...',
+          '[2025-01-27 10:30:23] All configuration files are valid',
+          '[2025-01-27 10:30:24] Validation completed successfully'
+        ]}
+      />
+      <CheckSummary
+        status="fail"
+        summary="AWS permissions check failed - insufficient IAM permissions."
+        logs={[
+          '[2025-01-27 10:30:25] Checking AWS IAM permissions...',
+          '[2025-01-27 10:30:26] Testing EC2 permissions...',
+          '[2025-01-27 10:30:27] ERROR: Access denied for ec2:CreateSecurityGroup',
+          '[2025-01-27 10:30:28] ERROR: Access denied for ec2:CreateVpc',
+          '[2025-01-27 10:30:29] Check failed - please update IAM permissions'
+        ]}
+      />
+      <CheckSummary
+        status="warn"
+        summary="You have read-only permissions but attempted to wrte."
+        logs={[
+          '[2025-01-27 10:30:25] Checking AWS IAM permissions...',
+          '[2025-01-27 10:30:26] Testing EC2 permissions...',
+          '[2025-01-27 10:30:27] ERROR: Access denied for ec2:CreateSecurityGroup',
+          '[2025-01-27 10:30:28] ERROR: Access denied for ec2:CreateVpc',
+          '[2025-01-27 10:30:29] Check failed - please update IAM permissions'
+        ]}
+      />
     </div>
-    <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-700 space-y-2">
-      <div>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</div>
-    </div>
-  </div>
-)
+  );
+}
 
 const LogsTabContent = () => (
   <div className="p-4 w-full min-h-[200px]">
