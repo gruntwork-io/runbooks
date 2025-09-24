@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTree } from '@headless-tree/react'
 import { syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature } from '@headless-tree/core'
 import { cn } from '../../lib/utils'
@@ -6,16 +6,21 @@ import { cn } from '../../lib/utils'
 // Configure headless file tree styles
 import '../../css/headless-tree.css'
 
-export interface CodeFileTreeItem {
+// Import CodeFileData from CodeFileCollection
+export interface CodeFileData {
   id: string;
   name: string;
   type: 'file' | 'folder';
-  children?: CodeFileTreeItem[];
+  children?: CodeFileData[];
+  // File-specific properties (only present for files)
+  filePath?: string;
+  code?: string;
+  language?: string;
 }
 
 export interface FileTreeProps {
-  items: FileTreeItem[];
-  onItemClick?: (item: FileTreeItem) => void;
+  items: CodeFileData[];
+  onItemClick?: (item: CodeFileData) => void;
   onWidthChange?: (width: number) => void;
   className?: string;
   indent?: number;
@@ -36,7 +41,7 @@ export const FileTree = ({
 
   // Convert the items array to a flat structure for the tree
   const flatItems = useMemo(() => {
-    const flatten = (items: FileTreeItem[], parentId?: string): Record<string, string[]> => {
+    const flatten = (items: CodeFileData[], parentId?: string): Record<string, string[]> => {
       const result: Record<string, string[]> = {};
       
       items.forEach(item => {
@@ -60,8 +65,8 @@ export const FileTree = ({
 
   // Create a map of item IDs to their data
   const itemDataMap = useMemo(() => {
-    const createMap = (items: FileTreeItem[], parentId?: string): Record<string, FileTreeItem> => {
-      const result: Record<string, FileTreeItem> = {};
+    const createMap = (items: CodeFileData[], parentId?: string): Record<string, CodeFileData> => {
+      const result: Record<string, CodeFileData> = {};
       
       items.forEach(item => {
         const itemId = parentId ? `${parentId}-${item.id}` : item.id;

@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, CheckCircle, SquareChevronRight } from "lucide-react"
 import { CodeFileCollection } from './artifacts/CodeFileCollection'
+import { sampleCodeFileData } from './artifacts/sampleData'
 
 
 const ChecksTabContent = () => (
@@ -54,7 +55,7 @@ export const ArtifactsContainer = ({ className = "" }: ArtifactsContainerProps) 
     </div>
     <div className="overflow-y-auto max-h-[calc(100vh-8rem)] -mt-5">
       <TabsContent value="code" className="mt-0 w-full">
-        <CodeFileCollection />
+        <CodeFileCollection data={sampleCodeFileData} />
       </TabsContent>
       <TabsContent value="checks" className="mt-0 w-full">
         <ChecksTabContent />

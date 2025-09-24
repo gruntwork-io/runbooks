@@ -1,18 +1,7 @@
-import { useState, useRef } from 'react'
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Copy, FolderOpen, Check } from "lucide-react"
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { CodeFileHeader } from './CodeFileHeader';
 
-// Copy functions
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (err) {
-    console.error('Failed to copy text: ', err);
-  }
-};
 
 export interface CodeFileProps {
   // File identification
@@ -24,8 +13,11 @@ export interface CodeFileProps {
   
   // Syntax highlighting
   language?: string; // Default: 'text'
-  style?: any; // SyntaxHighlighter style object, default: coy
   showLineNumbers?: boolean; // Default: true
+  
+  // Header options
+  showCopyCodeButton?: boolean;
+  showCopyPathButton?: boolean;
   
   // Styling
   className?: string;
@@ -36,72 +28,28 @@ export const CodeFile = ({
   filePath, 
   code, 
   language = 'text',
-  style = coy,
   showLineNumbers = true,
+  showCopyCodeButton = true,
+  showCopyPathButton = true,
   className = ""
 }: CodeFileProps) => {
-  const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedPath, setCopiedPath] = useState(false);
-
-  // Handle copy code with checkmark feedback
-  const handleCopyCode = async () => {
-    await copyToClipboard(code);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
-
-  // Handle copy path with checkmark feedback
-  const handleCopyPath = async () => {
-    const pathToCopy = filePath || fileName;
-    await copyToClipboard(pathToCopy);
-    setCopiedPath(true);
-    setTimeout(() => setCopiedPath(false), 2000);
-  };
+  // Use filePath if provided, otherwise fall back to fileName
+  const displayPath = filePath || fileName;
 
   return (
     <div className={className}>
       {/* File Header */}
-      <div className="text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between">
-        <div>{fileName}</div>
-        <div className="flex gap-2">
-          <Tooltip delayDuration={1000}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyCode}
-                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
-              >
-                {copiedCode ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{copiedCode ? "Copied!" : "Copy code"}</p>
-            </TooltipContent>
-          </Tooltip>
-          
-          <Tooltip delayDuration={1000}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyPath}
-                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
-              >
-                {copiedPath ? <Check className="h-3 w-3 text-green-600" /> : <FolderOpen className="h-4 w-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{copiedPath ? "Copied!" : "Copy local path"}</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
+      <CodeFileHeader 
+        filePath={displayPath}
+        code={code}
+        showCopyCodeButton={showCopyCodeButton}
+        showCopyPathButton={showCopyPathButton}
+      />
 
       {/* Syntax Highlighter */}
       <SyntaxHighlighter 
         language={language}
-        style={style}
+        style={coy}
         showLineNumbers={showLineNumbers}
         customStyle={{
           fontSize: '12px',
