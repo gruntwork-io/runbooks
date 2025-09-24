@@ -2,7 +2,7 @@ import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
 import ReactMarkdown from 'react-markdown'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -78,21 +78,34 @@ const CodeTabContent = () => {
   const [treeWidth, setTreeWidth] = useState(200);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedPath, setCopiedPath] = useState(false);
+  const mainTfRef = useRef<HTMLDivElement>(null);
+  const varsTfRef = useRef<HTMLDivElement>(null);
 
   const tree = useTree<string>({
-    initialState: { expandedItems: ["folder-1"] },
+    // initialState: { expandedItems: ["folder-1"] },
     rootItemId: "folder",
     getItemName: (item) => item.getItemData(),
-    isItemFolder: (item) => !item.getItemData().endsWith("item"),
+    isItemFolder: (item) => !item.getItemData().endsWith("item") && !item.getItemData().endsWith(".tf"),
     dataLoader: {
       getItem: (itemId) => itemId,
-      getChildren: (itemId) => [
-        `${itemId}-1`,
-        `${itemId}-2`,
-        `${itemId}-3`,
-        `${itemId}-1item`,
-        `${itemId}-2item`,
-      ],
+      getChildren: (itemId) => {
+        if (itemId === "folder") {
+          return [
+            "folder-1",
+            "folder-2",
+            "folder-3",
+            "main.tf",
+            "vars.tf",
+          ];
+        }
+        return [
+          `${itemId}-1`,
+          `${itemId}-2`,
+          `${itemId}-3`,
+          `${itemId}-1item`,
+          `${itemId}-2item`,
+        ];
+      },
     },
     indent: 20,
     features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
@@ -142,6 +155,33 @@ const CodeTabContent = () => {
     setTimeout(() => setCopiedPath(false), 2000);
   };
 
+  // Handle scrolling to file sections
+  const scrollToMainTf = () => {
+    if (mainTfRef.current) {
+      const elementTop = mainTfRef.current.offsetTop;
+      const scrollContainer = mainTfRef.current.closest('.overflow-y-auto');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: elementTop - 52, // 52px above the file header to ensure it's visible
+          behavior: 'smooth'
+        });
+      }
+    }
+  };
+
+  const scrollToVarsTf = () => {
+    if (varsTfRef.current) {
+      const elementTop = varsTfRef.current.offsetTop;
+      const scrollContainer = varsTfRef.current.closest('.overflow-y-auto');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: elementTop - 52, // 52px above the file header to ensure it's visible
+          behavior: 'smooth'
+        });
+      }
+    }
+  };
+
   return (
     <div className="p-1 w-full min-h-[200px]">
 
@@ -150,30 +190,49 @@ const CodeTabContent = () => {
         className="tree absolute"
         style={{ width: `${treeWidth}px` }}
       >
-        {tree.getItems().map((item) => (
-          <button
-            {...item.getProps()}
-            key={item.getId()}
-            style={{ paddingLeft: `${item.getItemMeta().level * 20}px` }}
-          >
-            <div
-              className={cn("treeitem", {
-                focused: item.isFocused(),
-                expanded: item.isExpanded(),
-                selected: item.isSelected(),
-                folder: item.isFolder(),
-              })}
+        {tree.getItems().map((item) => {
+          const handleClick = (e: React.MouseEvent) => {
+            // Let the tree handle its own selection first
+            const treeProps = item.getProps();
+            if (treeProps.onClick) {
+              treeProps.onClick(e);
+            }
+            
+            // Then handle our custom scroll behavior
+            const itemName = item.getItemName();
+            if (itemName === 'main.tf') {
+              scrollToMainTf();
+            } else if (itemName === 'vars.tf') {
+              scrollToVarsTf();
+            }
+          };
+
+          return (
+            <button
+              {...item.getProps()}
+              key={item.getId()}
+              style={{ paddingLeft: `${item.getItemMeta().level * 20}px` }}
+              onClick={handleClick}
             >
-              {item.getItemName()}
-            </div>
-          </button>
-        ))}
+              <div
+                className={cn("treeitem", {
+                  focused: item.isFocused(),
+                  expanded: item.isExpanded(),
+                  selected: item.isSelected(),
+                  folder: item.isFolder(),
+                })}
+              >
+                {item.getItemName()}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* <div className="ml-[200px]"> */}
       <div style={{ marginLeft: `${treeWidth}px` }}>
         
-        <div className="text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between">
+        <div ref={mainTfRef} className="text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between">
           <div>main.tf</div>
           <div className="flex gap-2">
           <Tooltip delayDuration={1000}>
@@ -230,7 +289,7 @@ const CodeTabContent = () => {
           {codeString}
         </SyntaxHighlighter>
 
-        <div className="text-xs text-gray-600 border border-gray-300 p-2 -mb-2 font-sans bg-gray-100">
+        <div ref={varsTfRef} className="text-xs text-gray-600 border border-gray-300 p-2 -mb-2 font-sans bg-gray-100">
           vars.tf
         </div>
         <SyntaxHighlighter 
