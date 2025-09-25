@@ -8,6 +8,19 @@ A function URL is a dedicated HTTP(S) endpoint for your Lambda function. When yo
 https://<url-id>.lambda-url.<region>.on.aws
 ```
 
+## Boilerplate Configuration
+
+Use the form below to configure your deployment:
+
+<BoilerplateInputs 
+  id="test"
+  path="boilerplate.yml" 
+  onGenerate={(variables) => {
+    console.log('Generated variables:', variables);
+    alert('Variables generated! Check the console for details.');
+  }}
+/>
+
 ## Prerequisites
 
 1. The Lambda function for which you want to add a URL already exists.
@@ -50,3 +63,5 @@ Here are some example commands you can run:
 <HelloWorld message="This is the second MDX component!" />
 
 <HelloWorld message="This is the third MDX component!" />
+
+

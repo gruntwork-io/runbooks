@@ -1,0 +1,20 @@
+variables:
+  - name: Tags
+    description: Additional tags to apply
+    type: map
+    default: {}
+    
+  - name: AllowedIPs
+    description: List of allowed IP addresses
+    type: list
+    default: []
+    
+  - name: EnableLogging
+    description: Enable CloudWatch logging
+    type: bool
+    default: true
+    
+  - name: InstanceCount
+    description: Number of instances to deploy
+    type: int
+    default: 1

@@ -19,6 +19,9 @@ func StartServer(path string, port int) {
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/file", HandleFileRequest(path))
 
+	// API endpoint to parse boilerplate.yml files
+	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(path))
+
 	// Serve static assets (CSS, JS, etc.) from the assets directory
 	r.Static("/assets", "./web/dist/assets")
 
@@ -52,6 +55,9 @@ func StartBackendServer(path string, port int) {
 
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/file", HandleFileRequest(path))
+
+	// API endpoint to parse boilerplate.yml files
+	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(path))
 
 	// listen and serve on 0.0.0.0:$port | localhost:$port
 	r.Run(":" + fmt.Sprintf("%d", port))

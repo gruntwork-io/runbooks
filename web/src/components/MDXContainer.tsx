@@ -4,6 +4,7 @@ import * as runtime from 'react/jsx-runtime'
 
 // Support MDX components
 import { HelloWorld } from '@/components/mdx/HelloWorld'
+import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 
 interface MDXContainerProps {
   content: string
@@ -41,6 +42,7 @@ export const MDXContainer = ({ content, className }: MDXContainerProps) => {
           baseUrl: import.meta.url,
           useMDXComponents: () => ({
             HelloWorld,
+            BoilerplateInputs,
             // Add more components here as needed
           })
         })

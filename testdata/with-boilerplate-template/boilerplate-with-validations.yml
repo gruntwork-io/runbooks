@@ -1,0 +1,54 @@
+variables:
+  - name: AccountName
+    description: Name for the AWS account
+    type: string
+    default: "My account"
+    validations: "required"
+    
+  - name: Environment
+    description: Deployment environment
+    type: enum
+    options:
+      - dev
+      - stage
+      - prod
+    default: dev
+    
+  - name: EnableLogging
+    description: Enable CloudWatch logging
+    type: bool
+    default: true
+    
+  - name: InstanceCount
+    description: Number of instances to deploy
+    type: int
+    default: 1
+    validations: "required"
+    
+  - name: Tags
+    description: Additional tags to apply
+    type: map
+    default: {}
+    
+  - name: AllowedIPs
+    description: List of allowed IP addresses
+    type: list
+    default: []
+    
+  - name: ContactEmail
+    description: Contact email for notifications
+    type: string
+    default: ""
+    validations: "email"
+    
+  - name: WebsiteURL
+    description: Website URL for the application
+    type: string
+    default: ""
+    validations: "url"
+    
+  - name: ProjectName
+    description: Project name (alphanumeric only)
+    type: string
+    default: ""
+    validations: "alphanumeric"

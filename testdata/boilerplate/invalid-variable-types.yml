@@ -1,0 +1,15 @@
+variables:
+  - name: ValidString
+    description: A valid string variable
+    type: string
+    default: "test"
+    
+  - name: InvalidType
+    description: A variable with an unsupported type
+    type: unsupported_type
+    default: "this should fail"
+    
+  - name: AnotherInvalidType
+    description: Another variable with an unsupported type
+    type: custom_invalid_type
+    default: 123

@@ -1,0 +1,6 @@
+variables:
+  - name: InvalidVar
+    description: A variable with invalid YAML
+    type: string
+    default: "value"
+    invalid_yaml: [unclosed array

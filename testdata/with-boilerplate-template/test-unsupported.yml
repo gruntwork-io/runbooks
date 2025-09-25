@@ -1,0 +1,5 @@
+variables:
+  - name: TestVar
+    description: Test variable
+    type: definitely_not_supported
+    default: "test"

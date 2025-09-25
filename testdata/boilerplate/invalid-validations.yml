@@ -1,0 +1,26 @@
+variables:
+  - name: ValidVariable
+    description: A valid variable
+    type: string
+    default: "test"
+    
+  - name: InvalidValidation
+    description: A variable with invalid validation syntax
+    type: string
+    default: "test"
+    validations: "invalid_validation_type"
+    
+  - name: MalformedValidation
+    description: A variable with malformed validation
+    type: string
+    default: "test"
+    validations: 
+      - "required"
+      - "invalid_format"
+      - "email"
+    
+  - name: EmptyValidation
+    description: A variable with empty validation
+    type: string
+    default: "test"
+    validations: ""

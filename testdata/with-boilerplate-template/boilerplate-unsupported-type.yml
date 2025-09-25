@@ -1,0 +1,5 @@
+variables:
+  - name: MyUnsupportedVar
+    description: A variable with an unsupported type
+    type: unsupported_type
+    default: "some value"

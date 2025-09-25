@@ -1,0 +1,15 @@
+variables:
+  - name: TestVar
+    description: Test variable
+    type: string
+    default: "test value"
+    invalid: yaml: syntax
+    missing_quote: "unclosed string
+    malformed: [unclosed array
+    nested: 
+      - item1
+      - item2
+      - item3
+    unclosed_map: {
+        key1: value1
+        key2: value2

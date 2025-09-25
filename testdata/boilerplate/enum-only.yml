@@ -1,0 +1,9 @@
+variables:
+  - name: Environment
+    description: Deployment environment
+    type: enum
+    options:
+      - dev
+      - stage
+      - prod
+    default: dev
