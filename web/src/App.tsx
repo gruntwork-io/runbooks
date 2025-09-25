@@ -53,7 +53,7 @@ function App() {
 
         {/* Desktop Layout - Side by side */}
         <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
-          <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden">
+          <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden justify-center">
             {/* Markdown/MDX content */}
             <MDXContainer 
               content={markdownContent}
@@ -61,7 +61,7 @@ function App() {
             />
 
             {/* Artifacts */}
-            <div className="flex-2 relative">
+            <div className="flex-2 relative max-w-4xl">
               <ArtifactsContainer className="absolute top-0 left-0 right-0 h-screen" />
             </div>
           </div>
