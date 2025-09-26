@@ -60,7 +60,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     const errors: Record<string, string> = {}
     let isValid = true
     
-    boilerplateConfig.variables.forEach(variable => {
+    boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
       const value = formData[variable.name]
       if (variable.required && (value === undefined || value === null || value === '')) {
         errors[variable.name] = `${variable.name} is required`
@@ -273,7 +273,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-50">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
-          {boilerplateConfig!.variables.map((variable) => (
+          {boilerplateConfig!.variables.map((variable: BoilerplateVariable) => (
             <div key={variable.name} className="space-y-1">
               <label 
                 htmlFor={`${id}-${variable.name}`}

@@ -50,3 +50,13 @@ export interface BoilerplateInputsProps {
   id?: string
   children?: string // For inline boilerplate.yml content
 }
+
+export interface BoilerplateInputsFormProps {
+  id: string
+  boilerplateConfig: BoilerplateConfig
+  initialData?: Record<string, unknown>
+  onFormChange?: (formData: Record<string, unknown>) => void
+  onSubmit?: (formData: Record<string, unknown>) => void
+  submitButtonText?: string
+  showSubmitButton?: boolean
+}
