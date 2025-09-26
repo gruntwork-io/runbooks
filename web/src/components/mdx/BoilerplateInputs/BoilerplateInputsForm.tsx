@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { BoilerplateVariableType } from './BoilerplateInputs.types'
 import type { BoilerplateVariable, BoilerplateInputsFormProps } from './BoilerplateInputs.types'
 import { formatVariableLabel } from './formatVariableLabel'
@@ -174,8 +175,10 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   }
                 }}
               />
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                className="translate translate-y-0.75"
                 onClick={() => {
                   const input = document.querySelector(`input[placeholder*="Type an entry"]`) as HTMLInputElement
                   if (input) {
@@ -187,10 +190,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                     }
                   }
                 }}
-                className="px-4 py-2 bg-gray-300 cursor-pointer hover:bg-gray-400 bg-opacity-40 rounded-md  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
               >
                 Add
-              </button>
+              </Button>
             </div>
             
             {/* List items */}
@@ -205,17 +207,19 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   {value.map((item, index) => (
                     <div key={index} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
                       <span className="text-sm text-gray-900 flex-1">{item}</span>
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon"
                         onClick={() => {
                           const newList = value.filter((_, i) => i !== index)
                           handleInputChange(variable.name, newList)
                         }}
-                        className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
                         title="Remove entry"
                       >
                         <X className="w-4 h-4" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -241,8 +245,10 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
                 id={`${id}-${variable.name}-value`}
               />
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                className="translate translate-y-0.75"
                 onClick={() => {
                   const keyInput = document.getElementById(`${id}-${variable.name}-key`) as HTMLInputElement
                   const valueInput = document.getElementById(`${id}-${variable.name}-value`) as HTMLInputElement
@@ -255,10 +261,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                     valueInput.value = ''
                   }
                 }}
-                className="px-4 py-2 bg-gray-300 cursor-pointer hover:bg-gray-400 bg-opacity-40 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
               >
                 Add
-              </button>
+              </Button>
             </div>
             
             {/* Map entries */}
@@ -273,18 +278,20 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   {Object.entries(value).map(([key, val]) => (
                     <div key={key} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
                       <span className="text-sm text-gray-900 flex-1"><strong>{key}:</strong> {String(val)}</span>
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon"
                         onClick={() => {
                           const newMap = { ...(value as Record<string, unknown>) }
                           delete newMap[key]
                           handleInputChange(variable.name, newMap)
                         }}
-                        className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
                         title="Remove entry"
                       >
                         <X className="w-4 h-4" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -345,12 +352,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         
         {showSubmitButton && (
           <div className="pt-4 border-t border-gray-200">
-            <button
+            <Button
               type="submit"
-              className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              variant="default"
             >
               {submitButtonText}
-            </button>
+            </Button>
           </div>
         )}
       </form>
