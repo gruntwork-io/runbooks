@@ -23,6 +23,14 @@ type RenderRequest struct {
 	OutputPath   *string        `json:"outputPath,omitempty"` // Optional output path, defaults to "generated" if not provided
 }
 
+// RenderResponse represents the response from the render endpoint
+type RenderResponse struct {
+	Message      string         `json:"message"`
+	OutputDir    string         `json:"outputDir"`
+	TemplatePath string         `json:"templatePath"`
+	FileTree     []CodeFileData `json:"fileTree"`
+}
+
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
 func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -103,11 +111,27 @@ func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 		}
 
 		slog.Info("Successfully rendered boilerplate template to output directory")
-		c.JSON(http.StatusOK, gin.H{
-			"message":      "Template rendered successfully to output directory",
-			"outputDir":    outputDir,
-			"templatePath": fullTemplatePath,
-		})
+
+		// Build file tree from the generated output
+		fileTree, err := buildFileTree(outputDir, "")
+		if err != nil {
+			slog.Error("Failed to build file tree", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to build file tree",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Create response with file tree
+		response := RenderResponse{
+			Message:      "Template rendered successfully to output directory",
+			OutputDir:    outputDir,
+			TemplatePath: fullTemplatePath,
+			FileTree:     fileTree,
+		}
+
+		c.JSON(http.StatusOK, response)
 	}
 }
 
