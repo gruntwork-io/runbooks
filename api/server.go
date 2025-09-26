@@ -8,7 +8,7 @@ import (
 )
 
 // StartServer serves both the frontend files and also the backend API
-func StartServer(path string, port int) {
+func StartServer(runbookPath string, port int) {
 	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
 	r := gin.Default()
 
@@ -17,13 +17,13 @@ func StartServer(path string, port int) {
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/file", HandleFileRequest(path))
+	r.GET("/api/file", HandleFileRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
-	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(path))
+	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(path))
+	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath))
 
 	// Serve static assets (CSS, JS, etc.) from the assets directory
 	r.Static("/assets", "./web/dist/assets")
@@ -40,7 +40,7 @@ func StartServer(path string, port int) {
 }
 
 // StartBackendServer starts the API server for serving runbook files
-func StartBackendServer(path string, port int) {
+func StartBackendServer(runbookPath string, port int) {
 	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
 	r := gin.Default()
 
@@ -58,13 +58,13 @@ func StartBackendServer(path string, port int) {
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/file", HandleFileRequest(path))
+	r.GET("/api/file", HandleFileRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
-	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(path))
+	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(path))
+	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath))
 
 	// listen and serve on 0.0.0.0:$port | localhost:$port
 	r.Run(":" + fmt.Sprintf("%d", port))

@@ -198,3 +198,9 @@ func buildFileTree(rootPath string, relativePath string) ([]CodeFileData, error)
 
 	return result, nil
 }
+
+// buildFileTreeWithRoot returns the file tree directly without wrapping in a root folder
+func buildFileTreeWithRoot(rootPath string, relativePath string) ([]CodeFileData, error) {
+	// Build the file tree and return it directly
+	return buildFileTree(rootPath, relativePath)
+}

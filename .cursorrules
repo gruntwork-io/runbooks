@@ -1,0 +1,3 @@
+The Go server runs on port 7825 by default.
+
+We use bun, so prefer that to npm.

@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo } from 'react'
 import { FileTree, type CodeFileData } from './FileTree'
 import { CodeFile } from './CodeFile'
+import { FileText } from 'lucide-react'
 
 
 interface CodeFileCollectionProps {
@@ -57,6 +58,19 @@ export const CodeFileCollection = ({ data, className = "" }: CodeFileCollectionP
       }
     }
   };
+
+  // Show empty state if no files
+  if (data.length === 0) {
+    return (
+      <div className={`p-1 w-full min-h-[200px] flex items-center justify-center ${className}`}>
+        <div className="text-center">
+          <FileText className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+          <h3 className="text-lg font-medium text-gray-600 mb-2">No files generated</h3>
+          <p className="text-sm text-gray-500">When you generate files, you'll see them here!</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`p-1 w-full min-h-[200px] ${className}`}>

@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useFileTree } from '../../../../hooks/useFileTree'
 
 /**
  * Result object returned by the useBoilerplateRender hook
@@ -44,6 +45,7 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
   const [showSuccessIndicator, setShowSuccessIndicator] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorDetails, setErrorDetails] = useState<string | null>(null)
+  const { setFileTree: setGlobalFileTree } = useFileTree()
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   /**
@@ -72,6 +74,7 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
     setErrorDetails(null)
     setSuccess(null)
     setShowSuccessIndicator(false)
+    setGlobalFileTree(null)
 
     // Clear any existing timeout
     if (successTimeoutRef.current) {
@@ -101,6 +104,11 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
       const data = await response.json()
       setSuccess(`Files generated successfully in: ${data.outputDir}`)
       setShowSuccessIndicator(true)
+      
+      // Store the file tree data in the global context
+      if (data.fileTree && Array.isArray(data.fileTree)) {
+        setGlobalFileTree(data.fileTree)
+      }
       
       // Auto-hide success indicator after 3 seconds
       successTimeoutRef.current = setTimeout(() => {
@@ -135,6 +143,7 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
     setShowSuccessIndicator(false)
     setError(null)
     setErrorDetails(null)
+    setGlobalFileTree(null)
     
     // Clear any existing timeout
     if (successTimeoutRef.current) {

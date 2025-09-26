@@ -113,7 +113,7 @@ func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 		slog.Info("Successfully rendered boilerplate template to output directory")
 
 		// Build file tree from the generated output
-		fileTree, err := buildFileTree(outputDir, "")
+		fileTree, err := buildFileTreeWithRoot(outputDir, "")
 		if err != nil {
 			slog.Error("Failed to build file tree", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
