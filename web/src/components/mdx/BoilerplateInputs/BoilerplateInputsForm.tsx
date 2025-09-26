@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { BoilerplateVariableType } from './BoilerplateInputs.types'
 import type { BoilerplateVariable, BoilerplateInputsFormProps } from './BoilerplateInputs.types'
+import { formatVariableLabel } from './formatVariableLabel'
 
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
@@ -97,10 +98,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             id={`${id}-${variable.name}`}
             value={String(value || '')}
             onChange={(e) => handleInputChange(variable.name, e.target.value)}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            className={`w-full bg-white px-3 py-2 border rounded-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               error ? 'border-red-500' : 'border-gray-300'
             }`}
-            placeholder={variable.description}
           />
         )
       
@@ -112,7 +112,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             id={`${id}-${variable.name}`}
             value={String(value || '')}
             onChange={(e) => handleInputChange(variable.name, parseFloat(e.target.value) || 0)}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            className={`bg-white max-w-24 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               error ? 'border-red-500' : 'border-gray-300'
             }`}
             placeholder={variable.description}
@@ -129,9 +129,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
               onChange={(e) => handleInputChange(variable.name, e.target.checked)}
               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
             />
-            <label htmlFor={`${id}-${variable.name}`} className="ml-2 text-sm text-gray-700">
-              {variable.description}
-            </label>
+            
           </div>
         )
       
@@ -141,7 +139,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             id={`${id}-${variable.name}`}
             value={String(value || '')}
             onChange={(e) => handleInputChange(variable.name, e.target.value)}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            className={`min-w-56 bg-white px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               error ? 'border-red-500' : 'border-gray-300'
             }`}
           >
@@ -272,24 +270,24 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   }
 
   return (
-    <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+    <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-50">
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="space-y-4">
+        <div className="space-y-5">
           {boilerplateConfig!.variables.map((variable) => (
-            <div key={variable.name} className="space-y-2">
+            <div key={variable.name} className="space-y-1">
               <label 
                 htmlFor={`${id}-${variable.name}`}
-                className="block text-sm font-medium text-gray-700"
+                className="block text-md font-medium text-gray-700"
               >
-                {variable.name}
+                {formatVariableLabel(variable.name)}
                 {variable.required && <span className="text-red-500 ml-1">*</span>}
               </label>
               
-              {variable.description && (
-                <p className="text-sm text-gray-500">{variable.description}</p>
-              )}
-              
               {renderFormControl(variable)}
+
+              {variable.description && (
+                <p className="text-sm text-gray-400">{variable.description}</p>
+              )}
               
               {validationErrors[variable.name] && (
                 <p className="text-sm text-red-600">{validationErrors[variable.name]}</p>

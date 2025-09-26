@@ -1,6 +1,8 @@
 /* Copied from https://github.com/github/github-markdown-css/blob/main/github-markdown-light.css */
 /* light */
-.markdown-body {
+
+@layer components {
+  .markdown-body {
     color-scheme: light;
     -ms-text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;
@@ -1103,4 +1105,4 @@
   .markdown-body .highlight pre:has(+.zeroclipboard-container) {
     min-height: 52px;
   }
-  
+}

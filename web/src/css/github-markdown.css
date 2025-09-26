@@ -1,4 +1,6 @@
 /* Copied from https://github.com/github/github-markdown-css/blob/main/github-markdown.css */
+
+@layer components {
 .markdown-body {
     --base-size-4: 0.25rem;
     --base-size-8: 0.5rem;
@@ -1234,4 +1236,4 @@
   .markdown-body .highlight pre:has(+.zeroclipboard-container) {
     min-height: 52px;
   }
-  
+}
