@@ -17,7 +17,7 @@ import (
 // This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
 //
 // There's a design decision here on how much of Boilerplate's native packages to use to parse the boilerplate.yml file,
-// versus re-implementing simpler versions in this file. Our big lever in this file is bpConfig.ParseBoilerplateConfig,
+// versus re-implementing simpler versions in this file. Our big boilerplate function in this file is bpConfig.ParseBoilerplateConfig,
 // but we define our own versions of the following:
 // - BoilerplateVariable (simplified)
 // - BoilerplateValidationType (repeated)

@@ -23,19 +23,36 @@ function App() {
     fetch(apiUrl)
       .then(response => {
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`)
+          // Try to parse the error response to get detailed error information
+          return response.json().then(errorData => {
+            const errorMessage = errorData?.error || `HTTP error: ${response.status}`
+            const errorDetails = errorData?.details || `Failed to connect to runbook server at ${apiUrl}`
+            throw new Error(JSON.stringify({ error: errorMessage, details: errorDetails }))
+          })
+        } else 
+          return response.json()
         }
-        return response.json()
-      })
+      )
       .then(data => {
         setMarkdownContent(data.content || '')
         setPathName(data.path || '')
         setLoading(false)
       })
       .catch(err => {
+        console.log('Response:', err.message)
         console.error('Error fetching file content:', err)
-        setError(err.message)
-        setErrorDetails(`Failed to connect to runbook server at ${apiUrl}. Make sure the Runbooks server is running on port 7825.`)
+        
+        // Try to parse the error message as JSON to extract error and details
+        try {
+          const errorData = JSON.parse(err.message)
+          setError(errorData.error || 'Unknown error occurred')
+          setErrorDetails(errorData.details || 'An unexpected error occurred')
+        } catch {
+          // If parsing fails, use the original error message
+          setError(err.message)
+          setErrorDetails(`Failed to connect to runbook server at ${apiUrl}`)
+        }
+        
         setLoading(false)
       })
   }, []) // Empty dependency array - only run once on mount

@@ -30,8 +30,8 @@ func HandleFileRequest(path string) gin.HandlerFunc {
 		// Check if the file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{
-				"error": "File not found",
-				"path":  filePath,
+				"error":   "File not found",
+				"details": "The file at the path " + filePath + " was not found.",
 			})
 			return
 		}
@@ -40,8 +40,8 @@ func HandleFileRequest(path string) gin.HandlerFunc {
 		file, err := os.Open(filePath)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to open file",
-				"path":  filePath,
+				"error":   "Failed to open file",
+				"details": "The file at the path " + filePath + " could not be opened.",
 			})
 			return
 		}
@@ -51,8 +51,8 @@ func HandleFileRequest(path string) gin.HandlerFunc {
 		content, err := io.ReadAll(file)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to read file",
-				"path":  filePath,
+				"error":   "Failed to read file",
+				"details": "The file at the path " + filePath + " could not be read.",
 			})
 			return
 		}
