@@ -1,7 +1,7 @@
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable, BoilerplateInputsFormProps } from './BoilerplateInputs.types'
-import { formatVariableLabel } from './formatVariableLabel'
+import { formatVariableLabel } from './lib/formatVariableLabel'
 import { FormControl } from './components/FormControls'
 import { useFormState } from './hooks/useFormState'
 import { useFormValidation } from './hooks/useFormValidation'

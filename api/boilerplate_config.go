@@ -78,11 +78,11 @@ type BoilerplateConfig struct {
 // HandleBoilerplateRequest parses a boilerplate.yml file and returns the variable declarations as JSON
 func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get the boilerplatePath parameter from the query string
-		boilerplatePath := c.Query("path")
-		if boilerplatePath == "" {
+		// Get the templatePath parameter from the query string
+		templatePath := c.Query("templatePath")
+		if templatePath == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "path parameter is required",
+				"error": "templatePath parameter is required",
 			})
 			return
 		}
@@ -91,7 +91,7 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 		runbookDir := filepath.Dir(runbookPath)
 
 		// Construct the full path
-		fullPath := filepath.Join(runbookDir, boilerplatePath)
+		fullPath := filepath.Join(runbookDir, templatePath, "boilerplate.yml")
 		slog.Info("Looking for boilerplate file", "fullPath", fullPath)
 
 		// Check if the file exists

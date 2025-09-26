@@ -8,7 +8,7 @@ import { LoadingDisplay } from './components/LoadingDisplay'
 import { SuccessIndicator } from './components/SuccessIndicator'
 
 /**
- * BoilerplateInputs component for rendering dynamic forms based on boilerplate.yml configuration.
+ * BoilerplateInputs component for rendering a dynamic form based on boilerplate.yml configuration.
  * 
  * This component loads a boilerplate configuration (boilerplate.yml file) from a specified template path, renders a form
  * based on the variable definitions in the boilerplate.yml file, and allows users to generate

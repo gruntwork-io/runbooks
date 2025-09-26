@@ -9,7 +9,7 @@ interface UseBoilerplateConfigResult {
 }
 
 /**
- * Custom hook for loading boilerplate variables from a template path.
+ * Custom hook for loading boilerplate variables from a boilerplate.yml file.
  * 
  * This hook fetches and parses a boilerplate.yml file from the specified template directory,
  * providing the variable definitions needed to render dynamic forms. It handles loading states,
