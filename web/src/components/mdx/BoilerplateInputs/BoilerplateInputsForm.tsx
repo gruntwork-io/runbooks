@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { BoilerplateVariableType } from './BoilerplateInputs.types'
 import type { BoilerplateVariable, BoilerplateInputsFormProps } from './BoilerplateInputs.types'
 import { formatVariableLabel } from './formatVariableLabel'
@@ -153,12 +154,13 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       
       case BoilerplateVariableType.List:
         return (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            {/* Add entry input */}
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Add item..."
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Type an entry and press Enter..."
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -172,24 +174,51 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   }
                 }}
               />
+              <button
+                type="button"
+                onClick={() => {
+                  const input = document.querySelector(`input[placeholder*="Type an entry"]`) as HTMLInputElement
+                  if (input) {
+                    const newItem = input.value.trim()
+                    if (newItem) {
+                      const currentList = Array.isArray(value) ? value : []
+                      handleInputChange(variable.name, [...currentList, newItem])
+                      input.value = ''
+                    }
+                  }
+                }}
+                className="px-4 py-2 bg-gray-300 cursor-pointer hover:bg-gray-400 bg-opacity-40 rounded-md  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+              >
+                Add
+              </button>
             </div>
+            
+            {/* List items */}
             {Array.isArray(value) && value.length > 0 && (
-              <div className="space-y-1">
-                {value.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded">
-                    <span className="text-sm">{item}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newList = value.filter((_, i) => i !== index)
-                        handleInputChange(variable.name, newList)
-                      }}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+              <div className="border border-gray-200 rounded-md bg-white">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
+                  <span className="text-sm font-medium text-gray-700">
+                    {value.length} entr{value.length !== 1 ? 'ies' : 'y'}
+                  </span>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {value.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
+                      <span className="text-sm text-gray-900 flex-1">{item}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newList = value.filter((_, i) => i !== index)
+                          handleInputChange(variable.name, newList)
+                        }}
+                        className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        title="Remove entry"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -197,18 +226,19 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       
       case BoilerplateVariableType.Map:
         return (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            {/* Add entry input */}
             <div className="flex gap-2">
               <input
                 type="text"
                 placeholder="Key"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
                 id={`${id}-${variable.name}-key`}
               />
               <input
                 type="text"
                 placeholder="Value"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
                 id={`${id}-${variable.name}-value`}
               />
               <button
@@ -225,29 +255,46 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                     valueInput.value = ''
                   }
                 }}
-                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-gray-300 cursor-pointer hover:bg-gray-400 bg-opacity-40 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
               >
                 Add
               </button>
             </div>
+            
+            {/* Map entries */}
             {typeof value === 'object' && value !== null && Object.keys(value).length > 0 && (
-              <div className="space-y-1">
-                {Object.entries(value).map(([key, val]) => (
-                  <div key={key} className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded">
-                    <span className="text-sm"><strong>{key}:</strong> {String(val)}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newMap = { ...(value as Record<string, unknown>) }
-                        delete newMap[key]
-                        handleInputChange(variable.name, newMap)
-                      }}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+              <div className="border border-gray-200 rounded-md bg-white">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
+                  <span className="text-sm font-medium text-gray-700">
+                    {Object.keys(value).length} entr{Object.keys(value).length !== 1 ? 'ies' : 'y'}
+                  </span>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {Object.entries(value).map(([key, val]) => (
+                    <div key={key} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
+                      <span className="text-sm text-gray-900 flex-1"><strong>{key}:</strong> {String(val)}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newMap = { ...(value as Record<string, unknown>) }
+                          delete newMap[key]
+                          handleInputChange(variable.name, newMap)
+                        }}
+                        className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        title="Remove entry"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Empty state */}
+            {(!value || typeof value !== 'object' || Object.keys(value).length === 0) && (
+              <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-md bg-gray-50">
+                No entries added yet. Add key-value pairs above to get started.
               </div>
             )}
           </div>
@@ -270,7 +317,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   }
 
   return (
-    <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-50">
+    <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
           {boilerplateConfig!.variables.map((variable: BoilerplateVariable) => (
