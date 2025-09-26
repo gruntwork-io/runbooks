@@ -14,8 +14,11 @@ import (
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 )
 
-// There's a design decision here on how much of Boilerplate's native packages to use, versus re-implementing simpler versions.
-// Our big lever in this file is bpConfig.ParseBoilerplateConfig, but we define our own versions of the following:
+// This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
+//
+// There's a design decision here on how much of Boilerplate's native packages to use to parse the boilerplate.yml file,
+// versus re-implementing simpler versions in this file. Our big lever in this file is bpConfig.ParseBoilerplateConfig,
+// but we define our own versions of the following:
 // - BoilerplateVariable (simplified)
 // - BoilerplateValidationType (repeated)
 // - ValidationRule (simplified)
@@ -25,7 +28,8 @@ import (
 // in the Boilerplate package to replace our repeated ones here.
 //
 // Also note that Boilerplate has a TON of indirect dependencies that we don't need; our two humble boilerplate imports
-// above bring in 100+ indirect dependencies. We should update Boilerplate to fix this.
+// above bring in 100+ indirect dependencies!
+// TODO: We should update Boilerplate to fix this.
 // ---
 
 // BoilerplateVariable represents a single variable from boilerplate.yml
