@@ -12,7 +12,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   onFormChange,
   onSubmit,
   submitButtonText = 'Generate',
-  showSubmitButton = true
+  showSubmitButton = true,
+  isGenerating = false
 }) => {
   // Declare state variables
   const [formData, setFormData] = useState<Record<string, unknown>>({})
@@ -355,8 +356,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             <Button
               type="submit"
               variant="default"
+              disabled={isGenerating}
             >
-              {submitButtonText}
+              {isGenerating ? 'Generating...' : submitButtonText}
             </Button>
           </div>
         )}

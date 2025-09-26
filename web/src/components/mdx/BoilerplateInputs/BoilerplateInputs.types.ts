@@ -44,7 +44,7 @@ export interface BoilerplateConfig {
 }
 
 export interface BoilerplateInputsProps {
-  path?: string
+  templatePath?: string
   variables?: Record<string, unknown>
   onGenerate?: (variables: Record<string, unknown>) => void
   id?: string
@@ -59,4 +59,5 @@ export interface BoilerplateInputsFormProps {
   onSubmit?: (formData: Record<string, unknown>) => void
   submitButtonText?: string
   showSubmitButton?: boolean
+  isGenerating?: boolean
 }

@@ -24,7 +24,7 @@ type RenderRequest struct {
 }
 
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
-func HandleBoilerplateRender(basePath string) gin.HandlerFunc {
+func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -43,9 +43,12 @@ func HandleBoilerplateRender(basePath string) gin.HandlerFunc {
 			return
 		}
 
+		// Extract the directory from the baseRunbookPath (which we assume is a file path)
+		runbookDir := filepath.Dir(runbookPath)
+
 		// Construct the full template path
-		fullTemplatePath := filepath.Join(basePath, req.TemplatePath)
-		slog.Info("Rendering boilerplate template", "templatePath", fullTemplatePath)
+		fullTemplatePath := filepath.Join(runbookDir, req.TemplatePath)
+		slog.Info("Rendering boilerplate template", "baseDir", runbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath)
 
 		// Check if the template directory exists
 		if _, err := os.Stat(fullTemplatePath); os.IsNotExist(err) {
@@ -110,6 +113,8 @@ func HandleBoilerplateRender(basePath string) gin.HandlerFunc {
 
 // renderBoilerplateTemplate renders a boilerplate template using direct function calls
 func renderBoilerplateTemplate(templatePath, outputDir string, variables map[string]any) error {
+	slog.Info("renderBoilerplateTemplate called", "templatePath", templatePath, "outputDir", outputDir)
+
 	// Create boilerplate options for direct function calls
 	opts := &bpOptions.BoilerplateOptions{
 		TemplateURL:             templatePath,
@@ -125,6 +130,8 @@ func renderBoilerplateTemplate(templatePath, outputDir string, variables map[str
 		ExecuteAllShellCommands: false,
 		ShellCommandAnswers:     make(map[string]bool),
 	}
+
+	slog.Info("Boilerplate options created", "TemplateFolder", opts.TemplateFolder)
 
 	// Load the boilerplate configuration to get variable definitions
 	boilerplateConfig, err := bpConfig.LoadBoilerplateConfig(opts)

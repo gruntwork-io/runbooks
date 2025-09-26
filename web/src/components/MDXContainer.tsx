@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
 
 // Support MDX components
 import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
+import type { BoilerplateInputsProps } from '@/components/mdx/BoilerplateInputs/BoilerplateInputs.types'
 
 interface MDXContainerProps {
   content: string
   className?: string
+  runbookPath?: string
 }
 
 /**
@@ -22,7 +24,7 @@ interface MDXContainerProps {
  * @param props.content - The raw markdown/MDX content string to compile and render
  * @param props.className - Optional additional CSS classes for styling the container
  */
-export const MDXContainer = ({ content, className }: MDXContainerProps) => {
+export const MDXContainer = ({ content, className, runbookPath }: MDXContainerProps) => {
   const [MDXContent, setMDXContent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,7 +57,7 @@ export const MDXContainer = ({ content, className }: MDXContainerProps) => {
     }
 
     compileMDX()
-  }, [content])
+  }, [content, runbookPath])
 
   if (error) {
     return (

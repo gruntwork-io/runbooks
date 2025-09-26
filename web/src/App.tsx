@@ -7,6 +7,7 @@ import { Header } from './components/Header'
 import { MDXContainer } from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
+import { getDirectoryPath } from './lib/utils'
 
 
 function App() {
@@ -100,6 +101,7 @@ function App() {
                 <MDXContainer 
                   content={markdownContent}
                   className="flex-1 max-w-3xl min-w-xl p-8"
+                  runbookPath={getDirectoryPath(pathName)}
                 />
 
                 {/* Artifacts */}
@@ -137,6 +139,7 @@ function App() {
                   <MDXContainer 
                     content={markdownContent}
                     className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
+                    runbookPath={getDirectoryPath(pathName)}
                   />
                 </div>
 

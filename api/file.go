@@ -4,28 +4,16 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Return the contents of the file at the given path, or if the path is a directory, return the
-// contents of the runbook.md file in the directory
+// Return the contents of the file at the given path.
+// The path is expected to be a file path, not a directory.
 func HandleFileRequest(path string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Determine the actual file path to read
+		// The path should be a file path
 		filePath := path
-
-		// If path is a directory, look for runbook.md or runbook.mdx inside it
-		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
-			// First try runbook.mdx, then fall back to runbook.md
-			mdxPath := filepath.Join(path, "runbook.mdx")
-			if _, err := os.Stat(mdxPath); err == nil {
-				filePath = mdxPath
-			} else {
-				filePath = filepath.Join(path, "runbook.md")
-			}
-		}
 
 		// Check if the file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
