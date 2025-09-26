@@ -5,7 +5,6 @@ import * as runtime from 'react/jsx-runtime'
 // Support MDX components
 import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
-import type { BoilerplateInputsProps } from '@/components/mdx/BoilerplateInputs/BoilerplateInputs.types'
 
 interface MDXContainerProps {
   content: string

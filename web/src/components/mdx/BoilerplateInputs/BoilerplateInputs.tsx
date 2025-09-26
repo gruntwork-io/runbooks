@@ -5,14 +5,14 @@ import { BoilerplateInputsForm } from './BoilerplateInputsForm'
 /**
  * BoilerplateInputs component for rendering dynamic forms based on boilerplate.yml configuration.
  * 
- * This component loads a boilerplate configuration from a specified template path, renders a form
+ * This component loads a boilerplate configuration (boilerplate.yml file) from a specified template path, renders a form
  * based on the variable definitions in the boilerplate.yml file, and allows users to generate
  * files by providing values for those variables. The component handles the entire workflow from
  * configuration loading to file generation via API calls.
  * 
  * @param props - The component props
  * @param props.id - Unique identifier for this component instance (required)
- * @param props.templatePath - Path to the boilerplate template directory, relative to the runbook file
+ * @param props.templatePath - Path to the boilerplate template directory, relative to the runbook file 
  * @param props.variables - Pre-filled variable values to populate the form with
  * @param props.onGenerate - Optional callback function called when files are successfully generated
  * @param props.children - Inline boilerplate.yml content (not yet implemented)
@@ -161,7 +161,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
       
       // Translate the boilerplate.yml contents to a JSON object by calling our backend API
       // The API expects the templatePath to be a directory, and it will append "boilerplate.yml" itself
-      const apiUrl = `/api/boilerplate/variables?templatePath=${encodeURIComponent(templatePath)}`
+      const apiUrl = `/api/boilerplate/variables?templatePath=${encodeURIComponent(templatePath!)}`
       
       console.log('BoilerplateInputs: Making API request to:', apiUrl)
       
@@ -178,7 +178,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
       } catch (proxyError) {
         console.warn('BoilerplateInputs: Proxy request failed, trying direct backend:', proxyError)
         // Fallback: try direct backend connection
-        const directUrl = `http://localhost:7825/api/boilerplate/variables?templatePath=${encodeURIComponent(templatePath)}`
+        const directUrl = `http://localhost:7825/api/boilerplate/variables?templatePath=${encodeURIComponent(templatePath!)}`
         console.log('BoilerplateInputs: Trying direct backend request to:', directUrl)
         
         response = await fetch(directUrl, {
