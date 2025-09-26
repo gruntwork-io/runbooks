@@ -60,4 +60,5 @@ export interface BoilerplateInputsFormProps {
   submitButtonText?: string
   showSubmitButton?: boolean
   isGenerating?: boolean
+  showSuccessIndicator?: boolean
 }
