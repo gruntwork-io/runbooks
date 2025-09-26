@@ -12,4 +12,8 @@ runbooks
 *.sln
 *.sw?
 
+# Ignore generated files
+generated/*
+
+# Keep TODOs local for now
 TODO/

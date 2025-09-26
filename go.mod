@@ -10,6 +10,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 )
 
+require (
+	github.com/mattn/go-zglob v0.0.6 // indirect
+	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c // indirect
+)
+
 // Note that importing github.com/gruntwork-io/boilerplate v0.10.0 brings in 100+ indirect dependencies!
 // Used an LLM to identify the indirect dependencies from Boilerplate.
 // TODO: Update Boilerplate to fix this.

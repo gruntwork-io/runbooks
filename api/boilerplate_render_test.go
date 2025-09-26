@@ -1,0 +1,201 @@
+package api
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+)
+
+func TestRenderBoilerplateTemplate(t *testing.T) {
+	// Get the test data directory (relative to project root)
+	testDataDir := "../testdata/runbook-with-boilerplate/runbook"
+	expectedDir := "../testdata/runbook-with-boilerplate/expected-outputs/dev"
+
+	// Check if test data exists
+	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+		t.Skipf("Test data directory %s does not exist", testDataDir)
+	}
+	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
+		t.Skipf("Expected directory %s does not exist", expectedDir)
+	}
+
+	// Create a temporary output directory
+	tempDir, err := os.MkdirTemp("", "boilerplate-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Test variables
+	variables := map[string]any{
+		"AccountName":   "Test Account",
+		"Environment":   "dev",
+		"EnableLogging": true,
+		"InstanceCount": 2,
+		"Tags": map[string]any{
+			"Project": "Test Project",
+			"Owner":   "Test User",
+		},
+		"AllowedIPs": []any{"10.0.0.0/8", "192.168.1.0/24"},
+	}
+
+	// Test the render function
+	err = renderBoilerplateTemplate(testDataDir, tempDir, variables)
+	if err != nil {
+		t.Fatalf("renderBoilerplateTemplate failed: %v", err)
+	}
+
+	// Compare generated files with expected files
+	compareDirectories(t, tempDir, expectedDir)
+}
+
+func TestRenderBoilerplateTemplateWithDifferentVariables(t *testing.T) {
+	// Get the test data directory (relative to project root)
+	testDataDir := "../testdata/runbook-with-boilerplate/runbook"
+	expectedDir := "../testdata/runbook-with-boilerplate/expected-outputs/prod"
+
+	// Check if test data exists
+	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+		t.Skipf("Test data directory %s does not exist", testDataDir)
+	}
+	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
+		t.Skipf("Expected directory %s does not exist", expectedDir)
+	}
+
+	// Create a temporary output directory
+	tempDir, err := os.MkdirTemp("", "boilerplate-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Test with different variables (EnableLogging = false, no AllowedIPs)
+	variables := map[string]any{
+		"AccountName":   "Production Account",
+		"Environment":   "prod",
+		"EnableLogging": false,
+		"InstanceCount": 5,
+		"Tags": map[string]any{
+			"Environment": "production",
+			"Team":        "Platform",
+		},
+		"AllowedIPs": []any{}, // Empty list
+	}
+
+	// Test the render function
+	err = renderBoilerplateTemplate(testDataDir, tempDir, variables)
+	if err != nil {
+		t.Fatalf("renderBoilerplateTemplate failed: %v", err)
+	}
+
+	// Compare generated files with expected files
+	compareDirectories(t, tempDir, expectedDir)
+}
+
+// compareDirectories compares the contents of two directories recursively
+func compareDirectories(t *testing.T, actualDir, expectedDir string) {
+	// Get list of files in expected directory
+	expectedFiles, err := getFileList(expectedDir)
+	if err != nil {
+		t.Fatalf("Failed to get expected file list: %v", err)
+	}
+
+	// Get list of files in actual directory, filtering out expected-outputs
+	actualFiles, err := getFileList(actualDir)
+	if err != nil {
+		t.Fatalf("Failed to get actual file list: %v", err)
+	}
+
+	// Check that all expected files exist in actual
+	for _, expectedFile := range expectedFiles {
+		if !slices.Contains(actualFiles, expectedFile) {
+			t.Errorf("Expected file %s not found in generated output", expectedFile)
+		}
+	}
+
+	// Check that no unexpected files exist in actual
+	for _, actualFile := range actualFiles {
+		if !slices.Contains(expectedFiles, actualFile) {
+			t.Errorf("Unexpected file %s found in generated output", actualFile)
+		}
+	}
+
+	// Compare file contents
+	for _, filename := range expectedFiles {
+		expectedPath := filepath.Join(expectedDir, filename)
+		actualPath := filepath.Join(actualDir, filename)
+
+		expectedContent, err := os.ReadFile(expectedPath)
+		if err != nil {
+			t.Errorf("Failed to read expected file %s: %v", filename, err)
+			continue
+		}
+
+		actualContent, err := os.ReadFile(actualPath)
+		if err != nil {
+			t.Errorf("Failed to read actual file %s: %v", filename, err)
+			continue
+		}
+
+		if string(expectedContent) != string(actualContent) {
+			t.Errorf("File %s content differs from expected", filename)
+		}
+	}
+}
+
+// getFileList returns a list of all files in a directory recursively
+func getFileList(dir string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			relPath, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			files = append(files, relPath)
+		}
+		return nil
+	})
+	return files, err
+}
+
+func TestConvertVariablesToCorrectTypes(t *testing.T) {
+	// Mock variables from boilerplate config
+	variablesInConfig := map[string]any{
+		"StringVar": "string",
+		"IntVar":    "int",
+		"FloatVar":  "float",
+		"BoolVar":   "bool",
+		"ListVar":   "list",
+		"MapVar":    "map",
+		"EnumVar":   "enum",
+	}
+
+	// Test variables (JSON types)
+	testVariables := map[string]any{
+		"StringVar":  "hello",
+		"IntVar":     float64(42), // JSON numbers come as float64
+		"FloatVar":   float64(3.14),
+		"BoolVar":    true,
+		"ListVar":    []any{"a", "b", "c"},
+		"MapVar":     map[string]any{"key": "value"},
+		"EnumVar":    "option1",
+		"UnknownVar": "should be passed through",
+	}
+
+	// This is a simplified test since we can't easily mock the boilerplate Variable interface
+	// In a real test, we'd need to create mock Variable objects
+	t.Logf("Test variables: %+v", testVariables)
+	t.Logf("Config variables: %+v", variablesInConfig)
+
+	// For now, just verify the function doesn't panic
+	// A more comprehensive test would require mocking the boilerplate Variable interface
+	_, err := convertVariablesToCorrectTypes(testVariables, nil)
+	if err != nil {
+		t.Errorf("convertVariablesToCorrectTypes failed: %v", err)
+	}
+}
