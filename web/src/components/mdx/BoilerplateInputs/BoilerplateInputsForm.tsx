@@ -5,6 +5,7 @@ import { formatVariableLabel } from './lib/formatVariableLabel'
 import { FormControl } from './components/FormControls'
 import { useFormState } from './hooks/useFormState'
 import { useFormValidation } from './hooks/useFormValidation'
+import { SuccessIndicator } from './components/SuccessIndicator'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -31,7 +32,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   onSubmit,
   submitButtonText = 'Generate',
   showSubmitButton = true,
-  isGenerating = false
+  isGenerating = false,
+  showSuccessIndicator = false
 }) => {
   // Use custom hooks for state management and validation
   const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange)
@@ -98,14 +100,18 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         </div>
         
         {showSubmitButton && (
-          <div className="pt-4 border-t border-gray-200">
+          <div className="pt-4 border-t border-gray-200 flex items-center gap-2">
             <Button
               type="submit"
               variant="default"
               disabled={isGenerating}
             >
-              {isGenerating ? 'Generating...' : submitButtonText}
+              {submitButtonText}
             </Button>
+            <SuccessIndicator 
+              show={showSuccessIndicator} 
+              className="ml-2" 
+            />
           </div>
         )}
       </form>

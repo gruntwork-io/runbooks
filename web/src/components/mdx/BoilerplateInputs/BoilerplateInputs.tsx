@@ -5,7 +5,6 @@ import { useBoilerplateVariables } from './hooks/useBoilerplateVariables'
 import { useBoilerplateRender } from './hooks/useBoilerplateRender'
 import { ErrorDisplay } from './components/ErrorDisplay'
 import { LoadingDisplay } from './components/LoadingDisplay'
-import { SuccessIndicator } from './components/SuccessIndicator'
 
 /**
  * BoilerplateInputs component for rendering a dynamic form based on boilerplate.yml configuration.
@@ -44,7 +43,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
   
   // Use custom hooks for API logic
   const { config, loading, error, errorDetails } = useBoilerplateVariables(templatePath)
-  const { isGenerating, success, showSuccessIndicator, error: renderError, errorDetails: renderErrorDetails, generate, reset } = useBoilerplateRender()
+  const { isGenerating, showSuccessIndicator, error: renderError, errorDetails: renderErrorDetails, generate, reset } = useBoilerplateRender()
 
   // Handle form submission (when the user clicks the "generate" button and wants to render the boilerplate template)
   const handleGenerate = useCallback(async (variables: Record<string, unknown>) => {
@@ -133,10 +132,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
         initialData={currentFormData}
         onSubmit={handleGenerate}
         isGenerating={isGenerating}
-      />
-      <SuccessIndicator 
-        message={success || 'Files generated successfully!'}
-        show={showSuccessIndicator}
+        showSuccessIndicator={showSuccessIndicator}
       />
     </>
   )

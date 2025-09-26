@@ -1,0 +1,34 @@
+@keyframes checkmarkGrow {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.animate {
+  animation: checkmarkGrow 0.4s ease-out;
+}
+
+.fadeOut {
+  animation: fadeOut 0.5s ease-in forwards;
+  pointer-events: none;
+}

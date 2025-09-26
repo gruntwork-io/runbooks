@@ -1,21 +1,68 @@
-import React from 'react'
-import { Check } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { CircleCheck } from 'lucide-react'
+import styles from './SuccessIndicator.module.css'
 
 interface SuccessIndicatorProps {
-  message: string
   show: boolean
+  className?: string
 }
 
+/**
+ * SuccessIndicator component that shows an animated checkmark when success is indicated.
+ * 
+ * The component handles its own animation timing:
+ * - Appears with a growth animation when show becomes true
+ * - Remains visible for 3 seconds
+ * - Fades out over 0.5 seconds
+ * - Automatically resets its state
+ * 
+ * @param props - Component props
+ * @param props.show - Whether to show the success checkmark
+ * @param props.className - Additional CSS classes to apply
+ */
 export const SuccessIndicator: React.FC<SuccessIndicatorProps> = ({
-  message,
-  show
+  show,
+  className = ''
 }) => {
-  if (!show) return null
+  const [showAnimation, setShowAnimation] = useState(false)
+  const [isFadingOut, setIsFadingOut] = useState(false)
+
+  useEffect(() => {
+    if (show) {
+      setShowAnimation(true)
+      setIsFadingOut(false)
+      
+      // Start fade out after 3 seconds
+      const fadeTimer = setTimeout(() => {
+        setIsFadingOut(true)
+      }, 3000)
+      
+      // Reset animation state after fade completes
+      const resetTimer = setTimeout(() => {
+        setShowAnimation(false)
+        setIsFadingOut(false)
+      }, 3500) // 3s + 0.5s fade duration
+      
+      return () => {
+        clearTimeout(fadeTimer)
+        clearTimeout(resetTimer)
+      }
+    } else {
+      // Reset immediately when show becomes false
+      setShowAnimation(false)
+      setIsFadingOut(false)
+    }
+  }, [show])
+
+  if (!showAnimation) {
+    return null
+  }
 
   return (
-    <div className="fixed top-4 right-4 z-50 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-in slide-in-from-right-5 duration-300">
-      <Check className="w-5 h-5" />
-      <span className="text-sm font-medium">{message}</span>
-    </div>
+    <CircleCheck 
+      className={`size-6 text-green-600 ${className} ${
+        showAnimation ? styles.animate : ''
+      } ${isFadingOut ? styles.fadeOut : ''}`} 
+    />
   )
 }
