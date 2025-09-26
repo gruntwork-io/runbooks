@@ -1,10 +1,28 @@
-import React, { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import React from 'react'
 import { Button } from '@/components/ui/button'
-import { BoilerplateVariableType } from './BoilerplateInputs.types'
 import type { BoilerplateVariable, BoilerplateInputsFormProps } from './BoilerplateInputs.types'
 import { formatVariableLabel } from './formatVariableLabel'
+import { FormControl } from './components/FormControls'
+import { useFormState } from './hooks/useFormState'
+import { useFormValidation } from './hooks/useFormValidation'
 
+/**
+ * Main form component for rendering a webform to initialize boilerplate variables
+ * 
+ * This component renders a form with appropriate input controls based on the
+ * boilerplate variable types. It handles form state, validation, and submission.
+ * 
+ * @param props - Form configuration object containing:
+ *   - `id`: Unique identifier for the form
+ *   - `boilerplateConfig`: Variable definitions and types to render
+ *   - `initialData`: Optional pre-filled values for form fields
+ *   - `onFormChange`: Optional callback when form data changes
+ *   - `onSubmit`: Optional callback when form is submitted
+ *   - `submitButtonText`: Text for the submit button (default: 'Generate')
+ *   - `showSubmitButton`: Whether to show submit button (default: true)
+ *   - `isGenerating`: Whether form is in loading state (default: false)
+ * @returns JSX element representing the form
+ */
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
   boilerplateConfig,
@@ -15,71 +33,28 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   showSubmitButton = true,
   isGenerating = false
 }) => {
-  // Declare state variables
-  const [formData, setFormData] = useState<Record<string, unknown>>({})
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  // Use custom hooks for state management and validation
+  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange)
+  const { validationErrors, validateForm, clearFieldError } = useFormValidation(boilerplateConfig)
 
-  // Initialize form data with defaults and initial values
-  useEffect(() => {
-    if (!boilerplateConfig) return
-    
-    const initialFormData: Record<string, unknown> = {}
-    
-    boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
-      initialFormData[variable.name] = initialData[variable.name] ?? variable.default
-    })
-    
-    setFormData(initialFormData)
-  }, [boilerplateConfig, initialData])
-
-  // Notify parent component when form data changes
-  useEffect(() => {
-    if (onFormChange) {
-      onFormChange(formData)
-    }
-  }, [formData, onFormChange])
-
-  // Handle form input changes
+  /**
+   * Handles form input changes and clears validation errors
+   * @param variableName - Name of the variable being changed
+   * @param value - New value for the variable
+   */
   const handleInputChange = (variableName: string, value: unknown) => {
-    setFormData(prev => ({
-      ...prev,
-      [variableName]: value
-    }))
-    
-    // Clear validation error for this field
-    if (validationErrors[variableName]) {
-      setValidationErrors(prev => {
-        const newErrors = { ...prev }
-        delete newErrors[variableName]
-        return newErrors
-      })
-    }
+    updateField(variableName, value)
+    clearFieldError(variableName)
   }
 
-  // Validate form
-  const validateForm = (): boolean => {
-    if (!boilerplateConfig) return false
-    
-    const errors: Record<string, string> = {}
-    let isValid = true
-    
-    boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
-      const value = formData[variable.name]
-      if (variable.required && (value === undefined || value === null || value === '')) {
-        errors[variable.name] = `${variable.name} is required`
-        isValid = false
-      }
-    })
-    
-    setValidationErrors(errors)
-    return isValid
-  }
-
-  // Handle form submission
+  /**
+   * Handles form submission with validation
+   * @param e - Form submission event
+   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!validateForm()) {
+    if (!validateForm(formData)) {
       return
     }
     
@@ -88,241 +63,6 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     }
   }
 
-  // Render form control based on variable type
-  const renderFormControl = (variable: BoilerplateVariable) => {
-    const value = formData[variable.name]
-    const error = validationErrors[variable.name]
-    
-    switch (variable.type) {
-      case BoilerplateVariableType.String:
-        return (
-          <input
-            type="text"
-            id={`${id}-${variable.name}`}
-            value={String(value || '')}
-            onChange={(e) => handleInputChange(variable.name, e.target.value)}
-            className={`w-full bg-white px-3 py-2 border rounded-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              error ? 'border-red-500' : 'border-gray-300'
-            }`}
-          />
-        )
-      
-      case BoilerplateVariableType.Int:
-      case BoilerplateVariableType.Float:
-        return (
-          <input
-            type="number"
-            id={`${id}-${variable.name}`}
-            value={String(value || '')}
-            onChange={(e) => handleInputChange(variable.name, parseFloat(e.target.value) || 0)}
-            className={`bg-white max-w-24 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              error ? 'border-red-500' : 'border-gray-300'
-            }`}
-            placeholder={variable.description}
-          />
-        )
-      
-      case BoilerplateVariableType.Bool:
-        return (
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id={`${id}-${variable.name}`}
-              checked={Boolean(value)}
-              onChange={(e) => handleInputChange(variable.name, e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            
-          </div>
-        )
-      
-      case BoilerplateVariableType.Enum:
-        return (
-          <select
-            id={`${id}-${variable.name}`}
-            value={String(value || '')}
-            onChange={(e) => handleInputChange(variable.name, e.target.value)}
-            className={`min-w-56 bg-white px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              error ? 'border-red-500' : 'border-gray-300'
-            }`}
-          >
-            {variable.options?.map(option => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        )
-      
-      case BoilerplateVariableType.List:
-        return (
-          <div className="space-y-3">
-            {/* Add entry input */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Type an entry and press Enter..."
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    const input = e.target as HTMLInputElement
-                    const newItem = input.value.trim()
-                    if (newItem) {
-                      const currentList = Array.isArray(value) ? value : []
-                      handleInputChange(variable.name, [...currentList, newItem])
-                      input.value = ''
-                    }
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                className="translate translate-y-0.75"
-                onClick={() => {
-                  const input = document.querySelector(`input[placeholder*="Type an entry"]`) as HTMLInputElement
-                  if (input) {
-                    const newItem = input.value.trim()
-                    if (newItem) {
-                      const currentList = Array.isArray(value) ? value : []
-                      handleInputChange(variable.name, [...currentList, newItem])
-                      input.value = ''
-                    }
-                  }
-                }}
-              >
-                Add
-              </Button>
-            </div>
-            
-            {/* List items */}
-            {Array.isArray(value) && value.length > 0 && (
-              <div className="border border-gray-200 rounded-md bg-white">
-                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
-                  <span className="text-sm font-medium text-gray-700">
-                    {value.length} entr{value.length !== 1 ? 'ies' : 'y'}
-                  </span>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {value.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
-                      <span className="text-sm text-gray-900 flex-1">{item}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          const newList = value.filter((_, i) => i !== index)
-                          handleInputChange(variable.name, newList)
-                        }}
-                        className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
-                        title="Remove entry"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      
-      case BoilerplateVariableType.Map:
-        return (
-          <div className="space-y-3">
-            {/* Add entry input */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Key"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
-                id={`${id}-${variable.name}-key`}
-              />
-              <input
-                type="text"
-                placeholder="Value"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400"
-                id={`${id}-${variable.name}-value`}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                className="translate translate-y-0.75"
-                onClick={() => {
-                  const keyInput = document.getElementById(`${id}-${variable.name}-key`) as HTMLInputElement
-                  const valueInput = document.getElementById(`${id}-${variable.name}-value`) as HTMLInputElement
-                  const key = keyInput.value.trim()
-                  const val = valueInput.value.trim()
-                  if (key && val) {
-                    const currentMap = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
-                    handleInputChange(variable.name, { ...currentMap, [key]: val })
-                    keyInput.value = ''
-                    valueInput.value = ''
-                  }
-                }}
-              >
-                Add
-              </Button>
-            </div>
-            
-            {/* Map entries */}
-            {typeof value === 'object' && value !== null && Object.keys(value).length > 0 && (
-              <div className="border border-gray-200 rounded-md bg-white">
-                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
-                  <span className="text-sm font-medium text-gray-700">
-                    {Object.keys(value).length} entr{Object.keys(value).length !== 1 ? 'ies' : 'y'}
-                  </span>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {Object.entries(value).map(([key, val]) => (
-                    <div key={key} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
-                      <span className="text-sm text-gray-900 flex-1"><strong>{key}:</strong> {String(val)}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          const newMap = { ...(value as Record<string, unknown>) }
-                          delete newMap[key]
-                          handleInputChange(variable.name, newMap)
-                        }}
-                        className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
-                        title="Remove entry"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Empty state */}
-            {(!value || typeof value !== 'object' || Object.keys(value).length === 0) && (
-              <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-md bg-gray-50">
-                No entries added yet. Add key-value pairs above to get started.
-              </div>
-            )}
-          </div>
-        )
-      
-      default:
-        return (
-          <input
-            type="text"
-            id={`${id}-${variable.name}`}
-            value={String(value || '')}
-            onChange={(e) => handleInputChange(variable.name, e.target.value)}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              error ? 'border-red-500' : 'border-gray-300'
-            }`}
-            placeholder={variable.description}
-          />
-        )
-    }
-  }
 
   return (
     <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100">
@@ -338,7 +78,13 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 {variable.required && <span className="text-red-500 ml-1">*</span>}
               </label>
               
-              {renderFormControl(variable)}
+              <FormControl
+                variable={variable}
+                value={formData[variable.name]}
+                error={validationErrors[variable.name]}
+                onChange={(value) => handleInputChange(variable.name, value)}
+                id={id}
+              />
 
               {variable.description && (
                 <p className="text-sm text-gray-400">{variable.description}</p>

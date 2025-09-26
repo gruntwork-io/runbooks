@@ -1,11 +1,11 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import type { BoilerplateInputsProps } from './BoilerplateInputs.types'
 import { BoilerplateInputsForm } from './BoilerplateInputsForm'
 import { useBoilerplateVariables } from './hooks/useBoilerplateVariables'
 import { useBoilerplateRender } from './hooks/useBoilerplateRender'
 import { ErrorDisplay } from './components/ErrorDisplay'
 import { LoadingDisplay } from './components/LoadingDisplay'
-import { SuccessDisplay } from './components/SuccessDisplay'
+import { SuccessIndicator } from './components/SuccessIndicator'
 
 /**
  * BoilerplateInputs component for rendering dynamic forms based on boilerplate.yml configuration.
@@ -39,13 +39,19 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
   onGenerate,
   children
 }) => {
+  // Track the current form values to preserve them after generation
+  const [currentFormData, setCurrentFormData] = useState<Record<string, unknown>>(prefilledVariables)
+  
   // Use custom hooks for API logic
   const { config, loading, error, errorDetails } = useBoilerplateVariables(templatePath)
-  const { isGenerating, success, error: renderError, errorDetails: renderErrorDetails, generate, reset } = useBoilerplateRender()
+  const { isGenerating, success, showSuccessIndicator, error: renderError, errorDetails: renderErrorDetails, generate, reset } = useBoilerplateRender()
 
   // Handle form submission (when the user clicks the "generate" button and wants to render the boilerplate template)
   const handleGenerate = useCallback(async (variables: Record<string, unknown>) => {
     if (!templatePath) return
+    
+    // Update the current form data to preserve values after generation
+    setCurrentFormData(variables)
     
     await generate(templatePath, variables)
     
@@ -114,28 +120,24 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
     )
   }
 
-  // Show success state
-  if (success) {
-    return (
-      <SuccessDisplay 
-        message={success}
-        onReset={handleReset}
-      />
-    )
-  }
-
-  // Show form
+  // Show form (always show form, with success indicator overlay if needed)
   if (!config) {
     return <LoadingDisplay message="Loading boilerplate configuration..." />
   }
 
   return (
-    <BoilerplateInputsForm
-      id={id}
-      boilerplateConfig={config}
-      initialData={prefilledVariables}
-      onSubmit={handleGenerate}
-      isGenerating={isGenerating}
-    />
+    <>
+      <BoilerplateInputsForm
+        id={id}
+        boilerplateConfig={config}
+        initialData={currentFormData}
+        onSubmit={handleGenerate}
+        isGenerating={isGenerating}
+      />
+      <SuccessIndicator 
+        message={success || 'Files generated successfully!'}
+        show={showSuccessIndicator}
+      />
+    </>
   )
 }

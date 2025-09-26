@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 /**
  * Result object returned by the useBoilerplateRender hook
@@ -8,6 +8,8 @@ interface UseBoilerplateRenderResult {
   isGenerating: boolean
   /** Success message when files are generated successfully, null otherwise */
   success: string | null
+  /** Whether to show temporary success indicator */
+  showSuccessIndicator: boolean
   /** Error message if generation fails, null otherwise */
   error: string | null
   /** Additional error details if generation fails, null otherwise */
@@ -39,8 +41,10 @@ interface UseBoilerplateRenderResult {
 export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
   const [isGenerating, setIsGenerating] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
+  const [showSuccessIndicator, setShowSuccessIndicator] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorDetails, setErrorDetails] = useState<string | null>(null)
+  const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   /**
    * Generates boilerplate files using the specified template path and variables.
@@ -67,6 +71,13 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
     setError(null)
     setErrorDetails(null)
     setSuccess(null)
+    setShowSuccessIndicator(false)
+
+    // Clear any existing timeout
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current)
+      successTimeoutRef.current = null
+    }
 
     try {
       const response = await fetch('/api/boilerplate/render', {
@@ -89,6 +100,13 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
 
       const data = await response.json()
       setSuccess(`Files generated successfully in: ${data.outputDir}`)
+      setShowSuccessIndicator(true)
+      
+      // Auto-hide success indicator after 3 seconds
+      successTimeoutRef.current = setTimeout(() => {
+        setShowSuccessIndicator(false)
+        successTimeoutRef.current = null
+      }, 3000)
     } catch (fetchError) {
       setError('Network error occurred while generating files')
       setErrorDetails(fetchError instanceof Error ? fetchError.message : 'Unknown error')
@@ -114,9 +132,16 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
    */
   const reset = () => {
     setSuccess(null)
+    setShowSuccessIndicator(false)
     setError(null)
     setErrorDetails(null)
+    
+    // Clear any existing timeout
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current)
+      successTimeoutRef.current = null
+    }
   }
 
-  return { isGenerating, success, error, errorDetails, generate, reset }
+  return { isGenerating, success, showSuccessIndicator, error, errorDetails, generate, reset }
 }
