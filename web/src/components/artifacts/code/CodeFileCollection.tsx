@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from 'react'
 import { FileTree, type CodeFileData } from './FileTree'
 import { CodeFile } from './CodeFile'
-import { Folder } from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 
 
 interface CodeFileCollectionProps {
@@ -64,7 +64,7 @@ export const CodeFileCollection = ({ data, className = "" }: CodeFileCollectionP
     return (
       <div className={`p-1 w-full min-h-[200px] flex items-center justify-center ${className}`}>
         <div className="text-center">
-          <Folder className="w-16 h-16 mx-auto mb-2 text-gray-300" />
+          <FolderOpen className="w-16 h-16 mx-auto mb-2 text-gray-300" />
           <h3 className="text-lg font-medium text-gray-600 mb-2">Generated files will render here.</h3>
           <p className="text-sm text-gray-500">Once you fill out an input form on the left, generated files will appear here.</p>
         </div>
