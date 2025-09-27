@@ -1,13 +1,55 @@
-# Jonah's Guide to Coding
+# Launch a Lambda Function URL
 
-## Let's configure his app!
+## What is a Lambda Function URL?
 
-What kind of app are we building?
+A function URL is a dedicated HTTP(S) endpoint for your Lambda function. When you create a function URL, Lambda automatically generates a unique URL endpoint for you. Once you create a function URL, its URL endpoint never changes. Function URL endpoints have the following format:
+
+```
+https://<url-id>.lambda-url.<region>.on.aws
+```
+
+## Boilerplate Configuration
+
+Use the form below to configure your deployment:
 
 <BoilerplateInputs 
   id="test"
-  templatePath="."
-/>
+>
+variables:
+  - name: AccountName
+    description: Name for the AWS account
+    type: string
+    default: "My account"
+    
+  - name: Environment
+    description: Deployment environment
+    type: enum
+    options:
+      - dev
+      - stage
+      - prod
+    default: dev
+    
+  - name: EnableLogging
+    description: Enable CloudWatch logging
+    type: bool
+    default: true
+    
+  - name: InstanceCount
+    description: Number of instances to deploy
+    type: int
+    default: 1
+    
+  - name: Tags
+    description: Additional tags to apply
+    type: map
+    default: {}
+    
+  - name: AllowedIPs
+    description: List of allowed IP addresses
+    type: list
+    default: []
+</BoilerplateInputs>
 
 ## Prerequisites
 

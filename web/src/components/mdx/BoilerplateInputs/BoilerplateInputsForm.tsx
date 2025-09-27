@@ -122,7 +122,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             </div>
             {hasGeneratedSuccessfully && (
               <div className="text-sm text-gray-400 mt-3 italic">
-                You can now edit the fields above and the generated files will automatically update.
+                You can now update the fields above and the generated files will automatically update.
               </div>
             )}
           </div>

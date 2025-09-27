@@ -69,8 +69,8 @@ const validateProps = (props: Pick<BoilerplateInputsProps, 'id' | 'templatePath'
 
   if (props.templatePath && props.children) {
     return {
-      error: "You can specify both a templatePath and inline boilerplate.yml content. Please provide only one.",
-      errorDetails: "Runbooks can either render a boilerplate template from your filesystem, or from what's defined inline. If you define both, it's not clear which one you want, so we throw an error."
+      error: "Invalid <BoilerplateInputs> configuration.",
+      errorDetails: "You cannot both specify a templatePath and inline boilerplate.yml content. Please provide only one."
     }
   }
 

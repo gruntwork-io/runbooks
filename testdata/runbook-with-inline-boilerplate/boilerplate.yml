@@ -1,20 +1,17 @@
 variables:
   - name: AccountName
-    description: Name of the app
+    description: Name for the AWS account
     type: string
     default: "My account"
-    validations:
-    - "required"
-    - "length:10"
     
   - name: Environment
-    description: How hard is this app?
+    description: Deployment environment
     type: enum
     options:
-      - low
-      - medium
-      - hard
-    default: low
+      - dev
+      - stage
+      - prod
+    default: dev
     
   - name: EnableLogging
     description: Enable CloudWatch logging
