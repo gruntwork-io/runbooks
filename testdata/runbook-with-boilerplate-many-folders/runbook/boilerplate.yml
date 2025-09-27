@@ -3,6 +3,9 @@ variables:
     description: Name for the AWS account
     type: string
     default: "My account"
+    validations:
+    - "required"
+    - "length:10"
     
   - name: Environment
     description: Deployment environment

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import type { BoilerplateConfig, BoilerplateVariable } from '../BoilerplateInputs.types'
+import { formatVariableLabel } from '../lib/formatVariableLabel'
 
 /**
  * Interface for validation error messages
@@ -33,7 +34,7 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
       
       // Required field validation
       if (variable.required && (value === undefined || value === null || value === '')) {
-        errors[variable.name] = `${variable.name} is required`
+        errors[variable.name] = `${formatVariableLabel(variable.name)} is required`
         isValid = false
       }
       

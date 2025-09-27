@@ -83,7 +83,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 className="block text-md font-medium text-gray-700"
               >
                 {formatVariableLabel(variable.name)}
-                {variable.required && <span className="text-red-500 ml-1">*</span>}
+                {variable.required && <span className="text-gray-400 ml-1">*</span>}
               </label>
               
               <FormControl
