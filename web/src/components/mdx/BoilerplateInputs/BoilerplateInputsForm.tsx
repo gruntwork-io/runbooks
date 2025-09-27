@@ -29,14 +29,17 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   boilerplateConfig,
   initialData = {},
   onFormChange,
+  onAutoRender,
   onSubmit,
   submitButtonText = 'Generate',
   showSubmitButton = true,
   isGenerating = false,
-  showSuccessIndicator = false
+  isAutoRendering = false,
+  showSuccessIndicator = false,
+  enableAutoRender = true
 }) => {
   // Use custom hooks for state management and validation
-  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange)
+  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
   const { validationErrors, validateForm, clearFieldError } = useFormValidation(boilerplateConfig)
 
   /**
@@ -67,7 +70,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 
 
   return (
-    <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100">
+    <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 relative">
+      
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
           {boilerplateConfig!.variables.map((variable: BoilerplateVariable) => (

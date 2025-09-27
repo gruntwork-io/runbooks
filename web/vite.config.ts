@@ -15,6 +15,9 @@ export default defineConfig({
     },
   },
   server: {
+    // When running `runbooks open`, we need only a single port, but when running `runbooks serve`, the frontend
+    // needs its own port. But all the code in the frontend calls /api/path/to/whatever, without specifying a port 
+    // for a backend server. So this proxy allows those simple paths and then re-routes them to correct backend ports.
     proxy: {
       '/api': {
         target: 'http://localhost:7825',

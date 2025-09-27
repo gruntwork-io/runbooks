@@ -7,12 +7,16 @@ import type { BoilerplateConfig, BoilerplateVariable } from '../BoilerplateInput
  * @param boilerplateConfig - The boilerplate configuration containing variable definitions
  * @param initialData - Initial form data values
  * @param onFormChange - Optional callback when form data changes
+ * @param onAutoRender - Optional callback to trigger re-rendering when form data changes
+ * @param enableAutoRender - Whether auto-rendering should be enabled (default: true)
  * @returns Object containing form state and update methods
  */
 export const useFormState = (
   boilerplateConfig: BoilerplateConfig | null,
   initialData: Record<string, unknown> = {},
-  onFormChange?: (formData: Record<string, unknown>) => void
+  onFormChange?: (formData: Record<string, unknown>) => void,
+  onAutoRender?: (formData: Record<string, unknown>) => void,
+  enableAutoRender: boolean = true
 ) => {
   const [formData, setFormData] = useState<Record<string, unknown>>({})
 
@@ -35,6 +39,23 @@ export const useFormState = (
       onFormChange(formData)
     }
   }, [formData, onFormChange])
+
+  // Track if this is the initial load
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
+
+  // Trigger auto-rendering when form data changes (but not on initial load)
+  useEffect(() => {
+    // Mark that initial load is complete after first form data is set
+    if (Object.keys(formData).length > 0 && isInitialLoad) {
+      setIsInitialLoad(false)
+      return // Don't trigger auto-render on initial load
+    }
+    
+    // Only trigger auto-render if auto-rendering is enabled, we have form data, and it's not the initial load
+    if (enableAutoRender && onAutoRender && Object.keys(formData).length > 0 && !isInitialLoad) {
+      onAutoRender(formData)
+    }
+  }, [formData, onAutoRender, isInitialLoad, enableAutoRender])
 
   /**
    * Updates a specific form field value
