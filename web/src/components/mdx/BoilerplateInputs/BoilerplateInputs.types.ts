@@ -56,9 +56,12 @@ export interface BoilerplateInputsFormProps {
   boilerplateConfig: BoilerplateConfig
   initialData?: Record<string, unknown>
   onFormChange?: (formData: Record<string, unknown>) => void
+  onAutoRender?: (formData: Record<string, unknown>) => void
   onSubmit?: (formData: Record<string, unknown>) => void
   submitButtonText?: string
   showSubmitButton?: boolean
   isGenerating?: boolean
+  isAutoRendering?: boolean
   showSuccessIndicator?: boolean
+  enableAutoRender?: boolean
 }

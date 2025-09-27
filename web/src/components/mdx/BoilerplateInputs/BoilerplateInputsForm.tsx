@@ -108,7 +108,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             <Button
               type="submit"
               variant="default"
-              disabled={isGenerating}
+              disabled={isGenerating || isAutoRendering}
             >
               {submitButtonText}
             </Button>
