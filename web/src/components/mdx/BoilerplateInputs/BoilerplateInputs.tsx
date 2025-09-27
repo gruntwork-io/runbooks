@@ -9,6 +9,7 @@ import { LoadingDisplay } from '../BoilerplateInputs/components/LoadingDisplay'
 /** Form state interface for managing component state */
 interface FormState {
   hasGenerated: boolean
+  hasGeneratedSuccessfully: boolean
   currentFormData: Record<string, unknown>
 }
 
@@ -18,6 +19,7 @@ interface FormState {
  * */ 
 type FormAction = 
   | { type: 'SET_GENERATED'; payload: boolean }
+  | { type: 'SET_GENERATED_SUCCESSFULLY'; payload: boolean }
   | { type: 'UPDATE_FORM_DATA'; payload: Record<string, unknown> }
 
 /**
@@ -30,6 +32,8 @@ const formReducer = (state: FormState, action: FormAction): FormState => {
   switch (action.type) {
     case 'SET_GENERATED':
       return { ...state, hasGenerated: action.payload }
+    case 'SET_GENERATED_SUCCESSFULLY':
+      return { ...state, hasGeneratedSuccessfully: action.payload }
     case 'UPDATE_FORM_DATA':
       return { ...state, currentFormData: action.payload }
     default:
@@ -115,6 +119,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
   // Use reducer for streamlined state management
   const [formState, dispatch] = useReducer(formReducer, {
     hasGenerated: false,
+    hasGeneratedSuccessfully: false,
     currentFormData: prefilledVariables
   })
   
@@ -138,11 +143,19 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
     // Update the current form data to preserve values after generation
     dispatch({ type: 'UPDATE_FORM_DATA', payload: variables })
     
-    await generate(templatePath, variables)
-    
-    // Call the optional onGenerate callback if provided
-    if (onGenerate) {
-      onGenerate(variables)
+    try {
+      await generate(templatePath, variables)
+      // Mark successful generation
+      dispatch({ type: 'SET_GENERATED_SUCCESSFULLY', payload: true })
+      
+      // Call the optional onGenerate callback if provided
+      if (onGenerate) {
+        onGenerate(variables)
+      }
+    } catch (error) {
+      // Reset successful generation state on error
+      dispatch({ type: 'SET_GENERATED_SUCCESSFULLY', payload: false })
+      throw error
     }
   }, [templatePath, generate, onGenerate])
 
@@ -159,6 +172,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
   /** Handle reset to clear success/error states */
   const handleReset = useCallback(() => {
     reset()
+    dispatch({ type: 'SET_GENERATED_SUCCESSFULLY', payload: false })
   }, [reset])
 
   // Early return for validation errors
@@ -199,6 +213,7 @@ export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
       isAutoRendering={isAutoRendering}
       showSuccessIndicator={showSuccessIndicator}
       enableAutoRender={formState.hasGenerated}
+      hasGeneratedSuccessfully={formState.hasGeneratedSuccessfully}
     />
   )
 }

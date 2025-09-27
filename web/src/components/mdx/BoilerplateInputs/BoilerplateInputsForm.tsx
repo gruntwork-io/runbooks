@@ -22,6 +22,7 @@ import { SuccessIndicator } from './components/SuccessIndicator'
  *   - `submitButtonText`: Text for the submit button (default: 'Generate')
  *   - `showSubmitButton`: Whether to show submit button (default: true)
  *   - `isGenerating`: Whether form is in loading state (default: false)
+ *   - `hasGeneratedSuccessfully`: Whether to show success message (default: false)
  * @returns JSX element representing the form
  */
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
@@ -36,7 +37,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   isGenerating = false,
   isAutoRendering = false,
   showSuccessIndicator = false,
-  enableAutoRender = true
+  enableAutoRender = true,
+  hasGeneratedSuccessfully = false
 }) => {
   // Use custom hooks for state management and validation
   const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
@@ -104,18 +106,25 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         </div>
         
         {showSubmitButton && (
-          <div className="pt-4 border-t border-gray-200 flex items-center gap-2">
-            <Button
-              type="submit"
-              variant="default"
-              disabled={isGenerating || isAutoRendering}
-            >
-              {submitButtonText}
-            </Button>
-            <SuccessIndicator 
-              show={showSuccessIndicator} 
-              className="ml-2" 
-            />
+          <div>
+            <div className="pt-4 border-t border-gray-200 flex items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={isGenerating || isAutoRendering}
+              >
+                {submitButtonText}
+              </Button>
+              <SuccessIndicator 
+                show={showSuccessIndicator} 
+                className="ml-2" 
+              />
+            </div>
+            {hasGeneratedSuccessfully && (
+              <div className="text-sm text-gray-400 mt-3 italic">
+                You can now edit the fields above and the generated files will automatically update.
+              </div>
+            )}
           </div>
         )}
       </form>
