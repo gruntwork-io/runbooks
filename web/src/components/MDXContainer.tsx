@@ -13,7 +13,7 @@ interface MDXContainerProps {
 }
 
 /**
- * This component renders a markdown/MDX document..
+ * This component renders a markdown/MDX document.
  * 
  * The component takes raw markdown text (potentially containing JSX components) and compiles
  * it at runtime (vs. build time) into a React component. It handles both regular markdown syntax 
@@ -21,9 +21,11 @@ interface MDXContainerProps {
  * 
  * @param props - The component props
  * @param props.content - The raw markdown/MDX content string to compile and render
+ * @param props.runbookPath - The path to the runbook file
  * @param props.className - Optional additional CSS classes for styling the container
+ 
  */
-export const MDXContainer = ({ content, className, runbookPath }: MDXContainerProps) => {
+export const MDXContainer = ({ content, className }: MDXContainerProps) => {
   const [MDXContent, setMDXContent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,7 +58,7 @@ export const MDXContainer = ({ content, className, runbookPath }: MDXContainerPr
     }
 
     compileMDX()
-  }, [content, runbookPath])
+  }, [content])
 
   if (error) {
     return (

@@ -1,7 +1,7 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/Header'
 import { MDXContainer } from './components/MDXContainer'
@@ -9,17 +9,26 @@ import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
 import { getDirectoryPath } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
+import type { AppError } from './types/error'
 
 
 function App() {
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'tabs'>('markdown')
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<AppError | null>(null);
   
   // Use the useApi hook to fetch runbook data
-  const { data, isLoading, error } = useGetRunbook()
+  const getRunbookResult = useGetRunbook()
+  
+  // Update local state when hook state changes
+  useEffect(() => {
+    setIsLoading(getRunbookResult.isLoading)
+    setError(getRunbookResult.error)
+  }, [getRunbookResult.isLoading, getRunbookResult.error])
   
   // Extract commonly used values
-  const pathName = data?.path || ''
-  const content = data?.content || ''
+  const pathName = getRunbookResult.data?.path || ''
+  const content = getRunbookResult.data?.content || ''
   const runbookPath = getDirectoryPath(pathName)
 
   // Check if there is an error
@@ -69,8 +78,8 @@ function App() {
                 {/* Markdown/MDX content */}
                   <MDXContainer 
                     content={content}
-                    className="flex-1 max-w-3xl min-w-xl p-8"
                     runbookPath={runbookPath}
+                    className="flex-1 max-w-3xl min-w-xl p-8"
                   />
 
                 {/* Artifacts */}
@@ -107,8 +116,8 @@ function App() {
                 }`}>
                   <MDXContainer 
                     content={content}
-                    className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
                     runbookPath={runbookPath}
+                    className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
                   />
                 </div>
 
