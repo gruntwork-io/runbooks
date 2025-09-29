@@ -16,6 +16,11 @@ function App() {
   
   // Use the useApi hook to fetch runbook data
   const { data, isLoading, error } = useGetRunbook()
+  
+  // Extract commonly used values
+  const pathName = data?.path || ''
+  const content = data?.content || ''
+  const runbookPath = getDirectoryPath(pathName)
 
   // Check if there is an error
   function hasError() {
@@ -25,7 +30,7 @@ function App() {
   return (
     <>
       <div className="flex flex-col">
-        <Header pathName={data?.path || ''} />
+        <Header pathName={pathName} />
         
         {/* Loading and Error States */}
         {isLoading ? (
@@ -63,9 +68,9 @@ function App() {
               <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden justify-center">
                 {/* Markdown/MDX content */}
                   <MDXContainer 
-                    content={data?.content || ''}
+                    content={content}
                     className="flex-1 max-w-3xl min-w-xl p-8"
-                    runbookPath={getDirectoryPath(data?.path || '')}
+                    runbookPath={runbookPath}
                   />
 
                 {/* Artifacts */}
@@ -101,9 +106,9 @@ function App() {
                     : 'opacity-0 translate-x-full absolute inset-0 pointer-events-none'
                 }`}>
                   <MDXContainer 
-                    content={data?.content || ''}
+                    content={content}
                     className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
-                    runbookPath={getDirectoryPath(data?.path || '')}
+                    runbookPath={runbookPath}
                   />
                 </div>
 
