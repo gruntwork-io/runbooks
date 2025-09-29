@@ -4,16 +4,21 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Return the contents of the file at the given path.
 // The path is expected to be a file path, not a directory.
-func HandleFileRequest(path string) gin.HandlerFunc {
+func HandleFileRequest(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// The path should be a file path
-		filePath := path
+		// Compute the full path: use runbook path directly or join with relative path
+		filePath := runbookPath
+		relativeFilePath := c.Query("path")
+		if relativeFilePath != "" {
+			filePath = filepath.Join(filepath.Dir(runbookPath), relativeFilePath)
+		}
 
 		// Check if the file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {

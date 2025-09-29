@@ -1,4 +1,5 @@
 import React from 'react'
+import type { AppError } from '../../../types/error'
 
 interface ErrorDisplayProps {
   error: string

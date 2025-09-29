@@ -19,6 +19,9 @@ func StartServer(runbookPath string, port int) {
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/file", HandleFileRequest(runbookPath))
 
+	// API endpoint to serve the runbook file contents
+	r.GET("/api/runbook", HandleFileRequest(runbookPath))
+
 	// API endpoint to parse boilerplate.yml files
 	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
@@ -58,7 +61,7 @@ func StartBackendServer(runbookPath string, port int) {
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/file", HandleFileRequest(runbookPath))
+	r.GET("/api/runbook", HandleFileRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
 	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))

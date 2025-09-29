@@ -1,77 +1,41 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/Header'
 import { MDXContainer } from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
 import { getDirectoryPath } from './lib/utils'
+import { useGetRunbook } from './hooks/useApiGetRunbook'
 
 
 function App() {
-  const [markdownContent, setMarkdownContent] = useState('')
-  const [pathName, setPathName] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [errorDetails, setErrorDetails] = useState('')
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'tabs'>('markdown')
+  
+  // Use the useApi hook to fetch runbook data
+  const { data, isLoading, error } = useGetRunbook()
 
-  useEffect(() => {
-    // Get the markdown file content from the API
-    const apiUrl = '/api/file'
-    fetch(apiUrl)
-      .then(response => {
-        if (!response.ok) {
-          // Try to parse the error response to get detailed error information
-          return response.json().then(errorData => {
-            const errorMessage = errorData?.error || `HTTP error: ${response.status}`
-            const errorDetails = errorData?.details || `Failed to connect to runbook server at ${apiUrl}`
-            throw new Error(JSON.stringify({ error: errorMessage, details: errorDetails }))
-          })
-        } else 
-          return response.json()
-        }
-      )
-      .then(data => {
-        setMarkdownContent(data.content || '')
-        setPathName(data.path || '')
-        setLoading(false)
-      })
-      .catch(err => {
-        console.log('Response:', err.message)
-        console.error('Error fetching file content:', err)
-        
-        // Try to parse the error message as JSON to extract error and details
-        try {
-          const errorData = JSON.parse(err.message)
-          setError(errorData.error || 'Unknown error occurred')
-          setErrorDetails(errorData.details || 'An unexpected error occurred')
-        } catch {
-          // If parsing fails, use the original error message
-          setError(err.message)
-          setErrorDetails(`Failed to connect to runbook server at ${apiUrl}`)
-        }
-        
-        setLoading(false)
-      })
-  }, []) // Empty dependency array - only run once on mount
+  // Check if there is an error
+  function hasError() {
+    return Boolean(error?.message || error?.details);
+  }
 
   return (
     <>
       <div className="flex flex-col">
-        <Header pathName={pathName} />
+        <Header pathName={data?.path || ''} />
         
         {/* Loading and Error States */}
-        {loading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading runbook...</p>
             </div>
           </div>
-        ) : error ? (
+        ) : hasError() ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -79,9 +43,9 @@ function App() {
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <h3 className="text-lg font-medium text-red-800 mb-2">Failed to Load Runbook</h3>
-                <p className="text-red-700 mb-2">{error}</p>
+                <p className="text-red-700 mb-2">{error?.message}</p>
                 <p className="text-sm text-red-600 mb-4">
-                  {errorDetails}
+                  {error?.details}
                 </p>
                 <button 
                   onClick={() => window.location.reload()} 
@@ -98,11 +62,11 @@ function App() {
             <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
               <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden justify-center">
                 {/* Markdown/MDX content */}
-                <MDXContainer 
-                  content={markdownContent}
-                  className="flex-1 max-w-3xl min-w-xl p-8"
-                  runbookPath={getDirectoryPath(pathName)}
-                />
+                  <MDXContainer 
+                    content={data?.content || ''}
+                    className="flex-1 max-w-3xl min-w-xl p-8"
+                    runbookPath={getDirectoryPath(data?.path || '')}
+                  />
 
                 {/* Artifacts */}
                 <div className="flex-2 relative max-w-4xl">
@@ -137,9 +101,9 @@ function App() {
                     : 'opacity-0 translate-x-full absolute inset-0 pointer-events-none'
                 }`}>
                   <MDXContainer 
-                    content={markdownContent}
+                    content={data?.content || ''}
                     className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
-                    runbookPath={getDirectoryPath(pathName)}
+                    runbookPath={getDirectoryPath(data?.path || '')}
                   />
                 </div>
 
