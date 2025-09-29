@@ -6,16 +6,10 @@ import * as runtime from 'react/jsx-runtime'
 import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 
-interface MDXContainerProps {
-  content: string
-  className?: string
-  runbookPath?: string
-}
-
 /**
  * This component renders a markdown/MDX document.
  * 
- * The component takes raw markdown text (potentially containing JSX components) and compiles
+ * It takes raw markdown text (potentially containing JSX components) and compiles
  * it at runtime (vs. build time) into a React component. It handles both regular markdown syntax 
  * (headings, lists, code blocks) and custom JSX components (like <HelloWorld />).
  * 
@@ -25,39 +19,30 @@ interface MDXContainerProps {
  * @param props.className - Optional additional CSS classes for styling the container
  
  */
+interface MDXContainerProps {
+  content: string
+  className?: string
+  runbookPath?: string
+}
+
 export const MDXContainer = ({ content, className }: MDXContainerProps) => {
-  const [MDXContent, setMDXContent] = useState<React.ComponentType | null>(null)
+  const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Compile the MDX content into a React component that the browser can render
   useEffect(() => {
-    const compileMDX = async () => {
+    const createMDXComponent = async () => {
       try {
         setError(null)
-        
-        // Create the MDX content without imports - we'll provide components directly
-        const mdxContent = content
-
-        // Compile and evaluate the MDX content
-        const compiledMDX = await evaluate(mdxContent, {
-          ...runtime,
-          development: false, // Keep development false to avoid jsxDEV issues
-          baseUrl: import.meta.url,
-          useMDXComponents: () => ({
-            HelloWorld,
-            BoilerplateInputs,
-            // Add more components here as needed
-          })
-        })
-
-        setMDXContent(() => compiledMDX.default)
+        const compiledComponent = await compileMDX(content)
+        setCustomMDXComponent(() => compiledComponent)
       } catch (err) {
         console.error('Error processing MDX content:', err)
         setError(String(err))
       }
     }
 
-    compileMDX()
+    createMDXComponent()
   }, [content])
 
   if (error) {
@@ -71,7 +56,7 @@ export const MDXContainer = ({ content, className }: MDXContainerProps) => {
     )
   }
 
-  if (!MDXContent) {
+  if (!CustomMDXComponent) {
     return (
       <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
         <div className="p-4 text-gray-500">Loading MDX content...</div>
@@ -81,7 +66,27 @@ export const MDXContainer = ({ content, className }: MDXContainerProps) => {
 
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-      <MDXContent />
+      <CustomMDXComponent />
     </div>
   )
+}
+
+// Compiles MDX content into a custom React component that can render the MDX content.
+const compileMDX = async (content: string): Promise<React.ComponentType> => {
+  // Create the MDX content without imports - we'll provide components directly
+  const mdxContent = content
+
+  // Compile and evaluate the MDX content
+  const compiledMDX = await evaluate(mdxContent, {
+    ...runtime,
+    development: false, // Keep development false to avoid jsxDEV issues
+    baseUrl: import.meta.url,
+    useMDXComponents: () => ({
+      HelloWorld,
+      BoilerplateInputs,
+      // Add more components here as needed
+    })
+  })
+
+  return compiledMDX.default
 }
