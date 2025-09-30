@@ -33,30 +33,34 @@ export function useApi<T>(endpoint: string): UseApiReturn<T> {
     setError(null);
 
     // Fetch the data
-    fetch(endpoint)
-      .then(response => {
+    const fetchData = async () => {
+      try {
+        const response = await fetch(endpoint);
+        
         if (!response.ok) {
-          return response.json().then(errorData => {
-            setError({
-              message: errorData?.message || `HTTP error: ${response.status}`,
-              details: errorData?.details || `Failed to connect to runbook server at ${fullUrl}`
-            })
-            setIsLoading(false);
-          })  
+          const errorData = await response.json().catch(() => null);
+          setError({
+            message: errorData?.message || `HTTP error: ${response.status}`,
+            details: errorData?.details || `Failed to connect to runbook server at ${fullUrl}. Is the backend server running?`
+          });
+          setIsLoading(false);
+          return;
         }
-        return response.json();
-      })
-      .then(data => {
+        
+        const data = await response.json();
         setIsLoading(false);
         setData(data);
-      })
-      .catch(err => {
+      } catch (err: unknown) {
+        console.log('err', err);
         setIsLoading(false);
         setError({
-          message: err.message || 'An unexpected error occurred',
+          message: err instanceof Error ? err.message : 'An unexpected error occurred',
           details: `Failed to connect to runbook server at ${fullUrl}`
         });
-      })
+      }
+    };
+
+    fetchData();
 
     // Cleanup function
     return () => {

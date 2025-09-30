@@ -33,6 +33,7 @@ function App() {
 
   // Check if there is an error
   function hasError() {
+    console.log('error', error)
     return Boolean(error?.message || error?.details);
   }
 
