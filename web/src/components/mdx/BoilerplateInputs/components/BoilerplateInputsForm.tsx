@@ -1,12 +1,12 @@
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
-import type { BoilerplateInputsFormProps } from '@/components/mdx/BoilerplateInputs/BoilerplateInputs.types'
-import { formatVariableLabel } from '../../BoilerplateInputs/lib/formatVariableLabel'
-import { NewFormControl } from './NewFormControls'
-import { useFormState } from '../../BoilerplateInputs/hooks/useFormState'
-import { useFormValidation } from '../../BoilerplateInputs/hooks/useFormValidation'
-import { SuccessIndicator } from '../../BoilerplateInputs/components/SuccessIndicator'
+import type { BoilerplateConfig } from '@/types/boilerplateConfig'
+import { formatVariableLabel } from '@/components/mdx/BoilerplateInputs/lib/formatVariableLabel'
+import { FormControl } from './FormControls'
+import { useFormState } from '@/components/mdx/BoilerplateInputs/hooks/useFormState'
+import { useFormValidation } from '@/components/mdx/BoilerplateInputs/hooks/useFormValidation'
+import { SuccessIndicator } from '@/components/mdx/BoilerplateInputs/components/SuccessIndicator'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -42,7 +42,7 @@ interface BoilerplateInputsFormProps {
   hasGeneratedSuccessfully?: boolean
 }
 
-export const NewBoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
+export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
   boilerplateConfig,
   initialData = {},
@@ -105,7 +105,7 @@ export const NewBoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 {variable.required && <span className="text-gray-400 ml-1">*</span>}
               </label>
               
-              <NewFormControl
+              <FormControl
                 variable={variable}
                 value={formData[variable.name]}
                 error={validationErrors[variable.name]}

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
-import type { BoilerplateConfig, BoilerplateVariable } from '../BoilerplateInputs.types'
 import { formatVariableLabel } from '../lib/formatVariableLabel'
+import type { BoilerplateConfig } from '@/types/boilerplateConfig'
+import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 
 /**
  * Interface for validation error messages

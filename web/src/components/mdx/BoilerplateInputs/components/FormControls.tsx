@@ -1,8 +1,8 @@
 import React from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 /**
  * Base props interface for all form control components
@@ -43,7 +43,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
     value={String(value || '')}
     onChange={(e) => onChange(e.target.value)}
     className={getInputClassName(error, 'w-full')}
-    placeholder={variable.description}
+    placeholder={variable.placeholder}
   />
 )
 
