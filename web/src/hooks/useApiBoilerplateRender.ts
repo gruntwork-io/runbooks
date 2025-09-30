@@ -5,8 +5,8 @@ import { useMemo } from 'react';
 interface BoilerplateRenderResult {
   message:      string,
   outputDir:    string,
-  TemplatePath: string,
-  FileTree:     FileTree,
+  templatePath: string,
+  fileTree:     FileTree,
 }
 
 type FileTree = CodeFileData[]

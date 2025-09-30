@@ -7,6 +7,8 @@ import type { AppError } from '@/types/error'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
+import { useFileTree } from '@/hooks/useFileTree'
+import type { CodeFileData } from '@/components/artifacts/code/FileTree'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -53,6 +55,9 @@ function NewBoilerplateInputs({
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
+  
+  // Get the global file tree context
+  const { setFileTree } = useFileTree();
 
   // Memoize prefilledVariables to prevent infinite re-renders
   const memoizedPrefilledVariables = useMemo(() => 
@@ -131,6 +136,15 @@ function NewBoilerplateInputs({
     renderFormData,
     shouldRender && Boolean(templatePath)
   )
+
+  // Update global file tree when render result is available
+  useEffect(() => {
+    if (renderResult && renderResult.fileTree) {
+      // Cast the API response to match the expected type structure
+      const fileTree = renderResult.fileTree as CodeFileData[];
+      setFileTree(fileTree);
+    }
+  }, [renderResult, setFileTree]);
 
   // Handle form data changes (no longer needed for auto-rendering, but keeping for potential future use)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
