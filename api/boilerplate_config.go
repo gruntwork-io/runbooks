@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -76,9 +75,10 @@ type BoilerplateConfig struct {
 }
 
 // HandleBoilerplateRequest parses a boilerplate.yml file and returns the variable declarations as JSON
+// @runbookPath is the path to the boilerplate template, relative to the directory containing the runbook file.
 func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get the templatePath parameter from the query string
+		// Get the boilerplate template path parameter from the query string
 		templatePath := c.Query("templatePath")
 		if templatePath == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -104,9 +104,20 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
+		// Read the file contents
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			slog.Error("Error reading boilerplate file", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to read boilerplate file",
+				"details": err.Error(),
+			})
+			return
+		}
+
 		// Parse the boilerplate.yml file using the gruntwork-io/boilerplate package
 		slog.Info("Parsing boilerplate config", "path", fullPath)
-		config, err := parseBoilerplateConfig(fullPath)
+		config, err := parseBoilerplateConfig(string(content))
 		if err != nil {
 			slog.Error("Error parsing boilerplate config", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -123,26 +134,9 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 }
 
 // parseBoilerplateConfig parses a boilerplate.yml file and returns the variable definitions
-func parseBoilerplateConfig(filePath string) (*BoilerplateConfig, error) {
-	slog.Info("Parsing boilerplate config", "filePath", filePath)
-
-	// Read the boilerplate.yml file
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	// Read the file content
-	content, err := io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	slog.Info("File read successfully", "size", len(content))
-
+func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, error) {
 	// Parse the boilerplate configuration
-	boilerplateConfig, err := bpConfig.ParseBoilerplateConfig(content)
+	boilerplateConfig, err := bpConfig.ParseBoilerplateConfig([]byte(boilerplateYamlContent))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse boilerplate config: %w", err)
 	}

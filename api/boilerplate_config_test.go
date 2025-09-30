@@ -40,11 +40,6 @@ func TestParseBoilerplateConfig(t *testing.T) {
 			},
 		},
 		{
-			name:     "non-existent file",
-			filename: "../testdata/boilerplate-yaml/non-existent.yml",
-			wantErr:  true,
-		},
-		{
 			name:     "invalid variable types",
 			filename: "../testdata/boilerplate-yaml/invalid-variable-types.yml",
 			wantErr:  true,
@@ -70,7 +65,11 @@ func TestParseBoilerplateConfig(t *testing.T) {
 			absPath, err := filepath.Abs(tt.filename)
 			require.NoError(t, err)
 
-			config, err := parseBoilerplateConfig(absPath)
+			// Read the file content
+			content, err := os.ReadFile(absPath)
+			require.NoError(t, err)
+
+			config, err := parseBoilerplateConfig(string(content))
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -116,34 +115,62 @@ func TestParseBoilerplateConfig(t *testing.T) {
 	}
 }
 
-func TestParseBoilerplateConfig_FileErrors(t *testing.T) {
+func TestParseBoilerplateConfig_ContentErrors(t *testing.T) {
 	tests := []struct {
 		name          string
-		filePath      string
+		filepath      string
 		expectError   bool
 		errorContains string
 	}{
 		{
-			name:          "non-existent file",
-			filePath:      "/non/existent/file.yml",
+			name:          "invalid yaml syntax - malformed yaml",
+			filepath:      "../testdata/boilerplate-yaml/invalid-yaml.yml",
 			expectError:   true,
-			errorContains: "failed to open file",
+			errorContains: "failed to parse boilerplate config",
 		},
 		{
-			name:          "empty file",
-			filePath:      "",
+			name:          "invalid yaml syntax - malformed yaml 2",
+			filepath:      "../testdata/boilerplate-yaml/invalid-yaml-2.yml",
 			expectError:   true,
-			errorContains: "failed to open file",
+			errorContains: "failed to parse boilerplate config",
+		},
+		{
+			name:          "invalid yaml syntax - malformed yaml 3",
+			filepath:      "../testdata/boilerplate-yaml/invalid-yaml-3.yml",
+			expectError:   true,
+			errorContains: "failed to parse boilerplate config",
+		},
+		{
+			name:          "invalid variable types",
+			filepath:      "../testdata/boilerplate-yaml/invalid-variable-types.yml",
+			expectError:   true,
+			errorContains: "failed to parse boilerplate config",
+		},
+		{
+			name:          "invalid type unsupported",
+			filepath:      "../testdata/boilerplate-yaml/invalid-type-unsupported.yml",
+			expectError:   true,
+			errorContains: "failed to parse boilerplate config",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := parseBoilerplateConfig(tt.filePath)
+			// Get the absolute path to the test file
+			absPath, err := filepath.Abs(tt.filepath)
+			require.NoError(t, err)
+
+			// Read the file content
+			content, err := os.ReadFile(absPath)
+			require.NoError(t, err)
+
+			config, err := parseBoilerplateConfig(string(content))
 
 			if tt.expectError {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorContains)
+				if tt.errorContains != "" && err != nil {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
 				assert.Nil(t, config)
 			} else {
 				assert.NoError(t, err)
@@ -157,7 +184,11 @@ func TestParseBoilerplateConfig_ValidationRules(t *testing.T) {
 	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-with-validations.yml")
 	require.NoError(t, err)
 
-	bpConfig, err := parseBoilerplateConfig(absPath)
+	// Read the file content
+	content, err := os.ReadFile(absPath)
+	require.NoError(t, err)
+
+	bpConfig, err := parseBoilerplateConfig(string(content))
 	require.NoError(t, err)
 	require.NotNil(t, bpConfig)
 
@@ -195,7 +226,11 @@ func TestParseBoilerplateConfig_RequiredFields(t *testing.T) {
 	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-with-validations.yml")
 	require.NoError(t, err)
 
-	config, err := parseBoilerplateConfig(absPath)
+	// Read the file content
+	content, err := os.ReadFile(absPath)
+	require.NoError(t, err)
+
+	config, err := parseBoilerplateConfig(string(content))
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
@@ -372,7 +407,11 @@ func TestParseBoilerplateConfig_EnumVariables(t *testing.T) {
 	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-enum-only.yml")
 	require.NoError(t, err)
 
-	config, err := parseBoilerplateConfig(absPath)
+	// Read the file content
+	content, err := os.ReadFile(absPath)
+	require.NoError(t, err)
+
+	config, err := parseBoilerplateConfig(string(content))
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
@@ -396,7 +435,11 @@ func TestParseBoilerplateConfig_ComplexDefaults(t *testing.T) {
 	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-complex-defaults.yml")
 	require.NoError(t, err)
 
-	config, err := parseBoilerplateConfig(absPath)
+	// Read the file content
+	content, err := os.ReadFile(absPath)
+	require.NoError(t, err)
+
+	config, err := parseBoilerplateConfig(string(content))
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
@@ -445,7 +488,11 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 			absPath, err := filepath.Abs(tt.filename)
 			require.NoError(t, err)
 
-			config, err := parseBoilerplateConfig(absPath)
+			// Read the file content
+			content, err := os.ReadFile(absPath)
+			require.NoError(t, err)
+
+			config, err := parseBoilerplateConfig(string(content))
 
 			if tt.expectedError == "" {
 				// This test case should succeed
