@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react'
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { NewBoilerplateInputsForm } from './components/NewBoilerplateInputsForm'
 import { ErrorDisplay } from '../BoilerplateInputs/components/ErrorDisplay'
@@ -131,7 +131,7 @@ function NewBoilerplateInputs({
   }, [formState])
 
   // Render API call - only triggered when shouldRender is true
-  const { data: renderResult, isLoading: isGenerating, error: renderError } = useApiBoilerplateRender(
+  const { data: renderResult, isLoading: isGenerating, error: renderError, isAutoRendering, autoRender } = useApiBoilerplateRender(
     templatePath || '',
     renderFormData,
     shouldRender && Boolean(templatePath)
@@ -152,6 +152,14 @@ function NewBoilerplateInputs({
     // Form data changes are handled by the form component itself
     // This callback is kept for potential future use
   }
+
+  // Handle auto-rendering when form data changes
+  const handleAutoRender = useCallback((formData: Record<string, unknown>) => {
+    if (!templatePath) return;
+    if (!shouldRender) return; // Only auto-render after initial generation
+    
+    autoRender(templatePath, formData);
+  }, [templatePath, shouldRender, autoRender]);
 
   // Handle successful generation - trigger render API call
   const handleGenerate = (formData: Record<string, unknown>) => {
@@ -192,10 +200,12 @@ function NewBoilerplateInputs({
       boilerplateConfig={boilerplateConfig}
       initialData={initialData}
       onFormChange={handleFormChange}
+      onAutoRender={handleAutoRender}
       onGenerate={handleGenerate}
       isGenerating={isGenerating}
+      isAutoRendering={isAutoRendering}
       showSuccessIndicator={Boolean(renderResult)}
-      enableAutoRender={false}
+      enableAutoRender={true}
       hasGeneratedSuccessfully={Boolean(renderResult)}
     />
   )
