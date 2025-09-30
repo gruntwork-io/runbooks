@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
+import type { AppError } from '@/types/error'
 
 // Support MDX components
 import { HelloWorld } from '@/components/mdx/HelloWorld'
@@ -27,7 +28,7 @@ interface MDXContainerProps {
 
 function MDXContainer({ content, className }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
 
   // Compile the MDX content into a React component that the browser can render
   useEffect(() => {
@@ -38,7 +39,11 @@ function MDXContainer({ content, className }: MDXContainerProps) {
         setCustomMDXComponent(() => compiledComponent)
       } catch (err) {
         console.error('Error processing MDX content:', err)
-        setError(String(err))
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        setError({
+          message: 'Error processing MDX content',
+          details: errorMessage
+        })
       }
     }
 
@@ -49,8 +54,8 @@ function MDXContainer({ content, className }: MDXContainerProps) {
     return (
       <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
         <div className="text-red-600 p-4 border border-red-300 rounded-lg">
-          <h3 className="font-semibold mb-2">Error processing MDX content:</h3>
-          <pre className="text-sm whitespace-pre-wrap">{error}</pre>
+          <h3 className="font-semibold mb-2">{error.message}</h3>
+          <pre className="text-sm whitespace-pre-wrap">{error.details}</pre>
         </div>
       </div>
     )
@@ -66,7 +71,11 @@ function MDXContainer({ content, className }: MDXContainerProps) {
 
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-      <CustomMDXComponent />
+      <CustomMDXComponentErrorBoundary 
+        onError={(error) => setError(error)}
+      >
+        <CustomMDXComponent />
+      </CustomMDXComponentErrorBoundary>
     </div>
   )
 }
@@ -89,6 +98,51 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
   })
 
   return compiledMDX.default
+}
+
+// Error boundary for RUNTIME errors in MDX components
+// This catches errors that occur during component rendering (e.g., accessing undefined properties)
+// It does NOT catch compilation errors (e.g., undefined components) - those are caught in useEffect
+class CustomMDXComponentErrorBoundary extends React.Component<
+  { children: React.ReactNode; onError?: (error: AppError) => void },
+  { hasError: boolean; error: AppError | null }
+> {
+  constructor(props: { children: React.ReactNode; onError?: (error: AppError) => void }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Runtime error in MDX component:', error.message)
+    const appError: AppError = {
+      message: error.message,
+      details: error.stack || 'No additional details available'
+    }
+    if (error.message.includes('Expected component')) {
+      appError.message = 'Runtime error in MDX component'
+      appError.details = 'Your runbook contains a component that is not defined:\n' + error.message
+    }
+    if (this.props.onError) {
+      this.props.onError(appError)
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="text-red-600 p-4 border border-red-300 rounded-lg bg-red-50">
+          <h3 className="font-semibold mb-2">Runtime Error in MDX Component: {this.state.error?.message}</h3>
+          <p className="text-sm">{this.state.error?.details}</p>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
 }
 
 export default MDXContainer;
