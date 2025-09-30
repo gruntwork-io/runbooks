@@ -1,6 +1,6 @@
 import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
-import { useMemo, useState, useCallback, useRef } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { useFileTree } from './useFileTree';
 
 interface BoilerplateRenderResult {
@@ -15,7 +15,7 @@ type FileTree = CodeFileData[]
 interface CodeFileData {
   id: string,
   name: string,
-  type: string,
+  type: 'file' | 'folder',
   children: CodeFileData[],
   filePath: string,
   code: string,
@@ -35,9 +35,7 @@ export function useApiBoilerplateRender(
   variables?: Record<string, unknown>,
   shouldFetch: boolean = true
 ): UseApiBoilerplateRenderResult {
-  const [isAutoRendering, setIsAutoRendering] = useState(false);    // Auto-render automatically renders new boilerplate templates on updates to the form
   const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
-  const autoRenderTimeoutRef = useRef<NodeJS.Timeout | null>(null); // We use de-bouncing based on this timeout before we hit the API again.
 
   // Build the request body based on which input is provided
   const requestBody = useMemo(() => {   
@@ -55,56 +53,28 @@ export function useApiBoilerplateRender(
   const apiResult = useApi<BoilerplateRenderResult>(
     shouldFetch ? '/api/boilerplate/render' : '', // Empty endpoint when shouldFetch is false
     'POST', 
-    requestBody || undefined
+    requestBody || undefined,
+    200 // 200ms debounce timeout
   );
 
-  // Auto-render function for real-time updates with debouncing
+  // Auto-render function using the debounced request
+  const { debouncedRequest } = apiResult;
   const autoRender = useCallback((templatePath: string, variables: Record<string, unknown>) => {
-    // Clear any existing re-render timeout
-    if (autoRenderTimeoutRef.current) {
-      clearTimeout(autoRenderTimeoutRef.current);
-      autoRenderTimeoutRef.current = null;
+    if (debouncedRequest) {
+      debouncedRequest({ templatePath, variables });
     }
+  }, [debouncedRequest]);
 
-    // Set up debounced auto-render (200ms delay)
-    autoRenderTimeoutRef.current = setTimeout(async () => {
-      setIsAutoRendering(true);
-
-      try {
-        const response = await fetch('/api/boilerplate/render', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            templatePath,
-            variables,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('Auto-render failed:', errorData.error || `Failed to auto-render files: ${response.statusText}`);
-          return;
-        }
-
-        const data = await response.json();
-        
-        // Update the file tree data in the global context (only if successful)
-        if (data.fileTree && Array.isArray(data.fileTree)) {
-          setFileTree(data.fileTree);
-        }
-      } catch (fetchError) {
-        console.error('Network error occurred while auto-rendering files:', fetchError);
-      } finally {
-        setIsAutoRendering(false);
-      }
-    }, 200); // 200ms debounce delay
-  }, [setFileTree]);
+  // Handle file tree updates when data changes
+  useEffect(() => {
+    if (apiResult.data?.fileTree && Array.isArray(apiResult.data.fileTree)) {
+      setFileTree(apiResult.data.fileTree);
+    }
+  }, [apiResult.data?.fileTree, setFileTree]);
 
   return {
     ...apiResult,
-    isAutoRendering,
+    isAutoRendering: apiResult.isLoading,
     autoRender
   };
 }

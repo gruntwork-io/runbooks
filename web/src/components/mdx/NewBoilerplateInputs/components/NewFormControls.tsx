@@ -43,7 +43,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
     value={String(value || '')}
     onChange={(e) => onChange(e.target.value)}
     className={getInputClassName(error, 'w-full')}
-    placeholder={variable.description}
+    placeholder={variable.placeholder}
   />
 )
 

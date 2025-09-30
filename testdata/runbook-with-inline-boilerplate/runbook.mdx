@@ -12,7 +12,7 @@ https://<url-id>.lambda-url.<region>.on.aws
 
 Use the form below to configure your deployment:
 
-<BoilerplateInputs 
+<NewBoilerplateInputs 
   id="test"
 >
 variables:
@@ -29,27 +29,7 @@ variables:
       - stage
       - prod
     default: dev
-    
-  - name: EnableLogging
-    description: Enable CloudWatch logging
-    type: bool
-    default: true
-    
-  - name: InstanceCount
-    description: Number of instances to deploy
-    type: int
-    default: 1
-    
-  - name: Tags
-    description: Additional tags to apply
-    type: map
-    default: {}
-    
-  - name: AllowedIPs
-    description: List of allowed IP addresses
-    type: list
-    default: []
-</BoilerplateInputs>
+</NewBoilerplateInputs>
 
 ## Prerequisites
 
