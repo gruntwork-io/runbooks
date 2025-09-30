@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { BoilerplateConfig, BoilerplateVariable } from '../BoilerplateInputs.types'
+import type { BoilerplateConfig } from '@/types/boilerplateConfig'
+import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 
 /**
  * Custom hook for managing form state and data flow
@@ -31,14 +32,14 @@ export const useFormState = (
     })
     
     setFormData(initialFormData)
-  }, [boilerplateConfig, initialData])
+  }, [boilerplateConfig]) // Remove initialData dependency to prevent infinite re-renders
 
   // Notify parent component when form data changes
   useEffect(() => {
     if (onFormChange) {
       onFormChange(formData)
     }
-  }, [formData, onFormChange])
+  }, [formData]) // Remove onFormChange from dependencies to prevent infinite re-renders
 
   // Track if this is the initial load
   const [isInitialLoad, setIsInitialLoad] = useState(true)
@@ -55,7 +56,7 @@ export const useFormState = (
     if (enableAutoRender && onAutoRender && Object.keys(formData).length > 0 && !isInitialLoad) {
       onAutoRender(formData)
     }
-  }, [formData, onAutoRender, isInitialLoad, enableAutoRender])
+  }, [formData, isInitialLoad, enableAutoRender]) // Remove onAutoRender from dependencies to prevent infinite re-renders
 
   /**
    * Updates a specific form field value

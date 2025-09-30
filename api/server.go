@@ -23,7 +23,7 @@ func StartServer(runbookPath string, port int) {
 	r.GET("/api/runbook", HandleFileRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
-	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
+	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
 	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath))
@@ -64,7 +64,7 @@ func StartBackendServer(runbookPath string, port int) {
 	r.GET("/api/runbook", HandleFileRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
-	r.GET("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
+	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
 	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath))

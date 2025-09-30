@@ -1,24 +1,23 @@
 import React from 'react'
-import type { AppError } from '../../../types/error'
+import type { AppError } from '@/types/error'
 
 interface ErrorDisplayProps {
-  error: string
+  error: AppError
   errorDetails?: string | null
   onRetry?: () => void
   retryText?: string
 }
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
-  error,
-  errorDetails,
+  error, 
   onRetry,
   retryText = 'Try Again'
 }) => {
   return (
     <div className="p-6 bg-red-50 border border-red-200 rounded-lg">
-      <div className="text-red-600 font-semibold mb-2">Error: {error}</div>
-      {errorDetails && (
-        <div className="text-red-600 text-sm mb-3">{errorDetails}</div>
+      <div className="text-red-600 font-semibold mb-2">Error: {error.message}</div>
+      {error.details && (
+        <div className="text-red-600 text-sm mb-3">{error.details}</div>
       )}
       {onRetry && (
         <button

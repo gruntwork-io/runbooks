@@ -5,6 +5,7 @@ import * as runtime from 'react/jsx-runtime'
 // Support MDX components
 import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
+import NewBoilerplateInputs from '@/components/mdx/NewBoilerplateInputs/NewBoilerplateInputs'
 
 /**
  * This component renders a markdown/MDX document.
@@ -25,7 +26,7 @@ interface MDXContainerProps {
   runbookPath?: string
 }
 
-export const MDXContainer = ({ content, className }: MDXContainerProps) => {
+function MDXContainer({ content, className }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -84,9 +85,12 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     useMDXComponents: () => ({
       HelloWorld,
       BoilerplateInputs,
+      NewBoilerplateInputs,
       // Add more components here as needed
     })
   })
 
   return compiledMDX.default
 }
+
+export default MDXContainer;

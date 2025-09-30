@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { useFileTree } from '../../../../hooks/useFileTree'
+import type { AppError } from '../../../../types/error'
 
 /**
  * Result object returned by the useBoilerplateRender hook
@@ -13,10 +14,8 @@ interface UseBoilerplateRenderResult {
   success: string | null
   /** Whether to show temporary success indicator */
   showSuccessIndicator: boolean
-  /** Error message if generation fails, null otherwise */
-  error: string | null
-  /** Additional error details if generation fails, null otherwise */
-  errorDetails: string | null
+  /** Error object if generation fails, null otherwise */
+  error: AppError | null
   /** Function to generate boilerplate files with the given template path and variables */
   generate: (templatePath: string, variables: Record<string, unknown>) => Promise<void>
   /** Function to re-render with debouncing (for real-time updates) */
@@ -41,6 +40,11 @@ interface UseBoilerplateRenderResult {
  * const handleGenerate = async () => {
  *   await generate('my-template', { environment: 'dev', region: 'us-west-2' })
  * }
+ * 
+ * if (error) {
+ *   console.log('Error:', error.message)
+ *   console.log('Details:', error.details)
+ * }
  * ```
  */
 export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
@@ -48,8 +52,7 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
   const [isAutoRendering, setIsAutoRendering] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [showSuccessIndicator, setShowSuccessIndicator] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [errorDetails, setErrorDetails] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
   const { setFileTree: setGlobalFileTree } = useFileTree()
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const autoRenderTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -77,7 +80,6 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
   const generate = async (templatePath: string, variables: Record<string, unknown>) => {
     setIsGenerating(true)
     setError(null)
-    setErrorDetails(null)
     setSuccess(null)
     setShowSuccessIndicator(false)
     setGlobalFileTree(null)
@@ -102,8 +104,10 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        setError(errorData.error || `Failed to generate files: ${response.statusText}`)
-        setErrorDetails(errorData.details || null)
+        setError({
+          message: errorData.error || `Failed to generate files: ${response.statusText}`,
+          details: errorData.details || ''
+        })
         return
       }
 
@@ -122,8 +126,10 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
         successTimeoutRef.current = null
       }, 3000)
     } catch (fetchError) {
-      setError('Network error occurred while generating files')
-      setErrorDetails(fetchError instanceof Error ? fetchError.message : 'Unknown error')
+      setError({
+        message: 'Network error occurred while generating files',
+        details: fetchError instanceof Error ? fetchError.message : 'Unknown error'
+      })
     } finally {
       setIsGenerating(false)
     }
@@ -157,7 +163,6 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
     // Instant re-render (no delay)
     setIsAutoRendering(true)
     setError(null)
-    setErrorDetails(null)
     // Don't clear success message for re-renders
     // Don't clear file tree for re-renders
 
@@ -175,8 +180,10 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        setError(errorData.error || `Failed to auto-render files: ${response.statusText}`)
-        setErrorDetails(errorData.details || null)
+        setError({
+          message: errorData.error || `Failed to auto-render files: ${response.statusText}`,
+          details: errorData.details || ''
+        })
         return
       }
 
@@ -189,10 +196,11 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
       
       // Clear any previous errors on successful auto-render
       setError(null)
-      setErrorDetails(null)
     } catch (fetchError) {
-      setError('Network error occurred while auto-rendering files')
-      setErrorDetails(fetchError instanceof Error ? fetchError.message : 'Unknown error')
+      setError({
+        message: 'Network error occurred while auto-rendering files',
+        details: fetchError instanceof Error ? fetchError.message : 'Unknown error'
+      })
     } finally {
       setIsAutoRendering(false)
     }
@@ -217,7 +225,6 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
     setSuccess(null)
     setShowSuccessIndicator(false)
     setError(null)
-    setErrorDetails(null)
     setGlobalFileTree(null)
     
     // Clear any existing timeouts
@@ -231,5 +238,5 @@ export const useBoilerplateRender = (): UseBoilerplateRenderResult => {
     }
   }
 
-  return { isGenerating, isAutoRendering, success, showSuccessIndicator, error, errorDetails, generate, autoRender: autoRender, reset }
+  return { isGenerating, isAutoRendering, success, showSuccessIndicator, error, generate, autoRender: autoRender, reset }
 }

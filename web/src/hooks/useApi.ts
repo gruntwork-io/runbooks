@@ -1,16 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import type { AppError } from '../types/error';
 
-/**
- * API response wrapper for hooks that return data with loading and error states
- */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+
+// API response wrapper for hooks that return data with loading and error states
 export interface UseApiReturn<T> {
   data: T | null;
   isLoading: boolean;
   error: AppError | null;
 }
 
-export function useApi<T>(endpoint: string): UseApiReturn<T> {
+export function useApi<T>(
+  endpoint: string, 
+  method: HttpMethod = 'GET', 
+  body?: Record<string, unknown>
+): UseApiReturn<T> {
   const [data, setData] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<AppError | null>(null);
@@ -35,7 +39,19 @@ export function useApi<T>(endpoint: string): UseApiReturn<T> {
     // Fetch the data
     const fetchData = async () => {
       try {
-        const response = await fetch(endpoint);
+        const fetchOptions: RequestInit = {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        };
+
+        // Add body if provided and method supports it
+        if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+          fetchOptions.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(endpoint, fetchOptions);
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => null);
@@ -65,7 +81,7 @@ export function useApi<T>(endpoint: string): UseApiReturn<T> {
     // Cleanup function
     return () => {
     };
-  }, [endpoint, fullUrl]);
+  }, [endpoint, fullUrl, method, body]);
 
   return { data, isLoading, error };
 }

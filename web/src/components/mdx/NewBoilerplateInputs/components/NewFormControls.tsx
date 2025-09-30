@@ -1,8 +1,8 @@
 import React from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 /**
  * Base props interface for all form control components
@@ -279,7 +279,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
  * Main form control component that renders the appropriate input type
  * based on the variable type. Acts as a factory for different input components.
  */
-export const FormControl: React.FC<BaseFormControlProps> = (props) => {
+export const NewFormControl: React.FC<BaseFormControlProps> = (props) => {
   const { variable } = props
   
   switch (variable.type) {

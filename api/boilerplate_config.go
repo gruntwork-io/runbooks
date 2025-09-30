@@ -74,50 +74,75 @@ type BoilerplateConfig struct {
 	Variables []BoilerplateVariable `json:"variables"`
 }
 
+// BoilerplateRequest represents the request body for boilerplate variable parsing
+type BoilerplateRequest struct {
+	TemplatePath      string `json:"templatePath,omitempty"`      // Path to the boilerplate template directory
+	BoilerplateContent string `json:"boilerplateContent,omitempty"` // Direct content of the boilerplate.yml file
+}
+
 // HandleBoilerplateRequest parses a boilerplate.yml file and returns the variable declarations as JSON
 // @runbookPath is the path to the boilerplate template, relative to the directory containing the runbook file.
 func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get the boilerplate template path parameter from the query string
-		templatePath := c.Query("templatePath")
-		if templatePath == "" {
+		// Parse the request body
+		var req BoilerplateRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "templatePath parameter is required",
-			})
-			return
-		}
-
-		// Extract the directory from the runbookPath (which we assume is a file path)
-		runbookDir := filepath.Dir(runbookPath)
-
-		// Construct the full path
-		fullPath := filepath.Join(runbookDir, templatePath, "boilerplate.yml")
-		slog.Info("Looking for boilerplate file", "fullPath", fullPath)
-
-		// Check if the file exists
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			slog.Error("File not found", "path", fullPath)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "boilerplate.yml file not found",
-				"details": "Tried to load: " + fullPath,
-			})
-			return
-		}
-
-		// Read the file contents
-		content, err := os.ReadFile(fullPath)
-		if err != nil {
-			slog.Error("Error reading boilerplate file", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to read boilerplate file",
+				"error":   "Invalid request body",
 				"details": err.Error(),
 			})
 			return
 		}
 
+		// Validate that either templatePath or boilerplateContent is provided
+		if req.TemplatePath == "" && req.BoilerplateContent == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Either templatePath or boilerplateContent must be provided",
+			})
+			return
+		}
+
+		var content string
+		var err error
+
+		if req.TemplatePath != "" {
+			// Extract the directory from the runbookPath (which we assume is a file path)
+			runbookDir := filepath.Dir(runbookPath)
+
+			// Construct the full path
+			fullPath := filepath.Join(runbookDir, req.TemplatePath, "boilerplate.yml")
+			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
+
+			// Check if the file exists
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				slog.Error("File not found", "path", fullPath)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error":   "boilerplate.yml file not found",
+					"details": "Tried to load: " + fullPath,
+				})
+				return
+			}
+
+			// Read the file contents
+			fileContent, err := os.ReadFile(fullPath)
+			if err != nil {
+				slog.Error("Error reading boilerplate file", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "Failed to read boilerplate file",
+					"details": err.Error(),
+				})
+				return
+			}
+			content = string(fileContent)
+			slog.Info("Parsing boilerplate config from file", "fullPath", fullPath)
+		} else {
+			// Use the provided boilerplate content directly
+			content = req.BoilerplateContent
+			slog.Info("Parsing boilerplate config from request body")
+		}
+
 		// Parse the boilerplate.yml file using the gruntwork-io/boilerplate package
-		slog.Info("Parsing boilerplate config", "path", fullPath)
-		config, err := parseBoilerplateConfig(string(content))
+		config, err := parseBoilerplateConfig(content)
 		if err != nil {
 			slog.Error("Error parsing boilerplate config", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{

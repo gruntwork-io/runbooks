@@ -4,7 +4,7 @@ import './css/github-markdown-light.css'
 import { useState, useEffect } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/Header'
-import { MDXContainer } from './components/MDXContainer'
+import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
 import { getDirectoryPath } from './lib/utils'
@@ -33,7 +33,6 @@ function App() {
 
   // Check if there is an error
   function hasError() {
-    console.log('error', error)
     return Boolean(error?.message || error?.details);
   }
 

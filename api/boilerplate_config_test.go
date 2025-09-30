@@ -118,37 +118,37 @@ func TestParseBoilerplateConfig(t *testing.T) {
 func TestParseBoilerplateConfig_ContentErrors(t *testing.T) {
 	tests := []struct {
 		name          string
-		filepath      string
+		filePath      string
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name:          "invalid yaml syntax - malformed yaml",
-			filepath:      "../testdata/boilerplate-yaml/invalid-yaml.yml",
+			filePath:      "../testdata/boilerplate-yaml/invalid-yaml.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid yaml syntax - malformed yaml 2",
-			filepath:      "../testdata/boilerplate-yaml/invalid-yaml-2.yml",
+			filePath:      "../testdata/boilerplate-yaml/invalid-yaml-2.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid yaml syntax - malformed yaml 3",
-			filepath:      "../testdata/boilerplate-yaml/invalid-yaml-3.yml",
+			filePath:      "../testdata/boilerplate-yaml/invalid-yaml-3.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid variable types",
-			filepath:      "../testdata/boilerplate-yaml/invalid-variable-types.yml",
+			filePath:      "../testdata/boilerplate-yaml/invalid-variable-types.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid type unsupported",
-			filepath:      "../testdata/boilerplate-yaml/invalid-type-unsupported.yml",
+			filePath:      "../testdata/boilerplate-yaml/invalid-type-unsupported.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
@@ -157,7 +157,7 @@ func TestParseBoilerplateConfig_ContentErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Get the absolute path to the test file
-			absPath, err := filepath.Abs(tt.filepath)
+			absPath, err := filepath.Abs(tt.filePath)
 			require.NoError(t, err)
 
 			// Read the file content
