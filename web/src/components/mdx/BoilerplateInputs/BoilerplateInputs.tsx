@@ -74,13 +74,6 @@ const validateProps = (props: Pick<BoilerplateInputsProps, 'id' | 'templatePath'
     }
   }
 
-  if (props.children) {
-    return {
-      error: "Inline boilerplate.yml parsing not yet implemented",
-      errorDetails: "Please provide a 'templatePath' to a boilerplate template directory instead of inline content."
-    }
-  }
-
   return null
 }
 
@@ -109,6 +102,14 @@ const validateProps = (props: Pick<BoilerplateInputsProps, 'id' | 'templatePath'
  * />
  * ```
  */
+interface BoilerplateInputsProps {
+  id: string
+  templatePath?: string
+  variables?: Record<string, unknown>
+  onGenerate?: (variables: Record<string, unknown>) => void
+  children?: string // For inline boilerplate.yml content
+}
+
 export const BoilerplateInputs: React.FC<BoilerplateInputsProps> = ({
   id,
   templatePath, 

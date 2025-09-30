@@ -2,7 +2,6 @@
 export { BoilerplateInputs } from './BoilerplateInputs'
 export { BoilerplateInputsForm } from './BoilerplateInputsForm'
 export type { 
-  BoilerplateInputsProps,
   BoilerplateInputsFormProps,
   BoilerplateConfig,
   BoilerplateVariable,

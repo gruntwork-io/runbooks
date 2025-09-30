@@ -43,14 +43,6 @@ export interface BoilerplateConfig {
   variables: BoilerplateVariable[]
 }
 
-export interface BoilerplateInputsProps {
-  templatePath?: string
-  variables?: Record<string, unknown>
-  onGenerate?: (variables: Record<string, unknown>) => void
-  id?: string
-  children?: string // For inline boilerplate.yml content
-}
-
 export interface BoilerplateInputsFormProps {
   id: string
   boilerplateConfig: BoilerplateConfig
@@ -64,4 +56,5 @@ export interface BoilerplateInputsFormProps {
   isAutoRendering?: boolean
   showSuccessIndicator?: boolean
   enableAutoRender?: boolean
+  hasGeneratedSuccessfully?: boolean
 }
