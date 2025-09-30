@@ -2,11 +2,11 @@ import React from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import type { BoilerplateInputsFormProps } from '@/components/mdx/BoilerplateInputs/BoilerplateInputs.types'
-import { formatVariableLabel } from '../BoilerplateInputs/lib/formatVariableLabel'
-import { NewFormControl } from './components/NewFormControls'
-import { useFormState } from '../BoilerplateInputs/hooks/useFormState'
-import { useFormValidation } from '../BoilerplateInputs/hooks/useFormValidation'
-import { SuccessIndicator } from '../BoilerplateInputs/components/SuccessIndicator'
+import { formatVariableLabel } from '../../BoilerplateInputs/lib/formatVariableLabel'
+import { NewFormControl } from './NewFormControls'
+import { useFormState } from '../../BoilerplateInputs/hooks/useFormState'
+import { useFormValidation } from '../../BoilerplateInputs/hooks/useFormValidation'
+import { SuccessIndicator } from '../../BoilerplateInputs/components/SuccessIndicator'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -26,13 +26,29 @@ import { SuccessIndicator } from '../BoilerplateInputs/components/SuccessIndicat
  *   - `hasGeneratedSuccessfully`: Whether to show success message (default: false)
  * @returns JSX element representing the form
  */
+interface BoilerplateInputsFormProps {
+  id: string
+  boilerplateConfig: BoilerplateConfig | null
+  initialData?: Record<string, unknown>
+  onFormChange?: (formData: Record<string, unknown>) => void
+  onAutoRender?: (formData: Record<string, unknown>) => void
+  onGenerate?: (formData: Record<string, unknown>) => void
+  submitButtonText?: string
+  showSubmitButton?: boolean
+  isGenerating?: boolean
+  isAutoRendering?: boolean
+  showSuccessIndicator?: boolean
+  enableAutoRender?: boolean
+  hasGeneratedSuccessfully?: boolean
+}
+
 export const NewBoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
   boilerplateConfig,
   initialData = {},
   onFormChange,
   onAutoRender,
-  onSubmit,
+  onGenerate,
   submitButtonText = 'Generate',
   showSubmitButton = true,
   isGenerating = false,
@@ -61,16 +77,18 @@ export const NewBoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    console.log('formData', formData)
+    console.log('validateForm', validateForm(formData))
     
     if (!validateForm(formData)) {
       return
     }
     
-    if (onSubmit) {
-      onSubmit(formData)
+    if (onGenerate) {
+      onGenerate(formData)
     }
   }
-
 
   return (
     <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 relative">

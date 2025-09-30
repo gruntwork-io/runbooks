@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { NewBoilerplateInputsForm } from './NewBoilerplateInputsForm'
+import { NewBoilerplateInputsForm } from './components/NewBoilerplateInputsForm'
 import { ErrorDisplay } from '../BoilerplateInputs/components/ErrorDisplay'
 import { LoadingDisplay } from '../BoilerplateInputs/components/LoadingDisplay'
 import type { AppError } from '@/types/error'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
+import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -50,9 +51,13 @@ function NewBoilerplateInputs({
   children
 }: BoilerplateInputsProps) {
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
+  const [shouldRender, setShouldRender] = useState(false);
+  const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
 
   // Memoize prefilledVariables to prevent infinite re-renders
-  const memoizedPrefilledVariables = useMemo(() => prefilledVariables, [prefilledVariables]);
+  const memoizedPrefilledVariables = useMemo(() => 
+    prefilledVariables, 
+  [prefilledVariables]);
 
   // Validate props first - this is a component-level validation error
   const validationError = useMemo((): AppError | null => {
@@ -120,6 +125,32 @@ function NewBoilerplateInputs({
     }, {} as Record<string, unknown>)
   }, [formState])
 
+  // Render API call - only triggered when shouldRender is true
+  const { data: renderResult, isLoading: isGenerating, error: renderError } = useApiBoilerplateRender(
+    templatePath || '',
+    renderFormData,
+    shouldRender && Boolean(templatePath)
+  )
+
+  // Handle form data changes (no longer needed for auto-rendering, but keeping for potential future use)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleFormChange = (_formData: Record<string, unknown>) => {
+    // Form data changes are handled by the form component itself
+    // This callback is kept for potential future use
+  }
+
+  // Handle successful generation - trigger render API call
+  const handleGenerate = (formData: Record<string, unknown>) => {
+    // Set the form data to render and trigger the API call
+    setRenderFormData(formData)
+    setShouldRender(true)
+
+    // Call the original onGenerate callback if provided
+    if (onGenerate) {
+      onGenerate(formData)
+    }
+  }
+
   // Early return for loading states
   if (isLoading) {
     return <LoadingDisplay message="Loading boilerplate configuration..." />
@@ -135,10 +166,10 @@ function NewBoilerplateInputs({
     return <ErrorDisplay error={apiError} />
   }
 
-  // TODO: Add render error handling when useBoilerplateRender is implemented
-  // if (renderError) {
-  //   return <ErrorDisplay error={renderError} />
-  // }
+  // Early return for render errors
+  if (renderError) {
+    return <ErrorDisplay error={renderError} />
+  }
 
   // Main render - form with success indicator overlay if needed
   return (
@@ -146,15 +177,12 @@ function NewBoilerplateInputs({
       id={id}
       boilerplateConfig={boilerplateConfig}
       initialData={initialData}
-      onSubmit={onGenerate}
-      // TODO: Add these when useBoilerplateRender is implemented
-      // onAutoRender={handleAutoRender}
-      // onSubmit={handleGenerate}
-      // isGenerating={isGenerating}
-      // isAutoRendering={isAutoRendering}
-      // showSuccessIndicator={showSuccessIndicator}
-      // enableAutoRender={formState.hasGenerated}
-      // hasGeneratedSuccessfully={formState.hasGeneratedSuccessfully}
+      onFormChange={handleFormChange}
+      onGenerate={handleGenerate}
+      isGenerating={isGenerating}
+      showSuccessIndicator={Boolean(renderResult)}
+      enableAutoRender={false}
+      hasGeneratedSuccessfully={Boolean(renderResult)}
     />
   )
 }
