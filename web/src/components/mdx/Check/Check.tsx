@@ -1,9 +1,8 @@
-import { CircleQuestionMark } from "lucide-react"
-import { useState } from "react"
+import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
+import { useState, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { CircleSlash } from "lucide-react"
 
 interface CheckProps {
   id: string
@@ -23,7 +22,8 @@ function Check({
 }: CheckProps) {
   
   const [skipCheck, setSkipCheck] = useState(false);
-  const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'in-progress' >('success');
+  const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'in-progress' | 'pending'>('pending');
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   // const [shouldRender, setShouldRender] = useState(false);
@@ -245,21 +245,84 @@ function Check({
   //   return <ErrorDisplay error={renderError} />
   // }
 
+  // Get visual styling based on status
+  const getStatusClasses = () => {
+    if (skipCheck) return 'bg-gray-100 border-gray-200'
+    
+    const statusMap = {
+      success: 'bg-green-50 border-green-200',
+      warn: 'bg-yellow-50 border-yellow-200', 
+      fail: 'bg-red-50 border-red-200',
+      'in-progress': 'bg-blue-50 border-blue-200',
+      pending: 'bg-gray-100 border-gray-200'
+    }
+    
+    return statusMap[checkStatus]
+  }
+
+  const getStatusIcon = () => {
+    if (skipCheck) return CircleSlash
+    const iconMap = {
+      success: CheckCircle,
+      warn: AlertTriangle,
+      fail: XCircle,
+      'in-progress': Loader2,
+      pending: CircleQuestionMark
+    }
+    return iconMap[checkStatus]
+  }
+
+  const getStatusIconClasses = () => {
+    if (skipCheck) return 'text-gray-400'
+    const colorMap = {
+      success: 'text-green-600',
+      warn: 'text-yellow-600',
+      fail: 'text-red-600',
+      'in-progress': 'text-blue-600',
+      pending: 'text-gray-500'
+    }
+    return colorMap[checkStatus]
+  }
+
+  const statusClasses = getStatusClasses()
+  const IconComponent = getStatusIcon()
+  const iconClasses = getStatusIconClasses()
+
+  // Handle starting the check
+  const handleStartCheck = () => {
+    setCheckStatus('in-progress')
+    
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+    
+    // Set success after 3 seconds
+    timeoutRef.current = setTimeout(() => {
+      setCheckStatus('success')
+    }, 3000)
+  }
+
+  // Handle stopping the check
+  const handleStopCheck = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+    setCheckStatus('pending')
+  }
+
   // Main render - form with success indicator overlay if needed
   return (
     <>
-      <div className="relative rounded-sm border border-gray-200 mb-5 p-4 bg-gray-100 flex">
+      <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4 flex`}>
         {/* Skip overlay */}
         {skipCheck && (
           <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
         )}
         
         <div className="border-r border-gray-300 pr-2 mr-4">
-          {skipCheck ? (
-            <CircleSlash className="size-6 text-gray-500/50 mr-1" />
-          ) : (
-            <CircleQuestionMark className="size-6 text-gray-500 mr-1" />
-          )}
+          <IconComponent className={`size-6 ${iconClasses} mr-1 ${checkStatus === 'in-progress' ? 'animate-spin' : ''}`} />
         </div>
         <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-50' : ''}`}>
           <div className={`text-md font-bold text-gray-600`}>Did you set up your KMS key correctly?</div>
@@ -267,7 +330,26 @@ function Check({
             Let's make sure it's all set up correctly.
           </div>
           <div className="flex items-center w-full justify-between">
-            <Button variant="outline" disabled={skipCheck}>Check</Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                disabled={skipCheck || checkStatus === 'in-progress'}
+                onClick={handleStartCheck}
+              >
+                {checkStatus === 'in-progress' ? 'Checking...' : 'Check'}
+              </Button>
+              {checkStatus === 'in-progress' && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleStopCheck}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  <Square className="size-4 mr-1" />
+                  Stop
+                </Button>
+              )}
+            </div>
           </div>
         </div>
         
@@ -279,15 +361,6 @@ function Check({
           </label>
         </div>
       </div>
-
-      <ul>
-        <li><strong>Check</strong></li>
-        <li>Id: {id}</li>
-        <li>Path: {path}</li>
-        <li>Success Message: {successMessage}</li>
-        <li>Warn Message: {warnMessage}</li>
-        <li>Fail Message: {failMessage}</li>
-      </ul>
     </>
   )
 }
