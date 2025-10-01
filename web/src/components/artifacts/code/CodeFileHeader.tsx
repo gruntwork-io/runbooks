@@ -75,7 +75,7 @@ export const CodeFileHeader = ({
                 variant="ghost"
                 size="icon"
                 onClick={handleCopyPath}
-                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
+                className="h-5 w-5 text-gray-400 hover:cursor-pointer box-shadow-none"
               >
                 {copiedPath ? <Check className="h-3 w-3 text-gray-400" /> : <FolderOpen className="h-4 w-4" />}
               </Button>
