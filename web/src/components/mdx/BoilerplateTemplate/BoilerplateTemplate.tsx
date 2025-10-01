@@ -45,10 +45,8 @@ function BoilerplateTemplate({
   
   // Extract required variables from template content
   const requiredVariables = useMemo(() => {
-    const vars = extractTemplateVariables(children);
-    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Required variables:`, vars);
-    return vars;
-  }, [children, boilerplateInputsId, outputPath]);
+    return extractTemplateVariables(children);
+  }, [children]);
   
   // Extract template files from children
   const templateFiles = useMemo(() => {
@@ -75,8 +73,6 @@ function BoilerplateTemplate({
   
   // Core render function that calls the API
   const renderTemplate = useCallback(async (variables: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
-    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Rendering with variables:`, variables, isAutoUpdate ? '(auto-update)' : '(initial)');
-    
     // Only show loading state for initial renders, not auto-updates
     if (!isAutoUpdate) {
       setIsRendering(true);
@@ -108,8 +104,6 @@ function BoilerplateTemplate({
       setRenderState('rendered'); // Move to rendered state
       setIsRendering(false);
       
-      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Render successful`);
-      
       // Return the file tree for coordinator to merge
       return responseData.fileTree || [];
     } catch (err) {
@@ -122,7 +116,7 @@ function BoilerplateTemplate({
       setIsRendering(false);
       return []; // Return empty array so coordinator can continue
     }
-  }, [boilerplateInputsId, outputPath, templateFiles]);
+  }, [templateFiles]);
   
   // 1. Register with coordinator for event-based initial render
   useEffect(() => {
@@ -131,8 +125,6 @@ function BoilerplateTemplate({
     }
     
     const templateId = `${boilerplateInputsId}-${outputPath || 'default'}`;
-    
-    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Registering with coordinator`);
     
     const unregister = registerTemplate({
       templateId,
@@ -149,23 +141,18 @@ function BoilerplateTemplate({
   useEffect(() => {
     // Only react to variable changes if we've rendered at least once
     if (renderState !== 'rendered') {
-      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Skipping auto-update - state is '${renderState}'`);
       return;
     }
     
     if (!contextVariables || !hasAllRequiredVariables(contextVariables)) {
-      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Skipping auto-update - invalid variables`);
       return;
     }
     
     // Check if variables actually changed
     const variablesKey = JSON.stringify(contextVariables);
     if (variablesKey === lastRenderedVariablesRef.current) {
-      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Skipping auto-update - variables unchanged`);
       return;
     }
-    
-    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Auto-update requested (debouncing...)`);
     
     // Clear existing timer
     if (autoUpdateTimerRef.current) {
@@ -174,7 +161,6 @@ function BoilerplateTemplate({
     
     // Debounce: wait 300ms after last change before updating
     autoUpdateTimerRef.current = setTimeout(() => {
-      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Auto-update executing`);
       lastRenderedVariablesRef.current = variablesKey;
       
       // Re-render with new variables (mark as auto-update to prevent flashing)
@@ -182,14 +168,12 @@ function BoilerplateTemplate({
         .then(newFileTree => {
           // Merge the new file tree with existing using functional update to avoid stale closure
           setFileTree((currentFileTree: FileTreeNode[] | null) => {
-            const merged = mergeFileTrees(currentFileTree, newFileTree);
-            console.log(`[Template][${boilerplateInputsId}][${outputPath}] File tree updated:`, merged?.length || 0, 'items');
-            return merged;
+            return mergeFileTrees(currentFileTree, newFileTree);
           });
         })
         .catch(err => {
           // Error is already set in renderTemplate, just log for debugging
-          console.error(`[Template][${boilerplateInputsId}][${outputPath}] Auto-update failed:`, err);
+          console.error(`[BoilerplateTemplate][${boilerplateInputsId}][${outputPath}] Auto-update failed:`, err);
         });
     }, 300);
   }, [contextVariables, renderState, hasAllRequiredVariables, boilerplateInputsId, outputPath, renderTemplate, setFileTree]);

@@ -180,8 +180,6 @@ function BoilerplateInputs({
     const inputsId: string = id ?? '';
     if (!inputsId) return;
     
-    console.log(`[BoilerplateInputs][${inputsId}] Auto-render requested (debouncing...)`);
-    
     // Clear existing timer
     if (autoRenderTimerRef.current) {
       clearTimeout(autoRenderTimerRef.current);
@@ -189,13 +187,11 @@ function BoilerplateInputs({
     
     // Debounce: wait 200ms after last change before updating
     autoRenderTimerRef.current = setTimeout(() => {
-      console.log(`[BoilerplateInputs][${inputsId}] Auto-render executing`);
-      
       // Update variables in context so BoilerplateTemplate components can re-render reactively
+      // This triggers the auto-update effect in BoilerplateTemplate.tsx (lines 149-195)
       setVariables(inputsId, formData);
       
-      // If templatePath exists, also trigger file tree auto-render
-      // (inline templates will auto-update via their reactive effect)
+      // If templatePath exists, also trigger file-based template (vs. inline templates) auto-render
       if (templatePath) {
         autoRender(templatePath, formData);
       }
@@ -220,30 +216,25 @@ function BoilerplateInputs({
       return;
     }
     
-    console.log(`[BoilerplateInputs][${inputsId}] 🎯 Generate clicked with formData:`, formData);
-    console.log(`[BoilerplateInputs][${inputsId}] templatePath:`, templatePath);
-    
-    // Publish variables to context (needed for both paths)
-    console.log(`[BoilerplateInputs][${inputsId}] Publishing variables to context:`, formData);
+    // Publish variables to context (needed for both inline templates and auto-updates)
     setVariables(inputsId, formData);
     
-    // Path 1: File-based rendering (templatePath exists)
+    // Always call coordinator (this is needed by inline templates if any are registered)
+    try {
+      await renderAllForInputsId(inputsId, formData);
+    } catch (error) {
+      console.error(`[BoilerplateInputs][${inputsId}] Coordinator render failed:`, error);
+    }
+    
+    // Also render file-based templates if templatePath exists
+    // Notably, a BoilerplateInputs component instance could be used to render both inline templates and file-based templates
     if (templatePath) {
-      console.log(`[BoilerplateInputs][${inputsId}] Using templatePath mode`);
       setRenderFormData(formData);
       setShouldRender(true);
-    } 
-    // Path 2: Inline template rendering (no templatePath, uses coordinator)
-    else {
-      console.log(`[BoilerplateInputs][${inputsId}] 🚀 Using coordinator for inline templates`);
-      try {
-        await renderAllForInputsId(inputsId, formData);
-        console.log(`[BoilerplateInputs][${inputsId}] ✅ Coordinator render complete`);
-        setShouldRender(true); // Mark as rendered for auto-updates
-      } catch (error) {
-        console.error(`[BoilerplateInputs][${inputsId}] ❌ Coordinator render failed:`, error);
-      }
     }
+    
+    // Mark as rendered for auto-updates (even if only coordinator was called)
+    setShouldRender(true);
 
     // Call the original onGenerate callback if provided
     if (onGenerate) {

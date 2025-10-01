@@ -27,8 +27,6 @@ export function BoilerplateRenderCoordinatorProvider({ children }: { children: R
 
   // Register a template - returns unregister function
   const registerTemplate = useCallback((registration: TemplateRegistration) => {
-    console.log(`[RenderCoordinator] Registering template:`, registration.templateId, 'for inputsId:', registration.inputsId)
-    
     setRegistrations(prev => {
       // Prevent duplicate registrations
       if (prev.some(r => r.templateId === registration.templateId)) {
@@ -40,33 +38,25 @@ export function BoilerplateRenderCoordinatorProvider({ children }: { children: R
 
     // Return unregister function
     return () => {
-      console.log(`[RenderCoordinator] Unregistering template:`, registration.templateId)
       setRegistrations(prev => prev.filter(r => r.templateId !== registration.templateId))
     }
   }, [])
 
   // Render all templates for a specific inputsId atomically
   const renderAllForInputsId = useCallback(async (inputsId: string, variables: Record<string, unknown>) => {
-    console.log(`[RenderCoordinator] Rendering all templates for inputsId:`, inputsId, 'with variables:', variables)
-    
     // Find all templates registered for this inputsId
     const templatesForInputsId = registrations.filter(r => r.inputsId === inputsId)
     
     if (templatesForInputsId.length === 0) {
-      console.warn(`[RenderCoordinator] No templates registered for inputsId: ${inputsId}`)
+      // No templates registered - this is fine, just exit early
       return
     }
-
-    console.log(`[RenderCoordinator] Found ${templatesForInputsId.length} template(s) to render:`, 
-      templatesForInputsId.map(t => t.templateId))
 
     try {
       // Render all templates in parallel
       const fileTreePromises = templatesForInputsId.map(async (template) => {
-        console.log(`[RenderCoordinator] Rendering template: ${template.templateId}`)
         try {
           const fileTreeResult = await template.renderFn(variables)
-          console.log(`[RenderCoordinator] Successfully rendered template: ${template.templateId}`)
           return fileTreeResult
         } catch (error) {
           console.error(`[RenderCoordinator] Error rendering template ${template.templateId}:`, error)
@@ -77,16 +67,11 @@ export function BoilerplateRenderCoordinatorProvider({ children }: { children: R
       const fileTrees = await Promise.all(fileTreePromises)
 
       // Merge all file trees atomically using functional update to avoid stale closure
-      console.log(`[RenderCoordinator] Merging ${fileTrees.length} file tree(s)`)
       setFileTree(currentFileTree => {
         const mergedTree = fileTrees.reduce<FileTreeNode[] | null>(
           (acc, tree) => mergeFileTrees(acc, tree),
           currentFileTree
         )
-        
-        if (mergedTree) {
-          console.log(`[RenderCoordinator] Setting merged file tree with ${mergedTree.length} top-level items`)
-        }
         
         return mergedTree
       })
