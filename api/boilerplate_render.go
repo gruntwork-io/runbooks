@@ -31,6 +31,21 @@ type RenderResponse struct {
 	FileTree     []CodeFileData `json:"fileTree"`
 }
 
+// RenderInlineRequest represents a request to render template files provided in the request body
+type RenderInlineRequest struct {
+	// Map of relative file paths to their contents
+	// Example: {"boilerplate.yml": "...", "main.tf": "..."}
+	TemplateFiles map[string]string `json:"templateFiles"`
+	Variables     map[string]any    `json:"variables"`
+}
+
+// RenderInlineResponse represents the response from the inline render endpoint
+type RenderInlineResponse struct {
+	Message       string         `json:"message"`
+	RenderedFiles map[string]string `json:"renderedFiles"` // Map of file paths to rendered content
+	FileTree      []CodeFileData `json:"fileTree"`
+}
+
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
 func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -240,4 +255,159 @@ func preConvertJSONTypes(value any, variableType bpVariables.BoilerplateType) an
 	}
 
 	return value
+}
+
+// HandleBoilerplateRenderInline renders boilerplate templates provided directly in the request body
+func HandleBoilerplateRenderInline() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req RenderInlineRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			slog.Error("Failed to parse inline render request", "error", err)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid request body",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		if len(req.TemplateFiles) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "templateFiles is required and must not be empty",
+			})
+			return
+		}
+
+		// Create a temporary directory for the template files
+		tempDir, err := os.MkdirTemp("", "boilerplate-template-*")
+		if err != nil {
+			slog.Error("Failed to create temporary directory", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to create temporary directory",
+				"details": err.Error(),
+			})
+			return
+		}
+		defer os.RemoveAll(tempDir) // Clean up temp directory when done
+		slog.Info("Created temporary directory for template files", "tempDir", tempDir)
+
+		// Write template files to the temporary directory
+		for relPath, content := range req.TemplateFiles {
+			fullPath := filepath.Join(tempDir, relPath)
+			
+			// Create parent directories if they don't exist
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				slog.Error("Failed to create directory", "path", filepath.Dir(fullPath), "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "Failed to create directory structure",
+					"details": err.Error(),
+				})
+				return
+			}
+
+			// Write the file
+			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+				slog.Error("Failed to write template file", "path", fullPath, "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "Failed to write template file",
+					"details": err.Error(),
+				})
+				return
+			}
+			slog.Debug("Wrote template file", "path", fullPath)
+		}
+
+		// Create a temporary output directory
+		outputDir, err := os.MkdirTemp("", "boilerplate-output-*")
+		if err != nil {
+			slog.Error("Failed to create output directory", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to create output directory",
+				"details": err.Error(),
+			})
+			return
+		}
+		defer os.RemoveAll(outputDir) // Clean up output directory when done
+		slog.Info("Created temporary output directory", "outputDir", outputDir)
+
+		// Render the template using the boilerplate package
+		err = renderBoilerplateTemplate(tempDir, outputDir, req.Variables)
+		if err != nil {
+			slog.Error("Failed to render boilerplate template", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to render template",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		slog.Info("Successfully rendered boilerplate template")
+
+		// Read all rendered files from the output directory
+		renderedFiles, err := readAllFilesInDirectory(outputDir)
+		if err != nil {
+			slog.Error("Failed to read rendered files", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to read rendered files",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Build file tree from the generated output
+		fileTree, err := buildFileTreeWithRoot(outputDir, "")
+		if err != nil {
+			slog.Error("Failed to build file tree", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to build file tree",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Create response with rendered files and file tree
+		response := RenderInlineResponse{
+			Message:       "Template rendered successfully",
+			RenderedFiles: renderedFiles,
+			FileTree:      fileTree,
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+// readAllFilesInDirectory recursively reads all files in a directory and returns a map of relative paths to contents
+func readAllFilesInDirectory(rootDir string) (map[string]string, error) {
+	files := make(map[string]string)
+	
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+		
+		// Read the file
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", path, err)
+		}
+		
+		// Get the relative path from the root directory
+		relPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
+		}
+		
+		files[relPath] = string(content)
+		return nil
+	})
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	return files, nil
 }

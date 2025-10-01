@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { BoilerplateVariablesContext } from './BoilerplateVariablesContext.types'
+import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 
 /**
  * Provider component that enables variable sharing between BoilerplateInputs and BoilerplateTemplate components.
@@ -21,6 +22,8 @@ import { BoilerplateVariablesContext } from './BoilerplateVariablesContext.types
  */
 export function BoilerplateVariablesProvider({ children }: { children: ReactNode }) {
   const [variablesByInputsId, setVariablesByInputsId] = useState<Record<string, Record<string, unknown>>>({})
+  const [configsByInputsId, setConfigsByInputsId] = useState<Record<string, BoilerplateConfig>>({})
+  const [yamlContentByInputsId, setYamlContentByInputsId] = useState<Record<string, string>>({})
 
   const setVariables = useCallback((inputsId: string, variables: Record<string, unknown>) => {
     setVariablesByInputsId(prev => ({
@@ -33,8 +36,40 @@ export function BoilerplateVariablesProvider({ children }: { children: ReactNode
     return variablesByInputsId[inputsId]
   }, [variablesByInputsId])
 
+  const setConfig = useCallback((inputsId: string, config: BoilerplateConfig) => {
+    setConfigsByInputsId(prev => ({
+      ...prev,
+      [inputsId]: config
+    }))
+  }, [])
+
+  const getConfig = useCallback((inputsId: string) => {
+    return configsByInputsId[inputsId]
+  }, [configsByInputsId])
+
+  const setYamlContent = useCallback((inputsId: string, yamlContent: string) => {
+    setYamlContentByInputsId(prev => ({
+      ...prev,
+      [inputsId]: yamlContent
+    }))
+  }, [])
+
+  const getYamlContent = useCallback((inputsId: string) => {
+    return yamlContentByInputsId[inputsId]
+  }, [yamlContentByInputsId])
+
   return (
-    <BoilerplateVariablesContext value={{ variablesByInputsId, setVariables, getVariables }}>
+    <BoilerplateVariablesContext value={{ 
+      variablesByInputsId, 
+      configsByInputsId,
+      yamlContentByInputsId,
+      setVariables, 
+      getVariables,
+      setConfig,
+      getConfig,
+      setYamlContent,
+      getYamlContent
+    }}>
       {children}
     </BoilerplateVariablesContext>
   )

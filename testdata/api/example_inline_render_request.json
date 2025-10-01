@@ -1,0 +1,12 @@
+{
+  "templateFiles": {
+    "boilerplate.yml": "variables:\n  - name: Environment\n    description: The environment name\n    type: string\n\n  - name: InstanceCount\n    description: Number of instances\n    type: int\n",
+    "main.tf": "# Terraform configuration for {{ .Environment }}\n\nresource \"aws_instance\" \"web\" {\n  count = {{ .InstanceCount }}\n  ami           = \"ami-12345678\"\n  instance_type = \"t2.micro\"\n\n  tags = {\n    Name = \"web-{{ .Environment }}-${count.index}\"\n    Environment = \"{{ .Environment }}\"\n  }\n}\n",
+    "outputs.tf": "output \"instance_count\" {\n  value = {{ .InstanceCount }}\n}\n\noutput \"environment\" {\n  value = \"{{ .Environment }}\"\n}\n"
+  },
+  "variables": {
+    "Environment": "production",
+    "InstanceCount": 3
+  }
+}
+

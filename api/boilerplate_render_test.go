@@ -199,3 +199,53 @@ func TestConvertVariablesToCorrectTypes(t *testing.T) {
 		t.Errorf("convertVariablesToCorrectTypes failed: %v", err)
 	}
 }
+
+func TestReadAllFilesInDirectory(t *testing.T) {
+	// Create a temporary directory structure
+	tempDir, err := os.MkdirTemp("", "read-files-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create test files
+	testFiles := map[string]string{
+		"file1.txt":         "content of file 1",
+		"subdir/file2.txt":  "content of file 2",
+		"subdir/file3.json": `{"key": "value"}`,
+		"another/deep/file.md": "# Markdown content",
+	}
+
+	for relPath, content := range testFiles {
+		fullPath := filepath.Join(tempDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("Failed to create directory for %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write file %s: %v", relPath, err)
+		}
+	}
+
+	// Test readAllFilesInDirectory
+	files, err := readAllFilesInDirectory(tempDir)
+	if err != nil {
+		t.Fatalf("readAllFilesInDirectory failed: %v", err)
+	}
+
+	// Verify all files are present
+	if len(files) != len(testFiles) {
+		t.Errorf("Expected %d files, got %d", len(testFiles), len(files))
+	}
+
+	// Verify file contents
+	for relPath, expectedContent := range testFiles {
+		actualContent, exists := files[relPath]
+		if !exists {
+			t.Errorf("Expected file %s not found in result", relPath)
+			continue
+		}
+		if actualContent != expectedContent {
+			t.Errorf("File %s content mismatch. Expected: %q, Got: %q", relPath, expectedContent, actualContent)
+		}
+	}
+}

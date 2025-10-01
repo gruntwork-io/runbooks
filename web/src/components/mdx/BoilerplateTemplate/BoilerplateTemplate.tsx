@@ -5,6 +5,8 @@ import { ErrorDisplay } from '@/components/mdx/BoilerplateInputs/components/Erro
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
+import { extractTemplateFiles } from './lib/extractTemplateFiles'
+import { useApiBoilerplateRenderInline } from '@/hooks/useApiBoilerplateRenderInline'
 
 interface BoilerplateTemplateProps {
   boilerplateInputsId: string
@@ -43,16 +45,38 @@ function BoilerplateTemplate({
     });
   }, [requiredVariables]);
   
-  const [isLoading, setIsLoading] = useState(!hasAllRequiredVariables(initialVariables)); // Start as not loading if we have all required variables
+  // Get variables, config, and raw YAML from context (shared between BoilerplateInputs and BoilerplateTemplate)
+  const { variablesByInputsId, yamlContentByInputsId } = useBoilerplateVariables();
+  
+  // Get the raw boilerplate YAML from context (stored by BoilerplateInputs)
+  const boilerplateYaml = yamlContentByInputsId[boilerplateInputsId];
+  
+  const [isLoading, setIsLoading] = useState(!hasAllRequiredVariables(initialVariables) || !boilerplateYaml); // Wait for both variables and YAML
   const [error, setError] = useState<AppError | null>(null);
   const [currentVariables, setCurrentVariables] = useState<Record<string, unknown> | undefined>(initialVariables);
   
-  // Get variables from context (shared between BoilerplateInputs and BoilerplateTemplate)
-  const { variablesByInputsId } = useBoilerplateVariables();
+  // Extract template files from children
+  const templateFiles = useMemo(() => {
+    const files = extractTemplateFiles(children, outputPath);
+    
+    // If we have raw YAML from context, include it
+    if (boilerplateYaml) {
+      files['boilerplate.yml'] = boilerplateYaml;
+    }
+    
+    return files;
+  }, [children, outputPath, boilerplateYaml]);
+  
+  // Use the inline render API hook - only renders via manual autoRender calls
+  const { 
+    data: renderData, 
+    error: renderError,
+    autoRender
+  } = useApiBoilerplateRenderInline();
   
   // Update loading state and variables when initialVariables prop changes (MDX async compilation)
   useEffect(() => {
-    if (hasAllRequiredVariables(initialVariables)) {
+    if (hasAllRequiredVariables(initialVariables) && boilerplateYaml) {
       setCurrentVariables(initialVariables);
       setIsLoading(false);
       setError(null);
@@ -74,32 +98,46 @@ function BoilerplateTemplate({
         });
       }
     }
-  }, [initialVariables, hasAllRequiredVariables, requiredVariables, boilerplateInputsId]);
+  }, [initialVariables, hasAllRequiredVariables, requiredVariables, boilerplateInputsId, boilerplateYaml]);
   
   // Subscribe to variable updates from the connected BoilerplateInputs component
   useEffect(() => {
     const contextVariables = variablesByInputsId[boilerplateInputsId];
-    if (hasAllRequiredVariables(contextVariables)) {
+    if (hasAllRequiredVariables(contextVariables) && boilerplateYaml) {
       // Context variables take precedence over initial variables
       setCurrentVariables(contextVariables);
       setIsLoading(false);
     }
-  }, [variablesByInputsId, boilerplateInputsId, hasAllRequiredVariables]);
+  }, [variablesByInputsId, boilerplateInputsId, hasAllRequiredVariables, boilerplateYaml]);
+  
+  // Trigger render when variables change and we have all required variables
+  useEffect(() => {
+    if (hasAllRequiredVariables(currentVariables) && boilerplateYaml && Object.keys(templateFiles).length > 0) {
+      autoRender(templateFiles, currentVariables!);
+    }
+  }, [currentVariables, templateFiles, hasAllRequiredVariables, autoRender, boilerplateYaml, boilerplateInputsId]);
   
   return (
     isLoading ? (
       <LoadingDisplay message="Fill in the variables above and click the Generate button to render this code snippet." />
     ) : error ? (
       <ErrorDisplay error={error} />
-    ) : (
+    ) : renderError ? (
+      <ErrorDisplay error={{ 
+        message: 'Failed to render template', 
+        details: renderError.message || 'An error occurred while rendering the template' 
+      }} />
+    ) : renderData?.renderedFiles ? (
       <>
-        <h1>My code</h1>
-        <ul>
-          <li>Inputs ID: {boilerplateInputsId}</li>
-          <li>Output Path: {outputPath}</li>
-          <li>Variables: {JSON.stringify(currentVariables, null, 2)}</li>
-        </ul>
+        {Object.entries(renderData.renderedFiles).map(([filename, content]) => (
+          <div key={filename}>
+            <h4>{filename}</h4>
+            <pre><code>{content}</code></pre>
+          </div>
+        ))}
       </>
+    ) : (
+      <LoadingDisplay message="Waiting for template to render..." />
     )
   )
 }

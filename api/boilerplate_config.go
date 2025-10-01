@@ -71,7 +71,8 @@ type ValidationRule struct {
 
 // BoilerplateConfig represents the parsed boilerplate.yml, which is a collection of variables
 type BoilerplateConfig struct {
-	Variables []BoilerplateVariable `json:"variables"`
+	Variables   []BoilerplateVariable `json:"variables"`
+	RawYaml     string                `json:"rawYaml"`     // The original YAML content
 }
 
 // BoilerplateRequest represents the request body for boilerplate variable parsing
@@ -141,20 +142,23 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 			slog.Info("Parsing boilerplate config from request body")
 		}
 
-		// Parse the boilerplate.yml file using the gruntwork-io/boilerplate package
-		config, err := parseBoilerplateConfig(content)
-		if err != nil {
-			slog.Error("Error parsing boilerplate config", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Invalid boilerplate configuration",
-				"details": err.Error(),
-			})
-			return
-		}
+	// Parse the boilerplate.yml file using the gruntwork-io/boilerplate package
+	config, err := parseBoilerplateConfig(content)
+	if err != nil {
+		slog.Error("Error parsing boilerplate config", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Invalid boilerplate configuration",
+			"details": err.Error(),
+		})
+		return
+	}
 
-		slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables))
-		// Return the parsed configuration
-		c.JSON(http.StatusOK, config)
+	// Include the raw YAML content in the response
+	config.RawYaml = content
+
+	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables))
+	// Return the parsed configuration
+	c.JSON(http.StatusOK, config)
 	}
 }
 

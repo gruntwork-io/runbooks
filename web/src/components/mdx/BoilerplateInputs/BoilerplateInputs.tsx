@@ -61,8 +61,8 @@ function BoilerplateInputs({
   // Get the global file tree context
   const { setFileTree } = useFileTree();
   
-  // Get the boilerplate variables context to share variables with BoilerplateTemplate components
-  const { setVariables } = useBoilerplateVariables();
+  // Get the boilerplate variables context to share variables, config, and raw YAML with BoilerplateTemplate components
+  const { setVariables, setConfig, setYamlContent } = useBoilerplateVariables();
 
   // Don't memoize prefilledVariables - just use it directly
   // Memoizing objects can cause issues with React's dependency tracking
@@ -98,7 +98,7 @@ function BoilerplateInputs({
   }, [id, templatePath, hasChildren])
 
   // Extract the contents of the children (inline boilerplate.yml content) if they are provided
-  const inlineBoilerplateYamlContent = children ? extractYamlFromChildren(children) : ''
+  const inlineBoilerplateYamlContent = children ? extractYamlFromChildren(children) : '';
   
   // Validate inline content format - check if children structure indicates missing code fences
   // Note: We don't memoize this because children (React elements) can't be safely used in dependency arrays
@@ -124,7 +124,7 @@ function BoilerplateInputs({
     templatePath, 
     inlineBoilerplateYamlContent,
     !validationError && !inlineContentError // shouldFetch is false when there's any validation error
-  )
+  );
 
   // Apply the prefilled variables to the boilerplate config
   const boilerplateConfigWithPrefilledVariables = useMemo(() => {
@@ -146,6 +146,17 @@ function BoilerplateInputs({
       hasSetFormState.current = true
     }
   }, [boilerplateConfigWithPrefilledVariables])
+  
+  // Store the boilerplate config and raw YAML in context so BoilerplateTemplate can access it
+  useEffect(() => {
+    if (boilerplateConfig) {
+      setConfig(id, boilerplateConfig)
+      // Store the raw YAML content from the API response
+      if (boilerplateConfig.rawYaml) {
+        setYamlContent(id, boilerplateConfig.rawYaml)
+      }
+    }
+  }, [boilerplateConfig, id, setConfig, setYamlContent])
 
   // Convert form state to initial data format
   const initialData = useMemo(() => {

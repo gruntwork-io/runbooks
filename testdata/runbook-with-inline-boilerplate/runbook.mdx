@@ -28,12 +28,17 @@ variables:
       - stage
       - prod
     default: dev
+    
+  - name: Tags
+    description: Additional tags to apply
+    type: map
+    default: {}
 ```
 </BoilerplateInputs>
 
 ## Code snippet 1
 
-<BoilerplateTemplate boilerplateInputsId="test" variables={{ AccountName: "Production" }}>
+<BoilerplateTemplate boilerplateInputsId="test">
 ```hcl
 # This template uses manually initialized variables
 resource "aws_s3_bucket" "example" {
