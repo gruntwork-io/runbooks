@@ -59,6 +59,7 @@ function BoilerplateInputs({
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
+  const [coordinatorRenderSuccess, setCoordinatorRenderSuccess] = useState(false);
   
   // Get the global file tree context
   const { setFileTree } = useFileTree();
@@ -222,8 +223,10 @@ function BoilerplateInputs({
     // Always call coordinator (this is needed by inline templates if any are registered)
     try {
       await renderAllForInputsId(inputsId, formData);
+      setCoordinatorRenderSuccess(true);
     } catch (error) {
       console.error(`[BoilerplateInputs][${inputsId}] Coordinator render failed:`, error);
+      setCoordinatorRenderSuccess(false);
     }
     
     // Also render file-based templates if templatePath exists
@@ -277,9 +280,9 @@ function BoilerplateInputs({
       onGenerate={handleGenerate}
       isGenerating={isGenerating}
       isAutoRendering={isAutoRendering}
-      showSuccessIndicator={Boolean(renderResult)}
+      showSuccessIndicator={Boolean(renderResult) || coordinatorRenderSuccess}
       enableAutoRender={true}
-      hasGeneratedSuccessfully={Boolean(renderResult)}
+      hasGeneratedSuccessfully={Boolean(renderResult) || coordinatorRenderSuccess}
     />
   )
 }
