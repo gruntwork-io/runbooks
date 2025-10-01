@@ -6,6 +6,8 @@ import type { AppError } from '@/types/error'
 // Support MDX components
 import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
+import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
+import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
 
 /**
  * This component renders a markdown/MDX document.
@@ -71,11 +73,13 @@ function MDXContainer({ content, className }: MDXContainerProps) {
 
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-      <CustomMDXComponentErrorBoundary 
-        onError={(error) => setError(error)}
-      >
-        <CustomMDXComponent />
-      </CustomMDXComponentErrorBoundary>
+      <BoilerplateVariablesProvider>
+        <CustomMDXComponentErrorBoundary 
+          onError={(error) => setError(error)}
+        >
+          <CustomMDXComponent />
+        </CustomMDXComponentErrorBoundary>
+      </BoilerplateVariablesProvider>
     </div>
   )
 }
@@ -93,6 +97,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     useMDXComponents: () => ({
       HelloWorld,
       BoilerplateInputs,
+      BoilerplateTemplate,
       // Add more components here as needed
     })
   })
@@ -124,7 +129,7 @@ class CustomMDXComponentErrorBoundary extends React.Component<
     }
     if (error.message.includes('Expected component')) {
       appError.message = 'Runtime error in MDX component'
-      appError.details = 'Your runbook contains a component that is not defined:\n' + error.message
+      appError.details = 'Your runbook contains a component that is not supported.\n\n' + error.message
     }
     if (this.props.onError) {
       this.props.onError(appError)

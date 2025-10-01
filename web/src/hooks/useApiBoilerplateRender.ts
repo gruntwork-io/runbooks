@@ -60,7 +60,7 @@ export function useApiBoilerplateRender(
   // Auto-render function using the debounced request
   const { debouncedRequest } = apiResult;
   const autoRender = useCallback((templatePath: string, variables: Record<string, unknown>) => {
-    if (debouncedRequest) {
+    if (debouncedRequest && templatePath) { // Only auto-render if templatePath is not empty
       debouncedRequest({ templatePath, variables });
     }
   }, [debouncedRequest]);

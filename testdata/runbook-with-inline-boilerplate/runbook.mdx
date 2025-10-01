@@ -31,6 +31,37 @@ variables:
 ```
 </BoilerplateInputs>
 
+## Now here's a code snippet:
+
+<BoilerplateTemplate boilerplateInputsId="test">
+```hcl
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "us-west-2"
+}
+
+# Tags for all resources
+locals {
+  common_tags = {
+    Account     = "{{ .AccountName }}"
+    Environment = "{{ .Environment }}"
+    {{ range $key, $value := .Tags }}
+    {{ $key }} = "{{ $value }}"
+    {{ end }}
+  }
+}
+```
+</BoilerplateTemplate>
+
 ## Prerequisites
 
 1. The Lambda function for which you want to add a URL already exists.
@@ -46,6 +77,24 @@ WEBFORM - Generates a Terragrunt unit
 WEBFORM - Generates an OpenTofu module call
 
 Check: Hit the endpoint (get from the module output!) and make sure it returns HTTP 200 OK.
+
+## Manual variable initialization example
+
+You can also manually initialize variables in a BoilerplateTemplate:
+
+<BoilerplateTemplate boilerplateInputsId="standalone-example" variables={{ AccountName: "Production", Environment: "prod" }}>
+```hcl
+# This template uses manually initialized variables
+resource "aws_s3_bucket" "example" {
+  bucket = "{{ .AccountName }}-{{ .Environment }}-bucket"
+  
+  tags = {
+    Account     = "{{ .AccountName }}"
+    Environment = "{{ .Environment }}"
+  }
+}
+```
+</BoilerplateTemplate>
 
 ## Deploy instructions
 

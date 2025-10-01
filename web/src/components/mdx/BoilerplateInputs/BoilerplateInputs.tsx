@@ -10,6 +10,7 @@ import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
 import type { CodeFileData } from '@/components/artifacts/code/FileTree'
 import { extractYamlFromChildren } from './lib/extractYamlFromChildren'
+import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -59,6 +60,9 @@ function BoilerplateInputs({
   
   // Get the global file tree context
   const { setFileTree } = useFileTree();
+  
+  // Get the boilerplate variables context to share variables with BoilerplateTemplate components
+  const { setVariables } = useBoilerplateVariables();
 
   // Don't memoize prefilledVariables - just use it directly
   // Memoizing objects can cause issues with React's dependency tracking
@@ -170,17 +174,33 @@ function BoilerplateInputs({
 
   // Handle auto-rendering when form data changes
   const handleAutoRender = useCallback((formData: Record<string, unknown>) => {
-    if (!templatePath) return;
     if (!shouldRender) return; // Only auto-render after initial generation
     
-    autoRender(templatePath, formData);
-  }, [templatePath, shouldRender, autoRender]);
+    // Type guard: id is validated to be non-empty by validationError check
+    const inputsId: string = id ?? '';
+    if (!inputsId) return;
+    
+    // Update variables in context so BoilerplateTemplate components can re-render
+    setVariables(inputsId, formData);
+    
+    // Also trigger file tree auto-render if templatePath exists
+    if (templatePath) {
+      autoRender(templatePath, formData);
+    }
+  }, [id, templatePath, shouldRender, autoRender, setVariables]);
 
   // Handle successful generation - trigger render API call
   const handleGenerate = (formData: Record<string, unknown>) => {
+    // Type guard: id is validated to be non-empty by validationError check
+    const inputsId: string = id ?? '';
+    if (!inputsId) return;
+    
     // Set the form data to render and trigger the API call
     setRenderFormData(formData)
     setShouldRender(true)
+    
+    // Publish variables to context so BoilerplateTemplate components can access them
+    setVariables(inputsId, formData)
 
     // Call the original onGenerate callback if provided
     if (onGenerate) {
