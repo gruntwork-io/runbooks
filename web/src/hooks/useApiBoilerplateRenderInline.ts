@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useFileTree } from './useFileTree';
+import { mergeFileTrees } from '@/lib/mergeFileTrees';
 
 // This is a custom hook for calling the backend API to render boilerplate templates that provide
 // the template files in the request body instead of requiring them to be stored on disk.
@@ -34,7 +35,7 @@ interface UseApiBoilerplateRenderInlineResult {
 
 // Hook for rendering inline boilerplate templates
 export function useApiBoilerplateRenderInline(): UseApiBoilerplateRenderInlineResult {
-  const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
+  const { fileTree, setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
   const [data, setData] = useState<BoilerplateRenderInlineResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
@@ -70,9 +71,10 @@ export function useApiBoilerplateRenderInline(): UseApiBoilerplateRenderInlineRe
       const responseData = await response.json();
       setData(responseData);
       
-      // Update file tree if we have data
+      // Merge the new file tree with the existing one
       if (responseData?.fileTree && Array.isArray(responseData.fileTree)) {
-        setFileTree(responseData.fileTree);
+        const mergedTree = mergeFileTrees(fileTree, responseData.fileTree);
+        setFileTree(mergedTree);
       }
       
       setIsLoading(false);
@@ -83,7 +85,7 @@ export function useApiBoilerplateRenderInline(): UseApiBoilerplateRenderInlineRe
       });
       setIsLoading(false);
     }
-  }, [setFileTree]);
+  }, [fileTree, setFileTree]);
 
   return {
     data,

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { BoilerplateVariablesContext } from './BoilerplateVariablesContext.types'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
@@ -26,10 +26,15 @@ export function BoilerplateVariablesProvider({ children }: { children: ReactNode
   const [yamlContentByInputsId, setYamlContentByInputsId] = useState<Record<string, string>>({})
 
   const setVariables = useCallback((inputsId: string, variables: Record<string, unknown>) => {
-    setVariablesByInputsId(prev => ({
-      ...prev,
-      [inputsId]: variables
-    }))
+    console.log(`[BoilerplateVariablesContext] setVariables called for [${inputsId}]:`, variables);
+    setVariablesByInputsId(prev => {
+      const updated = {
+        ...prev,
+        [inputsId]: variables
+      };
+      console.log(`[BoilerplateVariablesContext] Updated variablesByInputsId:`, updated);
+      return updated;
+    })
   }, [])
 
   const getVariables = useCallback((inputsId: string) => {
@@ -58,18 +63,20 @@ export function BoilerplateVariablesProvider({ children }: { children: ReactNode
     return yamlContentByInputsId[inputsId]
   }, [yamlContentByInputsId])
 
+  const contextValue = useMemo(() => ({
+    variablesByInputsId, 
+    configsByInputsId,
+    yamlContentByInputsId,
+    setVariables, 
+    getVariables,
+    setConfig,
+    getConfig,
+    setYamlContent,
+    getYamlContent
+  }), [variablesByInputsId, configsByInputsId, yamlContentByInputsId, setVariables, getVariables, setConfig, getConfig, setYamlContent, getYamlContent]);
+
   return (
-    <BoilerplateVariablesContext value={{ 
-      variablesByInputsId, 
-      configsByInputsId,
-      yamlContentByInputsId,
-      setVariables, 
-      getVariables,
-      setConfig,
-      getConfig,
-      setYamlContent,
-      getYamlContent
-    }}>
+    <BoilerplateVariablesContext value={contextValue}>
       {children}
     </BoilerplateVariablesContext>
   )

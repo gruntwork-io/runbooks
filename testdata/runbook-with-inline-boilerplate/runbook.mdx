@@ -38,7 +38,7 @@ variables:
 
 ## Code snippet 1
 
-<BoilerplateTemplate boilerplateInputsId="test">
+<BoilerplateTemplate boilerplateInputsId="test" outputPath="sample.hcl">
 ```hcl
 # This template uses manually initialized variables
 resource "aws_s3_bucket" "example" {
@@ -54,7 +54,7 @@ resource "aws_s3_bucket" "example" {
 
 ## Now here's code snippet 2:
 
-<BoilerplateTemplate boilerplateInputsId="test" variables={{ AccountName: "Production", Environment: "prod" }}>
+<BoilerplateTemplate boilerplateInputsId="test" outputPath="/a/b.hcl" initialVariables={{ AccountName: "Production", Environment: "prod", Tags: {} }}>
 ```hcl
 terraform {
   required_version = ">= 1.0"
