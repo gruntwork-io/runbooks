@@ -8,7 +8,7 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
-import type { CodeFileData } from '@/components/artifacts/code/FileTree'
+import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 import { extractYamlFromChildren } from './lib/extractYamlFromChildren'
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
@@ -164,7 +164,7 @@ function BoilerplateInputs({
   useEffect(() => {
     if (renderResult && renderResult.fileTree) {
       // Cast the API response to match the expected type structure
-      const fileTree = renderResult.fileTree as CodeFileData[];
+      const fileTree = renderResult.fileTree as FileTreeNode[];
       setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTree));
     }
   }, [renderResult, setFileTree]);

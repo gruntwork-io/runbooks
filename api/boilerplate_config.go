@@ -32,54 +32,6 @@ import (
 // ---
 
 // BoilerplateVariable represents a single variable from boilerplate.yml
-// Note that we define a simplified version of the BoilerplateVariable struct here.
-// The official Variable struct in the boilerplate package is more complex and includes additional fields we don't need.
-type BoilerplateVariable struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Type        string           `json:"type"`
-	Default     interface{}      `json:"default"`
-	Required    bool             `json:"required"`
-	Options     []string         `json:"options,omitempty"`
-	Validations []ValidationRule `json:"validations,omitempty"`
-}
-
-// BoilerplateValidationType represents the supported validation types from boilerplate
-// The list of supported validations is current as of Sep 2025.
-// https://github.com/gruntwork-io/boilerplate?tab=readme-ov-file#validations
-type BoilerplateValidationType string
-
-const (
-	ValidationRequired     BoilerplateValidationType = "required"
-	ValidationURL          BoilerplateValidationType = "url"
-	ValidationEmail        BoilerplateValidationType = "email"
-	ValidationAlpha        BoilerplateValidationType = "alpha"
-	ValidationDigit        BoilerplateValidationType = "digit"
-	ValidationAlphanumeric BoilerplateValidationType = "alphanumeric"
-	ValidationCountryCode2 BoilerplateValidationType = "countrycode2"
-	ValidationSemver       BoilerplateValidationType = "semver"
-	ValidationLength       BoilerplateValidationType = "length"
-	ValidationCustom       BoilerplateValidationType = "custom"
-)
-
-// ValidationRule represents a validation rule from a boilerplate.yml.
-type ValidationRule struct {
-	Type    BoilerplateValidationType `json:"type"`
-	Message string                    `json:"message"`
-	Args    []interface{}             `json:"args,omitempty"`
-}
-
-// BoilerplateConfig represents the parsed boilerplate.yml, which is a collection of variables
-type BoilerplateConfig struct {
-	Variables   []BoilerplateVariable `json:"variables"`
-	RawYaml     string                `json:"rawYaml"`     // The original YAML content
-}
-
-// BoilerplateRequest represents the request body for boilerplate variable parsing
-type BoilerplateRequest struct {
-	TemplatePath      string `json:"templatePath,omitempty"`      // Path to the boilerplate template directory
-	BoilerplateContent string `json:"boilerplateContent,omitempty"` // Direct content of the boilerplate.yml file
-}
 
 // HandleBoilerplateRequest parses a boilerplate.yml file and returns the variable declarations as JSON
 // @runbookPath is the path to the boilerplate template, relative to the directory containing the runbook file.

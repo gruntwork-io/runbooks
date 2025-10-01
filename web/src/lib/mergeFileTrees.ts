@@ -1,4 +1,4 @@
-import type { CodeFileData } from '@/components/artifacts/code/FileTree';
+import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 /**
  * Merges two file trees, combining their contents intelligently.
@@ -13,9 +13,9 @@ import type { CodeFileData } from '@/components/artifacts/code/FileTree';
  * @returns The merged file tree
  */
 export function mergeFileTrees(
-  existing: CodeFileData[] | null,
-  incoming: CodeFileData[]
-): CodeFileData[] {
+  existing: FileTreeNode[] | null,
+  incoming: FileTreeNode[]
+): FileTreeNode[] {
   // If no existing tree, just return the incoming one
   if (!existing || existing.length === 0) {
     return incoming;
@@ -27,8 +27,8 @@ export function mergeFileTrees(
   }
   
   // Create a map of existing items by their path for efficient lookup
-  const existingMap = new Map<string, CodeFileData>();
-  const buildMap = (items: CodeFileData[], parentPath: string = '') => {
+  const existingMap = new Map<string, FileTreeNode>();
+  const buildMap = (items: FileTreeNode[], parentPath: string = '') => {
     items.forEach(item => {
       const itemPath = parentPath ? `${parentPath}/${item.name}` : item.name;
       existingMap.set(itemPath, item);
@@ -41,11 +41,11 @@ export function mergeFileTrees(
   buildMap(existing);
   
   // Merge incoming items into existing (create new array to ensure React detects changes)
-  const result: CodeFileData[] = [...existing];
+  const result: FileTreeNode[] = [...existing];
   
   const mergeIntoLevel = (
-    targetLevel: CodeFileData[], 
-    incomingLevel: CodeFileData[],
+    targetLevel: FileTreeNode[], 
+    incomingLevel: FileTreeNode[],
     parentPath: string = ''
   ) => {
     incomingLevel.forEach(incomingItem => {

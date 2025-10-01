@@ -1,28 +1,18 @@
 import { useCallback, useState } from 'react';
 import { useFileTree } from './useFileTree';
 import { mergeFileTrees } from '@/lib/mergeFileTrees';
+import type { File, FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 // This is a custom hook for calling the backend API to render boilerplate templates that provide
 // the template files in the request body instead of requiring them to be stored on disk.
 
 interface BoilerplateRenderInlineResult {
   message: string;
-  renderedFiles: Record<string, string>;
+  renderedFiles: Record<string, File>;
   fileTree: FileTree;
 }
 
-type FileTree = CodeFileData[]
-
-interface CodeFileData {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  children?: CodeFileData[];
-  filePath: string;
-  code: string;
-  language: string;
-  size: number;
-}
+type FileTree = FileTreeNode[]
 
 // Return type for the hook
 interface UseApiBoilerplateRenderInlineResult {

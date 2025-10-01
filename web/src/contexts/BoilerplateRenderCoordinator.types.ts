@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { CodeFileData } from '@/components/artifacts/code/FileTree'
+import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 
 /**
  * A template registration that the coordinator manages.
@@ -8,7 +8,7 @@ import type { CodeFileData } from '@/components/artifacts/code/FileTree'
 export interface TemplateRegistration {
   templateId: string  // Unique identifier for this template (e.g., "test-/a/b.hcl")
   inputsId: string    // The BoilerplateInputs ID this template belongs to
-  renderFn: (variables: Record<string, unknown>) => Promise<CodeFileData[]>  // Function to render this template
+  renderFn: (variables: Record<string, unknown>) => Promise<FileTreeNode[]>  // Function to render this template
 }
 
 export interface BoilerplateRenderCoordinatorContextValue {

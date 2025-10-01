@@ -8,18 +8,6 @@ import (
 	"strings"
 )
 
-// CodeFileData represents a file or folder in the generated file tree
-type CodeFileData struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Type     string         `json:"type"` // "file" or "folder"
-	Children []CodeFileData `json:"children,omitempty"`
-	FilePath string         `json:"filePath,omitempty"`
-	Code     string         `json:"code,omitempty"`
-	Language string         `json:"language,omitempty"`
-	Size     int64          `json:"size,omitempty"`
-}
-
 // getLanguageFromExtension determines the language/type based on file extension
 func getLanguageFromExtension(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
@@ -131,8 +119,8 @@ func getLanguageFromExtension(filename string) string {
 }
 
 // buildFileTree recursively builds a file tree structure from a directory
-func buildFileTree(rootPath string, relativePath string) ([]CodeFileData, error) {
-	var result []CodeFileData
+func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error) {
+	var result []FileTreeNode
 
 	fullPath := filepath.Join(rootPath, relativePath)
 
@@ -159,7 +147,7 @@ func buildFileTree(rootPath string, relativePath string) ([]CodeFileData, error)
 			continue
 		}
 
-		item := CodeFileData{
+		item := FileTreeNode{
 			ID:   entryRelativePath,
 			Name: entryName,
 		}
@@ -173,24 +161,27 @@ func buildFileTree(rootPath string, relativePath string) ([]CodeFileData, error)
 			item.Children = children
 		} else {
 			item.Type = "file"
-			item.FilePath = entryRelativePath
 
 			// Get file info for size
 			info, err := entry.Info()
 			if err != nil {
 				return nil, fmt.Errorf("failed to get file info for %s: %w", entryFullPath, err)
 			}
-			item.Size = info.Size()
-
-			// Determine language
-			item.Language = getLanguageFromExtension(entryName)
 
 			// Read file contents
 			content, err := os.ReadFile(entryFullPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read file %s: %w", entryFullPath, err)
 			}
-			item.Code = string(content)
+
+			// Create File struct with all metadata
+			item.File = &File{
+				Name:     entryName,
+				Path:     entryRelativePath,
+				Content:  string(content),
+				Language: getLanguageFromExtension(entryName),
+				Size:     info.Size(),
+			}
 		}
 
 		result = append(result, item)
@@ -200,7 +191,7 @@ func buildFileTree(rootPath string, relativePath string) ([]CodeFileData, error)
 }
 
 // buildFileTreeWithRoot returns the file tree directly without wrapping in a root folder
-func buildFileTreeWithRoot(rootPath string, relativePath string) ([]CodeFileData, error) {
+func buildFileTreeWithRoot(rootPath string, relativePath string) ([]FileTreeNode, error) {
 	// Build the file tree and return it directly
 	return buildFileTree(rootPath, relativePath)
 }

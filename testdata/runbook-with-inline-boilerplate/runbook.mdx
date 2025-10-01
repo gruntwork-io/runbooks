@@ -12,7 +12,7 @@ https://<url-id>.lambda-url.<region>.on.aws
 
 Use the form below to configure your deployment:
 
-<BoilerplateInputs id="test">
+<BoilerplateInputs id="test1">
 ```yaml
 variables:
   - name: AccountName
@@ -36,16 +36,11 @@ variables:
 ```
 </BoilerplateInputs>
 
-
-## Boilerplate Configuration 2
+## Code snippet 1
 
 Use the form below to configure your deployment:
 
-<BoilerplateInputs id="test2" templatePath="." />
-
-## Code snippet 1
-
-<BoilerplateTemplate boilerplateInputsId="test" outputPath="sample.hcl">
+<BoilerplateTemplate boilerplateInputsId="test1" outputPath="sample.hcl">
 ```hcl
 # This template uses manually initialized variables
 resource "aws_s3_bucket" "example" {
@@ -59,7 +54,11 @@ resource "aws_s3_bucket" "example" {
 ```
 </BoilerplateTemplate>
 
-## Now here's code snippet 2:
+## Boielrplate config 2
+
+<BoilerplateInputs id="test2" templatePath="." />
+
+### Code snippet 2
 
 <BoilerplateTemplate boilerplateInputsId="test2" outputPath="/a/b.hcl">
 ```hcl
@@ -89,6 +88,11 @@ locals {
 }
 ```
 </BoilerplateTemplate>
+
+## Check
+
+<Check id="test" path="checks/test.sh" successMessage="Success" warnMessage="Warn" failMessage="Fail" />
+
 
 ## Prerequisites
 

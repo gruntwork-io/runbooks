@@ -1,9 +1,9 @@
 import { createContext } from 'react'
-import type { CodeFileData } from '../components/artifacts/code/FileTree'
+import type { FileTreeNode } from '../components/artifacts/code/FileTree'
 
 export interface FileTreeContextType {
-  fileTree: CodeFileData[] | null
-  setFileTree: (fileTree: CodeFileData[] | null | ((prevFileTree: CodeFileData[] | null) => CodeFileData[] | null)) => void
+  fileTree: FileTreeNode[] | null
+  setFileTree: (fileTree: FileTreeNode[] | null | ((prevFileTree: FileTreeNode[] | null) => FileTreeNode[] | null)) => void
 }
 
 export const FileTreeContext = createContext<FileTreeContextType | undefined>(undefined)

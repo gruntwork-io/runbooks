@@ -3,6 +3,7 @@ import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
 import { useFileTree } from './useFileTree';
 import { mergeFileTrees } from '@/lib/mergeFileTrees';
+import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 interface BoilerplateRenderResult {
   message:      string,
@@ -11,18 +12,7 @@ interface BoilerplateRenderResult {
   fileTree:     FileTree,
 }
 
-type FileTree = CodeFileData[]
-
-interface CodeFileData {
-  id: string,
-  name: string,
-  type: 'file' | 'folder',
-  children: CodeFileData[],
-  filePath: string,
-  code: string,
-  language: string,
-  size: number,
-}
+type FileTree = FileTreeNode[]
 
 // Enhanced return type that includes auto-rendering functionality
 interface UseApiBoilerplateRenderResult extends UseApiReturn<BoilerplateRenderResult> {

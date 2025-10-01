@@ -239,13 +239,13 @@ func TestReadAllFilesInDirectory(t *testing.T) {
 
 	// Verify file contents
 	for relPath, expectedContent := range testFiles {
-		actualContent, exists := files[relPath]
+		actualFile, exists := files[relPath]
 		if !exists {
 			t.Errorf("Expected file %s not found in result", relPath)
 			continue
 		}
-		if actualContent != expectedContent {
-			t.Errorf("File %s content mismatch. Expected: %q, Got: %q", relPath, expectedContent, actualContent)
+		if actualFile.Content != expectedContent {
+			t.Errorf("File %s content mismatch. Expected: %q, Got: %q", relPath, expectedContent, actualFile.Content)
 		}
 	}
 }

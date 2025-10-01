@@ -1,11 +1,11 @@
 import { useState, useRef, useMemo } from 'react'
-import { FileTree, type CodeFileData } from './FileTree'
+import { FileTree, type FileTreeNode } from './FileTree'
 import { CodeFile } from './CodeFile'
 import { FolderOpen } from 'lucide-react'
 
 
 interface CodeFileCollectionProps {
-  data: CodeFileData[];
+  data: FileTreeNode[];
   className?: string;
 }
 
@@ -13,13 +13,13 @@ export const CodeFileCollection = ({ data, className = "" }: CodeFileCollectionP
   const [treeWidth, setTreeWidth] = useState(200);
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Extract only file items (with content) from CodeFileData
+  // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
-    const files: CodeFileData[] = [];
+    const files: FileTreeNode[] = [];
     
-    const traverse = (items: CodeFileData[]) => {
+    const traverse = (items: FileTreeNode[]) => {
       items.forEach(item => {
-        if (item.type === 'file' && item.code) {
+        if (item.type === 'file' && item.file) {
           files.push(item);
         }
         if (item.children) {
@@ -33,8 +33,8 @@ export const CodeFileCollection = ({ data, className = "" }: CodeFileCollectionP
   }, [data]);
 
   // Handle file tree item clicks
-  const handleFileTreeClick = (item: CodeFileData) => {
-    if (item.type === 'file' && item.code) {
+  const handleFileTreeClick = (item: FileTreeNode) => {
+    if (item.type === 'file' && item.file) {
       scrollToFile(item.id);
     }
   };
@@ -92,10 +92,10 @@ export const CodeFileCollection = ({ data, className = "" }: CodeFileCollectionP
             }}
           >
             <CodeFile
-              fileName={fileItem.name}
-              filePath={fileItem.filePath || fileItem.name}
-              code={fileItem.code || ''}
-              language={fileItem.language || 'text'}
+              fileName={fileItem.file?.name || fileItem.name}
+              filePath={fileItem.file?.path || fileItem.name}
+              code={fileItem.file?.content || ''}
+              language={fileItem.file?.language || 'text'}
               showLineNumbers={true}
             />
           </div>

@@ -7,9 +7,10 @@ import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRender
 import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import type { CodeFileData } from '@/components/artifacts/code/FileTree'
+import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { mergeFileTrees } from '@/lib/mergeFileTrees'
+import { CodeFile } from '@/components/artifacts/code/CodeFile'
 
 interface BoilerplateTemplateProps {
   boilerplateInputsId: string
@@ -24,7 +25,7 @@ function BoilerplateTemplate({
 }: BoilerplateTemplateProps) {
   // Render state: 'waiting' until first Generate, then 'rendered' for reactive updates
   const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
-  const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, string> } | null>(null);
+  const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, File> } | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [isRendering, setIsRendering] = useState(false);
   
@@ -73,7 +74,7 @@ function BoilerplateTemplate({
   }, [requiredVariables]);
   
   // Core render function that calls the API
-  const renderTemplate = useCallback(async (variables: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<CodeFileData[]> => {
+  const renderTemplate = useCallback(async (variables: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
     console.log(`[Template][${boilerplateInputsId}][${outputPath}] Rendering with variables:`, variables, isAutoUpdate ? '(auto-update)' : '(initial)');
     
     // Only show loading state for initial renders, not auto-updates
@@ -180,7 +181,7 @@ function BoilerplateTemplate({
       renderTemplate(contextVariables, true)
         .then(newFileTree => {
           // Merge the new file tree with existing using functional update to avoid stale closure
-          setFileTree((currentFileTree: CodeFileData[] | null) => {
+          setFileTree((currentFileTree: FileTreeNode[] | null) => {
             const merged = mergeFileTrees(currentFileTree, newFileTree);
             console.log(`[Template][${boilerplateInputsId}][${outputPath}] File tree updated:`, merged?.length || 0, 'items');
             return merged;
@@ -211,11 +212,17 @@ function BoilerplateTemplate({
       <ErrorDisplay error={error} />
     ) : renderData?.renderedFiles ? (
       <>
-        {Object.entries(renderData.renderedFiles).map(([filename, content]) => (
-          <div key={filename}>
-            <h4>{filename}</h4>
-            <pre><code>{content}</code></pre>
-          </div>
+        {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (
+          <CodeFile
+            key={filename}
+            fileName={fileData.name}
+            filePath={fileData.path}
+            code={fileData.content}
+            language={fileData.language}
+            showLineNumbers={true}
+            showCopyCodeButton={true}
+            showCopyPathButton={true}
+          />
         ))}
       </>
     ) : (

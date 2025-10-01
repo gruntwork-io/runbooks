@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import type { CodeFileData } from '@/components/artifacts/code/FileTree'
+import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 import { mergeFileTrees } from '@/lib/mergeFileTrees'
 import { useFileTree } from '@/hooks/useFileTree'
 import { BoilerplateRenderCoordinatorContext } from './BoilerplateRenderCoordinator.types'
@@ -23,7 +23,7 @@ import type { TemplateRegistration } from './BoilerplateRenderCoordinator.types'
  */
 export function BoilerplateRenderCoordinatorProvider({ children }: { children: ReactNode }) {
   const [registrations, setRegistrations] = useState<TemplateRegistration[]>([])
-  const { fileTree, setFileTree } = useFileTree()
+  const { setFileTree } = useFileTree()
 
   // Register a template - returns unregister function
   const registerTemplate = useCallback((registration: TemplateRegistration) => {
@@ -79,7 +79,7 @@ export function BoilerplateRenderCoordinatorProvider({ children }: { children: R
       // Merge all file trees atomically using functional update to avoid stale closure
       console.log(`[RenderCoordinator] Merging ${fileTrees.length} file tree(s)`)
       setFileTree(currentFileTree => {
-        const mergedTree = fileTrees.reduce<CodeFileData[] | null>(
+        const mergedTree = fileTrees.reduce<FileTreeNode[] | null>(
           (acc, tree) => mergeFileTrees(acc, tree),
           currentFileTree
         )

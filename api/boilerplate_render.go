@@ -16,36 +16,6 @@ import (
 
 // This handler renders a boilerplate template with the provided variables.
 
-// RenderRequest represents the request body for rendering boilerplate templates
-type RenderRequest struct {
-	TemplatePath string         `json:"templatePath"`
-	Variables    map[string]any `json:"variables"`
-	OutputPath   *string        `json:"outputPath,omitempty"` // Optional output path, defaults to "generated" if not provided
-}
-
-// RenderResponse represents the response from the render endpoint
-type RenderResponse struct {
-	Message      string         `json:"message"`
-	OutputDir    string         `json:"outputDir"`
-	TemplatePath string         `json:"templatePath"`
-	FileTree     []CodeFileData `json:"fileTree"`
-}
-
-// RenderInlineRequest represents a request to render template files provided in the request body
-type RenderInlineRequest struct {
-	// Map of relative file paths to their contents
-	// Example: {"boilerplate.yml": "...", "main.tf": "..."}
-	TemplateFiles map[string]string `json:"templateFiles"`
-	Variables     map[string]any    `json:"variables"`
-}
-
-// RenderInlineResponse represents the response from the inline render endpoint
-type RenderInlineResponse struct {
-	Message       string         `json:"message"`
-	RenderedFiles map[string]string `json:"renderedFiles"` // Map of file paths to rendered content
-	FileTree      []CodeFileData `json:"fileTree"`
-}
-
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
 func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -375,9 +345,9 @@ func HandleBoilerplateRenderInline() gin.HandlerFunc {
 	}
 }
 
-// readAllFilesInDirectory recursively reads all files in a directory and returns a map of relative paths to contents
-func readAllFilesInDirectory(rootDir string) (map[string]string, error) {
-	files := make(map[string]string)
+// readAllFilesInDirectory recursively reads all files in a directory and returns a map of relative paths to file metadata
+func readAllFilesInDirectory(rootDir string) (map[string]File, error) {
+	files := make(map[string]File)
 	
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -401,7 +371,17 @@ func readAllFilesInDirectory(rootDir string) (map[string]string, error) {
 			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
 		}
 		
-		files[relPath] = string(content)
+		// Create file metadata with language detection
+		fileName := filepath.Base(path)
+		fileMetadata := File{
+			Name:     fileName,
+			Path:     relPath,
+			Content:  string(content),
+			Language: getLanguageFromExtension(fileName),
+			Size:     info.Size(),
+		}
+		
+		files[relPath] = fileMetadata
 		return nil
 	})
 	

@@ -62,9 +62,9 @@ variables:
     console.log('---');
     
     // Show line by line for debugging
-    const lines = extractedYaml.split('\n');
+    const lines = extractedYaml.content.split('\n');
     console.log('Line by line:');
-    lines.forEach((line, index) => {
+    lines.forEach((line: string, index: number) => {
       console.log(`${index + 1}: "${line}"`);
     });
     console.log('---');
@@ -72,7 +72,7 @@ variables:
     // Try to parse the YAML with the YAML library
     let parsedYaml;
     try {
-      parsedYaml = YAML.parse(extractedYaml);
+      parsedYaml = YAML.parse(extractedYaml.content);
       console.log('Successfully parsed YAML:');
       console.log(JSON.stringify(parsedYaml, null, 2));
     } catch (error) {

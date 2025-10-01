@@ -19,10 +19,26 @@ import { cn } from '../../../lib/utils'
 import '../../../css/headless-tree.css'
 
 /**
+ * Represents a file with its content and metadata.
+ */
+export interface File {
+  /** Display name of the file */
+  name: string;
+  /** Full path of the file */
+  path: string;
+  /** File content */
+  content: string;
+  /** Programming language for syntax highlighting */
+  language: string;
+  /** File size in bytes */
+  size: number;
+}
+
+/**
  * Represents a file or folder in the file tree structure.
  * This interface defines the hierarchical data structure used by FileTree.
  */
-export interface CodeFileData {
+export interface FileTreeNode {
   /** Unique identifier for the file/folder */
   id: string;
   /** Display name of the file/folder */
@@ -30,15 +46,9 @@ export interface CodeFileData {
   /** Type of the item - either 'file' or 'folder' */
   type: 'file' | 'folder';
   /** Child items (only present for folders) */
-  children?: CodeFileData[];
-  /** File-specific properties (only present for files) */
-  filePath?: string;
-  /** File content (only present for files) */
-  code?: string;
-  /** Programming language for syntax highlighting (only present for files) */
-  language?: string;
-  /** File size in bytes (only present for files) */
-  size?: number;
+  children?: FileTreeNode[];
+  /** File data (only present for files) */
+  file?: File;
 }
 
 /**
@@ -47,9 +57,9 @@ export interface CodeFileData {
  */
 export interface FileTreeProps {
   /** Array of file/folder items to display in the tree */
-  items: CodeFileData[];
+  items: FileTreeNode[];
   /** Callback function called when a file/folder is clicked */
-  onItemClick?: (item: CodeFileData) => void;
+  onItemClick?: (item: FileTreeNode) => void;
   /** Callback function called when the tree width changes */
   onWidthChange?: (width: number) => void;
   /** Additional CSS classes to apply to the tree container */
@@ -115,7 +125,7 @@ export const FileTree = ({
      * @param items - Array of items to search through
      * @returns The longest item name found
      */
-    const findLongestName = (items: CodeFileData[]): string => {
+    const findLongestName = (items: FileTreeNode[]): string => {
       let longest = '';
       items.forEach(item => {
         if (item.name.length > longest.length) {
@@ -175,7 +185,7 @@ export const FileTree = ({
    * 
    * @param item - The clicked item
    */
-  const handleItemClick = (item: CodeFileData) => {
+  const handleItemClick = (item: FileTreeNode) => {
     setSelectedItem(item.id);
     if (item.type === 'folder') {
       toggleExpanded(item.id);
@@ -192,7 +202,7 @@ export const FileTree = ({
    * @param level - The nesting level (used for indentation)
    * @returns JSX element representing the item and its children
    */
-  const renderItem = (item: CodeFileData, level: number = 0) => {
+  const renderItem = (item: FileTreeNode, level: number = 0) => {
     const isExpanded = expandedItems.has(item.id);
     const isSelected = selectedItem === item.id;
     const isFolder = item.type === 'folder';
