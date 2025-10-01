@@ -12,9 +12,8 @@ https://<url-id>.lambda-url.<region>.on.aws
 
 Use the form below to configure your deployment:
 
-<BoilerplateInputs 
-  id="test"
->
+<BoilerplateInputs id="test">
+```yaml
 variables:
   - name: AccountName
     description: Name for the AWS account
@@ -29,6 +28,7 @@ variables:
       - stage
       - prod
     default: dev
+```
 </BoilerplateInputs>
 
 ## Prerequisites

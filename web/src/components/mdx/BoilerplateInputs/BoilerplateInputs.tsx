@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { BoilerplateInputsForm } from './components/BoilerplateInputsForm'
 import { ErrorDisplay } from './components/ErrorDisplay'
@@ -9,6 +9,7 @@ import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
 import type { CodeFileData } from '@/components/artifacts/code/FileTree'
+import { extractYamlFromChildren } from './lib/extractYamlFromChildren'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -59,10 +60,12 @@ function BoilerplateInputs({
   // Get the global file tree context
   const { setFileTree } = useFileTree();
 
-  // Memoize prefilledVariables to prevent infinite re-renders
-  const memoizedPrefilledVariables = useMemo(() => 
-    prefilledVariables, 
-  [prefilledVariables]);
+  // Don't memoize prefilledVariables - just use it directly
+  // Memoizing objects can cause issues with React's dependency tracking
+  const memoizedPrefilledVariables = prefilledVariables;
+
+  // Extract boolean to avoid React element in dependency array
+  const hasChildren = !!children;
 
   // Validate props first - this is a component-level validation error
   const validationError = useMemo((): AppError | null => {
@@ -73,14 +76,14 @@ function BoilerplateInputs({
       }
     }
 
-    if (!templatePath && !children) {
+    if (!templatePath && !hasChildren) {
       return {
         message: "Invalid <BoilerplateInputs> configuration.",
         details: "Please specify either a templatePath or inline boilerplate.yml content."
       }
     }
 
-    if (templatePath && children) {
+    if (templatePath && hasChildren) {
       return {
         message: "Invalid <BoilerplateInputs> configuration.",
         details: "You cannot both specify both a templatePath and inline boilerplate.yml content. Please provide only one."
@@ -88,16 +91,35 @@ function BoilerplateInputs({
     }
 
     return null
-  }, [id, templatePath, children])
+  }, [id, templatePath, hasChildren])
 
   // Extract the contents of the children (inline boilerplate.yml content) if they are provided
-  const inlineBoilerplateYamlContent = children ? extractTextFromChildren(children) : ''
+  const inlineBoilerplateYamlContent = children ? extractYamlFromChildren(children) : ''
+  
+  // Validate inline content format - check if children structure indicates missing code fences
+  // Note: We don't memoize this because children (React elements) can't be safely used in dependency arrays
+  let inlineContentError: AppError | null = null
+  if (children) {
+    // Check if children contains React elements (indicating missing code fence)
+    // When using a code fence, MDX provides a pre/code element structure
+    // Without a code fence, MDX parses YAML as an array of paragraph/list elements
+    const isArray = Array.isArray(children)
+    const isReactElement = typeof children === 'object' && children !== null && 'type' in children && 
+       (children.type === 'p' || children.type === 'ul' || children.type === 'li')
+    
+    if (isArray || isReactElement) {
+      inlineContentError = {
+        message: "Invalid inline boilerplate configuration format",
+        details: "Please wrap your YAML content in a code fence (```yaml ... ```). Without code fences, MDX converts YAML into HTML elements, which cannot be parsed correctly."
+      }
+    }
+  }
   
   // Only make API call if validation passes
   const { data: boilerplateConfig, isLoading, error: apiError } = useApiGetBoilerplateConfig(
     templatePath, 
     inlineBoilerplateYamlContent,
-    !validationError // shouldFetch is false when there's a validation error
+    !validationError && !inlineContentError // shouldFetch is false when there's any validation error
   )
 
   // Apply the prefilled variables to the boilerplate config
@@ -176,6 +198,11 @@ function BoilerplateInputs({
     return <ErrorDisplay error={validationError} />
   }
 
+  // Early return for inline content format errors
+  if (inlineContentError) {
+    return <ErrorDisplay error={inlineContentError} />
+  }
+
   // Early return for API errors
   if (apiError) {
     return <ErrorDisplay error={apiError} />
@@ -203,24 +230,5 @@ function BoilerplateInputs({
   )
 }
 
-/**
- * Helper function to extract text content from React children
- * This handles the case where MDX parses inline content as JSX elements
- */
-function extractTextFromChildren(children: ReactNode): string {
-  if (typeof children === 'string') {
-    return children
-  }
-  
-  if (Array.isArray(children)) {
-    return children.map(extractTextFromChildren).join('')
-  }
-  
-  if (React.isValidElement(children)) {
-    return extractTextFromChildren((children as React.ReactElement<{ children?: ReactNode }>).props.children)
-  }
-  
-  return ''
-}
 
 export default BoilerplateInputs;
