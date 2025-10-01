@@ -31,9 +31,25 @@ variables:
 ```
 </BoilerplateInputs>
 
-## Now here's a code snippet:
+## Code snippet 1
 
-<BoilerplateTemplate boilerplateInputsId="test">
+<BoilerplateTemplate boilerplateInputsId="test" variables={{ AccountName: "Production" }}>
+```hcl
+# This template uses manually initialized variables
+resource "aws_s3_bucket" "example" {
+  bucket = "{{ .AccountName }}-{{ .Environment }}-bucket"
+  
+  tags = {
+    Account     = "{{ .AccountName }}"
+    Environment = "{{ .Environment }}"
+  }
+}
+```
+</BoilerplateTemplate>
+
+## Now here's code snippet 2:
+
+<BoilerplateTemplate boilerplateInputsId="test" variables={{ AccountName: "Production", Environment: "prod" }}>
 ```hcl
 terraform {
   required_version = ">= 1.0"
@@ -82,19 +98,7 @@ Check: Hit the endpoint (get from the module output!) and make sure it returns H
 
 You can also manually initialize variables in a BoilerplateTemplate:
 
-<BoilerplateTemplate boilerplateInputsId="standalone-example" variables={{ AccountName: "Production", Environment: "prod" }}>
-```hcl
-# This template uses manually initialized variables
-resource "aws_s3_bucket" "example" {
-  bucket = "{{ .AccountName }}-{{ .Environment }}-bucket"
-  
-  tags = {
-    Account     = "{{ .AccountName }}"
-    Environment = "{{ .Environment }}"
-  }
-}
-```
-</BoilerplateTemplate>
+
 
 ## Deploy instructions
 
