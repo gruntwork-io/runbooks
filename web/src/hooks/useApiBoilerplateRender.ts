@@ -2,6 +2,7 @@ import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
 import { useFileTree } from './useFileTree';
+import { mergeFileTrees } from '@/lib/mergeFileTrees';
 
 interface BoilerplateRenderResult {
   message:      string,
@@ -66,9 +67,11 @@ export function useApiBoilerplateRender(
   }, [debouncedRequest]);
 
   // Handle file tree updates when data changes
+  // Use functional update to merge with existing tree and avoid stale closure issues
   useEffect(() => {
-    if (apiResult.data?.fileTree && Array.isArray(apiResult.data.fileTree)) {
-      setFileTree(apiResult.data.fileTree);
+    const fileTreeData = apiResult.data?.fileTree;
+    if (fileTreeData && Array.isArray(fileTreeData)) {
+      setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTreeData));
     }
   }, [apiResult.data?.fileTree, setFileTree]);
 

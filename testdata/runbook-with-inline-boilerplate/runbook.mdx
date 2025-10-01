@@ -8,7 +8,7 @@ A function URL is a dedicated HTTP(S) endpoint for your Lambda function. When yo
 https://<url-id>.lambda-url.<region>.on.aws
 ```
 
-## Boilerplate Configuration
+## Boilerplate Configuration 1
 
 Use the form below to configure your deployment:
 
@@ -36,6 +36,13 @@ variables:
 ```
 </BoilerplateInputs>
 
+
+## Boilerplate Configuration 2
+
+Use the form below to configure your deployment:
+
+<BoilerplateInputs id="test2" templatePath="." />
+
 ## Code snippet 1
 
 <BoilerplateTemplate boilerplateInputsId="test" outputPath="sample.hcl">
@@ -54,7 +61,7 @@ resource "aws_s3_bucket" "example" {
 
 ## Now here's code snippet 2:
 
-<BoilerplateTemplate boilerplateInputsId="test" outputPath="/a/b.hcl">
+<BoilerplateTemplate boilerplateInputsId="test2" outputPath="/a/b.hcl">
 ```hcl
 terraform {
   required_version = ">= 1.0"

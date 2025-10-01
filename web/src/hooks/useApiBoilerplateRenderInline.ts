@@ -35,7 +35,7 @@ interface UseApiBoilerplateRenderInlineResult {
 
 // Hook for rendering inline boilerplate templates
 export function useApiBoilerplateRenderInline(): UseApiBoilerplateRenderInlineResult {
-  const { fileTree, setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
+  const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
   const [data, setData] = useState<BoilerplateRenderInlineResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
@@ -71,10 +71,10 @@ export function useApiBoilerplateRenderInline(): UseApiBoilerplateRenderInlineRe
       const responseData = await response.json();
       setData(responseData);
       
-      // Merge the new file tree with the existing one
+      // Merge the new file tree with the existing one using functional update
+      // to avoid stale closure issues
       if (responseData?.fileTree && Array.isArray(responseData.fileTree)) {
-        const mergedTree = mergeFileTrees(fileTree, responseData.fileTree);
-        setFileTree(mergedTree);
+        setFileTree(currentFileTree => mergeFileTrees(currentFileTree, responseData.fileTree));
       }
       
       setIsLoading(false);
@@ -85,7 +85,7 @@ export function useApiBoilerplateRenderInline(): UseApiBoilerplateRenderInlineRe
       });
       setIsLoading(false);
     }
-  }, [fileTree, setFileTree]);
+  }, [setFileTree]);
 
   return {
     data,

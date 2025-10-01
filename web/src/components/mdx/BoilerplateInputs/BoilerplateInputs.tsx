@@ -12,6 +12,7 @@ import type { CodeFileData } from '@/components/artifacts/code/FileTree'
 import { extractYamlFromChildren } from './lib/extractYamlFromChildren'
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
+import { mergeFileTrees } from '@/lib/mergeFileTrees'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -158,11 +159,13 @@ function BoilerplateInputs({
   )
 
   // Update global file tree when render result is available
+  // Note: useApiBoilerplateRender already handles merging the file tree, but we keep this
+  // for backwards compatibility and to ensure the merge happens
   useEffect(() => {
     if (renderResult && renderResult.fileTree) {
       // Cast the API response to match the expected type structure
       const fileTree = renderResult.fileTree as CodeFileData[];
-      setFileTree(fileTree);
+      setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTree));
     }
   }, [renderResult, setFileTree]);
 
