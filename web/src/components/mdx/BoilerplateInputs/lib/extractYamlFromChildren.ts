@@ -1,5 +1,11 @@
 import React from 'react'
 import type { ReactNode } from 'react'
+import type { AppError } from '@/types/error'
+
+export interface YamlExtractionResult {
+  content: string
+  error: AppError | null
+}
 
 /**
  * Helper function to extract YAML content from React children
@@ -13,14 +19,44 @@ import type { ReactNode } from 'react'
  * 2. Inline YAML (LEGACY): Raw YAML text
  *    - MDX parses into HTML-like elements
  *    - Requires reconstruction (fragile)
+ * 
+ * @returns Object with content and error (if validation fails)
  */
-export function extractYamlFromChildren(children: ReactNode): string {
+export function extractYamlFromChildren(children: ReactNode): YamlExtractionResult {
+  // Check for missing code fence - detect if MDX parsed YAML as HTML elements
+  if (children) {
+    const isArray = Array.isArray(children)
+    const isReactElement = React.isValidElement(children) && 
+       (children.type === 'p' || children.type === 'ul' || children.type === 'li')
+    
+    if (isArray || isReactElement) {
+      return {
+        content: '',
+        error: {
+          message: "Invalid inline boilerplate configuration format",
+          details: "Please wrap your YAML content in a code fence (```yaml ... ```). Without code fences, MDX converts YAML into HTML elements, which cannot be parsed correctly."
+        }
+      }
+    }
+  }
+  
+  const content = extractYamlContent(children)
+  return {
+    content,
+    error: null
+  }
+}
+
+/**
+ * Internal helper to recursively extract YAML content from React children
+ */
+function extractYamlContent(children: ReactNode): string {
   if (typeof children === 'string') {
     return children
   }
   
   if (Array.isArray(children)) {
-    return children.map(extractYamlFromChildren).join('')
+    return children.map(extractYamlContent).join('')
   }
   
   if (React.isValidElement(children)) {
@@ -34,7 +70,7 @@ export function extractYamlFromChildren(children: ReactNode): string {
     // Handle pre elements - these contain code fences
     if (element.type === 'pre') {
       // Extract the code content from the code element inside pre
-      const content = extractYamlFromChildren(element.props.children)
+      const content = extractYamlContent(element.props.children)
       // Return the content directly - it's already properly formatted
       return content.trim()
     }
@@ -43,20 +79,20 @@ export function extractYamlFromChildren(children: ReactNode): string {
     if (element.type === 'code') {
       // For code fences, MDX adds a className like "language-yaml"
       // The children contain the exact code content
-      const content = extractYamlFromChildren(element.props.children)
+      const content = extractYamlContent(element.props.children)
       return content
     }
     
     // Handle paragraph elements - they often contain YAML content
     if (element.type === 'p') {
-      const content = extractYamlFromChildren(element.props.children)
+      const content = extractYamlContent(element.props.children)
       // Don't add extra newlines for paragraphs - let the content flow naturally
       return content
     }
     
     // Handle list items - these are important for YAML structure
     if (element.type === 'li') {
-      const content = extractYamlFromChildren(element.props.children)
+      const content = extractYamlContent(element.props.children)
       const cleanContent = content.trim()
       
       if (cleanContent) {
@@ -86,7 +122,7 @@ export function extractYamlFromChildren(children: ReactNode): string {
     
     // Handle unordered lists - these represent YAML arrays
     if (element.type === 'ul') {
-      const content = extractYamlFromChildren(element.props.children)
+      const content = extractYamlContent(element.props.children)
       // Add 2 spaces of indentation for all non-empty lines
       const lines = content.split('\n')
       const indentedLines = lines.map(line => {
@@ -98,21 +134,21 @@ export function extractYamlFromChildren(children: ReactNode): string {
     
     // Handle div elements - they might contain structured content
     if (element.type === 'div') {
-      return extractYamlFromChildren(element.props.children)
+      return extractYamlContent(element.props.children)
     }
     
     // Handle strong/bold elements - they might be used for emphasis
     if (element.type === 'strong' || element.type === 'b') {
-      return extractYamlFromChildren(element.props.children)
+      return extractYamlContent(element.props.children)
     }
     
     // Handle em/italic elements
     if (element.type === 'em' || element.type === 'i') {
-      return extractYamlFromChildren(element.props.children)
+      return extractYamlContent(element.props.children)
     }
     
     // For other elements, extract children
-    return extractYamlFromChildren(element.props.children)
+    return extractYamlContent(element.props.children)
   }
   
   return ''

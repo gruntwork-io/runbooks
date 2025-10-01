@@ -11,7 +11,8 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({ children }) 
   const [fileTree, setFileTree] = useState<CodeFileData[] | null>(null)
   
   // Stable reference to prevent unnecessary re-renders in consuming components
-  const stableSetFileTree = useCallback((newFileTree: CodeFileData[] | null) => {
+  // Support both direct values and functional updates
+  const stableSetFileTree = useCallback((newFileTree: CodeFileData[] | null | ((prevFileTree: CodeFileData[] | null) => CodeFileData[] | null)) => {
     setFileTree(newFileTree)
   }, [])
 

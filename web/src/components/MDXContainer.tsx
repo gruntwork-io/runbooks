@@ -8,6 +8,7 @@ import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
 import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
+import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
 
 /**
  * This component renders a markdown/MDX document.
@@ -74,11 +75,13 @@ function MDXContainer({ content, className }: MDXContainerProps) {
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <BoilerplateVariablesProvider>
-        <CustomMDXComponentErrorBoundary 
-          onError={(error) => setError(error)}
-        >
-          <CustomMDXComponent />
-        </CustomMDXComponentErrorBoundary>
+        <BoilerplateRenderCoordinatorProvider>
+          <CustomMDXComponentErrorBoundary 
+            onError={(error) => setError(error)}
+          >
+            <CustomMDXComponent />
+          </CustomMDXComponentErrorBoundary>
+        </BoilerplateRenderCoordinatorProvider>
       </BoilerplateVariablesProvider>
     </div>
   )

@@ -11,6 +11,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import type { CodeFileData } from '@/components/artifacts/code/FileTree'
 import { extractYamlFromChildren } from './lib/extractYamlFromChildren'
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
+import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -63,13 +64,12 @@ function BoilerplateInputs({
   
   // Get the boilerplate variables context to share variables, config, and raw YAML with BoilerplateTemplate components
   const { setVariables, setConfig, setYamlContent } = useBoilerplateVariables();
-
-  // Don't memoize prefilledVariables - just use it directly
-  // Memoizing objects can cause issues with React's dependency tracking
-  const memoizedPrefilledVariables = prefilledVariables;
+  
+  // Get the render coordinator for inline templates
+  const { renderAllForInputsId } = useBoilerplateRenderCoordinator();
 
   // Extract boolean to avoid React element in dependency array
-  const hasChildren = !!children;
+  const hasChildren = Boolean(children);
 
   // Validate props first - this is a component-level validation error
   const validationError = useMemo((): AppError | null => {
@@ -98,31 +98,14 @@ function BoilerplateInputs({
   }, [id, templatePath, hasChildren])
 
   // Extract the contents of the children (inline boilerplate.yml content) if they are provided
-  const inlineBoilerplateYamlContent = children ? extractYamlFromChildren(children) : '';
-  
-  // Validate inline content format - check if children structure indicates missing code fences
-  // Note: We don't memoize this because children (React elements) can't be safely used in dependency arrays
-  let inlineContentError: AppError | null = null
-  if (children) {
-    // Check if children contains React elements (indicating missing code fence)
-    // When using a code fence, MDX provides a pre/code element structure
-    // Without a code fence, MDX parses YAML as an array of paragraph/list elements
-    const isArray = Array.isArray(children)
-    const isReactElement = typeof children === 'object' && children !== null && 'type' in children && 
-       (children.type === 'p' || children.type === 'ul' || children.type === 'li')
-    
-    if (isArray || isReactElement) {
-      inlineContentError = {
-        message: "Invalid inline boilerplate configuration format",
-        details: "Please wrap your YAML content in a code fence (```yaml ... ```). Without code fences, MDX converts YAML into HTML elements, which cannot be parsed correctly."
-      }
-    }
-  }
+  const yamlExtraction = children ? extractYamlFromChildren(children) : { content: '', error: null }
+  const inlineYamlContent = yamlExtraction.content
+  const inlineContentError = yamlExtraction.error
   
   // Only make API call if validation passes
   const { data: boilerplateConfig, isLoading, error: apiError } = useApiGetBoilerplateConfig(
     templatePath, 
-    inlineBoilerplateYamlContent,
+    inlineYamlContent,
     !validationError && !inlineContentError // shouldFetch is false when there's any validation error
   );
 
@@ -133,10 +116,10 @@ function BoilerplateInputs({
       ...boilerplateConfig,
       variables: boilerplateConfig.variables.map(variable => ({ 
         ...variable, 
-        default: memoizedPrefilledVariables[variable.name] ? String(memoizedPrefilledVariables[variable.name]) : variable.default 
+        default: prefilledVariables[variable.name] ? String(prefilledVariables[variable.name]) : variable.default 
       }))
     }
-  }, [boilerplateConfig, memoizedPrefilledVariables])
+  }, [boilerplateConfig, prefilledVariables])
   
   // Update form state when boilerplate config changes - use a ref to track if we've already set it
   const hasSetFormState = useRef(false)
@@ -183,7 +166,10 @@ function BoilerplateInputs({
     }
   }, [renderResult, setFileTree]);
 
-  // Handle auto-rendering when form data changes
+  // Debounce timer ref for auto-render
+  const autoRenderTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Handle auto-rendering when form data changes (debounced)
   const handleAutoRender = useCallback((formData: Record<string, unknown>) => {
     if (!shouldRender) return; // Only auto-render after initial generation
     
@@ -191,33 +177,76 @@ function BoilerplateInputs({
     const inputsId: string = id ?? '';
     if (!inputsId) return;
     
-    // Update variables in context so BoilerplateTemplate components can re-render
-    setVariables(inputsId, formData);
+    console.log(`[BoilerplateInputs][${inputsId}] Auto-render requested (debouncing...)`);
     
-    // Also trigger file tree auto-render if templatePath exists
-    if (templatePath) {
-      autoRender(templatePath, formData);
+    // Clear existing timer
+    if (autoRenderTimerRef.current) {
+      clearTimeout(autoRenderTimerRef.current);
     }
+    
+    // Debounce: wait 200ms after last change before updating
+    autoRenderTimerRef.current = setTimeout(() => {
+      console.log(`[BoilerplateInputs][${inputsId}] Auto-render executing`);
+      
+      // Update variables in context so BoilerplateTemplate components can re-render reactively
+      setVariables(inputsId, formData);
+      
+      // If templatePath exists, also trigger file tree auto-render
+      // (inline templates will auto-update via their reactive effect)
+      if (templatePath) {
+        autoRender(templatePath, formData);
+      }
+    }, 200);
   }, [id, templatePath, shouldRender, autoRender, setVariables]);
+  
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoRenderTimerRef.current) {
+        clearTimeout(autoRenderTimerRef.current);
+      }
+    };
+  }, []);
 
   // Handle successful generation - trigger render API call
-  const handleGenerate = (formData: Record<string, unknown>) => {
+  const handleGenerate = useCallback(async (formData: Record<string, unknown>) => {
     // Type guard: id is validated to be non-empty by validationError check
     const inputsId: string = id ?? '';
-    if (!inputsId) return;
+    if (!inputsId) {
+      console.error(`[BoilerplateInputs] No inputsId provided!`);
+      return;
+    }
     
-    // Set the form data to render and trigger the API call
-    setRenderFormData(formData)
-    setShouldRender(true)
+    console.log(`[BoilerplateInputs][${inputsId}] 🎯 Generate clicked with formData:`, formData);
+    console.log(`[BoilerplateInputs][${inputsId}] templatePath:`, templatePath);
     
-    // Publish variables to context so BoilerplateTemplate components can access them
-    setVariables(inputsId, formData)
+    // Publish variables to context (needed for both paths)
+    console.log(`[BoilerplateInputs][${inputsId}] Publishing variables to context:`, formData);
+    setVariables(inputsId, formData);
+    
+    // Path 1: File-based rendering (templatePath exists)
+    if (templatePath) {
+      console.log(`[BoilerplateInputs][${inputsId}] Using templatePath mode`);
+      setRenderFormData(formData);
+      setShouldRender(true);
+    } 
+    // Path 2: Inline template rendering (no templatePath, uses coordinator)
+    else {
+      console.log(`[BoilerplateInputs][${inputsId}] 🚀 Using coordinator for inline templates`);
+      try {
+        await renderAllForInputsId(inputsId, formData);
+        console.log(`[BoilerplateInputs][${inputsId}] ✅ Coordinator render complete`);
+        setShouldRender(true); // Mark as rendered for auto-updates
+      } catch (error) {
+        console.error(`[BoilerplateInputs][${inputsId}] ❌ Coordinator render failed:`, error);
+      }
+    }
 
     // Call the original onGenerate callback if provided
     if (onGenerate) {
-      onGenerate(formData)
+      onGenerate(formData);
     }
-  }
+  }, [id, templatePath, setVariables, renderAllForInputsId, onGenerate])
 
   // Early return for loading states
   if (isLoading) {

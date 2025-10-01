@@ -40,7 +40,7 @@ export function mergeFileTrees(
   };
   buildMap(existing);
   
-  // Merge incoming items into existing
+  // Merge incoming items into existing (create new array to ensure React detects changes)
   const result: CodeFileData[] = [...existing];
   
   const mergeIntoLevel = (
@@ -61,6 +61,7 @@ export function mergeFileTrees(
           if (incomingItem.children) {
             mergeIntoLevel(mergedChildren, incomingItem.children, itemPath);
           }
+          // Create new object to ensure React detects the change
           targetLevel[existingIndex] = {
             ...existingItem,
             children: mergedChildren
@@ -78,6 +79,7 @@ export function mergeFileTrees(
   
   mergeIntoLevel(result, incoming);
   
-  return result;
+  // Always return a new array reference to ensure React detects changes
+  return [...result];
 }
 

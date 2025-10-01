@@ -3,101 +3,51 @@ import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/BoilerplateInputs/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/BoilerplateInputs/components/ErrorDisplay'
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
+import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
 import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import { useApiBoilerplateRenderInline } from '@/hooks/useApiBoilerplateRenderInline'
+import type { CodeFileData } from '@/components/artifacts/code/FileTree'
+import { useFileTree } from '@/hooks/useFileTree'
+import { mergeFileTrees } from '@/lib/mergeFileTrees'
 
 interface BoilerplateTemplateProps {
   boilerplateInputsId: string
   outputPath?: string
-  initialVariables?: Record<string, unknown> // Initial variables (fallback if BoilerplateInputs doesn't provide them)
   children?: ReactNode // For inline template content  
 }
 
 function BoilerplateTemplate({
   boilerplateInputsId,
   outputPath,
-  initialVariables,
   children
 }: BoilerplateTemplateProps) {
-  // Helper function to check if variables object has any properties
-  const hasVariables = useCallback((vars: Record<string, unknown> | undefined): boolean => {
-    return vars !== undefined && Object.keys(vars).length > 0;
-  }, []);
+  // Render state: 'waiting' until first Generate, then 'rendered' for reactive updates
+  const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
+  const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, string> } | null>(null);
+  const [error, setError] = useState<AppError | null>(null);
+  const [isRendering, setIsRendering] = useState(false);
   
-  // Extract required variables from template content
-  const requiredVariables = useMemo(() => {
-    const vars = extractTemplateVariables(children);
-    console.log(`[${boilerplateInputsId}][${outputPath}] 🔍 Required variables extracted:`, vars);
-    return vars;
-  }, [children, boilerplateInputsId, outputPath]);
+  // Track last rendered variables to prevent duplicate renders
+  const lastRenderedVariablesRef = useRef<string | null>(null);
   
-  // Check if provided variables satisfy all required variables
-  const hasAllRequiredVariables = useCallback((vars: Record<string, unknown> | undefined): boolean => {
-    const result = (() => {
-      if (!vars) {
-        return false;
-      }
-      
-      if (requiredVariables.length === 0) {
-        return true; // No required variables = all satisfied
-      }
-      
-      // Check if all required variables are present and have truthy values
-      return requiredVariables.every(varName => {
-        const value = vars[varName];
-        return value !== undefined && value !== null && value !== '';
-      });
-    })();
-    
-    console.log(`[${boilerplateInputsId}][${outputPath}] hasAllRequiredVariables check:`, {
-      vars,
-      requiredVariables,
-      result
-    });
-    
-    return result;
-  }, [requiredVariables, boilerplateInputsId, outputPath]);
+  // Debounce timer ref for auto-updates
+  const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Get variables, config, and raw YAML from context (shared between BoilerplateInputs and BoilerplateTemplate)
+  // Get context
   const { variablesByInputsId, yamlContentByInputsId } = useBoilerplateVariables();
+  const { registerTemplate } = useBoilerplateRenderCoordinator();
+  const { setFileTree } = useFileTree();
   
   // Get the raw boilerplate YAML from context (stored by BoilerplateInputs)
   const boilerplateYaml = yamlContentByInputsId[boilerplateInputsId];
   
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<AppError | null>(null);
-  
-  // Track the last rendered variables to prevent re-rendering with the same variables
-  const lastRenderedVariablesRef = useRef<string | null>(null);
-  
-  // Get context variables
-  const contextVariables = variablesByInputsId[boilerplateInputsId];
-  
-  // Log context changes
-  useEffect(() => {
-    console.log(`[${boilerplateInputsId}][${outputPath}] 📦 Context variables changed:`, contextVariables);
-    console.log(`[${boilerplateInputsId}][${outputPath}] 📦 Full context:`, variablesByInputsId);
-  }, [contextVariables, boilerplateInputsId, outputPath, variablesByInputsId]);
-  
-  // Compute which variables to use: context variables ALWAYS take precedence
-  const currentVariables = useMemo(() => {
-    // Priority 1: Context variables from BoilerplateInputs (if they exist)
-    if (hasVariables(contextVariables)) {
-      console.log(`[${boilerplateInputsId}][${outputPath}] ✅ Using context variables:`, contextVariables);
-      return contextVariables;
-    }
-    
-    // Priority 2: Fall back to initialVariables
-    if (initialVariables) {
-      console.log(`[${boilerplateInputsId}][${outputPath}] ⚠️  Using initialVariables (no context):`, initialVariables);
-      return initialVariables;
-    }
-    
-    console.log(`[${boilerplateInputsId}][${outputPath}] ❌ No variables available`);
-    return undefined;
-  }, [contextVariables, initialVariables, hasVariables, boilerplateInputsId, outputPath]);
+  // Extract required variables from template content
+  const requiredVariables = useMemo(() => {
+    const vars = extractTemplateVariables(children);
+    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Required variables:`, vars);
+    return vars;
+  }, [children, boilerplateInputsId, outputPath]);
   
   // Extract template files from children
   const templateFiles = useMemo(() => {
@@ -111,70 +61,154 @@ function BoilerplateTemplate({
     return files;
   }, [children, outputPath, boilerplateYaml]);
   
-  // Use the inline render API hook - only renders via manual autoRender calls
-  const { 
-    data: renderData, 
-    error: renderError,
-    autoRender
-  } = useApiBoilerplateRenderInline();
-  
-  // Update loading state and validate variables
-  useEffect(() => {
-    console.log(`[${boilerplateInputsId}][${outputPath}] Current variables:`, currentVariables);
+  // Helper to check if all required variables are present
+  const hasAllRequiredVariables = useCallback((vars: Record<string, unknown> | undefined): boolean => {
+    if (!vars) return false;
+    if (requiredVariables.length === 0) return true;
     
-    // Check if we have valid variables to work with
-    if (hasAllRequiredVariables(currentVariables) && boilerplateYaml) {
-      setIsLoading(false);
-      setError(null);
-    } else if (hasVariables(currentVariables) && !hasAllRequiredVariables(currentVariables)) {
-      // Has some variables but not all - show error
-      const missing = requiredVariables.filter(varName => {
-        const value = currentVariables![varName];
-        return value === undefined || value === null || value === '';
-      });
-      
-      setIsLoading(false);
-      setError({
-        message: 'Insufficient variables specified',
-        details: `This template requires the following missing variables: ${missing.join(', ')}.`
-      });
+    return requiredVariables.every(varName => {
+      const value = vars[varName];
+      return value !== undefined && value !== null && value !== '';
+    });
+  }, [requiredVariables]);
+  
+  // Core render function that calls the API
+  const renderTemplate = useCallback(async (variables: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<CodeFileData[]> => {
+    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Rendering with variables:`, variables, isAutoUpdate ? '(auto-update)' : '(initial)');
+    
+    // Only show loading state for initial renders, not auto-updates
+    if (!isAutoUpdate) {
+      setIsRendering(true);
     }
-  }, [currentVariables, boilerplateYaml, hasAllRequiredVariables, hasVariables, requiredVariables, boilerplateInputsId, outputPath]);
-  
-  // Trigger render when variables change and we have all required variables
-  useEffect(() => {
-    console.log(`[${boilerplateInputsId}][${outputPath}] Render effect triggered. hasAll=${hasAllRequiredVariables(currentVariables)}, hasYaml=${!!boilerplateYaml}, hasFiles=${Object.keys(templateFiles).length > 0}`);
+    setError(null);
     
-    if (hasAllRequiredVariables(currentVariables) && boilerplateYaml && Object.keys(templateFiles).length > 0) {
-      // Create a stable string representation of the current variables to check if they've changed
-      const variablesKey = JSON.stringify(currentVariables);
-      
-      console.log(`[${boilerplateInputsId}][${outputPath}] Checking if should render. Current key:`, variablesKey.substring(0, 100));
-      console.log(`[${boilerplateInputsId}][${outputPath}] Last rendered key:`, lastRenderedVariablesRef.current?.substring(0, 100));
-      
-      // Only render if the variables have actually changed
-      if (variablesKey !== lastRenderedVariablesRef.current) {
-        console.log(`[${boilerplateInputsId}][${outputPath}] 🚀 Rendering with variables:`, currentVariables);
-        lastRenderedVariablesRef.current = variablesKey;
-        autoRender(templateFiles, currentVariables!);
-      } else {
-        console.log(`[${boilerplateInputsId}][${outputPath}] ⏭️  Skipping render - variables unchanged`);
+    try {
+      const response = await fetch('/api/boilerplate/render-inline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateFiles, variables }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        const appError: AppError = {
+          message: errorData?.error || 'Failed to render template',
+          details: errorData?.details || 'The server returned an error'
+        };
+        
+        setError(appError);
+        setIsRendering(false);
+        return []; // Return empty array so coordinator can continue
       }
-    } else {
-      console.log(`[${boilerplateInputsId}][${outputPath}] ❌ Cannot render - conditions not met`);
+
+      const responseData = await response.json();
+      
+      setRenderData(responseData);
+      setRenderState('rendered'); // Move to rendered state
+      setIsRendering(false);
+      
+      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Render successful`);
+      
+      // Return the file tree for coordinator to merge
+      return responseData.fileTree || [];
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      
+      setError({
+        message: 'Failed to render template',
+        details: errorMessage
+      });
+      setIsRendering(false);
+      return []; // Return empty array so coordinator can continue
     }
-  }, [currentVariables, templateFiles, hasAllRequiredVariables, autoRender, boilerplateYaml, boilerplateInputsId, outputPath]);
+  }, [boilerplateInputsId, outputPath, templateFiles]);
+  
+  // 1. Register with coordinator for event-based initial render
+  useEffect(() => {
+    if (!boilerplateYaml || Object.keys(templateFiles).length === 0) {
+      return; // Wait for template files to be ready
+    }
+    
+    const templateId = `${boilerplateInputsId}-${outputPath || 'default'}`;
+    
+    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Registering with coordinator`);
+    
+    const unregister = registerTemplate({
+      templateId,
+      inputsId: boilerplateInputsId,
+      renderFn: renderTemplate
+    });
+    
+    return unregister;
+  }, [boilerplateInputsId, outputPath, registerTemplate, renderTemplate, boilerplateYaml, templateFiles]);
+  
+  // 2. Auto-update when variables change (ONLY if already rendered, debounced)
+  const contextVariables = variablesByInputsId[boilerplateInputsId];
+  
+  useEffect(() => {
+    // Only react to variable changes if we've rendered at least once
+    if (renderState !== 'rendered') {
+      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Skipping auto-update - state is '${renderState}'`);
+      return;
+    }
+    
+    if (!contextVariables || !hasAllRequiredVariables(contextVariables)) {
+      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Skipping auto-update - invalid variables`);
+      return;
+    }
+    
+    // Check if variables actually changed
+    const variablesKey = JSON.stringify(contextVariables);
+    if (variablesKey === lastRenderedVariablesRef.current) {
+      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Skipping auto-update - variables unchanged`);
+      return;
+    }
+    
+    console.log(`[Template][${boilerplateInputsId}][${outputPath}] Auto-update requested (debouncing...)`);
+    
+    // Clear existing timer
+    if (autoUpdateTimerRef.current) {
+      clearTimeout(autoUpdateTimerRef.current);
+    }
+    
+    // Debounce: wait 300ms after last change before updating
+    autoUpdateTimerRef.current = setTimeout(() => {
+      console.log(`[Template][${boilerplateInputsId}][${outputPath}] Auto-update executing`);
+      lastRenderedVariablesRef.current = variablesKey;
+      
+      // Re-render with new variables (mark as auto-update to prevent flashing)
+      renderTemplate(contextVariables, true)
+        .then(newFileTree => {
+          // Merge the new file tree with existing using functional update to avoid stale closure
+          setFileTree((currentFileTree: CodeFileData[] | null) => {
+            const merged = mergeFileTrees(currentFileTree, newFileTree);
+            console.log(`[Template][${boilerplateInputsId}][${outputPath}] File tree updated:`, merged?.length || 0, 'items');
+            return merged;
+          });
+        })
+        .catch(err => {
+          // Error is already set in renderTemplate, just log for debugging
+          console.error(`[Template][${boilerplateInputsId}][${outputPath}] Auto-update failed:`, err);
+        });
+    }, 300);
+  }, [contextVariables, renderState, hasAllRequiredVariables, boilerplateInputsId, outputPath, renderTemplate, setFileTree]);
+  
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoUpdateTimerRef.current) {
+        clearTimeout(autoUpdateTimerRef.current);
+      }
+    };
+  }, []);
   
   return (
-    isLoading ? (
+    renderState === 'waiting' ? (
       <LoadingDisplay message="Fill in the variables above and click the Generate button to render this code snippet." />
+    ) : isRendering ? (
+      <LoadingDisplay message="Rendering template..." />
     ) : error ? (
       <ErrorDisplay error={error} />
-    ) : renderError ? (
-      <ErrorDisplay error={{ 
-        message: 'Failed to render template', 
-        details: renderError.message || 'An error occurred while rendering the template' 
-      }} />
     ) : renderData?.renderedFiles ? (
       <>
         {Object.entries(renderData.renderedFiles).map(([filename, content]) => (
