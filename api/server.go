@@ -17,10 +17,10 @@ func StartServer(runbookPath string, port int) {
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/file", HandleFileRequest(runbookPath))
+	r.POST("/api/file", HandleFileRequest(runbookPath))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleFileRequest(runbookPath))
+	r.GET("/api/runbook", HandleRunbookRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
 	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
@@ -64,7 +64,10 @@ func StartBackendServer(runbookPath string, port int) {
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleFileRequest(runbookPath))
+	r.GET("/api/runbook", HandleRunbookRequest(runbookPath))
+
+	// API endpoint to serve file contents
+	r.POST("/api/file", HandleFileRequest(runbookPath))
 
 	// API endpoint to parse boilerplate.yml files
 	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))

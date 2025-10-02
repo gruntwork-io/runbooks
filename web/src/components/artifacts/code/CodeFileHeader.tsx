@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Copy, FolderOpen, Check } from "lucide-react"
+import { Copy, Check } from "lucide-react"
 
 // Copy function
 const copyToClipboard = async (text: string) => {

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,71 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHandleRunbookRequest(t *testing.T) {
+	// Create a temporary directory for test files
+	tempDir := t.TempDir()
+	
+	// Create a test file
+	testFile := filepath.Join(tempDir, "test-file.txt")
+	testContent := "This is test content for the runbook handler"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		runbookPath    string
+		expectedStatus int
+		expectError    bool
+		expectedContent string
+	}{
+		{
+			name:           "read runbook file directly",
+			runbookPath:    testFile,
+			expectedStatus: 200,
+			expectError:    false,
+			expectedContent: testContent,
+		},
+		{
+			name:           "file not found",
+			runbookPath:    filepath.Join(tempDir, "non-existent.txt"),
+			expectedStatus: 404,
+			expectError:    true,
+			expectedContent: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up Gin router
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			router.GET("/runbook", HandleRunbookRequest(tt.runbookPath))
+
+			// Create request
+			req, err := http.NewRequest("GET", "/runbook", nil)
+			require.NoError(t, err)
+
+			// Create response recorder
+			w := httptest.NewRecorder()
+
+			// Perform request
+			router.ServeHTTP(w, req)
+
+			// Check status code
+			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			if tt.expectError {
+				// For error cases, check that we get an error response
+				assert.Contains(t, w.Body.String(), "error")
+			} else {
+				// For success cases, check that we get the file content
+				assert.Contains(t, w.Body.String(), tt.expectedContent)
+				assert.Contains(t, w.Body.String(), "content")
+			}
+		})
+	}
+}
 
 func TestHandleFileRequest(t *testing.T) {
 	// Create a temporary directory for test files
@@ -28,7 +95,7 @@ func TestHandleFileRequest(t *testing.T) {
 	tests := []struct {
 		name           string
 		runbookPath    string
-		queryPath      string
+		requestPath    string
 		expectedStatus int
 		expectError    bool
 		expectedContent string
@@ -36,7 +103,7 @@ func TestHandleFileRequest(t *testing.T) {
 		{
 			name:           "read file using runbook path directly",
 			runbookPath:    testFile,
-			queryPath:      "",
+			requestPath:    "",
 			expectedStatus: 200,
 			expectError:    false,
 			expectedContent: testContent,
@@ -44,7 +111,7 @@ func TestHandleFileRequest(t *testing.T) {
 		{
 			name:           "read file using relative path",
 			runbookPath:    runbookPath,
-			queryPath:      "test-file.txt",
+			requestPath:    "test-file.txt",
 			expectedStatus: 200,
 			expectError:    false,
 			expectedContent: testContent,
@@ -52,7 +119,7 @@ func TestHandleFileRequest(t *testing.T) {
 		{
 			name:           "file not found - non-existent file",
 			runbookPath:    runbookPath,
-			queryPath:      "non-existent.txt",
+			requestPath:    "non-existent.txt",
 			expectedStatus: 404,
 			expectError:    true,
 			expectedContent: "",
@@ -60,7 +127,7 @@ func TestHandleFileRequest(t *testing.T) {
 		{
 			name:           "file not found - empty path",
 			runbookPath:    "",
-			queryPath:      "",
+			requestPath:    "",
 			expectedStatus: 404,
 			expectError:    true,
 			expectedContent: "",
@@ -72,18 +139,17 @@ func TestHandleFileRequest(t *testing.T) {
 			// Set up Gin router
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/file", HandleFileRequest(tt.runbookPath))
+			router.POST("/file", HandleFileRequest(tt.runbookPath))
 
-			// Create request
-			req, err := http.NewRequest("GET", "/file", nil)
+			// Create request body
+			requestBody := FileRequest{Path: tt.requestPath}
+			bodyBytes, err := json.Marshal(requestBody)
 			require.NoError(t, err)
 
-			// Add query parameter if specified
-			if tt.queryPath != "" {
-				q := req.URL.Query()
-				q.Add("path", tt.queryPath)
-				req.URL.RawQuery = q.Encode()
-			}
+			// Create request
+			req, err := http.NewRequest("POST", "/file", bytes.NewBuffer(bodyBytes))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
 
 			// Create response recorder
 			w := httptest.NewRecorder()
@@ -124,21 +190,21 @@ func TestHandleFileRequest_FileIOErrors(t *testing.T) {
 	tests := []struct {
 		name           string
 		runbookPath    string
-		queryPath      string
+		requestPath    string
 		expectedStatus int
 		errorContains  string
 	}{
 		{
 			name:           "access directory instead of file",
 			runbookPath:    testDir,
-			queryPath:      "",
+			requestPath:    "",
 			expectedStatus: 500, // io.ReadAll fails for directories, returns 500
 			errorContains:  "Failed to read file",
 		},
 		{
 			name:           "file path with invalid characters",
 			runbookPath:    "/invalid/path/with/\x00/null",
-			queryPath:      "",
+			requestPath:    "",
 			expectedStatus: 500, // os.Open fails for invalid paths, returns 500
 			errorContains:  "Failed to open file",
 		},
@@ -149,18 +215,17 @@ func TestHandleFileRequest_FileIOErrors(t *testing.T) {
 			// Set up Gin router
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/file", HandleFileRequest(tt.runbookPath))
+			router.POST("/file", HandleFileRequest(tt.runbookPath))
 
-			// Create request
-			req, err := http.NewRequest("GET", "/file", nil)
+			// Create request body
+			requestBody := FileRequest{Path: tt.requestPath}
+			bodyBytes, err := json.Marshal(requestBody)
 			require.NoError(t, err)
 
-			// Add query parameter if specified
-			if tt.queryPath != "" {
-				q := req.URL.Query()
-				q.Add("path", tt.queryPath)
-				req.URL.RawQuery = q.Encode()
-			}
+			// Create request
+			req, err := http.NewRequest("POST", "/file", bytes.NewBuffer(bodyBytes))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
 
 			// Create response recorder
 			w := httptest.NewRecorder()
@@ -194,21 +259,21 @@ func TestHandleFileRequest_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name           string
 		runbookPath    string
-		queryPath      string
+		requestPath    string
 		expectedStatus int
 		expectError    bool
 	}{
 		{
 			name:           "file with special characters",
 			runbookPath:    testFile,
-			queryPath:      "",
+			requestPath:    "",
 			expectedStatus: 200,
 			expectError:    false,
 		},
 		{
 			name:           "empty file",
 			runbookPath:    runbookPath,
-			queryPath:      "empty-file.txt",
+			requestPath:    "empty-file.txt",
 			expectedStatus: 200,
 			expectError:    false,
 		},
@@ -224,18 +289,17 @@ func TestHandleFileRequest_EdgeCases(t *testing.T) {
 			// Set up Gin router
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/file", HandleFileRequest(tt.runbookPath))
+			router.POST("/file", HandleFileRequest(tt.runbookPath))
 
-			// Create request
-			req, err := http.NewRequest("GET", "/file", nil)
+			// Create request body
+			requestBody := FileRequest{Path: tt.requestPath}
+			bodyBytes, err := json.Marshal(requestBody)
 			require.NoError(t, err)
 
-			// Add query parameter if specified
-			if tt.queryPath != "" {
-				q := req.URL.Query()
-				q.Add("path", tt.queryPath)
-				req.URL.RawQuery = q.Encode()
-			}
+			// Create request
+			req, err := http.NewRequest("POST", "/file", bytes.NewBuffer(bodyBytes))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
 
 			// Create response recorder
 			w := httptest.NewRecorder()
@@ -250,6 +314,71 @@ func TestHandleFileRequest_EdgeCases(t *testing.T) {
 				// For success cases, check that we get a valid JSON response
 				assert.Contains(t, w.Body.String(), "content")
 				assert.Contains(t, w.Body.String(), "path")
+			}
+		})
+	}
+}
+
+func TestHandleFileRequest_InvalidRequestBody(t *testing.T) {
+	// Create a temporary directory for test files
+	tempDir := t.TempDir()
+	runbookPath := filepath.Join(tempDir, "runbook.mdx")
+
+	tests := []struct {
+		name           string
+		requestBody    string
+		expectedStatus int
+		errorContains  string
+	}{
+		{
+			name:           "empty request body",
+			requestBody:    "",
+			expectedStatus: 400,
+			errorContains:  "Invalid request",
+		},
+		{
+			name:           "invalid JSON",
+			requestBody:    `{"path": "test"`,
+			expectedStatus: 400,
+			errorContains:  "Invalid request",
+		},
+		{
+			name:           "missing path field",
+			requestBody:    `{}`,
+			expectedStatus: 404,
+			errorContains:  "File not found",
+		},
+		{
+			name:           "path field not a string",
+			requestBody:    `{"path": 123}`,
+			expectedStatus: 400,
+			errorContains:  "Invalid request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up Gin router
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			router.POST("/file", HandleFileRequest(runbookPath))
+
+			// Create request
+			req, err := http.NewRequest("POST", "/file", bytes.NewBufferString(tt.requestBody))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+
+			// Create response recorder
+			w := httptest.NewRecorder()
+
+			// Perform request
+			router.ServeHTTP(w, req)
+
+			// Check status code
+			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			if tt.errorContains != "" {
+				assert.Contains(t, w.Body.String(), tt.errorContains)
 			}
 		})
 	}

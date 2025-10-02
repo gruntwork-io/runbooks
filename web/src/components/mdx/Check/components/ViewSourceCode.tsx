@@ -6,12 +6,14 @@ interface ViewSourceCodeProps {
   sourceCode: string
   path?: string
   fileName?: string
+  language?: string
 }
 
 export function ViewSourceCode({ 
   sourceCode, 
   path, 
-  fileName = "Check Script" 
+  fileName = "Check Script",
+  language
 }: ViewSourceCodeProps) {
   const [showSourceCode, setShowSourceCode] = useState(false)
 
@@ -35,6 +37,7 @@ export function ViewSourceCode({
             fileName={fileName}
             filePath={path}
             code={sourceCode}
+            language={language}
           />
         </div>
       )}

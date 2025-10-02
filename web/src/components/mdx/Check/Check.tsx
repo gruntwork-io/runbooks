@@ -32,6 +32,7 @@ function Check({
   
   // Use file content if available, otherwise fall back to empty string
   const sourceCode = fileData?.content || ''
+  const language = fileData?.language
   
   const [skipCheck, setSkipCheck] = useState(false);
   const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'running' | 'pending'>('pending');
@@ -162,7 +163,8 @@ function Check({
       <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4" />
-          <div className="text-md"><strong>{getFileError.message}.</strong> Failed to load file at {path}. Does the file exist?</div>
+          <div className="text-md">
+            <strong>CheckComponent Error:</strong><br />{getFileError.message}. Failed to load file at {path}. Does the file exist? Do you have permission to read it?</div>
         </div>
       </div>
     )
@@ -223,7 +225,7 @@ function Check({
         </div>
         
         {/* Checkbox positioned in top right */}
-        <div className="@md:absolute @md:top-4 @md:right-4 flex items-center gap-2 self-start z-20">
+        <div className={`@md:absolute @md:top-4 @md:right-4 flex items-center gap-2 self-start z-20` + (checkStatus === 'success' ? ' text-gray-300' : '')}>
           <label className="flex items-center gap-2 cursor-pointer">
             <Checkbox 
               className="bg-white" 
@@ -240,16 +242,17 @@ function Check({
 
       {/* Expandable sections inside the main box */}
       <div className="mt-4 space-y-2">
-      <ViewLogs 
-          logs={logs}
-          checkStatus={checkStatus}
-          autoOpen={checkStatus === 'running'}
-        />
-        <ViewSourceCode 
-          sourceCode={sourceCode}
-          path={path}
-          fileName="Check Script"
-        />
+        <ViewLogs 
+            logs={logs}
+            checkStatus={checkStatus}
+            autoOpen={checkStatus === 'running'}
+          />
+          <ViewSourceCode 
+            sourceCode={sourceCode}
+            path={path}
+            language={language}
+            fileName="Check Script"
+          />
       </div>
     </div>
   )

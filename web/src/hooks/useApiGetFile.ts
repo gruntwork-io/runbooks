@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 
@@ -5,10 +6,15 @@ import type { UseApiReturn } from './useApi';
 export interface GetFileReturn {
   path: string;
   content: string;
+  language: string;
+  size: number;
 }
 
 export function useGetFile(path: string): UseApiReturn<GetFileReturn> {
-  // Build the endpoint with the path as a query parameter
-  const endpoint = path ? `/api/file?path=${encodeURIComponent(path)}` : '';
-  return useApi<GetFileReturn>(endpoint);
+  // Build the request body with the path, memoized to prevent infinite loops
+  const requestBody = useMemo(() => {
+    return path ? { path } : undefined;
+  }, [path]);
+  
+  return useApi<GetFileReturn>('/api/file', 'POST', requestBody);
 }
