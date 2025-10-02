@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import type { AppError } from '../types/error';
+import { createAppError, type AppError } from '../types/error';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -47,10 +47,10 @@ export function useApi<T>(
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        setError({
-          message: errorData?.message || `HTTP error: ${response.status}`,
-          details: errorData?.details || `Failed to connect to runbook server at ${fullUrl}. Is the backend server running?`
-        });
+        setError(createAppError(
+          errorData?.message || `HTTP error: ${response.status}`,
+          errorData?.details || `Failed to connect to runbook server at ${fullUrl}. Is the backend server running?`
+        ));
         setIsLoading(false);
         return;
       }
@@ -61,10 +61,10 @@ export function useApi<T>(
     } catch (err: unknown) {
       console.log('err', err);
       setIsLoading(false);
-      setError({
-        message: err instanceof Error ? err.message : 'An unexpected error occurred',
-        details: `Failed to connect to runbook server at ${fullUrl}`
-      });
+      setError(createAppError(
+        err instanceof Error ? err.message : 'An unexpected error occurred',
+        `Failed to connect to runbook server at ${fullUrl}`
+      ));
     }
   }, [endpoint, method, fullUrl]);
 

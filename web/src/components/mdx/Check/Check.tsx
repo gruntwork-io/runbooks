@@ -10,6 +10,7 @@ import { useBoilerplateVariables } from "@/contexts/useBoilerplateVariables"
 import { extractInlineInputsId } from "./lib/extractInlineInputsId"
 import { extractTemplateVariables } from "@/components/mdx/BoilerplateTemplate/lib/extractTemplateVariables"
 import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
+import { useApiExec } from "@/hooks/useApiExec"
 
 interface CheckProps {
   id: string
@@ -99,10 +100,14 @@ function Check({
   }, [children]);
   
   const [skipCheck, setSkipCheck] = useState(false);
-  const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'running' | 'pending'>('pending');
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
-  const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Use the API exec hook for real script execution
+  const { state: execState, execute, cancel } = useApiExec();
+  
+  // Use exec state for status, logs, and errors
+  const checkStatus = execState.status;
+  const logs = execState.logs;
+  const execError = execState.error;
 
   // Function to render script with variables
   const renderScript = useCallback(async (variables: Record<string, unknown>) => {
@@ -204,7 +209,7 @@ function Check({
     
     const statusMap = {
       success: 'bg-green-50 border-green-200',
-      warn: 'bg-yellow-50 border-yellow-200', 
+      warn: 'bg-yellow-50 border-yellow-300', 
       fail: 'bg-red-50 border-red-200',
       running: 'bg-blue-50 border-blue-200',
       pending: 'bg-gray-100 border-gray-200'
@@ -241,78 +246,23 @@ function Check({
   const IconComponent = getStatusIcon()
   const iconClasses = getStatusIconClasses()
 
-
-  // Sample log messages for simulation
-  const sampleLogs = [
-    "🔍 Starting KMS key validation...",
-    "🔑 Validating KMS key: arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-    "✅ KMS key exists and is accessible",
-    "📋 Checking key policy...",
-    "✅ Key policy allows root access",
-    "🔐 Testing encryption/decryption...",
-    "✅ Encryption successful",
-    "✅ Decryption successful",
-    "🎉 KMS key validation completed successfully!"
-  ];
-
-  // Handle starting the check
+  // Handle starting the check - execute the rendered script
   const handleStartCheck = () => {
-    setCheckStatus('running')
-    setLogs([])
-    
-    // Clear any existing timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-    }
-    
-    // Clear any existing log interval
-    if (logIntervalRef.current) {
-      clearInterval(logIntervalRef.current)
-    }
-    
-    // Simulate real-time logs
-    let logIndex = 0
-    logIntervalRef.current = setInterval(() => {
-      if (logIndex < sampleLogs.length) {
-        setLogs(prev => [...prev, sampleLogs[logIndex]])
-        logIndex++
-      } else {
-        if (logIntervalRef.current) {
-          clearInterval(logIntervalRef.current)
-        }
-      }
-    }, 500)
-    
-    // Set success after 3 seconds
-    timeoutRef.current = setTimeout(() => {
-      setCheckStatus('success')
-    }, 3000)
+    // Execute the rendered script (or raw script if no variables)
+    execute(sourceCode, language || 'bash')
   }
 
   // Handle stopping the check
   const handleStopCheck = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
-    }
-    if (logIntervalRef.current) {
-      clearInterval(logIntervalRef.current)
-      logIntervalRef.current = null
-    }
-    setCheckStatus('pending')
+    cancel()
   }
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
-      if (logIntervalRef.current) {
-        clearInterval(logIntervalRef.current)
-      }
+      cancel()
     }
-  }, [])
+  }, [cancel])
 
 
   // Early return for file errors - show only error message
@@ -393,14 +343,25 @@ function Check({
             </div>
           )}
 
+          {/* Security warning banner */}
+          {checkStatus === 'pending' && !skipCheck && (
+            <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2">
+              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Review before running:</strong> This check will execute a script directly on your machine with access to your full environment. 
+                Please review the script in "View Source Code" below before clicking Check.
+              </div>
+            </div>
+          )}
+
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
           
           {/* Show status messages for waiting/rendering/error states */}      
           {requiredVariables.length > 0 && !hasAllRequiredVariables && !isRendering && (
-            <div className="mb-3 text-sm text-yellow-600 flex items-center gap-2">
+            <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
               <AlertTriangle className="size-4" />
-              You can run the check once have values for the following variables: {requiredVariables.filter(varName => {
+              You can run the check once we have values for the following variables: {requiredVariables.filter(varName => {
                 const value = collectedVariables[varName];
                 return value === undefined || value === null || value === '';
               }).map(varName => formatVariableLabel(varName)).join(', ')}
@@ -411,6 +372,16 @@ function Check({
             <div className="mb-3 text-sm text-red-600 flex items-center gap-2">
               <XCircle className="size-4" />
               Script render error: {renderError}
+            </div>
+          )}
+          
+          {execError && (
+            <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
+              <XCircle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>{execError.message}</strong>
+                {execError.details && <div className="text-xs mt-1 text-red-500">{execError.details}</div>}
+              </div>
             </div>
           )}
           

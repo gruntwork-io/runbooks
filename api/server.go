@@ -31,6 +31,9 @@ func StartServer(runbookPath string, port int) {
 	// API endpoint to render boilerplate templates from inline template files
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
 
+	// API endpoint to execute check scripts
+	r.POST("/api/exec", HandleExecRequest())
+
 	// Serve static assets (CSS, JS, etc.) from the assets directory
 	r.Static("/assets", "./web/dist/assets")
 
@@ -77,6 +80,9 @@ func StartBackendServer(runbookPath string, port int) {
 
 	// API endpoint to render boilerplate templates from inline template files
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
+
+	// API endpoint to execute check scripts
+	r.POST("/api/exec", HandleExecRequest())
 
 	// listen and serve on 0.0.0.0:$port | localhost:$port
 	r.Run(":" + fmt.Sprintf("%d", port))
