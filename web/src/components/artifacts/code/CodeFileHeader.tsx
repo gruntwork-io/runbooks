@@ -48,28 +48,10 @@ export const CodeFileHeader = ({
 
   return (
     <div className={`text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between ${className}`}>
-      <div>{filePath}</div>
-      <div className="flex gap-2">
-        {showCopyCodeButton && (
-          <Tooltip delayDuration={1000}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyCode}
-                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
-              >
-                {copiedCode ? <Check className="h-3 w-3 text-gray-400" /> : <Copy className="h-3 w-3" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{copiedCode ? "Copied!" : "Copy code"}</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
-        
+      <div className="flex items-center gap-2">
+        <div>{filePath}</div>
         {showCopyPathButton && (
-          <Tooltip delayDuration={1000}>
+          <Tooltip delayDuration={350}>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
@@ -77,11 +59,32 @@ export const CodeFileHeader = ({
                 onClick={handleCopyPath}
                 className="h-5 w-5 text-gray-400 hover:cursor-pointer box-shadow-none"
               >
-                {copiedPath ? <Check className="h-3 w-3 text-gray-400" /> : <FolderOpen className="h-4 w-4" />}
+                {copiedPath ? <Check className="h-2 w-2 text-gray-400" /> : <Copy className="h-4 w-4" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
               <p>{copiedPath ? "Copied!" : "Copy local path"}</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+      
+
+      <div className="flex gap-2">
+        {showCopyCodeButton && (
+          <Tooltip delayDuration={350}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCopyCode}
+                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
+              >
+                {copiedCode ? <Check className="h-2 w-2 text-gray-400" /> : <Copy className="h-3 w-3" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{copiedCode ? "Copied!" : "Copy raw file"}</p>
             </TooltipContent>
           </Tooltip>
         )}

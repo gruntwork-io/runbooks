@@ -30,7 +30,7 @@ export const CodeFile = ({
   language = 'text',
   showLineNumbers = true,
   showCopyCodeButton = true,
-  showCopyPathButton = true,
+  showCopyPathButton = Boolean(filePath),
   className = ""
 }: CodeFileProps) => {
   // Use filePath if provided, otherwise fall back to fileName
