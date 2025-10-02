@@ -1,16 +1,10 @@
 import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
-import { useState, useRef, useEffect, useMemo, useCallback, cloneElement, isValidElement } from "react"
+import { useState, useMemo, cloneElement, isValidElement } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode } from "./components/ViewSourceCode"
-import { ViewLogs } from "./components/ViewLogs"
-import { useGetFile } from "@/hooks/useApiGetFile"
-import { useBoilerplateVariables } from "@/contexts/useBoilerplateVariables"
-import { extractInlineInputsId } from "./lib/extractInlineInputsId"
-import { extractTemplateVariables } from "@/components/mdx/BoilerplateTemplate/lib/extractTemplateVariables"
+import { ViewSourceCode, ViewLogs, useScriptExecution } from "@/components/mdx/shared"
 import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
-import { useApiExec } from "@/hooks/useApiExec"
 
 interface CheckProps {
   id: string
@@ -35,57 +29,29 @@ function Check({
 }: CheckProps) {
   // Suppress unused parameter warnings for future use
   void id;
-  // Load file content if path is provided
-  const { data: fileData, error: getFileError } = useGetFile(path || '')
   
-  // Use file content if available, otherwise fall back to empty string
-  const rawScriptContent = fileData?.content || ''
-  const language = fileData?.language
-  
-  // Get boilerplate variables context for variable collection
-  const { variablesByInputsId, yamlContentByInputsId } = useBoilerplateVariables();
-  
-  // Extract inline BoilerplateInputs ID from children if present
-  const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children]);
-  
-  // Collect variables from both sources and merge (inline takes precedence)
-  const collectedVariables = useMemo(() => {
-    const externalVars = boilerplateInputsId ? variablesByInputsId[boilerplateInputsId] : undefined;
-    const inlineVars = inlineInputsId ? variablesByInputsId[inlineInputsId] : undefined;
-    
-    // Merge: inline overrides external
-    return {
-      ...(externalVars || {}),
-      ...(inlineVars || {})
-    };
-  }, [boilerplateInputsId, inlineInputsId, variablesByInputsId]);
-  
-  // Extract template variables from script content
-  const requiredVariables = useMemo(() => {
-    return extractTemplateVariables(rawScriptContent);
-  }, [rawScriptContent]);
-  
-  // Check if we have all required variables
-  const hasAllRequiredVariables = useMemo(() => {
-    if (requiredVariables.length === 0) return true; // No variables needed
-    
-    return requiredVariables.every(varName => {
-      const value = collectedVariables[varName];
-      return value !== undefined && value !== null && value !== '';
-    });
-  }, [requiredVariables, collectedVariables]);
-  
-  // State for rendered script content
-  const [renderedScript, setRenderedScript] = useState<string | null>(null);
-  const [renderError, setRenderError] = useState<string | null>(null);
-  const [isRendering, setIsRendering] = useState(false);
-  
-  // Track last rendered variables to prevent duplicate renders
-  const lastRenderedVariablesRef = useRef<string | null>(null);
-  const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Determine the actual script content to use
-  const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent;
+  // Use shared script execution hook
+  const {
+    sourceCode,
+    language,
+    fileError: getFileError,
+    collectedVariables,
+    requiredVariables,
+    hasAllRequiredVariables,
+    inlineInputsId,
+    isRendering,
+    renderError,
+    status: checkStatus,
+    logs,
+    execError,
+    execute: handleExecute,
+    cancel,
+  } = useScriptExecution({
+    path,
+    boilerplateInputsId,
+    children,
+    componentType: 'check'
+  })
   
   // Clone children and add variant="embedded" prop if it's a BoilerplateInputs component
   const childrenWithVariant = useMemo(() => {
@@ -100,108 +66,6 @@ function Check({
   }, [children]);
   
   const [skipCheck, setSkipCheck] = useState(false);
-  
-  // Use the API exec hook for real script execution
-  const { state: execState, execute, cancel } = useApiExec();
-  
-  // Use exec state for status, logs, and errors
-  const checkStatus = execState.status;
-  const logs = execState.logs;
-  const execError = execState.error;
-
-  // Function to render script with variables
-  const renderScript = useCallback(async (variables: Record<string, unknown>) => {
-    setIsRendering(true);
-    setRenderError(null);
-    
-    // Get the boilerplate.yml content from context
-    // Try inline first, then external
-    const inputsIdToUse = inlineInputsId || boilerplateInputsId;
-    const boilerplateYaml = inputsIdToUse ? yamlContentByInputsId[inputsIdToUse] : undefined;
-    
-    // Build template files object - must include boilerplate.yml
-    const templateFiles: Record<string, string> = {
-      // 'script.sh' is just a filename identifier for the API request/response
-      // Each API call is isolated, so no risk of collision between Check components
-      'script.sh': rawScriptContent
-    };
-    
-    if (boilerplateYaml) {
-      templateFiles['boilerplate.yml'] = boilerplateYaml;
-    }
-    
-    try {
-      const response = await fetch('/api/boilerplate/render-inline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          templateFiles,
-          variables
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        setRenderError(errorData?.error || 'Failed to render script');
-        setIsRendering(false);
-        return;
-      }
-
-      const responseData = await response.json();
-      const renderedFiles = responseData.renderedFiles;
-      
-      if (renderedFiles && renderedFiles['script.sh']) {
-        setRenderedScript(renderedFiles['script.sh'].content);
-      }
-      
-      setIsRendering(false);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setRenderError(errorMessage);
-      setIsRendering(false);
-    }
-  }, [rawScriptContent, inlineInputsId, boilerplateInputsId, yamlContentByInputsId]);
-  
-  // Auto-update when variables change (debounced)
-  useEffect(() => {
-    // Only render if we have template variables and all required variables are available
-    if (requiredVariables.length === 0) {
-      // No template variables, use raw script
-      setRenderedScript(null);
-      return;
-    }
-    
-    if (!hasAllRequiredVariables) {
-      // Required variables not available yet
-      return;
-    }
-    
-    // Check if variables actually changed
-    const variablesKey = JSON.stringify(collectedVariables);
-    if (variablesKey === lastRenderedVariablesRef.current) {
-      return;
-    }
-    
-    // Clear existing timer
-    if (autoUpdateTimerRef.current) {
-      clearTimeout(autoUpdateTimerRef.current);
-    }
-    
-    // Debounce: wait 300ms after last change before rendering
-    autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = variablesKey;
-      renderScript(collectedVariables);
-    }, 300);
-  }, [collectedVariables, requiredVariables.length, hasAllRequiredVariables, renderScript]);
-  
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (autoUpdateTimerRef.current) {
-        clearTimeout(autoUpdateTimerRef.current);
-      }
-    };
-  }, []);
 
   // Get visual styling based on status
   const getStatusClasses = () => {
@@ -246,23 +110,15 @@ function Check({
   const IconComponent = getStatusIcon()
   const iconClasses = getStatusIconClasses()
 
-  // Handle starting the check - execute the rendered script
+  // Handle starting the check
   const handleStartCheck = () => {
-    // Execute the rendered script (or raw script if no variables)
-    execute(sourceCode, language || 'bash')
+    handleExecute()
   }
 
   // Handle stopping the check
   const handleStopCheck = () => {
     cancel()
   }
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      cancel()
-    }
-  }, [cancel])
 
 
   // Early return for file errors - show only error message
@@ -272,7 +128,10 @@ function Check({
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4" />
           <div className="text-md">
-            <strong>CheckComponent Error:</strong><br />{getFileError.message}. Failed to load file at {path}. Does the file exist? Do you have permission to read it?</div>
+            <strong>Check Component Error:</strong><br />
+            {getFileError.message}
+            {path && <span>. Failed to load file at {path}. Does the file exist? Do you have permission to read it?</span>}
+          </div>
         </div>
       </div>
     )
@@ -369,9 +228,12 @@ function Check({
           )}
           
           {renderError && (
-            <div className="mb-3 text-sm text-red-600 flex items-center gap-2">
-              <XCircle className="size-4" />
-              Script render error: {renderError}
+            <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
+              <XCircle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Script render error:</strong> {renderError.message}
+                {renderError.details && <div className="text-xs mt-1 text-red-500">{renderError.details}</div>}
+              </div>
             </div>
           )}
           
@@ -388,23 +250,23 @@ function Check({
           <div className="flex items-center w-full justify-between">
             <div className="flex items-center gap-2">
               <Button 
-                variant="outline" 
+                variant="outline"
+                size="sm"
                 disabled={isCheckDisabled}
                 onClick={handleStartCheck}
               >
-                {checkStatus === 'running' ? 'Checking...' : 'Check'}
+                Check
               </Button>
-              {checkStatus === 'running' && (
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={handleStopCheck}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  <Square className="size-4 mr-1" />
-                  Stop
-                </Button>
-              )}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleStopCheck}
+                disabled={checkStatus !== 'running'}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:text-gray-400 disabled:hover:bg-transparent"
+              >
+                <Square className="size-4 mr-1" />
+                Stop
+              </Button>
             </div>
           </div>
         </div>
@@ -429,7 +291,7 @@ function Check({
       <div className="mt-4 space-y-2">
         <ViewLogs 
             logs={logs}
-            checkStatus={checkStatus}
+            status={checkStatus}
             autoOpen={checkStatus === 'running'}
           />
           <ViewSourceCode 
@@ -442,6 +304,5 @@ function Check({
     </div>
   )
 }
-
 
 export default Check;

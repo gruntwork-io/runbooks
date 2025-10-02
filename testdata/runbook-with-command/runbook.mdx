@@ -1,0 +1,135 @@
+# Command Component Test Runbook
+
+This runbook demonstrates the new **Command** component with various use cases.
+
+## Example 1: Simple Inline Command
+
+Run a simple command directly inline:
+
+<Command id="simple-echo" command="echo 'Hello from Command component!'" />
+
+---
+
+## Example 2: Multi-line Inline Command
+
+Execute a multi-line command sequence:
+
+<Command 
+  id="multi-line" 
+  command={`echo "Starting deployment..."
+sleep 1
+echo "Deployment complete!"
+echo "Total files: 42"`}
+  successMessage="Deployment completed successfully!"
+  failMessage="Deployment failed!"
+/>
+
+---
+
+## Example 3: Command with Boilerplate Variables
+
+Use boilerplate templates in commands:
+
+<BoilerplateInputs 
+  id="aws-config"
+>
+```yaml
+variables:
+  - name: aws_region
+    description: AWS Region
+    type: string
+    default: us-east-1
+    
+  - name: instance_type
+    description: EC2 Instance Type
+    type: enum
+    options:
+      - t2.micro
+      - t2.small
+      - t2.medium
+    default: t2.micro
+```
+</BoilerplateInputs>
+
+<Command 
+  id="aws-deploy" 
+  command="echo 'Deploying to AWS Region: {{ .aws_region }} with instance type: {{ .instance_type }}'"
+  boilerplateInputsId="aws-config"
+  successMessage="AWS configuration validated!"
+/>
+
+---
+
+## Example 4: Command with Inline BoilerplateInputs
+
+Embed the variable inputs directly in the Command:
+
+<Command 
+  id="db-setup" 
+  command={`echo "Setting up database: {{ .db_name }}"
+echo "Port: {{ .db_port }}"
+echo "Environment: {{ .environment }}"`}
+  successMessage="Database setup complete!"
+  failMessage="Database setup failed!"
+>
+  <BoilerplateInputs id="db-config">
+```yaml
+variables:
+  - name: db_name
+    description: Database Name
+    type: string
+    default: myapp_db
+    
+  - name: db_port
+    description: Database Port
+    type: string
+    default: "5432"
+    
+  - name: environment
+    description: Environment
+    type: enum
+    options:
+      - dev
+      - staging
+      - prod
+    default: dev
+```
+  </BoilerplateInputs>
+</Command>
+
+---
+
+## Example 5: Command from Script File
+
+Reference an external script file (path is relative to the runbook directory):
+
+<Command 
+  id="external-script" 
+  path="scripts/deploy.sh"
+  successMessage="Script executed successfully!"
+  failMessage="Script execution failed!"
+/>
+
+---
+
+## Example 6: Test Success and Failure
+
+Run commands that succeed or fail:
+
+### Success Command
+<Command id="success-test" command="exit 0" successMessage="✓ Command succeeded!" />
+
+### Failure Command
+<Command id="fail-test" command="exit 1" failMessage="✗ Command failed as expected!" />
+
+---
+
+## Comparison with Check Component
+
+For reference, here's how the Check component works with a script file.
+
+Note: To see a working Check example, open `testdata/runbook-with-check/runbook.mdx` which demonstrates:
+- Success, warn, and fail statuses
+- Skip checkbox functionality
+- File-based check scripts
+

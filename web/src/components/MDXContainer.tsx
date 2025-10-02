@@ -10,6 +10,8 @@ import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
 import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
 import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
 import { Check } from '@/components/mdx/Check'
+import { Command } from '@/components/mdx/Command'
+import { Admonition } from '@/components/mdx/Admonition'
 
 /**
  * This component renders a markdown/MDX document.
@@ -103,6 +105,8 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       BoilerplateInputs,
       BoilerplateTemplate,
       Check,
+      Command,
+      Admonition,
       // Add more components here as needed
     })
   })

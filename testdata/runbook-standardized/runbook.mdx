@@ -1,0 +1,25 @@
+# This is my Runbook
+
+Here's some text.
+
+Here's some code:
+
+```bash
+echo "Hello, world!"
+```
+
+## Let's generate some failMessage
+
+<BoilerplateInputs path="templates/boilerplate.yml">
+```yaml
+variables:
+  - name: AccountName
+    description: Name for the AWS account
+    type: string
+    default: "My account"
+```
+</BoilerplateInputs>
+
+## Check that it worked
+
+<Check id="test" path="checks/test.sh" successMessage="Success" warnMessage="Warn" failMessage="Fail" />

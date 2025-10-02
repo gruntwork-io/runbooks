@@ -10,11 +10,19 @@ export interface GetFileReturn {
   size: number;
 }
 
-export function useGetFile(path: string): UseApiReturn<GetFileReturn> {
+export function useGetFile(path: string, shouldFetch: boolean = true): UseApiReturn<GetFileReturn> {
+  // Only fetch if we have a path and shouldFetch is true
+  const shouldActuallyFetch = shouldFetch && Boolean(path);
+  
   // Build the request body with the path, memoized to prevent infinite loops
   const requestBody = useMemo(() => {
-    return path ? { path } : undefined;
-  }, [path]);
+    return shouldActuallyFetch ? { path } : undefined;
+  }, [path, shouldActuallyFetch]);
   
-  return useApi<GetFileReturn>('/api/file', 'POST', requestBody);
+  // Use empty endpoint when we shouldn't fetch (prevents API call)
+  return useApi<GetFileReturn>(
+    shouldActuallyFetch ? '/api/file' : '',
+    'POST',
+    requestBody
+  );
 }
