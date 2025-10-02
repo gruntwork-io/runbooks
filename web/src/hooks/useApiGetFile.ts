@@ -8,5 +8,7 @@ export interface GetFileReturn {
 }
 
 export function useGetFile(path: string): UseApiReturn<GetFileReturn> {
-  return useApi<GetFileReturn>(path);
+  // Build the endpoint with the path as a query parameter
+  const endpoint = path ? `/api/file?path=${encodeURIComponent(path)}` : '';
+  return useApi<GetFileReturn>(endpoint);
 }

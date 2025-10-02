@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ViewSourceCode } from "./components/ViewSourceCode"
 import { ViewLogs } from "./components/ViewLogs"
+import { useGetFile } from "@/hooks/useApiGetFile"
 
 interface CheckProps {
   id: string
@@ -26,11 +27,11 @@ function Check({
 }: CheckProps) {
   // Suppress unused parameter warnings for future use
   void id;
-  void path;
-  void successMessage;
-  void warnMessage;
-  void failMessage;
-  void runningMessage;
+  // Load file content if path is provided
+  const { data: fileData, error: getFileError } = useGetFile(path || '')
+  
+  // Use file content if available, otherwise fall back to empty string
+  const sourceCode = fileData?.content || ''
   
   const [skipCheck, setSkipCheck] = useState(false);
   const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'running' | 'pending'>('pending');
@@ -81,70 +82,6 @@ function Check({
   const IconComponent = getStatusIcon()
   const iconClasses = getStatusIconClasses()
 
-  // Sample script content
-  const sourceCode = `#!/bin/bash
-
-# KMS Key Validation Script
-# This script checks if your KMS key is properly configured
-
-set -e
-
-echo "🔍 Starting KMS key validation..."
-
-# Check if AWS CLI is installed
-if ! command -v aws &> /dev/null; then
-    echo "❌ AWS CLI is not installed"
-    exit 1
-fi
-
-# Check if key ID is provided
-if [ -z "$KMS_KEY_ID" ]; then
-    echo "❌ KMS_KEY_ID environment variable is not set"
-    exit 1
-fi
-
-echo "🔑 Validating KMS key: $KMS_KEY_ID"
-
-# Check if key exists and is accessible
-if aws kms describe-key --key-id "$KMS_KEY_ID" > /dev/null 2>&1; then
-    echo "✅ KMS key exists and is accessible"
-else
-    echo "❌ KMS key not found or not accessible"
-    exit 1
-fi
-
-# Check key policy
-echo "📋 Checking key policy..."
-KEY_POLICY=$(aws kms get-key-policy --key-id "$KMS_KEY_ID" --policy-name default --query 'Policy' --output text)
-
-if echo "$KEY_POLICY" | grep -q "arn:aws:iam::*:root"; then
-    echo "✅ Key policy allows root access"
-else
-    echo "⚠️  Key policy may not allow root access"
-fi
-
-# Test encryption/decryption
-echo "🔐 Testing encryption/decryption..."
-TEST_DATA="test-data-$(date +%s)"
-ENCRYPTED=$(aws kms encrypt --key-id "$KMS_KEY_ID" --plaintext "$TEST_DATA" --query 'CiphertextBlob' --output text)
-
-if [ -n "$ENCRYPTED" ]; then
-    echo "✅ Encryption successful"
-    
-    # Test decryption
-    DECRYPTED=$(aws kms decrypt --ciphertext-blob "$ENCRYPTED" --query 'Plaintext' --output text | base64 -d)
-    
-    if [ "$DECRYPTED" = "$TEST_DATA" ]; then
-        echo "✅ Decryption successful"
-        echo "🎉 KMS key validation completed successfully!"
-    else
-        echo "❌ Decryption failed"
-        exit 1
-    fi
-else
-    echo "❌ Encryption failed"
-    exit 1
-fi`
 
   // Sample log messages for simulation
   const sampleLogs = [
@@ -218,9 +155,22 @@ fi`
     }
   }, [])
 
+
+  // Early return for file errors - show only error message
+  if (getFileError) {
+    return (
+      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+        <div className="flex items-center text-red-600">
+          <XCircle className="size-6 mr-4" />
+          <div className="text-md"><strong>{getFileError.message}.</strong> Failed to load file at {path}. Does the file exist?</div>
+        </div>
+      </div>
+    )
+  }
+
   // Main render - form with success indicator overlay if needed
   return (
-    <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
       {/* Skip overlay */}
       {skipCheck && (
         <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
@@ -232,7 +182,7 @@ fi`
           <IconComponent className={`size-6 ${iconClasses} mr-1 ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
         <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-50' : ''}`}>
-        {checkStatus === 'success' && successMessage && (
+          {checkStatus === 'success' && successMessage && (
             <div className="text-green-600 font-semibold text-sm">{successMessage}</div>
           )}
           {checkStatus === 'warn' && warnMessage && (
