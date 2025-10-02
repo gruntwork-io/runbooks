@@ -1,10 +1,10 @@
-import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square, ChevronDown, ChevronRight, Code, FileText } from "lucide-react"
+import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { SquareTerminal } from "lucide-react"
-import { CodeFile } from "@/components/artifacts/code/CodeFile"
+import { ViewSourceCode } from "./components/ViewSourceCode"
+import { ViewLogs } from "./components/ViewLogs"
 
 interface CheckProps {
   id: string
@@ -12,15 +12,17 @@ interface CheckProps {
   successMessage?: string
   warnMessage?: string
   failMessage?: string
+  runningMessage?: string
   children?: ReactNode // For inline boilerplate.yml content  
 }
 
 function Check({
   id,
   path,
-  successMessage,
-  warnMessage,
-  failMessage,
+  successMessage = "Success",
+  warnMessage = "Warning",
+  failMessage = "Failed",
+  runningMessage = "Checking...",
 }: CheckProps) {
   // Suppress unused parameter warnings for future use
   void id;
@@ -28,234 +30,13 @@ function Check({
   void successMessage;
   void warnMessage;
   void failMessage;
+  void runningMessage;
   
   const [skipCheck, setSkipCheck] = useState(false);
-  const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'in-progress' | 'pending'>('pending');
+  const [checkStatus, setCheckStatus] = useState<'success' | 'warn' | 'fail' | 'running' | 'pending'>('pending');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [showSourceCode, setShowSourceCode] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
-  // const [shouldRender, setShouldRender] = useState(false);
-  // const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
-  
-  // // Get the global file tree context
-  // const { setFileTree } = useFileTree();
-  
-  // // Get the boilerplate variables context to share variables, config, and raw YAML with BoilerplateTemplate components
-  // const { setVariables, setConfig, setYamlContent } = useBoilerplateVariables();
-  
-  // // Get the render coordinator for inline templates
-  // const { renderAllForInputsId } = useBoilerplateRenderCoordinator();
-
-  // // Extract boolean to avoid React element in dependency array
-  // const hasChildren = Boolean(children);
-
-  // // Validate props first - this is a component-level validation error
-  // const validationError = useMemo((): AppError | null => {
-  //   if (!id) {
-  //     return {
-  //       message: "The <BoilerplateInputs> component requires a non-empty 'id' prop.",
-  //       details: "Please provide a unique 'id' for this component instance."
-  //     }
-  //   }
-
-  //   if (!templatePath && !hasChildren) {
-  //     return {
-  //       message: "Invalid <BoilerplateInputs> configuration.",
-  //       details: "Please specify either a templatePath or inline boilerplate.yml content."
-  //     }
-  //   }
-
-  //   if (templatePath && hasChildren) {
-  //     return {
-  //       message: "Invalid <BoilerplateInputs> configuration.",
-  //       details: "You cannot both specify both a templatePath and inline boilerplate.yml content. Please provide only one."
-  //     }
-  //   }
-
-  //   return null
-  // }, [id, templatePath, hasChildren])
-
-  // // Extract the contents of the children (inline boilerplate.yml content) if they are provided
-  // const yamlExtraction = children ? extractYamlFromChildren(children) : { content: '', error: null }
-  // const inlineYamlContent = yamlExtraction.content
-  // const inlineContentError = yamlExtraction.error
-  
-  // // Only make API call if validation passes
-  // const { data: boilerplateConfig, isLoading, error: apiError } = useApiGetBoilerplateConfig(
-  //   templatePath, 
-  //   inlineYamlContent,
-  //   !validationError && !inlineContentError // shouldFetch is false when there's any validation error
-  // );
-
-  // // Apply the prefilled variables to the boilerplate config
-  // const boilerplateConfigWithPrefilledVariables = useMemo(() => {
-  //   if (!boilerplateConfig) return null
-  //   return {
-  //     ...boilerplateConfig,
-  //     variables: boilerplateConfig.variables.map(variable => ({ 
-  //       ...variable, 
-  //       default: prefilledVariables[variable.name] ? String(prefilledVariables[variable.name]) : variable.default 
-  //     }))
-  //   }
-  // }, [boilerplateConfig, prefilledVariables])
-  
-  // // Update form state when boilerplate config changes - use a ref to track if we've already set it
-  // const hasSetFormState = useRef(false)
-  // useEffect(() => {
-  //   if (boilerplateConfigWithPrefilledVariables && !hasSetFormState.current) {
-  //     setFormState(boilerplateConfigWithPrefilledVariables)
-  //     hasSetFormState.current = true
-  //   }
-  // }, [boilerplateConfigWithPrefilledVariables])
-  
-  // // Store the boilerplate config and raw YAML in context so BoilerplateTemplate can access it
-  // useEffect(() => {
-  //   if (boilerplateConfig) {
-  //     setConfig(id, boilerplateConfig)
-  //     // Store the raw YAML content from the API response
-  //     if (boilerplateConfig.rawYaml) {
-  //       setYamlContent(id, boilerplateConfig.rawYaml)
-  //     }
-  //   }
-  // }, [boilerplateConfig, id, setConfig, setYamlContent])
-
-  // // Convert form state to initial data format
-  // const initialData = useMemo(() => {
-  //   if (!formState) return {}
-  //   return formState.variables.reduce((acc, variable) => {
-  //     acc[variable.name] = variable.default
-  //     return acc
-  //   }, {} as Record<string, unknown>)
-  // }, [formState])
-
-  // // Render API call - only triggered when shouldRender is true
-  // const { data: renderResult, isLoading: isGenerating, error: renderError, isAutoRendering, autoRender } = useApiBoilerplateRender(
-  //   templatePath || '',
-  //   renderFormData,
-  //   shouldRender && Boolean(templatePath)
-  // )
-
-  // // Update global file tree when render result is available
-  // // Note: useApiBoilerplateRender already handles merging the file tree, but we keep this
-  // // for backwards compatibility and to ensure the merge happens
-  // useEffect(() => {
-  //   if (renderResult && renderResult.fileTree) {
-  //     // Cast the API response to match the expected type structure
-  //     const fileTree = renderResult.fileTree as FileTreeNode[];
-  //     setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTree));
-  //   }
-  // }, [renderResult, setFileTree]);
-
-  // // Debounce timer ref for auto-render
-  // const autoRenderTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // // Handle auto-rendering when form data changes (debounced)
-  // const handleAutoRender = useCallback((formData: Record<string, unknown>) => {
-  //   if (!shouldRender) return; // Only auto-render after initial generation
-    
-  //   // Type guard: id is validated to be non-empty by validationError check
-  //   const inputsId: string = id ?? '';
-  //   if (!inputsId) return;
-    
-  //   console.log(`[BoilerplateInputs][${inputsId}] Auto-render requested (debouncing...)`);
-    
-  //   // Clear existing timer
-  //   if (autoRenderTimerRef.current) {
-  //     clearTimeout(autoRenderTimerRef.current);
-  //   }
-    
-  //   // Debounce: wait 200ms after last change before updating
-  //   autoRenderTimerRef.current = setTimeout(() => {
-  //     console.log(`[BoilerplateInputs][${inputsId}] Auto-render executing`);
-      
-  //     // Update variables in context so BoilerplateTemplate components can re-render reactively
-  //     setVariables(inputsId, formData);
-      
-  //     // If templatePath exists, also trigger file tree auto-render
-  //     // (inline templates will auto-update via their reactive effect)
-  //     if (templatePath) {
-  //       autoRender(templatePath, formData);
-  //     }
-  //   }, 200);
-  // }, [id, templatePath, shouldRender, autoRender, setVariables]);
-  
-  // // Cleanup timer on unmount
-  // useEffect(() => {
-  //   return () => {
-  //     if (autoRenderTimerRef.current) {
-  //       clearTimeout(autoRenderTimerRef.current);
-  //     }
-  //   };
-  // }, []);
-
-  // // Handle successful generation - trigger render API call
-  // const handleGenerate = useCallback(async (formData: Record<string, unknown>) => {
-  //   // Type guard: id is validated to be non-empty by validationError check
-  //   const inputsId: string = id ?? '';
-  //   if (!inputsId) {
-  //     console.error(`[BoilerplateInputs] No inputsId provided!`);
-  //     return;
-  //   }
-    
-  //   console.log(`[BoilerplateInputs][${inputsId}] 🎯 Generate clicked with formData:`, formData);
-  //   console.log(`[BoilerplateInputs][${inputsId}] templatePath:`, templatePath);
-    
-  //   // Publish variables to context (needed for both paths)
-  //   console.log(`[BoilerplateInputs][${inputsId}] Publishing variables to context:`, formData);
-  //   setVariables(inputsId, formData);
-    
-  //   // Path 1: File-based rendering (templatePath exists)
-  //   if (templatePath) {
-  //     console.log(`[BoilerplateInputs][${inputsId}] Using templatePath mode`);
-  //     setRenderFormData(formData);
-  //     setShouldRender(true);
-  //   } 
-  //   // Path 2: Inline template rendering (no templatePath, uses coordinator)
-  //   else {
-  //     console.log(`[BoilerplateInputs][${inputsId}] 🚀 Using coordinator for inline templates`);
-  //     try {
-  //       await renderAllForInputsId(inputsId, formData);
-  //       console.log(`[BoilerplateInputs][${inputsId}] ✅ Coordinator render complete`);
-  //       setShouldRender(true); // Mark as rendered for auto-updates
-  //     } catch (error) {
-  //       console.error(`[BoilerplateInputs][${inputsId}] ❌ Coordinator render failed:`, error);
-  //     }
-  //   }
-
-  //   // Call the original onGenerate callback if provided
-  //   if (onGenerate) {
-  //     onGenerate(formData);
-  //   }
-  // }, [id, templatePath, setVariables, renderAllForInputsId, onGenerate])
-
-  // // Early return for loading states
-  // if (isLoading) {
-  //   return <LoadingDisplay message="Loading boilerplate configuration..." />
-  // }
-  
-  // // Early return for validation errors (highest priority)
-  // if (validationError) {
-  //   return <ErrorDisplay error={validationError} />
-  // }
-
-  // // Early return for inline content format errors
-  // if (inlineContentError) {
-  //   return <ErrorDisplay error={inlineContentError} />
-  // }
-
-  // // Early return for API errors
-  // if (apiError) {
-  //   return <ErrorDisplay error={apiError} />
-  // }
-
-  // // Early return for render errors
-  // if (renderError) {
-  //   return <ErrorDisplay error={renderError} />
-  // }
 
   // Get visual styling based on status
   const getStatusClasses = () => {
@@ -265,7 +46,7 @@ function Check({
       success: 'bg-green-50 border-green-200',
       warn: 'bg-yellow-50 border-yellow-200', 
       fail: 'bg-red-50 border-red-200',
-      'in-progress': 'bg-blue-50 border-blue-200',
+      running: 'bg-blue-50 border-blue-200',
       pending: 'bg-gray-100 border-gray-200'
     }
     
@@ -278,7 +59,7 @@ function Check({
       success: CheckCircle,
       warn: AlertTriangle,
       fail: XCircle,
-      'in-progress': Loader2,
+      running: Loader2,
       pending: CircleQuestionMark
     }
     return iconMap[checkStatus]
@@ -290,7 +71,7 @@ function Check({
       success: 'text-green-600',
       warn: 'text-yellow-600',
       fail: 'text-red-600',
-      'in-progress': 'text-blue-600',
+      running: 'text-blue-600',
       pending: 'text-gray-500'
     }
     return colorMap[checkStatus]
@@ -380,9 +161,8 @@ fi`
 
   // Handle starting the check
   const handleStartCheck = () => {
-    setCheckStatus('in-progress')
+    setCheckStatus('running')
     setLogs([])
-    setShowLogs(true) // Auto-open logs when check starts
     
     // Clear any existing timeout
     if (timeoutRef.current) {
@@ -446,11 +226,24 @@ fi`
         <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
       )}
       
-      <div className="flex">
+      {/* Check main body */}
+      <div className="flex @container">
         <div className="border-r border-gray-300 pr-2 mr-4">
-          <IconComponent className={`size-6 ${iconClasses} mr-1 ${checkStatus === 'in-progress' ? 'animate-spin' : ''}`} />
+          <IconComponent className={`size-6 ${iconClasses} mr-1 ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
         <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-50' : ''}`}>
+        {checkStatus === 'success' && successMessage && (
+            <div className="text-green-600 font-semibold text-sm">{successMessage}</div>
+          )}
+          {checkStatus === 'warn' && warnMessage && (
+            <div className="text-yellow-600 font-semibold text-sm">{warnMessage}</div>
+          )}
+          {checkStatus === 'fail' && failMessage && (
+            <div className="text-red-600 font-semibold text-sm">{failMessage}</div>
+          )}
+          {checkStatus === 'running' && runningMessage && (
+            <div className="text-blue-600 font-semibold text-sm">{runningMessage}</div>
+          )}
           <div className={`text-md font-bold text-gray-600`}>Did you set up your KMS key correctly?</div>
           <div className="text-md text-gray-600 mb-3">Sometimes users copy & paste the wrong key ID, or forget to attach the correct IAM policy.
             Let's make sure it's all set up correctly.
@@ -459,12 +252,12 @@ fi`
             <div className="flex items-center gap-2">
               <Button 
                 variant="outline" 
-                disabled={skipCheck || checkStatus === 'in-progress'}
+                disabled={skipCheck || checkStatus === 'running'}
                 onClick={handleStartCheck}
               >
-                {checkStatus === 'in-progress' ? 'Checking...' : 'Check'}
+                {checkStatus === 'running' ? 'Checking...' : 'Check'}
               </Button>
-              {checkStatus === 'in-progress' && (
+              {checkStatus === 'running' && (
                 <Button 
                   variant="outline" 
                   size="sm"
@@ -480,84 +273,33 @@ fi`
         </div>
         
         {/* Checkbox positioned in top right */}
-        <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
-          <Checkbox id="skip-check" className="bg-white cursor-pointer" checked={skipCheck} onCheckedChange={(checked) => setSkipCheck(checked === true)} />
-          <label htmlFor="skip-check" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer select-none">
-            Skip
+        <div className="@md:absolute @md:top-4 @md:right-4 flex items-center gap-2 self-start z-20">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox 
+              className="bg-white" 
+              checked={skipCheck} 
+              disabled={checkStatus === 'success'}
+              onCheckedChange={(checked) => setSkipCheck(checked === true)} 
+            />
+            <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 select-none">
+              Skip
+            </span>
           </label>
         </div>
       </div>
 
       {/* Expandable sections inside the main box */}
       <div className="mt-4 space-y-2">
-        {/* View Source Code section */}
-        <div className="border border-gray-200 rounded-sm">
-          <button
-            onClick={() => setShowSourceCode(!showSourceCode)}
-            className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50 transition-colors cursor-pointer"
-          >
-            {showSourceCode ? (
-              <ChevronDown className="size-4 text-gray-500" />
-            ) : (
-              <ChevronRight className="size-4 text-gray-500" />
-            )}
-            <FileText className="size-4 text-gray-600" />
-            <span className="text-sm text-gray-700">View Source Code</span>
-          </button>
-          {showSourceCode && (
-            <div className="border-t border-gray-200 p-3 bg-gray-50">
-              <CodeFile
-                fileName="Check Script"
-                filePath={path}
-                code={sourceCode}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* View Logs section */}
-        <div className="border border-gray-200 rounded-sm">
-          <button
-            onClick={() => setShowLogs(!showLogs)}
-            className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50 transition-colors cursor-pointer"
-          >
-            {showLogs ? (
-              <ChevronDown className="size-4 text-gray-500" />
-            ) : (
-              <ChevronRight className="size-4 text-gray-500" />
-            )}
-            <SquareTerminal className="size-4 text-gray-600" />
-            <span className="text-sm text-gray-700">View Logs</span>
-          </button>
-          {showLogs && (
-            <div className="border-t border-gray-200 p-3 bg-gray-900 max-h-64 overflow-y-auto">
-              {logs.length === 0 ? (
-                <div className="text-sm text-gray-400 italic">
-                  No logs yet. Click "Check" to start the validation process.
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {logs.map((log, index) => (
-                    <div key={index} className="text-xs font-mono text-gray-100">
-                      <span className="text-gray-500 mr-2">
-                        {new Date().toLocaleTimeString()}
-                      </span>
-                      {log}
-                    </div>
-                  ))}
-                  {checkStatus === 'in-progress' && (
-                    <div className="text-xs font-mono text-gray-400 animate-pulse">
-                      <span className="text-gray-600 mr-2">
-                        {new Date().toLocaleTimeString()}
-                      </span>
-                      Running...
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+      <ViewLogs 
+          logs={logs}
+          checkStatus={checkStatus}
+          autoOpen={checkStatus === 'running'}
+        />
+        <ViewSourceCode 
+          sourceCode={sourceCode}
+          path={path}
+          fileName="Check Script"
+        />
       </div>
     </div>
   )
