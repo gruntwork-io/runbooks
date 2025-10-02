@@ -40,6 +40,7 @@ interface BoilerplateInputsFormProps {
   showSuccessIndicator?: boolean
   enableAutoRender?: boolean
   hasGeneratedSuccessfully?: boolean
+  variant?: 'standard' | 'embedded'
 }
 
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
@@ -55,7 +56,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   isAutoRendering = false,
   showSuccessIndicator = false,
   enableAutoRender = true,
-  hasGeneratedSuccessfully = false
+  hasGeneratedSuccessfully = false,
+  variant = 'standard'
 }) => {
   // Use custom hooks for state management and validation
   const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
@@ -90,8 +92,15 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     }
   }
 
+  // Determine container classes and whether to show submit button based on variant
+  const containerClasses = variant === 'embedded' 
+    ? 'bg-transparent relative'
+    : 'p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 relative';
+  
+  const shouldShowSubmitButton = variant === 'embedded' ? false : showSubmitButton;
+
   return (
-    <div className="p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 relative">
+    <div className={containerClasses}>
       
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
@@ -124,7 +133,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           ))}
         </div>
         
-        {showSubmitButton && (
+        {shouldShowSubmitButton && (
           <div>
             <div className="pt-4 border-t border-gray-200 flex items-center gap-2">
               <Button

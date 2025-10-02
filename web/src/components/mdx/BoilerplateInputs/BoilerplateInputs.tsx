@@ -46,7 +46,8 @@ interface BoilerplateInputsProps {
   onGenerate?: (variables: Record<string, unknown>) => void
   isLoading?: boolean
   error?: AppError | null
-  children?: ReactNode // For inline boilerplate.yml content  
+  children?: ReactNode // For inline boilerplate.yml content
+  variant?: 'standard' | 'embedded'
 }
 
 function BoilerplateInputs({
@@ -54,7 +55,8 @@ function BoilerplateInputs({
   templatePath, 
   prefilledVariables = {},
   onGenerate,
-  children
+  children,
+  variant = 'standard'
 }: BoilerplateInputsProps) {
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [shouldRender, setShouldRender] = useState(false);
@@ -244,6 +246,19 @@ function BoilerplateInputs({
       onGenerate(formData);
     }
   }, [id, templatePath, setVariables, renderAllForInputsId, onGenerate])
+  
+  // For embedded variant, automatically trigger initial render when form is ready
+  const hasTriggeredInitialRender = useRef(false);
+  useEffect(() => {
+    if (variant === 'embedded' && 
+        boilerplateConfig && 
+        !hasTriggeredInitialRender.current && 
+        !shouldRender) {
+      // Trigger the initial generation automatically
+      hasTriggeredInitialRender.current = true;
+      handleGenerate(initialData);
+    }
+  }, [variant, boilerplateConfig, shouldRender, initialData, handleGenerate]);
 
   // Early return for loading states
   if (isLoading) {
@@ -283,6 +298,7 @@ function BoilerplateInputs({
       showSuccessIndicator={Boolean(renderResult) || coordinatorRenderSuccess}
       enableAutoRender={true}
       hasGeneratedSuccessfully={Boolean(renderResult) || coordinatorRenderSuccess}
+      variant={variant}
     />
   )
 }
