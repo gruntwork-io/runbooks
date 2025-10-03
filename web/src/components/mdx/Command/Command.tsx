@@ -407,6 +407,8 @@ function Command({
   )
 }
 
+// Set displayName for React DevTools and component detection
+Command.displayName = 'Command';
 
 export default Command;
 

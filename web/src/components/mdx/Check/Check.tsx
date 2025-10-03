@@ -390,4 +390,7 @@ function Check({
   )
 }
 
+// Set displayName for React DevTools and component detection
+Check.displayName = 'Check';
+
 export default Check;
