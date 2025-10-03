@@ -4,7 +4,6 @@ import * as runtime from 'react/jsx-runtime'
 import type { AppError } from '@/types/error'
 
 // Support MDX components
-import { HelloWorld } from '@/components/mdx/HelloWorld'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
 import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
@@ -19,7 +18,7 @@ import { ExternalLink } from '@/components/mdx/shared/components/ExternalLink'
  * 
  * It takes raw markdown text (potentially containing JSX components) and compiles
  * it at runtime (vs. build time) into a React component. It handles both regular markdown syntax 
- * (headings, lists, code blocks) and custom JSX components (like <HelloWorld />).
+ * (headings, lists, code blocks) and custom JSX components (like <Check />, <Command />, etc.).
  * 
  * @param props - The component props
  * @param props.content - The raw markdown/MDX content string to compile and render
@@ -210,7 +209,6 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     baseUrl: import.meta.url,
     rehypePlugins: [rehypeTransformAssetPaths],
     useMDXComponents: () => ({
-      HelloWorld,
       BoilerplateInputs,
       BoilerplateTemplate,
       Check,

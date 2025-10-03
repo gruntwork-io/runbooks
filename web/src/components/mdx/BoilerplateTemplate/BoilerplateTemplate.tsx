@@ -215,5 +215,7 @@ function BoilerplateTemplate({
   )
 }
 
+// Set displayName for React DevTools and component detection
+BoilerplateTemplate.displayName = 'BoilerplateTemplate';
 
 export default BoilerplateTemplate;
