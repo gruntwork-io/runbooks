@@ -13,11 +13,14 @@ export const formatVariableLabel = (name: string): string => {
     'vpc', 'vpn', 'cdn', 's3', 'ec2', 'rds', 'iam', 'kms', 'sns', 'sqs',
     'elb', 'alb', 'nlb', 'asg', 'ebs', 'efs', 'waf',
   ])
-
+  
   // Special proper nouns that should be capitalized
   const properNouns = new Map([
     ['mysql', 'MySQL'],
     ['mongodb', 'MongoDB'],
+    ['opentofu', 'OpenTofu'],
+    ['github', 'GitHub'],
+    ['gitlab', 'GitLab'],
   ])
 
   // Handle empty string
@@ -45,6 +48,13 @@ export const formatVariableLabel = (name: string): string => {
     const current = words[i]
     const next = words[i + 1]
     const nextNext = words[i + 2]
+    
+    // Check if current + next words form a proper noun
+    if (next && properNouns.has((current + next).toLowerCase())) {
+      mergedWords.push(current + next)
+      i++ // Skip the next word
+      continue
+    }
     
     // Merge single letter + number (e.g., "V" + "2" -> "V2")
     if (current.length === 1 && /^[A-Z]$/.test(current) && next && /^\d+$/.test(next)) {
