@@ -99,7 +99,7 @@ function App() {
                     onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'tabs')}
                     views={[
                       { label: 'Markdown', value: 'markdown', icon: BookOpen },
-                      { label: 'Artifacts', value: 'tabs', icon: Code }
+                      { label: 'Code', value: 'tabs', icon: Code }
                     ]}
                     className="w-full"
                   />

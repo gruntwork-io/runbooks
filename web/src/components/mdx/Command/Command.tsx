@@ -231,7 +231,7 @@ function Command({
           
           {/* Display script metadata for file-based scripts */}
           {scriptMetadata && (
-            <div className="text-xs text-gray-600 flex items-center gap-3 mb-2">
+            <div className="text-xs text-gray-600 flex items-center flex-wrap gap-3 mb-2">
               <span className="inline-flex items-center gap-1">
                 <span className="font-semibold">Language:</span>
                 <span className="font-mono bg-gray-100 rounded">{scriptMetadata.language}</span>
