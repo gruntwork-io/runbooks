@@ -1,11 +1,9 @@
 import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
 import { useState, useMemo, cloneElement, isValidElement } from "react"
 import type { ReactNode } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, useScriptExecution } from "@/components/mdx/shared"
+import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/shared"
 import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
 
 interface CheckProps {
@@ -220,72 +218,30 @@ function Check({
         <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-50' : ''}`}>
           {checkStatus === 'success' && successMessage && (
             <div className="text-green-600 font-semibold text-sm">
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({children}) => <>{children}</>,
-                }}
-              >
-                {successMessage}
-              </ReactMarkdown>
+              <InlineMarkdown>{successMessage}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'warn' && warnMessage && (
             <div className="text-yellow-600 font-semibold text-sm">
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({children}) => <>{children}</>,
-                }}
-              >
-                {warnMessage}
-              </ReactMarkdown>
+              <InlineMarkdown>{warnMessage}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'fail' && failMessage && (
             <div className="text-red-600 font-semibold text-sm">
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({children}) => <>{children}</>,
-                }}
-              >
-                {failMessage}
-              </ReactMarkdown>
+              <InlineMarkdown>{failMessage}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'running' && runningMessage && (
             <div className="text-blue-600 font-semibold text-sm">
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({children}) => <>{children}</>,
-                }}
-              >
-                {runningMessage}
-              </ReactMarkdown>
+              <InlineMarkdown>{runningMessage}</InlineMarkdown>
             </div>
           )}
           <div className="text-md font-bold text-gray-600">
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm]}
-              components={{
-                p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
-              }}
-            >
-              {title}
-            </ReactMarkdown>
+            <InlineMarkdown>{title}</InlineMarkdown>
           </div>
           {description && (
             <div className="text-md text-gray-600 mb-3">
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
-                }}
-              >
-                {description}
-              </ReactMarkdown>
+              <InlineMarkdown>{description}</InlineMarkdown>
             </div>
           )}
           

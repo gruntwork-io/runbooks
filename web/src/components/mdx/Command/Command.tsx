@@ -2,12 +2,14 @@ import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle } 
 import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, useScriptExecution } from "@/components/mdx/shared"
+import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/shared"
 import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
 import { Admonition } from "@/components/mdx/Admonition"
 
 interface CommandProps {
   id: string
+  title?: string
+  description?: string
   path?: string
   command?: string
   boilerplateInputsId?: string
@@ -19,6 +21,8 @@ interface CommandProps {
 
 function Command({
   id,
+  title,
+  description,
   path,
   command,
   boilerplateInputsId,
@@ -206,20 +210,38 @@ function Command({
 
         {/* Command main body */}
         <div className="flex-1 space-y-2">
-          {commandStatus === 'pending' && command && (
+          {commandStatus === 'pending' && command && !title && (
             <div className="text-gray-600 font-semibold text-sm">Run a command</div>
           )}
-          {commandStatus === 'pending' && !command && path && (
+          {commandStatus === 'pending' && !command && path && !title && (
             <div className="text-gray-600 font-semibold text-sm">Run a script</div>
           )}
           {commandStatus === 'success' && successMessage && (
-            <div className="text-green-600 font-semibold text-sm">{successMessage}</div>
+            <div className="text-green-600 font-semibold text-sm">
+              <InlineMarkdown>{successMessage}</InlineMarkdown>
+            </div>
           )}
           {commandStatus === 'fail' && failMessage && (
-            <div className="text-red-600 font-semibold text-sm">{failMessage}</div>
+            <div className="text-red-600 font-semibold text-sm">
+              <InlineMarkdown>{failMessage}</InlineMarkdown>
+            </div>
           )}
           {commandStatus === 'running' && runningMessage && (
-            <div className="text-blue-600 font-semibold text-sm">{runningMessage}</div>
+            <div className="text-blue-600 font-semibold text-sm">
+              <InlineMarkdown>{runningMessage}</InlineMarkdown>
+            </div>
+          )}
+          
+          {/* Title and description */}
+          {title && (
+            <div className="text-md font-bold text-gray-600">
+              <InlineMarkdown>{title}</InlineMarkdown>
+            </div>
+          )}
+          {description && (
+            <div className="text-md text-gray-600 mb-3">
+              <InlineMarkdown>{description}</InlineMarkdown>
+            </div>
           )}
           
           {/* Render inline BoilerplateInputs children if present */}
