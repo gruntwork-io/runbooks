@@ -1,6 +1,8 @@
 import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
 import { useState, useMemo, cloneElement, isValidElement } from "react"
 import type { ReactNode } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ViewSourceCode, ViewLogs, useScriptExecution } from "@/components/mdx/shared"
@@ -8,6 +10,8 @@ import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/form
 
 interface CheckProps {
   id: string
+  title: string
+  description?: string
   path?: string
   boilerplateInputsId?: string
   successMessage?: string
@@ -19,6 +23,8 @@ interface CheckProps {
 
 function Check({
   id,
+  title,
+  description,
   path,
   boilerplateInputsId,
   successMessage = "Success",
@@ -66,6 +72,40 @@ function Check({
   }, [children]);
   
   const [skipCheck, setSkipCheck] = useState(false);
+
+  // Validate required props after all hooks are called (Rules of Hooks)
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
+    
+    if (!title) {
+      errors.push('The <code>title</code> prop is required but was not provided.');
+    }
+    
+    // Add more validation checks here as needed
+    // Example: if (!path && !children) { errors.push('Either path or children must be provided.'); }
+    
+    return errors;
+  }, [title]);
+
+  // Show generic error screen if there are validation errors
+  if (validationErrors.length > 0) {
+    return (
+      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+        <div className="flex items-start text-red-600">
+          <XCircle className="size-6 mr-4 mt-0.5 flex-shrink-0" />
+          <div className="text-md flex-1">
+            <strong>Check Component Error{validationErrors.length > 1 ? 's' : ''}:</strong>
+            {id && <span className="text-sm"> (Check ID: <code className="bg-red-100 px-1 rounded">{id}</code>)</span>}
+            <ul className="list-disc ml-5 mt-2 space-y-1">
+              {validationErrors.map((error, index) => (
+                <li key={index} dangerouslySetInnerHTML={{ __html: error }} />
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Get visual styling based on status
   const getStatusClasses = () => {
@@ -179,21 +219,75 @@ function Check({
         </div>
         <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-50' : ''}`}>
           {checkStatus === 'success' && successMessage && (
-            <div className="text-green-600 font-semibold text-sm">{successMessage}</div>
+            <div className="text-green-600 font-semibold text-sm">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({children}) => <>{children}</>,
+                }}
+              >
+                {successMessage}
+              </ReactMarkdown>
+            </div>
           )}
           {checkStatus === 'warn' && warnMessage && (
-            <div className="text-yellow-600 font-semibold text-sm">{warnMessage}</div>
+            <div className="text-yellow-600 font-semibold text-sm">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({children}) => <>{children}</>,
+                }}
+              >
+                {warnMessage}
+              </ReactMarkdown>
+            </div>
           )}
           {checkStatus === 'fail' && failMessage && (
-            <div className="text-red-600 font-semibold text-sm">{failMessage}</div>
+            <div className="text-red-600 font-semibold text-sm">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({children}) => <>{children}</>,
+                }}
+              >
+                {failMessage}
+              </ReactMarkdown>
+            </div>
           )}
           {checkStatus === 'running' && runningMessage && (
-            <div className="text-blue-600 font-semibold text-sm">{runningMessage}</div>
+            <div className="text-blue-600 font-semibold text-sm">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({children}) => <>{children}</>,
+                }}
+              >
+                {runningMessage}
+              </ReactMarkdown>
+            </div>
           )}
-          <div className={`text-md font-bold text-gray-600`}>Did you set up your KMS key correctly?</div>
-          <div className="text-md text-gray-600 mb-3">Sometimes users copy & paste the wrong key ID, or forget to attach the correct IAM policy.
-            Let's make sure it's all set up correctly.
+          <div className="text-md font-bold text-gray-600">
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
+              }}
+            >
+              {title}
+            </ReactMarkdown>
           </div>
+          {description && (
+            <div className="text-md text-gray-600 mb-3">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
+                }}
+              >
+                {description}
+              </ReactMarkdown>
+            </div>
+          )}
           
           {/* Render inline BoilerplateInputs children if present */}
           {childrenWithVariant && (

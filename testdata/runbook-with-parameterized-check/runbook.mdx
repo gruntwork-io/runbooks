@@ -6,7 +6,7 @@ This runbook demonstrates the integration of `<Check>` with `<BoilerplateInputs>
 
 This example shows a Check component with an inline BoilerplateInputs form.
 
-<Check id="kms-check-inline" path="checks/kms-validation.sh">
+<Check id="kms-check-inline" path="checks/kms-validation.sh" title="Check if the KMS key is valid" description="This check should validate the KMS key">
   <BoilerplateInputs id="kms-inputs-inline">
     ```yaml
     variables:
@@ -57,6 +57,8 @@ Then reference it in the Check:
   id="kms-check-external" 
   path="checks/kms-validation.sh"
   boilerplateInputsId="external-kms-inputs"
+  title="Check if the KMS key is valid"
+  description="This check should validate the KMS key"
 />
 
 ## Example 3: Check with No Variables (Normal Script)
@@ -67,6 +69,8 @@ This check uses a non-templated script (for comparison):
   id="simple-check" 
   path="checks/simple.sh"
   successMessage="Simple check passed!"
+  title="Check if the simple check worked"
+  description="This check should be simple"
 />
 
 ## Notes
