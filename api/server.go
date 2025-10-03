@@ -34,6 +34,9 @@ func StartServer(runbookPath string, port int) {
 	// API endpoint to execute check scripts
 	r.POST("/api/exec", HandleExecRequest())
 
+	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
+	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
+
 	// Serve static assets (CSS, JS, etc.) from the assets directory
 	r.Static("/assets", "./web/dist/assets")
 
@@ -83,6 +86,9 @@ func StartBackendServer(runbookPath string, port int) {
 
 	// API endpoint to execute check scripts
 	r.POST("/api/exec", HandleExecRequest())
+
+	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
+	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
 
 	// listen and serve on 0.0.0.0:$port | localhost:$port
 	r.Run(":" + fmt.Sprintf("%d", port))

@@ -24,6 +24,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/runbook-assets': {
+        target: 'http://localhost:7825',
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 })

@@ -104,6 +104,100 @@ function MDXContainer({ content, className }: MDXContainerProps) {
   )
 }
 
+// Type for rehype tree nodes
+interface RehypeNode {
+  type?: string
+  tagName?: string
+  properties?: {
+    src?: string
+    [key: string]: unknown
+  }
+  children?: RehypeNode[]
+  [key: string]: unknown
+}
+
+// Custom rehype plugin to transform asset paths for all media types
+// Transforms ./assets/file.ext to /runbook-assets/file.ext
+function rehypeTransformAssetPaths() {
+  return (tree: RehypeNode) => {
+    // Helper function to transform a path if it starts with ./assets/
+    const transformPath = (path: string | undefined): string | undefined => {
+      if (!path || !path.startsWith('./assets/')) {
+        return path
+      }
+      // Remove the ./assets/ prefix and prepend /runbook-assets/
+      const assetPath = path.substring('./assets/'.length)
+      return `/runbook-assets/${assetPath}`
+    }
+
+    // Walk through the tree and transform asset nodes
+    const visit = (node: RehypeNode) => {
+      if (node.type !== 'element') {
+        // Recursively visit children first
+        if (node.children) {
+          node.children.forEach(visit)
+        }
+        return
+      }
+
+      // Handle different element types that can reference assets
+      switch (node.tagName) {
+        case 'img':
+          // Image: <img src="./assets/image.png">
+          if (node.properties?.src) {
+            node.properties.src = transformPath(node.properties.src as string)
+          }
+          break
+
+        case 'video':
+        case 'audio':
+          // Video/Audio: <video src="./assets/video.mp4">
+          if (node.properties?.src) {
+            node.properties.src = transformPath(node.properties.src as string)
+          }
+          // Also check poster attribute for video
+          if (node.tagName === 'video' && node.properties?.poster) {
+            node.properties.poster = transformPath(node.properties.poster as string)
+          }
+          break
+
+        case 'source':
+          // Source: <source src="./assets/video.mp4"> (child of video/audio)
+          if (node.properties?.src) {
+            node.properties.src = transformPath(node.properties.src as string)
+          }
+          break
+
+        case 'a':
+          // Links: <a href="./assets/document.pdf">
+          if (node.properties?.href) {
+            node.properties.href = transformPath(node.properties.href as string)
+          }
+          break
+
+        case 'embed':
+        case 'object':
+          // Embedded content: <embed src="./assets/document.pdf">
+          if (node.properties?.src) {
+            node.properties.src = transformPath(node.properties.src as string)
+          }
+          // Object elements use 'data' attribute
+          if (node.tagName === 'object' && node.properties?.data) {
+            node.properties.data = transformPath(node.properties.data as string)
+          }
+          break
+      }
+      
+      // Recursively visit children
+      if (node.children) {
+        node.children.forEach(visit)
+      }
+    }
+    
+    visit(tree)
+  }
+}
+
 // Compiles MDX content into a custom React component that can render the MDX content.
 const compileMDX = async (content: string): Promise<React.ComponentType> => {
   // Create the MDX content without imports - we'll provide components directly
@@ -114,6 +208,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
     baseUrl: import.meta.url,
+    rehypePlugins: [rehypeTransformAssetPaths],
     useMDXComponents: () => ({
       HelloWorld,
       BoilerplateInputs,
