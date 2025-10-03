@@ -161,12 +161,9 @@ function BoilerplateInputs({
     shouldRender && Boolean(templatePath)
   )
 
-  // Update global file tree when render result is available
-  // Note: useApiBoilerplateRender already handles merging the file tree, but we keep this
-  // for backwards compatibility and to ensure the merge happens
+  // Update global file tree when render result is available from file-based template
   useEffect(() => {
     if (renderResult && renderResult.fileTree) {
-      // Cast the API response to match the expected type structure
       const fileTree = renderResult.fileTree as FileTreeNode[];
       setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTree));
     }

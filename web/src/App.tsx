@@ -7,18 +7,39 @@ import { Header } from './components/Header'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
-import { getDirectoryPath } from './lib/utils'
+import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
+import { useFileTree } from './hooks/useFileTree'
 import type { AppError } from './types/error'
 
 
 function App() {
-  const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'tabs'>('markdown')
+  const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<AppError | null>(null);
+  const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
   
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useGetRunbook()
+  
+  // Get file tree state to detect when files are generated
+  const { fileTree } = useFileTree()
+  const hasFiles = hasGeneratedFiles(fileTree)
+  
+  // Show artifacts panel unless user has manually hidden it
+  const showArtifacts = !isArtifactsHidden
+  
+  // Auto-show artifacts panel and switch mobile view when files are generated/regenerated
+  useEffect(() => {
+    if (hasFiles) {
+      setIsArtifactsHidden(false)
+      // Also auto-switch mobile to code view
+      if (activeMobileSection === 'markdown') {
+        setActiveMobileSection('code')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileTree, hasFiles]) // Don't include activeMobileSection to avoid blocking user's manual toggle
   
   // Update local state when hook state changes
   useEffect(() => {
@@ -75,16 +96,37 @@ function App() {
             {/* Desktop Layout - Side by side */}
             <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
               <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden justify-center">
-                {/* Markdown/MDX content */}
+                {/* Markdown/MDX content - takes full width when no files, normal size when files appear */}
+                <div className={`relative ${showArtifacts ? 'flex-1 max-w-3xl min-w-xl' : 'w-full max-w-4xl'}`}>
                   <MDXContainer 
                     content={content}
                     runbookPath={runbookPath}
-                    className="flex-1 max-w-3xl min-w-xl p-8"
+                    className="p-8 h-full"
                   />
+                  
+                  {/* Show code icon button when artifacts panel is not showing */}
+                  {!showArtifacts && (
+                    <button
+                      onClick={() => setIsArtifactsHidden(false)}
+                      className="absolute -right-14 top-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 z-10 cursor-pointer"
+                      title="Show generated files"
+                    >
+                      <Code className="w-5 h-5 text-gray-600" />
+                    </button>
+                  )}
+                </div>
 
-                {/* Artifacts */}
-                <div className="flex-2 relative max-w-4xl">
-                  <ArtifactsContainer className="absolute top-0 left-0 right-0 h-screen" />
+                {/* Artifacts - grows/shrinks width smoothly */}
+                <div 
+                  className={`relative max-w-4xl transition-all duration-700 ease-in-out overflow-hidden ${
+                    showArtifacts ? 'flex-2' : 'w-0'
+                  }`}
+                >
+                  <ArtifactsContainer 
+                    className="absolute top-0 left-0 right-0 h-screen" 
+                    onHide={() => setIsArtifactsHidden(true)}
+                    hideContent={!showArtifacts}
+                  />
                 </div>
               </div>
             </div>
@@ -92,14 +134,14 @@ function App() {
             {/* Mobile Layout - Tabbed interface */}
             <div className="lg:hidden w-full pt-20">
               {/* Mobile Navigation */}
-              <div className="flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2">
+              <div className="flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out">
                 <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
                   <ViewContainerToggle
                     activeView={activeMobileSection}
-                    onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'tabs')}
+                    onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'code')}
                     views={[
                       { label: 'Markdown', value: 'markdown', icon: BookOpen },
-                      { label: 'Code', value: 'tabs', icon: Code }
+                      { label: 'Code', value: 'code', icon: Code }
                     ]}
                     className="w-full"
                   />
@@ -109,11 +151,7 @@ function App() {
               {/* Mobile Content */}
               <div className="relative w-full px-4 mt-15">
                 {/* Markdown/MDX Section */}
-                <div className={`transition-all duration-300 ease-in-out ${
-                  activeMobileSection === 'markdown' 
-                    ? 'opacity-100 translate-x-0' 
-                    : 'opacity-0 translate-x-full absolute inset-0 pointer-events-none'
-                }`}>
+                <div className={activeMobileSection === 'markdown' ? 'block' : 'hidden'}>
                   <MDXContainer 
                     content={content}
                     runbookPath={runbookPath}
@@ -121,14 +159,10 @@ function App() {
                   />
                 </div>
 
-                {/* Tabs Section */}
-                <div className={`transition-all duration-300 ease-in-out ${
-                  activeMobileSection === 'tabs' 
-                    ? 'opacity-100 translate-x-0' 
-                    : 'opacity-0 -translate-x-full absolute inset-0 pointer-events-none'
-                }`}>
-                  <div className="w-full max-h-[calc(100vh-12rem)] overflow-y-auto">
-                    <ArtifactsContainer className="w-full" />
+                {/* Artifacts Section */}
+                <div className={activeMobileSection === 'code' ? 'block' : 'hidden'}>
+                  <div className="w-full h-[calc(100vh-12rem)] border border-gray-200 rounded-lg shadow-md overflow-hidden">
+                    <ArtifactsContainer className="w-full h-full" onHide={() => setIsArtifactsHidden(true)} />
                   </div>
                 </div>
               </div>

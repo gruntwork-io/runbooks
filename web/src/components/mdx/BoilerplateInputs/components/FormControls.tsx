@@ -216,7 +216,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
   return (
     <div className="space-y-3">
       {/* Add entry input */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           type="text"
           placeholder="Key"

@@ -31,7 +31,7 @@ export const ViewContainerToggle: React.FC<ViewContainerToggleProps> = ({
             key={view.value}
             onClick={() => onViewChange(view.value)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200",
+              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer",
               activeView === view.value
                 ? "bg-white text-gray-900 shadow-sm"
                 : "text-gray-600 hover:text-gray-900"
