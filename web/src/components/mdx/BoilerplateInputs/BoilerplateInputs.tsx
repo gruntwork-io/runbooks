@@ -300,5 +300,7 @@ function BoilerplateInputs({
   )
 }
 
+// Set displayName for React DevTools and component detection in production builds
+BoilerplateInputs.displayName = 'BoilerplateInputs';
 
 export default BoilerplateInputs;
