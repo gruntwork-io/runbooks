@@ -1,5 +1,5 @@
 import { CircleQuestionMark, CheckCircle, AlertTriangle, XCircle, Loader2, Square, CircleSlash } from "lucide-react"
-import { useState, useMemo, cloneElement, isValidElement } from "react"
+import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -11,6 +11,7 @@ interface CheckProps {
   title: string
   description?: string
   path?: string
+  command?: string
   boilerplateInputsId?: string
   successMessage?: string
   warnMessage?: string
@@ -24,6 +25,7 @@ function Check({
   title,
   description,
   path,
+  command,
   boilerplateInputsId,
   successMessage = "Success",
   warnMessage = "Warning",
@@ -52,6 +54,7 @@ function Check({
     cancel,
   } = useScriptExecution({
     path,
+    command,
     boilerplateInputsId,
     children,
     componentType: 'check'
@@ -70,6 +73,36 @@ function Check({
   }, [children]);
   
   const [skipCheck, setSkipCheck] = useState(false);
+
+  // State for controlling ViewSourceCode
+  const [showSourceCode, setShowSourceCode] = useState(false);
+  
+  // Ref for scrolling to ViewSourceCode section
+  const viewSourceCodeRef = useRef<HTMLDivElement>(null);
+
+  // Determine if we should display the command inline
+  const displayCommand = useMemo(() => {
+    // Don't display if using path (ViewSourceCode handles it)
+    if (path) return null
+    
+    // Display inline command if present
+    if (command) {
+      const isMultiLine = command.includes('\n')
+      return { content: sourceCode, isMultiLine } // Use sourceCode (may be rendered with variables)
+    }
+    
+    return null
+  }, [path, command, sourceCode])
+
+  // Calculate script metadata for file-based scripts
+  const scriptMetadata = useMemo(() => {
+    if (!path || command) return null
+    
+    const lines = sourceCode.split('\n').length
+    const languageDisplay = language || 'shell'
+    
+    return { lines, language: languageDisplay }
+  }, [path, command, sourceCode, language])
 
   // Validate required props after all hooks are called (Rules of Hooks)
   const validationErrors = useMemo(() => {
@@ -156,7 +189,6 @@ function Check({
   const handleStopCheck = () => {
     cancel()
   }
-
 
   // Early return for file errors - show only error message
   if (getFileError) {
@@ -260,6 +292,13 @@ function Check({
               {childrenWithVariant}
             </div>
           )}
+          
+          {/* Display inline command if present */}
+          {displayCommand && (
+            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap`}>
+              {displayCommand.content}
+            </div>
+          )}
 
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
@@ -343,12 +382,19 @@ function Check({
             status={checkStatus}
             autoOpen={checkStatus === 'running'}
           />
-          <ViewSourceCode 
-            sourceCode={sourceCode}
-            path={path}
-            language={language}
-            fileName="Check Script"
-          />
+          {/* Only show ViewSourceCode if path is used */}
+          {path && (
+            <div ref={viewSourceCodeRef}>
+              <ViewSourceCode 
+                sourceCode={sourceCode}
+                path={path}
+                language={language}
+                fileName="Check Script"
+                isOpen={showSourceCode}
+                onToggle={setShowSourceCode}
+              />
+            </div>
+          )}
       </div>
     </div>
   )
