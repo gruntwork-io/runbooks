@@ -7,6 +7,8 @@ export interface BoilerplateVariable {
   required: boolean;
   options?: string[];
   validations?: ValidationRule[];
+  schema?: Record<string, string>; // For structured maps: field name -> type mapping
+  schemaInstanceLabel?: string; // Custom label for schema instances (e.g., "Account Name")
 }
 
 export enum BoilerplateVariableType {

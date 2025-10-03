@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	bpConfig "github.com/gruntwork-io/boilerplate/config"
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
+	"gopkg.in/yaml.v3"
 )
 
 // This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
@@ -124,6 +125,10 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 
 	slog.Info("Boilerplate config parsed successfully", "variableCount", len(boilerplateConfig.Variables))
 
+	// Parse raw YAML to extract custom fields like schema and schema_instance_label
+	schemas := extractSchemasFromYAML(boilerplateYamlContent)
+	schemaInstanceLabels := extractSchemaInstanceLabelsFromYAML(boilerplateYamlContent)
+
 	// Convert to our JSON structure
 	result := &BoilerplateConfig{
 		Variables: make([]BoilerplateVariable, 0, len(boilerplateConfig.Variables)),
@@ -156,10 +161,76 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 			boilerplateVar.Options = variable.Options()
 		}
 
+		// Attach schema if available
+		if schema, exists := schemas[variable.Name()]; exists {
+			boilerplateVar.Schema = schema
+		}
+
+		// Attach schema instance label if available
+		if schemaInstanceLabel, exists := schemaInstanceLabels[variable.Name()]; exists {
+			boilerplateVar.SchemaInstanceLabel = schemaInstanceLabel
+		}
+
 		result.Variables = append(result.Variables, boilerplateVar)
 	}
 
 	return result, nil
+}
+
+// extractSchemasFromYAML parses the raw YAML to extract schema definitions for variables
+// Returns a map of variable name to schema (field name -> type)
+func extractSchemasFromYAML(yamlContent string) map[string]map[string]string {
+	// Define a structure that matches the boilerplate.yml format
+	type rawVariable struct {
+		Name   string            `yaml:"name"`
+		Schema map[string]string `yaml:"schema"`
+	}
+	type rawConfig struct {
+		Variables []rawVariable `yaml:"variables"`
+	}
+
+	var config rawConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
+		slog.Warn("Failed to parse YAML for schema extraction", "error", err)
+		return map[string]map[string]string{}
+	}
+
+	schemas := make(map[string]map[string]string)
+	for _, variable := range config.Variables {
+		if len(variable.Schema) > 0 {
+			schemas[variable.Name] = variable.Schema
+		}
+	}
+
+	return schemas
+}
+
+// extractSchemaInstanceLabelsFromYAML parses the raw YAML to extract schema_instance_label definitions for map variables
+// Returns a map of variable name to schema instance label string
+func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
+	// Define a structure that matches the boilerplate.yml format
+	type rawVariable struct {
+		Name                string `yaml:"name"`
+		SchemaInstanceLabel string `yaml:"schema_instance_label"`
+	}
+	type rawConfig struct {
+		Variables []rawVariable `yaml:"variables"`
+	}
+
+	var config rawConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
+		slog.Warn("Failed to parse YAML for schema_instance_label extraction", "error", err)
+		return map[string]string{}
+	}
+
+	schemaInstanceLabels := make(map[string]string)
+	for _, variable := range config.Variables {
+		if variable.SchemaInstanceLabel != "" {
+			schemaInstanceLabels[variable.Name] = variable.SchemaInstanceLabel
+		}
+	}
+
+	return schemaInstanceLabels
 }
 
 // Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate

@@ -61,13 +61,26 @@ type RenderInlineResponse struct {
 // Note that we define a simplified version of the BoilerplateVariable struct here.
 // The official Variable struct in the boilerplate package is more complex and includes additional fields we don't need.
 type BoilerplateVariable struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Type        string           `json:"type"`
-	Default     interface{}      `json:"default"`
-	Required    bool             `json:"required"`
-	Options     []string         `json:"options,omitempty"`
-	Validations []ValidationRule `json:"validations,omitempty"`
+	Name                string            `json:"name"`
+	Description         string            `json:"description"`
+	Type                string            `json:"type"`
+	Default             interface{}       `json:"default"`
+	Required            bool              `json:"required"`
+	Options             []string          `json:"options,omitempty"`
+	Validations         []ValidationRule  `json:"validations,omitempty"`
+	// Schema is a field not known to boilerplate itself, but we use it to allow users to define a schema for structured maps.
+	// For example, a user could specify a schema for an AWS account map with the fields "email", "environment", and "id".
+	// The frontend will then use this schema to render a form for the user to enter the data.
+	// It will send the data to boilerplate as a map of strings, where the key is the entry name and the value is a map of strings, 
+	// where the key is the field name and the value is the field value.
+	Schema              map[string]string `json:"schema,omitempty"`              // For structured maps: field name -> type mapping
+
+	// SchemaInstanceLable is a field not known to boilerplate itself, but we use it to allow users to name an instance of a schema.
+	// For example, a user could specify a schema instance label for an AWS account map with the value "Account Name".
+	// The frontend will then use this label to render a form for the user to enter the data.
+	// It will send the data to boilerplate as a map of strings, where the key is the entry name and the value is a map of strings, 
+	// where the key is the field name and the value is the field value.
+	SchemaInstanceLabel string            `json:"schemaInstanceLabel,omitempty"` // Custom label for schema instances (e.g., "Account Name")
 }
 
 // BoilerplateValidationType represents the supported validation types from boilerplate

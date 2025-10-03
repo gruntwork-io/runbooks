@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { FileTree, type FileTreeNode } from './FileTree'
 import { CodeFile } from './CodeFile'
 import { FolderOpen, ChevronLeft } from 'lucide-react'
@@ -14,6 +14,7 @@ interface CodeFileCollectionProps {
 export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false }: CodeFileCollectionProps) => {
   const [treeWidth, setTreeWidth] = useState(200);
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
@@ -34,31 +35,40 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     return files;
   }, [data]);
 
+  // Effect to handle scrolling when selectedFileId changes or when fileItems update
+  useEffect(() => {
+    if (!selectedFileId) return;
+    
+    // Use double requestAnimationFrame to ensure both layout AND paint are complete
+    // This is especially important when content has been updated (e.g., file went from empty to having content)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const fileRef = fileRefs.current[selectedFileId];
+        
+        if (fileRef) {
+          // Use scrollIntoView which handles edge cases better than manual scrollTo
+          // (e.g., when element is at the bottom of the scroll container)
+          fileRef.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start', // Align to the top of the visible area
+            inline: 'nearest'
+          });
+        }
+      });
+    });
+  }, [selectedFileId, fileItems]);
+
   // Handle file tree item clicks
   const handleFileTreeClick = (item: FileTreeNode) => {
     if (item.type === 'file' && item.file) {
-      scrollToFile(item.id);
+      // Update selected file ID, which triggers the scroll effect
+      setSelectedFileId(item.id);
     }
   };
 
   // Handle file tree width changes
   const handleTreeWidthChange = (width: number) => {
     setTreeWidth(width);
-  };
-
-  // Handle scrolling to specific file
-  const scrollToFile = (fileId: string) => {
-    const fileRef = fileRefs.current[fileId];
-    if (fileRef) {
-      const elementTop = fileRef.offsetTop;
-      const scrollContainer = fileRef.closest('.overflow-y-auto');
-      if (scrollContainer) {
-        scrollContainer.scrollTo({
-          top: elementTop - 52, // 52px above the file header to ensure it's visible
-          behavior: 'smooth'
-        });
-      }
-    }
   };
 
   return (
