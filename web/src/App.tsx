@@ -18,6 +18,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<AppError | null>(null);
   const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
+  const [showCodeButton, setShowCodeButton] = useState(false);
   
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useGetRunbook()
@@ -40,6 +41,18 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileTree, hasFiles]) // Don't include activeMobileSection to avoid blocking user's manual toggle
+  
+  // Delay showing the "show code" button to avoid awkward appearance during closing animation
+  useEffect(() => {
+    if (!showArtifacts) {
+      const timer = setTimeout(() => {
+        setShowCodeButton(true)
+      }, 500) // 1.5 second delay
+      return () => clearTimeout(timer)
+    } else {
+      setShowCodeButton(false)
+    }
+  }, [showArtifacts])
   
   // Update local state when hook state changes
   useEffect(() => {
@@ -104,8 +117,8 @@ function App() {
                     className="p-8 h-full"
                   />
                   
-                  {/* Show code icon button when artifacts panel is not showing */}
-                  {!showArtifacts && (
+                  {/* Show code icon button when artifacts panel is not showing (with delay) */}
+                  {showCodeButton && (
                     <button
                       onClick={() => setIsArtifactsHidden(false)}
                       className="absolute -right-14 top-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 z-10 cursor-pointer"
