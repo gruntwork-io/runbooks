@@ -1,4 +1,4 @@
-import { CircleQuestionMark, CircleSlash, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
+import { CircleQuestionMark, CheckCircle, AlertTriangle, XCircle, Loader2, Square, CircleSlash } from "lucide-react"
 import { useState, useMemo, cloneElement, isValidElement } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
@@ -121,7 +121,6 @@ function Check({
   }
 
   const getStatusIcon = () => {
-    if (skipCheck) return CircleSlash
     const iconMap = {
       success: CheckCircle,
       warn: AlertTriangle,
@@ -133,7 +132,7 @@ function Check({
   }
 
   const getStatusIconClasses = () => {
-    if (skipCheck) return 'text-gray-400'
+    if (skipCheck) return 'text-gray-300'
     const colorMap = {
       success: 'text-green-600',
       warn: 'text-yellow-600',
@@ -215,7 +214,25 @@ function Check({
         <div className="border-r border-gray-300 pr-2 mr-4">
           <IconComponent className={`size-6 ${iconClasses} mr-1 ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
-        <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-50' : ''}`}>
+
+        <div className="">
+        
+        {skipCheck && (
+          <div className="mb-3 text-sm text-gray-800 bg-gray-300 w-fit p-3 flex items-center gap-2">
+            <CircleSlash className="size-4" />
+            This check has been skipped.
+          </div>
+        )}
+
+        <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-40' : ''}`}>
+          
+          {/* Render inline BoilerplateInputs children if present */}
+          {childrenWithVariant && (
+            <div className="mb-4">
+              {childrenWithVariant}
+            </div>
+          )}
+
           {checkStatus === 'success' && successMessage && (
             <div className="text-green-600 font-semibold text-sm">
               <InlineMarkdown>{successMessage}</InlineMarkdown>
@@ -242,13 +259,6 @@ function Check({
           {description && (
             <div className="text-md text-gray-600 mb-3">
               <InlineMarkdown>{description}</InlineMarkdown>
-            </div>
-          )}
-          
-          {/* Render inline BoilerplateInputs children if present */}
-          {childrenWithVariant && (
-            <div className="mb-4">
-              {childrenWithVariant}
             </div>
           )}
 
@@ -308,6 +318,7 @@ function Check({
               </Button>
             </div>
           </div>
+        </div>
         </div>
         
         {/* Checkbox positioned in top right */}

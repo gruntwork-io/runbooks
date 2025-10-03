@@ -1,7 +1,8 @@
-import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle } from "lucide-react"
+import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash } from "lucide-react"
 import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/shared"
 import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
 
@@ -69,6 +70,8 @@ function Command({
     return children;
   }, [children]);
 
+  const [skipCommand, setSkipCommand] = useState(false);
+
   // State for controlling ViewSourceCode
   const [showSourceCode, setShowSourceCode] = useState(false);
   
@@ -77,6 +80,8 @@ function Command({
 
   // Get visual styling based on status
   const getStatusClasses = () => {
+    if (skipCommand) return 'bg-gray-100 border-gray-200'
+    
     const statusMap = {
       success: 'bg-green-50 border-green-200',
       fail: 'bg-red-50 border-red-200',
@@ -100,6 +105,8 @@ function Command({
   }
 
   const getStatusIconClasses = () => {
+    if (skipCommand) return 'text-gray-300'
+    
     const colorMap = {
       success: 'text-green-600',
       fail: 'text-red-600',
@@ -186,6 +193,7 @@ function Command({
   
   // Determine if the Run button should be disabled
   const isRunDisabled = 
+    skipCommand || 
     commandStatus === 'running' || 
     isRendering ||
     (requiredVariables.length > 0 && !hasAllRequiredVariables);
@@ -193,6 +201,10 @@ function Command({
   // Main render
   return (
     <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+      {/* Skip overlay */}
+      {skipCommand && (
+        <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
+      )}
 
       {/* Command main container */}
       <div className="flex @container">
@@ -202,8 +214,15 @@ function Command({
 
         <div className="">
 
+        {skipCommand && (
+          <div className="mb-3 text-sm text-gray-800 bg-gray-300 w-fit p-3 flex items-center gap-2">
+            <CircleSlash className="size-4" />
+            This command has been skipped.
+          </div>
+        )}
+        
         {/* Command main body */}
-        <div className="flex-1 space-y-2">
+        <div className={`flex-1 space-y-2 ${skipCommand ? 'opacity-40' : ''}`}>
           {commandStatus === 'pending' && command && !title && (
             <div className="text-gray-600 font-semibold text-sm">Run a command</div>
           )}
@@ -344,6 +363,21 @@ function Command({
             </div>
           </div>
         </div>
+        </div>
+        
+        {/* Checkbox positioned in top right */}
+        <div className={`@md:absolute @md:top-4 @md:right-4 flex items-center gap-2 self-start z-20` + (commandStatus === 'success' ? ' text-gray-300' : '')}>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox 
+              className="bg-white" 
+              checked={skipCommand} 
+              disabled={commandStatus === 'success'}
+              onCheckedChange={(checked) => setSkipCommand(checked === true)} 
+            />
+            <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 select-none">
+              Skip
+            </span>
+          </label>
         </div>
       </div>
 
