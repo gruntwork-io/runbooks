@@ -142,11 +142,6 @@ func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error)
 		entryRelativePath := filepath.Join(relativePath, entryName)
 		entryFullPath := filepath.Join(rootPath, entryRelativePath)
 
-		// Skip hidden files and directories
-		if strings.HasPrefix(entryName, ".") {
-			continue
-		}
-
 		item := FileTreeNode{
 			ID:   entryRelativePath,
 			Name: entryName,
