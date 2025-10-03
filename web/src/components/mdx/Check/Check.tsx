@@ -252,17 +252,6 @@ function Check({
             </div>
           )}
 
-          {/* Security warning banner */}
-          {checkStatus === 'pending' && !skipCheck && (
-            <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <strong>Review before running:</strong> This check will execute a script directly on your machine with access to your full environment. 
-                Please review the script in "View Source Code" below before clicking Check.
-              </div>
-            </div>
-          )}
-
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
           

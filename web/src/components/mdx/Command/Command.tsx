@@ -4,7 +4,6 @@ import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/shared"
 import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
-import { Admonition } from "@/components/mdx/Admonition"
 
 interface CommandProps {
   id: string
@@ -202,11 +201,6 @@ function Command({
         </div>
 
         <div className="">
-        {/* Security warning banner */}
-        <Admonition type="info" title="Review before running" closable className="mb-3">
-          {command && "This command will execute directly on your machine with access to your full environment. Pleaese review it before you click Run."}
-          {!command && path && "This script will execute directly on your machine with access to your full environment. Click \"View Source Code\" below to review it before you click Run."}
-        </Admonition>
 
         {/* Command main body */}
         <div className="flex-1 space-y-2">
