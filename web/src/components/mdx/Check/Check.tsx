@@ -225,40 +225,39 @@ function Check({
         )}
 
         <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-40' : ''}`}>
-          
-          {/* Render inline BoilerplateInputs children if present */}
-          {childrenWithVariant && (
-            <div className="mb-4">
-              {childrenWithVariant}
-            </div>
-          )}
-
-          {checkStatus === 'success' && successMessage && (
-            <div className="text-green-600 font-semibold text-sm">
-              <InlineMarkdown>{successMessage}</InlineMarkdown>
-            </div>
-          )}
-          {checkStatus === 'warn' && warnMessage && (
-            <div className="text-yellow-600 font-semibold text-sm">
-              <InlineMarkdown>{warnMessage}</InlineMarkdown>
-            </div>
-          )}
-          {checkStatus === 'fail' && failMessage && (
-            <div className="text-red-600 font-semibold text-sm">
-              <InlineMarkdown>{failMessage}</InlineMarkdown>
-            </div>
-          )}
-          {checkStatus === 'running' && runningMessage && (
-            <div className="text-blue-600 font-semibold text-sm">
-              <InlineMarkdown>{runningMessage}</InlineMarkdown>
-            </div>
-          )}
           <div className="text-md font-bold text-gray-600">
             <InlineMarkdown>{title}</InlineMarkdown>
           </div>
           {description && (
             <div className="text-md text-gray-600 mb-3">
               <InlineMarkdown>{description}</InlineMarkdown>
+            </div>
+          )}
+          {checkStatus === 'success' && successMessage && (
+            <div className="text-green-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{successMessage}</InlineMarkdown>
+            </div>
+          )}
+          {checkStatus === 'warn' && warnMessage && (
+            <div className="text-yellow-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{warnMessage}</InlineMarkdown>
+            </div>
+          )}
+          {checkStatus === 'fail' && failMessage && (
+            <div className="text-red-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{failMessage}</InlineMarkdown>
+            </div>
+          )}
+          {checkStatus === 'running' && runningMessage && (
+            <div className="text-blue-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{runningMessage}</InlineMarkdown>
+            </div>
+          )}
+          
+          {/* Render inline BoilerplateInputs children if present */}
+          {childrenWithVariant && (
+            <div className="mb-4">
+              {childrenWithVariant}
             </div>
           )}
 

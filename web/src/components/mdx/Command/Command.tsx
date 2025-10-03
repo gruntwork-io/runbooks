@@ -229,21 +229,6 @@ function Command({
           {commandStatus === 'pending' && !command && path && !title && (
             <div className="text-gray-600 font-semibold text-sm">Run a script</div>
           )}
-          {commandStatus === 'success' && successMessage && (
-            <div className="text-green-600 font-semibold text-sm">
-              <InlineMarkdown>{successMessage}</InlineMarkdown>
-            </div>
-          )}
-          {commandStatus === 'fail' && failMessage && (
-            <div className="text-red-600 font-semibold text-sm">
-              <InlineMarkdown>{failMessage}</InlineMarkdown>
-            </div>
-          )}
-          {commandStatus === 'running' && runningMessage && (
-            <div className="text-blue-600 font-semibold text-sm">
-              <InlineMarkdown>{runningMessage}</InlineMarkdown>
-            </div>
-          )}
           
           {/* Title and description */}
           {title && (
@@ -254,6 +239,22 @@ function Command({
           {description && (
             <div className="text-md text-gray-600 mb-3">
               <InlineMarkdown>{description}</InlineMarkdown>
+            </div>
+          )}
+
+          {commandStatus === 'success' && successMessage && (
+            <div className="text-green-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{successMessage}</InlineMarkdown>
+            </div>
+          )}
+          {commandStatus === 'fail' && failMessage && (
+            <div className="text-red-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{failMessage}</InlineMarkdown>
+            </div>
+          )}
+          {commandStatus === 'running' && runningMessage && (
+            <div className="text-blue-600 font-semibold text-sm mb-3">
+              <InlineMarkdown>{runningMessage}</InlineMarkdown>
             </div>
           )}
           
