@@ -94,16 +94,6 @@ function Check({
     return null
   }, [path, command, sourceCode])
 
-  // Calculate script metadata for file-based scripts
-  const scriptMetadata = useMemo(() => {
-    if (!path || command) return null
-    
-    const lines = sourceCode.split('\n').length
-    const languageDisplay = language || 'shell'
-    
-    return { lines, language: languageDisplay }
-  }, [path, command, sourceCode, language])
-
   // Validate required props after all hooks are called (Rules of Hooks)
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
