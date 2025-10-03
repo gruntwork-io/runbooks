@@ -88,6 +88,8 @@ function MDXContainer({ content, className }: MDXContainerProps) {
                 type="warning" 
                 title="**Make sure you trust this Runbook!**" 
                 confirmationText="I trust this Runbook and understand the security implications"
+                allowPermanentHide={true}
+                storageKey="security-banner"
               >
                 <p>Runbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this Runbook and carefully review embedded code snippets before running them.</p>
                 <p>If you do not trust this Runbook, do not run it.</p>

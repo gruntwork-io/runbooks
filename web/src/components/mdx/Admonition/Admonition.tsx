@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/shared/components/InlineMarkdown"
@@ -11,6 +11,8 @@ interface AdmonitionProps {
   description?: string
   closable?: boolean
   confirmationText?: string
+  allowPermanentHide?: boolean
+  storageKey?: string
   children?: React.ReactNode
   className?: string
 }
@@ -21,7 +23,6 @@ const admonitionConfig: Record<
     icon: React.ComponentType<{ className?: string }>
     bgColor: string
     borderColor: string
-    separatorColor: string
     textColor: string
     iconColor: string
     defaultTitle: string
@@ -31,7 +32,6 @@ const admonitionConfig: Record<
     icon: CheckCircle,
     bgColor: "bg-gray-50",
     borderColor: "border-gray-300",
-    separatorColor: "border-gray-200",
     textColor: "text-gray-700",
     iconColor: "text-gray-500",
     defaultTitle: "Note",
@@ -40,7 +40,6 @@ const admonitionConfig: Record<
     icon: Info,
     bgColor: "bg-blue-50",
     borderColor: "border-blue-200",
-    separatorColor: "border-blue-200",
     textColor: "text-blue-700",
     iconColor: "text-blue-500",
     defaultTitle: "Info",
@@ -49,7 +48,6 @@ const admonitionConfig: Record<
     icon: AlertTriangle,
     bgColor: "bg-yellow-50",
     borderColor: "border-yellow-300",
-    separatorColor: "border-yellow-200",
     textColor: "text-yellow-700",
     iconColor: "text-yellow-500",
     defaultTitle: "Warning",
@@ -58,7 +56,6 @@ const admonitionConfig: Record<
     icon: AlertCircle,
     bgColor: "bg-red-50",
     borderColor: "border-red-200",
-    separatorColor: "border-red-200",
     textColor: "text-red-700",
     iconColor: "text-red-500",
     defaultTitle: "Danger",
@@ -72,17 +69,35 @@ export function Admonition({
   children,
   closable = false,
   confirmationText,
+  allowPermanentHide = false,
+  storageKey,
   className,
 }: AdmonitionProps) {
   const [isVisible, setIsVisible] = useState(true)
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isFadingOut, setIsFadingOut] = useState(false)
+  const [dontShowAgain, setDontShowAgain] = useState(false)
+
+  // Check localStorage on mount to see if user has permanently hidden this
+  useEffect(() => {
+    if (allowPermanentHide && storageKey) {
+      const stored = localStorage.getItem(`admonition_hide_${storageKey}`)
+      if (stored === 'true') {
+        setIsVisible(false)
+      }
+    }
+  }, [allowPermanentHide, storageKey])
 
   // Handle checkbox change with delayed fade-out
   const handleConfirmationChange = (checked: boolean) => {
     setIsConfirmed(checked)
     if (checked && confirmationText) {
-      // Wait 500ms, then start fading out
+      // If "don't show again" is checked, store in localStorage
+      if (dontShowAgain && allowPermanentHide && storageKey) {
+        localStorage.setItem(`admonition_hide_${storageKey}`, 'true')
+      }
+
+      // Wait 250ms, then start fading out
       setTimeout(() => {
         setIsFadingOut(true)
         // After 1s fade animation, hide completely
@@ -128,17 +143,35 @@ export function Admonition({
         </div>
         
         {confirmationText && (
-          <label className={`flex items-center gap-2 mt-2 cursor-pointer hover:opacity-80 transition-opacity pt-2 border-t ${config.separatorColor}`}>
-            <input
-              type="checkbox"
-              checked={isConfirmed}
-              onChange={(e) => handleConfirmationChange(e.target.checked)}
-              className="cursor-pointer"
-            />
-            <span className="text-sm">
-              <InlineMarkdown>{confirmationText}</InlineMarkdown>
-            </span>
-          </label>
+          <div className="">
+            <label className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity bg-gray-100 border border-gray-200 rounded-sm p-2 mt-2 -translate-x-2 w-fit text-gray-500">
+              <input
+                type="checkbox"
+                checked={isConfirmed}
+                onChange={(e) => handleConfirmationChange(e.target.checked)}
+                className="cursor-pointer"
+              />
+              <span className="text-sm">
+                <InlineMarkdown>{confirmationText}</InlineMarkdown>
+              </span>
+            </label>
+            
+            {allowPermanentHide && storageKey && (
+              <div className="mt-3 mb-1">
+                <label className={`flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity opacity-80`}>
+                  <input
+                    type="checkbox"
+                    checked={dontShowAgain}
+                    onChange={(e) => setDontShowAgain(e.target.checked)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-sm text-gray-500">
+                    Don't show me this again
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
         )}
       </div>
       {closable && (
