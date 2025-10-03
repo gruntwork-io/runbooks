@@ -12,6 +12,7 @@ import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRend
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
+import { ExternalLink } from '@/components/mdx/shared/components/ExternalLink'
 
 /**
  * This component renders a markdown/MDX document.
@@ -120,6 +121,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       Check,
       Command,
       Admonition,
+      a: ExternalLink, // Make all links open in a new window
       // Add more components here as needed
     })
   })

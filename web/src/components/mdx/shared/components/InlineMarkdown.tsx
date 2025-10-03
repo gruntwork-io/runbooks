@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { ExternalLink } from "./ExternalLink"
 
 interface InlineMarkdownProps {
   children: string
@@ -15,6 +16,7 @@ export const InlineMarkdown = ({ children }: InlineMarkdownProps) => {
       remarkPlugins={[remarkGfm]}
       components={{
         p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
+        a: ExternalLink, // Make all links open in a new window
       }}
     >
       {children}
