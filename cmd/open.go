@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"runbooks/api"
+	"runbooks/browser"
 
 	"github.com/spf13/cobra"
 )
@@ -48,19 +49,11 @@ func init() {
 func openRunbook(path string) {
 	slog.Info("Opening runbook", "path", path)
 
-	// TODO: Handle this goroutine properly, catching failure, etc.
-	api.StartServer(path, 7825)
-
-	// TODO: Document build info
-	// Right now I manually run `yarn dev` in the http directory to launch vite
-	// For the runbooks consumer, they should run a single command and get the server and api all on the same port
-
-	// TODO: Enable this in production only
-	// Wait a moment for the server to start
-	//time.Sleep(250 * time.Millisecond)
+	// Start the API server in a goroutine
+	go func() {
+		api.StartServer(path, 7825)
+	}()
 
 	// Open browser and keep server running
-	// TODO: Add browser opening functionality
-	// browserPort := 5173
-	// browser.LaunchAndWait(browserPort)
+	browser.LaunchAndWait(7825)
 }

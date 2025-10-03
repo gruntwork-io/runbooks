@@ -7,9 +7,8 @@ import (
 	"runtime"
 )
 
-// TODO: Refactor this function, or consider if I even need it
-// launchAndWait opens the browser and keeps the server running
-func launchAndWait(port int) {
+// LaunchAndWait opens the browser and keeps the server running
+func LaunchAndWait(port int) {
 	// Open browser to localhost
 	err := launch("http://localhost:" + fmt.Sprintf("%d", port))
 	if err != nil {
