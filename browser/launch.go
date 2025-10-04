@@ -9,15 +9,17 @@ import (
 
 // LaunchAndWait opens the browser and keeps the server running
 func LaunchAndWait(port int) {
+	url := "http://localhost:" + fmt.Sprintf("%d", port)
+	
 	// Open browser to localhost
-	err := launch("http://localhost:" + fmt.Sprintf("%d", port))
+	err := launch(url)
 	if err != nil {
 		slog.Warn("Failed to open browser", "error", err)
-		slog.Info("Manual browser access", "url", "http://localhost:"+fmt.Sprintf("%d", port))
+		slog.Info("Manual browser access", "url", url)
 	}
 
 	// Keep the main thread alive so the web server continues running
-	slog.Info("Web server started", "url", "http://localhost:"+fmt.Sprintf("%d", port))
+	slog.Info("Web server started", "url", url)
 	fmt.Println("Press Ctrl+C to stop the server")
 
 	// Wait indefinitely to keep the server running
