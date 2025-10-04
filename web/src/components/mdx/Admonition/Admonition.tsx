@@ -121,7 +121,7 @@ export function Admonition({
   return (
     <div
       className={cn(
-        "rounded-md border p-3 text-sm flex items-start gap-2 transition-opacity duration-1000",
+        "rounded-md border p-3 text-sm flex items-start gap-2 transition-opacity duration-1000 mb-5",
         config.bgColor,
         config.borderColor,
         config.textColor,
