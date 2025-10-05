@@ -9,6 +9,8 @@ export interface UseApiReturn<T> {
   isLoading: boolean;
   error: AppError | null;
   debouncedRequest?: (newBody?: Record<string, unknown>) => void;
+  refetch: () => void;
+  silentRefetch: () => void;
 }
 
 export function useApi<T>(
@@ -81,6 +83,20 @@ export function useApi<T>(
     }, debounceTimeout || 0);
   }, [debounceTimeout, performFetch]);
 
+  // Refetch function - immediately refetches with the original body
+  const refetch = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    performFetch(body);
+  }, [performFetch, body]);
+
+  // Silent refetch function - refetches without showing loading state (for hot reloading)
+  const silentRefetch = useCallback(() => {
+    // Don't set isLoading to true - keep existing content visible
+    setError(null);
+    performFetch(body);
+  }, [performFetch, body]);
+
   useEffect(() => {
     if (!endpoint) {
       setIsLoading(false);
@@ -102,5 +118,5 @@ export function useApi<T>(
     };
   }, [endpoint, performFetch, body]);
 
-  return { data, isLoading, error, debouncedRequest };
+  return { data, isLoading, error, debouncedRequest, refetch, silentRefetch };
 }

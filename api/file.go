@@ -16,11 +16,11 @@ type FileRequest struct {
 
 // Return the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
-func HandleRunbookRequest(runbookPath string) gin.HandlerFunc {
+func HandleRunbookRequest(runbookPath string, isWatchMode bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Use the runbook path directly
 		filePath := runbookPath
-		serveFileContent(c, filePath)
+		serveFileContentWithMode(c, filePath, isWatchMode)
 	}
 }
 
@@ -201,6 +201,11 @@ func getContentType(filename string) string {
 
 // serveFileContent is a helper function that serves file content
 func serveFileContent(c *gin.Context, filePath string) {
+	serveFileContentWithMode(c, filePath, false)
+}
+
+// serveFileContentWithMode is a helper function that serves file content with optional watch mode info
+func serveFileContentWithMode(c *gin.Context, filePath string, isWatchMode bool) {
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -241,11 +246,18 @@ func serveFileContent(c *gin.Context, filePath string) {
 		return
 	}
 
-	// Return the file contents with language and size
-	c.JSON(http.StatusOK, gin.H{
+	// Build response with common fields
+	response := gin.H{
 		"path":     filePath,
 		"content":  string(content),
 		"language": getLanguageFromExtension(filepath.Base(filePath)),
 		"size":     fileInfo.Size(),
-	})
+	}
+
+	// Add watch mode info if provided
+	if isWatchMode {
+		response["isWatchMode"] = true
+	}
+
+	c.JSON(http.StatusOK, response)
 }

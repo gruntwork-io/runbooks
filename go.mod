@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/mattn/go-zglob v0.0.6 // indirect
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c // indirect
 )

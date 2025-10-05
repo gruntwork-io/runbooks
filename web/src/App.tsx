@@ -1,7 +1,7 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/Header'
 import MDXContainer from './components/MDXContainer'
@@ -10,6 +10,7 @@ import { ViewContainerToggle } from './components/ViewContainerToggle'
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
+import { useWatchMode } from './hooks/useWatchMode'
 import type { AppError } from './types/error'
 
 
@@ -22,6 +23,20 @@ function App() {
   
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useGetRunbook()
+  
+  // Enable watch mode - refetch runbook when file changes
+  const handleFileChange = useCallback(() => {
+    console.log('[App] Runbook file changed, reloading...');
+    
+    // Use silent refetch for watch mode, regular refetch for open mode
+    if (getRunbookResult.data?.isWatchMode) {
+      getRunbookResult.silentRefetch();
+    } else {
+      getRunbookResult.refetch();
+    }
+  }, [getRunbookResult]);
+  
+  useWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree } = useFileTree()
