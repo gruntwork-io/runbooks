@@ -2,8 +2,6 @@
 title: <Command>
 ---
 
-# `<Command>` Block
-
 The `<Command>` block executes shell commands or scripts with variable substitution. It's used for performing operations like deployments, resource creation, and system configuration.
 
 ## Basic Usage

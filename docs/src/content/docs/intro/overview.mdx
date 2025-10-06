@@ -1,0 +1,57 @@
+---
+title: Overview
+sidebar:
+  order: 1
+---
+
+import { FileTree } from '@astrojs/starlight/components';
+
+## Meet Runbooks!
+
+Runbooks are interactive markdown documents with a first-class experience for generating files based on custom configurations, running customizable scripts or commands, and validating assertions about their local system or infrastructure.
+
+Runbooks are [open source](https://github.com/josh-padnick/runbooks) and free to use.
+
+### How are Runbooks useful?
+
+DevOps and Platform Engineers are often the "expertise bottlenecks" when it comes to enabling their organization to achieve an infrastructure goal.
+
+Historically, there has not been a straightforward way to "capture" this hard-won expertise and make it available to others. Documentation is a start, but quickly gets out of date. Various templating tools are available, but it's hard to to pair them with documentation or validate that they worked as expected, and the end user experience is often clumsy.
+
+Runbooks aims to dramatically _lower_ the bar for subject matter experts by making it enjoyable to capture their expertise, and to dramatically _raise_ the bar for "expertise consumers" by giving them an interactive, personalized, and clean experience they can use to learn about and apply a pattern.
+
+### What does a Runbook look like?
+
+**Runbook authors** are DevOps subject matter experts and write Runbooks.
+
+A typical Runbook directory looks like this:
+
+<FileTree >
+
+- runbook.mdx The official Runbook file.
+- checks/ Bash scripts used by [Checks](/authoring/blocks/check/)
+- scripts/ Bash scripts used by [Commands](/authoring/blocks/command/)
+- templates/ Templates used by [BoilerplateInputs](/authoring/blocks/boilerplateinputs)
+- assets/ Images and other assets used by the Runbook
+
+</FileTree>
+
+You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `checks/`, `scripts/`, and `templates/` directories.
+
+### How do you open a Runbook?
+
+**Runbook consumers** want to apply someone else's DevOps expertise, so they consume Runbooks by opening them on their local machine, and using them in their web browser.
+
+To open a Runbook, you can use the `runbooks open` command:
+
+```bash
+runbooks open /path/to/runbook.mdx
+```
+
+Note that for now, you will need to manually download the Runbook directory to your local machine. In the near future, Runbooks will support opening Runbooks directly from a URL.
+
+## Next
+
+To see a Runbook in action, let's [Install Runbooks](/intro/installation/) and then [Write Your First Runbook](/setup/write_your_first_runbook).
+
+

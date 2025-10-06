@@ -1,134 +1,37 @@
 ---
-title: Runbooks vs. Other Tools
+title: Runbooks vs. Other
 sidebar:
-  order: 4
+  order: 5
 ---
 
 ## Runbooks vs. Static Documentation
 
-**Static Documentation (Markdown, Wiki pages, etc.)**
+Static documentation is easy to write, but quickly becomes out of date, lacks automated validation, and requires users to manually copy/paste and adapt the documentation to their needs.
 
-- ✅ Easy to write and maintain
-- ✅ Can be version controlled
-- ❌ Quickly becomes outdated
-- ❌ No validation that examples actually work
-- ❌ Users must manually copy/paste and customize
-
-**Runbooks**
-
-- ✅ Interactive and executable
-- ✅ Examples are always current because they actually run
-- ✅ Automatically customized to user's needs via forms
-- ✅ Can validate prerequisites and outcomes
-- ✅ Still easy to write (just markdown with special blocks)
-
-**When to use which**: Use static documentation for reference material and concepts. Use Runbooks for procedures, tutorials, and anything that involves executing commands or generating code.
+Runbooks are also easy to write, but can generate their own automated tests to support automated testing, have built-in validation checks that allow users to "do a thing, then check a thing," and can generate files based on custom user inputs.
 
 ## Runbooks vs. Code Examples
 
-**Static Code Examples**
+Traditional code examples live in the same repo as the code base they show an example of and are able to be tested along with the code, but the documentation is often out of date or missing, and users must manually figure out how to adapt th example to their situation, and verify usage.
 
-- ✅ Show how to use an API or tool
-- ❌ Often incomplete (missing context, prerequisites)
-- ❌ Users must manually adapt to their situation
-- ❌ No way to verify they work in user's environment
-
-**Runbooks**
-
-- ✅ Provide complete, working examples
-- ✅ Include prerequisites and validation
-- ✅ Automatically adapt to user's inputs
-- ✅ Can execute and verify results
-- ✅ Generate customized code on demand
-
-**When to use which**: Include code examples in your documentation. Use Runbooks when you want users to actually execute or generate code.
+Runbooks intends to combine documentation and examples into a single document that allows first-class customizability by the user, and supports first-class validation.
 
 ## Runbooks vs. Jupyter Notebooks
 
-**Jupyter Notebooks**
+Jupyter notebooks are interactive computational documents that combine live code, visualizations, narrative text, and equations in a single environment. They follow a "literate programming" paradigm where documentation and code coexist, making them ideal for data analysis, scientific computing, education, and reproducible research.
 
-- ✅ Excellent for data science and analysis
-- ✅ Mix documentation with executable code
-- ✅ Show output inline
-- ❌ Python/R focused (though other kernels exist)
-- ❌ Require Jupyter server setup
-- ❌ Less suitable for shell commands and infrastructure tasks
-- ❌ More complex to distribute and version
+Jupyter Notebooks are oriented heavily around Python where they maintain a "Python program state" as you work.
 
-**Runbooks**
+Runbooks also combine both code and documentation in a single environment, however there are several key differences compared to Jupyter Notebooks:
 
-- ✅ Designed for DevOps and infrastructure tasks
-- ✅ Native support for shell commands
-- ✅ Simple file format (markdown)
-- ✅ Easy to distribute (just a CLI tool)
-- ✅ Integrates with Boilerplate for code generation
-- ✅ Web UI automatically launches
+1. **Author-Focused vs Consumer-Focused**: Jupyter Notebooks are optimized for the author persona, with a special focus on giving authors a useful "canvas" to incrementally evolve program state and produce artifacts. You could say they are especially useful at helping notebook authors "show their work."
 
-**When to use which**: Use Jupyter for data analysis, ML experiments, and Python-heavy workflows. Use Runbooks for infrastructure provisioning, deployments, system administration, and operational procedures.
+   By contrast, Runbooks are focused more on the _consumer_ of the Runbook than the author. In the Runbooks way of thinking, authors are not "exploring ideas," but codifying their knowledge and insights around a specific DevOps pattern. Runbook consumers then get a first-class experience learning and applying this pattern for their needs.
 
-## Runbooks vs. Configuration Management Tools
+2. **Arbitrary Execution vs Targeted File Generation**: Jupyter Notebooks are powerful environments that can execute arbitrary code, generate charts, and allow authors to trace back execution history and restart execution. 
 
-**Ansible, Chef, Puppet, etc.**
+   By contrast, Runbooks are less powerful but more targeted. Runbooks treat file generation as a first-class concept, making it easy to expose a custom webform to allow users to configure their files, offering deep integration with [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate), and including a handy UI where users can see and copy all the generated files.
 
-- ✅ Excellent for managing infrastructure at scale
-- ✅ Idempotent operations
-- ✅ Powerful inventory management
-- ❌ Steeper learning curve
-- ❌ Primarily for infrastructure configuration, not documentation
-- ❌ Not designed for interactive user input
-- ❌ Overkill for simple procedures or one-off tasks
+3. **Internal Program State vs External Artifacts**: With each "cell" in a Jupyter Notebook, the notebook author evolves the state of a Python program.
 
-**Runbooks**
-
-- ✅ Interactive and user-friendly
-- ✅ Combines documentation with execution
-- ✅ Great for one-off procedures and tutorials
-- ✅ Flexible - run anything via shell commands
-- ❌ Not designed for managing large infrastructure fleets
-- ❌ No built-in idempotency guarantees
-
-**When to use which**: Use configuration management tools to manage production infrastructure. Use Runbooks to document procedures, onboard users, generate code, and execute ad-hoc tasks.
-
-## Runbooks vs. CI/CD Pipelines
-
-**CI/CD (GitHub Actions, GitLab CI, Jenkins, etc.)**
-
-- ✅ Automated execution on triggers (commits, schedules, etc.)
-- ✅ Designed for production workflows
-- ✅ Excellent for testing and deployment
-- ❌ Not designed for interactive use
-- ❌ Limited user input options
-- ❌ Not suitable for documentation
-
-**Runbooks**
-
-- ✅ Interactive and user-guided
-- ✅ Rich documentation alongside execution
-- ✅ Dynamic forms for user input
-- ✅ Great for learning and one-off operations
-- ❌ Not designed for automated/scheduled execution
-- ❌ Requires user interaction
-
-**When to use which**: Use CI/CD for automated testing and deployment. Use Runbooks for procedures that require human decision-making, learning, or customization.
-
-## Runbooks vs. Shell Scripts
-
-**Shell Scripts**
-
-- ✅ Fast to write for simple tasks
-- ✅ Portable and widely understood
-- ❌ Limited user interaction (just command-line args)
-- ❌ No documentation inline (or just comments)
-- ❌ No validation of prerequisites
-- ❌ No rich UI
-
-**Runbooks**
-
-- ✅ Rich documentation integrated with execution
-- ✅ Web forms for user input with validation
-- ✅ Can still run shell scripts when needed
-- ✅ Prerequisites checking built-in
-- ✅ Better error messages and user guidance
-
-**When to use which**: Use shell scripts as building blocks. Use Runbooks to orchestrate scripts, provide documentation, collect user input, and guide users through multi-step procedures.
-
+   By contrast, with each block in a Runbook, the consumer is working their way towards either file generation, an arbitrary operation, or validation. In other words, the artifact is files and external state changes, not updates to an internal program.

@@ -14,10 +14,6 @@ export default defineConfig({
 					autogenerate: { directory: 'intro' },
 				},
 				{
-					label: 'Setup & installation',
-					autogenerate: { directory: 'setup' },
-				},
-				{
 					label: 'CLI',
 					autogenerate: { directory: 'commands' },
 				},

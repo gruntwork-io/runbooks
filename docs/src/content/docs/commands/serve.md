@@ -14,7 +14,7 @@ runbooks serve <path-to-runbook>
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to a runbook file (`.mdx` or `.md`) or a directory containing a runbook
+- `<path-to-runbook>` - Path to the `runbook.mdx` file
 
 ## What It Does
 

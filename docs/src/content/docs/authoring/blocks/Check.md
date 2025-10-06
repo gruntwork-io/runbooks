@@ -2,8 +2,6 @@
 title: <Check>
 ---
 
-# `<Check>` Block
-
 The `<Check>` block validates prerequisites and system state by running shell commands or scripts. It's essential for ensuring users have the right tools installed and their environment is properly configured before proceeding.
 
 ## Basic Usage

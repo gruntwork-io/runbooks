@@ -2,7 +2,7 @@
 title: <BoilerplateInputs>
 ---
 
-# `<BoilerplateInputs>` Block
+import { Aside } from '@astrojs/starlight/components';
 
 The `<BoilerplateInputs>` block creates dynamic web forms based on [Boilerplate](https://github.com/gruntwork-io/boilerplate) variable definitions. It's used to collect user input that can then be used in Commands, Checks, or to generate files from templates.
 
@@ -139,6 +139,10 @@ variables:
 
 ### Structured Map (with Schema)
 
+<Aside type="note">
+This schema declaration is not supported by Boilerplate itself, but is supported by Runbooks.
+</Aside>
+
 Map with predefined fields:
 
 ```yaml
@@ -163,6 +167,10 @@ variables:
 ```
 
 ## Validations
+
+<Aside type="note">
+Some Boilerplate validation types are not supported by Runbooks.
+</Aside>
 
 Boilerplate supports various validation types:
 

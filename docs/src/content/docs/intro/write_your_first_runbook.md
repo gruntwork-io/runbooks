@@ -1,16 +1,18 @@
 ---
 title: Write Your First Runbook
 sidebar:
-   order: 2
+   order: 3
 ---
 
 Let's create a simple runbook from scratch!
 
 ## Create the Runbook File
 
-Create a new file called `my-first-runbook.mdx`:
+1. Create a new folder called `my-first-runbook`.
+1. Inside that folder, create a new file `runbook.mdx`.
+1. Copy/paste the following content into `runbook.mdx`:
 
-```mdx
+`````mdx
 # My First Runbook
 
 Welcome to your first runbook! This is a simple example that demonstrates the key features.
@@ -26,8 +28,8 @@ This runbook will:
 
 <Admonition type="info" title="Prerequisites" description="Make sure you have Git installed on your system." />
 
-<Check 
-    id="check-git" 
+<Check
+    id="check-git"
     command="git --version"
     title="Check if Git is installed"
     description="We need Git for version control"
@@ -54,49 +56,38 @@ variables:
       - Rust
       - Other
     default: Go
-\```
+```
 </BoilerplateInputs>
 
 ## Create Your Greeting
 
 <Command 
     id="create-greeting"
-    command='echo "Hello {{ .Name }}! Your favorite language is {{ .FavoriteLanguage }}." > greeting.txt'
+    command='echo "Hello {{ .Name }}! Your favorite language is {{ .FavoriteLanguage }}."'
     boilerplateInputsId="user-info"
-    title="Create greeting file"
+    title="Say a greeting"
     description="This will create a file called greeting.txt with your personalized greeting"
-    successMessage="Greeting file created! Check greeting.txt"
-    failMessage="Failed to create greeting file"
-/>
-
-## Verify the File
-
-<Check 
-    id="verify-file" 
-    command="cat greeting.txt"
-    title="Verify the greeting file"
-    description="Let's make sure the file was created correctly"
-    successMessage="File looks good!"
-    failMessage="Something went wrong with the file"
+    successMessage="Greeting file created!"
+    failMessage="Failed to issue greeting"
 />
 
 ## Next Steps
 
-Congratulations! You've completed your first runbook. 
+Congratulations! You've completed your first runbook.
 
 Try modifying this runbook to:
 - Add more checks
 - Collect different user inputs
 - Run different commands
 - Generate files using Boilerplate templates
-```
+`````
 
 ## Open Your Runbook
 
 Save the file and open it with Runbooks:
 
 ```bash
-runbooks open my-first-runbook.mdx
+runbooks open my-first-runbook/runbook.mdx
 ```
 
 Your browser will open showing the runbook interface. Follow the steps to execute each block!
@@ -116,14 +107,23 @@ Creates a callout box to highlight important information:
 
 Types: `info`, `warning`, `danger`, `success`
 
+Learn more about [Admonition blocks](/authoring/blocks/admonition).
+
 ### `<Check>` Block
 Runs a command and shows success/failure based on the exit code:
 - Exit code 0 = success ✓
 - Exit code 1 = failure ✗
 - Exit code 2 = warning ⚠
 
+Learn more about [Check blocks](/authoring/blocks/check).
+
 ### `<BoilerplateInputs>` Block
-Creates a web form based on the YAML variable definitions. Supports:
+Creates a web form based on [Boilerplate](https://github.com/gruntwork-io) YAML variable definitions.
+
+In this case, we passed the Boilerplate variables file as inline value by directly including it in the Runbook. You could also reference an existing `boilerplate.yml` file by using the `path` property (e.g. `<BoilerplateInputs path="templates/boilerplate.yml" />`).
+
+Eithe rway, the `boilerplate.yml` file supports several different variable types, including:
+
 - `string` - text input
 - `int` - number input
 - `bool` - checkbox
@@ -131,12 +131,15 @@ Creates a web form based on the YAML variable definitions. Supports:
 - `list` - dynamic list of values
 - `map` - key-value pairs
 
+Try adding a new variable and refreshing the browser. You'll see the Runbok form automatically update!
+
+Learn more about [BoilerplateInputs blocks](/authoring/blocks/boilerplateinputs).
+
 ### `<Command>` Block
-Executes a shell command with variable substitution using Go templates. Link it to a BoilerplateInputs block using `boilerplateInputsId`.
+Executes a shell command with variable substitution using Go templates. Link it to a `<BoilerplateInputs>` block using `boilerplateInputsId`.
 
-## Next: Advanced Features
+Learn more about [Command blocks](/authoring/blocks/command).
 
-Ready to learn more? Check out:
-- [Boilerplate Templates](/authoring/blocks/boilerplateinputs) - Generate multiple files from templates
-- [Check Scripts](/authoring/blocks/check) - Run shell scripts for more complex validations
-- [Command Scripts](/authoring/blocks/command) - Execute shell scripts with parameters
+## Next
+
+Now let's learn about how this collection of functionality is useful in practical real-world scenarios.

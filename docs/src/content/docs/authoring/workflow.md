@@ -10,7 +10,7 @@ If you're writing runbooks (not developing the Runbooks tool itself), the workfl
 
 ### 1. Create Your Runbook
 
-Create a new `.mdx` file:
+Create a new `runbook.mdx` file:
 
 ```bash
 mkdir my-runbook

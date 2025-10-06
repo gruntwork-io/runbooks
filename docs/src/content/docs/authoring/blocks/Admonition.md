@@ -2,8 +2,6 @@
 title: <Admonition>
 ---
 
-# `<Admonition>` Block
-
 The `<Admonition>` block creates callout boxes to highlight important information, warnings, notes, or tips. It helps draw the user's attention to critical information in your runbook.
 
 ## Basic Usage

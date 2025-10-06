@@ -1,0 +1,41 @@
+---
+title: open
+---
+
+# `runbooks open`
+
+Opens a runbook in your default browser with the interactive web interface.
+
+## Usage
+
+```bash
+runbooks open <path-to-runbook>
+```
+
+## Arguments
+
+- `<path-to-runbook>` - Path to the `runbook.mdx` file.
+
+## What It Does
+
+When you run `runbooks open`:
+
+1. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
+2. **Launches the Browser** - Opens your default web browser to `http://localhost:7825`
+3. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
+4. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
+
+## Troubleshooting
+
+**Port already in use:**
+If port 7825 is already in use, you'll see an error. Stop any other process using that port or modify the code to use a different port.
+
+**Browser doesn't open:**
+If the browser doesn't open automatically, you can manually navigate to `http://localhost:7825` after running the command.
+
+**Browser window with the runbook doesn't open:**
+Sometimes, your browser seems to launch, but you don't see the Runbook. The most likely issue here is that your browser launched with multiple tabs and windows and your Runbooks tab is not visible. Either look through all your browser windows, or go directly to http://localhost:7825.
+
+**Runbook not found:**
+Make sure the path points to a valid `runbook.mdx` file.
+

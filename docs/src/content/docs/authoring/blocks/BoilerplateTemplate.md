@@ -2,13 +2,16 @@
 title: <BoilerplateTemplate>
 ---
 
-# `<BoilerplateTemplate>` Block
-
-The `<BoilerplateTemplate>` block is an advanced component that renders Boilerplate templates inline without writing files to disk. This is useful for previewing generated content or debugging templates.
+The `<BoilerplateTemplate>` block renders Boilerplate templates inline or allows you to specify templates inline in your runbook. Like `<BoilerplateInputs>`, it uses the Boilerplate engine to generate files, but displays the rendered file directly in the markdown.
 
 ## Overview
 
-While `<BoilerplateInputs>` generates files and saves them to disk, `<BoilerplateTemplate>` renders templates in-memory and displays them in the UI. This is particularly useful when you want to:
+Both `<BoilerplateInputs>` and `<BoilerplateTemplate>` use the Boilerplate engine to generate files. The key differences are:
+
+- **`<BoilerplateInputs>`**: Generates files and saves them to your workspace (persisted), can reference template directories
+- **`<BoilerplateTemplate>`**: Generates files, displays content inline, allows inline template specification
+
+Use `<BoilerplateTemplate>` when you want to:
 
 - Show users a preview of what will be generated
 - Display generated configuration inline
@@ -17,7 +20,7 @@ While `<BoilerplateInputs>` generates files and saves them to disk, `<Boilerplat
 
 ## Basic Usage
 
-```mdx
+`````mdx
 <BoilerplateInputs id="config">
 ```yaml
 variables:
@@ -29,7 +32,7 @@ variables:
     type: int
     description: Port number
     default: 8080
-\```
+```
 </BoilerplateInputs>
 
 <BoilerplateTemplate boilerplateInputsId="config">
@@ -39,9 +42,9 @@ service:
   name: {{ .ServiceName }}
   port: {{ .Port }}
   enabled: true
-\```
-</BoilerplateTemplate>
 ```
+</BoilerplateTemplate>
+`````
 
 ## Props
 
@@ -57,9 +60,10 @@ service:
 ## How It Works
 
 1. User fills out the BoilerplateInputs form
-2. BoilerplateTemplate automatically re-renders the template with the current variable values
-3. Rendered content is displayed in the UI with syntax highlighting
-4. No files are written to disk
+2. BoilerplateTemplate automatically uses the Boilerplate engine to generate files with the current variable values
+3. Files are generated to temporary directories, read for display, then immediately cleaned up
+4. Generated content is displayed in the UI with syntax highlighting
+5. No files are persisted to your workspace (only shown in the UI)
 
 ## Examples
 
@@ -249,10 +253,11 @@ resource "aws_instance" "app" {
 
 | Feature | BoilerplateInputs | BoilerplateTemplate |
 |---------|------------------|---------------------|
-| Generates files | ✅ Yes (to disk) | ❌ No |
-| Shows preview | ❌ No | ✅ Yes |
+| Uses Boilerplate engine | ✅ Yes | ✅ Yes |
+| Generates files | ✅ Yes (persisted to workspace) | ✅ Yes (temporary, cleaned up) |
+| Shows preview in UI | ❌ No | ✅ Yes |
 | Can use with Commands | ✅ Yes | ✅ Yes (variables available) |
-| File tree output | ✅ Yes | ✅ Yes (preview only) |
+| File tree output | ✅ Yes (persisted) | ✅ Yes (preview only) |
 | Template directory | ✅ Supports | ❌ Inline only |
 | Auto-render | ✅ Yes (for Commands/Checks) | ✅ Yes |
 
@@ -309,7 +314,7 @@ Display an entire configuration set:
 ## Limitations
 
 - Templates must be inline (cannot reference template directories like BoilerplateInputs can)
-- Files are not saved to disk
+- Generated files are not persisted to your workspace (only displayed in the UI)
 - Cannot include other template files (no `{{ template "file.txt" }}` support)
 - Best for simple, single-file templates or small sets of templates
 

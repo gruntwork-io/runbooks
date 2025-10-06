@@ -1,36 +1,152 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
+title: Runbooks Documentation
+description: Interactive documentation that executes
 template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
-  image:
-    file: ../../assets/houston.webp
+  title: Runbooks
+  tagline: Make the knowledge and experience of few available to the many
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Get Started
+      link: /intro/overview/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/josh-padnick/runbooks
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Next steps
+## What are Runbooks?
+
+Runbooks are **interactive markdown documents** that combine documentation with executable functionality. They allow you to:
+
+- ✅ **Read** standard markdown content with rich formatting
+- ✅ **Validate** system prerequisites with automated checks
+- ✅ **Execute** shell commands with customizable parameters
+- ✅ **Generate** code from templates using dynamic forms
+- ✅ **Guide** users through complex procedures step-by-step
+
+Think of runbooks as Jupyter Notebooks for DevOps and Infrastructure tasks.
+
+## Quick Example
+
+```mdx
+# Deploy a New Service
+
+## Prerequisites
+
+<Check 
+    id="check-kubectl" 
+    command="kubectl version"
+    title="Check if kubectl is installed"
+    successMessage="kubectl is installed!"
+    failMessage="Please install kubectl first"
+/>
+
+## Configuration
+
+<BoilerplateInputs id="service-config">
+```yaml
+variables:
+  - name: ServiceName
+    type: string
+    description: Name for your service
+  - name: Environment
+    type: enum
+    options: [dev, staging, production]
+\```
+</BoilerplateInputs>
+
+## Deploy
+
+<Command 
+    id="deploy" 
+    command="kubectl apply -f {{ .ServiceName }}-{{ .Environment }}.yaml"
+    boilerplateInputsId="service-config"
+    title="Deploy Service"
+    successMessage="Service deployed successfully!"
+/>
+```
+
+## Key Features
 
 <CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
-	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
-	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
-	</Card>
+  <Card title="Interactive Checks" icon="approve-check">
+    Validate prerequisites and system state before proceeding. Checks run shell commands and show success/failure/warning based on exit codes.
+  </Card>
+  <Card title="Dynamic Commands" icon="rocket">
+    Execute shell commands with variable substitution. Commands support Go template syntax and can reference user inputs from forms.
+  </Card>
+  <Card title="Smart Forms" icon="pencil">
+    Generate dynamic web forms from Boilerplate templates. Support for strings, numbers, booleans, enums, lists, and structured maps.
+  </Card>
+  <Card title="Code Generation" icon="add-document">
+    Generate infrastructure-as-code and configuration files from templates with user-provided variables using Gruntwork Boilerplate.
+  </Card>
 </CardGrid>
+
+## Why Runbooks?
+
+### The Problem
+
+Traditional documentation becomes outdated quickly. Code examples don't work. Users struggle to adapt generic instructions to their specific situation. Knowledge transfer is difficult.
+
+### The Solution
+
+Runbooks ensure your documentation always works because it actually executes. Examples are tested every time they run. Instructions automatically adapt to user inputs. Expert knowledge is captured in an executable format.
+
+## Getting Started
+
+<CardGrid>
+  <Card title="Install Runbooks" icon="setting">
+    Get up and running in minutes. Build from source or use a pre-built binary.
+    
+    [Installation Guide →](/setup/installation/)
+  </Card>
+  <Card title="Write Your First Runbook" icon="document">
+    Learn the basics by creating a simple runbook from scratch.
+    
+    [Tutorial →](/setup/write_your_first_runbook/)
+  </Card>
+  <Card title="Explore Examples" icon="open-book">
+    See real-world examples in the testdata directory, including AWS multi-account setups and ECS deployments.
+    
+    [Use Cases →](/intro/use_cases/)
+  </Card>
+</CardGrid>
+
+## Learn More
+
+<CardGrid>
+  <Card title="Introduction" icon="information">
+    Learn about Runbooks, how they work, and when to use them.
+    
+    [Overview →](/intro/overview/)
+  </Card>
+  <Card title="Authoring Guide" icon="pen">
+    Write your own runbooks with markdown and special blocks.
+    
+    [Authoring →](/authoring/overview/)
+  </Card>
+  <Card title="Block Reference" icon="puzzle">
+    Detailed documentation for Check, Command, BoilerplateInputs, and more.
+    
+    [Blocks →](/authoring/blocks/)
+  </Card>
+  <Card title="CLI Reference" icon="laptop">
+    Command-line interface documentation for the runbooks tool.
+    
+    [Commands →](/commands/overview/)
+  </Card>
+</CardGrid>
+
+## Community & Support
+
+- **GitHub**: Report issues and contribute at [github.com/josh-padnick/runbooks](https://github.com/josh-padnick/runbooks)
+- **Documentation**: You're reading it!
+
+## License
+
+Runbooks is open source software licensed under the MIT License.

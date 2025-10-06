@@ -10,7 +10,7 @@ Runbooks are written in **MDX** (Markdown with JSX), which means you can use all
 
 ## File Format
 
-Runbooks use the `.mdx` file extension, though `.md` files with special blocks will also work. The file contains:
+Runbooks must be named `runbook.mdx` and use the MDX file format. The file contains:
 
 1. **Standard Markdown** - Headers, paragraphs, lists, code blocks, images, links, etc.
 2. **Special Blocks** - React components like `<Check>`, `<Command>`, `<BoilerplateInputs>`, etc.

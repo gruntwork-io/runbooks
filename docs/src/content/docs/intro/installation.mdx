@@ -1,0 +1,66 @@
+---
+title: Installation
+sidebar:
+   order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The quickest way to install Runbooks is to download the pre-built binaries from the [GitHub repo](https://github.com/josh-padnick/runbooks).
+
+<Aside type="note">
+Runbooks binaries are not currently signed, so you will need to manually allow them. On macOS, you can do this by running:
+
+```bash
+xattr -d com.apple.quarantine /path/to/runbooks
+```
+</Aside>
+
+### Installing from Source
+
+You can also build the binaries yourself:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/josh-padnick/runbooks.git
+   cd runbooks
+   ```
+
+2. Build the frontend:
+   ```bash
+   cd web
+   bun install
+   bun run build
+   ```
+
+3. Build the binary:
+   ```bash
+   go build -o runbooks main.go
+   ```
+
+4. Move the binary to your PATH (optional):
+   ```bash
+   sudo mv runbooks /usr/local/bin/
+   ```
+
+5. Enable execute permissions for your binary
+   ```bash
+   chmod u+x /usr/local/bin/runbooks
+   ```
+
+6.. Verify installation:
+   ```bash
+   runbooks
+   ```
+
+### Verifying installation
+
+Once installed, you can verify that `runbooks` is working by running:
+
+```bash
+runbooks version
+```
+
+## Next
+
+Now that you have Runbooks installed, you can write your first runbook.
