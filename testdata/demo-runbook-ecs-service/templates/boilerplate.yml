@@ -1,0 +1,111 @@
+variables:
+  - name: ModuleVersion
+    description: The version of the terraform-aws-ecs module to use
+    type: string
+    default: "v0.38.0"
+    validations: "required"
+
+  - name: AlbModuleVersion
+    description: The version of the terraform-aws-load-balancer module to use
+    type: string
+    default: "v0.29.11"
+    validations: "required"
+
+  - name: AwsRegion
+    description: The AWS region in which all resources will be created
+    type: string
+    default: "us-east-1"
+    validations: "required"
+
+  - name: EcsClusterName
+    description: The name of the ECS cluster
+    type: string
+    validations: "required"
+
+  - name: ServiceName
+    description: The name of the ECS service to run
+    type: string
+    validations: "required"
+
+  - name: ContainerName
+    description: The name of the container in the ECS Task Definition
+    type: string
+    default: "webapp"
+    validations: "required"
+
+  - name: DockerImage
+    description: The Docker image to deploy
+    type: string
+    default: "gruntwork/docker-test-webapp"
+    validations: "required"
+
+  - name: DockerImageVersion
+    description: The version/tag of the Docker image to deploy
+    type: string
+    default: "latest"
+    validations: "required"
+
+  - name: ClusterInstanceType
+    description: The EC2 instance type to use for the ECS cluster
+    type: string
+    default: "t3.micro"
+    validations: "required"
+
+  - name: ClusterMinSize
+    description: Minimum number of EC2 instances in the ECS cluster
+    type: number
+    default: 2
+    validations: "required,min=1"
+
+  - name: ClusterMaxSize
+    description: Maximum number of EC2 instances in the ECS cluster
+    type: number
+    default: 4
+    validations: "required,min=2"
+
+  - name: DesiredNumberOfTasks
+    description: How many copies of the task to run across the cluster
+    type: number
+    default: 2
+    validations: "required,min=1"
+
+  - name: ContainerHttpPort
+    description: The port the Docker container listens on for HTTP requests
+    type: number
+    default: 3000
+    validations: "required,min=1,max=65535"
+
+  - name: ContainerCpu
+    description: CPU units to provision for the container (1024 = 1 vCPU)
+    type: number
+    default: 512
+    validations: "required,min=128"
+
+  - name: ContainerMemory
+    description: Amount of memory (MB) to provision for the container
+    type: number
+    default: 256
+    validations: "required,min=128"
+
+  - name: ServerText
+    description: The Docker container will display this text for every HTTP request
+    type: string
+    default: "Hello from ECS!"
+    validations: "required"
+
+  - name: EnableContainerInsights
+    description: Enable CloudWatch Container Insights for the ECS cluster
+    type: bool
+    default: true
+
+  - name: EnableAdditionalPort
+    description: Enable an additional HTTP listener on port 5000 for advanced routing examples
+    type: bool
+    default: false
+
+  - name: HealthCheckGracePeriod
+    description: How long (in seconds) to wait before having the ALB start checking health
+    type: number
+    default: 15
+    validations: "required,min=0,max=2147483647"
+

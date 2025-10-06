@@ -1,0 +1,302 @@
+# Deploy a Docker Application on AWS ECS with Application Load Balancer
+
+Welcome! This runbook will guide you through deploying a Docker application on AWS ECS (Elastic Container Service) with an Application Load Balancer (ALB) routing traffic to your application.
+
+## What you'll deploy
+
+By the end of this runbook, you'll have:
+
+- ✅ **ECS Cluster** - A cluster of EC2 instances running Docker containers
+- ✅ **Application Load Balancer** - HTTP load balancer routing traffic to your containers
+- ✅ **ECS Service** - Manages deployment, scaling, and health of your Docker containers
+- ✅ **CloudWatch Logs** - Centralized logging for your containers
+- ✅ **IAM Roles & Policies** - Proper security permissions for your ECS tasks
+- ✅ **S3 Bucket** - For testing IAM permissions (demonstration purposes)
+
+## Architecture Overview
+
+```
+Internet → ALB → ECS Service (Tasks) → ECS Cluster (EC2 Instances)
+```
+
+The Application Load Balancer receives HTTP traffic from the internet and distributes it across healthy ECS tasks. The ECS service ensures your desired number of tasks are always running and automatically replaces any failed tasks.
+
+## Prerequisites
+
+Before we begin, let's verify your local environment is ready.
+
+### Check for Terraform/OpenTofu
+
+<Check 
+    id="check-terraform-installed" 
+    path="checks/terraform-installed.sh" 
+    title="Verify Terraform or OpenTofu is installed"
+    description="We need either Terraform or OpenTofu to deploy the infrastructure. Both tools are compatible with the templates in this runbook."
+    successMessage="✓ Infrastructure as Code tool is ready!"
+    failMessage="Please install Terraform or OpenTofu before continuing."
+/>
+
+### Check AWS CLI
+
+<Check 
+    id="check-aws-cli" 
+    path="checks/aws-cli-installed.sh" 
+    title="Verify AWS CLI is installed and configured"
+    description="The AWS CLI must be installed and configured with valid credentials to deploy resources to AWS."
+    successMessage="✓ AWS CLI is configured and ready!"
+    failMessage="Please install and configure the AWS CLI before continuing."
+/>
+
+## Configuration
+
+Now let's configure your ECS deployment. Fill in the form below with your desired settings.
+
+<BoilerplateInputs id="ecs-service-config" templatePath="templates" />
+
+Great! The Terraform files have been generated with your configuration.
+
+## Find your ECS-Optimized AMI
+
+Before we can deploy, we need to find the ID of an ECS-optimized AMI in your AWS region. Run this command to find the latest one:
+
+<Command 
+    id="lookup-ecs-ami"
+    command={'aws ssm get-parameter --name /aws/service/ecs/optimized-ami/amazon-linux-2/recommended --region {{ .AwsRegion }} --query "Parameter.Value" --output text | jq -r ".image_id"'}
+    boilerplateInputsId="ecs-service-config"
+    title="Look up the latest ECS-optimized AMI"
+    description="This will query AWS Systems Manager Parameter Store to find the latest ECS-optimized Amazon Linux 2 AMI for your region."
+    successMessage="✓ Found ECS-optimized AMI!"
+    failMessage="Failed to look up the ECS-optimized AMI. Make sure your AWS CLI is configured correctly."
+/>
+
+Copy the AMI ID from the output above. You'll need it for the Terraform variables.
+
+## Create or verify your EC2 Key Pair
+
+You need an EC2 key pair to SSH into the ECS cluster instances if needed. If you already have one, you can use it. Otherwise, create one:
+
+```bash
+aws ec2 create-key-pair --key-name my-ecs-keypair --region {{ .AwsRegion }} --query 'KeyMaterial' --output text > my-ecs-keypair.pem
+chmod 400 my-ecs-keypair.pem
+```
+
+## Deploy the infrastructure
+
+Now we're ready to deploy! Follow these steps:
+
+### 1. Initialize Terraform
+
+Navigate to your generated templates directory and initialize Terraform:
+
+<Command 
+    id="terraform-init"
+    command="cd {{ .TemplateOutputPath }} && terraform init"
+    boilerplateInputsId="ecs-service-config"
+    title="Initialize Terraform"
+    description="This downloads the required Terraform providers and modules."
+    successMessage="✓ Terraform initialized!"
+    failMessage="Failed to initialize Terraform. Check the error message above."
+/>
+
+### 2. Create a tfvars file
+
+Create a `terraform.tfvars` file with your specific values:
+
+```hcl
+aws_region                          = "us-east-1"
+ecs_cluster_name                    = "my-ecs-cluster"
+service_name                        = "my-service"
+ecs_cluster_instance_ami            = "ami-xxxxxxxxxxxxxxxxx"  # Use the AMI ID from above
+ecs_cluster_instance_keypair_name   = "my-ecs-keypair"         # Your key pair name
+```
+
+(Use the values you configured in the boilerplate form above)
+
+### 3. Plan the deployment
+
+Review what Terraform will create:
+
+<Command 
+    id="terraform-plan"
+    command="cd {{ .TemplateOutputPath }} && terraform plan"
+    boilerplateInputsId="ecs-service-config"
+    title="Plan the Terraform deployment"
+    description="This shows you all the resources that will be created, modified, or destroyed."
+    successMessage="✓ Terraform plan completed!"
+    failMessage="Failed to create Terraform plan. Review the errors above."
+/>
+
+### 4. Apply the configuration
+
+If the plan looks good, deploy your infrastructure:
+
+<Command 
+    id="terraform-apply"
+    command="cd {{ .TemplateOutputPath }} && terraform apply -auto-approve"
+    boilerplateInputsId="ecs-service-config"
+    title="Deploy the infrastructure"
+    description="This will create all the AWS resources. This typically takes 5-10 minutes as the ECS cluster and services spin up."
+    successMessage="✓ Infrastructure deployed successfully!"
+    failMessage="Deployment failed. Review the error message and try again."
+/>
+
+## Test your deployment
+
+After the deployment completes, you can test your application!
+
+### Get the ALB DNS name
+
+The Application Load Balancer DNS name is shown in the Terraform outputs. You can also retrieve it with:
+
+<Command 
+    id="get-alb-dns"
+    command="cd {{ .TemplateOutputPath }} && terraform output alb_dns_name"
+    boilerplateInputsId="ecs-service-config"
+    title="Get the ALB DNS name"
+    description="This retrieves the DNS name where your application is accessible."
+    successMessage="✓ Retrieved ALB DNS name!"
+    failMessage="Failed to get ALB DNS name."
+/>
+
+### Access your application
+
+Open your browser and visit:
+
+```
+http://<alb-dns-name>
+```
+
+You should see your application displaying your configured server text!
+
+### Verify ECS tasks are running
+
+Check that your ECS tasks are running properly:
+
+<Command 
+    id="verify-ecs-tasks"
+    command="aws ecs list-tasks --cluster {{ .EcsClusterName }} --region {{ .AwsRegion }} --query 'taskArns' --output table"
+    boilerplateInputsId="ecs-service-config"
+    title="List running ECS tasks"
+    description="This shows all tasks currently running in your ECS cluster."
+    successMessage="✓ ECS tasks are running!"
+    failMessage="Failed to list ECS tasks."
+/>
+
+## Understanding the architecture
+
+Let's explore what was deployed:
+
+### ECS Cluster
+
+The ECS cluster is a logical grouping of EC2 instances. Each instance runs the ECS agent, which communicates with the ECS service to launch and manage Docker containers.
+
+Your cluster configuration is based on the values you entered in the boilerplate form above.
+
+### Application Load Balancer
+
+The ALB routes HTTP traffic to healthy ECS tasks:
+
+- **Listener**: Port 80 (HTTP)
+- **Target Group**: Routes to your ECS tasks on the configured container port
+- **Health Checks**: Ensures only healthy tasks receive traffic
+
+### ECS Service
+
+The ECS service manages your Docker containers according to your configuration from the boilerplate form, including the number of tasks, container image, CPU allocation, and memory.
+
+### Security
+
+IAM roles provide secure access:
+
+- **Task Execution Role**: Allows ECS to pull images and write logs
+- **Task Role**: Allows your application to access AWS services (like the test S3 bucket)
+
+## Monitoring and logs
+
+Your containers write logs to CloudWatch Logs. View them with:
+
+```bash
+aws logs tail /ecs/<container-name> --follow --region <aws-region>
+```
+
+Replace `<container-name>` and `<aws-region>` with your values from the configuration.
+
+You can also view logs in the AWS Console:
+1. Go to CloudWatch → Log groups
+2. Find `/ecs/<container-name>`
+3. View the log streams
+
+## Scaling your service
+
+To change the number of running tasks:
+
+```bash
+aws ecs update-service \
+  --cluster <cluster-name> \
+  --service <service-name> \
+  --desired-count 4 \
+  --region <aws-region>
+```
+
+Replace the placeholders with your configuration values.
+
+## Troubleshooting
+
+### Tasks won't start
+
+Check the ECS service events:
+
+```bash
+aws ecs describe-services \
+  --cluster <cluster-name> \
+  --services <service-name> \
+  --region <aws-region> \
+  --query 'services[0].events[0:5]'
+```
+
+Replace the placeholders with your configuration values.
+
+### Can't access the application
+
+1. Verify the ALB security group allows inbound traffic on port 80
+2. Check that tasks are passing health checks in the target group
+3. Ensure your VPC has an internet gateway attached
+
+### High costs
+
+This demo uses EC2 instances which incur hourly charges. Make sure to clean up resources when you're done (see below).
+
+## Clean up
+
+When you're finished with this demo, destroy all resources to avoid ongoing charges:
+
+<Command 
+    id="terraform-destroy"
+    command="cd {{ .TemplateOutputPath }} && terraform destroy -auto-approve"
+    boilerplateInputsId="ecs-service-config"
+    title="Destroy all resources"
+    description="This will delete all AWS resources created by this runbook. Make sure you're ready to tear everything down!"
+    successMessage="✓ All resources destroyed!"
+    failMessage="Failed to destroy resources. You may need to manually delete some resources in the AWS Console."
+/>
+
+## Next steps
+
+Congratulations! You've successfully deployed a Docker application on AWS ECS with an Application Load Balancer. 
+
+Here are some ideas for what to do next:
+
+- **Deploy your own application**: Replace the Docker image with your own
+- **Enable HTTPS**: Add SSL certificates and HTTPS listeners to the ALB
+- **Set up auto-scaling**: Configure the ECS service to scale based on CPU or memory
+- **Add a CI/CD pipeline**: Automate deployments with GitHub Actions or AWS CodePipeline
+- **Use Fargate**: Convert from EC2 launch type to Fargate for serverless containers
+- **Add a database**: Deploy RDS and connect it to your ECS tasks
+
+## Learn more
+
+- [AWS ECS Documentation](https://docs.aws.amazon.com/ecs/)
+- [Gruntwork ECS Module](https://github.com/gruntwork-io/terraform-aws-ecs)
+- [Application Load Balancer Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/)
+- [ECS Best Practices](https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/intro.html)
+

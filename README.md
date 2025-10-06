@@ -1,5 +1,21 @@
 # runbooks
 
+## Read the docs
+
+1. Install [Bun](https://bun.sh/docs/installation)
+
+   Bun is a fast JavaScript runtime and package manager that works out of the box.
+
+1. Git clone this repo and `cd` to the repo dir.
+
+1. Start Vite to run the React frontend:
+   ```bash
+   cd docs
+   bun install
+   bun dev
+   ```
+
+
 ## Development
 
 1. Install [Bun](https://bun.sh/docs/installation)

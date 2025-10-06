@@ -1,0 +1,13 @@
+{
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "NotAction": [
+                "organizations:*",
+                "account:*"
+            ],
+            "Resource": "*"
+        }
+    ],
+    "Version": "2012-10-17"
+}

@@ -1,0 +1,324 @@
+variables:
+  - name: SCMProvider
+    order: 1
+    type: enum
+    description: The SCM provider to use for the infrastructure-live repository.
+    options:
+      - GitHub
+      - GitLab
+
+  - name: SCMProviderGroup
+    order: 2
+    description: Either the github organization or gitlab group to use for the infrastructure repositories. Gitlab projects should include any additional sub-groups in the name e.g gruntwork-io/demo
+    type: string
+
+  - name: SCMProviderRepo
+    order: 3
+    description: Either the github repository or gitlab project to use for the infrastructure-live repository.
+    type: string
+
+  - name: AccessControlRepoName
+    order: 4
+    description: Either the github repository or gitlab project to use for the infrastructure-live-access-control repository.
+    default: "infrastructure-live-access-control"
+    type: string
+
+  - name: DeployBranchName
+    order: 5
+    description: The name of the branch to deploy to.
+    type: string
+    default: "main"
+
+  - name: AwsManagementAccountId
+    order: 6
+    description: Enter the AWS account ID for the management account
+    type: string
+
+  - name: AwsManagementAccountEmail
+    order: 7
+    description: Enter the AWS account Email for the management account
+    type: string
+
+  - name: AwsSecurityAccountId
+    order: 8
+    description: Enter the AWS account ID for the security account
+    type: string
+
+  - name: AwsSecurityAccountEmail
+    order: 9
+    description: Enter the AWS account Email for the security account
+    type: string
+
+  - name: AwsLogsAccountId
+    order: 10
+    description: Enter the AWS account ID for the logs account
+    type: string
+
+  - name: AwsLogsAccountEmail
+    order: 11
+    description: Enter the AWS account Email for the logs account
+    type: string
+
+  - name: AwsSharedAccountId
+    order: 12
+    description: Enter the AWS account ID for the shared account
+    type: string
+
+  - name: AwsSharedAccountEmail
+    order: 13
+    description: Enter the AWS account Email for the shared account
+    type: string
+
+  - name: OrgNamePrefix
+    order: 14
+    description: The name prefix to use for creating resources e.g S3 bucket for OpenTofu state files
+    type: string
+
+  - name: DefaultRegion
+    order: 15
+    type: string
+    description: The default region for AWS Resources
+    default: us-east-1
+
+  - name: CatalogRepositories
+    order: 16
+    description: List of the git repositories to populate for the catalog
+    type: list
+    default: ["github.com/gruntwork-io/terraform-aws-service-catalog"]
+
+  - name: AWSPartition
+    description: The AWS partition to use.
+    order: 17
+    type: enum
+    default: "aws"
+    options:
+      - "aws"
+      - "aws-us-gov"
+      - "aws-cn"
+
+  - name: PlanIAMRoleName
+    description: The name of the IAM role to use for the plan job.
+    order: 18
+    type: string
+    default: "root-pipelines-plan"
+
+  - name: ApplyIAMRoleName
+    description: The name of the IAM role to use for the apply job.
+    order: 19
+    type: string
+    default: "root-pipelines-apply"
+
+  - name: DefaultTags
+    description: The default tags to apply to all resources.
+    order: 20
+    type: map
+    default:
+      "{{ .OrgNamePrefix }}:Team": "DevOps"
+
+  # This is a less than ideal workaround for not boilerplate not
+  # supporting crafting variables from other variables and making those variables available to dependencies.
+  # Without this each dependency has to duplicate the variables.
+  - name: AWSAccounts
+    description: generated from the AWS account IDs and emails. Ignore if prompted.
+    order: 21
+    type: map
+    default:
+      logs:
+        email: "{{ .AwsLogsAccountEmail }}"
+        id: "{{ .AwsLogsAccountId }}"
+      management:
+        email: "{{ .AwsManagementAccountEmail }}"
+        id: "{{ .AwsManagementAccountId }}"
+      security:
+        email: "{{ .AwsSecurityAccountEmail }}"
+        id: "{{ .AwsSecurityAccountId }}"
+      shared:
+        email: "{{ .AwsSharedAccountEmail }}"
+        id: "{{ .AwsSharedAccountId }}"
+
+  - name: SecurityModulesVersion
+    order: 22
+    description: "The version for terraform-aws-security module to use for OIDC provider and roles provisioning"
+    default: v0.75.18
+
+  - name: PipelinesActionsRef
+    order: 23
+    description: "The ref of the pipelines actions to use"
+    type: string
+    default: ""
+
+  - name: PipelinesCredentialsRef
+    order: 24
+    description: "(GitHub only) The ref of the pipelines credentials to use"
+    type: string
+    default: ""
+
+  - name: PipelinesGitLabInitRef
+    order: 25
+    description: "(GitLab only) The ref of the pipelines gitlab init to use"
+    type: string
+    default: ""
+
+  - name: PipelinesWorkflowRef
+    order: 26
+    description: "The ref of the pipelines workflow to use"
+    type: string
+    default: "{{ if eq .SCMProvider \"GitHub\" }}v4{{ else }}v1{{ end }}"
+
+  - name: CustomSCMProviderInstanceURL
+    description: The URL of the custom SCM provider instance. Set this if you are using a custom instance of GitLab or GitHub.
+    order: 27
+    type: string
+    default: ""
+
+  - name: CustomWorkflowHostRelativePath
+    description: The relative path from the host server to the custom pipelines workflow repository. Set this if you are using a custom/forked instance of the pipelines workflow.
+    order: 28
+    type: string
+    default: ""
+
+  - name: TerragruntVersion
+    description: The version of Terragrunt to use
+    type: string
+    order: 29
+
+  - name: OpenTofuVersion
+    description: The version of OpenTofu to use
+    type: string
+    order: 30
+
+  - name: AWSCoreAccountsList
+    description: The list of AWS core accounts
+    type: list
+    order: 31
+    default:
+      - logs
+      - management
+      - security
+      - shared
+
+dependencies:
+  - name: infra-live-elements
+    template-url: "{{ templateFolder }}/../../blueprints/components/infra-live-elements"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-workflows-gitlab
+    skip: '{{ ne .SCMProvider "GitLab" }}'
+    template-url: "{{ templateFolder }}/../../blueprints/components/pipelines-workflows-gitlab"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-workflows-github
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    template-url: "{{ templateFolder }}/../../blueprints/components/pipelines-workflows-github"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-config-accounts
+    template-url: "{{ templateFolder }}/../../blueprints/components/gw-pipelines-config/accounts"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-config-repository
+    template-url: "{{ templateFolder }}/../../blueprints/components/gw-pipelines-config/repository"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-config-environments
+    template-url: "{{ templateFolder }}/../../blueprints/components/gw-pipelines-config/environment"
+    output-folder: "{{ outputFolder }}"
+    for_each_reference: AWSCoreAccountsList
+    variables:
+      - name: FormattedAccountName
+        default: "{{ .__each__ }}"
+
+  - name: oidc-provider-github
+    template-url: "{{ templateFolder }}/../services/landingzone/github-actions-openid-connect-provider"
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    for_each:
+      - security
+      - shared
+      - logs
+      - management
+    output-folder: "{{ .__each__ }}/_global/github-actions-openid-connect-provider"
+
+  - name: oidc-provider-gitlab
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/gitlab/provider"
+    skip: '{{ ne .SCMProvider "GitLab" }}'
+    for_each:
+      - security
+      - shared
+      - logs
+      - management
+    output-folder: "{{ .__each__ }}/_global/gitlab-pipelines-openid-connect-provider"
+
+  - name: pipelines-apply-role-github
+    template-url: "{{ templateFolder }}/../services/landingzone/root-pipelines-apply-role"
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    for_each:
+      - security
+      - shared
+      - logs
+    output-folder: "{{ .__each__ }}/_global/root-pipelines-apply-role"
+    variables:
+      - name: GitHubOidcRoleModuleVersion
+        default: "{{ .SecurityModulesVersion }}"
+
+  - name: pipelines-apply-role-gitlab
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/gitlab/root-pipelines-apply-role"
+    skip: '{{ ne .SCMProvider "GitLab" }}'
+    for_each:
+      - security
+      - shared
+      - logs
+    output-folder: "{{ .__each__ }}/_global/{{ .ApplyIAMRoleName }}-role"
+    variables:
+      - name: GitLabOidcRoleModuleVersion
+        default: "{{ .SecurityModulesVersion }}"
+
+  - name: pipelines-plan-role-github
+    template-url: "{{ templateFolder }}/../services/landingzone/root-pipelines-plan-role"
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    for_each:
+      - security
+      - shared
+      - logs
+    output-folder: "{{ .__each__ }}/_global/root-pipelines-plan-role"
+    variables:
+      - name: GitHubOidcRoleModuleVersion
+        default: "{{ .SecurityModulesVersion }}"
+
+  - name: pipelines-plan-role-gitlab
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/gitlab/root-pipelines-plan-role"
+    skip: '{{ ne .SCMProvider "GitLab" }}'
+    for_each:
+      - security
+      - shared
+      - logs
+    output-folder: "{{ .__each__ }}/_global/{{ .PlanIAMRoleName }}-role"
+    variables:
+      - name: GitLabOidcRoleModuleVersion
+        default: "{{ .SecurityModulesVersion }}"
+
+  - name: pipelines-apply-role-mgmt-github
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/github/root-pipelines-apply-role-mgmt"
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    output-folder: "management/_global/root-pipelines-apply-role"
+
+  - name: pipelines-plan-role-mgmt-github
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/github/root-pipelines-plan-role-mgmt"
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    output-folder: "management/_global/root-pipelines-plan-role"
+
+  - name: pipelines-apply-role-mgmt-gitlab
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/gitlab/root-pipelines-apply-role-mgmt"
+    skip: '{{ ne .SCMProvider "GitLab" }}'
+    output-folder: "management/_global/{{ .ApplyIAMRoleName }}-role"
+
+  - name: pipelines-plan-role-mgmt-gitlab
+    template-url: "{{ templateFolder }}/../../blueprints/components/oidc/gitlab/root-pipelines-plan-role-mgmt"
+    skip: '{{ ne .SCMProvider "GitLab" }}'
+    output-folder: "management/_global/{{ .PlanIAMRoleName }}-role"
+
+skip_files:
+  - path: "_envcommon/landingzone/gitlab-pipelines-openid-connect-provider.hcl"
+    if: '{{ ne .SCMProvider "GitLab" }}'
+  - path: "_envcommon/landingzone/github-actions-openid-connect-provider.hcl"
+    if: '{{ ne .SCMProvider "GitHub" }}'
+  - path: "README.md"

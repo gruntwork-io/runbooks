@@ -1,0 +1,1 @@
+Define any non-application management workloads here. Examples might include deployment resources or bastion hosts.

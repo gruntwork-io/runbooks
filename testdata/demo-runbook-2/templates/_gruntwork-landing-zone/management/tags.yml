@@ -1,0 +1,4 @@
+# Tags placed in this file will be added to the default tags in the AWS provider
+"{{ .OrgNamePrefix }}:Application": "Gruntwork Pipelines"
+"{{ .OrgNamePrefix }}:WorkloadType": "CICD"
+"{{ .OrgNamePrefix }}:Environment": "Management"

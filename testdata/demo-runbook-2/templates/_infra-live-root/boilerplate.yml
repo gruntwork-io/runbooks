@@ -1,0 +1,252 @@
+variables:
+  - name: SCMProvider
+    order: 1
+    type: enum
+    description: The SCM provider to use for the infrastructure-live repository.
+    options:
+      - GitHub
+      - GitLab
+
+  - name: SCMProviderGroup
+    order: 2
+    description: Enter the SCM group for the infrastructure-live-root repository
+    type: string
+
+  - name: SCMProviderRepo
+    order: 3
+    description: Enter the SCM repo for the infrastructure-live-root repository
+    type: string
+
+  - name: AccessControlRepoName
+    order: 4
+    description: Enter the github repo name for the infrastructure-live-access-control repository
+    type: string
+    default: "infrastructure-live-access-control"
+
+  - name: DeployBranchName
+    order: 5
+    description: "The branch name to deploy the infrastructure from"
+    type: string
+    default: "main"
+
+  - name: AwsManagementAccountId
+    order: 6
+    description: Enter the AWS account ID for the management account
+    type: string
+
+  - name: AwsManagementAccountEmail
+    order: 7
+    description: Enter the AWS account Email for the management account
+    type: string
+
+  - name: AwsSecurityAccountId
+    order: 8
+    description: Enter the AWS account ID for the security account
+    type: string
+
+  - name: AwsSecurityAccountEmail
+    order: 9
+    description: Enter the AWS account Email for the security account
+    type: string
+
+  - name: AwsLogsAccountId
+    order: 10
+    description: Enter the AWS account ID for the logs account
+    type: string
+
+  - name: AwsLogsAccountEmail
+    order: 11
+    description: Enter the AWS account Email for the logs account
+    type: string
+
+  - name: AwsSharedAccountId
+    order: 12
+    description: Enter the AWS account ID for the shared account
+    type: string
+
+  - name: AwsSharedAccountEmail
+    order: 13
+    description: Enter the AWS account Email for the shared account
+    type: string
+
+  - name: OrgNamePrefix
+    order: 14
+    description: The name prefix to use for creating resources e.g S3 bucket for OpenTofu state files
+    type: string
+
+  - name: DefaultRegion
+    order: 15
+    type: string
+    description: The default region for AWS Resources
+    default: us-east-1
+
+  - name: AWSPartition
+    description: The AWS partition to use.
+    order: 16
+    type: enum
+    default: "aws"
+    options:
+      - "aws"
+      - "aws-us-gov"
+      - "aws-cn"
+
+  - name: RepoBaseUrl
+    order: 17
+    description: "The base URL of the customer's repos. E.g., github.com/<org> or gitlab.com/<group>. Used to link to the infrastructure-modules repo in the catalog."
+    type: string
+
+  - name: InfraModulesRepoName
+    order: 18
+    description: The repo name of the customer's infra-modules repo
+    type: string
+    default: "infrastructure-modules"
+
+  - name: CatalogRepositories
+    order: 19
+    description: List of the git repositories to populate for the catalog
+    type: list
+    default: ["github.com/gruntwork-io/terraform-aws-service-catalog", "{{ .RepoBaseUrl }}/{{ .InfraModulesRepoName }}"]
+
+  - name: AwsOrganizationId
+    order: 20
+    description: "The organization ID of the customer's enterprise account(Account factory settings for GitHub only)"
+    type: string
+    default: ""
+
+  - name: EmailDomainName
+    order: 21
+    description: "The domain name of the customer's email address(Account factory settings for GitHub only)"
+    type: string
+    default: ""
+
+  - name: EmailUsername
+    order: 22
+    description: "The username of the customer's email address(Account factory settings for GitHub only)"
+    type: string
+    default: ""
+
+  - name: SsoUserFirstName
+    order: 23
+    description: "The first name of the customer's SSO user in new accounts"
+    type: string
+    default: "Cloud-Ops"
+
+  - name: SsoUserLastName
+    order: 24
+    description: "The last name of the customer's SSO user in new accounts"
+    type: string
+    default: "Team"
+
+  - name: SsoUserEmail
+    order: 25
+    description: "The email of the customer's SSO user in new accounts"
+    type: string
+    default: "aws-sso@{{ .EmailDomainName }}"
+
+  - name: DefaultTags
+    order: 26
+    description: The default tags to apply to all resources.
+    type: map
+    default:
+      "{{ .OrgNamePrefix }}:Team": "DevOps"
+
+  - name: IsEnterprise
+    order: 27
+    description: "Is the customer an enterprise customer?"
+    type: bool
+    default: false
+
+  - name: ArchitectureCatalogVersion
+    order: 28
+    description: "The version for terraform-aws-architecture-catalog"
+    type: string
+    default: v2.6.1
+
+  - name: RootTerragruntFileName
+    order: 29
+    description: The name of the root terragrunt file to use when finding the root terragrunt config
+    type: string
+    default: "root.hcl"
+
+  - name: PipelinesBinaryURL
+    order: 30
+    description: "The URL of the pipelines binary"
+    type: string
+    default: ""
+
+  - name: ApiBaseURL
+    order: 31
+    description: "The base URL of the Gruntwork API"
+    default: ""
+
+  - name: OpenTofuVersion
+    order: 32
+    description: "The version of OpenTofu to use"
+    type: string
+    default: "1.10.0"
+
+  - name: TerragruntVersion
+    order: 33
+    description: "The version of Terragrunt to use"
+    type: string
+    default: "0.86.3"
+
+  - name: PipelinesActionsRef
+    order: 34
+    description: "The ref of the pipelines actions to use"
+    type: string
+    default: ""
+
+  - name: PipelinesCredentialsRef
+    order: 35
+    description: "(GitHub only) The ref of the pipelines credentials to use"
+    type: string
+    default: ""
+
+  - name: PipelinesGitLabInitRef
+    order: 36
+    description: "(GitLab only) The ref of the pipelines gitlab init to use"
+    type: string
+    default: ""
+
+  - name: PipelinesWorkflowRef
+    order: 26
+    description: "The ref of the pipelines workflow to use"
+    type: string
+    default: '{{ if eq .SCMProvider "GitHub" }}v4{{ else }}v1{{ end }}'
+
+  - name: CustomSCMProviderInstanceURL
+    description: The URL of the custom SCM provider instance. Set this if you are using a custom instance of GitLab or GitHub.
+    order: 38
+    type: string
+    default: ""
+
+  - name: CustomWorkflowHostRelativePath
+    description: The relative path from the host server to the custom pipelines workflow repository. Set this if you are using a custom/forked instance of the pipelines workflow.
+    order: 39
+    type: string
+    default: ""
+
+dependencies:
+  - name: gruntwork-landing-zone
+    template-url: "{{ templateFolder }}/../gruntwork-landing-zone"
+    output-folder: "{{ outputFolder }}"
+    variables:
+      - name: PlanIAMRoleName
+        default: root-pipelines-plan
+      - name: ApplyIAMRoleName
+        default: root-pipelines-apply
+
+  - name: pipelines-account-factory-config
+    template-url: "{{ templateFolder }}/../../blueprints/components/gw-pipelines-config/account-factory"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-account-factory-workflows-github
+    skip: '{{ ne .SCMProvider "GitHub" }}'
+    template-url: "{{ templateFolder }}/../../blueprints/components/account-factory-pipelines-workflows-github"
+    output-folder: "{{ outputFolder }}"
+
+  - name: pipelines-drift-detection-github
+    skip: '{{ or (not .IsEnterprise) (ne .SCMProvider "GitHub") }}'
+    template-url: "{{ templateFolder }}/../../blueprints/components/pipelines-drift-detection-github"
+    output-folder: "{{ outputFolder }}"

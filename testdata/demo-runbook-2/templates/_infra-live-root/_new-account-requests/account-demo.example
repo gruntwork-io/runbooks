@@ -1,0 +1,8 @@
+account_email: "grunty+demo@gruntwork.io"
+organizational_unit_name: "Pre-prod"
+aws_region: "us-east-1"
+org_name_prefix: "gruntwork-demo"
+sso_user_first_name: "Grunty"
+sso_user_last_name: "McGruntface"
+sso_user_email: "grunty@gruntwork.io"
+infrastructure_modules_version: "v0.19.7"

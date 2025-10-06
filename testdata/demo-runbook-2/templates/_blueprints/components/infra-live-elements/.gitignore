@@ -1,0 +1,31 @@
+# Terraform
+.terraform
+*.tfstate
+*.tfstate.backup
+
+# Gruntwork recommends that you track the `.terraform.lock.hcl` file in version control, both to ensure that updates
+# are reproducible, and to ensure that providers can be reliably cached. Take note that the lock file is platform specific.
+# To mitigate issues that you might encounter due to the fact that the lock file is platform specific,
+# you can explicitly generate a lock file that is compatible with all desired platforms for your team using the providers lock command:
+#
+#   terragrunt run-all providers lock -platform=darwin_amd64 -platform=linux_amd64
+#
+# Refer to https://www.terraform.io/docs/cli/commands/providers/lock.html for more info.
+
+# OS X
+.history
+.DS_Store
+
+# IntelliJ
+.idea_modules
+*.iml
+*.iws
+*.ipr
+.idea/
+build/
+*/build/
+out/
+
+# Terragrunt
+.terragrunt-cache
+.terragrunt-stack

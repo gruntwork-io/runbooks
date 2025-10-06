@@ -1,0 +1,179 @@
+# ----------------------------------------------------------------------------------------------------------------
+# This is the root configuration for infrastructure-live. Its purpose is to:
+#
+#   - generate a provider block to configure the OpenTofu provider for AWS
+#   - generate a remote state block for storing state in S3
+#   - define a minimal set of global inputs that may be needed by any file
+#
+# Each module within infrastructure-live includes this file.
+# ----------------------------------------------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------------------------------------------
+# LOAD COMMON VARIABLES
+# ----------------------------------------------------------------------------------------------------------------
+locals {
+  # Automatically load common variables shared across all accounts
+  common_vars = read_terragrunt_config(find_in_parent_folders("common.hcl"))
+
+  # Automatically load account-level variables
+  account_vars = read_terragrunt_config(find_in_parent_folders("account.hcl"))
+
+  # Automatically load region-level variables
+  region_vars = read_terragrunt_config(find_in_parent_folders("region.hcl"))
+
+  # Extract commonly used variables for easy acess
+  name_prefix               = local.common_vars.locals.name_prefix
+  account_ids               = local.common_vars.locals.account_ids
+  account_name              = local.account_vars.locals.account_name
+  account_id                = local.account_ids[local.account_name]
+  default_region            = local.common_vars.locals.default_region
+  aws_region                = local.region_vars.locals.aws_region
+  state_bucket              = lower("${local.name_prefix}-${local.account_name}-${local.aws_region}-tf-state")
+  accesslogging_bucket_name = lower("${local.name_prefix}-${local.account_name}-${local.aws_region}-tf-logs")
+
+  # Tags
+  {{- if ne .CatalogTags "" }}
+  # Load tags from the central catalog
+  catalog_tags_location = "{{ .CatalogTags }}"
+  # Cache configuration
+  cache_dir = "${get_terragrunt_dir()}/.terragrunt-cache"
+  catalog_tags_cache_file = "${local.cache_dir}/catalog_tags.yaml"
+  cache_max_age_hours = 1
+
+  # Fetch catalog tags with caching
+  catalog_tags = try(
+      run_cmd("--terragrunt-quiet", "bash", "-c", <<-EOF
+        # Create cache directory if it doesn't exist
+        mkdir -p "${local.cache_dir}"
+
+        # Check if cache file exists and is less than 1 hour old
+        if [ -f "${local.catalog_tags_cache_file}" ]; then
+          # Get file modification time in seconds since epoch
+          file_mtime=$(stat -c %Y "${local.catalog_tags_cache_file}" 2>/dev/null || stat -f %m "${local.catalog_tags_cache_file}" 2>/dev/null)
+          current_time=$(date +%s)
+          age_hours=$(( (current_time - file_mtime) / 3600 ))
+
+          if [ $age_hours -lt ${local.cache_max_age_hours} ]; then
+            # Cache is fresh, use it
+            cat "${local.catalog_tags_cache_file}"
+            exit 0
+          fi
+        fi
+
+        # Fetch tags from GitHub API
+        gh api "/repos/${local.catalog_tags_location}" -q ".content" | base64 -d > "${local.catalog_tags_cache_file}"
+
+        # Output the content for Terragrunt to use
+        cat "${local.catalog_tags_cache_file}"
+      EOF
+      ),
+      "{}"
+    )
+
+  {{ else }}
+  catalog_tags = {}
+  {{- end }}
+
+  # Load an tags.yml file in any Terragrunt folder, or fallback to {} if none is found
+  override_tags = try(yamldecode(file("${get_terragrunt_dir()}/tags.yml")), {})
+
+  # Load first tags.yml file found in one of the parent folders of the current Terragrunt folder, or fallback to {}
+  parent_override_tags = try(yamldecode(file(find_in_parent_folders("tags.yml"))), {})
+
+  # The final tags to apply to all resources are a merge between the default tags and override tags
+  tags = merge(merge(merge(local.catalog_tags, local.common_vars.locals.default_tags), local.parent_override_tags), local.override_tags)
+}
+
+# ----------------------------------------------------------------------------------------------------------------
+# GENERATED PROVIDER BLOCK
+# ----------------------------------------------------------------------------------------------------------------
+
+generate "provider" {
+  path      = "provider.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<EOF
+provider "aws" {
+  region = "${local.aws_region}"
+  # Only these AWS Account IDs may be operated on by this template
+  allowed_account_ids = ["${local.account_id}"]
+  # tags
+  default_tags {
+    tags = ${jsonencode(local.tags)}
+  }
+}
+EOF
+}
+
+# Use an override file to lock the provider version, regardless of if required_providers is defined in the modules.
+generate "provider_version" {
+  path      = "provider_version_override.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<EOF
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+
+    helm = {
+      source  = "hashicorp/helm"
+      version = "< 2.6.0"
+    }
+  }
+}
+EOF
+}
+
+# ----------------------------------------------------------------------------------------------------------------
+# GENERATED REMOTE STATE BLOCK
+# ----------------------------------------------------------------------------------------------------------------
+
+remote_state {
+  backend = "s3"
+  config = {
+    encrypt                   = true
+    bucket                    = local.state_bucket
+    key                       = "${path_relative_to_include()}/terraform.tfstate"
+    region                    = local.aws_region
+    dynamodb_table            = "terraform-locks"
+    accesslogging_bucket_name = local.accesslogging_bucket_name
+  }
+  generate = {
+    path      = "backend.tf"
+    if_exists = "overwrite_terragrunt"
+  }
+}
+
+# ----------------------------------------------------------------------------------------------------------------
+# DEFAULT INPUTS
+# ----------------------------------------------------------------------------------------------------------------
+
+inputs = {
+  # Set globally used inputs here to keep all the child terragrunt.hcl files more DRY.
+  aws_account_id = local.account_id
+  aws_region     = local.aws_region
+  name_prefix    = local.common_vars.locals.name_prefix
+}
+
+#-----------------------------------------------------------------------------------------------------------------
+# ALLOW .terraform-version FILE TO BE COPIED
+#-----------------------------------------------------------------------------------------------------------------
+
+terraform {
+  include_in_copy = [".terraform-version"]
+
+  # Force OpenTofu to keep trying to acquire a lock for up to 10 minutes if someone else already has the lock
+  extra_arguments "retry_lock" {
+    commands  = get_terraform_commands_that_need_locking()
+    arguments = ["-lock-timeout=10m"]
+  }
+}
+
+catalog {
+  urls = [
+    {{- range .CatalogRepositories }}
+    "{{ . }}",
+    {{- end }}
+  ]
+}
