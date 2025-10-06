@@ -34,6 +34,10 @@ export default defineConfig({
 				],
 			},
 				{
+					label: 'Development',
+					autogenerate: { directory: 'development' },
+				},
+				{
 					label: 'Runbooks Pro',
 					autogenerate: { directory: 'pro' },
 				},
