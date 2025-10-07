@@ -2,9 +2,12 @@
 title: Overview
 ---
 
-Reference pages are ideal for outlining how things work in terse and clear terms.
-Less concerned with telling a story or addressing a specific use case, they should give a comprehensive outline of what you're documenting.
+As an open source tool, Runbooks has some limitations. If you're looking for:
 
-## Further reading
+- A web-based catalog of Runbooks
+- A secure hosting environment for running Runbooks
+- Audit logs
+- Closer integration with your organization's cloud resources
+- Something else that Runbooks open source doesn't support
 
-- Read [about reference](https://diataxis.fr/reference/) in the Diátaxis framework
+...then please [contact Gruntwork sales](https://www.gruntwork.io/contact) and tell us how you'd like to use Runbooks in a commercial setting.

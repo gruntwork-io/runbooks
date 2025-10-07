@@ -1,6 +1,12 @@
-# runbooks
+# Gruntwork Runbooks
+
+_Make the knowledge and experience of the few available to the many._
+
+Runbooks are interactive markdown documents with a first-class experience for generating files based on custom configurations, running customizable scripts or commands, and validating assertions about their local system or infrastructure.
 
 ## Read the docs
+
+For now, you'll need to manually launch the docs site by doing the following:
 
 1. Install [Bun](https://bun.sh/docs/installation)
 
@@ -24,6 +30,11 @@
 
 1. Git clone this repo and `cd` to the repo dir.
 
+1. Start the backend HTTP server so that the frontend can interact with the Go binary.
+   ```bash
+   go run main.go serve /path/to/runbook.mdx
+   ```
+
 1. Start Vite to run the React frontend:
    ```bash
    cd web
@@ -31,12 +42,7 @@
    bun dev
    ```
 
-1. Start the backend HTTP server so that the frontend can interact with the Go binary.
-   ```bash
-   go run main.go serve /path/to/runbook
-   ```
-
-Now you can make changes to the React code in `/web` or to the backend in the applicable `.go` files!
+Now you can make changes to the React code in `/web` or to the backend in the applicable `.go` files! If you update Go files, don't forget to re-compile the Go code.
 
 ### Adding shadcn/ui components
 

@@ -21,8 +21,8 @@ export default defineConfig({
 				label: 'Authoring Runbooks',
 				items: [
 					'authoring/overview',
+					'authoring/authoring_workflow',
 					'authoring/markdown',
-					'authoring/workflow',
 					{
 						label: 'Blocks', // Customize this to whatever you want
 						autogenerate: { directory: 'authoring/blocks' },
