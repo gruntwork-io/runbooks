@@ -49,31 +49,7 @@ This setup allows you to:
 
 ### When NOT to Use This
 
-**For regular runbook usage**, use `runbooks open` instead. The `serve` command is not intended for runbook authors or consumers - only for developers working on the Runbooks tool itself.
-
-## API Endpoints
-
-The serve command starts a server that provides these endpoints:
-
-- `GET /` - Serves the React frontend
-- `GET /api/file` - Returns the parsed runbook content
-- `POST /api/exec` - Executes a shell command or script
-- `POST /api/boilerplate` - Parses a boilerplate.yml configuration
-- `POST /api/render` - Renders a Boilerplate template to disk
-- `POST /api/render-inline` - Renders inline Boilerplate templates
-- `GET /api/files/*` - Reads generated files from the output directory
-
-## Examples
-
-Serve the backend for a demo runbook:
-```bash
-runbooks serve testdata/demo-runbook-2/runbook.mdx
-```
-
-Serve a local runbook you're developing:
-```bash
-runbooks serve ./my-runbook/runbook.mdx
-```
+**For regular runbook usage**, use `runbooks open` instead. The `serve` command is not intended for runbook authors or consumers - only for developers working on the Runbooks tool itself.s
 
 ## Technical Details
 
