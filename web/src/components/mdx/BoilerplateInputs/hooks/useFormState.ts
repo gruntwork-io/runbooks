@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 
@@ -21,6 +21,19 @@ export const useFormState = (
 ) => {
   const [formData, setFormData] = useState<Record<string, unknown>>({})
 
+  // Store latest callback references to avoid stale closures
+  const onFormChangeRef = useRef(onFormChange)
+  const onAutoRenderRef = useRef(onAutoRender)
+
+  // Update refs when callbacks change
+  useEffect(() => {
+    onFormChangeRef.current = onFormChange
+  }, [onFormChange])
+
+  useEffect(() => {
+    onAutoRenderRef.current = onAutoRender
+  }, [onAutoRender])
+
   // Initialize form data with defaults and initial values
   useEffect(() => {
     if (!boilerplateConfig) return
@@ -32,14 +45,14 @@ export const useFormState = (
     })
     
     setFormData(initialFormData)
-  }, [boilerplateConfig]) // Remove initialData dependency to prevent infinite re-renders
+  }, [boilerplateConfig, initialData])
 
   // Notify parent component when form data changes
   useEffect(() => {
-    if (onFormChange) {
-      onFormChange(formData)
+    if (onFormChangeRef.current) {
+      onFormChangeRef.current(formData)
     }
-  }, [formData]) // Remove onFormChange from dependencies to prevent infinite re-renders
+  }, [formData])
 
   // Track if this is the initial load
   const [isInitialLoad, setIsInitialLoad] = useState(true)
@@ -53,10 +66,10 @@ export const useFormState = (
     }
     
     // Only trigger auto-render if auto-rendering is enabled, we have form data, and it's not the initial load
-    if (enableAutoRender && onAutoRender && Object.keys(formData).length > 0 && !isInitialLoad) {
-      onAutoRender(formData)
+    if (enableAutoRender && onAutoRenderRef.current && Object.keys(formData).length > 0 && !isInitialLoad) {
+      onAutoRenderRef.current(formData)
     }
-  }, [formData, isInitialLoad, enableAutoRender]) // Remove onAutoRender from dependencies to prevent infinite re-renders
+  }, [formData, isInitialLoad, enableAutoRender])
 
   /**
    * Updates a specific form field value

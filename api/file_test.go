@@ -53,7 +53,7 @@ func TestHandleRunbookRequest(t *testing.T) {
 			// Set up Gin router
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/runbook", HandleRunbookRequest(tt.runbookPath))
+			router.GET("/runbook", HandleRunbookRequest(tt.runbookPath, false))
 
 			// Create request
 			req, err := http.NewRequest("GET", "/runbook", nil)

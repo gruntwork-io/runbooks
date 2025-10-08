@@ -9,6 +9,8 @@
     "lint": "bun run eslint .",
     "preview": "bun run vite preview",
     "start": "bun run dev",
+    "test": "bun run vitest run",
+    "test:watch": "bun run vitest",
     "type-check": "bun run tsc --noEmit",
     "clean": "rm -rf node_modules"
   },
