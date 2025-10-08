@@ -54,8 +54,8 @@ func StartServer(runbookPath string, port int) {
 	// Set up common routes
 	setupCommonRoutes(r, runbookPath)
 
-	// listen and serve on 0.0.0.0:$port | localhost:$port
-	r.Run(":" + fmt.Sprintf("%d", port))
+	// listen and serve on localhost:$port only (security: prevent remote access)
+	r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
 
 // StartBackendServer starts the API server for serving runbook files
@@ -97,8 +97,8 @@ func StartBackendServer(runbookPath string, port int) {
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
 
-	// listen and serve on 0.0.0.0:$port | localhost:$port
-	r.Run(":" + fmt.Sprintf("%d", port))
+	// listen and serve on localhost:$port only (security: prevent remote access)
+	r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
 
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
@@ -133,6 +133,6 @@ func StartServerWithWatch(runbookPath string, port int) error {
 	// Set up common routes
 	setupCommonRoutes(r, runbookPath)
 
-	// listen and serve on 0.0.0.0:$port | localhost:$port
-	return r.Run(":" + fmt.Sprintf("%d", port))
+	// listen and serve on localhost:$port only (security: prevent remote access)
+	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
