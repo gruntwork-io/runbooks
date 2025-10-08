@@ -4,6 +4,14 @@ _Make the knowledge and experience of the few available to the many._
 
 Runbooks are interactive markdown documents with a first-class experience for generating files based on custom configurations, running customizable scripts or commands, and validating assertions about their local system or infrastructure.
 
+## Project status
+
+> [!NOTE]
+> Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
+
+- This has not gone through thorough peer review
+- Security warning: Part of this application sends commands from your browser to your local machine
+
 ## Read the docs
 
 For now, you'll need to manually launch the docs site by doing the following:
@@ -20,7 +28,6 @@ For now, you'll need to manually launch the docs site by doing the following:
    bun install
    bun dev
    ```
-
 
 ## Development
 
