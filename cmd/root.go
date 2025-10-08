@@ -17,7 +17,7 @@ var (
 
 // getVersionString returns the full version information
 func getVersionString() string {
-	return fmt.Sprintf("%s \n\nCommit: %s, Built: %s, Go: %s, OS/arch: %s/%s)",
+	return fmt.Sprintf("%s, Commit: %s, Built: %s, Go: %s, OS/arch: %s/%s",
 		Version, GitCommit, BuildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
