@@ -266,7 +266,7 @@ func TestRenderBoilerplateContent(t *testing.T) {
 			},
 			expected: "Hello World!",
 			wantErr:  false,
-		}
+		},
 	}
 
 	for _, tt := range tests {
