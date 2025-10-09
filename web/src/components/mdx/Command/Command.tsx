@@ -31,9 +31,6 @@ function Command({
   runningMessage = "Running...",
   children,
 }: CommandProps) {
-  // Suppress unused parameter warnings for future use
-  void id;
-  
   // Use shared script execution hook
   const {
     sourceCode,
@@ -51,6 +48,7 @@ function Command({
     execute: handleExecute,
     cancel,
   } = useScriptExecution({
+    componentId: id,
     path,
     command,
     boilerplateInputsId,

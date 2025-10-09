@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useApiExec } from '@/hooks/useApiExec'
+import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/BoilerplateTemplate/lib/extractTemplateVariables'
 import type { ComponentType, ExecutionStatus } from '../types'
@@ -10,6 +11,7 @@ import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
 
 interface UseScriptExecutionProps {
+  componentId: string
   path?: string
   command?: string
   boilerplateInputsId?: string
@@ -48,12 +50,16 @@ interface UseScriptExecutionReturn {
  * Handles file loading, variable collection, template rendering, and execution.
  */
 export function useScriptExecution({
+  componentId,
   path,
   command,
   boilerplateInputsId,
   children,
   componentType
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
+  // Get executable registry to look up executable ID
+  const { getExecutableByComponentId } = useExecutableRegistry()
+  
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
   const { data: fileData, error: getFileError } = useGetFile(path || '', shouldFetchFile)
@@ -253,8 +259,23 @@ export function useScriptExecution({
 
   // Handle starting execution
   const execute = useCallback(() => {
-    executeScript(sourceCode, language || 'bash')
-  }, [executeScript, sourceCode, language])
+    // Look up executable in registry
+    const executable = getExecutableByComponentId(componentId)
+    
+    if (!executable) {
+      console.error(`Executable not found for component ID: ${componentId}`)
+      return
+    }
+    
+    // Convert collected variables to strings (boilerplate expects string values)
+    const stringVariables: Record<string, string> = {}
+    for (const [key, value] of Object.entries(collectedVariables)) {
+      stringVariables[key] = String(value)
+    }
+    
+    // Execute with executable ID and collected variables
+    executeScript(executable.id, stringVariables)
+  }, [executeScript, componentId, getExecutableByComponentId, collectedVariables])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

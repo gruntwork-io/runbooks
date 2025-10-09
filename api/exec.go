@@ -16,8 +16,8 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	Script   string `json:"script" binding:"required"`
-	Language string `json:"language"` // Optional: "bash", "python", "node", etc.
+	ExecutableID      string            `json:"executable_id" binding:"required"`
+	TemplateVarValues map[string]string `json:"template_var_values"` // Values for template variables
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -33,12 +33,32 @@ type ExecStatusEvent struct {
 }
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE
-func HandleExecRequest() gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		// Look up executable in registry
+		executable, ok := registry.GetExecutable(req.ExecutableID)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Executable not found in registry"})
+			return
+		}
+
+		// Get script content
+		scriptContent := executable.ScriptContent
+
+		// If this executable has template variables, render them with provided values
+		if len(executable.TemplateVarNames) > 0 && len(req.TemplateVarValues) > 0 {
+			rendered, err := renderBoilerplateContent(scriptContent, req.TemplateVarValues)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to render template: %v", err)})
+				return
+			}
+			scriptContent = rendered
 		}
 
 		// Set up SSE headers
@@ -56,7 +76,7 @@ func HandleExecRequest() gin.HandlerFunc {
 		defer os.Remove(tmpFile.Name())
 
 		// Write script content to temp file
-		if _, err := tmpFile.WriteString(req.Script); err != nil {
+		if _, err := tmpFile.WriteString(scriptContent); err != nil {
 			tmpFile.Close()
 			sendSSEError(c, fmt.Sprintf("Failed to write script: %v", err))
 			return
@@ -70,8 +90,8 @@ func HandleExecRequest() gin.HandlerFunc {
 		}
 		tmpFile.Close()
 
-		// Detect interpreter from shebang or use provided language
-		interpreter, args := detectInterpreter(req.Script, req.Language)
+		// Detect interpreter from shebang or use language from executable
+		interpreter, args := detectInterpreter(scriptContent, executable.Language)
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -258,4 +278,3 @@ func sendSSEError(c *gin.Context, message string) {
 		flusher.Flush()
 	}
 }
-

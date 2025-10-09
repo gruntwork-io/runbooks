@@ -33,9 +33,6 @@ function Check({
   runningMessage = "Checking...",
   children,
 }: CheckProps) {
-  // Suppress unused parameter warnings for future use
-  void id;
-  
   // Use shared script execution hook
   const {
     sourceCode,
@@ -53,6 +50,7 @@ function Check({
     execute: handleExecute,
     cancel,
   } = useScriptExecution({
+    componentId: id,
     path,
     command,
     boilerplateInputsId,

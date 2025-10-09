@@ -249,3 +249,38 @@ func TestReadAllFilesInDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderBoilerplateContent(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		variables map[string]string
+		expected  string
+		wantErr   bool
+	}{
+		{
+			name:    "simple variable substitution",
+			content: "Hello {{ .Name }}!",
+			variables: map[string]string{
+				"Name": "World",
+			},
+			expected: "Hello World!",
+			wantErr:  false,
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := renderBoilerplateContent(tt.content, tt.variables)
+			
+			if (err != nil) != tt.wantErr {
+				t.Errorf("renderBoilerplateContent() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			
+			if !tt.wantErr && result != tt.expected {
+				t.Errorf("renderBoilerplateContent() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}

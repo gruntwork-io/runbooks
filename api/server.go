@@ -8,7 +8,7 @@ import (
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, runbookPath string) {
+func setupCommonRoutes(r *gin.Engine, runbookPath string, registry *ExecutableRegistry) {
 	// API endpoint to serve the runbook file contents
 	r.POST("/api/file", HandleFileRequest(runbookPath))
 
@@ -21,8 +21,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string) {
 	// API endpoint to render boilerplate templates from inline template files
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
 
-	// API endpoint to execute check scripts
-	r.POST("/api/exec", HandleExecRequest())
+	// API endpoint to get registered executables
+	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
+
+	// API endpoint to execute check scripts (now uses executable registry)
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath))
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
@@ -39,7 +42,19 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string) {
 }
 
 // StartServer serves both the frontend files and also the backend API
-func StartServer(runbookPath string, port int) {
+func StartServer(runbookPath string, port int) error {
+	// Resolve the runbook path to the actual file
+	resolvedPath, err := resolveRunbookPath(runbookPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve runbook path: %w", err)
+	}
+
+	// Create executable registry
+	registry, err := NewExecutableRegistry(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("failed to create executable registry: %w", err)
+	}
+
 	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
 	r := gin.Default()
 
@@ -52,14 +67,26 @@ func StartServer(runbookPath string, port int) {
 	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath)
+	setupCommonRoutes(r, runbookPath, registry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
-	r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
+	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
 
 // StartBackendServer starts the API server for serving runbook files
-func StartBackendServer(runbookPath string, port int) {
+func StartBackendServer(runbookPath string, port int) error {
+	// Resolve the runbook path to the actual file
+	resolvedPath, err := resolveRunbookPath(runbookPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve runbook path: %w", err)
+	}
+
+	// Create executable registry
+	registry, err := NewExecutableRegistry(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("failed to create executable registry: %w", err)
+	}
+
 	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
 	r := gin.Default()
 
@@ -79,6 +106,9 @@ func StartBackendServer(runbookPath string, port int) {
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false))
 
+	// API endpoint to get registered executables
+	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
+
 	// API endpoint to serve file contents
 	r.POST("/api/file", HandleFileRequest(runbookPath))
 
@@ -91,14 +121,14 @@ func StartBackendServer(runbookPath string, port int) {
 	// API endpoint to render boilerplate templates from inline template files
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
 
-	// API endpoint to execute check scripts
-	r.POST("/api/exec", HandleExecRequest())
+	// API endpoint to execute check scripts (now uses executable registry)
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath))
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
-	r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
+	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
 
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
@@ -107,6 +137,12 @@ func StartServerWithWatch(runbookPath string, port int) error {
 	resolvedPath, err := resolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
+	}
+
+	// Create executable registry
+	registry, err := NewExecutableRegistry(runbookPath)
+	if err != nil {
+		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
 
 	// Create file watcher
@@ -131,7 +167,7 @@ func StartServerWithWatch(runbookPath string, port int) error {
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath)
+	setupCommonRoutes(r, runbookPath, registry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

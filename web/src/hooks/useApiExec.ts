@@ -20,13 +20,14 @@ export interface ExecState {
 
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (script: string, language?: string) => void
+  execute: (executableId: string, variables?: Record<string, string>) => void
   cancel: () => void
   reset: () => void
 }
 
 /**
  * Hook to execute scripts via the /api/exec endpoint with SSE streaming
+ * Uses executable IDs from the executable registry instead of raw script content
  */
 export function useApiExec(): UseApiExecReturn {
   const [state, setState] = useState<ExecState>({
@@ -70,7 +71,7 @@ export function useApiExec(): UseApiExecReturn {
   }, [cancel])
 
   const execute = useCallback(
-    async (script: string, language = 'bash') => {
+    async (executableId: string, templateVarValues: Record<string, string> = {}) => {
       // Cancel any existing execution
       cancel()
 
@@ -87,13 +88,13 @@ export function useApiExec(): UseApiExecReturn {
         const abortController = new AbortController()
         abortControllerRef.current = abortController
 
-        // Send POST request to /api/exec
+        // Send POST request to /api/exec with executable_id and template_var_values
         const response = await fetch('/api/exec', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ script, language }),
+          body: JSON.stringify({ executable_id: executableId, template_var_values: templateVarValues }),
           signal: abortController.signal,
         })
 

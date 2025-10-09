@@ -345,6 +345,57 @@ func HandleBoilerplateRenderInline() gin.HandlerFunc {
 	}
 }
 
+// renderBoilerplateContent renders boilerplate template content with variables and returns the rendered string
+func renderBoilerplateContent(content string, variables map[string]string) (string, error) {
+	// Create a temporary directory for the template
+	tempDir, err := os.MkdirTemp("", "inline-template-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a minimal boilerplate.yml config file
+	boilerplateConfig := "variables: []"
+	configPath := filepath.Join(tempDir, "boilerplate.yml")
+	if err := os.WriteFile(configPath, []byte(boilerplateConfig), 0644); err != nil {
+		return "", fmt.Errorf("failed to write boilerplate config: %w", err)
+	}
+
+	// Write template content to a temp file
+	templateFile := "template.txt"
+	templatePath := filepath.Join(tempDir, templateFile)
+	if err := os.WriteFile(templatePath, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write template file: %w", err)
+	}
+
+	// Create a temporary output directory
+	outputDir, err := os.MkdirTemp("", "inline-output-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+	defer os.RemoveAll(outputDir)
+
+	// Convert map[string]string to map[string]any for boilerplate
+	vars := make(map[string]any)
+	for k, v := range variables {
+		vars[k] = v
+	}
+
+	// Render using boilerplate
+	if err := renderBoilerplateTemplate(tempDir, outputDir, vars); err != nil {
+		return "", fmt.Errorf("failed to render boilerplate template: %w", err)
+	}
+
+	// Read the rendered output file
+	renderedPath := filepath.Join(outputDir, templateFile)
+	rendered, err := os.ReadFile(renderedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read rendered output: %w", err)
+	}
+
+	return string(rendered), nil
+}
+
 // readAllFilesInDirectory recursively reads all files in a directory and returns a map of relative paths to file metadata
 func readAllFilesInDirectory(rootDir string) (map[string]File, error) {
 	files := make(map[string]File)

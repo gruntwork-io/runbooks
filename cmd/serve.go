@@ -30,8 +30,10 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 		}
 		path := args[0]
 
-		// TODO: Handle this goroutine properly, catching failure, etc.
-		api.StartBackendServer(path, 7825)
+		if err := api.StartBackendServer(path, 7825); err != nil {
+			slog.Error("Failed to start backend server", "error", err)
+			os.Exit(1)
+		}
 	},
 }
 
