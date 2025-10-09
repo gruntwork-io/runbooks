@@ -7,6 +7,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import gruntyImage from '/grunty_with_runbooks.png';
 
 interface HeaderProps {
   pathName: string;
@@ -60,7 +61,7 @@ export function Header({ pathName }: HeaderProps) {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <img 
-              src="/grunty_with_runbooks.png" 
+              src={gruntyImage} 
               alt="Grunty with runbooks" 
               className="absolute -bottom-15 -right-12 w-25 h-25 md:-bottom-10 md:-right-15 md:w-30 md:h-30 object-contain drop-shadow-lg"
             />
