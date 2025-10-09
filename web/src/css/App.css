@@ -144,4 +144,11 @@
   h4 {
     @apply text-lg font-semibold mb-1;
   }
+
+  a {
+    @apply text-primary underline;
+    &:hover {
+      @apply text-primary/80;
+    }
+  }
 }
