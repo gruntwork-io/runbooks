@@ -5,23 +5,25 @@ description: Understanding how Runbooks validates and executes scripts in differ
 
 ## Overview
 
-Runbooks executes shell scripts and other code defined in your Runbook. To prevent arbitrary code execution vulnerabilities, validates scripts before execution.
-
-This page explains how script execution works in different modes and the security implications of each.
+Runbooks executes commands and shell scripts defined your Runbook directly on your local computer with the full set of environment variables present when you launched the Runbooks binary. This is a mandate to take security seriously, and in this section we'll discuss the security measures Runbooks takes to protect users.
 
 ## Security measures
 
-Runbooks implements two specific techniques to make sure that you only execute "approved" code:
+Runbooks implements specific techniques to make sure that you only execute "approved" code:
 
-### Technique 1: Localhost-Only Binding
-The Runbooks server only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Runbooks server.
+### Warning to only run Runbooks you trust
 
-### Technique 2: Executable Registry
-By default, Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts.
+When Runbooks loads, it immediately shows a warning to users to confirm that they trust the Runbook they just opened. This warning will show on every Runbook you open until permanently hide it.
 
-When a user runs `runbooks open`, `runbooks watch`, or `runbooks serve`, Runbooks starts the backend server and populates the executable registry with all scripts or commands contained in the Runbook. Only scripts in the executable registry can be executed. This way, only scripts explicitly defined in your Runbook can be executed.
+### Localhost-Only Binding for the API
 
-To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
+The Runbooks backend server (whicih runs locally on your computer) only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Runbooks server.
+
+### Executable Registry
+
+By default, Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the backend server will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).
+
+Here's how it works. When a user runs `runbooks open`, `runbooks watch`, or `runbooks serve`, Runbooks starts the backend server and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
 
 When you click "Run" in the UI, the frontend sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The backend validates that this executable ID exists in the registry (which was built from your Runbook at startup), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate API requests, they cannot inject arbitrary code because the backend will only execute scripts that were present in your Runbook when the server started. Effectively, the registry acts as a whitelist of approved executables.
 
