@@ -1,4 +1,4 @@
-variables:
+variables:  
   - name: AWSAccounts
     description: A map of AWS account names to account details.
     type: map
