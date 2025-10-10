@@ -309,16 +309,6 @@ fi
 />
 ```
 
-## Common Use Cases
-
-- **Deployments**: Deploy applications to various environments
-- **Resource Creation**: Create cloud resources (S3 buckets, VPCs, etc.)
-- **Configuration**: Apply configuration changes
-- **Data Migration**: Run database migrations or data transfers
-- **Testing**: Execute test suites
-- **Cleanup**: Delete temporary resources or clean up environments
-- **Git Operations**: Create repos, commit changes, create PRs
-
 ## Security Considerations
 
 ### Avoid Hardcoded Secrets
@@ -332,20 +322,6 @@ Never hardcode secrets in commands. Use environment variables or secret manageme
 <!-- GOOD -->
 <Command command="aws s3 cp file.txt s3://bucket" />
 <!-- Assume AWS credentials are configured via AWS CLI or environment -->
-```
-
-### Be Careful with User Input
-
-When using user-provided variables, be aware of injection risks. Validate inputs in your scripts:
-
-```bash
-#!/bin/bash
-
-# Validate input
-if [[ ! "{{ .BucketName }}" =~ ^[a-z0-9.-]+$ ]]; then
-    echo "Invalid bucket name format"
-    exit 1
-fi
 ```
 
 ### Review Commands Before Execution

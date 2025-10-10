@@ -4,6 +4,22 @@ title: <Check>
 
 The `<Check>` block validates prerequisites and system state by running shell commands or scripts. It's essential for ensuring users have the right tools installed and their environment is properly configured before proceeding.
 
+### Common Use Cases
+The `<Check>` block works especially well for:
+
+- Pre-flight checks
+- Validating `<Command>` blocks
+- Smoke tests validating the whole Runbook
+
+This might manifest as:
+
+- **Tool Installation Verification**: Check if required CLI tools are installed
+- **Authentication Validation**: Verify users are logged into required services
+- **Infrastructure State**: Validate that required resources exist
+- **Configuration Validation**: Ensure config files are properly formatted
+- **Network Connectivity**: Test connectivity to required services
+- **Permissions**: Verify users have necessary permissions
+
 ## Basic Usage
 
 ### Simple Command Check
@@ -19,6 +35,8 @@ The `<Check>` block validates prerequisites and system state by running shell co
 />
 ```
 
+This will execute `git --version` when the user clicks "Check", and show the appropriate success or failure message.
+
 ### Script-Based Check
 
 ```mdx
@@ -31,6 +49,8 @@ The `<Check>` block validates prerequisites and system state by running shell co
     failMessage="AWS authentication failed. Run 'aws configure' to set up credentials."
 />
 ```
+
+This will execute the script located at `checks/aws-authenticated.sh` when the user clicks "Check", and show the appropriate success or failure message.
 
 ## Props
 
@@ -226,11 +246,17 @@ Use Admonition blocks to group related checks:
 <Check id="check-3" ... />
 ```
 
-## Common Use Cases
+## Security Considerations
 
-- **Tool Installation Verification**: Check if required CLI tools are installed
-- **Authentication Validation**: Verify users are logged into required services
-- **Infrastructure State**: Validate that required resources exist
-- **Configuration Validation**: Ensure config files are properly formatted
-- **Network Connectivity**: Test connectivity to required services
-- **Permissions**: Verify users have necessary permissions
+### Avoid Hardcoded Secrets
+
+Never hardcode secrets in commands. Use environment variables or secret management:
+
+```mdx
+<!-- BAD -->
+<Check command="aws s3 cp file.txt s3://bucket --secret MY_SECRET_KEY" />
+
+<!-- GOOD -->
+<Check command="aws s3 cp file.txt s3://bucket" />
+<!-- Assume AWS credentials are configured via AWS CLI or environment -->
+```

@@ -8,52 +8,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 The Runbooks CLI provides several commands for working with runbooks.
 
-## Available Commands
+- [`runbooks open`](/commands/open)
+- [`runbooks serve`](/commands/serve)
+- [`runbooks watch`](/commands/watch)
 
-### `open`
-Opens a runbook in your default browser with the interactive web interface.
-
-```bash
-runbooks open <path-to-runbook>
-```
-
-<Aside type="note">
-You must specify a path to the runbook _file_, not the _directory_ containing a runbook.
-</Aside>
-
-This is the primary command for using runbooks. It starts the backend server and launches the browser automatically.
-
-### `serve`
-Starts only the backend API server without opening the browser.
-
-```bash
-runbooks serve <path-to-runbook>
-```
-
-This is useful for development when you're running the frontend separately (e.g., with `bun dev`).
-
-### `watch`
-Continuously watches a runbook for changes and reloads automatically.
-
-```bash
-runbooks watch <path-to-runbook>
-```
-
-### `completion`
-Generates shell completion scripts for bash, zsh, fish, and PowerShell.
-
-```bash
-runbooks completion <shell>
-```
-
-This is a hidden command (not shown in `--help` by default) but available for setting up shell auto-completion.
-
-## Global Flags
-
-- `--help` - Show help for any command
-- `-h` - Short form of --help
-
-## Default Port
-
-The backend server runs on **port 7825** by default. This port is used both for the React frontend and for communication between the React frontend and the Go backend.
 

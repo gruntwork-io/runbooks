@@ -6,47 +6,36 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-Runbooks are especially useful for several use cases. Let's discuss them!
+Let's discuss where Runbooks can be most useful.
 
 ## Developer Self-Service
 
-Enable developers to perform complex operations without deep expertise:
+App developers can use Runbooks to easily launch new infrastructure that follows your organization's best practices. For example:
 
-- **Onboarding new projects**: Runbooks guide developers through setting up new services with all the right configurations
-- **Infrastructure provisioning**: Generate and deploy infrastructure-as-code with validated inputs
-- **Tool installation**: Check for prerequisites and guide installation of required tools
+- Create a new K8s Service
+- Scaffold a new app repo
+- Launch a new database
+- Launch a new static website
 
-Example: A runbook that creates a new microservice with proper AWS infrastructure, CI/CD pipelines, and monitoring configuration.
+## Streamline Internal Processes
 
-## Streamlining Internal Processes
+Many internal processes are captured as static documentation. But with Runbooks, you can complete the actual process by the time you're doing reading the Runbook! For example:
 
-Document and automate repetitive operational procedures:
+- Provision a new AWS Account, configure the account baseline and all networking configurations, and validate everything along the way.
+- Stand up a new customer with all the infrastructure and all the information they need to get started.
 
-- **Environment setup**: Automated setup of development, staging, and production environments
-- **New customer setup**: Automate the steps required to provision a new customer
+## Document IaC Modules
 
-Example: You create an AWS account factory runbook that creates a new AWS account, configures the account baseline and all networking configurations, and validates everything along the way.
+When you create a reusable infrastructure-as-code (IaC) module, the code itself is not enough to be useful. You also need to document how to use the module, show common usage examples, and validate that it works as expected.
 
-## Documenting and testing Infrastructure-as-Code Modules
+Traditional documentation describes your module, but Runbooks can actually collect configuration from the user, generate the module code, and validate that the module was created correctly. For example:
 
-Make your IaC modules more accessible with interactive documentation:
+- Create an SNS topic that notifies a Slack channel
+- Create an SNS topic that notifies an email address
+- Create an SNS topic that notifies a PagerDuty service
 
-- **Module usage examples**: Show how to use Terraform/OpenTofu modules with real, working examples
-- **Configuration generation**: Let users fill out forms to generate properly configured module calls
-- **Testing**: Include checks that validate the module works as expected
+You might define one Runbook for each of these, or a single Runbook that can create any of these configurations.
 
-Example: A runbook that documents your VPC OpenTofu module, generates a customized configuration based on user inputs, and validates the VPC was created correctly.
+# Next
 
-## Automatically Updated Long-Form Guides
-
-<Aside type="note">
-Runbooks does not yet support automatically rendering static markdown files from generated code snippets, but this feature is coming soon!
-</Aside>
-
-Create markdown guides that stay current with your infrastructure:
-
-- **Onboarding documentation**: Guides that actually work because they execute real commands
-- **Troubleshooting guides**: Diagnostic runbooks that check system state and suggest fixes
-- **Best practices**: Codified knowledge that can be executed, not just read
-
-Example: A comprehensive AWS multi-account setup guide that creates accounts, configures IAM, sets up networking, and validates everything along the way.
+You're almost done with the intro! As a last step, let's see how Runbooks compares to alternatives.

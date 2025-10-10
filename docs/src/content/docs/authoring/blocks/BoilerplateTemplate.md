@@ -69,7 +69,7 @@ service:
 
 ### Single File Template
 
-```mdx
+`````mdx
 <BoilerplateInputs id="docker-config">
 ```yaml
 variables:
@@ -78,7 +78,7 @@ variables:
   - name: NodeVersion
     type: string
     default: "18"
-\```
+```
 </BoilerplateInputs>
 
 <BoilerplateTemplate boilerplateInputsId="docker-config">
@@ -95,15 +95,15 @@ COPY . .
 EXPOSE 3000
 
 CMD ["node", "server.js"]
-\```
-</BoilerplateTemplate>
 ```
+</BoilerplateTemplate>
+`````
 
 ### Multiple Files
 
 You can have multiple BoilerplateTemplate blocks referencing the same BoilerplateInputs:
 
-```mdx
+`````mdx
 <BoilerplateInputs id="app-config">
 ```yaml
 variables:
@@ -112,7 +112,7 @@ variables:
   - name: Environment
     type: enum
     options: [dev, prod]
-\```
+```
 </BoilerplateInputs>
 
 ### Application Configuration
@@ -122,7 +122,7 @@ variables:
 app:
   name: {{ .AppName }}
   environment: {{ .Environment }}
-\```
+```
 </BoilerplateTemplate>
 
 ### Environment Variables
@@ -131,15 +131,15 @@ app:
 ```bash
 APP_NAME={{ .AppName }}
 ENVIRONMENT={{ .Environment }}
-\```
-</BoilerplateTemplate>
 ```
+</BoilerplateTemplate>
+`````
 
 ### With Boilerplate Logic
 
 You can use full Boilerplate template syntax:
 
-```mdx
+`````mdx
 <BoilerplateInputs id="terraform-config">
 ```yaml
 variables:
@@ -152,7 +152,7 @@ variables:
   - name: EnableMonitoring
     type: bool
     default: false
-\```
+```
 </BoilerplateInputs>
 
 <BoilerplateTemplate boilerplateInputsId="terraform-config">
@@ -170,9 +170,9 @@ resource "aws_instance" "app" {
   monitoring = true
   {{- end }}
 }
-\```
-</BoilerplateTemplate>
 ```
+</BoilerplateTemplate>
+`````
 
 ## Features
 
@@ -216,7 +216,7 @@ You can organize templates in a directory structure using the outputPath prop:
 
 Use Boilerplate's conditional logic:
 
-```mdx
+`````mdx
 <BoilerplateTemplate boilerplateInputsId="config">
 ```hcl
 {{- if eq .Environment "prod" }}
@@ -232,84 +232,9 @@ resource "aws_instance" "app" {
   monitoring    = false
 }
 {{- end }}
-\```
-</BoilerplateTemplate>
 ```
-
-## When to Use
-
-### Use BoilerplateTemplate when:
-- You want to show users a preview of generated content
-- You need to display configuration inline
-- You're debugging templates
-- You want to demonstrate what Boilerplate does
-
-### Use BoilerplateInputs alone when:
-- You need to actually generate and save files
-- You want to generate multiple files from a template directory
-- You're generating infrastructure-as-code that will be used by other commands
-
-## Comparison with BoilerplateInputs
-
-| Feature | BoilerplateInputs | BoilerplateTemplate |
-|---------|------------------|---------------------|
-| Uses Boilerplate engine | ✅ Yes | ✅ Yes |
-| Generates files | ✅ Yes (persisted to workspace) | ✅ Yes (temporary, cleaned up) |
-| Shows preview in UI | ❌ No | ✅ Yes |
-| Can use with Commands | ✅ Yes | ✅ Yes (variables available) |
-| File tree output | ✅ Yes (persisted) | ✅ Yes (preview only) |
-| Template directory | ✅ Supports | ❌ Inline only |
-| Auto-render | ✅ Yes (for Commands/Checks) | ✅ Yes |
-
-## Best Practices
-
-### 1. Use for Documentation
-
-Show users what their inputs will generate:
-
-```mdx
-Fill out the form above to see your Kubernetes configuration:
-
-<BoilerplateTemplate boilerplateInputsId="k8s-config">
-...
 </BoilerplateTemplate>
-```
-
-### 2. Preview Before Generation
-
-Combine with BoilerplateInputs for a "preview then generate" workflow:
-
-```mdx
-<BoilerplateInputs id="config" templatePath="templates/app" />
-
-### Preview
-
-Here's what will be generated:
-
-<BoilerplateTemplate boilerplateInputsId="config">
-...
-</BoilerplateTemplate>
-
-Now click "Generate" above to create the files!
-```
-
-### 3. Show Multiple Related Files
-
-Display an entire configuration set:
-
-```mdx
-<BoilerplateTemplate boilerplateInputsId="config" outputPath="main.tf">
-...
-</BoilerplateTemplate>
-
-<BoilerplateTemplate boilerplateInputsId="config" outputPath="variables.tf">
-...
-</BoilerplateTemplate>
-
-<BoilerplateTemplate boilerplateInputsId="config" outputPath="outputs.tf">
-...
-</BoilerplateTemplate>
-```
+`````
 
 ## Limitations
 
@@ -317,8 +242,3 @@ Display an entire configuration set:
 - Generated files are not persisted to your workspace (only displayed in the UI)
 - Cannot include other template files (no `{{ template "file.txt" }}` support)
 - Best for simple, single-file templates or small sets of templates
-
-## See Also
-
-- [BoilerplateInputs](/authoring/blocks/boilerplateinputs) - For generating files to disk
-- [Boilerplate Documentation](https://github.com/gruntwork-io/boilerplate) - Full Boilerplate syntax reference

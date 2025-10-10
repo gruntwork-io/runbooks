@@ -129,7 +129,7 @@ When using variables in commands, make it clear which `BoilerplateInputs` block 
 
 ## Variable Substitution
 
-Commands support Go template syntax for variable substitution:
+Commands, Checks, and all template code support [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) template syntax for variable substitution:
 
 - `{{ .VarName }}` - Insert a variable value
 - `{{ .VarName | upper }}` - Transform to uppercase
@@ -137,9 +137,3 @@ Commands support Go template syntax for variable substitution:
 - `{{ if .VarName }}...{{ end }}` - Conditional logic
 
 Variables come from `<BoilerplateInputs>` blocks linked via `boilerplateInputsId`.
-
-## Next Steps
-
-- Learn about [Markdown syntax](/authoring/markdown)
-- Explore [individual blocks](/authoring/blocks/)
-- Understand the [development workflow](/authoring/workflow)

@@ -2,6 +2,8 @@
 title: open
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 # `runbooks open`
 
 Opens a runbook in your default browser with the interactive web interface.
@@ -15,6 +17,14 @@ runbooks open <path-to-runbook>
 ## Arguments
 
 - `<path-to-runbook>` - Path to the `runbook.mdx` file.
+
+<Aside type="note">
+You must specify a path to the runbook _file_, not the _directory_ containing a runbook.
+</Aside>
+
+## When To Use It
+
+Use `runbooks open` when you want to open a runbook in your browser and use it. This command is intended for consumers of Runbooks.
 
 ## What It Does
 

@@ -4,7 +4,7 @@ title: <BoilerplateInputs>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<BoilerplateInputs>` block creates dynamic web forms based on [Boilerplate](https://github.com/gruntwork-io/boilerplate) variable definitions. It's used to collect user input that can then be used in Commands, Checks, or to generate files from templates.
+The `<BoilerplateInputs>` block creates dynamic web forms based on [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) variable definitions. It's used to collect user input that can then be used in Commands, Checks, or to generate files from templates.
 
 ## Basic Usage
 
@@ -21,7 +21,7 @@ This loads the `boilerplate.yml` file from `templates/terraform-vpc/boilerplate.
 
 ### With Inline YAML
 
-```mdx
+`````mdx
 <BoilerplateInputs id="user-inputs">
 ```yaml
 variables:
@@ -37,9 +37,13 @@ variables:
       - staging
       - production
     default: dev
-\```
-</BoilerplateInputs>
 ```
+</BoilerplateInputs>
+`````
+
+This will render a form with the following fields:
+- ProjectName (text input)
+- Environment (dropdown select)
 
 ## Props
 
@@ -214,7 +218,7 @@ Supported validation types:
 
 ### Reference by ID
 
-```mdx
+`````mdx
 <BoilerplateInputs id="vpc-config">
 ```yaml
 variables:
@@ -223,7 +227,7 @@ variables:
   - name: CidrBlock
     type: string
     default: 10.0.0.0/16
-\```
+```
 </BoilerplateInputs>
 
 <Command 
@@ -232,11 +236,11 @@ variables:
     boilerplateInputsId="vpc-config"
     title="Create VPC"
 />
-```
+`````
 
 ### Inline (Embedded)
 
-```mdx
+`````mdx
 <Command 
     id="echo-greeting" 
     command='echo "Hello, {{ .Name }}!"'
@@ -247,10 +251,10 @@ variables:
       - name: Name
         type: string
         description: Your name
-    \```
+    ```
     </BoilerplateInputs>
 </Command>
-```
+`````
 
 ## Generating Files
 
@@ -301,10 +305,6 @@ For standalone BoilerplateInputs with a `templatePath`, a "Generate" button appe
 3. Displays a file tree of generated files
 4. Shows a success indicator
 
-### Success Indicator
-
-After successful generation, a green checkmark appears showing that files were generated.
-
 ### Form Validation
 
 The form validates inputs in real-time based on the validation rules defined in the boilerplate.yml.
@@ -343,101 +343,3 @@ The form above will generate Terraform files. Now let's validate and apply:
     successMessage="VPC exists!"
 />
 ```
-
-## Best Practices
-
-### 1. Use Clear Descriptions
-
-```yaml
-variables:
-  - name: BucketName
-    type: string
-    description: S3 bucket name (must be globally unique, lowercase, no spaces)
-    validations: "required"
-```
-
-### 2. Provide Sensible Defaults
-
-```yaml
-variables:
-  - name: Environment
-    type: enum
-    description: Deployment environment
-    options: [dev, staging, production]
-    default: dev  # Most common choice
-```
-
-### 3. Use Validation Rules
-
-Always validate required fields and add format validation where appropriate:
-
-```yaml
-variables:
-  - name: Email
-    type: string
-    validations:
-      - type: required
-      - type: email
-```
-
-### 4. Group Related Inputs
-
-Use multiple BoilerplateInputs blocks to group related configuration:
-
-```mdx
-## Network Configuration
-<BoilerplateInputs id="network-config" templatePath="templates/network" />
-
-## Application Configuration
-<BoilerplateInputs id="app-config" templatePath="templates/app" />
-```
-
-### 5. Use Enum for Fixed Choices
-
-When users need to pick from a fixed set of options, use enum instead of string:
-
-```yaml
-# Good
-- name: Region
-  type: enum
-  options: [us-east-1, us-west-2, eu-west-1]
-
-# Less good
-- name: Region
-  type: string
-  description: AWS region (e.g., us-east-1)
-```
-
-## Common Use Cases
-
-- **Configuration Collection**: Gather parameters before running commands
-- **Template Generation**: Generate IaC files, config files, or any templated content
-- **Parameterized Operations**: Provide inputs for commands and checks
-- **Multi-Step Workflows**: Collect inputs once and use across multiple steps
-
-## Advanced: Structured Maps
-
-For complex data structures like AWS accounts, use structured maps:
-
-```yaml
-variables:
-  - name: AwsAccounts
-    type: map
-    description: AWS account configurations
-    schema:
-      email: string
-      environment: string
-      account_id: string
-    schemaInstanceLabel: Account
-    default:
-      logs:
-        email: aws-logs@example.com
-        environment: shared
-        account_id: "111111111111"
-      security:
-        email: aws-security@example.com
-        environment: shared
-        account_id: "222222222222"
-```
-
-This renders a structured form where users can add/remove accounts and fill in the required fields for each.
