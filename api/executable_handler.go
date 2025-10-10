@@ -6,16 +6,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HandleExecutablesRequest returns the registry of all executables for the runbook
+// HandleExecutablesRequest returns the registry of all executables and warnings for the runbook
+// In live-file-reload mode, registry will be nil, and this returns an empty registry
 func HandleExecutablesRequest(registry *ExecutableRegistry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if registry == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Executable registry not initialized"})
+			// Live-file-reload mode: no registry exists
+			c.JSON(http.StatusOK, gin.H{
+				"executables": make(map[string]Executable),
+				"warnings":    []string{},
+			})
 			return
 		}
 
-		executables := registry.GetAllExecutables()
-		c.JSON(http.StatusOK, executables)
+		c.JSON(http.StatusOK, gin.H{
+			"executables": registry.GetAllExecutables(),
+			"warnings":    registry.GetWarnings(),
+		})
 	}
 }
 

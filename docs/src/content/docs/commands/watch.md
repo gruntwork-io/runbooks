@@ -9,12 +9,16 @@ Opens a runbook in your browser and automatically reloads it when you make chang
 ## Usage
 
 ```bash
-runbooks watch <path-to-runbook>
+runbooks watch <path-to-runbook> [flags]
 ```
 
 ## Arguments
 
 - `<path-to-runbook>` - Path to a `runbook.mdx` file
+
+## Flags
+
+- `--disable-live-file-reload` - Enable executable registry validation. Scripts will not reload from disk on each execution; server restart required for script changes. This trades lower convenience for higher security. See [Execution Security Model](/security/execution-model) for details.
 
 ## What It Does
 
@@ -24,6 +28,7 @@ When you run `runbooks watch`:
 2. **Opens Your Browser** - Automatically navigates to `http://localhost:7825`
 3. **Watches for Changes** - Monitors the runbook file for any modifications
 4. **Auto-Reloads** - Automatically refreshes the browser when changes are detected (within ~300ms)
+5. **Live Script Execution** - By default, scripts are read from disk on each execution, so changes to script files take effect immediately without server restart
 
 ## When to Use This Command
 

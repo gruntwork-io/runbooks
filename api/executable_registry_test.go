@@ -307,6 +307,12 @@ func TestExtractProp(t *testing.T) {
 			expected: "echo test",
 		},
 		{
+			name:     "single quoted in braces",
+			props:    `command={'echo "OpenTofu: $(mise ls-remote opentofu | tail -1)"'}`,
+			propName: "command",
+			expected: `echo "OpenTofu: $(mise ls-remote opentofu | tail -1)"`,
+		},
+		{
 			name:     "prop not found",
 			props:    `id="test" title="Test"`,
 			propName: "description",
@@ -332,20 +338,20 @@ func TestExtractProp(t *testing.T) {
 
 func TestGenerateExecutableID(t *testing.T) {
 	// Test that same inputs produce same ID
-	id1 := generateExecutableID("component-1", "echo test")
-	id2 := generateExecutableID("component-1", "echo test")
+	id1 := computeExecutableID("component-1", "echo test")
+	id2 := computeExecutableID("component-1", "echo test")
 	
 	if id1 != id2 {
 		t.Errorf("Same inputs should produce same ID: %s != %s", id1, id2)
 	}
 
 	// Test that different inputs produce different IDs
-	id3 := generateExecutableID("component-2", "echo test")
+	id3 := computeExecutableID("component-2", "echo test")
 	if id1 == id3 {
 		t.Errorf("Different component IDs should produce different executable IDs")
 	}
 
-	id4 := generateExecutableID("component-1", "echo different")
+	id4 := computeExecutableID("component-1", "echo different")
 	if id1 == id4 {
 		t.Errorf("Different content should produce different executable IDs")
 	}

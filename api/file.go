@@ -2,6 +2,7 @@ package api
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,11 +17,11 @@ type FileRequest struct {
 
 // Return the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
-func HandleRunbookRequest(runbookPath string, isWatchMode bool) gin.HandlerFunc {
+func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Use the runbook path directly
 		filePath := runbookPath
-		serveFileContentWithMode(c, filePath, isWatchMode)
+		serveFileContentWithWatchMode(c, filePath, isWatchMode, useExecutableRegistry)
 	}
 }
 
@@ -201,11 +202,11 @@ func getContentType(filename string) string {
 
 // serveFileContent is a helper function that serves file content
 func serveFileContent(c *gin.Context, filePath string) {
-	serveFileContentWithMode(c, filePath, false)
+	serveFileContentWithWatchMode(c, filePath, false, true)
 }
 
-// serveFileContentWithMode is a helper function that serves file content with optional watch mode info
-func serveFileContentWithMode(c *gin.Context, filePath string, isWatchMode bool) {
+// serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info
+func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool) {
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -248,15 +249,29 @@ func serveFileContentWithMode(c *gin.Context, filePath string, isWatchMode bool)
 
 	// Build response with common fields
 	response := gin.H{
-		"path":     filePath,
-		"content":  string(content),
-		"language": getLanguageFromExtension(filepath.Base(filePath)),
-		"size":     fileInfo.Size(),
+		"path":                  filePath,
+		"content":               string(content),
+		"language":              getLanguageFromExtension(filepath.Base(filePath)),
+		"size":                  fileInfo.Size(),
+		"useExecutableRegistry": useExecutableRegistry,
 	}
 
 	// Add watch mode info if provided
 	if isWatchMode {
 		response["isWatchMode"] = true
+	}
+
+	// In live-reload mode, validate for duplicate components on-demand
+	// (In registry mode, warnings are captured once at server startup during registry creation.
+	// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
+	if !useExecutableRegistry {
+		warnings, err := validateRunbook(filePath)
+		if err != nil {
+			// Log error but don't fail the request
+			slog.Warn("Failed to validate runbook for duplicates", "error", err)
+		} else {
+			response["warnings"] = warnings
+		}
 	}
 
 	c.JSON(http.StatusOK, response)

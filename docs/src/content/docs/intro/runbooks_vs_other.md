@@ -1,7 +1,7 @@
 ---
 title: Runbooks vs. Other
 sidebar:
-  order: 5
+  order: 6
 ---
 
 ## Runbooks vs. Static Documentation

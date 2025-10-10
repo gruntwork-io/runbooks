@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,6 +43,7 @@ type Executable struct {
 type ExecutableRegistry struct {
 	runbookPath string
 	executables map[string]*Executable
+	warnings    []string     // Warnings collected during parsing (e.g., duplicate components)
 	mu          sync.RWMutex // Protects executables map from concurrent access by HTTP handlers
 }
 
@@ -90,6 +92,13 @@ func (r *ExecutableRegistry) GetAllExecutables() map[string]*Executable {
 	return result
 }
 
+// GetWarnings returns all warnings collected during parsing
+func (r *ExecutableRegistry) GetWarnings() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.warnings
+}
+
 // parseAndRegister parses the runbook file and registers all executables
 func (r *ExecutableRegistry) parseAndRegister() error {
 	// Read runbook file
@@ -114,12 +123,16 @@ func (r *ExecutableRegistry) parseAndRegister() error {
 	return nil
 }
 
+// getComponentRegex returns a compiled regex for matching MDX components
+// Matches both self-closing and container components: <Type .../> or <Type ...>...</Type>
+func getComponentRegex(componentType string) *regexp.Regexp {
+	pattern := fmt.Sprintf(`<%s\s+([^>]*?)(?:/>|>([\s\S]*?)</%s>)`, componentType, componentType)
+	return regexp.MustCompile(pattern)
+}
+
 // parseComponents extracts and registers all components of a given type
 func (r *ExecutableRegistry) parseComponents(content, runbookDir, componentType string) error {
-	// Regex to match <Check> or <Command> components (handles both self-closing and with children)
-	// Captures everything between opening and closing tags or self-closing tag
-	pattern := fmt.Sprintf(`<%s\s+([^>]*?)(?:/>|>([\s\S]*?)</%s>)`, componentType, componentType)
-	re := regexp.MustCompile(pattern)
+	re := getComponentRegex(componentType)
 
 	matches := re.FindAllStringSubmatch(content, -1)
 	for _, match := range matches {
@@ -128,8 +141,8 @@ func (r *ExecutableRegistry) parseComponents(content, runbookDir, componentType 
 		// Extract component properties
 		componentID := extractProp(props, "id")
 		if componentID == "" {
-			// Generate ID from position if not provided
-			componentID = generateID(componentType, props)
+			// Compute ID from component properties if not provided
+			componentID = computeComponentID(componentType, props)
 		}
 
 		// Extract path or command prop
@@ -159,7 +172,7 @@ func (r *ExecutableRegistry) registerInlineExecutable(componentID, componentType
 	scriptContent = unescapeString(scriptContent)
 
 	exec := &Executable{
-		ID:              generateExecutableID(componentID, scriptContent),
+		ID:              computeExecutableID(componentID, scriptContent),
 		Type:            ExecutableTypeInline,
 		ComponentID:     componentID,
 		ComponentType:   strings.ToLower(componentType),
@@ -168,9 +181,21 @@ func (r *ExecutableRegistry) registerInlineExecutable(componentID, componentType
 	}
 
 	r.mu.Lock()
-	r.executables[exec.ID] = exec
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
+	// Check for duplicate component
+	if existing, exists := r.executables[exec.ID]; exists {
+		warning := getDuplicateWarningMessage(componentType, componentID)
+		r.warnings = append(r.warnings, warning)
+		slog.Warn("Duplicate component detected",
+			"component_type", componentType,
+			"component_id", componentID,
+			"executable_id", exec.ID,
+			"first_component_id", existing.ComponentID)
+		return nil // Skip adding duplicate
+	}
+
+	r.executables[exec.ID] = exec
 	return nil
 }
 
@@ -193,7 +218,7 @@ func (r *ExecutableRegistry) registerFileExecutable(componentID, componentType, 
 	scriptContent := string(content)
 
 	exec := &Executable{
-		ID:              generateExecutableID(componentID, scriptContent),
+		ID:              computeExecutableID(componentID, scriptContent),
 		Type:            ExecutableTypeFile,
 		ComponentID:     componentID,
 		ComponentType:   strings.ToLower(componentType),
@@ -203,10 +228,30 @@ func (r *ExecutableRegistry) registerFileExecutable(componentID, componentType, 
 	}
 
 	r.mu.Lock()
-	r.executables[exec.ID] = exec
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
+	// Check for duplicate component
+	if existing, exists := r.executables[exec.ID]; exists {
+		warning := getDuplicateWarningMessage(componentType, componentID)
+		r.warnings = append(r.warnings, warning)
+		slog.Warn("Duplicate component detected",
+			"component_type", componentType,
+			"component_id", componentID,
+			"executable_id", exec.ID,
+			"first_component_id", existing.ComponentID)
+		return nil // Skip adding duplicate
+	}
+
+	r.executables[exec.ID] = exec
 	return nil
+}
+
+// getDuplicateWarningMessage creates a standardized warning message for duplicate components
+func getDuplicateWarningMessage(componentType, componentID string) string {
+	return fmt.Sprintf(
+		"Duplicate <%s> component with id '%s' detected - Any scripts or commands associated with the second instance will be ignored. Add a unique id to each component to distinguish them.",
+		componentType, componentID,
+	)
 }
 
 // extractProp extracts a prop value from component props string
@@ -217,6 +262,7 @@ func extractProp(props, propName string) string {
 		fmt.Sprintf(`%s='([^']*)'`, propName),
 		fmt.Sprintf(`%s=\{`+"`([^`]*)`"+`\}`, propName), // prop={`value`}
 		fmt.Sprintf(`%s=\{"([^"]*)"\}`, propName),       // prop={"value"}
+		fmt.Sprintf(`%s=\{'([^']*)'\}`, propName),       // prop={'value'}
 	}
 
 	for _, pattern := range patterns {
@@ -252,15 +298,15 @@ func extractTemplateVars(content string) []string {
 	return vars
 }
 
-// generateExecutableID generates a unique ID for an executable
-func generateExecutableID(componentID, content string) string {
+// computeExecutableID computes a deterministic ID for an executable
+func computeExecutableID(componentID, content string) string {
 	// Create hash of component ID + content for uniqueness
 	hash := sha256.Sum256([]byte(componentID + content))
 	return hex.EncodeToString(hash[:])[:16] // Use first 16 chars of hash
 }
 
-// generateID generates a component ID from its properties if not provided
-func generateID(componentType, props string) string {
+// computeComponentID computes a deterministic component ID from its properties
+func computeComponentID(componentType, props string) string {
 	// Use hash of component type + props
 	hash := sha256.Sum256([]byte(componentType + props))
 	return componentType + "_" + hex.EncodeToString(hash[:])[:8]
@@ -274,5 +320,138 @@ func unescapeString(s string) string {
 	s = strings.ReplaceAll(s, "&gt;", ">")
 	s = strings.ReplaceAll(s, "&amp;", "&")
 	return s
+}
+
+// validateRunbook validates a runbook for duplicate components
+// This is used in live-reload mode to provide warnings if duplicate components are detected
+func validateRunbook(filePath string) ([]string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read runbook: %w", err)
+	}
+
+	var warnings []string
+
+	// Check all component types that use IDs
+	componentTypes := []string{
+		"Check",
+		"Command",
+		"BoilerplateInputs",
+		"BoilerplateTemplate",
+	}
+
+	for _, componentType := range componentTypes {
+		warnings = append(warnings, validateComponentType(string(content), componentType)...)
+	}
+
+	return warnings, nil
+}
+
+// validateComponentType checks for duplicate components of a specific type
+func validateComponentType(content, componentType string) []string {
+	re := getComponentRegex(componentType)
+	matches := re.FindAllStringSubmatch(content, -1)
+
+	seen := make(map[string]bool)
+	var warnings []string
+
+	for _, match := range matches {
+		props := match[1]
+		id := extractProp(props, "id")
+		if id == "" {
+			id = computeComponentID(componentType, props)
+		}
+
+		if seen[id] {
+			warning := getDuplicateWarningMessage(componentType, id)
+			warnings = append(warnings, warning)
+			slog.Warn("Duplicate component detected during validation",
+				"component_type", componentType,
+				"component_id", id)
+		}
+		seen[id] = true
+	}
+
+	return warnings
+}
+
+// getExecutableByComponentID parses the runbook on-demand and returns an Executable for the given component ID
+// This is used in live-reload mode to bypass registry validation
+func getExecutableByComponentID(runbookPath, componentID string) (*Executable, error) {
+	content, err := os.ReadFile(runbookPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read runbook: %w", err)
+	}
+
+	runbookDir := filepath.Dir(runbookPath)
+
+	// Try Check components
+	executable, err := findComponentExecutable(string(content), runbookDir, "Check", componentID)
+	if err == nil {
+		return executable, nil
+	}
+
+	// Try Command components
+	executable, err = findComponentExecutable(string(content), runbookDir, "Command", componentID)
+	if err == nil {
+		return executable, nil
+	}
+
+	return nil, fmt.Errorf("component not found: %s", componentID)
+}
+
+// findComponentExecutable searches for a component and returns it as an Executable
+func findComponentExecutable(content, runbookDir, componentType, targetID string) (*Executable, error) {
+	re := getComponentRegex(componentType)
+
+	matches := re.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		props := match[1]
+
+		componentID := extractProp(props, "id")
+		if componentID == "" {
+			componentID = computeComponentID(componentType, props)
+		}
+
+		if componentID != targetID {
+			continue
+		}
+
+		// Found! Extract and return executable
+		pathProp := extractProp(props, "path")
+		commandProp := extractProp(props, "command")
+
+		if commandProp != "" {
+			// Inline executable
+			commandProp = unescapeString(commandProp)
+			return &Executable{
+				ID:              componentID,
+				Type:            ExecutableTypeInline,
+				ComponentID:     componentID,
+				ComponentType:   strings.ToLower(componentType),
+				ScriptContent:   commandProp,
+				TemplateVarNames: extractTemplateVars(commandProp),
+			}, nil
+		} else if pathProp != "" {
+			// File executable
+			fullPath := filepath.Join(runbookDir, pathProp)
+			scriptContent, err := os.ReadFile(fullPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read script file: %w", err)
+			}
+
+			return &Executable{
+				ID:              componentID,
+				Type:            ExecutableTypeFile,
+				ComponentID:     componentID,
+				ComponentType:   strings.ToLower(componentType),
+				ScriptContent:   string(scriptContent),
+				ScriptPath:      pathProp,
+				TemplateVarNames: extractTemplateVars(string(scriptContent)),
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("component not found")
 }
 

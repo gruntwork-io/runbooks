@@ -2,13 +2,14 @@ package api
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, runbookPath string, registry *ExecutableRegistry) {
+func setupCommonRoutes(r *gin.Engine, runbookPath string, registry *ExecutableRegistry, useExecutableRegistry bool) {
 	// API endpoint to serve the runbook file contents
 	r.POST("/api/file", HandleFileRequest(runbookPath))
 
@@ -24,8 +25,8 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, registry *ExecutableRe
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
-	// API endpoint to execute check scripts (now uses executable registry)
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath))
+	// API endpoint to execute check scripts
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry))
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
@@ -36,7 +37,13 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, registry *ExecutableRe
 	// Runs when no other routes match the incoming request; useful for a single-page app
 	// since we can have React handle the routing if needed.
 	r.NoRoute(func(c *gin.Context) {
-		// Serve static files for any path that doesn't match /api/file
+		// Try to serve static files from dist root (e.g., images, favicon, etc.)
+		path := "./web/dist" + c.Request.URL.Path
+		if fileInfo, err := os.Stat(path); err == nil && !fileInfo.IsDir() {
+			c.File(path)
+			return
+		}
+		// Fall back to serving index.html for SPA routing
 		c.File("./web/dist/index.html")
 	})
 }
@@ -64,10 +71,10 @@ func StartServer(runbookPath string, port int) error {
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false))
+	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath, registry)
+	setupCommonRoutes(r, runbookPath, registry, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -104,7 +111,7 @@ func StartBackendServer(runbookPath string, port int) error {
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false))
+	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
@@ -122,7 +129,7 @@ func StartBackendServer(runbookPath string, port int) error {
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
 
 	// API endpoint to execute check scripts (now uses executable registry)
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath))
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, true))
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
@@ -132,17 +139,20 @@ func StartBackendServer(runbookPath string, port int) error {
 }
 
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
-func StartServerWithWatch(runbookPath string, port int) error {
+func StartServerWithWatch(runbookPath string, port int, useExecutableRegistry bool) error {
 	// Resolve the runbook path to the actual file
 	resolvedPath, err := resolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
 
-	// Create executable registry
-	registry, err := NewExecutableRegistry(runbookPath)
-	if err != nil {
-		return fmt.Errorf("failed to create executable registry: %w", err)
+	var registry *ExecutableRegistry
+	if useExecutableRegistry {
+		// Create executable registry
+		registry, err = NewExecutableRegistry(resolvedPath)
+		if err != nil {
+			return fmt.Errorf("failed to create executable registry: %w", err)
+		}
 	}
 
 	// Create file watcher
@@ -161,13 +171,13 @@ func StartServerWithWatch(runbookPath string, port int) error {
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, true))
+	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, true, useExecutableRegistry))
 
 	// SSE endpoint for file change notifications
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath, registry)
+	setupCommonRoutes(r, runbookPath, registry, useExecutableRegistry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

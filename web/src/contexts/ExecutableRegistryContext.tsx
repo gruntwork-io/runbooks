@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createAppError } from '@/types/error'
 import type { AppError } from '@/types/error'
-import { type Executable, type ExecutableRegistry } from '@/types/executable'
+import { type Executable, type ExecutableRegistry, type ExecutableRegistryResponse } from '@/types/executable'
 import { ExecutableRegistryContext, type ExecutableRegistryContextValue } from './ExecutableRegistryContext.types'
 
 interface ExecutableRegistryProviderProps {
@@ -10,8 +10,10 @@ interface ExecutableRegistryProviderProps {
 
 export function ExecutableRegistryProvider({ children }: ExecutableRegistryProviderProps) {
   const [registry, setRegistry] = useState<ExecutableRegistry | null>(null)
+  const [warnings, setWarnings] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AppError | null>(null)
+  const [useExecutableRegistry, setUseExecutableRegistry] = useState(true)
 
   const fetchRegistry = async () => {
     try {
@@ -24,8 +26,9 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
         throw new Error(`Failed to fetch executable registry: ${response.status}`)
       }
 
-      const data = await response.json()
-      setRegistry(data)
+      const data: ExecutableRegistryResponse = await response.json()
+      setRegistry(data.executables)
+      setWarnings(data.warnings || [])
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setError(createAppError(
@@ -38,8 +41,30 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
   }
 
   useEffect(() => {
-    fetchRegistry()
+    const fetchRunbookInfo = async () => {
+      try {
+        const response = await fetch('/api/runbook')
+        if (response.ok) {
+          const data = await response.json()
+          setUseExecutableRegistry(data.useExecutableRegistry ?? true)
+        }
+      } catch {
+        // If we can't determine the server's mode, assume registry mode as the safe default
+        // (open/serve/watch all use registry mode by default)
+        setUseExecutableRegistry(true)
+      }
+    }
+    fetchRunbookInfo()
   }, [])
+
+  useEffect(() => {
+    if (useExecutableRegistry) {
+      fetchRegistry()
+    } else {
+      // Skip registry loading in live reload mode
+      setLoading(false)
+    }
+  }, [useExecutableRegistry])
 
   const getExecutableByComponentId = (componentId: string): Executable | null => {
     if (!registry) return null
@@ -47,7 +72,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     // Find executable by component_id
     for (const executableId in registry) {
       const executable = registry[executableId]
-      if (executable.component_id === componentId) {
+      if (executable && executable.component_id === componentId) {
         return executable
       }
     }
@@ -87,8 +112,10 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
 
   const value: ExecutableRegistryContextValue = {
     registry,
+    warnings,
     loading,
     error,
+    useExecutableRegistry,
     getExecutableByComponentId,
   }
 

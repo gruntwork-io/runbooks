@@ -1,9 +1,10 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/Header'
+import { WarningBanner } from './components/WarningBanner/WarningBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
@@ -11,6 +12,7 @@ import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
 import { useWatchMode } from './hooks/useWatchMode'
+import { useExecutableRegistry } from './hooks/useExecutableRegistry'
 import type { AppError } from './types/error'
 
 
@@ -23,6 +25,22 @@ function App() {
   
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useGetRunbook()
+  
+  // Get executable registry context for warnings (registry mode)
+  // The main use case here is that if our executable registry detects that we have duplicate components
+  // (identical components, including the same ID), we want to show a warning banner to the user.
+  const { warnings: execRegistryWarnings, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
+  
+  // Get warnings from the appropriate source based on mode
+  // - Registry mode: warnings from registry (collected at server startup)
+  // - Live-reload mode: warnings from on-demand validation (on each request)
+  const displayedWarnings = useMemo(() => {
+    if (execRegistryEnabled) {
+      return execRegistryWarnings
+    } else {
+      return getRunbookResult.data?.warnings || []
+    }
+  }, [execRegistryEnabled, execRegistryWarnings, getRunbookResult.data?.warnings])
   
   // Enable watch mode - refetch runbook when file changes
   const handleFileChange = useCallback(() => {
@@ -89,6 +107,9 @@ function App() {
     <>
       <div className="flex flex-col">
         <Header pathName={pathName} />
+        
+        {/* Warning Banner */}
+        <WarningBanner warnings={displayedWarnings} className="translate translate-y-17 w-2xl mx-auto" />
         
         {/* Loading and Error States */}
         {isLoading ? (

@@ -10,15 +10,25 @@ import { FileTree } from '@astrojs/starlight/components';
 
 Runbooks are interactive markdown documents with a first-class experience for generating files based on custom configurations, running customizable scripts or commands, and validating assertions about their local system or infrastructure.
 
-Runbooks are [open source](https://github.com/josh-padnick/runbooks) and free to use.
+Runbooks are [open source](https://github.com/gruntwork-io/runbooks) and free to use.
 
 ### How are Runbooks useful?
 
 DevOps and Platform Engineers are often the "expertise bottlenecks" when it comes to enabling their organization to achieve an infrastructure goal.
 
-Historically, there has not been a straightforward way to "capture" this hard-won expertise and make it available to others. Documentation is a start, but quickly gets out of date. Various templating tools are available, but it's hard to to pair them with documentation or validate that they worked as expected, and the end user experience is often clumsy.
+Historically, there has not been a straightforward way to "capture" this hard-won expertise and make it available to others. To fully adopt a pattern defined by a subject matter expert, an end-user needs to:
 
-Runbooks aims to dramatically _lower_ the bar for subject matter experts by making it enjoyable to capture their expertise, and to dramatically _raise_ the bar for "expertise consumers" by giving them an interactive, personalized, and clean experience they can use to learn about and apply a pattern.
+1. Read the documentation
+2. Generate the code from the documentation
+3. Run the code
+4. Validate the code
+5. Iterate as needed
+
+Static documentation meets the first step, but quickly gets out of date, requires manual copy & pasting, manual adaptation of the instructure to fit the end user's needs, and typically lacks validation steps. Worse, the subject matter expert rarely gets feedback about which part of the documentation was incomplete or incorrect. This gives rise to the all-too-common "it's not quite what I wanted" experience of using documentation.
+
+There are various templating tools available to automate the second step above, but code generation is rarely paired with effective documentation, it can be  hard to customize, and the end user experience is often clumsy.
+
+Runbooks aim to offer a new paradigm that dramatically _lowers_ the bar for subject matter experts by making it enjoyable to capture their expertise, and dramatically _raises_ the bar for "expertise consumers" by giving them an interactive, personalized, and clean experience they can use to understand and apply a pattern.
 
 ### What does a Runbook look like?
 
@@ -48,7 +58,7 @@ To open a Runbook, you can use the `runbooks open` command:
 runbooks open /path/to/runbook.mdx
 ```
 
-Note that for now, you will need to manually download the Runbook directory to your local machine. In the near future, Runbooks will support opening Runbooks directly from a URL.
+Note that for now, you will need to manually download the full Runbook directory (`runbook.mdx` plus any other files in the `checks/`, `scripts/`, and `templates/` directories) to your local machine.
 
 ## Next
 

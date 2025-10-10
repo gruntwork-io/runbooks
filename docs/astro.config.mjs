@@ -16,9 +16,11 @@ export default defineConfig({
 				{
 					label: 'CLI',
 					autogenerate: { directory: 'commands' },
+					collapsed: true,
 				},
 			{
 				label: 'Authoring Runbooks',
+				collapsed: true,
 				items: [
 					'authoring/overview',
 					'authoring/authoring_workflow',
@@ -30,12 +32,19 @@ export default defineConfig({
 				],
 			},
 				{
+					label: 'Security',
+					autogenerate: { directory: 'security' },
+					collapsed: true,
+				},
+				{
 					label: 'Development',
 					autogenerate: { directory: 'development' },
+					collapsed: true,
 				},
 				{
 					label: 'Runbooks Pro',
 					autogenerate: { directory: 'pro' },
+					collapsed: true,
 				},
 			],
 		}),

@@ -16,7 +16,8 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID      string            `json:"executable_id" binding:"required"`
+	ExecutableID      string            `json:"executable_id,omitempty"`      // Used when useExecutableRegistry=true
+	ComponentID       string            `json:"component_id,omitempty"`       // Used when useExecutableRegistry=false
 	TemplateVarValues map[string]string `json:"template_var_values"` // Values for template variables
 }
 
@@ -33,7 +34,7 @@ type ExecStatusEvent struct {
 }
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,11 +42,34 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string) gin.Han
 			return
 		}
 
-		// Look up executable in registry
-		executable, ok := registry.GetExecutable(req.ExecutableID)
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Executable not found in registry"})
-			return
+		var executable *Executable
+		var err error
+
+		if useExecutableRegistry {
+			// Registry mode: Validate against registry
+			if req.ExecutableID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "executable_id is required"})
+				return
+			}
+
+			var ok bool
+			executable, ok = registry.GetExecutable(req.ExecutableID)
+			if !ok {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Executable not found in registry"})
+				return
+			}
+		} else {
+			// Live reload mode: Parse runbook on-demand
+			if req.ComponentID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "component_id is required"})
+				return
+			}
+
+			executable, err = getExecutableByComponentID(runbookPath, req.ComponentID)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to find component: %v", err)})
+				return
+			}
 		}
 
 		// Get script content

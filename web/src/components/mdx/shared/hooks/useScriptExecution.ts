@@ -58,7 +58,7 @@ export function useScriptExecution({
   componentType
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
-  const { getExecutableByComponentId } = useExecutableRegistry()
+  const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
   
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
@@ -120,7 +120,7 @@ export function useScriptExecution({
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
   
   // Use the API exec hook for real script execution
-  const { state: execState, execute: executeScript, cancel: cancelExec } = useApiExec()
+  const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec()
   
   // Map exec state to our status type, handling warn status for Check components
   // Note: componentType never changes, so we can directly check without memoization
@@ -259,23 +259,27 @@ export function useScriptExecution({
 
   // Handle starting execution
   const execute = useCallback(() => {
-    // Look up executable in registry
-    const executable = getExecutableByComponentId(componentId)
-    
-    if (!executable) {
-      console.error(`Executable not found for component ID: ${componentId}`)
-      return
-    }
-    
     // Convert collected variables to strings (boilerplate expects string values)
     const stringVariables: Record<string, string> = {}
     for (const [key, value] of Object.entries(collectedVariables)) {
       stringVariables[key] = String(value)
     }
     
-    // Execute with executable ID and collected variables
-    executeScript(executable.id, stringVariables)
-  }, [executeScript, componentId, getExecutableByComponentId, collectedVariables])
+    if (execRegistryEnabled) {
+      // Registry mode: Look up executable in registry and use executable ID
+      const executable = getExecutableByComponentId(componentId)
+      
+      if (!executable) {
+        console.error(`Executable not found for component ID: ${componentId}`)
+        return
+      }
+      
+      executeScript(executable.id, stringVariables)
+    } else {
+      // Live reload mode: Send component ID directly
+      executeByComponentId(componentId, stringVariables)
+    }
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, collectedVariables])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

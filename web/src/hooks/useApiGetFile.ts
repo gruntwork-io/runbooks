@@ -9,6 +9,7 @@ export interface GetFileReturn {
   language: string;
   size: number;
   isWatchMode?: boolean;
+  warnings?: string[];
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseApiReturn<GetFileReturn> {

@@ -4,8 +4,10 @@ import { type AppError } from '@/types/error'
 
 export interface ExecutableRegistryContextValue {
   registry: ExecutableRegistry | null
+  warnings: string[]
   loading: boolean
   error: AppError | null
+  useExecutableRegistry: boolean
   getExecutableByComponentId: (componentId: string) => Executable | null
 }
 

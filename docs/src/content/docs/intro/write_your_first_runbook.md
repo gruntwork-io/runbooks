@@ -142,4 +142,4 @@ Learn more about [Command blocks](/authoring/blocks/command).
 
 ## Next
 
-Now let's learn about how this collection of functionality is useful in practical real-world scenarios.
+If you've already installed `runbooks`, you'll see what the Runbook above looks like for end users. But if you're just browsing for now, let's show you what the end-user experience for the above Runbook looks like.
