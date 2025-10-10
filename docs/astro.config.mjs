@@ -4,10 +4,37 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://runbooks.gruntwork.io',
 	integrations: [
 		starlight({
 			title: 'Gruntwork Runbooks',
+			description: 'Documentation and guides for Gruntwork Runbooks',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/gruntwork-io/runbooks' }],
+			customCss: [
+				'./src/styles/custom.css',
+			],
+			defaultLocale: 'root',
+			locales: {
+				root: {
+					label: 'English',
+					lang: 'en',
+				},
+			},
+			components: {
+				// Keep default components
+			},
+			head: [
+				{
+					tag: 'meta',
+					attrs: {
+						property: 'og:title',
+						content: 'Gruntwork Runbooks Documentation',
+					},
+				},
+			],
+			editLink: {
+				baseUrl: 'https://github.com/gruntwork-io/runbooks/edit/main/docs/',
+			},
 			sidebar: [
 				{
 					label: 'Intro',
