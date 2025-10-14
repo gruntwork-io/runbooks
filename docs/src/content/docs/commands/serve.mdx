@@ -11,7 +11,7 @@ Starts the backend API server without opening the browser. This command is usefu
 ## Usage
 
 ```bash
-runbooks serve <path-to-runbook>
+runbooks serve <path-to-runbook> [flags]
 ```
 
 ## Arguments
@@ -21,6 +21,12 @@ runbooks serve <path-to-runbook>
 <Aside type="note">
 You must specify a path to the runbook _file_, not the _directory_ containing a runbook.
 </Aside>
+
+## Flags
+
+- `--output-path <path>` - Directory where generated files will be written (default: `generated`)
+  - Can be relative (e.g., `./output`) or absolute (e.g., `/tmp/generated`)
+  - Relative paths are resolved from the current working directory
 
 ## When To Use It
 

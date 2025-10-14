@@ -54,7 +54,10 @@ service:
 
 ### Optional Props
 
-- `outputPath` (string) - Optional path prefix for the generated files in the preview
+- `outputPath` (string) - Optional subdirectory name for the generated files in the preview
+  - **Security**: Must be a relative path without `..` (e.g., `prod`, `environments/staging`)
+  - Will be created as a subdirectory within the CLI-configured output path
+  - Absolute paths and directory traversal attempts are blocked for security
 - `children` (ReactNode) - Inline template content to render
 
 ## How It Works

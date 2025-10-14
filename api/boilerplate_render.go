@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	bpConfig "github.com/gruntwork-io/boilerplate/config"
@@ -14,10 +15,96 @@ import (
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 )
 
+// validateOutputPath validates an output path from an API request to prevent security issues.
+// It ensures the path is:
+// - Not absolute (to prevent writing to arbitrary filesystem locations)
+// - Does not contain ".." (to prevent directory traversal attacks)
+// Returns an error if validation fails.
+func validateOutputPath(path string) error {
+	// Empty path is allowed (will use default)
+	if path == "" {
+		return nil
+	}
+	
+	// Check for absolute paths (Unix-style and Windows-style)
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("absolute paths are not allowed in API requests: %s", path)
+	}
+	
+	// Additional check for Windows paths on Unix systems
+	if len(path) >= 2 && path[1] == ':' {
+		return fmt.Errorf("absolute paths are not allowed in API requests: %s", path)
+	}
+	
+	// Check for directory traversal attempts
+	if containsDirectoryTraversal(path) {
+		return fmt.Errorf("directory traversal is not allowed: %s", path)
+	}
+	
+	return nil
+}
+
+// containsDirectoryTraversal checks if a path contains ".." components
+func containsDirectoryTraversal(path string) bool {
+	// Normalize path separators
+	normalizedPath := filepath.ToSlash(path)
+	
+	// Check for ".." as a path component
+	// This handles: "..", "../foo", "foo/../bar", "foo/.."
+	parts := strings.Split(normalizedPath, "/")
+	for _, part := range parts {
+		if part == ".." {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// determineOutputDirectory determines the final output directory based on CLI config and API request.
+// CLI output path is the path set via the --output-path CLI flag and is trusted (specified by end user)
+// API request output path is the path specified in a component prop in the Runbook and is untrusted (specified by runbook author).
+// If apiRequestOutputPath is provided, it's validated and treated as a subdirectory within the CLI path.
+// Returns the absolute output directory path or an error.
+func determineOutputDirectory(cliOutputPath string, apiRequestOutputPath *string) (string, error) {
+	var outputDir string
+	
+	if apiRequestOutputPath != nil && *apiRequestOutputPath != "" {
+		// Validate the API-provided output path for security
+		if err := validateOutputPath(*apiRequestOutputPath); err != nil {
+			return "", fmt.Errorf("invalid output path: %w", err)
+		}
+		
+		// Treat the validated path as a subdirectory within the CLI output path
+		if filepath.IsAbs(cliOutputPath) {
+			outputDir = filepath.Join(cliOutputPath, *apiRequestOutputPath)
+		} else {
+			currentDir, err := os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("failed to get current working directory: %w", err)
+			}
+			outputDir = filepath.Join(currentDir, cliOutputPath, *apiRequestOutputPath)
+		}
+	} else {
+		// Use the CLI output path
+		if filepath.IsAbs(cliOutputPath) {
+			outputDir = cliOutputPath
+		} else {
+			currentDir, err := os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("failed to get current working directory: %w", err)
+			}
+			outputDir = filepath.Join(currentDir, cliOutputPath)
+		}
+	}
+	
+	return outputDir, nil
+}
+
 // This handler renders a boilerplate template with the provided variables.
 
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
-func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
+func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,22 +141,14 @@ func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 		}
 
 		// Determine the output directory
-		var outputDir string
-		if req.OutputPath != nil && *req.OutputPath != "" {
-			// Use the provided output path (can be relative or absolute)
-			outputDir = *req.OutputPath
-		} else {
-			// Default to "generated" subfolder in current working directory
-			currentDir, err := os.Getwd()
-			if err != nil {
-				slog.Error("Failed to get current working directory", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "Failed to get current working directory",
-					"details": err.Error(),
-				})
-				return
-			}
-			outputDir = filepath.Join(currentDir, "generated")
+		outputDir, err := determineOutputDirectory(cliOutputPath, req.OutputPath)
+		if err != nil {
+			slog.Error("Failed to determine output directory", "error", err)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid output path",
+				"details": err.Error(),
+			})
+			return
 		}
 
 		// Create the output directory if it doesn't exist
@@ -85,7 +164,7 @@ func HandleBoilerplateRender(runbookPath string) gin.HandlerFunc {
 		slog.Info("Rendering template to output directory", "outputDir", outputDir)
 
 		// Render the template using the boilerplate package
-		err := renderBoilerplateTemplate(fullTemplatePath, outputDir, req.Variables)
+		err = renderBoilerplateTemplate(fullTemplatePath, outputDir, req.Variables)
 		if err != nil {
 			slog.Error("Failed to render boilerplate template", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{

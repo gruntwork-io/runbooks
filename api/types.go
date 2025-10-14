@@ -28,7 +28,12 @@ type FileTreeNode struct {
 type RenderRequest struct {
 	TemplatePath string         `json:"templatePath"`
 	Variables    map[string]any `json:"variables"`
-	OutputPath   *string        `json:"outputPath,omitempty"` // Optional output path, defaults to "generated" if not provided
+	// Optional subdirectory within the configured output path (set via --output-path CLI flag).
+	// SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
+	// Will be joined with the CLI-configured output path (e.g., if CLI sets --output-path=/out
+	// and this is "prod", files will be written to /out/prod).
+	// Defaults to the CLI-configured output path if not provided.
+	OutputPath   *string        `json:"outputPath,omitempty"`
 }
 
 // RenderResponse represents the response from the render endpoint

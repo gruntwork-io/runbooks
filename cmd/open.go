@@ -33,25 +33,15 @@ var openCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(openCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// openCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// openCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(path string) {
-	slog.Info("Opening runbook", "path", path)
+	slog.Info("Opening runbook", "path", path, "outputPath", outputPath)
 
 	// Start the API server in a goroutine
 	go func() {
-		api.StartServer(path, 7825)
+		api.StartServer(path, 7825, outputPath)
 	}()
 
 	// Open browser and keep server running

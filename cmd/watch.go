@@ -47,11 +47,11 @@ func watchRunbook(path string) {
 	// By default, watch mode uses live-file-reload (no registry) for better UX
 	// If --disable-live-file-reload is true, use the executable registry for better security
 	useExecutableRegistry := disableLiveFileReload
-	slog.Info("Opening runbook with file watching", "path", path, "useExecutableRegistry", useExecutableRegistry)
+	slog.Info("Opening runbook with file watching", "path", path, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		if err := api.StartServerWithWatch(path, 7825, useExecutableRegistry); err != nil {
+		if err := api.StartServerWithWatch(path, 7825, outputPath, useExecutableRegistry); err != nil {
 			slog.Error("Failed to start server with watch", "error", err)
 			os.Exit(1)
 		}

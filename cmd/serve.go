@@ -30,7 +30,7 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 		}
 		path := args[0]
 
-		if err := api.StartBackendServer(path, 7825); err != nil {
+		if err := api.StartBackendServer(path, 7825, outputPath); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}
@@ -39,14 +39,4 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// openCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// openCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

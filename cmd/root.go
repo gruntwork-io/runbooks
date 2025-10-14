@@ -13,6 +13,9 @@ var (
 	Version   = "dev"
 	GitCommit = "none"
 	BuildDate = "unknown"
+
+	// Global flag for output path used by server commands
+	outputPath string
 )
 
 // getVersionString returns the full version information
@@ -43,6 +46,10 @@ func init() {
 	// Cobra supports:
 	// - persistent flags: if defined here, will be global for your application.
 	// - local flags: will only run when this action is called directly.
+
+	// Add persistent flags that are available to all subcommands
+	rootCmd.PersistentFlags().StringVar(&outputPath, "output-path", "generated",
+		"Path where generated files will be rendered (can be relative or absolute)")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
