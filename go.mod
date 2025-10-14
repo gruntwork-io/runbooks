@@ -3,6 +3,7 @@ module runbooks
 go 1.25.1
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
 	github.com/gruntwork-io/boilerplate v0.10.0
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/mattn/go-zglob v0.0.6 // indirect
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c // indirect
 )
@@ -111,7 +111,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
-	github.com/ulikunitz/xz v0.5.12 // indirect; indirect from boilerplate
+	github.com/ulikunitz/xz v0.5.14 // indirect; indirect from boilerplate
 	github.com/urfave/cli/v2 v2.27.5 // indirect; indirect from boilerplate
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect; indirect from boilerplate
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect; indirect from boilerplate
@@ -141,6 +141,6 @@ require (
 	google.golang.org/grpc/stats/opentelemetry v0.0.0-20241014145745-ad81c20503be // indirect; indirect from boilerplate
 	google.golang.org/protobuf v1.36.9 // indirect; indirect from boilerplate
 	gopkg.in/yaml.v2 v2.4.0 // indirect; indirect from boilerplate
-	gopkg.in/yaml.v3 v3.0.1 // indirect; indirect from boilerplate
+	gopkg.in/yaml.v3 v3.0.1 // indirect from boilerplate
 	sigs.k8s.io/yaml v1.4.0 // indirect; indirect from boilerplate
 )
