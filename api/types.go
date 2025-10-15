@@ -124,3 +124,20 @@ type BoilerplateRequest struct {
 	TemplatePath      string `json:"templatePath,omitempty"`      // Path to the boilerplate template directory
 	BoilerplateContent string `json:"boilerplateContent,omitempty"` // Direct content of the boilerplate.yml file
 }
+
+// Generated files management types
+// ---
+
+// GeneratedFilesCheckResponse represents the response from the generated files check endpoint
+type GeneratedFilesCheckResponse struct {
+	HasFiles   bool   `json:"hasFiles"`   // Whether files exist in the output directory
+	OutputPath string `json:"outputPath"` // The output path that was checked
+	FileCount  int    `json:"fileCount"`  // Number of files found (0 if directory doesn't exist)
+}
+
+// GeneratedFilesDeleteResponse represents the response from the generated files delete endpoint
+type GeneratedFilesDeleteResponse struct {
+	Success      bool   `json:"success"`      // Whether the deletion was successful
+	DeletedCount int    `json:"deletedCount"` // Number of files/folders deleted
+	Message      string `json:"message"`      // Human-readable message about the operation
+}

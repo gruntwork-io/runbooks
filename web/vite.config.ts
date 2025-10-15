@@ -31,4 +31,30 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // Increase chunk size warning limit. The syntax-highlighter library is large (~635 kB) because
+    // it includes all language definitions, but this is acceptable for a local development tool.
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        // Split large vendor dependencies into separate chunks to avoid Rollup's 500 kB warning.
+        // These named chunks are generated separately, while all other code is bundled automatically.
+        // This improves caching (vendors change less frequently than app code) and keeps individual
+        // chunk sizes under the warning threshold.
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'mdx-vendor': ['@mdx-js/mdx', '@mdx-js/react', 'react-markdown', 'remark-gfm'],
+          'ui-vendor': [
+            '@radix-ui/react-alert-dialog',
+            '@radix-ui/react-checkbox',
+            '@radix-ui/react-collapsible',
+            '@radix-ui/react-label',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-tooltip',
+          ],
+          'syntax-highlighter': ['react-syntax-highlighter'],
+        },
+      },
+    },
+  },
 })

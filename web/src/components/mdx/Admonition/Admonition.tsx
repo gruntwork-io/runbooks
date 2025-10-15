@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/shared/components/InlineMarkdown"
+import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 
 type AdmonitionType = "note" | "info" | "warning" | "danger"
 
@@ -81,8 +82,7 @@ export function Admonition({
   // Check localStorage on mount to see if user has permanently hidden this
   useEffect(() => {
     if (allowPermanentHide && storageKey) {
-      const stored = localStorage.getItem(`admonition_hide_${storageKey}`)
-      if (stored === 'true') {
+      if (!shouldShowAlert(`admonition_hide_${storageKey}`)) {
         setIsVisible(false)
       }
     }
@@ -94,7 +94,7 @@ export function Admonition({
     if (checked && confirmationText) {
       // If "don't show again" is checked, store in localStorage
       if (dontShowAgain && allowPermanentHide && storageKey) {
-        localStorage.setItem(`admonition_hide_${storageKey}`, 'true')
+        saveHidePreference(`admonition_hide_${storageKey}`)
       }
 
       // Wait 250ms, then start fading out

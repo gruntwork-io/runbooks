@@ -50,11 +50,11 @@ export function Header({ pathName }: HeaderProps) {
         <AlertDialogContent>
           <div className="relative">
             <AlertDialogHeader>
-              <AlertDialogTitle>Gruntwork Runbooks</AlertDialogTitle>
+              <AlertDialogTitle>About Gruntwork Runbooks</AlertDialogTitle>
               <AlertDialogDescription className="text-left">
                 Runbooks enable DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.
                 <br /><br />
-                Runbooks is published by <a target="_blank" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" href="https://github.com/gruntwork-io/runbooks">open source</a>!
+                Runbooks is published by <a target="_blank" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" href="https://runbooks.gruntwork.io">Runbooks docs</a> for more information.
                 <AlertDialogAction className="block mt-4" onClick={() => setIsAboutDialogOpen(false)}>
                 Close
                 </AlertDialogAction>
@@ -63,7 +63,7 @@ export function Header({ pathName }: HeaderProps) {
             <img 
               src={gruntyImage} 
               alt="Grunty with runbooks" 
-              className="absolute -bottom-15 -right-12 w-25 h-25 md:-bottom-10 md:-right-15 md:w-30 md:h-30 object-contain drop-shadow-lg"
+              className="absolute -bottom-15 -right-12 w-25 h-25 md:-bottom-12 md:-right-15 md:w-30 md:h-30 object-contain drop-shadow-lg"
             />
           </div>
         </AlertDialogContent>
