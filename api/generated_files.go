@@ -11,6 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// This file provides HTTP handlers for managing generated files in the output directory.
+// It handles checking if files already exist and deleting them when requested by the user,
+// with validation to ensure operations are safe and confined to the configured output path.
+
 // outputDirInfo contains validated information about the output directory
 type outputDirInfo struct {
 	absoluteOutputPath string
@@ -202,14 +206,14 @@ func deleteDirectoryContents(absolutePath string) error {
 // validateOutputPathSafety checks if a path is valid for file operations
 // It prevents operations on system-critical directories and enforces that the path
 // must be within the current working directory
-func validateOutputPathSafety(absolutePath string) error {
+func validateOutputPathSafety(absoluteOutputPath string) error {
 	// Reject empty paths
-	if absolutePath == "" {
+	if absoluteOutputPath == "" {
 		return fmt.Errorf("output path is not valid: path cannot be empty")
 	}
 
 	// Get absolute path to ensure we're checking the real location
-	absPath, err := filepath.Abs(absolutePath)
+	absPath, err := filepath.Abs(absoluteOutputPath)
 	if err != nil {
 		return fmt.Errorf("output path is not valid: failed to get absolute path: %w", err)
 	}
