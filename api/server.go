@@ -28,6 +28,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// API endpoint to execute check scripts
 	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry))
 
+	// API endpoints for managing generated files
+	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
+	r.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(outputPath))
+
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
 
@@ -113,26 +117,8 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	// API endpoint to serve the runbook file contents
 	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
 
-	// API endpoint to get registered executables
-	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
-
-	// API endpoint to serve file contents
-	r.POST("/api/file", HandleFileRequest(runbookPath))
-
-	// API endpoint to parse boilerplate.yml files
-	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
-
-	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, outputPath))
-
-	// API endpoint to render boilerplate templates from inline template files
-	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
-
-	// API endpoint to execute check scripts (now uses executable registry)
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, true))
-
-	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
-	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
+	// Set up common routes (includes all other endpoints)
+	setupCommonRoutes(r, runbookPath, outputPath, registry, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

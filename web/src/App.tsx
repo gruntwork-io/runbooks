@@ -8,13 +8,14 @@ import { WarningBanner } from './components/WarningBanner/WarningBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/ArtifactsContainer'
 import { ViewContainerToggle } from './components/ViewContainerToggle'
+import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/GeneratedFilesAlert'
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useExecutableRegistry } from './hooks/useExecutableRegistry'
+import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
 import type { AppError } from './types/error'
-
 
 function App() {
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
@@ -22,9 +23,14 @@ function App() {
   const [error, setError] = useState<AppError | null>(null);
   const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
   const [showCodeButton, setShowCodeButton] = useState(false);
+  const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
+  const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useGetRunbook()
+  
+  // Check for existing generated files when runbook loads
+  const generatedFilesCheck = useApiGeneratedFilesCheck()
   
   // Get executable registry context for warnings (registry mode)
   // The main use case here is that if our executable registry detects that we have duplicate components
@@ -93,6 +99,30 @@ function App() {
     setError(getRunbookResult.error)
   }, [getRunbookResult.isLoading, getRunbookResult.error])
   
+  // Show generated files alert (when there are existing generated files before the Runbook was opened) when appropriate
+  useEffect(() => {
+    // Only show if:
+    // 1. Runbook has loaded successfully
+    // 2. Generated files check has completed
+    // 3. Files exist in the output directory
+    // 4. User hasn't dismissed it this session
+    // 5. User hasn't checked "don't ask again" in localStorage
+    if (
+      !getRunbookResult.isLoading &&
+      !generatedFilesCheck.isLoading &&
+      generatedFilesCheck.data?.hasFiles &&
+      !alertDismissedThisSession &&
+      shouldShowGeneratedFilesAlert()
+    ) {
+      setShowGeneratedFilesAlert(true);
+    }
+  }, [
+    getRunbookResult.isLoading,
+    generatedFilesCheck.isLoading,
+    generatedFilesCheck.data?.hasFiles,
+    alertDismissedThisSession,
+  ]);
+  
   // Extract commonly used values
   const pathName = getRunbookResult.data?.path || ''
   const content = getRunbookResult.data?.content || ''
@@ -102,6 +132,20 @@ function App() {
   function hasError() {
     return Boolean(error?.message || error?.details);
   }
+
+  // Handle closing the generated files alert
+  const handleCloseAlert = () => {
+    setShowGeneratedFilesAlert(false);
+    setAlertDismissedThisSession(true);
+  };
+
+  // Handle successful deletion of generated files
+  const handleFilesDeleted = () => {
+    setShowGeneratedFilesAlert(false);
+    setAlertDismissedThisSession(true);
+    // Optionally refetch the file tree to clear it from the UI
+    // The file tree context doesn't expose a clear method, so we'll just close the alert
+  };
 
   return (
     <>
@@ -219,6 +263,17 @@ function App() {
           </>
         )}
       </div>
+      
+      {/* Generated Files Alert Dialog */}
+      {generatedFilesCheck.data && (
+        <GeneratedFilesAlert
+          isOpen={showGeneratedFilesAlert}
+          fileCount={generatedFilesCheck.data.fileCount}
+          outputPath={generatedFilesCheck.data.outputPath}
+          onClose={handleCloseAlert}
+          onDeleted={handleFilesDeleted}
+        />
+      )}
     </>
   )
 }
