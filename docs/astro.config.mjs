@@ -20,9 +20,9 @@ export default defineConfig({
 					lang: 'en',
 				},
 			},
-			components: {
-				// Keep default components
-			},
+		components: {
+			Head: './src/components/Head.astro',
+		},
 			head: [
 				{
 					tag: 'meta',
