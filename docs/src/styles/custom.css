@@ -36,6 +36,7 @@
   /* Content settings */
   --sl-content-width: 50rem;
   --sl-sidebar-width: 20rem;
+  --sl-content-margin-inline: 0;
   
   /* Typography */
   --sl-line-height: 1.7;
