@@ -124,13 +124,13 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.31.0 // indirect; indirect from boilerplate
 	go.opentelemetry.io/otel/trace v1.31.0 // indirect; indirect from boilerplate
 	golang.org/x/arch v0.21.0 // indirect
-	golang.org/x/crypto v0.42.0 // indirect; indirect from boilerplate
-	golang.org/x/net v0.44.0 // indirect; indirect from boilerplate
+	golang.org/x/crypto v0.45.0 // indirect; indirect from boilerplate
+	golang.org/x/net v0.47.0 // indirect; indirect from boilerplate
 	golang.org/x/oauth2 v0.27.0 // indirect; indirect from boilerplate
-	golang.org/x/sync v0.17.0 // indirect; indirect from boilerplate
-	golang.org/x/sys v0.36.0 // indirect; indirect from boilerplate
-	golang.org/x/term v0.35.0 // indirect; indirect from boilerplate
-	golang.org/x/text v0.29.0 // indirect; indirect from boilerplate
+	golang.org/x/sync v0.18.0 // indirect; indirect from boilerplate
+	golang.org/x/sys v0.38.0 // indirect; indirect from boilerplate
+	golang.org/x/term v0.37.0 // indirect; indirect from boilerplate
+	golang.org/x/text v0.31.0 // indirect; indirect from boilerplate
 	golang.org/x/time v0.7.0 // indirect; indirect from boilerplate
 	google.golang.org/api v0.200.0 // indirect; indirect from boilerplate
 	google.golang.org/genproto v0.0.0-20241007155032-5fefd90f89a9 // indirect; indirect from boilerplate
