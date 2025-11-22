@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"runtime"
 
 	"github.com/spf13/cobra"
 )
@@ -20,8 +19,7 @@ var (
 
 // getVersionString returns the full version information
 func getVersionString() string {
-	return fmt.Sprintf("%s, Commit: %s, Built: %s, Go: %s, OS/arch: %s/%s",
-		Version, GitCommit, BuildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("%s (Commit: %s)", Version, GitCommit)
 }
 
 // rootCmd represents the base command when called without any subcommands
