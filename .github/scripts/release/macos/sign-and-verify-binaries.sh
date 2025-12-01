@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 ################################################################################
 # Script: sign-and-verify-binaries.sh
