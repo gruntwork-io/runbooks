@@ -81,8 +81,12 @@ function sign_with_gon {
     echo "Signing ${filepath}"
     local log_file="/tmp/gon-$(basename "${filepath}").log"
     
+    # Expand @env:AC_USERNAME since gon's expansion is unreliable
+    local tmp_config="/tmp/gon-config-$(basename "${filepath}")"
+    sed "s|@env:AC_USERNAME|${AC_USERNAME}|g" "${filepath}" > "${tmp_config}"
+    
     # Use debug log level to capture notarization submission IDs for debugging
-    "${gon_cmd}" -log-level=debug "${filepath}" 2>&1 | tee "${log_file}" || {
+    "${gon_cmd}" -log-level=debug "${tmp_config}" 2>&1 | tee "${log_file}" || {
       echo ""
       echo "❌ Signing/notarization failed for ${filepath}"
       
@@ -104,6 +108,8 @@ function sign_with_gon {
       echo ""
       exit 1
     }
+    
+    rm -f "${tmp_config}"
   done
 }
 
