@@ -41,7 +41,7 @@ function main {
   .github/scripts/release/macos/import-cert.sh
 
   echo "Signing macOS binaries..."
-  .github/scripts/release/macos/sign.sh .gon_amd64.hcl .gon_arm64.hcl
+  .github/scripts/release/macos/sign.sh .github/assets/.gon_amd64.hcl .github/assets/.gon_arm64.hcl
 
   echo "Done signing the binaries"
 
