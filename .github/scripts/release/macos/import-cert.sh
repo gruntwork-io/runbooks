@@ -78,12 +78,18 @@ function import_certificate_mac {
   assert_env_var_not_empty "MACOS_CERTIFICATE"
   assert_env_var_not_empty "MACOS_CERTIFICATE_PASSWORD"
 
-  trap "rm -rf /tmp/*-keychain" EXIT
-
   local mac_certificate_pwd="${MACOS_CERTIFICATE_PASSWORD}"
   local keystore_pw="${RANDOM}"
 
-  # Create separated keychain file to store certificate and do quick cleanup of sensitive data
+  # Create temp file for the P12 certificate (importing from stdin can be unreliable)
+  local p12_file
+  p12_file=$(mktemp "/tmp/cert-XXXXXX.p12")
+  echo "${MACOS_CERTIFICATE}" | base64 -d > "${p12_file}"
+  
+  # Cleanup trap for both keychain and cert file
+  trap "rm -rf /tmp/*-keychain /tmp/cert-*.p12" EXIT
+
+  # Create separated keychain file to store certificate
   local db_file
   db_file=$(mktemp "/tmp/XXXXXX-keychain")
   rm -rf "${db_file}"
@@ -93,14 +99,26 @@ function import_certificate_mac {
   # Set keychain to not lock and not timeout
   security set-keychain-settings "${db_file}"
   
-  security default-keychain -s "${db_file}"
   security unlock-keychain -p "${keystore_pw}" "${db_file}"
   
-  # Add the keychain to the search list so codesign can find it
-  security list-keychains -d user -s "${db_file}" $(security list-keychains -d user | sed -e s/\"//g)
+  # Add the keychain to the search list FIRST (before import)
+  # Get current keychains, add new one at the front
+  local current_keychains
+  current_keychains=$(security list-keychains -d user | sed -e 's/"//g' | tr '\n' ' ')
+  security list-keychains -d user -s "${db_file}" ${current_keychains}
   
-  # Import certificate with -A flag to allow all apps to access the key
-  echo "${MACOS_CERTIFICATE}" | base64 -d | security import /dev/stdin -f pkcs12 -k "${db_file}" -P "${mac_certificate_pwd}" -T /usr/bin/codesign -T /usr/bin/security -A
+  # Set as default keychain
+  security default-keychain -s "${db_file}"
+  
+  echo "Keychain search list:"
+  security list-keychains -d user
+  
+  # Import certificate from file (more reliable than stdin)
+  echo "Importing P12 certificate..."
+  security import "${p12_file}" -f pkcs12 -k "${db_file}" -P "${mac_certificate_pwd}" -T /usr/bin/codesign -T /usr/bin/security -A
+  
+  # Clean up P12 file immediately after import
+  rm -f "${p12_file}"
   
   if [[ "${mac_skip_root_certificate}" == "" ]]; then
     # Download Apple root certificate used as root for developer certificate
@@ -109,8 +127,19 @@ function import_certificate_mac {
   fi
   
   # Set partition list to allow codesign and other tools to access the key
+  # This must be done AFTER import
   security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keystore_pw}" "${db_file}"
   
+  echo ""
+  echo "Verifying certificate import..."
+  echo "Available codesigning identities:"
+  security find-identity -v -p codesigning
+  
+  echo ""
+  echo "Certificates in keychain:"
+  security find-certificate -a -c "Gruntwork" "${db_file}" 2>/dev/null || echo "  (no certificates matching 'Gruntwork' found)"
+  
+  echo ""
   echo "Certificate imported successfully"
 }
 
