@@ -1,33 +1,8 @@
 name: Sign MacOS Binaries
 
 on:
-  push:
-    branches:
-      - sign-macos
   workflow_dispatch:
-    inputs:
-      artifact-pattern:
-        description: 'Pattern for artifacts to download (default: runbooks_darwin_*)'
-        required: false
-        type: string
-        default: 'runbooks_darwin_*'
-      upload-artifact-name:
-        description: 'Name for the uploaded signed artifacts'
-        required: false
-        type: string
-        default: 'macos-signed-files'
   workflow_call:
-    inputs:
-      artifact-pattern:
-        description: 'Pattern for artifacts to download (default: runbooks_darwin_*)'
-        required: false
-        type: string
-        default: 'runbooks_darwin_*'
-      upload-artifact-name:
-        description: 'Name for the uploaded signed artifacts'
-        required: false
-        type: string
-        default: 'macos-signed-files'
 
 jobs:
   sign-macos:
@@ -36,9 +11,6 @@ jobs:
     env:
       MISE_PROFILE: cicd
       GON_VERSION: v0.0.37
-      # Use inputs if available (workflow_dispatch/workflow_call), otherwise use defaults
-      ARTIFACT_PATTERN: ${{ inputs.artifact-pattern || 'runbooks-darwin-*' }}
-      UPLOAD_ARTIFACT_NAME: ${{ inputs.upload-artifact-name || 'macos-signed-files' }}
 
     steps:
       - name: Checkout code
@@ -47,7 +19,7 @@ jobs:
       - name: Download macOS build artifacts
         uses: actions/download-artifact@v6
         with:
-          pattern: ${{ env.ARTIFACT_PATTERN }}
+          pattern: runbooks-darwin-*
           path: artifacts/
 
       - name: Prepare build artifacts
@@ -96,9 +68,18 @@ jobs:
             }
           done
 
-      - name: Upload Signed MacOS Binaries
+      - name: Upload Signed MacOS Binaries (darwin-amd64)
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.UPLOAD_ARTIFACT_NAME }}
-          path: bin/runbooks_darwin_*
+          name: runbooks-darwin-amd64
+          path: bin/runbooks_darwin_amd64
           if-no-files-found: error
+          overwrite: true
+
+      - name: Upload Signed MacOS Binaries (darwin-arm64)
+        uses: actions/upload-artifact@v5
+        with:
+          name: runbooks-darwin-arm64
+          path: bin/runbooks_darwin_arm64
+          if-no-files-found: error
+          overwrite: true

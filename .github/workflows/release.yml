@@ -132,9 +132,15 @@ jobs:
           path: dist/
           retention-days: 7
 
+  sign-macos-binaries:
+    name: Sign MacOS Binaries
+    needs: build-binaries
+    uses: ./.github/workflows/sign-macos.yml
+    secrets: inherit
+
   create-checksums:
     name: Create Checksums
-    needs: build-binaries
+    needs: [build-binaries, sign-macos-binaries]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -160,7 +166,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: create-checksums
+    needs: [create-checksums, sign-macos-binaries]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
