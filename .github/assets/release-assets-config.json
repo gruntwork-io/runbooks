@@ -1,0 +1,33 @@
+{
+  "platforms": [
+    {
+      "os": "darwin",
+      "arch": "amd64",
+      "binary": "runbooks_darwin_amd64",
+      "signed": true
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "binary": "runbooks_darwin_arm64",
+      "signed": true
+    }
+  ],
+  "archive_formats": [
+    {
+      "extension": "zip",
+      "description": "ZIP archive"
+    },
+    {
+      "extension": "tar.gz",
+      "description": "TAR.GZ archive"
+    }
+  ],
+  "additional_files": [
+    {
+      "name": "SHA256SUMS",
+      "description": "Checksums file"
+    }
+  ]
+}
+

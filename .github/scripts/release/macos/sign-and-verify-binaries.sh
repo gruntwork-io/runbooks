@@ -51,9 +51,9 @@ function main {
 
   verify_config_file
 
-  # Get list of macOS binaries from config (compatible with bash 3.2+)
+  # Get list of macOS binaries from config
   local macos_binaries
-  macos_binaries=$(jq -r '.platforms[] | select(.os == "darwin") | .binary' "$RELEASE_CONFIG_FILE")
+  macos_binaries=$(get_binaries_for_os "darwin")
 
   echo "Expected macOS binaries from config: $macos_binaries"
 
