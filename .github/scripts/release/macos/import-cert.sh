@@ -89,16 +89,26 @@ function import_certificate_mac {
   rm -rf "${db_file}"
   echo "Creating separated keychain for certificate"
   security create-keychain -p "${keystore_pw}" "${db_file}"
+  
+  # Set keychain to not lock and not timeout
+  security set-keychain-settings "${db_file}"
+  
   security default-keychain -s "${db_file}"
   security unlock-keychain -p "${keystore_pw}" "${db_file}"
+  
   # Add the keychain to the search list so codesign can find it
   security list-keychains -d user -s "${db_file}" $(security list-keychains -d user | sed -e s/\"//g)
-  echo "${MACOS_CERTIFICATE}" | base64 -d | security import /dev/stdin -f pkcs12 -k "${db_file}" -P "${mac_certificate_pwd}" -T /usr/bin/codesign
+  
+  # Import certificate with -A flag to allow all apps to access the key
+  echo "${MACOS_CERTIFICATE}" | base64 -d | security import /dev/stdin -f pkcs12 -k "${db_file}" -P "${mac_certificate_pwd}" -T /usr/bin/codesign -T /usr/bin/security -A
+  
   if [[ "${mac_skip_root_certificate}" == "" ]]; then
     # Download Apple root certificate used as root for developer certificate
     curl -v "${APPLE_ROOT_CERTIFICATE}" --output certificate.der
     sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certificate.der
   fi
+  
+  # Set partition list to allow codesign and other tools to access the key
   security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keystore_pw}" "${db_file}"
   
   echo "Certificate imported successfully"
