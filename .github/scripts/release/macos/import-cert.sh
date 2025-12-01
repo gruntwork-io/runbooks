@@ -91,6 +91,8 @@ function import_certificate_mac {
   security create-keychain -p "${keystore_pw}" "${db_file}"
   security default-keychain -s "${db_file}"
   security unlock-keychain -p "${keystore_pw}" "${db_file}"
+  # Add the keychain to the search list so codesign can find it
+  security list-keychains -d user -s "${db_file}" $(security list-keychains -d user | sed -e s/\"//g)
   echo "${MACOS_CERTIFICATE}" | base64 -d | security import /dev/stdin -f pkcs12 -k "${db_file}" -P "${mac_certificate_pwd}" -T /usr/bin/codesign
   if [[ "${mac_skip_root_certificate}" == "" ]]; then
     # Download Apple root certificate used as root for developer certificate
