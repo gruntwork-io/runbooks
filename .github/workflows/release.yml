@@ -128,7 +128,7 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: runbooks-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
           retention-days: 7
 
@@ -141,7 +141,7 @@ jobs:
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: binary-*
+          pattern: runbooks-*
           path: binaries/
           merge-multiple: true
 
@@ -170,7 +170,7 @@ jobs:
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: binary-*
+          pattern: runbooks-*
           path: binaries/
           merge-multiple: true
 

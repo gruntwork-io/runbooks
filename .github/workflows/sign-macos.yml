@@ -36,6 +36,9 @@ jobs:
     env:
       MISE_PROFILE: cicd
       GON_VERSION: v0.0.37
+      # Use inputs if available (workflow_dispatch/workflow_call), otherwise use defaults
+      ARTIFACT_PATTERN: ${{ inputs.artifact-pattern || 'runbooks-darwin-*' }}
+      UPLOAD_ARTIFACT_NAME: ${{ inputs.upload-artifact-name || 'macos-signed-files' }}
 
     steps:
       - name: Checkout code
@@ -44,7 +47,7 @@ jobs:
       - name: Download macOS build artifacts
         uses: actions/download-artifact@v6
         with:
-          pattern: ${{ inputs.artifact-pattern }}
+          pattern: ${{ env.ARTIFACT_PATTERN }}
           path: artifacts/
 
       - name: Prepare build artifacts
@@ -96,6 +99,6 @@ jobs:
       - name: Upload Signed MacOS Binaries
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ inputs.upload-artifact-name }}
-          path: bin/terragrunt_darwin_*
+          name: ${{ env.UPLOAD_ARTIFACT_NAME }}
+          path: bin/runbooks_darwin_*
           if-no-files-found: error
