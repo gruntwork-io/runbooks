@@ -1,6 +1,9 @@
 name: Sign MacOS Binaries
 
 on:
+  push:
+    branches:
+      - sign-macos
   workflow_dispatch:
     inputs:
       artifact-pattern:
