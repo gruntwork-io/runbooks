@@ -2,8 +2,19 @@
 
 set -e
 
-# Script to prepare macOS artifacts for signing
-# Usage: prepare-macos-artifacts.sh <artifacts-dir> <bin-dir>
+################################################################################
+# Script: prepare-binaries.sh
+# Description: Filters and copies macOS-specific binaries from the artifacts
+#              directory to the bin directory in preparation for signing. Only
+#              darwin (macOS) binaries are selected.
+#
+# Usage: prepare-binaries.sh <artifacts-dir> <bin-dir> <bin-name>
+#
+# Arguments:
+#   artifacts-dir: Directory containing build artifacts (default: artifacts)
+#   bin-dir: Destination directory for macOS binaries (default: bin)
+#   bin-name: Base name of the binary (default: runbooks)
+################################################################################
 
 function main {
   local -r artifacts_dir="${1:-artifacts}"
@@ -34,3 +45,4 @@ function main {
 }
 
 main "$@"
+

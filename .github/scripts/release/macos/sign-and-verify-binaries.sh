@@ -2,14 +2,25 @@
 
 set -e
 
-# Script to sign macOS binaries using gon and Apple notarization
-# Usage: sign-macos-binaries.sh <bin-dir>
-# Environment variables:
-#   AC_PASSWORD: Apple Connect password
+################################################################################
+# Script: sign-and-verify-binaries.sh
+# Description: Orchestrates the complete macOS binary signing workflow. Imports
+#              certificates, signs both amd64 and arm64 binaries using gon,
+#              extracts signed binaries from ZIP files, verifies signatures with
+#              codesign, and organizes files in the bin directory.
+#
+# Usage: sign-and-verify-binaries.sh <bin-dir>
+#
+# Arguments:
+#   bin-dir: Directory containing binaries to sign (default: bin)
+#
+# Required Environment Variables:
+#   AC_PASSWORD: Apple Connect password for notarization
 #   AC_PROVIDER: Apple Connect provider
 #   AC_USERNAME: Apple Connect username
 #   MACOS_CERTIFICATE: macOS certificate in P12 format (base64 encoded)
 #   MACOS_CERTIFICATE_PASSWORD: Certificate password
+################################################################################
 
 function main {
   local -r bin_dir="${1:-bin}"
@@ -26,21 +37,17 @@ function main {
     exit 1
   fi
 
+  echo "Importing macOS certificate..."
+  .github/scripts/release/macos/import-cert.sh
+
   echo "Signing macOS binaries..."
-
-  # Sign amd64 binary
-  echo "Signing amd64 binary..."
-  .github/scripts/setup/mac-sign.sh .gon_amd64.hcl
-
-  # Sign arm64 binary
-  echo "Signing arm64 binary..."
-  .github/scripts/setup/mac-sign.sh .gon_arm64.hcl
+  .github/scripts/release/macos/sign.sh .gon_amd64.hcl .gon_arm64.hcl
 
   echo "Done signing the binaries"
 
   # Source configuration library
   # shellcheck source=lib-release-config.sh
-  source "$(dirname "$0")/lib-release-config.sh"
+  source "$(dirname "$0")/../lib-release-config.sh"
 
   verify_config_file
 
@@ -123,3 +130,4 @@ function main {
 }
 
 main "$@"
+

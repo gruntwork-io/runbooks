@@ -1,4 +1,4 @@
-name: Sign MacOS Binaries
+name: Sign macOS Binaries
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 
 jobs:
   sign-macos:
-    name: Sign MacOS Binaries
+    name: Sign macOS Binaries
     runs-on: macos-latest
     env:
       MISE_PROFILE: cicd
@@ -23,7 +23,7 @@ jobs:
           path: artifacts/
 
       - name: Prepare build artifacts
-        run: .github/scripts/release/prepare-macos-artifacts.sh artifacts bin runbooks
+        run: .github/scripts/release/macos/prepare-binaries.sh artifacts bin runbooks
 
       - name: Use mise to install dependencies
         uses: jdx/mise-action@v3
@@ -42,19 +42,19 @@ jobs:
 
       - name: Download and install gon
         if: steps.cache-gon.outputs.cache-hit != 'true'
-        run: .github/scripts/release/install-gon.sh ${{ env.GON_VERSION }}
+        run: .github/scripts/release/macos/install-gon.sh ${{ env.GON_VERSION }}
 
       - name: Verify gon installation
         run: gon --version
 
-      - name: Sign MacOS Binaries
+      - name: Sign macOS binaries
         env:
           AC_PASSWORD: ${{ secrets.MACOS_AC_PASSWORD }}
           AC_PROVIDER: ${{ secrets.MACOS_AC_PROVIDER }}
           AC_USERNAME: ${{ secrets.MACOS_AC_LOGIN }}
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        run: .github/scripts/release/sign-macos-binaries.sh bin
+        run: .github/scripts/release/macos/sign-and-verify-binaries.sh bin
 
       - name: Verify codesign signatures
         run: |
@@ -68,7 +68,7 @@ jobs:
             }
           done
 
-      - name: Upload Signed MacOS Binaries (darwin-amd64)
+      - name: Upload signed macOS binaries (darwin-amd64)
         uses: actions/upload-artifact@v5
         with:
           name: runbooks-darwin-amd64
@@ -76,7 +76,7 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-      - name: Upload Signed MacOS Binaries (darwin-arm64)
+      - name: Upload signed macOS binaries (darwin-arm64)
         uses: actions/upload-artifact@v5
         with:
           name: runbooks-darwin-arm64

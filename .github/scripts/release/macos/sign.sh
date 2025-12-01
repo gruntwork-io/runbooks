@@ -1,0 +1,87 @@
+#!/bin/bash
+
+set -e
+
+################################################################################
+# Script: sign.sh
+# Description: Signs macOS binaries using gon and the provided configuration
+#              files. Gon handles code signing and Apple notarization. This
+#              script can sign multiple binaries in a single invocation.
+#
+# Usage: sign.sh <gon-config-file> [<gon-config-file>...]
+#
+# Arguments:
+#   gon-config-file: Path to gon configuration file(s) in HCL format
+#
+# Examples:
+#   sign.sh .gon_amd64.hcl
+#   sign.sh .gon_amd64.hcl .gon_arm64.hcl
+################################################################################
+
+function print_usage {
+  echo
+  echo "Usage: $0 <gon-config-file> [<gon-config-file>...]"
+  echo
+  echo "Signs binaries using gon and provided configuration files."
+  echo
+  echo "Arguments:"
+  echo -e "  <gon-config-file>\t\tPath to gon configuration file (HCL format)"
+  echo
+  echo "Optional Arguments:"
+  echo -e "  --help\t\t\tShow this help text and exit."
+  echo
+  echo "Examples:"
+  echo "  $0 .gon_amd64.hcl"
+  echo "  $0 .gon_amd64.hcl .gon_arm64.hcl"
+}
+
+function main {
+  local config_files=()
+
+  while [[ $# -gt 0 ]]; do
+    local key="$1"
+    case "$key" in
+      --help)
+        print_usage
+        exit
+        ;;
+      -* )
+        echo "ERROR: Unrecognized argument: $key"
+        print_usage
+        exit 1
+        ;;
+      * )
+        config_files=("$@")
+        break
+    esac
+  done
+
+  if [[ ${#config_files[@]} -eq 0 ]]; then
+    echo "ERROR: At least one gon configuration file must be provided"
+    print_usage
+    exit 1
+  fi
+
+  ensure_macos
+  sign_with_gon "${config_files[@]}"
+}
+
+function ensure_macos {
+  if [[ $OSTYPE != 'darwin'* ]]; then
+    echo -e "Signing of macOS binaries is supported only on macOS"
+    exit 1
+  fi
+}
+
+function sign_with_gon {
+  local -r config_files=("$@")
+  local gon_cmd="gon"
+  
+  for filepath in "${config_files[@]}"; do
+    echo "Signing ${filepath}"
+    "${gon_cmd}" -log-level=info "${filepath}"
+  done
+}
+
+main "$@"
+

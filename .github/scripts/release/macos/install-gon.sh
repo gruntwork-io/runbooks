@@ -2,10 +2,17 @@
 
 set -e
 
-# Script to download and install gon binary for macOS code signing
+################################################################################
+# Script: install-gon.sh
+# Description: Downloads and installs the gon binary for macOS code signing and
+#              notarization. Gon is a tool that signs macOS binaries and submits
+#              them to Apple's notarization service.
+#
 # Usage: install-gon.sh [gon-version]
-# Environment variables:
+#
+# Environment Variables:
 #   GON_VERSION: Version of gon to install (default: v0.0.37)
+################################################################################
 
 function main {
   local gon_version="${1:-${GON_VERSION:-v0.0.37}}"
@@ -79,3 +86,4 @@ function main {
 }
 
 main "$@"
+
