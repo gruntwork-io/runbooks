@@ -79,15 +79,29 @@ function sign_with_gon {
   
   for filepath in "${config_files[@]}"; do
     echo "Signing ${filepath}"
+    local log_file="/tmp/gon-$(basename "${filepath}").log"
+    
     # Use debug log level to capture notarization submission IDs for debugging
-    "${gon_cmd}" -log-level=debug "${filepath}" 2>&1 | tee "/tmp/gon-$(basename "${filepath}").log" || {
+    "${gon_cmd}" -log-level=debug "${filepath}" 2>&1 | tee "${log_file}" || {
       echo ""
       echo "❌ Signing/notarization failed for ${filepath}"
-      echo "To debug, get the submission ID from the logs above and run:"
-      echo "  xcrun notarytool log <submission-id> --apple-id \"\$AC_USERNAME\" --password \"\$AC_PASSWORD\" --team-id \"\$AC_PROVIDER\""
+      
+      # Try to extract submission ID from logs
+      local submission_id
+      submission_id=$(grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' "${log_file}" | tail -1 || true)
+      
+      if [[ -n "${submission_id}" ]]; then
+        echo ""
+        echo "📋 Submission ID: ${submission_id}"
+        echo ""
+        echo "To get detailed notarization logs, run:"
+        echo "  xcrun notarytool log ${submission_id} --apple-id \"\$AC_USERNAME\" --password \"\$AC_PASSWORD\" --team-id \"\$AC_PROVIDER\""
+      else
+        echo ""
+        echo "⚠️  No submission ID found - the request likely failed before Apple created a submission."
+        echo "   This usually means an authentication error (check AC_USERNAME, AC_PASSWORD, AC_PROVIDER)."
+      fi
       echo ""
-      # Also try to extract and display the submission ID
-      grep -o 'id: [a-f0-9-]\{36\}' "/tmp/gon-$(basename "${filepath}").log" | tail -1 || true
       exit 1
     }
   done
