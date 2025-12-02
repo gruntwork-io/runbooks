@@ -2,7 +2,6 @@
 # for further instructions on how to sign the binary + submitting for notarization.
 
 source = ["./bin/runbooks_darwin_amd64"]
-
 bundle_id = "io.gruntwork.app.runbooks"
 
 apple_id {
