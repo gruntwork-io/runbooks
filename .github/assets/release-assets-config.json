@@ -1,0 +1,63 @@
+{
+  "platforms": [
+    {
+      "os": "darwin",
+      "arch": "amd64",
+      "binary": "runbooks_darwin_amd64",
+      "signed": true
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "binary": "runbooks_darwin_arm64",
+      "signed": true
+    },
+    {
+      "os": "linux",
+      "arch": "386",
+      "signed": false,
+      "binary": "runbooks_linux_386"
+    },
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "signed": false,
+      "binary": "runbooks_linux_amd64"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "signed": false,
+      "binary": "runbooks_linux_arm64"
+    },
+    {
+      "os": "windows",
+      "arch": "386",
+      "signed": false,
+      "binary": "runbooks_windows_386.exe"
+    },
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "signed": false,
+      "binary": "runbooks_windows_amd64.exe"
+    }
+  ],
+  "archive_formats": [
+    {
+      "extension": "zip",
+      "description": "ZIP archive"
+    },
+    {
+      "extension": "tar.gz",
+      "description": "TAR.GZ archive"
+    }
+  ],
+  "additional_files": [
+    {
+      "name": "SHA256SUMS",
+      "description": "Checksums file"
+    }
+  ]
+}
+

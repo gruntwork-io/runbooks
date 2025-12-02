@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -e
+
+################################################################################
+# Script: prepare-binaries.sh
+# Description: Filters and copies macOS-specific binaries from the artifacts
+#              directory to the bin directory in preparation for signing. Only
+#              darwin (macOS) binaries are selected.
+#
+# Usage: prepare-binaries.sh <artifacts-dir> <bin-dir> <bin-name>
+#
+# Arguments:
+#   artifacts-dir: Directory containing build artifacts (default: artifacts)
+#   bin-dir: Destination directory for macOS binaries (default: bin)
+#   bin-name: Base name of the binary (default: runbooks)
+################################################################################
+
+function main {
+  local -r artifacts_dir="${1:-artifacts}"
+  local -r bin_dir="${2:-bin}"
+  local -r bin_name="${3:-runbooks}"
+
+  if [[ ! -d "$artifacts_dir" ]]; then
+    echo "ERROR: Artifacts directory $artifacts_dir does not exist"
+    exit 1
+  fi
+
+  echo "Preparing macOS build artifacts..."
+
+  # Create bin directory
+  mkdir -p "$bin_dir"
+
+  # Copy only macOS artifacts (e.g. runbooks_darwin_*) to bin directory
+  find "$artifacts_dir" -type f -name "${bin_name}_darwin_*" -exec cp {} "$bin_dir/" \;
+
+  # Verify we found macOS binaries
+  if ! ls "$bin_dir"/${bin_name}_darwin_* > /dev/null 2>&1; then
+    echo "ERROR: No macOS binaries (${bin_name}_darwin_*) found in $artifacts_dir"
+    exit 1
+  fi
+
+  echo "Binary files to sign:"
+  ls -lahrt "$bin_dir"/*
+}
+
+main "$@"
+
