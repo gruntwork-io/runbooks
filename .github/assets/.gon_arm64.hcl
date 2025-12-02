@@ -2,7 +2,7 @@
 # for further instructions on how to sign the binary + submitting for notarization.
 
 source = ["./bin/runbooks_darwin_arm64"]
-bundle_id = "io.gruntwork.runbooks"
+bundle_id = "io.gruntwork.app.runbooks"
 
 apple_id {
   username = "@env:AC_USERNAME"
