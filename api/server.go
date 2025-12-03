@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
-	"os"
+	"net/http"
+
+	"runbooks/web"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -10,6 +12,16 @@ import (
 
 // setupCommonRoutes sets up the common routes for both server modes
 func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, registry *ExecutableRegistry, useExecutableRegistry bool) {
+	// Get embedded filesystems for serving static assets
+	distFS, err := web.GetDistFS()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get embedded dist filesystem: %v", err))
+	}
+	assetsFS, err := web.GetAssetsFS()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get embedded assets filesystem: %v", err))
+	}
+
 	// API endpoint to serve the runbook file contents
 	r.POST("/api/file", HandleFileRequest(runbookPath))
 
@@ -35,20 +47,26 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
 
-	// Serve static assets (CSS, JS, etc.) from the assets directory
-	r.Static("/assets", "./web/dist/assets")
+	// Serve static assets (CSS, JS, etc.) from the embedded assets directory
+	r.StaticFS("/assets", http.FS(assetsFS))
 
 	// Runs when no other routes match the incoming request; useful for a single-page app
 	// since we can have React handle the routing if needed.
 	r.NoRoute(func(c *gin.Context) {
-		// Try to serve static files from dist root (e.g., images, favicon, etc.)
-		path := "./web/dist" + c.Request.URL.Path
-		if fileInfo, err := os.Stat(path); err == nil && !fileInfo.IsDir() {
-			c.File(path)
-			return
+		// Try to serve static files from embedded dist root (e.g., images, favicon, etc.)
+		path := c.Request.URL.Path
+		if path[0] == '/' {
+			path = path[1:] // Remove leading slash for fs.Open
+		}
+		if file, err := distFS.Open(path); err == nil {
+			defer file.Close()
+			if stat, err := file.Stat(); err == nil && !stat.IsDir() {
+				http.ServeFileFS(c.Writer, c.Request, distFS, path)
+				return
+			}
 		}
 		// Fall back to serving index.html for SPA routing
-		c.File("./web/dist/index.html")
+		http.ServeFileFS(c.Writer, c.Request, distFS, "index.html")
 	})
 }
 
