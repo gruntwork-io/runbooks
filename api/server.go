@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"runbooks/web"
 
@@ -54,10 +55,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// since we can have React handle the routing if needed.
 	r.NoRoute(func(c *gin.Context) {
 		// Try to serve static files from embedded dist root (e.g., images, favicon, etc.)
-		path := c.Request.URL.Path
-		if path[0] == '/' {
-			path = path[1:] // Remove leading slash for fs.Open
-		}
+		path := strings.TrimPrefix(c.Request.URL.Path, "/")
 		if file, err := distFS.Open(path); err == nil {
 			defer file.Close()
 			if stat, err := file.Stat(); err == nil && !stat.IsDir() {
