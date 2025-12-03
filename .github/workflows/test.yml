@@ -24,6 +24,11 @@ jobs:
         with:
           go-version: '1.25.1'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -36,6 +41,12 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Build frontend (required for Go embed)
+        working-directory: ./web
+        run: |
+          bun install
+          bun run build
 
       - name: Run Go tests
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
@@ -53,7 +64,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.22
+          bun-version: 1.3.3
 
       - name: Cache Bun dependencies
         uses: actions/cache@v4
