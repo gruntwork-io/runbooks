@@ -1,0 +1,45 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build the complete binary with embedded frontend
+    deps: [build:frontend]
+    cmds:
+      - go build -o runbooks .
+    sources:
+      - "**/*.go"
+      - web/dist/**/*
+    generates:
+      - runbooks
+
+  build:frontend:
+    desc: Build the frontend (creates web/dist)
+    dir: web
+    cmds:
+      - bun install
+      - bun run build
+    sources:
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.css"
+      - package.json
+    generates:
+      - dist/**/*
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf web/dist
+      - rm -f runbooks
+
+  dev:frontend:
+    desc: "Run the frontend dev server (Vite) - use with dev:backend in another terminal"
+    dir: web
+    cmds:
+      - bun run dev
+
+  dev:backend:
+    desc: "Run the backend API server - usage: task dev:backend RUNBOOK_PATH=path/to/runbook"
+    cmds:
+      - go run . serve {{.RUNBOOK_PATH | default "testdata/my-first-runbook"}}
+
