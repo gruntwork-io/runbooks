@@ -241,13 +241,13 @@ func detectInterpreter(script string, providedLang string) (string, []string) {
 
 		// Handle common patterns
 		if strings.Contains(shebang, "/env ") {
-			// #!/usr/bin/env python3 -> ["python3"]
+			// e.g. #!/usr/bin/env python3 -> ["python3"]
 			parts := strings.Fields(shebang)
 			if len(parts) >= 2 {
 				return parts[1], parts[2:]
 			}
 		} else {
-			// #!/bin/bash -> ["bash"]
+			// e.g. #!/bin/bash -> ["bash"]
 			parts := strings.Fields(shebang)
 			if len(parts) >= 1 {
 				// Get just the binary name (e.g., "bash" from "/bin/bash")
