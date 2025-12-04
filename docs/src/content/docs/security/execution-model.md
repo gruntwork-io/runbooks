@@ -120,9 +120,11 @@ Regardless of mode, the actual execution process is:
 2. **Render templates**: If script contains template variables like `{{ .VarName }}`, substitute them
 3. **Create temp file**: Write script content to a temporary file
 4. **Make executable**: Set file permissions (`chmod 0700`)
-5. **Detect interpreter**: Read shebang line (e.g., `#!/bin/bash`) or use component's `language` prop
-6. **Execute**: Run script with detected interpreter
+5. **Detect interpreter**: Read shebang line (e.g., `#!/bin/bash`) or default to `bash`
+6. **Execute**: Run script with detected interpreter in a non-interactive shell
 7. **Stream output**: Send stdout/stderr back to browser via Server-Sent Events (SSE)
 8. **Clean up**: Delete temporary file
 
 **Security note:** Scripts run with your user's full environment variables and permissions. Runbooks is designed for **trusted runbooks only** - it's meant to streamline tasks you would otherwise run manually in your terminal.
+
+For details on interpreter detection and shell limitations (aliases, functions, RC files), see [Shell Execution Context](/security/shell-execution-context/).

@@ -309,6 +309,12 @@ fi
 />
 ```
 
+## Shell Execution Context
+
+Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
+
+For full details on interpreter detection and workarounds, see [Shell Execution Context](/security/shell-execution-context/).
+
 ## Security Considerations
 
 ### Avoid Hardcoded Secrets
