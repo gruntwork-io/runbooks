@@ -42,27 +42,55 @@ For now, you'll need to manually launch the docs site by doing the following:
    bun dev
    ```
 
+## Building
+
+This project uses [Task](https://taskfile.dev/) as a task runner. Install it first:
+
+```bash
+# macOS
+brew install go-task
+
+# Or see https://taskfile.dev/installation/ for other methods
+```
+
+Then build the complete binary:
+
+```bash
+task build
+```
+
+This will:
+1. Build the frontend (`web/dist`)
+2. Embed the frontend into the Go binary
+3. Output a self-contained `runbooks` binary
+
+Other useful tasks:
+
+```bash
+task --list     # List all available tasks
+task clean      # Remove build artifacts
+```
+
 ## Development
 
-1. Install [Bun](https://bun.sh/docs/installation)
-
-   Bun is a fast JavaScript runtime and package manager that works out of the box.
+1. Install prerequisites:
+   - [Bun](https://bun.sh/docs/installation) - JavaScript runtime and package manager
+   - [Go](https://go.dev/doc/install) - Go compiler
+   - [Task](https://taskfile.dev/installation/) - Task runner
 
 1. Git clone this repo and `cd` to the repo dir.
 
-1. Start the backend HTTP server so that the frontend can interact with the Go binary.
+1. Start the backend and frontend dev servers in separate terminals:
+
    ```bash
-   go run main.go serve /path/to/runbook.mdx
+   # Terminal 1: Backend API server
+   task dev:backend RUNBOOK_PATH=testdata/my-first-runbook
+
+   # Terminal 2: Frontend dev server (Vite with hot reload)
+   task dev:frontend
    ```
 
-1. Start Vite to run the React frontend:
-   ```bash
-   cd web
-   bun install
-   bun dev
-   ```
-
-Now you can make changes to the React code in `/web` or to the backend in the applicable `.go` files! If you update Go files, don't forget to re-compile the Go code.
+Now you can make changes to the React code in `/web` or to the backend in the applicable `.go` files! The frontend will hot-reload automatically. For Go changes, restart the `dev:backend` task.
 
 ### Adding shadcn/ui components
 
