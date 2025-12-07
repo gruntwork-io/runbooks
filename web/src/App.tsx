@@ -216,7 +216,7 @@ function App() {
                   }`}
                 >
                   <ArtifactsContainer 
-                    className="absolute top-0 left-0 right-0 h-screen" 
+                    className="absolute top-0 left-0 right-0 h-full" 
                     onHide={() => setIsArtifactsHidden(true)}
                     hideContent={!showArtifacts}
                   />
