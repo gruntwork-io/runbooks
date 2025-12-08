@@ -57,7 +57,7 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, e
     value={String(value || '')}
     onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
     className={getInputClassName(error, 'max-w-24')}
-    placeholder={variable.description}
+    placeholder=""
   />
 )
 
