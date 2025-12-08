@@ -1,6 +1,7 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ChevronDown, ChevronRight, XCircle, Check } from "lucide-react"
 import { useState } from 'react'
+import { LinkifiedText } from "@/components/shared/LinkifiedText"
 
 export interface CommandSummaryProps {
   status: 'succeed' | 'fail';
@@ -40,7 +41,12 @@ export const CommandSummary = ({ status, command, logs }: CommandSummaryProps) =
           <div className="mb-2 text-gray-600 font-semibold">Command Output:</div>
           <div className="space-y-1">
             {logs.map((log, index) => (
-              <div key={index}>{log}</div>
+              <div key={index}>
+                <LinkifiedText 
+                  text={log} 
+                  linkClassName="text-blue-600 hover:text-blue-500 underline"
+                />
+              </div>
             ))}
           </div>
         </div>
