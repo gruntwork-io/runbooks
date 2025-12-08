@@ -64,7 +64,7 @@ This will execute the script located at `checks/aws-authenticated.sh` when the u
 - `description` (string) - Longer description of what's being checked
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `boilerplateInputsId` (string) - ID of a BoilerplateInputs block to get variables from
+- `boilerplateInputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `successMessage` (string) - Message shown when check succeeds (default: "Success")
 - `warnMessage` (string) - Message shown on warning (default: "Warning")
 - `failMessage` (string) - Message shown when check fails (default: "Failed")
@@ -123,6 +123,33 @@ variables:
     </BoilerplateInputs>
 </Check>
 ```
+
+### Using Multiple boilerplateInputsIds
+
+You can reference multiple BoilerplateInputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+
+```mdx
+<BoilerplateInputs id="lambda-config" templatePath="templates/lambda" />
+
+<BoilerplateInputs id="repo-config">
+```yaml
+variables:
+  - name: GithubOrgName
+    type: string
+  - name: GithubRepoName
+    type: string
+\```
+</BoilerplateInputs>
+
+<Check 
+    id="check-lambda" 
+    path="checks/test-lambda.sh"
+    boilerplateInputsId={["lambda-config", "repo-config"]}
+    title="Test Lambda Function"
+/>
+```
+
+In this example, the check has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
 ## Example Shell Scripts
 

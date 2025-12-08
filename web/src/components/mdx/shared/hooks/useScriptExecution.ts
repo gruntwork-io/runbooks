@@ -5,6 +5,7 @@ import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useApiExec } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
+import { mergeBoilerplateVariables } from '../lib/mergeBoilerplateVariables'
 import { extractTemplateVariables } from '@/components/mdx/BoilerplateTemplate/lib/extractTemplateVariables'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
@@ -14,7 +15,8 @@ interface UseScriptExecutionProps {
   componentId: string
   path?: string
   command?: string
-  boilerplateInputsId?: string
+  /** Reference to one or more BoilerplateInputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  boilerplateInputsId?: string | string[]
   children?: ReactNode
   componentType: ComponentType
 }
@@ -74,16 +76,9 @@ export function useScriptExecution({
   // Extract inline BoilerplateInputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
   
-  // Collect variables from both sources and merge (inline takes precedence)
+  // Collect variables from all sources and merge (later IDs override earlier, inline overrides all)
   const collectedVariables = useMemo(() => {
-    const externalVars = boilerplateInputsId ? variablesByInputsId[boilerplateInputsId] : undefined
-    const inlineVars = inlineInputsId ? variablesByInputsId[inlineInputsId] : undefined
-    
-    // Merge: inline overrides external
-    return {
-      ...(externalVars || {}),
-      ...(inlineVars || {})
-    }
+    return mergeBoilerplateVariables(boilerplateInputsId, variablesByInputsId, inlineInputsId)
   }, [boilerplateInputsId, inlineInputsId, variablesByInputsId])
   
   // Extract template variables from script content

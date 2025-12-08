@@ -323,6 +323,33 @@ variables:
 />
 `````
 
+### Reference Multiple IDs
+
+You can reference multiple BoilerplateInputs by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+
+`````mdx
+<BoilerplateInputs id="lambda-config" templatePath="templates/lambda" />
+
+<BoilerplateInputs id="repo-config">
+```yaml
+variables:
+  - name: GithubOrgName
+    type: string
+  - name: GithubRepoName
+    type: string
+```
+</BoilerplateInputs>
+
+<Command 
+    id="deploy" 
+    path="scripts/deploy.sh"
+    boilerplateInputsId={["lambda-config", "repo-config"]}
+    title="Deploy"
+/>
+`````
+
+This is useful when you have variables defined in different forms that all need to be available in a single Command or Check.
+
 ### Inline (Embedded)
 
 `````mdx
