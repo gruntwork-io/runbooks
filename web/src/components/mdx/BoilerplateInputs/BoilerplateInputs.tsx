@@ -12,7 +12,6 @@ import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 import { extractYamlFromChildren } from './lib/extractYamlFromChildren'
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
-import { mergeFileTrees } from '@/lib/mergeFileTrees'
 
 /**
  * Renders a dynamic web form based on a boilerplate.yml configuration.
@@ -162,10 +161,11 @@ function BoilerplateInputs({
   )
 
   // Update global file tree when render result is available from file-based template
+  // Replace the entire file tree since the backend clears the output folder before each render
   useEffect(() => {
     if (renderResult && renderResult.fileTree) {
       const fileTree = renderResult.fileTree as FileTreeNode[];
-      setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTree));
+      setFileTree(fileTree);
     }
   }, [renderResult, setFileTree]);
 

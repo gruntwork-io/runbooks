@@ -2,7 +2,6 @@ import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
 import { useFileTree } from './useFileTree';
-import { mergeFileTrees } from '@/lib/mergeFileTrees';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 interface BoilerplateRenderResult {
@@ -57,11 +56,11 @@ export function useApiBoilerplateRender(
   }, [debouncedRequest]);
 
   // Handle file tree updates when data changes
-  // Use functional update to merge with existing tree and avoid stale closure issues
+  // Replace the entire file tree since the backend clears the output folder before each render
   useEffect(() => {
     const fileTreeData = apiResult.data?.fileTree;
     if (fileTreeData && Array.isArray(fileTreeData)) {
-      setFileTree(currentFileTree => mergeFileTrees(currentFileTree, fileTreeData));
+      setFileTree(fileTreeData);
     }
   }, [apiResult.data?.fileTree, setFileTree]);
 
