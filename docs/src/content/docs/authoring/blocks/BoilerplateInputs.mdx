@@ -144,7 +144,7 @@ variables:
 ### Structured Map (with Schema)
 
 <Aside type="note">
-This schema declaration is not supported by Boilerplate itself, but is supported by Runbooks.
+The `x-schema` and `x-schema-instance-label` properties are Runbooks extensions and are ignored by Boilerplate itself. See [Runbooks Extensions](#runbooks-extensions) for more details.
 </Aside>
 
 Map with predefined fields:
@@ -154,11 +154,11 @@ variables:
   - name: Accounts
     type: map
     description: AWS accounts configuration
-    schema:
+    x-schema:
       email: string
       environment: string
       id: string
-    schemaInstanceLabel: Account Name
+    x-schema-instance-label: Account Name
     default:
       dev:
         email: dev@example.com
@@ -169,6 +169,91 @@ variables:
         environment: production
         id: "098765432109"
 ```
+
+## Runbooks Extensions
+
+Runbooks extends Boilerplate's variable syntax with additional properties that enhance the form rendering experience. These properties are prefixed with `x-` to indicate they are Runbooks-specific extensions and will be ignored by Boilerplate itself.
+
+<Aside type="tip">
+All Runbooks extension properties start with `x-`. This follows the convention used by OpenAPI and other specifications for vendor extensions. Boilerplate will ignore these properties, so your `boilerplate.yml` files remain compatible with standalone Boilerplate usage.
+</Aside>
+
+### x-section
+
+Groups variables under section headers in the rendered form. Variables with the same `x-section` value will be visually grouped together.
+
+```yaml
+variables:
+  # Variables without x-section appear first (ungrouped)
+  - name: FunctionName
+    type: string
+    description: Name for your Lambda function
+
+  # Variables in "Basic Configuration" section
+  - name: Runtime
+    type: enum
+    description: Lambda runtime
+    options:
+      - python3.12
+      - nodejs20.x
+    x-section: Basic Configuration
+
+  - name: Handler
+    type: string
+    description: Function entrypoint
+    x-section: Basic Configuration
+
+  # Variables in "Advanced Settings" section  
+  - name: MemorySize
+    type: int
+    description: Memory allocation in MB
+    default: 128
+    x-section: Advanced Settings
+
+  - name: Timeout
+    type: int
+    description: Timeout in seconds
+    default: 30
+    x-section: Advanced Settings
+```
+
+**Ordering behavior:**
+- Variables without an `x-section` always appear first (no header)
+- Named sections appear in the order they first occur in the YAML
+- Variables within a section maintain their declaration order
+
+### x-schema
+
+Defines a schema for structured map variables. The frontend renders a form with the specified fields for each map entry.
+
+```yaml
+variables:
+  - name: AWSAccounts
+    type: map
+    description: AWS accounts configuration
+    x-schema:
+      email: string
+      environment: string
+      id: string
+```
+
+### x-schema-instance-label
+
+Customizes the label used for each entry in a structured map (used with `x-schema`).
+
+```yaml
+variables:
+  - name: AWSAccounts
+    type: map
+    description: AWS accounts configuration
+    x-schema:
+      email: string
+      environment: string
+      id: string
+    x-schema-instance-label: Account Name
+```
+
+Without this property, map entries would be labeled generically. With `x-schema-instance-label: Account Name`, each entry is labeled as "Account Name" in the form.
 
 ## Validations
 
