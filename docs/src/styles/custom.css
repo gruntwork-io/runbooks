@@ -319,3 +319,8 @@ button[data-open-modal]:hover {
   }
 }
 
+/* Remove content margin */
+.main-pane .sl-container {
+  margin-inline: 10px;
+}
+
