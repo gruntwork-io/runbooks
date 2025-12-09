@@ -1,0 +1,46 @@
+variables:
+  # Advanced section appears first in declaration order
+  - name: MemorySize
+    type: int
+    description: Memory allocation in MB
+    default: 128
+    x-section: Advanced Settings
+
+  # Unsectioned variable
+  - name: FunctionName
+    type: string
+    description: Name of the Lambda function
+    default: my-function
+
+  # Basic section
+  - name: Runtime
+    type: enum
+    description: Lambda runtime
+    options:
+      - python3.12
+      - nodejs20.x
+    default: python3.12
+    x-section: Basic Configuration
+
+  # Another Advanced variable
+  - name: Timeout
+    type: int
+    description: Timeout in seconds
+    default: 30
+    x-section: Advanced Settings
+
+  # Another unsectioned variable
+  - name: Description
+    type: string
+    description: Function description
+
+  # With schema (Runbooks extension)
+  - name: Tags
+    type: map
+    description: Resource tags
+    x-section: Basic Configuration
+    x-schema:
+      Name: string
+      Environment: string
+    x-schema-instance-label: Tag Name
+
