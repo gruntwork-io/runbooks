@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, SquareTerminal } from "lucide-react"
 import { useState, useEffect } from "react"
+import { LinkifiedText } from "@/components/shared/LinkifiedText"
 
 interface ViewLogsProps {
   logs: string[]
@@ -52,7 +53,7 @@ export function ViewLogs({
                   <span className="text-gray-500 mr-2">
                     {new Date().toLocaleTimeString()}
                   </span>
-                  {log}
+                  <LinkifiedText text={log} />
                 </div>
               ))}
               {checkStatus === 'running' && (

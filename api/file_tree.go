@@ -19,6 +19,8 @@ func getLanguageFromExtension(filename string) string {
 		".tfstate":       "json",
 		".hcl":           "hcl",
 		".js":            "javascript",
+		".cjs":           "javascript",
+		".mjs":           "javascript",
 		".jsx":           "jsx",
 		".ts":            "typescript",
 		".tsx":           "tsx",

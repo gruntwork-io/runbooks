@@ -15,6 +15,10 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
   const [treeWidth, setTreeWidth] = useState(200);
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  
+  // Track if the user manually selected a file (vs automatic data updates)
+  const userSelectedFileRef = useRef<string | null>(null);
 
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
@@ -35,33 +39,37 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     return files;
   }, [data]);
 
-  // Effect to handle scrolling when selectedFileId changes or when fileItems update
+  // Effect to handle scrolling only when user explicitly clicks a file
+  // We use userSelectedFileRef to distinguish user clicks from data updates
   useEffect(() => {
-    if (!selectedFileId) return;
+    // Only scroll if the user explicitly selected this file (not on data updates)
+    if (!userSelectedFileRef.current) return;
+    
+    const fileIdToScrollTo = userSelectedFileRef.current;
+    // Clear the ref so we don't scroll again on subsequent renders
+    userSelectedFileRef.current = null;
     
     // Use double requestAnimationFrame to ensure both layout AND paint are complete
-    // This is especially important when content has been updated (e.g., file went from empty to having content)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const fileRef = fileRefs.current[selectedFileId];
+        const fileRef = fileRefs.current[fileIdToScrollTo];
         
         if (fileRef) {
-          // Use scrollIntoView which handles edge cases better than manual scrollTo
-          // (e.g., when element is at the bottom of the scroll container)
           fileRef.scrollIntoView({
             behavior: 'smooth',
-            block: 'start', // Align to the top of the visible area
+            block: 'start',
             inline: 'nearest'
           });
         }
       });
     });
-  }, [selectedFileId, fileItems]);
+  }, [selectedFileId]);
 
   // Handle file tree item clicks
   const handleFileTreeClick = (item: FileTreeNode) => {
     if (item.type === 'file' && item.file) {
-      // Update selected file ID, which triggers the scroll effect
+      // Mark this as a user-initiated selection so we scroll to it
+      userSelectedFileRef.current = item.id;
       setSelectedFileId(item.id);
     }
   };
@@ -113,6 +121,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
             />
 
             <div 
+              ref={scrollContainerRef}
               className="overflow-y-auto h-full"
               style={{ marginLeft: `${treeWidth}px` }}
             >

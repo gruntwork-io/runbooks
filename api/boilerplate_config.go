@@ -125,13 +125,18 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 
 	slog.Info("Boilerplate config parsed successfully", "variableCount", len(boilerplateConfig.Variables))
 
-	// Parse raw YAML to extract custom fields like schema and schema_instance_label
+	// Parse raw YAML to extract custom fields (Runbooks extensions with x- prefix)
 	schemas := extractSchemasFromYAML(boilerplateYamlContent)
 	schemaInstanceLabels := extractSchemaInstanceLabelsFromYAML(boilerplateYamlContent)
+	// Extract section groupings: an ordered list of sections, each with the associated variable names.
+	sections := extractSectionGroupings(boilerplateYamlContent)
+	// Extract variable-to-section mapping: a lookup table from variable name -> section name.
+	variableToSection := extractVariablesToSectionMap(boilerplateYamlContent)
 
 	// Convert to our JSON structure
 	result := &BoilerplateConfig{
 		Variables: make([]BoilerplateVariable, 0, len(boilerplateConfig.Variables)),
+		Sections:  sections,
 	}
 
 	for _, variable := range boilerplateConfig.Variables {
@@ -171,6 +176,11 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 			boilerplateVar.SchemaInstanceLabel = schemaInstanceLabel
 		}
 
+		// Attach section name if available
+		if sectionName, exists := variableToSection[variable.Name()]; exists {
+			boilerplateVar.SectionName = sectionName
+		}
+
 		result.Variables = append(result.Variables, boilerplateVar)
 	}
 
@@ -179,11 +189,12 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 
 // extractSchemasFromYAML parses the raw YAML to extract schema definitions for variables
 // Returns a map of variable name to schema (field name -> type)
+// YAML property: x-schema (Runbooks extension, ignored by Boilerplate)
 func extractSchemasFromYAML(yamlContent string) map[string]map[string]string {
 	// Define a structure that matches the boilerplate.yml format
 	type rawVariable struct {
 		Name   string            `yaml:"name"`
-		Schema map[string]string `yaml:"schema"`
+		Schema map[string]string `yaml:"x-schema"`
 	}
 	type rawConfig struct {
 		Variables []rawVariable `yaml:"variables"`
@@ -205,13 +216,14 @@ func extractSchemasFromYAML(yamlContent string) map[string]map[string]string {
 	return schemas
 }
 
-// extractSchemaInstanceLabelsFromYAML parses the raw YAML to extract schema_instance_label definitions for map variables
+// extractSchemaInstanceLabelsFromYAML parses the raw YAML to extract x-schema-instance-label definitions for map variables
 // Returns a map of variable name to schema instance label string
+// YAML property: x-schema-instance-label (Runbooks extension, ignored by Boilerplate)
 func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
 	// Define a structure that matches the boilerplate.yml format
 	type rawVariable struct {
 		Name                string `yaml:"name"`
-		SchemaInstanceLabel string `yaml:"schema_instance_label"`
+		SchemaInstanceLabel string `yaml:"x-schema-instance-label"`
 	}
 	type rawConfig struct {
 		Variables []rawVariable `yaml:"variables"`
@@ -219,7 +231,7 @@ func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
 
 	var config rawConfig
 	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for schema_instance_label extraction", "error", err)
+		slog.Warn("Failed to parse YAML for x-schema-instance-label extraction", "error", err)
 		return map[string]string{}
 	}
 
@@ -231,6 +243,100 @@ func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
 	}
 
 	return schemaInstanceLabels
+}
+
+// extractVariablesToSectionMap parses the raw YAML to extract x-section for each variable.
+// Returns a map of variable name -> section name (for attaching to individual variables).
+// This is used to populate BoilerplateVariable.SectionName.
+// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
+func extractVariablesToSectionMap(yamlContent string) map[string]string {
+	// Define a structure that matches the boilerplate.yml format
+	type rawVariable struct {
+		Name    string `yaml:"name"`
+		Section string `yaml:"x-section"`
+	}
+	type rawConfig struct {
+		Variables []rawVariable `yaml:"variables"`
+	}
+
+	var config rawConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
+		slog.Warn("Failed to parse YAML for x-section extraction", "error", err)
+		return map[string]string{}
+	}
+
+	variableToSection := make(map[string]string)
+	for _, variable := range config.Variables {
+		if variable.Section != "" {
+			variableToSection[variable.Name] = variable.Section
+		}
+	}
+
+	return variableToSection
+}
+
+// extractSectionGroupings parses the raw YAML to build an ordered list of section groupings.
+// Returns an ordered slice of Section structs for UI rendering (e.g., rendering collapsible sections).
+// Each Section contains the section name and the list of variable names in that section.
+// Variables without a section use "" (empty string) as the section name.
+// The unnamed section ("") is always placed first if it exists.
+// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
+func extractSectionGroupings(yamlContent string) []Section {
+	// Define a structure that matches the boilerplate.yml format
+	type rawVariable struct {
+		Name    string `yaml:"name"`
+		Section string `yaml:"x-section"`
+	}
+	type rawConfig struct {
+		Variables []rawVariable `yaml:"variables"`
+	}
+
+	var config rawConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
+		slog.Warn("Failed to parse YAML for x-section extraction", "error", err)
+		return []Section{}
+	}
+
+	// Use a map to collect variables per section, and track order of first occurrence
+	sectionVars := make(map[string][]string)
+	var sectionOrder []string
+	seenSections := make(map[string]bool)
+
+	for _, variable := range config.Variables {
+		sectionName := variable.Section // Empty string if not specified
+
+		// Add variable to its section
+		sectionVars[sectionName] = append(sectionVars[sectionName], variable.Name)
+
+		// Track section order (first occurrence)
+		if !seenSections[sectionName] {
+			seenSections[sectionName] = true
+			sectionOrder = append(sectionOrder, sectionName)
+		}
+	}
+
+	// Ensure "" (unnamed section) is always first if it exists
+	if seenSections[""] && len(sectionOrder) > 0 && sectionOrder[0] != "" {
+		// Find and move "" to the front
+		newOrder := []string{""}
+		for _, s := range sectionOrder {
+			if s != "" {
+				newOrder = append(newOrder, s)
+			}
+		}
+		sectionOrder = newOrder
+	}
+
+	// Build the result slice
+	sections := make([]Section, 0, len(sectionOrder))
+	for _, name := range sectionOrder {
+		sections = append(sections, Section{
+			Name:      name,
+			Variables: sectionVars[name],
+		})
+	}
+
+	return sections
 }
 
 // Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate

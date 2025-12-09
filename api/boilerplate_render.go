@@ -161,6 +161,17 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 			return
 		}
 
+		// Clear any existing files in the output directory before rendering
+		// This ensures each render starts fresh without leftover files from previous renders
+		if err := deleteDirectoryContents(outputDir); err != nil {
+			slog.Error("Failed to clear output directory", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to clear output directory",
+				"details": err.Error(),
+			})
+			return
+		}
+
 		slog.Info("Rendering template to output directory", "outputDir", outputDir)
 
 		// Render the template using the boilerplate package

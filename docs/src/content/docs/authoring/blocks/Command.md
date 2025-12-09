@@ -43,7 +43,7 @@ The `<Command>` block executes shell commands or scripts with variable substitut
 - `description` (string) - Longer description of what the command does
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `boilerplateInputsId` (string) - ID of a BoilerplateInputs block to get variables from
+- `boilerplateInputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `successMessage` (string) - Message shown when command succeeds (default: "Success")
 - `failMessage` (string) - Message shown when command fails (default: "Failed")
 - `runningMessage` (string) - Message shown while running (default: "Running...")
@@ -102,6 +102,36 @@ variables:
     </BoilerplateInputs>
 </Command>
 ```
+
+### Using Multiple boilerplateInputsIds
+
+You can reference multiple BoilerplateInputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+
+```mdx
+<BoilerplateInputs id="lambda-config" templatePath="templates/lambda" />
+
+<BoilerplateInputs id="repo-config">
+```yaml
+variables:
+  - name: GithubOrgName
+    type: string
+    description: GitHub organization name
+  - name: GithubRepoName
+    type: string
+    description: Repository name
+\```
+</BoilerplateInputs>
+
+<Command 
+    id="deploy-lambda" 
+    path="scripts/deploy.sh"
+    boilerplateInputsId={["lambda-config", "repo-config"]}
+    title="Deploy Lambda Function"
+    description="Deploy the Lambda function using variables from both inputs"
+/>
+```
+
+In this example, the command has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
 ## Variable Substitution
 

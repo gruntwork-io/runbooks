@@ -3,8 +3,8 @@ variables:
     description: A map of AWS account names to account details.
     type: map
     order: 1
-    schema_instance_label: AWS Account Name
-    schema:
+    x-schema-instance-label: AWS Account Name
+    x-schema:
       email: string
       environment: string
       id: string

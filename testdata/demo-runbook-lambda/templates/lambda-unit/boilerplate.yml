@@ -1,0 +1,98 @@
+variables: 
+  - name: Environment
+    type: enum
+    description: Target environment for deployment
+    options:
+      - non-prod
+      - prod
+    default: non-prod
+    x-section: Deployment Settings
+  
+  - name: AwsRegion
+    type: enum
+    options:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - eu-central-1
+      - eu-west-1
+      - eu-west-2
+    description: The AWS region to deploy the Lambda function to
+    default: "us-west-2"
+    validations: "required"
+    x-section: Deployment Settings
+
+  - name: FunctionName
+    type: string
+    description: Name for your Lambda function (will be suffixed with environment)
+    default: example-lambda
+    validations: "required"
+    x-section: Function Settings
+
+  - name: Description
+    type: string
+    description: Description of the Lambda function (optional)
+    x-section: Function Settings
+
+  - name: Runtime
+    type: enum
+    description: Lambda runtime environment
+    validations: "required"
+    options:
+      - python3.13
+      - python3.12
+      - python3.11
+      - nodejs24.x
+      - nodejs22.x
+      - nodejs20.x
+      - nodejs18.x
+    default: python3.13
+    x-section: Function Settings
+
+  - name: Handler
+    type: string
+    description: "Function entrypoint (Python: app.handler, Node.js: index.handler)"
+    default: app.handler
+    x-section: Function Settings
+
+  - name: LogLevel
+    type: enum
+    description: Log level for the Lambda function (optional)
+    options:
+      - ""
+      - DEBUG
+      - INFO
+      - WARNING
+      - ERROR
+    x-section: Function Settings
+
+  - name: MemorySize
+    type: int
+    description: Memory allocation in MB (128-10240)
+    default: 128
+    validations: "required"
+    x-section: Advanced Settings
+
+  - name: Timeout
+    type: int
+    description: Function timeout in seconds (1-900)
+    default: 30
+    validations: "required"
+    x-section: Advanced Settings
+  
+  - name: ReservedConcurrency
+    type: int
+    description: Reserved concurrent executions (optional, enter a number, or leave empty for unreserved)
+    x-section: Advanced Settings
+
+dependencies:
+  - name: python-source
+    template-url: "../lambda-src/python"
+    output-folder: "./src"
+    skip: '{{ not (hasPrefix "python" .Runtime) }}'
+
+  - name: nodejs-source
+    template-url: "../lambda-src/nodejs"
+    output-folder: "./src"
+    skip: '{{ not (hasPrefix "nodejs" .Runtime) }}'

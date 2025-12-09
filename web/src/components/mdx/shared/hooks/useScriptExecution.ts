@@ -5,6 +5,7 @@ import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useApiExec } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
+import { mergeBoilerplateVariables } from '../lib/mergeBoilerplateVariables'
 import { extractTemplateVariables } from '@/components/mdx/BoilerplateTemplate/lib/extractTemplateVariables'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
@@ -14,7 +15,8 @@ interface UseScriptExecutionProps {
   componentId: string
   path?: string
   command?: string
-  boilerplateInputsId?: string
+  /** Reference to one or more BoilerplateInputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  boilerplateInputsId?: string | string[]
   children?: ReactNode
   componentType: ComponentType
 }
@@ -69,21 +71,14 @@ export function useScriptExecution({
   const language = fileData?.language
   
   // Get boilerplate variables context for variable collection
-  const { variablesByInputsId, yamlContentByInputsId } = useBoilerplateVariables()
+  const { variablesByInputsId } = useBoilerplateVariables()
   
   // Extract inline BoilerplateInputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
   
-  // Collect variables from both sources and merge (inline takes precedence)
+  // Collect variables from all sources and merge (later IDs override earlier, inline overrides all)
   const collectedVariables = useMemo(() => {
-    const externalVars = boilerplateInputsId ? variablesByInputsId[boilerplateInputsId] : undefined
-    const inlineVars = inlineInputsId ? variablesByInputsId[inlineInputsId] : undefined
-    
-    // Merge: inline overrides external
-    return {
-      ...(externalVars || {}),
-      ...(inlineVars || {})
-    }
+    return mergeBoilerplateVariables(boilerplateInputsId, variablesByInputsId, inlineInputsId)
   }, [boilerplateInputsId, inlineInputsId, variablesByInputsId])
   
   // Extract template variables from script content
@@ -146,20 +141,17 @@ export function useScriptExecution({
     setIsRendering(true)
     setRenderError(null)
     
-    // Get the boilerplate.yml content from context
-    // Try inline first, then external
-    const inputsIdToUse = inlineInputsId || boilerplateInputsId
-    const boilerplateYaml = inputsIdToUse ? yamlContentByInputsId[inputsIdToUse] : undefined
-    
-    // Build template files object - must include boilerplate.yml
+    // Build template files object with just the script content
+    // For Command/Check, we only need simple variable substitution - we don't need the full
+    // boilerplate.yml config (which may include dependencies that aren't relevant here).
+    // We just need to render {{ .VarName }} templates with the variable values.
     const templateFiles: Record<string, string> = {
       // 'script.sh' is just a filename identifier for the API request/response
       // Each API call is isolated, so no risk of collision between components
-      'script.sh': rawScriptContent
-    }
-    
-    if (boilerplateYaml) {
-      templateFiles['boilerplate.yml'] = boilerplateYaml
+      'script.sh': rawScriptContent,
+      // Minimal boilerplate config - no variables or dependencies needed since
+      // we're just doing template substitution with externally-provided values
+      'boilerplate.yml': 'variables: []'
     }
     
     try {
@@ -212,7 +204,7 @@ export function useScriptExecution({
       setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
       setIsRendering(false)
     }
-  }, [rawScriptContent, inlineInputsId, boilerplateInputsId, yamlContentByInputsId])
+  }, [rawScriptContent])
   
   // Auto-update when variables change (debounced)
   useEffect(() => {
