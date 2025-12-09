@@ -5,6 +5,9 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://runbooks.gruntwork.io',
+	redirects: {
+		'/': '/intro/overview/',
+	},
 	integrations: [
 		starlight({
 			title: 'Gruntwork Runbooks',
