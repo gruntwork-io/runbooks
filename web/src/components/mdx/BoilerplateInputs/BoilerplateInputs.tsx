@@ -296,6 +296,7 @@ function BoilerplateInputs({
       enableAutoRender={true}
       hasGeneratedSuccessfully={Boolean(renderResult) || coordinatorRenderSuccess}
       variant={variant}
+      isInlineMode={!templatePath && hasChildren}
     />
   )
 }

@@ -42,6 +42,8 @@ interface BoilerplateInputsFormProps {
   enableAutoRender?: boolean
   hasGeneratedSuccessfully?: boolean
   variant?: 'standard' | 'embedded'
+  /** When true, uses inline YAML mode which updates variables instead of generating files */
+  isInlineMode?: boolean
 }
 
 /**
@@ -90,15 +92,18 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   onFormChange,
   onAutoRender,
   onGenerate,
-  submitButtonText = 'Generate',
+  submitButtonText,
   showSubmitButton = true,
   isGenerating = false,
   isAutoRendering = false,
   showSuccessIndicator = false,
   enableAutoRender = true,
   hasGeneratedSuccessfully = false,
-  variant = 'standard'
+  variant = 'standard',
+  isInlineMode = false
 }) => {
+  // Default button text depends on mode
+  const effectiveButtonText = submitButtonText ?? (isInlineMode ? 'Submit' : 'Generate')
   // Use custom hooks for state management and validation
   const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
   const { validationErrors, validateForm, clearFieldError } = useFormValidation(boilerplateConfig)
@@ -232,7 +237,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 variant="default"
                 disabled={isGenerating || isAutoRendering}
               >
-                {submitButtonText}
+                {effectiveButtonText}
               </Button>
               <SuccessIndicator 
                 show={showSuccessIndicator} 
@@ -241,7 +246,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
             </div>
             {hasGeneratedSuccessfully && (
               <div className="text-sm text-gray-400 mt-3 italic">
-                You can now update the fields above and the generated files will automatically update.
+                {isInlineMode 
+                  ? 'You can now update the fields above and the variable values will automatically update.'
+                  : 'You can now update the fields above and the generated files will automatically update.'}
               </div>
             )}
           </div>
