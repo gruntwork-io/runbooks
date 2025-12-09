@@ -78,14 +78,22 @@ type BoilerplateVariable struct {
 	// The frontend will then use this schema to render a form for the user to enter the data.
 	// It will send the data to boilerplate as a map of strings, where the key is the entry name and the value is a map of strings, 
 	// where the key is the field name and the value is the field value.
+	// YAML property: x-schema (Runbooks extension, ignored by Boilerplate)
 	Schema              map[string]string `json:"schema,omitempty"`              // For structured maps: field name -> type mapping
 
-	// SchemaInstanceLable is a field not known to boilerplate itself, but we use it to allow users to name an instance of a schema.
+	// SchemaInstanceLabel is a field not known to boilerplate itself, but we use it to allow users to name an instance of a schema.
 	// For example, a user could specify a schema instance label for an AWS account map with the value "Account Name".
 	// The frontend will then use this label to render a form for the user to enter the data.
 	// It will send the data to boilerplate as a map of strings, where the key is the entry name and the value is a map of strings, 
 	// where the key is the field name and the value is the field value.
+	// YAML property: x-schema-instance-label (Runbooks extension, ignored by Boilerplate)
 	SchemaInstanceLabel string            `json:"schemaInstanceLabel,omitempty"` // Custom label for schema instances (e.g., "Account Name")
+
+	// SectionName indicates which section this variable belongs to.
+	// Used to look up a variable's section without searching the top-level Sections list.
+	// See also: BoilerplateConfig.Sections for the ordered list of all section groupings.
+	// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
+	SectionName string `json:"sectionName,omitempty"`
 }
 
 // BoilerplateValidationType represents the supported validation types from boilerplate
@@ -113,10 +121,23 @@ type ValidationRule struct {
 	Args    []interface{}             `json:"args,omitempty"`
 }
 
+// Section represents a grouping of variables under a section header (Runbooks extension).
+// This is used for UI rendering (e.g., rendering groups of variables in sections in the form).
+// See also: BoilerplateVariable.SectionName for per-variable section lookup.
+// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
+type Section struct {
+	Name      string   `json:"name"`      // Section name ("" for unnamed/default section)
+	Variables []string `json:"variables"` // Variable names in this section (in declaration order)
+}
+
 // BoilerplateConfig represents the parsed boilerplate.yml, which is a collection of variables
 type BoilerplateConfig struct {
-	Variables   []BoilerplateVariable `json:"variables"`
-	RawYaml     string                `json:"rawYaml"`     // The original YAML content
+	Variables []BoilerplateVariable `json:"variables"`
+	RawYaml   string                `json:"rawYaml"` // The original YAML content
+	// Sections is an ordered list of section groupings for UI rendering.
+	// Each Section contains a name and the list of variable names in that section.
+	// Note: Individual variables also have a SectionName field for direct lookup.
+	Sections []Section `json:"sections,omitempty"`
 }
 
 // BoilerplateRequest represents the request body for boilerplate variable parsing

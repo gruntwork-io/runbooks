@@ -507,3 +507,139 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 		})
 	}
 }
+
+// Test for x-section extraction (Runbooks extension)
+func TestParseBoilerplateConfig_Sections(t *testing.T) {
+	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-with-sections.yml")
+	require.NoError(t, err)
+
+	// Read the file content
+	content, err := os.ReadFile(absPath)
+	require.NoError(t, err)
+
+	config, err := parseBoilerplateConfig(string(content))
+	require.NoError(t, err)
+	require.NotNil(t, config)
+
+	// Verify the number of variables
+	assert.Equal(t, 6, len(config.Variables))
+
+	// Verify sections slice
+	require.NotNil(t, config.Sections)
+	assert.Equal(t, 3, len(config.Sections))
+
+	// Verify section order and contents: "" always first, then order of first occurrence
+	// Section 0: unnamed section (unsectioned variables)
+	assert.Equal(t, "", config.Sections[0].Name)
+	assert.Equal(t, []string{"FunctionName", "Description"}, config.Sections[0].Variables)
+
+	// Section 1: Advanced Settings (first named section to appear)
+	assert.Equal(t, "Advanced Settings", config.Sections[1].Name)
+	assert.Equal(t, []string{"MemorySize", "Timeout"}, config.Sections[1].Variables)
+
+	// Section 2: Basic Configuration
+	assert.Equal(t, "Basic Configuration", config.Sections[2].Name)
+	assert.Equal(t, []string{"Runtime", "Tags"}, config.Sections[2].Variables)
+
+	// Verify individual variable section names are set correctly
+	variableToSection := make(map[string]string)
+	for _, v := range config.Variables {
+		variableToSection[v.Name] = v.SectionName
+	}
+	
+	assert.Equal(t, "Advanced Settings", variableToSection["MemorySize"])
+	assert.Equal(t, "", variableToSection["FunctionName"]) // unsectioned
+	assert.Equal(t, "Basic Configuration", variableToSection["Runtime"])
+	assert.Equal(t, "Advanced Settings", variableToSection["Timeout"])
+	assert.Equal(t, "", variableToSection["Description"]) // unsectioned
+	assert.Equal(t, "Basic Configuration", variableToSection["Tags"])
+
+	// Verify schema extension still works with x- prefix
+	var tagsVar *BoilerplateVariable
+	for i, v := range config.Variables {
+		if v.Name == "Tags" {
+			tagsVar = &config.Variables[i]
+			break
+		}
+	}
+	require.NotNil(t, tagsVar)
+	assert.Equal(t, map[string]string{"Name": "string", "Environment": "string"}, tagsVar.Schema)
+	assert.Equal(t, "Tag Name", tagsVar.SchemaInstanceLabel)
+}
+
+// Test section groupings extraction helper function directly
+func TestExtractSectionGroupings(t *testing.T) {
+	tests := []struct {
+		name             string
+		yaml             string
+		expectedSections []Section
+	}{
+		{
+			name: "all unsectioned",
+			yaml: `variables:
+  - name: Var1
+    type: string
+  - name: Var2
+    type: string`,
+			expectedSections: []Section{
+				{Name: "", Variables: []string{"Var1", "Var2"}},
+			},
+		},
+		{
+			name: "all sectioned",
+			yaml: `variables:
+  - name: Var1
+    type: string
+    x-section: Section A
+  - name: Var2
+    type: string
+    x-section: Section B`,
+			expectedSections: []Section{
+				{Name: "Section A", Variables: []string{"Var1"}},
+				{Name: "Section B", Variables: []string{"Var2"}},
+			},
+		},
+		{
+			name: "mixed - unnamed section appears after named",
+			yaml: `variables:
+  - name: Var1
+    type: string
+    x-section: Named Section
+  - name: Var2
+    type: string`,
+			expectedSections: []Section{
+				{Name: "", Variables: []string{"Var2"}},              // "" is moved to front
+				{Name: "Named Section", Variables: []string{"Var1"}},
+			},
+		},
+		{
+			name:             "empty yaml",
+			yaml:             `variables: []`,
+			expectedSections: []Section{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sections := extractSectionGroupings(tt.yaml)
+			assert.Equal(t, tt.expectedSections, sections)
+		})
+	}
+}
+
+// Test x-schema and x-schema-instance-label extraction with new prefixes
+func TestExtractSchemasFromYAML_WithXPrefix(t *testing.T) {
+	yaml := `variables:
+  - name: Accounts
+    type: map
+    x-schema:
+      email: string
+      id: string
+    x-schema-instance-label: Account Name`
+
+	schemas := extractSchemasFromYAML(yaml)
+	assert.Equal(t, map[string]string{"email": "string", "id": "string"}, schemas["Accounts"])
+
+	labels := extractSchemaInstanceLabelsFromYAML(yaml)
+	assert.Equal(t, "Account Name", labels["Accounts"])
+}

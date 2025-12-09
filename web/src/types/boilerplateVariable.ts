@@ -1,4 +1,4 @@
-// API response for an invdividual boilerplate variable
+// API response for an individual boilerplate variable
 export interface BoilerplateVariable {
   name: string;
   description: string;
@@ -7,8 +7,11 @@ export interface BoilerplateVariable {
   required: boolean;
   options?: string[];
   validations?: ValidationRule[];
-  schema?: Record<string, string>; // For structured maps: field name -> type mapping
-  schemaInstanceLabel?: string; // Custom label for schema instances (e.g., "Account Name")
+  // Runbooks extensions (x- prefixed in YAML, ignored by Boilerplate)
+  schema?: Record<string, string>; // For structured maps: field name -> type mapping (YAML: x-schema)
+  schemaInstanceLabel?: string; // Custom label for schema instances (YAML: x-schema-instance-label)
+  // Which section this variable belongs to. See also: BoilerplateConfig.sections for ordered groupings.
+  sectionName?: string; // (YAML: x-section)
 }
 
 export enum BoilerplateVariableType {

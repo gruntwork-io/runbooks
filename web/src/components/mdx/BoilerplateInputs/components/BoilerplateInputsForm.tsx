@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
@@ -13,6 +13,7 @@ import { SuccessIndicator } from '@/components/mdx/BoilerplateInputs/components/
  * 
  * This component renders a form with appropriate input controls based on the
  * boilerplate variable types. It handles form state, validation, and submission.
+ * Variables can be grouped into sections using the x-section YAML property.
  * 
  * @param props - Form configuration object containing:
  *   - `id`: Unique identifier for the form
@@ -43,6 +44,45 @@ interface BoilerplateInputsFormProps {
   variant?: 'standard' | 'embedded'
 }
 
+/**
+ * Renders a single variable field with label, input control, description, and validation error
+ */
+interface VariableFieldProps {
+  id: string
+  variable: BoilerplateVariable
+  value: unknown
+  error?: string
+  onChange: (value: unknown) => void
+}
+
+const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange }) => (
+  <div className="space-y-1">
+    <label 
+      htmlFor={`${id}-${variable.name}`}
+      className="block text-md font-medium text-gray-700"
+    >
+      {formatVariableLabel(variable.name)}
+      {variable.required && <span className="text-gray-400 ml-1">*</span>}
+    </label>
+    
+    <FormControl
+      variable={variable}
+      value={value}
+      error={error}
+      onChange={onChange}
+      id={id}
+    />
+
+    {variable.description && (
+      <p className="text-sm text-gray-400">{variable.description}</p>
+    )}
+    
+    {error && (
+      <p className="text-sm text-red-600">{error}</p>
+    )}
+  </div>
+)
+
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
   boilerplateConfig,
@@ -62,6 +102,15 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Use custom hooks for state management and validation
   const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
   const { validationErrors, validateForm, clearFieldError } = useFormValidation(boilerplateConfig)
+
+  // Create a map of variable name to variable for quick lookup
+  const variablesByName = useMemo(() => {
+    if (!boilerplateConfig) return new Map<string, BoilerplateVariable>()
+    return new Map(boilerplateConfig.variables.map(v => [v.name, v]))
+  }, [boilerplateConfig])
+
+  // Determine if we should use section-based rendering
+  const hasSections = boilerplateConfig?.sections && boilerplateConfig.sections.length > 0
 
   /**
    * Handles form input changes and clears validation errors
@@ -92,6 +141,74 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     }
   }
 
+  /**
+   * Renders variables for a given section
+   */
+  const renderSectionVariables = (variableNames: string[]) => {
+    return variableNames.map(varName => {
+      const variable = variablesByName.get(varName)
+      if (!variable) return null
+      return (
+        <VariableField
+          key={variable.name}
+          id={id}
+          variable={variable}
+          value={formData[variable.name]}
+          error={validationErrors[variable.name]}
+          onChange={(value) => handleInputChange(variable.name, value)}
+        />
+      )
+    })
+  }
+
+  /**
+   * Renders all variables grouped by sections
+   */
+  const renderWithSections = () => {
+    if (!boilerplateConfig?.sections) return null
+    
+    return boilerplateConfig.sections.map((section, index) => {
+      if (section.variables.length === 0) return null
+
+      // For unnamed section (empty string), don't render a header
+      if (section.name === '') {
+        return (
+          <div key="__unsectioned__" className="space-y-5">
+            {renderSectionVariables(section.variables)}
+          </div>
+        )
+      }
+
+      // For named sections, render with a header
+      return (
+        <div key={section.name} className="space-y-4">
+          <h3 className="text-lg font-semibold text-gray-800 pt-5 pb-1 border-b border-gray-400">
+            {section.name}
+          </h3>
+          <div className="space-y-5">
+            {renderSectionVariables(section.variables)}
+          </div>
+        </div>
+      )
+    })
+  }
+
+  /**
+   * Renders all variables without sections (fallback for configs without sections)
+   */
+  const renderWithoutSections = () => {
+    return boilerplateConfig!.variables.map((variable: BoilerplateVariable) => (
+      <VariableField
+        key={variable.name}
+        id={id}
+        variable={variable}
+        value={formData[variable.name]}
+        error={validationErrors[variable.name]}
+        onChange={(value) => handleInputChange(variable.name, value)}
+      />
+    ))
+  }
+
   // Determine container classes and whether to show submit button based on variant
   const containerClasses = variant === 'embedded' 
     ? 'bg-transparent relative'
@@ -104,33 +221,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
-          {boilerplateConfig!.variables.map((variable: BoilerplateVariable) => (
-            <div key={variable.name} className="space-y-1">
-              <label 
-                htmlFor={`${id}-${variable.name}`}
-                className="block text-md font-medium text-gray-700"
-              >
-                {formatVariableLabel(variable.name)}
-                {variable.required && <span className="text-gray-400 ml-1">*</span>}
-              </label>
-              
-              <FormControl
-                variable={variable}
-                value={formData[variable.name]}
-                error={validationErrors[variable.name]}
-                onChange={(value) => handleInputChange(variable.name, value)}
-                id={id}
-              />
-
-              {variable.description && (
-                <p className="text-sm text-gray-400">{variable.description}</p>
-              )}
-              
-              {validationErrors[variable.name] && (
-                <p className="text-sm text-red-600">{validationErrors[variable.name]}</p>
-              )}
-            </div>
-          ))}
+          {hasSections ? renderWithSections() : renderWithoutSections()}
         </div>
         
         {shouldShowSubmitButton && (

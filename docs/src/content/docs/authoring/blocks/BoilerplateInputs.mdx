@@ -53,11 +53,11 @@ This will render a form with the following fields:
 
 ### Optional Props
 
-- `templatePath` (string) - Path to a directory containing a `boilerplate.yml` file (relative to runbook)
-- `prefilledVariables` (object) - Pre-filled values for form fields
-- `variant` (string) - Display variant: `'standard'` (default) or `'embedded'` (for inline use in Commands/Checks)
-- `children` (ReactNode) - Inline YAML content (alternative to `templatePath`)
-- `onGenerate` (function) - Callback function called when form is submitted (advanced)
+You must provide a set of Boilerplate variables in one of two ways:
+
+1. **`templatePath`** (string) - Path to a directory containing a `boilerplate.yml` file (relative to runbook). Use this when you have a full Boilerplate template. This is the recommended way to use `<BoilerplateInputs>`.
+
+2. **Inline YAML** - Write the YAML directly inside the `<BoilerplateInputs>` tags. Use this to collect values for other blocks (Commands, Checks) without generating files. This is used less frequently.
 
 ## Supported Variable Types
 
@@ -180,7 +180,13 @@ All Runbooks extension properties start with `x-`. This follows the convention u
 
 ### x-section
 
-Groups variables under section headers in the rendered form. Variables with the same `x-section` value will be visually grouped together.
+Groups variables under section headers in the rendered form. Variables with the same `x-section` value will be visually grouped together under a collapsible section with a header.
+
+#### Why Use Sections?
+
+When you have just a few variables in your forms, you may not need more than one section. Beyond around 7 variables, it can be tiresome for users to scan an endless list of variables. Humans like to group things to reduce cognitive load, and that's exactly what sections do -- you can define a header for a group of variables, making it easier for users to mentally organize the variables.
+
+#### Basic Example
 
 ```yaml
 variables:
@@ -217,10 +223,77 @@ variables:
     x-section: Advanced Settings
 ```
 
-**Ordering behavior:**
-- Variables without an `x-section` always appear first (no header)
-- Named sections appear in the order they first occur in the YAML
-- Variables within a section maintain their declaration order
+This renders as a form with three visual groups:
+1. **Ungrouped variables** (no header) - `FunctionName`
+2. **Basic Configuration** section - `Runtime`, `Handler`
+3. **Advanced Settings** section - `MemorySize`, `Timeout`
+
+#### Ordering Behavior
+
+The ordering of sections and variables follows these rules:
+
+1. **Ungrouped variables always appear first** - Variables without an `x-section` are rendered at the top of the form without a section header
+2. **Named sections appear in declaration order** - Sections are displayed in the order they first appear in the YAML (based on the first variable with that section name)
+3. **Variables maintain declaration order within sections** - Variables within a section keep their original order from the YAML
+
+<Aside type="tip">
+You can interleave variables from different sections in your YAML file - Runbooks will automatically group them by section name while preserving the order within each section.
+</Aside>
+
+#### Declaration Order Example
+
+```yaml
+variables:
+  # "Advanced" section appears first in YAML
+  - name: MemorySize
+    x-section: Advanced Settings
+    
+  # Ungrouped variable
+  - name: FunctionName
+
+  # "Basic" section appears second
+  - name: Runtime
+    x-section: Basic Configuration
+    
+  # Another "Advanced" variable
+  - name: Timeout
+    x-section: Advanced Settings
+```
+
+Despite the interleaved order in YAML, the form renders as:
+1. **Ungrouped** - `FunctionName` (ungrouped always first)
+2. **Advanced Settings** - `MemorySize`, `Timeout` (appears second because "Advanced" was declared first)
+3. **Basic Configuration** - `Runtime` (appears third)
+
+#### Combining with Other Extensions
+
+Sections work well with other Runbooks extensions like `x-schema`:
+
+```yaml
+variables:
+  - name: FunctionName
+    type: string
+    description: Lambda function name
+
+  - name: Runtime
+    type: enum
+    options: [python3.12, nodejs20.x]
+    x-section: Basic Configuration
+
+  - name: Tags
+    type: map
+    description: Resource tags
+    x-section: Advanced Settings
+    x-schema:
+      Name: string
+      Environment: string
+    x-schema-instance-label: Tag Name
+
+  - name: MemorySize
+    type: int
+    default: 128
+    x-section: Advanced Settings
+```
 
 ### x-schema
 

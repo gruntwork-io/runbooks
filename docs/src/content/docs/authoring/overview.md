@@ -67,7 +67,7 @@ Validates prerequisites and system state by running shell commands or scripts. E
 Executes shell commands with variable substitution using Go template syntax.
 
 ### `<BoilerplateInputs>`
-Creates dynamic web forms based on Boilerplate variable definitions. Can be standalone or embedded in Commands.
+Creates dynamic web forms based on Boilerplate variable definitions. Can be standalone or embedded in Commands. Supports grouping variables into sections using `x-section` for better organization of complex forms.
 
 ### `<BoilerplateTemplate>`
 Renders Boilerplate templates inline without writing to disk (advanced use case).
