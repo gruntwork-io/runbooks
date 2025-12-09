@@ -172,7 +172,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const renderWithSections = () => {
     if (!boilerplateConfig?.sections) return null
     
-    return boilerplateConfig.sections.map((section, index) => {
+    return boilerplateConfig.sections.map((section) => {
       if (section.variables.length === 0) return null
 
       // For unnamed section (empty string), don't render a header
