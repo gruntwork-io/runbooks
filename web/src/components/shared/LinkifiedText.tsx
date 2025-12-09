@@ -4,6 +4,7 @@ import React from 'react'
  * Regular expression to match ANSI escape codes.
  * Matches color codes, cursor movement, and other terminal escape sequences.
  */
+// eslint-disable-next-line no-control-regex
 const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]/g
 
 /**
