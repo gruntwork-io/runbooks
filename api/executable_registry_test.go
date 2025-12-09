@@ -150,6 +150,60 @@ No components here!
 			// ID will be generated, so we just check count
 			expectError: false,
 		},
+		{
+			name: "command with shell redirection (> character)",
+			content: `
+<Command
+    id="create-greeting"
+    command='echo "Hello {{ .Name }}!" > greeting.txt'
+    title="Create greeting"
+/>
+`,
+			componentType: "Command",
+			expectedCount: 1,
+			expectedIDs:   []string{"create-greeting"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline},
+			expectError:   false,
+		},
+		{
+			name: "command with shell redirection in other direction (< character)",
+			content: `
+<Command
+    id="create-greeting2"
+    command='echo "Hello {{ .Name }}!" < cat greeting.txt'
+    title="Create greeting"
+/>
+`,
+			componentType: "Command",
+			expectedCount: 1,
+			expectedIDs:   []string{"create-greeting2"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline},
+			expectError:   false,
+		},
+		{
+			name: "command with multiple > characters in double quotes",
+			content: `
+<Command
+    id="redirect-test"
+    command="echo 'a > b > c' >> output.txt"
+    title="Multiple redirects"
+/>
+`,
+			componentType: "Command",
+			expectedCount: 1,
+			expectedIDs:   []string{"redirect-test"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline},
+			expectError:   false,
+		},
+		{
+			name: "command with > in JSX expression",
+			content: "<Command\n\tid=\"jsx-redirect\"\n\tcommand={`echo test > file.txt`}\n\ttitle=\"JSX redirect\"\n/>",
+			componentType: "Command",
+			expectedCount: 1,
+			expectedIDs:   []string{"jsx-redirect"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline},
+			expectError:   false,
+		},
 	}
 
 	for _, tt := range tests {

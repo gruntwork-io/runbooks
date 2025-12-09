@@ -125,8 +125,17 @@ func (r *ExecutableRegistry) parseAndRegister() error {
 
 // getComponentRegex returns a compiled regex for matching MDX components
 // Matches both self-closing and container components: <Type .../> or <Type ...>...</Type>
+// The props pattern handles characters inside quoted attribute values:
+// - Double quoted strings: "..."
+// - Single quoted strings: '...'
+// - JSX expressions with template literals: {`...`}
+// - JSX expressions with double quotes: {"..."}
+// - JSX expressions with single quotes: {'...'}
 func getComponentRegex(componentType string) *regexp.Regexp {
-	pattern := fmt.Sprintf(`<%s\s+([^>]*?)(?:/>|>([\s\S]*?)</%s>)`, componentType, componentType)
+	// Pattern to match attribute values that may contain > characters
+	// This handles: attr="value with >" or attr='value with >' or attr={`template with >`} etc.
+	propsPattern := `(?:"[^"]*"|'[^']*'|\{` + "`[^`]*`" + `\}|\{"[^"]*"\}|\{'[^']*'\}|[^>])*?`
+	pattern := fmt.Sprintf(`<%s\s+(%s)(?:/>|>([\s\S]*?)</%s>)`, componentType, propsPattern, componentType)
 	return regexp.MustCompile(pattern)
 }
 
