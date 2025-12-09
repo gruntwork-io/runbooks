@@ -1,6 +1,19 @@
 import React from 'react'
 
 /**
+ * Regular expression to match ANSI escape codes.
+ * Matches color codes, cursor movement, and other terminal escape sequences.
+ */
+const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]/g
+
+/**
+ * Strips ANSI escape codes from text.
+ */
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_REGEX, '')
+}
+
+/**
  * Regular expression to match URLs in text.
  * Matches http://, https://, and www. URLs.
  */
@@ -22,6 +35,9 @@ export function LinkifiedText({
   linkClassName = 'text-blue-400 hover:text-blue-300 underline'
 }: LinkifiedTextProps) {
   const parts = React.useMemo(() => {
+    // Strip ANSI escape codes before processing
+    const cleanText = stripAnsi(text)
+    
     const result: (string | React.ReactElement)[] = []
     let textProcessedUpTo = 0
     let regexMatch: RegExpExecArray | null
@@ -29,14 +45,14 @@ export function LinkifiedText({
     // Reset regex state to ensure we start from the beginning
     URL_REGEX.lastIndex = 0
     
-    while ((regexMatch = URL_REGEX.exec(text)) !== null) {
+    while ((regexMatch = URL_REGEX.exec(cleanText)) !== null) {
       const urlStartIndex = regexMatch.index
       const urlText = regexMatch[0]
       const urlEndIndex = urlStartIndex + urlText.length
       
       // Add text before the URL
       if (urlStartIndex > textProcessedUpTo) {
-        result.push(text.slice(textProcessedUpTo, urlStartIndex))
+        result.push(cleanText.slice(textProcessedUpTo, urlStartIndex))
       }
       
       // Ensure URL has protocol
@@ -60,8 +76,8 @@ export function LinkifiedText({
     }
     
     // Add any remaining text after the last URL
-    if (textProcessedUpTo < text.length) {
-      result.push(text.slice(textProcessedUpTo))
+    if (textProcessedUpTo < cleanText.length) {
+      result.push(cleanText.slice(textProcessedUpTo))
     }
     
     return result
