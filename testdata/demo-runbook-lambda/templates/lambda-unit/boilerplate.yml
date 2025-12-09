@@ -6,6 +6,22 @@ variables:
       - non-prod
       - prod
     default: non-prod
+    x-section: Deployment Settings
+  
+  - name: AwsRegion
+    type: enum
+    options:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - eu-central-1
+      - eu-west-1
+      - eu-west-2
+    description: The AWS region to deploy the Lambda function to
+    default: "us-west-2"
+    validations: "required"
+    x-section: Deployment Settings
 
   - name: FunctionName
     type: string
@@ -24,16 +40,19 @@ variables:
     description: Lambda runtime environment
     validations: "required"
     options:
+      - python3.13
       - python3.12
       - python3.11
+      - nodejs24.x
+      - nodejs22.x
       - nodejs20.x
       - nodejs18.x
-    default: python3.12
+    default: python3.13
     x-section: Function Settings
 
   - name: Handler
     type: string
-    description: Function entrypoint (file.function_name format)
+    description: "Function entrypoint (Python: app.handler, Node.js: index.handler)"
     default: app.handler
     x-section: Function Settings
 
@@ -66,3 +85,14 @@ variables:
     type: int
     description: Reserved concurrent executions (optional, enter a number, or leave empty for unreserved)
     x-section: Advanced Settings
+
+dependencies:
+  - name: python-source
+    template-url: "../lambda-src/python"
+    output-folder: "./src"
+    skip: '{{ not (hasPrefix "python" .Runtime) }}'
+
+  - name: nodejs-source
+    template-url: "../lambda-src/nodejs"
+    output-folder: "./src"
+    skip: '{{ not (hasPrefix "nodejs" .Runtime) }}'

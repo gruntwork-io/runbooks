@@ -24,10 +24,10 @@ First, verify that mise is installed. If not, install it from [mise.jdx.dev](htt
 
 <Check
   id="check-mise"
-  command="mise --version"
+  command="mise --version && mise self-update"
   title="Check mise Installation"
-  description="mise is a polyglot tool version manager that can install and manage Terragrunt, OpenTofu, and other tools"
-  successMessage="mise is installed!"
+  description="We recommend `mise` as a tool version manager that can install and manage Terragrunt, OpenTofu, and other tools. This checks that mise is installed and up to date."
+  successMessage="mise is installed and up to date!"
   failMessage="mise is not installed. Install it from https://mise.jdx.dev/getting-started.html"
 />
 
@@ -37,7 +37,7 @@ Once mise is installed, run the following command to install all required tools:
 
 <Command
   id="install-tools"
-  command="mise use -g terragrunt@latest opentofu@latest awscli@latest granted@latest"
+  command="mise use terragrunt@latest opentofu@latest awscli@latest granted@latest gh@latest"
   title="Install Required Tools via mise"
   description="Installs Terragrunt, OpenTofu, AWS CLI, and Granted using mise"
   successMessage="All tools installed successfully!"
@@ -73,40 +73,68 @@ Once the files are generated, create a pull request to add them to your infrastr
 
 <Command
   id="create-pr"
-  command="scripts/create-initial-pr.sh"
+  path="scripts/create-initial-pr.sh"
   title="Create Pull Request"
-  description="Creates a pull request with the generated Lambda configuration in {{ .Environment }}/{{ .AwsRegion }}/{{ .FunctionName }}/"
+  description="Create a pull request with the generated Lambda configuration in exactly the right folder location."
   successMessage="Pull request created successfully!"
-  failMessage="Failed to create pull request. Make sure you have the GitHub CLI (gh) installed and authenticated."
-  inputsFrom="lambda-config"
+  failMessage="Failed to create pull request. See logs for details on what went wrong."
+  boilerplateInputsId="lambda-config"
+>
+   <BoilerplateInputs id="repo-config">
+   ```yaml
+    variables:
+      - name: GithubOrgName
+        type: string
+        description: The GitHub organization name where the repository is hosted
+        default: "gruntwork-io"
+        validations: "required"
+      - name: GithubRepoName
+        type: string
+        description: The name of the GitHub repository for infrastructure code
+        default: "runbooks-infrastructure-live-example"
+        validations: "required"
+    ```
+    </BoilerplateInputs>
+</Command>
+
+## Deploy the Lambda function
+
+In a typical workflow, opening the pull requests would trigger a CI/CD pipeline (like [Gruntwork Pipelines](https://www.gruntwork.io/platform/pipelines)) that would run `terragrunt apply`. 
+
+In this case, you can go ahead and manually run the plan and apply commands:
+
+<Command
+  id="terragrunt-plan"
+  path="scripts/terragrunt-plan.sh"
+  title="Terragrunt Plan"
+  description="Clone the repo, checkout the PR branch, and preview the infrastructure changes."
+  successMessage="Plan completed successfully! Review the changes above."
+  failMessage="Terragrunt plan failed. See logs for details."
+  boilerplateInputsId={["lambda-config", "repo-config"]}
 />
 
-## Next Steps
+<Command
+  id="terragrunt-apply"
+  path="scripts/terragrunt-apply.sh"
+  title="Terragrunt Apply"
+  description="Clone the repo, checkout the PR branch, and apply the infrastructure changes to deploy the Lambda function."
+  successMessage="Lambda function deployed successfully!"
+  failMessage="Terragrunt apply failed. See logs for details."
+  boilerplateInputsId={["lambda-config", "repo-config"]}
+/>
 
-Congratulations! Your Lambda function has been deployed. Here are some next steps:
+## Test the function
 
-1. **Move generated files**: Copy the generated files from `generated/` to your desired location in the repo (e.g., `non-prod/us-east-1/my-lambda/`)
-2. **Test the function**: Use the AWS Console or CLI to invoke your Lambda function
-3. **Add triggers**: Configure API Gateway, S3, SNS, or other event sources
-4. **Set up monitoring**: Configure CloudWatch alarms and logging
-5. **Configure environment variables**: Add secrets and configuration via AWS Systems Manager Parameter Store
+Congratulations! Your Lambda function has been deployed. Let's test it!
 
-### Useful Commands
+<Check
+  id="test-function"
+  path="checks/test-lambda.sh"
+  title="Test the Lambda function"
+  description="Test the Lambda function by invoking it with a test event"
+  successMessage="Lambda function invoked successfully!"
+  failMessage="Failed to invoke Lambda function. See logs for details on what went wrong."
+  boilerplateInputsId="lambda-config"
+/>
 
-```bash
-# Move generated files to your repo structure
-mv generated/ {{ .Environment }}/{{ .AwsRegion }}/{{ .FunctionName }}/
-
-# Invoke the Lambda function
-aws lambda invoke --function-name {{ .FunctionName }}-{{ .Environment }} \
-  --region {{ .AwsRegion }} \
-  --payload '{"test": "event"}' \
-  response.json
-
-# View CloudWatch logs
-aws logs tail /aws/lambda/{{ .FunctionName }}-{{ .Environment }} --follow
-
-# Destroy the infrastructure (if needed)
-cd {{ .Environment }}/{{ .AwsRegion }}/{{ .FunctionName }} && terragrunt destroy
-```
 
