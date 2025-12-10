@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
@@ -6,7 +6,7 @@ import { formatVariableLabel } from '@/components/mdx/BoilerplateInputs/lib/form
 import { FormControl } from './FormControls'
 import { useFormState } from '@/components/mdx/BoilerplateInputs/hooks/useFormState'
 import { useFormValidation } from '@/components/mdx/BoilerplateInputs/hooks/useFormValidation'
-import { SuccessIndicator } from '@/components/mdx/BoilerplateInputs/components/SuccessIndicator'
+import { FormStatus } from '@/components/mdx/BoilerplateInputs/components/FormStatus'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -55,9 +55,10 @@ interface VariableFieldProps {
   value: unknown
   error?: string
   onChange: (value: unknown) => void
+  onBlur?: () => void
 }
 
-const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange }) => (
+const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange, onBlur }) => (
   <div className="space-y-1">
     <label 
       htmlFor={`${id}-${variable.name}`}
@@ -72,6 +73,7 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
       value={value}
       error={error}
       onChange={onChange}
+      onBlur={onBlur}
       id={id}
     />
 
@@ -96,7 +98,6 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   showSubmitButton = true,
   isGenerating = false,
   isAutoRendering = false,
-  showSuccessIndicator = false,
   enableAutoRender = true,
   hasGeneratedSuccessfully = false,
   variant = 'standard',
@@ -104,9 +105,33 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? 'Submit' : 'Generate')
-  // Use custom hooks for state management and validation
-  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
-  const { validationErrors, validateForm, clearFieldError } = useFormValidation(boilerplateConfig)
+  
+  // Track whether the form has been generated at least once
+  const [hasGenerated, setHasGenerated] = useState(hasGeneratedSuccessfully)
+  
+  // Use validation hook first so we can use isFormValid in the wrapped callback
+  const { 
+    visibleErrors, 
+    validateForm, 
+    validateField, 
+    isFormValid,
+    markFieldTouched 
+  } = useFormValidation(boilerplateConfig)
+
+  // Wrap onAutoRender to only call it when the form is valid
+  // This prevents sending invalid data (like empty strings for integers) to the backend
+  const wrappedOnAutoRender = useCallback((formData: Record<string, unknown>) => {
+    if (!isFormValid(formData)) {
+      // Skip auto-render when form has validation errors
+      return
+    }
+    if (onAutoRender) {
+      onAutoRender(formData)
+    }
+  }, [isFormValid, onAutoRender])
+  
+  // Use custom hooks for state management
+  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, wrappedOnAutoRender, enableAutoRender)
 
   // Create a map of variable name to variable for quick lookup
   const variablesByName = useMemo(() => {
@@ -118,13 +143,23 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const hasSections = boilerplateConfig?.sections && boilerplateConfig.sections.length > 0
 
   /**
-   * Handles form input changes and clears validation errors
+   * Handles form input changes
    * @param variableName - Name of the variable being changed
    * @param value - New value for the variable
    */
   const handleInputChange = (variableName: string, value: unknown) => {
     updateField(variableName, value)
-    clearFieldError(variableName)
+    // Validate the field on change if it's already been touched
+    validateField(variableName, value)
+  }
+
+  /**
+   * Handles field blur - marks field as touched and validates it
+   * @param variableName - Name of the variable that lost focus
+   */
+  const handleFieldBlur = (variableName: string) => {
+    markFieldTouched(variableName)
+    validateField(variableName, formData[variableName])
   }
 
   /**
@@ -133,13 +168,13 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-
-    console.log('formData', formData)
-    console.log('validateForm', validateForm(formData))
     
     if (!validateForm(formData)) {
       return
     }
+    
+    // Mark as generated after first successful submission
+    setHasGenerated(true)
     
     if (onGenerate) {
       onGenerate(formData)
@@ -159,8 +194,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           id={id}
           variable={variable}
           value={formData[variable.name]}
-          error={validationErrors[variable.name]}
+          error={visibleErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
+          onBlur={() => handleFieldBlur(variable.name)}
         />
       )
     })
@@ -208,8 +244,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         id={id}
         variable={variable}
         value={formData[variable.name]}
-        error={validationErrors[variable.name]}
+        error={visibleErrors[variable.name]}
         onChange={(value) => handleInputChange(variable.name, value)}
+        onBlur={() => handleFieldBlur(variable.name)}
       />
     ))
   }
@@ -221,6 +258,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   
   const shouldShowSubmitButton = variant === 'embedded' ? false : showSubmitButton;
 
+  // Check if form is currently valid (for FormStatus)
+  const formIsValid = isFormValid(formData)
+
   return (
     <div className={containerClasses}>
       
@@ -230,8 +270,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         </div>
         
         {shouldShowSubmitButton && (
-          <div>
-            <div className="pt-4 border-t border-gray-200 flex items-center gap-2">
+          <div className="pt-4 border-t border-gray-200">
+            {!hasGenerated ? (
+              // Before first generation: show the Generate button
               <Button
                 type="submit"
                 variant="default"
@@ -239,17 +280,13 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
               >
                 {effectiveButtonText}
               </Button>
-              <SuccessIndicator 
-                show={showSuccessIndicator} 
-                className="ml-2" 
+            ) : (
+              // After first generation: show FormStatus instead of button
+              <FormStatus
+                isValid={formIsValid}
+                isUpdating={isAutoRendering}
+                isInlineMode={isInlineMode}
               />
-            </div>
-            {hasGeneratedSuccessfully && (
-              <div className="text-sm text-gray-400 mt-3 italic">
-                {isInlineMode 
-                  ? 'You can now update the fields above and the variable values will automatically update.'
-                  : 'You can now update the fields above and the generated files will automatically update.'}
-              </div>
             )}
           </div>
         )}
