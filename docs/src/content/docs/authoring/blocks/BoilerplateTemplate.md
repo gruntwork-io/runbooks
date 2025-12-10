@@ -35,7 +35,7 @@ variables:
 ```
 </BoilerplateInputs>
 
-<BoilerplateTemplate boilerplateInputsId="config">
+<BoilerplateTemplate inputsId="config">
 ```yaml
 # config.yaml
 service:
@@ -50,7 +50,7 @@ service:
 
 ### Required Props
 
-- `boilerplateInputsId` (string) - ID of the BoilerplateInputs block to get variables from
+- `inputsId` (string) - ID of the BoilerplateInputs block to get variables from
 
 ### Optional Props
 
@@ -84,7 +84,7 @@ variables:
 ```
 </BoilerplateInputs>
 
-<BoilerplateTemplate boilerplateInputsId="docker-config">
+<BoilerplateTemplate inputsId="docker-config">
 ```dockerfile
 FROM node:{{ .NodeVersion }}-alpine
 
@@ -120,7 +120,7 @@ variables:
 
 ### Application Configuration
 
-<BoilerplateTemplate boilerplateInputsId="app-config" outputPath="config.yaml">
+<BoilerplateTemplate inputsId="app-config" outputPath="config.yaml">
 ```yaml
 app:
   name: {{ .AppName }}
@@ -130,7 +130,7 @@ app:
 
 ### Environment Variables
 
-<BoilerplateTemplate boilerplateInputsId="app-config" outputPath=".env">
+<BoilerplateTemplate inputsId="app-config" outputPath=".env">
 ```bash
 APP_NAME={{ .AppName }}
 ENVIRONMENT={{ .Environment }}
@@ -158,7 +158,7 @@ variables:
 ```
 </BoilerplateInputs>
 
-<BoilerplateTemplate boilerplateInputsId="terraform-config">
+<BoilerplateTemplate inputsId="terraform-config">
 ```hcl
 resource "aws_instance" "app" {
   ami           = "ami-12345678"
@@ -202,15 +202,15 @@ If template rendering fails (e.g., invalid Boilerplate syntax), an error message
 You can organize templates in a directory structure using the outputPath prop:
 
 ```mdx
-<BoilerplateTemplate boilerplateInputsId="config" outputPath="terraform/main.tf">
+<BoilerplateTemplate inputsId="config" outputPath="terraform/main.tf">
 ...
 </BoilerplateTemplate>
 
-<BoilerplateTemplate boilerplateInputsId="config" outputPath="terraform/variables.tf">
+<BoilerplateTemplate inputsId="config" outputPath="terraform/variables.tf">
 ...
 </BoilerplateTemplate>
 
-<BoilerplateTemplate boilerplateInputsId="config" outputPath="scripts/deploy.sh">
+<BoilerplateTemplate inputsId="config" outputPath="scripts/deploy.sh">
 ...
 </BoilerplateTemplate>
 ```
@@ -220,7 +220,7 @@ You can organize templates in a directory structure using the outputPath prop:
 Use Boilerplate's conditional logic:
 
 `````mdx
-<BoilerplateTemplate boilerplateInputsId="config">
+<BoilerplateTemplate inputsId="config">
 ```hcl
 {{- if eq .Environment "prod" }}
 # Production configuration

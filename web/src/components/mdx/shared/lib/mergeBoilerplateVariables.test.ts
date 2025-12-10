@@ -19,7 +19,7 @@ describe('mergeBoilerplateVariables', () => {
     },
   };
 
-  describe('single boilerplateInputsId (string)', () => {
+  describe('single inputsId (string)', () => {
     it('should return variables from a single ID', () => {
       const result = mergeBoilerplateVariables('lambda-config', variablesByInputsId);
       
@@ -37,7 +37,7 @@ describe('mergeBoilerplateVariables', () => {
     });
   });
 
-  describe('multiple boilerplateInputsIds (array)', () => {
+  describe('multiple inputsIds (array)', () => {
     it('should merge variables from multiple IDs', () => {
       const result = mergeBoilerplateVariables(
         ['lambda-config', 'repo-config'],
@@ -109,7 +109,7 @@ describe('mergeBoilerplateVariables', () => {
       });
     });
 
-    it('should handle inline variables with single boilerplateInputsId', () => {
+    it('should handle inline variables with single inputsId', () => {
       const result = mergeBoilerplateVariables(
         'lambda-config',
         variablesByInputsId,
@@ -133,7 +133,7 @@ describe('mergeBoilerplateVariables', () => {
   });
 
   describe('edge cases', () => {
-    it('should return empty object when boilerplateInputsId is undefined', () => {
+    it('should return empty object when inputsId is undefined', () => {
       const result = mergeBoilerplateVariables(undefined, variablesByInputsId);
       
       expect(result).toEqual({});

@@ -391,7 +391,7 @@ variables:
 <Command 
     id="create-vpc" 
     command="aws ec2 create-vpc --cidr-block {{ .CidrBlock }} --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ .VpcName }}}]'"
-    boilerplateInputsId="vpc-config"
+    inputsId="vpc-config"
     title="Create VPC"
 />
 `````
@@ -416,7 +416,7 @@ variables:
 <Command 
     id="deploy" 
     path="scripts/deploy.sh"
-    boilerplateInputsId={["lambda-config", "repo-config"]}
+    inputsId={["lambda-config", "repo-config"]}
     title="Deploy"
 />
 `````
@@ -523,7 +523,7 @@ The form above will generate Terraform files. Now let's validate and apply:
 <Check 
     id="verify-vpc" 
     command="aws ec2 describe-vpcs --filters Name=tag:Name,Values={{ .VpcName }}"
-    boilerplateInputsId="vpc-setup"
+    inputsId="vpc-setup"
     title="Verify VPC Was Created"
     successMessage="VPC exists!"
 />

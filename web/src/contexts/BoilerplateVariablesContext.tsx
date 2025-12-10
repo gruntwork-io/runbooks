@@ -9,15 +9,15 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
  * Wrap your MDX content with this provider to allow multiple form/template pairs to communicate.
  * Each pair is isolated by their unique ID, so multiple instances can coexist without conflicts.
  * 
- * We use this context to share variable values between BoilerplateInputs and BoilerplateTemplate components.
+ * We use this context to share variable values between Inputs and BoilerplateTemplate components.
  * 
  * @example
  * <BoilerplateVariablesProvider>
- *   <BoilerplateInputs id="form1">...</BoilerplateInputs>
- *   <BoilerplateTemplate boilerplateInputsId="form1">...</BoilerplateTemplate>
+ *   <Inputs id="form1">...</Inputs>
+ *   <BoilerplateTemplate inputsId="form1">...</BoilerplateTemplate>
  *   
- *   <BoilerplateInputs id="form2">...</BoilerplateInputs>
- *   <BoilerplateTemplate boilerplateInputsId="form2">...</BoilerplateTemplate>
+ *   <Inputs id="form2">...</Inputs>
+ *   <BoilerplateTemplate inputsId="form2">...</BoilerplateTemplate>
  * </BoilerplateVariablesProvider>
  */
 export function BoilerplateVariablesProvider({ children }: { children: ReactNode }) {

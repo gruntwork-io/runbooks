@@ -172,6 +172,19 @@ function BoilerplateInputs({
   // Debounce timer ref for auto-render
   const autoRenderTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Check if form data has all required values filled (basic validity check)
+  const hasAllRequiredValues = useCallback((formData: Record<string, unknown>): boolean => {
+    if (!boilerplateConfig) return false;
+    return boilerplateConfig.variables.every(variable => {
+      // Check if variable has a required validation
+      const isRequired = variable.validations?.some(v => v.type === 'required');
+      if (!isRequired) return true;
+      
+      const value = formData[variable.name];
+      return value !== undefined && value !== null && value !== '';
+    });
+  }, [boilerplateConfig]);
+
   // Handle auto-rendering when form data changes (debounced)
   const handleAutoRender = useCallback((formData: Record<string, unknown>) => {
     if (!shouldRender) return; // Only auto-render after initial generation
@@ -187,16 +200,17 @@ function BoilerplateInputs({
     
     // Debounce: wait 200ms after last change before updating
     autoRenderTimerRef.current = setTimeout(() => {
-      // Update variables in context so BoilerplateTemplate components can re-render reactively
-      // This triggers the auto-update effect in BoilerplateTemplate.tsx (lines 149-195)
+      // Always update variables in context so Command/Check components can react
+      // (e.g., to disable Run button when required values are missing)
       setVariables(inputsId, formData);
       
-      // If templatePath exists, also trigger file-based template (vs. inline templates) auto-render
-      if (templatePath) {
+      // Only trigger file-based template auto-render when all required values are present
+      // This prevents sending invalid data to the backend
+      if (templatePath && hasAllRequiredValues(formData)) {
         autoRender(templatePath, formData);
       }
     }, 200);
-  }, [id, templatePath, shouldRender, autoRender, setVariables]);
+  }, [id, templatePath, shouldRender, autoRender, setVariables, hasAllRequiredValues]);
   
   // Cleanup timer on unmount
   useEffect(() => {

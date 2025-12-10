@@ -16,9 +16,9 @@ import type { TemplateRegistration } from './BoilerplateRenderCoordinator.types'
  * 
  * @example
  * <BoilerplateRenderCoordinatorProvider>
- *   <BoilerplateInputs id="test">...</BoilerplateInputs>
- *   <BoilerplateTemplate boilerplateInputsId="test" outputPath="file1.hcl">...</BoilerplateTemplate>
- *   <BoilerplateTemplate boilerplateInputsId="test" outputPath="file2.hcl">...</BoilerplateTemplate>
+ *   <Inputs id="test">...</Inputs>
+ *   <BoilerplateTemplate inputsId="test" outputPath="file1.hcl">...</BoilerplateTemplate>
+ *   <BoilerplateTemplate inputsId="test" outputPath="file2.hcl">...</BoilerplateTemplate>
  * </BoilerplateRenderCoordinatorProvider>
  */
 export function BoilerplateRenderCoordinatorProvider({ children }: { children: ReactNode }) {

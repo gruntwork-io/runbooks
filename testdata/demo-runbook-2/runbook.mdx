@@ -51,7 +51,7 @@ Now let's create the `infrastructure-live-root` repo.
     successMessage="`infrastructure-live-root` repo created successfully!"
     failMessage="Failed to create the `infrastructure-live-root` repo."
 >
-    <BoilerplateInputs id="infrastructure-live-root-repo-inputs">
+    <Inputs id="infrastructure-live-root-repo-inputs">
     ```yaml
     variables:
     - name: GithubOrgName
@@ -64,14 +64,14 @@ Now let's create the `infrastructure-live-root` repo.
       default: "infrastructure-live-root"
       validations: "required"
     ```
-    </BoilerplateInputs>
+    </Inputs>
 </Command>
 
 Let's double check that the repo was created successfully.
 
 <Check id="check-infrastructure-live-root-repo"
     command="gh repo view {{ .GithubOrgName }}/{{ .GithubRepoName }}"
-    boilerplateInputsId="infrastructure-live-root-repo-inputs"
+    inputsId="infrastructure-live-root-repo-inputs"
     title="Confirm the repo was created successfully"
     description="Let's make sure the repo was created successfully."
     successMessage="Repo confirmed!"
@@ -98,6 +98,26 @@ Now copy and paste the values above into the form below.
 
 ### Create `.mise.yml`
 
+<Inputs id="test1">
+```yaml
+variables:
+- name: Name
+  order: 1
+  description: Your name
+  type: string
+  validations: required
+```
+</Inputs>
+
+<Command id="test-command1"
+    command="echo 'Hello, {{.Name}}'"
+    inputsId="test1"
+    title="Create a pull request with the changes"
+    description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
+    successMessage="Pull request created successfully!"
+    failMessage="Failed to create the pull request."
+/>
+
 <BoilerplateInputs id="mise-config-inputs" templatePath="templates/mise-config" />
 
 We just created the `.mise.toml` file. We're going to use this shortly in your new repo!
@@ -112,7 +132,7 @@ Now let's generate a bunch of files that will lay a solid foundation for your ne
 
 <Command id="create-pull-request-with-changes"
     path="scripts/create-initial-pr.sh"
-    boilerplateInputsId="infrastructure-live-root-repo-inputs"
+    inputsId="infrastructure-live-root-repo-inputs"
     title="Create a pull request with the changes"
     description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
     successMessage="Pull request created successfully!"

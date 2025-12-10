@@ -64,7 +64,7 @@ This will execute the script located at `checks/aws-authenticated.sh` when the u
 - `description` (string) - Longer description of what's being checked
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `boilerplateInputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
+- `inputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `successMessage` (string) - Message shown when check succeeds (default: "Success")
 - `warnMessage` (string) - Message shown on warning (default: "Warning")
 - `failMessage` (string) - Message shown when check fails (default: "Failed")
@@ -81,7 +81,7 @@ The Check block interprets exit codes as follows:
 
 ## With Variables
 
-### Using boilerplateInputsId
+### Using inputsId
 
 ```mdx
 <BoilerplateInputs id="region-config">
@@ -97,7 +97,7 @@ variables:
 <Check 
     id="check-region" 
     command="aws ec2 describe-availability-zones --region {{ .AwsRegion }}"
-    boilerplateInputsId="region-config"
+    inputsId="region-config"
     title="Check AWS Region Accessibility"
     successMessage="Region {{ .AwsRegion }} is accessible!"
     failMessage="Cannot access region {{ .AwsRegion }}"
@@ -124,7 +124,7 @@ variables:
 </Check>
 ```
 
-### Using Multiple boilerplateInputsIds
+### Using Multiple inputsIds
 
 You can reference multiple BoilerplateInputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
@@ -144,7 +144,7 @@ variables:
 <Check 
     id="check-lambda" 
     path="checks/test-lambda.sh"
-    boilerplateInputsId={["lambda-config", "repo-config"]}
+    inputsId={["lambda-config", "repo-config"]}
     title="Test Lambda Function"
 />
 ```

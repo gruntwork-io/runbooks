@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { extractInlineInputsId } from './extractInlineInputsId';
 
 describe('extractInlineInputsId', () => {
-  it('should return null when no BoilerplateInputs found', () => {
+  it('should return null when no Inputs/BoilerplateInputs found', () => {
     expect(extractInlineInputsId(null)).toBe(null);
     expect(extractInlineInputsId(undefined)).toBe(null);
     expect(extractInlineInputsId(React.createElement('div', {}, 'content'))).toBe(null);
@@ -16,6 +16,25 @@ describe('extractInlineInputsId', () => {
     
     const children = React.createElement(BoilerplateInputs, { id: 'test-id-123' });
     expect(extractInlineInputsId(children)).toBe('test-id-123');
+  });
+
+  it('should extract id from Inputs component (new name)', () => {
+    function Inputs({ id }: { id: string }) {
+      return React.createElement('div', {}, `id: ${id}`);
+    }
+    
+    const children = React.createElement(Inputs, { id: 'inputs-test-456' });
+    expect(extractInlineInputsId(children)).toBe('inputs-test-456');
+  });
+
+  it('should extract id from Inputs component with displayName', () => {
+    function InputsComponent({ id }: { id: string }) {
+      return React.createElement('div', {}, `id: ${id}`);
+    }
+    InputsComponent.displayName = 'Inputs';
+    
+    const children = React.createElement(InputsComponent, { id: 'displayname-test-789' });
+    expect(extractInlineInputsId(children)).toBe('displayname-test-789');
   });
 
   it('should find BoilerplateInputs nested in children', () => {

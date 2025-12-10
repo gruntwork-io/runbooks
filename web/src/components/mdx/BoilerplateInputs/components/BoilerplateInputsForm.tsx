@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
@@ -118,20 +118,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     markFieldTouched 
   } = useFormValidation(boilerplateConfig)
 
-  // Wrap onAutoRender to only call it when the form is valid
-  // This prevents sending invalid data (like empty strings for integers) to the backend
-  const wrappedOnAutoRender = useCallback((formData: Record<string, unknown>) => {
-    if (!isFormValid(formData)) {
-      // Skip auto-render when form has validation errors
-      return
-    }
-    if (onAutoRender) {
-      onAutoRender(formData)
-    }
-  }, [isFormValid, onAutoRender])
+  // Always call onAutoRender so that variables are published to context
+  // This allows Command/Check components to react to empty/invalid values
+  // Each consumer (Inputs, BoilerplateInputs) handles its own logic appropriately
   
   // Use custom hooks for state management
-  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, wrappedOnAutoRender, enableAutoRender)
+  const { formData, updateField } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
 
   // Create a map of variable name to variable for quick lookup
   const variablesByName = useMemo(() => {

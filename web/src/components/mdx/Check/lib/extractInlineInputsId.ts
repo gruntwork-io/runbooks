@@ -1,16 +1,19 @@
 import type { ReactNode } from 'react'
 
 /**
- * Extracts the id prop from an inline BoilerplateInputs component.
+ * Extracts the id prop from an inline Inputs or BoilerplateInputs component.
  * 
- * This function searches through React children to find a BoilerplateInputs component
- * and extracts its id prop, which is needed to look up variables from the context.
+ * This function searches through React children to find an Inputs (or legacy BoilerplateInputs) 
+ * component and extracts its id prop, which is needed to look up variables from the context.
  * 
- * @param children - React children nodes that may contain a BoilerplateInputs component
- * @returns The id string if found, or null if no BoilerplateInputs component exists
+ * @param children - React children nodes that may contain an Inputs component
+ * @returns The id string if found, or null if no Inputs component exists
  */
 export function extractInlineInputsId(children: ReactNode): string | null {
   if (!children) return null;
+  
+  // Component names to look for (Inputs is the new name, BoilerplateInputs is legacy)
+  const inputsComponentNames = ['Inputs', 'BoilerplateInputs'];
   
   const extractFromNode = (node: ReactNode): string | null => {
     if (!node) return null;
@@ -32,21 +35,21 @@ export function extractInlineInputsId(children: ReactNode): string | null {
         } 
       };
       
-      // Check if this is a BoilerplateInputs component
-      let isBoilerplateInputs = false;
+      // Check if this is an Inputs or BoilerplateInputs component
+      let isInputsComponent = false;
       
       if (typeof element.type === 'object' && element.type !== null) {
-        isBoilerplateInputs = 
-          element.type.displayName === 'BoilerplateInputs' || 
-          element.type.name === 'BoilerplateInputs';
+        isInputsComponent = 
+          inputsComponentNames.includes(element.type.displayName ?? '') || 
+          inputsComponentNames.includes(element.type.name ?? '');
       } else if (typeof element.type === 'function') {
         const funcType = element.type as { name?: string; displayName?: string };
-        isBoilerplateInputs = 
-          funcType.name === 'BoilerplateInputs' || 
-          funcType.displayName === 'BoilerplateInputs';
+        isInputsComponent = 
+          inputsComponentNames.includes(funcType.name ?? '') || 
+          inputsComponentNames.includes(funcType.displayName ?? '');
       }
       
-      if (isBoilerplateInputs && element.props?.id) {
+      if (isInputsComponent && element.props?.id) {
         return element.props.id;
       }
       

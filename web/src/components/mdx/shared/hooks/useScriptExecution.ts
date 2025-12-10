@@ -15,8 +15,8 @@ interface UseScriptExecutionProps {
   componentId: string
   path?: string
   command?: string
-  /** Reference to one or more BoilerplateInputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  boilerplateInputsId?: string | string[]
+  /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  inputsId?: string | string[]
   children?: ReactNode
   componentType: ComponentType
 }
@@ -55,7 +55,7 @@ export function useScriptExecution({
   componentId,
   path,
   command,
-  boilerplateInputsId,
+  inputsId,
   children,
   componentType
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
@@ -73,13 +73,13 @@ export function useScriptExecution({
   // Get boilerplate variables context for variable collection
   const { variablesByInputsId } = useBoilerplateVariables()
   
-  // Extract inline BoilerplateInputs ID from children if present
+  // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
   
   // Collect variables from all sources and merge (later IDs override earlier, inline overrides all)
   const collectedVariables = useMemo(() => {
-    return mergeBoilerplateVariables(boilerplateInputsId, variablesByInputsId, inlineInputsId)
-  }, [boilerplateInputsId, inlineInputsId, variablesByInputsId])
+    return mergeBoilerplateVariables(inputsId, variablesByInputsId, inlineInputsId)
+  }, [inputsId, inlineInputsId, variablesByInputsId])
   
   // Extract template variables from script content
   const requiredVariables = useMemo(() => {

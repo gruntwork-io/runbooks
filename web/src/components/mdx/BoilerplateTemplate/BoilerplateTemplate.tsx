@@ -13,13 +13,13 @@ import { mergeFileTrees } from '@/lib/mergeFileTrees'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 
 interface BoilerplateTemplateProps {
-  boilerplateInputsId: string
+  inputsId: string
   outputPath?: string
   children?: ReactNode // For inline template content  
 }
 
 function BoilerplateTemplate({
-  boilerplateInputsId,
+  inputsId,
   outputPath,
   children
 }: BoilerplateTemplateProps) {
@@ -41,7 +41,7 @@ function BoilerplateTemplate({
   const { setFileTree } = useFileTree();
   
   // Get the raw boilerplate YAML from context (stored by BoilerplateInputs)
-  const boilerplateYaml = yamlContentByInputsId[boilerplateInputsId];
+  const boilerplateYaml = yamlContentByInputsId[inputsId];
   
   // Extract required variables from template content
   const requiredVariables = useMemo(() => {
@@ -124,19 +124,19 @@ function BoilerplateTemplate({
       return; // Wait for template files to be ready
     }
     
-    const templateId = `${boilerplateInputsId}-${outputPath || 'default'}`;
+    const templateId = `${inputsId}-${outputPath || 'default'}`;
     
     const unregister = registerTemplate({
       templateId,
-      inputsId: boilerplateInputsId,
+      inputsId: inputsId,
       renderFn: renderTemplate
     });
     
     return unregister;
-  }, [boilerplateInputsId, outputPath, registerTemplate, renderTemplate, boilerplateYaml, templateFiles]);
+  }, [inputsId, outputPath, registerTemplate, renderTemplate, boilerplateYaml, templateFiles]);
   
   // 2. Auto-update when variables change (ONLY if already rendered, debounced)
-  const contextVariables = variablesByInputsId[boilerplateInputsId];
+  const contextVariables = variablesByInputsId[inputsId];
   
   useEffect(() => {
     // Only react to variable changes if we've rendered at least once
@@ -173,10 +173,10 @@ function BoilerplateTemplate({
         })
         .catch(err => {
           // Error is already set in renderTemplate, just log for debugging
-          console.error(`[BoilerplateTemplate][${boilerplateInputsId}][${outputPath}] Auto-update failed:`, err);
+          console.error(`[BoilerplateTemplate][${inputsId}][${outputPath}] Auto-update failed:`, err);
         });
     }, 300);
-  }, [contextVariables, renderState, hasAllRequiredVariables, boilerplateInputsId, outputPath, renderTemplate, setFileTree]);
+  }, [contextVariables, renderState, hasAllRequiredVariables, inputsId, outputPath, renderTemplate, setFileTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {

@@ -23,8 +23,8 @@ export interface BaseExecutionProps {
   id: string
   path?: string
   command?: string
-  /** Reference to one or more BoilerplateInputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  boilerplateInputsId?: string | string[]
+  /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  inputsId?: string | string[]
   successMessage?: string
   failMessage?: string
   runningMessage?: string

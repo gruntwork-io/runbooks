@@ -6,8 +6,10 @@ import type { AppError } from '@/types/error'
 // Support MDX components
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
+import { Inputs } from '@/components/mdx/Inputs'
 import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
 import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
+import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
@@ -77,6 +79,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
 
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
+      <ComponentIdRegistryProvider>
       <BoilerplateVariablesProvider>
         <BoilerplateRenderCoordinatorProvider>
           <CustomMDXComponentErrorBoundary 
@@ -99,6 +102,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
           </CustomMDXComponentErrorBoundary>
         </BoilerplateRenderCoordinatorProvider>
       </BoilerplateVariablesProvider>
+      </ComponentIdRegistryProvider>
     </div>
   )
 }
@@ -209,13 +213,16 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     baseUrl: import.meta.url,
     rehypePlugins: [rehypeTransformAssetPaths],
     useMDXComponents: () => ({
+      // New component names
+      Inputs,
+      // Legacy component names (kept for backward compatibility during transition)
       BoilerplateInputs,
       BoilerplateTemplate,
+      // Other components
       Check,
       Command,
       Admonition,
       a: ExternalLink, // Make all links open in a new window
-      // Add more components here as needed
     })
   })
 

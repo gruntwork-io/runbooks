@@ -43,7 +43,7 @@ The `<Command>` block executes shell commands or scripts with variable substitut
 - `description` (string) - Longer description of what the command does
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `boilerplateInputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
+- `inputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `successMessage` (string) - Message shown when command succeeds (default: "Success")
 - `failMessage` (string) - Message shown when command fails (default: "Failed")
 - `runningMessage` (string) - Message shown while running (default: "Running...")
@@ -58,7 +58,7 @@ Commands interpret exit codes as:
 
 ## With Variables
 
-### Using boilerplateInputsId
+### Using inputsId
 
 ```mdx
 <BoilerplateInputs id="repo-config">
@@ -76,7 +76,7 @@ variables:
 <Command 
     id="create-repo" 
     command="gh repo create {{ .OrgName }}/{{ .RepoName }} --private"
-    boilerplateInputsId="repo-config"
+    inputsId="repo-config"
     title="Create GitHub Repository"
     successMessage="Repository {{ .RepoName }} created!"
     failMessage="Failed to create repository"
@@ -103,7 +103,7 @@ variables:
 </Command>
 ```
 
-### Using Multiple boilerplateInputsIds
+### Using Multiple inputsIds
 
 You can reference multiple BoilerplateInputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
@@ -125,7 +125,7 @@ variables:
 <Command 
     id="deploy-lambda" 
     path="scripts/deploy.sh"
-    boilerplateInputsId={["lambda-config", "repo-config"]}
+    inputsId={["lambda-config", "repo-config"]}
     title="Deploy Lambda Function"
     description="Deploy the Lambda function using variables from both inputs"
 />
@@ -167,7 +167,7 @@ Commands support Go template syntax for variable substitution:
 ```mdx
 <Command 
     command='aws s3 mb s3://{{ .BucketName }} --region {{ .Region }} {{if .EnableVersioning}}--enable-versioning{{end}}'
-    boilerplateInputsId="s3-config"
+    inputsId="s3-config"
 />
 ```
 
