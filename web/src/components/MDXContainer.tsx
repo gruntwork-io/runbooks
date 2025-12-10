@@ -8,9 +8,12 @@ import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
 import { Inputs } from '@/components/mdx/Inputs'
 import { TemplatePreview } from '@/components/mdx/TemplatePreview'
+// TODO: Remove these legacy imports when BoilerplateTemplate adopts BlockVariablesContext
 import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
 import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
+// END legacy imports
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
+import { BlockVariablesProvider } from '@/contexts/BlockVariablesContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
@@ -81,8 +84,11 @@ function MDXContainer({ content, className }: MDXContainerProps) {
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
+      <BlockVariablesProvider>
+      {/* TODO: Remove these legacy providers when BoilerplateTemplate adopts BlockVariablesContext */}
       <BoilerplateVariablesProvider>
         <BoilerplateRenderCoordinatorProvider>
+        {/* END legacy providers */}
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -101,8 +107,11 @@ function MDXContainer({ content, className }: MDXContainerProps) {
             </div>
             <CustomMDXComponent />
           </CustomMDXComponentErrorBoundary>
+        {/* TODO: Remove these legacy closing tags when BoilerplateTemplate adopts BlockVariablesContext */}
         </BoilerplateRenderCoordinatorProvider>
       </BoilerplateVariablesProvider>
+      {/* END legacy closing tags */}
+      </BlockVariablesProvider>
       </ComponentIdRegistryProvider>
     </div>
   )

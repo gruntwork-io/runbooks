@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
+// TODO: Replace with useBlockVariables when Command/Check are migrated to BlockVariablesContext
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
 import { useApiExec } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
@@ -70,6 +71,7 @@ export function useScriptExecution({
   const rawScriptContent = command || fileData?.content || ''
   const language = fileData?.language
   
+  // TODO: Replace with useInputValues when Command/Check are migrated to BlockVariablesContext
   // Get boilerplate variables context for variable collection
   const { variablesByInputsId } = useBoilerplateVariables()
   

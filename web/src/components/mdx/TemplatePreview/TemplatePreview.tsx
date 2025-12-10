@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/BoilerplateInputs/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/BoilerplateInputs/components/ErrorDisplay'
-import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
-import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
+import { useInputValues, useGeneratedYaml } from '@/contexts/useBlockVariables'
 import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
@@ -11,13 +10,14 @@ import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { mergeFileTrees } from '@/lib/mergeFileTrees'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
-import { mergeBoilerplateVariables } from '@/components/mdx/shared/lib/mergeBoilerplateVariables'
 
 interface TemplatePreviewProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
   /** Output path prefix for generated files */
   outputPath?: string
+  /** Whether to generate the file to the file tree (default: false, preview only) */
+  generateFile?: boolean
   /** Inline template content (code blocks with file paths) */
   children?: ReactNode
 }
@@ -26,14 +26,16 @@ interface TemplatePreviewProps {
  * TemplatePreview renders inline template content with variable substitution.
  * It displays the rendered output as code blocks (preview only, no file generation).
  * 
- * Variables are sourced from an Inputs component referenced by inputsId.
+ * Variables are sourced from Inputs components referenced by inputsId.
+ * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).
  */
 function TemplatePreview({
   inputsId,
   outputPath,
+  generateFile = false,
   children
 }: TemplatePreviewProps) {
-  // Render state: 'waiting' until first Generate, then 'rendered' for reactive updates
+  // Render state
   const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
   const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, File> } | null>(null);
   const [error, setError] = useState<AppError | null>(null);
@@ -45,22 +47,13 @@ function TemplatePreview({
   // Debounce timer ref for auto-updates
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Get context (variable values)
-  const { variablesByInputsId, yamlContentByInputsId } = useBoilerplateVariables();
-  const { registerTemplate } = useBoilerplateRenderCoordinator();
+  // Get file tree for merging
   const { setFileTree } = useFileTree();
   
-  // Normalize inputsId to array for easier processing
-  const inputsIds = useMemo(() => {
-    if (!inputsId) return [];
-    return Array.isArray(inputsId) ? inputsId : [inputsId];
-  }, [inputsId]);
-  
-  // Get the primary inputsId for registration (first one in the array)
-  const primaryInputsId = inputsIds[0];
-  
-  // Get the raw boilerplate YAML from context (use primary inputsId)
-  const boilerplateYaml = primaryInputsId ? yamlContentByInputsId[primaryInputsId] : undefined;
+  // NEW: Use simplified hooks from BlockVariablesContext
+  // These automatically handle merging when inputsId is an array
+  const variables = useInputValues(inputsId);
+  const boilerplateYaml = useGeneratedYaml(inputsId);
   
   // Extract required variables from template content
   const requiredVariables = useMemo(() => {
@@ -74,8 +67,8 @@ function TemplatePreview({
   const templateFiles = useMemo(() => {
     const files = extractTemplateFiles(children, outputPath);
     
-    // If we have raw YAML from context, include it
-    if (boilerplateYaml) {
+    // Include merged boilerplate.yml so backend knows variable types
+    if (boilerplateYaml && boilerplateYaml !== 'variables: []') {
       files['boilerplate.yml'] = boilerplateYaml;
     }
     
@@ -83,8 +76,7 @@ function TemplatePreview({
   }, [children, outputPath, boilerplateYaml]);
   
   // Helper to check if all required variables are present
-  const hasAllRequiredVariables = useCallback((vars: Record<string, unknown> | undefined): boolean => {
-    if (!vars) return false;
+  const hasAllRequiredVariables = useCallback((vars: Record<string, unknown>): boolean => {
     if (requiredVariables.length === 0) return true;
     
     return requiredVariables.every(varName => {
@@ -94,7 +86,7 @@ function TemplatePreview({
   }, [requiredVariables]);
   
   // Core render function that calls the API
-  const renderTemplate = useCallback(async (variables: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
+  const renderTemplate = useCallback(async (vars: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
     // Only show loading state for initial renders, not auto-updates
     if (!isAutoUpdate) {
       setIsRendering(true);
@@ -105,7 +97,13 @@ function TemplatePreview({
       const response = await fetch('/api/boilerplate/render-inline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateFiles, variables }),
+        body: JSON.stringify({ 
+          templateFiles, 
+          variables: vars,
+          generateFile,
+          // Note: outputPath is already used to name the file in templateFiles,
+          // so we don't need to send it separately for directory determination
+        }),
       });
 
       if (!response.ok) {
@@ -117,16 +115,15 @@ function TemplatePreview({
         
         setError(appError);
         setIsRendering(false);
-        return []; // Return empty array so coordinator can continue
+        return [];
       }
 
       const responseData = await response.json();
       
       setRenderData(responseData);
-      setRenderState('rendered'); // Move to rendered state
+      setRenderState('rendered');
       setIsRendering(false);
       
-      // Return the file tree for coordinator to merge
       return responseData.fileTree || [];
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -136,77 +133,21 @@ function TemplatePreview({
         details: errorMessage
       });
       setIsRendering(false);
-      return []; // Return empty array so coordinator can continue
+      return [];
     }
-  }, [templateFiles]);
+  }, [templateFiles, generateFile]);
   
-  // 1. Register with coordinator for event-based initial render
-  useEffect(() => {
-    if (!primaryInputsId) {
-      return; // inputsId is optional - if not provided, don't register
-    }
-    
-    if (Object.keys(templateFiles).length === 0) {
-      return; // Wait for template files to be extracted from children
-    }
-    
-    const templateId = `${primaryInputsId}-${outputPath || 'default'}`;
-    
-    const unregister = registerTemplate({
-      templateId,
-      inputsId: primaryInputsId,
-      renderFn: renderTemplate
-    });
-    
-    return unregister;
-  }, [primaryInputsId, outputPath, registerTemplate, renderTemplate, boilerplateYaml, templateFiles]);
-  
-  // 2. Merge variables from all inputsIds (later IDs override earlier ones)
-  const mergedVariables = useMemo(() => {
-    if (inputsIds.length === 0) return undefined;
-    return mergeBoilerplateVariables(inputsId, variablesByInputsId);
-  }, [inputsId, inputsIds.length, variablesByInputsId]);
-  
-  // 3. Initial render when variables become available (handles race condition where
-  // Inputs submits before TemplatePreview registers with the coordinator)
+  // Render when variables change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
-  useEffect(() => {
-    // Only trigger once, and only if we haven't rendered yet
-    if (hasTriggeredInitialRender.current || renderState === 'rendered') {
-      return;
-    }
-    
-    // Check if we have all required variables
-    if (!mergedVariables || !hasAllRequiredVariables(mergedVariables)) {
-      return;
-    }
-    
-    // Trigger initial render
-    hasTriggeredInitialRender.current = true;
-    renderTemplate(mergedVariables, false)
-      .then(newFileTree => {
-        setFileTree((currentFileTree: FileTreeNode[] | null) => {
-          return mergeFileTrees(currentFileTree, newFileTree);
-        });
-      })
-      .catch(err => {
-        console.error(`[TemplatePreview][${primaryInputsId}][${outputPath}] Initial render failed:`, err);
-      });
-  }, [mergedVariables, renderState, hasAllRequiredVariables, primaryInputsId, outputPath, renderTemplate, setFileTree]);
   
-  // 4. Auto-update when variables change (ONLY after initial render, debounced)
   useEffect(() => {
-    // Only react to variable changes if we've rendered at least once
-    if (renderState !== 'rendered') {
-      return;
-    }
-    
-    if (!mergedVariables || !hasAllRequiredVariables(mergedVariables)) {
+    // Check if we have all required variables
+    if (!hasAllRequiredVariables(variables)) {
       return;
     }
     
     // Check if variables actually changed
-    const variablesKey = JSON.stringify(mergedVariables);
+    const variablesKey = JSON.stringify(variables);
     if (variablesKey === lastRenderedVariablesRef.current) {
       return;
     }
@@ -216,24 +157,30 @@ function TemplatePreview({
       clearTimeout(autoUpdateTimerRef.current);
     }
     
-    // Debounce: wait 300ms after last change before updating
+    // Determine if this is initial render or auto-update
+    const isInitialRender = !hasTriggeredInitialRender.current;
+    
+    // Debounce for auto-updates, immediate for initial render
+    const delay = isInitialRender ? 0 : 300;
+    
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = variablesKey;
+      hasTriggeredInitialRender.current = true;
       
-      // Re-render with new variables (mark as auto-update to prevent flashing)
-      renderTemplate(mergedVariables, true)
+      renderTemplate(variables, !isInitialRender)
         .then(newFileTree => {
-          // Merge the new file tree with existing using functional update to avoid stale closure
-          setFileTree((currentFileTree: FileTreeNode[] | null) => {
-            return mergeFileTrees(currentFileTree, newFileTree);
-          });
+          // Only add to file tree if generateFile is true
+          if (generateFile) {
+            setFileTree((currentFileTree: FileTreeNode[] | null) => {
+              return mergeFileTrees(currentFileTree, newFileTree);
+            });
+          }
         })
         .catch(err => {
-          // Error is already set in renderTemplate, just log for debugging
-          console.error(`[TemplatePreview][${primaryInputsId}][${outputPath}] Auto-update failed:`, err);
+          console.error(`[TemplatePreview][${outputPath}] Render failed:`, err);
         });
-    }, 300);
-  }, [mergedVariables, renderState, hasAllRequiredVariables, primaryInputsId, outputPath, renderTemplate, setFileTree]);
+    }, delay);
+  }, [variables, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -244,6 +191,7 @@ function TemplatePreview({
     };
   }, []);
   
+  // Render UI
   return (
     renderState === 'waiting' ? (
       <LoadingDisplay message="Fill in the variables above and click the Submit button to render this code snippet." />
@@ -276,4 +224,3 @@ function TemplatePreview({
 TemplatePreview.displayName = 'TemplatePreview';
 
 export default TemplatePreview;
-
