@@ -16,6 +16,8 @@ interface BaseFormControlProps {
   error?: string
   /** Callback function when the field value changes */
   onChange: (value: unknown) => void
+  /** Callback function when the field loses focus (for validation) */
+  onBlur?: () => void
   /** Unique identifier for the form field */
   id: string
 }
@@ -36,42 +38,63 @@ const getInputClassName = (error?: string, additionalClasses = '') => {
  * Text input component for string variables
  * Renders a standard text input field with validation error styling
  */
-export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, id }) => (
+export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id }) => (
   <input
     type="text"
     id={`${id}-${variable.name}`}
     value={String(value || '')}
     onChange={(e) => onChange(e.target.value)}
+    onBlur={onBlur}
     className={getInputClassName(error, 'w-full')}
   />
 )
 
 /**
  * Number input component for integer and float variables
- * Renders a number input field with proper value parsing
+ * Renders a number input field with proper value parsing.
+ * Preserves empty values to allow required field validation to work correctly.
  */
-export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, id }) => (
-  <input
-    type="number"
-    id={`${id}-${variable.name}`}
-    value={String(value || '')}
-    onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-    className={getInputClassName(error, 'max-w-24')}
-    placeholder=""
-  />
-)
+export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id }) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value
+    // Preserve empty string to allow required field validation
+    if (rawValue === '') {
+      onChange('')
+      return
+    }
+    // Parse as number, keeping the numeric value
+    const parsed = parseFloat(rawValue)
+    onChange(isNaN(parsed) ? '' : parsed)
+  }
+
+  // Display empty string for null/undefined, otherwise show the value
+  const displayValue = value === null || value === undefined || value === '' ? '' : String(value)
+
+  return (
+    <input
+      type="number"
+      id={`${id}-${variable.name}`}
+      value={displayValue}
+      onChange={handleChange}
+      onBlur={onBlur}
+      className={getInputClassName(error, 'max-w-24')}
+      placeholder=""
+    />
+  )
+}
 
 /**
  * Checkbox input component for boolean variables
  * Renders a checkbox with proper boolean value handling
  */
-export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, id }) => (
+export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id }) => (
   <div className="flex items-center">
     <input
       type="checkbox"
       id={`${id}-${variable.name}`}
       checked={Boolean(value)}
       onChange={(e) => onChange(e.target.checked)}
+      onBlur={onBlur}
       className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
     />
   </div>
@@ -81,11 +104,12 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
  * Select dropdown component for enum variables
  * Renders a dropdown with predefined options from the variable configuration
  */
-export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, id }) => (
+export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id }) => (
   <select
     id={`${id}-${variable.name}`}
     value={String(value || '')}
     onChange={(e) => onChange(e.target.value)}
+    onBlur={onBlur}
     className={getInputClassName(error, 'min-w-56')}
   >
     {variable.options?.map(option => (
@@ -100,7 +124,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
  * List input component for array variables
  * Provides functionality to add/remove items from a list with a clean UI
  */
-export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange }) => {
+export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onBlur }) => {
   const currentList = Array.isArray(value) ? value : []
   
   const addItem = (newItem: string) => {
@@ -140,6 +164,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange }) =
           placeholder="Type an entry and press Enter..."
           className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
           onKeyDown={handleKeyDown}
+          onBlur={onBlur}
         />
         <Button
           type="button"
@@ -186,7 +211,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange }) =
  * Structured map input component for map variables with a schema
  * Provides a form-based UI for entering structured data with multiple fields per entry
  */
-export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange }) => {
+export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur }) => {
   const currentMap = typeof value === 'object' && value !== null ? value as Record<string, Record<string, unknown>> : {}
   const [isAddingEntry, setIsAddingEntry] = React.useState(false)
   const [entryKey, setEntryKey] = React.useState('')
@@ -256,6 +281,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
               type="text"
               value={entryKey}
               onChange={(e) => setEntryKey(e.target.value)}
+              onBlur={onBlur}
               className={getInputClassName(undefined, 'w-full')}
             />
           </div>
@@ -365,7 +391,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
  * Map input component for object variables
  * Provides functionality to add/remove key-value pairs with a clean UI
  */
-export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, id }) => {
+export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id }) => {
   const currentMap = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
   
   const addEntry = (key: string, val: string) => {
@@ -401,12 +427,14 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
           placeholder="Key"
           className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
           id={`${id}-${variable.name}-key`}
+          onBlur={onBlur}
         />
         <input
           type="text"
           placeholder="Value"
           className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
           id={`${id}-${variable.name}-value`}
+          onBlur={onBlur}
         />
         <Button
           type="button"
