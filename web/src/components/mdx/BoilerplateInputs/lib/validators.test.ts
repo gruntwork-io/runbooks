@@ -8,10 +8,7 @@ import {
   isSemver,
   isValidLength,
   isCountryCode2,
-  applyValidationRule
 } from './validators'
-import { BoilerplateValidationType } from '@/types/boilerplateVariable'
-import type { ValidationRule } from '@/types/boilerplateVariable'
 
 describe('validators', () => {
   describe('isValidEmail', () => {
