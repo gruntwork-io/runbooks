@@ -7,6 +7,7 @@ import type { AppError } from '@/types/error'
 import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
 import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
 import { Inputs } from '@/components/mdx/Inputs'
+import { TemplatePreview } from '@/components/mdx/TemplatePreview'
 import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
 import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
@@ -215,6 +216,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     useMDXComponents: () => ({
       // New component names
       Inputs,
+      TemplatePreview,
       // Legacy component names (kept for backward compatibility during transition)
       BoilerplateInputs,
       BoilerplateTemplate,

@@ -122,6 +122,34 @@ variables:
 
 We just created the `.mise.toml` file. We're going to use this shortly in your new repo!
 
+Here's a preview of the GitHub Actions workflow we'll add to your repo:
+
+<TemplatePreview inputsId="infrastructure-live-root-repo-inputs" outputPath=".github/workflows/ci.yml">
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: {{ .GithubOrgName }}/{{ .GithubRepoName }}
+      
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+      
+      - name: Validate
+        run: tofu validate
+```
+</TemplatePreview>
+
 ### Create Terragrunt foundations
 
 Now let's generate a bunch of files that will lay a solid foundation for your new repo with Terragrunt.

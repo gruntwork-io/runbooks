@@ -12,7 +12,7 @@ https://<url-id>.lambda-url.<region>.on.aws
 
 Use the form below to configure your deployment:
 
-<BoilerplateInputs id="test1">
+<Inputs id="test1">
 ```yaml
 variables:
   - name: AccountName
@@ -34,13 +34,13 @@ variables:
     type: map
     default: {}
 ```
-</BoilerplateInputs>
+</Inputs>
 
 ## Code snippet 1
 
 Use the form below to configure your deployment:
 
-<BoilerplateTemplate boilerplateInputsId="test1" outputPath="sample.hcl">
+<TemplatePreview inputsId="test1" outputPath="sample.hcl">
 ```hcl
 # This template uses manually initialized variables
 resource "aws_s3_bucket" "example" {
@@ -52,7 +52,7 @@ resource "aws_s3_bucket" "example" {
   }
 }
 ```
-</BoilerplateTemplate>
+</TemplatePreview>
 
 ## Boielrplate config 2
 
@@ -60,7 +60,7 @@ resource "aws_s3_bucket" "example" {
 
 ### Code snippet 2
 
-<BoilerplateTemplate boilerplateInputsId="test2" outputPath="/a/b.hcl">
+<TemplatePreview inputsId="test2" outputPath="/a/b.hcl">
 ```hcl
 terraform {
   required_version = ">= 1.0"
@@ -87,7 +87,7 @@ locals {
   }
 }
 ```
-</BoilerplateTemplate>
+</TemplatePreview>
 
 ## Check
 
@@ -112,7 +112,7 @@ Check: Hit the endpoint (get from the module output!) and make sure it returns H
 
 ## Manual variable initialization example
 
-You can also manually initialize variables in a BoilerplateTemplate:
+You can also manually initialize variables in a TemplatePreview:
 
 
 

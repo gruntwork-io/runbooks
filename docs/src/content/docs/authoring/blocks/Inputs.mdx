@@ -56,15 +56,15 @@ If you need to generate files from a template, use a [Template block](./Boilerpl
 
 ## Props
 
-- **[Required]** `id` (string) - Unique identifier for this form. Other components use this ID to reference the collected values.
+- _[Required]_ `id` (string) - Unique identifier for this form. Other components use this ID to reference the collected values.
 
-- **[Exactly one required]** **Variable source**:
+- _[Exactly one required]_ **Variable source**:
 
     - **Inline YAML** - Write the `boilerplate.yml` contents directly inside the `<Inputs>` tags as a code block.
     
     - **`path`** (string) - Path to a directory containing a `boilerplate.yml` file (relative to runbook). The form will load variable definitions from this file.
 
-- **`prefilledVariables`** (object) - An object of variable names to values that will pre-populate the form fields. These values override any `default` values defined in the `boilerplate.yml`.
+- _[Optional]_ **`prefilledVariables`** (object) - An object of variable names to values that will pre-populate the form fields. These values override any `default` values defined in the `boilerplate.yml`.
 
 ## Basic usage
 
