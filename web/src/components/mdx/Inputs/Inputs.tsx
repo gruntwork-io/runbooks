@@ -7,10 +7,8 @@ import type { AppError } from '@/types/error'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { extractYamlFromChildren } from '../BoilerplateInputs/lib/extractYamlFromChildren'
-// TODO: Remove these legacy imports when BoilerplateTemplate adopts BlockVariablesContext
+// TODO: Remove this legacy import when BoilerplateInputs is retired
 import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
-import { useBoilerplateRenderCoordinator } from '@/contexts/useBoilerplateRenderCoordinator'
-// END legacy imports
 import { useBlockVariables } from '@/contexts/useBlockVariables'
 
 /**
@@ -67,12 +65,9 @@ function Inputs({
   // Get the block variables context (user-input variable values)
   const { registerInputs } = useBlockVariables();
   
-  // TODO: Remove these legacy hooks when BoilerplateTemplate adopts BlockVariablesContext
-  // Legacy: Get the old context for backward compatibility with BoilerplateTemplate
+  // TODO: Remove this legacy hook when BoilerplateInputs is retired
+  // Legacy: Also publish to old context so BoilerplateInputs can still work
   const { setVariables, setConfig, setYamlContent } = useBoilerplateVariables();
-  // Legacy: Get the render coordinator for backward compatibility
-  const { renderAllForInputsId } = useBoilerplateRenderCoordinator();
-  // END legacy hooks
 
   // Extract boolean to avoid React element in dependency array
   const hasChildren = Boolean(children);
@@ -194,16 +189,8 @@ function Inputs({
       registerInputs(id, formData, boilerplateConfig);
     }
     
-    // TODO: Remove this legacy block when BoilerplateTemplate adopts BlockVariablesContext
-    // Legacy: Also publish to old context for backward compatibility
+    // TODO: Remove this legacy call when BoilerplateInputs is retired
     setVariables(id, formData);
-    // Legacy: Trigger any registered BoilerplateTemplate components to render via coordinator
-    try {
-      await renderAllForInputsId(id, formData);
-    } catch (error) {
-      console.error(`[Inputs][${id}] Failed to render templates:`, error);
-    }
-    // END legacy block
     
     setHasSubmitted(true);
 
@@ -211,7 +198,7 @@ function Inputs({
     if (onSubmit) {
       onSubmit(formData);
     }
-  }, [id, boilerplateConfig, registerInputs, setVariables, renderAllForInputsId, onSubmit])
+  }, [id, boilerplateConfig, registerInputs, setVariables, onSubmit])
   
   // For embedded variant, automatically submit when form is ready
   const hasTriggeredInitialSubmit = useRef(false);

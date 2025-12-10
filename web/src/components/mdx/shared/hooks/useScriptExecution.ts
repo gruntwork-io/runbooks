@@ -1,12 +1,10 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
-// TODO: Replace with useBlockVariables when Command/Check are migrated to BlockVariablesContext
-import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
+import { useInputValues } from '@/contexts/useBlockVariables'
 import { useApiExec } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
-import { mergeBoilerplateVariables } from '../lib/mergeBoilerplateVariables'
 import { extractTemplateVariables } from '@/components/mdx/BoilerplateTemplate/lib/extractTemplateVariables'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
@@ -71,17 +69,33 @@ export function useScriptExecution({
   const rawScriptContent = command || fileData?.content || ''
   const language = fileData?.language
   
-  // TODO: Replace with useInputValues when Command/Check are migrated to BlockVariablesContext
-  // Get boilerplate variables context for variable collection
-  const { variablesByInputsId } = useBoilerplateVariables()
-  
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
   
-  // Collect variables from all sources and merge (later IDs override earlier, inline overrides all)
-  const collectedVariables = useMemo(() => {
-    return mergeBoilerplateVariables(inputsId, variablesByInputsId, inlineInputsId)
-  }, [inputsId, inlineInputsId, variablesByInputsId])
+  // Build the complete list of inputsIds to merge (inline has highest precedence, so it goes last)
+  const allInputsIds = useMemo(() => {
+    const ids: string[] = []
+    
+    // Add external inputsId(s) first
+    if (inputsId) {
+      if (Array.isArray(inputsId)) {
+        ids.push(...inputsId)
+      } else {
+        ids.push(inputsId)
+      }
+    }
+    
+    // Add inline inputsId last (highest precedence)
+    if (inlineInputsId) {
+      ids.push(inlineInputsId)
+    }
+    
+    return ids
+  }, [inputsId, inlineInputsId])
+  
+  // Get merged variables from BlockVariablesContext
+  // The hook handles merging with later IDs overriding earlier ones
+  const collectedVariables = useInputValues(allInputsIds.length > 0 ? allInputsIds : undefined)
   
   // Extract template variables from script content
   const requiredVariables = useMemo(() => {

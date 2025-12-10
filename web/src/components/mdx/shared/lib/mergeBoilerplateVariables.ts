@@ -1,4 +1,7 @@
 /**
+ * @deprecated This function is no longer used. Command/Check now use useInputValues from BlockVariablesContext.
+ * TODO: Remove this file and its tests when cleaning up legacy code.
+ * 
  * Merges variables from multiple Inputs components.
  * Variables are merged in order, with later IDs overriding earlier ones.
  * Inline variables (if provided) have the highest precedence.
