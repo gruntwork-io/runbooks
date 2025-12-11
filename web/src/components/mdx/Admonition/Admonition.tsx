@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { InlineMarkdown } from "@/components/mdx/shared/components/InlineMarkdown"
+import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 
 type AdmonitionType = "note" | "info" | "warning" | "danger"

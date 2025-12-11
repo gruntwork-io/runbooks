@@ -1,0 +1,5 @@
+variables:
+- name: GithubOrgName
+  type: string
+- name: FirstName
+  type: string

@@ -1,0 +1,62 @@
+# Demo Runbook 3
+
+## Test 1
+
+First, let's test that a standalone `<Template>` block works:
+
+<Template id="test1" path="templates/infra-live-elements" />
+
+## Test 2
+
+Now let's create a standalone inputs
+
+<Inputs id="test2">
+```yaml
+    variables:
+      - name: GithubOrgName
+        type: string
+        description: The GitHub organization name where the repository is hosted
+        default: "gruntwork-io"
+        validations: "required"
+      - name: GithubRepoName
+        type: string
+        description: The name of the GitHub repository for infrastructure code
+        default: "runbooks-infrastructure-live-example"
+        validations: "required"
+    ```
+</Inputs>
+
+## Test 3
+
+Now let's render an inline template based on both test1 and test2
+
+<TemplatePreview inputsId="test2">
+```yaml
+orgName: {{ .GithubOrgName }} 
+```
+</TemplatePreview>
+
+## Test 4
+
+Now let's render an inline template that pulls from both test1 and test2
+
+<TemplatePreview inputsId={["test1", "test2"]}>
+```yaml
+orgName: {{ .GithubOrgName }} 
+orgNamePrefix: {{ .OrgNamePrefix }}
+```
+</TemplatePreview>
+
+## Test 5
+
+Let's render a standard template with inputs from test1 and test2
+
+This template:
+
+| Variable    | Declares | Inherits |
+| ----------- | -------- | -------- |
+| GithubOrgName | Yes | Yes |
+| OrgNamePrefix | No | Yes |
+| FirstName | Yes | No
+
+<Template id="test5" path="templates/temp1" inputsId={["test1", "test2"]} />

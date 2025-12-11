@@ -3,8 +3,8 @@ import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/shared"
-import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
+import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
+import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 
 interface CheckProps {
@@ -295,7 +295,7 @@ function Check({
             </div>
           )}
           
-          {/* Render inline BoilerplateInputs children if present */}
+          {/* Render inline Inputs children if present */}
           {childrenWithVariant && (
             <div className="mb-4">
               {childrenWithVariant}

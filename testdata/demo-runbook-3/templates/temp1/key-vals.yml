@@ -1,0 +1,3 @@
+GitHubOrgName: {{ .GithubOrgName }}
+OrgNamePrefix: {{ .OrgNamePrefix }}
+First Name: {{ .FirstName }}

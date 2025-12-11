@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { LoadingDisplay } from '@/components/mdx/BoilerplateInputs/components/LoadingDisplay'
-import { ErrorDisplay } from '@/components/mdx/BoilerplateInputs/components/ErrorDisplay'
-import { useInputValues, useGeneratedYaml } from '@/contexts/useBlockVariables'
+import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
+import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
+import { useImportedVarValues, useGeneratedYaml } from '@/contexts/useBlockVariables'
 import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
@@ -52,7 +52,7 @@ function TemplatePreview({
   
   // NEW: Use simplified hooks from BlockVariablesContext
   // These automatically handle merging when inputsId is an array
-  const variables = useInputValues(inputsId);
+  const importedVarValues = useImportedVarValues(inputsId);
   const boilerplateYaml = useGeneratedYaml(inputsId);
   
   // Extract required variables from template content
@@ -137,18 +137,19 @@ function TemplatePreview({
     }
   }, [templateFiles, generateFile]);
   
-  // Render when variables change (handles both initial render and updates)
+  // Render when imported values change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
     // Check if we have all required variables
-    if (!hasAllRequiredVariables(variables)) {
+    // Note that TemplatePreview is a pure consumer of variables, so it only has importedVarValues
+    if (!hasAllRequiredVariables(importedVarValues)) {
       return;
     }
     
-    // Check if variables actually changed
-    const variablesKey = JSON.stringify(variables);
-    if (variablesKey === lastRenderedVariablesRef.current) {
+    // Check if values actually changed
+    const valuesKey = JSON.stringify(importedVarValues);
+    if (valuesKey === lastRenderedVariablesRef.current) {
       return;
     }
     
@@ -164,10 +165,10 @@ function TemplatePreview({
     const delay = isInitialRender ? 0 : 300;
     
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = variablesKey;
+      lastRenderedVariablesRef.current = valuesKey;
       hasTriggeredInitialRender.current = true;
       
-      renderTemplate(variables, !isInitialRender)
+      renderTemplate(importedVarValues, !isInitialRender)
         .then(newFileTree => {
           // Only add to file tree if generateFile is true
           if (generateFile) {
@@ -180,7 +181,7 @@ function TemplatePreview({
           console.error(`[TemplatePreview][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [variables, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [importedVarValues, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
   
   // Cleanup timer on unmount
   useEffect(() => {

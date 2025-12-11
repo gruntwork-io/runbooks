@@ -58,11 +58,30 @@ export function BlockVariablesProvider({ children }: { children: ReactNode }) {
   const [inputs, setInputs] = useState<Record<string, InputsData>>({})
 
   const registerInputs = useCallback((id: string, values: Record<string, unknown>, config: BoilerplateConfig) => {
-    console.log(`[BlockVariablesContext] registerInputs called for [${id}]:`, { values, config })
-    setInputs(prev => ({
-      ...prev,
-      [id]: { values, config }
-    }))
+    setInputs(prev => {
+      const existing = prev[id]
+      
+      // Check if values actually changed (shallow comparison of values object)
+      if (existing) {
+        const existingKeys = Object.keys(existing.values)
+        const newKeys = Object.keys(values)
+        
+        // Same number of keys and all values equal
+        const valuesUnchanged = existingKeys.length === newKeys.length &&
+          existingKeys.every(key => existing.values[key] === values[key])
+        
+        if (valuesUnchanged) {
+          // No change, return previous state to avoid re-render
+          return prev
+        }
+      }
+      
+      console.log(`[BlockVariablesContext] registerInputs updating [${id}]:`, { values, config })
+      return {
+        ...prev,
+        [id]: { values, config }
+      }
+    })
   }, [])
 
   const getValues = useCallback((inputsId: string | string[]): Record<string, unknown> => {

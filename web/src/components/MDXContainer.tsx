@@ -4,20 +4,15 @@ import * as runtime from 'react/jsx-runtime'
 import type { AppError } from '@/types/error'
 
 // Support MDX components
-import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
-import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
 import { Inputs } from '@/components/mdx/Inputs'
+import { Template } from '@/components/mdx/Template'
 import { TemplatePreview } from '@/components/mdx/TemplatePreview'
-// TODO: Remove these legacy imports when BoilerplateTemplate adopts BlockVariablesContext
-import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
-import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
-// END legacy imports
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { BlockVariablesProvider } from '@/contexts/BlockVariablesContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
-import { ExternalLink } from '@/components/mdx/shared/components/ExternalLink'
+import { ExternalLink } from '@/components/mdx/_shared/components/ExternalLink'
 
 /**
  * This component renders a markdown/MDX document.
@@ -84,11 +79,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-      <BlockVariablesProvider>
-      {/* TODO: Remove these legacy providers when BoilerplateTemplate adopts BlockVariablesContext */}
-      <BoilerplateVariablesProvider>
-        <BoilerplateRenderCoordinatorProvider>
-        {/* END legacy providers */}
+        <BlockVariablesProvider>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -107,11 +98,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
             </div>
             <CustomMDXComponent />
           </CustomMDXComponentErrorBoundary>
-        {/* TODO: Remove these legacy closing tags when BoilerplateTemplate adopts BlockVariablesContext */}
-        </BoilerplateRenderCoordinatorProvider>
-      </BoilerplateVariablesProvider>
-      {/* END legacy closing tags */}
-      </BlockVariablesProvider>
+        </BlockVariablesProvider>
       </ComponentIdRegistryProvider>
     </div>
   )
@@ -223,15 +210,14 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     baseUrl: import.meta.url,
     rehypePlugins: [rehypeTransformAssetPaths],
     useMDXComponents: () => ({
-      // New component names
+      // Form and template components
       Inputs,
+      Template,
       TemplatePreview,
-      // Legacy component names (kept for backward compatibility during transition)
-      BoilerplateInputs,
-      BoilerplateTemplate,
-      // Other components
+      // Script execution components
       Check,
       Command,
+      // Utility components
       Admonition,
       a: ExternalLink, // Make all links open in a new window
     })

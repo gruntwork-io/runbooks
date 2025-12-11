@@ -1,15 +1,15 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import { BoilerplateInputsForm } from '../BoilerplateInputs/components/BoilerplateInputsForm'
-import { ErrorDisplay } from '../BoilerplateInputs/components/ErrorDisplay'
-import { LoadingDisplay } from '../BoilerplateInputs/components/LoadingDisplay'
+import { XCircle } from 'lucide-react'
+import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
+import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
+import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
 import type { AppError } from '@/types/error'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
-import { extractYamlFromChildren } from '../BoilerplateInputs/lib/extractYamlFromChildren'
-// TODO: Remove this legacy import when BoilerplateInputs is retired
-import { useBoilerplateVariables } from '@/contexts/useBoilerplateVariables'
+import { extractYamlFromChildren } from '../_shared/lib/extractYamlFromChildren'
 import { useBlockVariables } from '@/contexts/useBlockVariables'
+import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 
 /**
  * Inputs component - collects user input via a web form.
@@ -46,7 +46,6 @@ interface InputsProps {
   id: string
   path?: string
   prefilledVariables?: Record<string, unknown>
-  onSubmit?: (variables: Record<string, unknown>) => void
   children?: ReactNode // For inline boilerplate.yml content
   variant?: 'standard' | 'embedded' // 'embedded' means the Inputs are used inside Command or Check blocks
 }
@@ -55,19 +54,17 @@ function Inputs({
   id,
   path,
   prefilledVariables = {},
-  onSubmit,
   children,
   variant = 'standard'
 }: InputsProps) {
+  // Register with ID registry to detect duplicates
+  const { isDuplicate } = useComponentIdRegistry(id, 'Inputs')
+  
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   
   // Get the block variables context (user-input variable values)
   const { registerInputs } = useBlockVariables();
-  
-  // TODO: Remove this legacy hook when BoilerplateInputs is retired
-  // Legacy: Also publish to old context so BoilerplateInputs can still work
-  const { setVariables, setConfig, setYamlContent } = useBoilerplateVariables();
 
   // Extract boolean to avoid React element in dependency array
   const hasChildren = Boolean(children);
@@ -131,18 +128,6 @@ function Inputs({
     }
   }, [boilerplateConfigWithPrefilledVariables])
   
-  // TODO: Remove this useEffect when BoilerplateTemplate adopts BlockVariablesContext
-  // Store the boilerplate config in legacy context so BoilerplateTemplate components can access it
-  useEffect(() => {
-    if (boilerplateConfig) {
-      setConfig(id, boilerplateConfig)
-      if (boilerplateConfig.rawYaml) {
-        setYamlContent(id, boilerplateConfig.rawYaml)
-      }
-    }
-  }, [boilerplateConfig, id, setConfig, setYamlContent])
-  // END legacy useEffect
-
   // Convert form state to initial data format
   const initialData = useMemo(() => {
     if (!formState) return {}
@@ -164,14 +149,11 @@ function Inputs({
     }
     
     autoUpdateTimerRef.current = setTimeout(() => {
-      // Update new BlockVariablesContext
       if (boilerplateConfig) {
         registerInputs(id, formData, boilerplateConfig);
       }
-      // TODO: Remove this legacy call when BoilerplateTemplate adopts BlockVariablesContext
-      setVariables(id, formData);
     }, 200);
-  }, [id, hasSubmitted, boilerplateConfig, registerInputs, setVariables]);
+  }, [id, hasSubmitted, boilerplateConfig, registerInputs]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -184,21 +166,12 @@ function Inputs({
 
   // Handle form submission
   const handleSubmit = useCallback(async (formData: Record<string, unknown>) => {
-    // Publish to new BlockVariablesContext (values + config together)
+    // Publish to BlockVariablesContext (values + config together)
     if (boilerplateConfig) {
       registerInputs(id, formData, boilerplateConfig);
     }
-    
-    // TODO: Remove this legacy call when BoilerplateInputs is retired
-    setVariables(id, formData);
-    
     setHasSubmitted(true);
-
-    // Call the callback if provided
-    if (onSubmit) {
-      onSubmit(formData);
-    }
-  }, [id, boilerplateConfig, registerInputs, setVariables, onSubmit])
+  }, [id, boilerplateConfig, registerInputs])
   
   // For embedded variant, automatically submit when form is ready
   const hasTriggeredInitialSubmit = useRef(false);
@@ -211,6 +184,21 @@ function Inputs({
       handleSubmit(initialData);
     }
   }, [variant, boilerplateConfig, hasSubmitted, initialData, handleSubmit]);
+
+  // Early return for duplicate ID error
+  if (isDuplicate) {
+    return (
+      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+        <div className="flex items-center text-red-600">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>Duplicate ID Error:</strong> Another Inputs component already uses id="{id}".
+            Each Inputs must have a unique id.
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Early return for loading state
   if (isLoading) {
