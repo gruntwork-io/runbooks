@@ -33,7 +33,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, outputPath))
 
 	// API endpoint to render boilerplate templates from inline template files
-	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
+	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(outputPath))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))

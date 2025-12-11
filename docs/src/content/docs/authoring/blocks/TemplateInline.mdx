@@ -1,0 +1,298 @@
+---
+title: <TemplateInline>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<TemplateInline>` block renders a preview of the Boilerplate templates inline, displaying the rendered output directly in your runbook. It uses the Gruntwork Boilerplate template engine to generate content, and optionally saves files to your generated files workspace.
+
+### Quick example
+
+For example, let's say we have an `<Inputs>` block that collects an S3 bucket name and environment:
+
+`````mdx
+<Inputs id="s3-config">
+```yaml
+variables:
+  - name: BucketName
+    type: string
+    default: my-bucket
+  - name: Environment
+    type: enum
+    options: [dev, staging, prod]
+    default: dev
+```
+</Inputs>
+
+<TemplateInline inputsId="s3-config" outputPath="s3.tf">
+```hcl
+resource "aws_s3_bucket" "main" {
+  bucket = "{{ .BucketName }}-{{ .Environment }}"
+
+  tags = {
+    Name        = "{{ .BucketName }}"
+    Environment = "{{ .Environment }}"
+  }
+}
+```
+</TemplateInline>
+`````
+
+After the user fills out the form and clicks Submit, `<TemplateInline>` will render the Terraform template with the provided values and display the result inline.
+
+TODO: Screenshots
+
+## When to use
+
+Use `<TemplateInline>` when you want to show users what generated content looks like, or when you want to show generated content without actually creating files in the generated files workspace.
+
+Here are some common use cases:
+
+1. **Render inline.** Show users what a file looks like directly inline with the narrative content of the Runbook.
+1. **Debug templates.** While authoring templates, verify that your Boilerplate template syntax is working correctly.
+
+## Props
+
+### [Inline template content]
+
+**required**  
+**type:** `ReactNode`
+
+The template content to render. Write the template as a fenced code block inside the `<TemplateInline>` tags. The code block should include a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
+
+#### Example
+
+`````mdx
+<TemplateInline inputsId="some-config">
+```txt
+Hello, {{ .Name }}. This is inline template content!
+```
+</TemplateInline>
+`````
+
+### `inputsId`
+
+**type:** `string | string[]`  
+**default:** `undefined`
+
+ID of the Inputs block(s) to get variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones). If not provided, the template renders without variable substitution.
+
+### `outputPath`
+
+**type:** `string`  
+**default:** `undefined`
+
+File path to display for the rendered output (e.g., `config.yaml`, `terraform/main.tf`). This appears as the filename in the code block header.
+
+Note that for security reasons, the path must be a relative path; absolute paths and directory traversal attempts are blocked.
+
+### `generateFile`
+
+**type:** `boolean`  
+**default:** `false`
+
+Whether to add the rendered file to the file tree. When `false` (the default), the template is preview-only and displays inline. Set to `true` to also save the rendered file to the workspace.
+
+## Basic usage
+
+### Single file template
+
+`````mdx
+<Inputs id="docker-config">
+```yaml
+variables:
+  - name: AppName
+    type: string
+  - name: NodeVersion
+    type: string
+    default: "18"
+```
+</Inputs>
+
+<TemplateInline inputsId="docker-config" outputPath="Dockerfile">
+```dockerfile
+FROM node:{{ .NodeVersion }}-alpine
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+</TemplateInline>
+`````
+
+### Multiple files
+
+You can have multiple `<TemplateInline>` blocks referencing the same `<Inputs>`:
+
+`````mdx
+<Inputs id="app-config">
+```yaml
+variables:
+  - name: AppName
+    type: string
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+```
+</Inputs>
+
+<TemplateInline inputsId="app-config" outputPath="config.yaml">
+```yaml
+app:
+  name: {{ .AppName }}
+  environment: {{ .Environment }}
+```
+</TemplateInline>
+
+<TemplateInline inputsId="app-config" outputPath=".env">
+```bash
+APP_NAME={{ .AppName }}
+ENVIRONMENT={{ .Environment }}
+```
+</TemplateInline>
+`````
+
+### Reference multiple Inputs
+
+You can reference multiple `<Inputs>` blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+
+`````mdx
+<Inputs id="global-config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+    default: dev
+```
+</Inputs>
+
+<Inputs id="service-config">
+```yaml
+variables:
+  - name: ServiceName
+    type: string
+  - name: Port
+    type: int
+    default: 8080
+```
+</Inputs>
+
+<TemplateInline inputsId={["global-config", "service-config"]} outputPath="deploy.tf">
+```hcl
+resource "aws_ecs_service" "main" {
+  name = "{{ .ServiceName }}-{{ .Environment }}"
+  
+  load_balancer {
+    container_port = {{ .Port }}
+  }
+}
+```
+</TemplateInline>
+`````
+
+### With Boilerplate logic
+
+You can use full Boilerplate template syntax including conditionals and loops:
+
+`````mdx
+<Inputs id="terraform-config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+  - name: EnableMonitoring
+    type: bool
+    default: false
+```
+</Inputs>
+
+<TemplateInline inputsId="terraform-config" outputPath="main.tf">
+```hcl
+resource "aws_instance" "app" {
+  ami           = "ami-12345678"
+  instance_type = "{{ if eq .Environment "prod" }}t3.large{{ else }}t3.micro{{ end }}"
+
+  {{- if .EnableMonitoring }}
+  monitoring = true
+  {{- end }}
+}
+```
+</TemplateInline>
+`````
+
+## Features
+
+### Auto-rendering
+
+The template automatically re-renders whenever the user changes values in the linked Inputs form. Changes are debounced for performance.
+
+### Syntax highlighting
+
+Rendered content is displayed with syntax highlighting based on the language hint in the code block (e.g., `yaml`, `hcl`, `dockerfile`).
+
+### Error handling
+
+If template rendering fails (e.g., invalid Boilerplate syntax), an error message is displayed instead of the rendered content.
+
+## TemplateInline vs Template
+
+| Feature | `<TemplateInline>` | `<Template>` with path |
+|---------|--------------------|---------------------------------|
+| Generates files | Optional (`generateFile={true}`) | Always saves to workspace |
+| Template location | Inline only | Can reference directories |
+| Use case | Show what will be generated, optionally save | Generate files from external templates |
+
+<Aside type="note">
+Use `<TemplateInline>` when you want to show users what files will look like inline. Add `generateFile={true}` to also save the file to the workspace.
+</Aside>
+
+## Complete example
+
+Here's a complete example showing `<Inputs>` with multiple `<TemplateInline>` blocks:
+
+`````mdx
+<Inputs id="service-config">
+```yaml
+variables:
+  - name: ServiceName
+    type: string
+    validations: "required"
+  - name: Port
+    type: int
+    default: 8080
+  - name: Environment
+    type: enum
+    options: [dev, staging, prod]
+    default: dev
+```
+</Inputs>
+
+<TemplateInline inputsId="service-config" outputPath="docker-compose.yaml">
+```yaml
+version: "3.8"
+services:
+  {{ .ServiceName }}:
+    build: .
+    ports:
+      - "{{ .Port }}:{{ .Port }}"
+    environment:
+      - NODE_ENV={{ .Environment }}
+```
+</TemplateInline>
+
+<TemplateInline inputsId="service-config" outputPath=".env">
+```bash
+SERVICE_NAME={{ .ServiceName }}
+PORT={{ .Port }}
+ENVIRONMENT={{ .Environment }}
+```
+</TemplateInline>
+`````
+
+

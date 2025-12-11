@@ -1,0 +1,3 @@
+{{- range $tagName, $tagValue := .DefaultTags }}
+{{ $tagName }}: {{ $tagValue | printf "%q" }}
+{{- end }}

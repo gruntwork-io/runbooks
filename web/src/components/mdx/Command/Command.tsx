@@ -3,8 +3,9 @@ import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/shared"
-import { formatVariableLabel } from "@/components/mdx/BoilerplateInputs/lib/formatVariableLabel"
+import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
+import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 
 interface CommandProps {
   id: string
@@ -12,12 +13,12 @@ interface CommandProps {
   description?: string
   path?: string
   command?: string
-  /** Reference to one or more BoilerplateInputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  boilerplateInputsId?: string | string[]
+  /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  inputsId?: string | string[]
   successMessage?: string
   failMessage?: string
   runningMessage?: string
-  children?: ReactNode // For inline BoilerplateInputs component
+  children?: ReactNode // For inline Inputs component
 }
 
 function Command({
@@ -26,18 +27,21 @@ function Command({
   description,
   path,
   command,
-  boilerplateInputsId,
+  inputsId,
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
   children,
 }: CommandProps) {
+  // Check for duplicate component IDs
+  const { isDuplicate } = useComponentIdRegistry(id, 'Command')
+
   // Use shared script execution hook
   const {
     sourceCode,
     language,
     fileError: getFileError,
-    collectedVariables,
+    importedVarValues,
     requiredVariables,
     hasAllRequiredVariables,
     inlineInputsId,
@@ -52,12 +56,12 @@ function Command({
     componentId: id,
     path,
     command,
-    boilerplateInputsId,
+    inputsId,
     children,
     componentType: 'command'
   })
   
-  // Clone children and add variant="embedded" prop if it's a BoilerplateInputs component
+  // Clone children and add variant="embedded" prop if it's an Inputs component
   const childrenWithVariant = useMemo(() => {
     if (!children) return null;
     
@@ -154,12 +158,28 @@ function Command({
     return { lines, language: languageDisplay }
   }, [path, command, sourceCode, language])
 
+  // Early return for duplicate ID error
+  if (isDuplicate) {
+    return (
+      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+        <div className="flex items-center text-red-600">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>Duplicate Component ID:</strong><br />
+            Another <code className="bg-red-100 px-1 rounded">{"<Command>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
+            Each component must have a unique ID.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Early return for file errors - show only error message
   if (getFileError) {
     return (
       <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
         <div className="flex items-center text-red-600">
-          <XCircle className="size-6 mr-4" />
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Command Component Error:</strong><br />
             {getFileError.message}
@@ -171,18 +191,18 @@ function Command({
   }
   
   // Check if command/script requires variables but none are configured
-  if (requiredVariables.length > 0 && !boilerplateInputsId && !inlineInputsId) {
+  if (requiredVariables.length > 0 && !inputsId && !inlineInputsId) {
     return (
       <div className="relative rounded-sm border bg-yellow-50 border-yellow-200 mb-5 p-4">
         <div className="flex items-center text-yellow-700">
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
-            This command requires variables ({requiredVariables.join(', ')}) but no BoilerplateInputs component is configured. 
+            This command requires variables ({requiredVariables.join(', ')}) but no Inputs component is configured. 
             Please add either:
             <ul className="list-disc ml-6 mt-2">
-              <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<BoilerplateInputs>"}</code> component as a child</li>
-              <li>A <code className="bg-yellow-100 px-1 rounded">boilerplateInputsId</code> prop referencing an existing BoilerplateInputs</li>
+              <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<Inputs>"}</code> component as a child</li>
+              <li>An <code className="bg-yellow-100 px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
             </ul>
           </div>
         </div>
@@ -314,7 +334,7 @@ function Command({
             <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
               <AlertTriangle className="size-4" />
               You can run the command once we have values for the following variables: {requiredVariables.filter(varName => {
-                const value = collectedVariables[varName];
+                const value = importedVarValues[varName];
                 return value === undefined || value === null || value === '';
               }).map(varName => formatVariableLabel(varName)).join(', ')}
             </div>

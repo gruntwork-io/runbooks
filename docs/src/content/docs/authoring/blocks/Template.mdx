@@ -1,0 +1,257 @@
+---
+title: <Template>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<Template>` block generates files from a [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) template directory. It renders a form for any variables defined in the template, and saves generated files to the workspace.
+
+### Quick example
+
+```mdx
+<Template id="vpc-setup" path="templates/vpc" />
+```
+
+This loads the `boilerplate.yml` file from `templates/vpc/boilerplate.yml` (relative to your runbook file), renders a form for the variables, and generates files when the user clicks "Generate".
+
+## When to use
+
+Use `<Template>` when you want to generate files from a Boilerplate template directory. The template directory should contain a `boilerplate.yml` file that defines variables and template files.
+
+Here are some common use cases:
+
+1. **Generate infrastructure code.** Create Terraform, Terragrunt, or other IaC files based on user inputs.
+2. **Scaffold projects.** Generate project structures with configuration files customized to user preferences.
+3. **Create configuration files.** Generate CI/CD pipelines, Docker Compose files, or other config files.
+
+## When not to use
+
+- **Simple inline templates**: Use `<TemplateInline>` instead if you want to show a single template inline in the runbook without a separate template directory.
+- **Collecting inputs only**: Use `<Inputs>` if you only need to collect variable values without generating files.
+
+## Props
+
+### `id`
+
+**required**  
+**type:** `string`
+
+Unique identifier for this component. Used to reference this Template's variables from other blocks.
+
+### `path`
+
+**required**  
+**type:** `string`
+
+Path to the boilerplate template directory, relative to the runbook file. The directory must contain a `boilerplate.yml` file.
+
+#### Example
+
+```mdx
+<Template id="my-template" path="templates/vpc" />
+```
+
+Directory structure:
+
+```
+templates/vpc/
+├── boilerplate.yml
+├── main.tf
+├── variables.tf
+└── outputs.tf
+```
+
+### `inputsId`
+
+**type:** `string | string[]`  
+**default:** `undefined`
+
+ID of Inputs or Template block(s) to import variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones).
+
+#### Example
+
+`````mdx
+<Inputs id="global-config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+```
+</Inputs>
+
+<Template id="vpc" path="templates/vpc" inputsId="global-config" />
+`````
+
+## Variable categories
+
+When a Template references external inputs via `inputsId`, variables fall into three categories:
+
+| Category | Description | Form Behavior |
+|----------|-------------|---------------|
+| **Local-only** | Exists only in the template's `boilerplate.yml` | Editable |
+| **Imported-only** | Exists only in imported sources | Not shown, but passed to template |
+| **Shared** | Exists in both template and imported sources | Read-only, live-synced |
+
+<Aside type="note">
+Shared variables are displayed in the form but are read-only and stay synchronized with the values from the imported sources.
+</Aside>
+
+## Basic usage
+
+### Standalone template
+
+```mdx
+<Template id="vpc-setup" path="templates/vpc" />
+```
+
+The form displays all variables from `templates/vpc/boilerplate.yml`. When the user clicks "Generate", files are created in the workspace.
+
+### With imported variables
+
+`````mdx
+<Inputs id="config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, staging, prod]
+    default: dev
+  - name: Region
+    type: string
+    default: us-east-1
+```
+</Inputs>
+
+<Template id="vpc" path="templates/vpc" inputsId="config" />
+`````
+
+Variables from `config` are merged with the template's own variables. Shared variables become read-only in the Template form.
+
+### Importing from multiple sources
+
+`````mdx
+<Inputs id="org-config">
+```yaml
+variables:
+  - name: OrgName
+    type: string
+```
+</Inputs>
+
+<Inputs id="env-config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+```
+</Inputs>
+
+<Template 
+  id="infrastructure" 
+  path="templates/infra" 
+  inputsId={["org-config", "env-config"]} 
+/>
+`````
+
+Variables are merged in order—later IDs override earlier ones if there are conflicts.
+
+## Features
+
+### Auto-rendering
+
+After the initial "Generate" click, the template automatically re-renders whenever form values change. Changes are debounced for performance.
+
+### File tree integration
+
+Generated files appear in the workspace file tree on the right side of the screen. Users can browse, view, and copy the generated content.
+
+### Error handling
+
+If template rendering fails (e.g., invalid Boilerplate syntax), an error message is displayed with details about what went wrong.
+
+### Validation
+
+The form validates inputs based on the validation rules in `boilerplate.yml`. Invalid inputs are highlighted with error messages.
+
+## Template file syntax
+
+Template files use [Boilerplate's Go template syntax](https://github.com/gruntwork-io/boilerplate):
+
+```hcl
+# main.tf
+resource "aws_vpc" "main" {
+  cidr_block = "{{ .CidrBlock }}"
+  
+  tags = {
+    Name        = "{{ .VpcName }}"
+    Environment = "{{ .Environment }}"
+  }
+}
+
+{{- if .EnableFlowLogs }}
+resource "aws_flow_log" "main" {
+  vpc_id = aws_vpc.main.id
+  # ...
+}
+{{- end }}
+```
+
+## Template vs TemplateInline
+
+| Feature | `<Template>` | `<TemplateInline>` |
+|---------|-------------|-------------------|
+| Template location | External directory | Inline in runbook |
+| Form rendered | Yes, from `boilerplate.yml` | No form (uses Inputs) |
+| File generation | Always saves to workspace | Optional (`generateFile={true}`) |
+| Use case | Generate files from template directories | Show preview of single files inline |
+
+<Aside type="tip">
+Use `<Template>` when you have a full Boilerplate template directory. Use `<TemplateInline>` when you want to show a quick inline preview or generate a single file without a separate template directory.
+</Aside>
+
+## Complete example
+
+Here's a complete runbook showing Template with imported variables:
+
+`````mdx
+# Deploy a VPC
+
+First, configure your environment:
+
+<Inputs id="env-config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, staging, prod]
+    default: dev
+  - name: Region
+    type: string
+    default: us-east-1
+```
+</Inputs>
+
+Now configure your VPC. The Environment and Region will be inherited from above:
+
+<Template id="vpc-setup" path="templates/vpc" inputsId="env-config" />
+
+Once you've generated the files, validate the Terraform:
+
+<Check 
+  id="validate" 
+  command="cd generated && terraform validate"
+  title="Validate Configuration"
+  successMessage="Configuration is valid!"
+/>
+
+<Command 
+  id="apply" 
+  command="cd generated && terraform apply -auto-approve"
+  title="Deploy VPC"
+  successMessage="VPC deployed!"
+/>
+`````
+
+

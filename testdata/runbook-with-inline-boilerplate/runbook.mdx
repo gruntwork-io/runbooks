@@ -12,7 +12,7 @@ https://<url-id>.lambda-url.<region>.on.aws
 
 Use the form below to configure your deployment:
 
-<BoilerplateInputs id="test1">
+<Inputs id="test1">
 ```yaml
 variables:
   - name: AccountName
@@ -34,13 +34,13 @@ variables:
     type: map
     default: {}
 ```
-</BoilerplateInputs>
+</Inputs>
 
 ## Code snippet 1
 
 Use the form below to configure your deployment:
 
-<BoilerplateTemplate boilerplateInputsId="test1" outputPath="sample.hcl">
+<TemplateInline inputsId="test1" outputPath="sample.hcl">
 ```hcl
 # This template uses manually initialized variables
 resource "aws_s3_bucket" "example" {
@@ -52,15 +52,15 @@ resource "aws_s3_bucket" "example" {
   }
 }
 ```
-</BoilerplateTemplate>
+</TemplateInline>
 
 ## Boielrplate config 2
 
-<BoilerplateInputs id="test2" templatePath="." />
+<Inputs id="test2" path="." />
 
 ### Code snippet 2
 
-<BoilerplateTemplate boilerplateInputsId="test2" outputPath="/a/b.hcl">
+<TemplateInline inputsId="test2" outputPath="/a/b.hcl">
 ```hcl
 terraform {
   required_version = ">= 1.0"
@@ -87,7 +87,7 @@ locals {
   }
 }
 ```
-</BoilerplateTemplate>
+</TemplateInline>
 
 ## Check
 
@@ -112,7 +112,7 @@ Check: Hit the endpoint (get from the module output!) and make sure it returns H
 
 ## Manual variable initialization example
 
-You can also manually initialize variables in a BoilerplateTemplate:
+You can also manually initialize variables in a TemplateInline:
 
 
 
@@ -132,15 +132,4 @@ You can also manually initialize variables in a BoilerplateTemplate:
 1. Run `terraform apply`.
 1. The module will output the HTTP URL endpoint for the function in the format, The Amazon Resource Name (ARN) of the function, and generated ID for the endpoint.
 1. When you're done testing, to undeploy everything, run `terraform destroy`.
-
-## Example Commands
-
-Here are some example commands you can run:
-
-<HelloWorld message="This is the first MDX component!" />
-
-<HelloWorld message="This is the second MDX component!" />
-
-<HelloWorld message="This is the third MDX component!" />
-
 

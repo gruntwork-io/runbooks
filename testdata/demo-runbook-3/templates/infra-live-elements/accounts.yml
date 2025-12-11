@@ -1,0 +1,6 @@
+{{- range $accountName, $accountData := .AWSAccounts }}
+{{ $accountName }}:
+{{- range $key, $value := $accountData }}
+  {{ $key }}: {{ $value | printf "%q" }}
+{{- end }}
+{{- end }}

@@ -1,3 +1,11 @@
 The Go server runs on port 7825 by default.
 
 We use bun, so prefer that to npm.
+
+We use https://taskfile.dev/ over makefiles. Look for the Taskfile.yml to see what command can you can run.
+
+Docs are located in /docs 
+
+The frontend is located in /web 
+
+The backend is spread across /api, /browser, and /cmd. When the user requests something, make sure you know if they're asking to update the docs, frontend, or backend.

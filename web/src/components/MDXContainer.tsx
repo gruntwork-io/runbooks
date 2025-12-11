@@ -4,14 +4,15 @@ import * as runtime from 'react/jsx-runtime'
 import type { AppError } from '@/types/error'
 
 // Support MDX components
-import { BoilerplateInputs } from '@/components/mdx/BoilerplateInputs'
-import { BoilerplateTemplate } from '@/components/mdx/BoilerplateTemplate'
-import { BoilerplateVariablesProvider } from '@/contexts/BoilerplateVariablesContext'
-import { BoilerplateRenderCoordinatorProvider } from '@/contexts/BoilerplateRenderCoordinator'
+import { Inputs } from '@/components/mdx/Inputs'
+import { Template } from '@/components/mdx/Template'
+import { TemplateInline } from '@/components/mdx/TemplateInline'
+import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
+import { BlockVariablesProvider } from '@/contexts/BlockVariablesContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
-import { ExternalLink } from '@/components/mdx/shared/components/ExternalLink'
+import { ExternalLink } from '@/components/mdx/_shared/components/ExternalLink'
 
 /**
  * This component renders a markdown/MDX document.
@@ -77,8 +78,8 @@ function MDXContainer({ content, className }: MDXContainerProps) {
 
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-      <BoilerplateVariablesProvider>
-        <BoilerplateRenderCoordinatorProvider>
+      <ComponentIdRegistryProvider>
+        <BlockVariablesProvider>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -97,8 +98,8 @@ function MDXContainer({ content, className }: MDXContainerProps) {
             </div>
             <CustomMDXComponent />
           </CustomMDXComponentErrorBoundary>
-        </BoilerplateRenderCoordinatorProvider>
-      </BoilerplateVariablesProvider>
+        </BlockVariablesProvider>
+      </ComponentIdRegistryProvider>
     </div>
   )
 }
@@ -209,13 +210,16 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     baseUrl: import.meta.url,
     rehypePlugins: [rehypeTransformAssetPaths],
     useMDXComponents: () => ({
-      BoilerplateInputs,
-      BoilerplateTemplate,
+      // Form and template components
+      Inputs,
+      Template,
+      TemplateInline,
+      // Script execution components
       Check,
       Command,
+      // Utility components
       Admonition,
       a: ExternalLink, // Make all links open in a new window
-      // Add more components here as needed
     })
   })
 
