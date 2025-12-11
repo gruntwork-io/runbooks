@@ -6,7 +6,8 @@ import type { UseApiReturn } from './useApi';
  */
 export interface GeneratedFilesCheckResult {
   hasFiles: boolean;
-  outputPath: string;
+  absoluteOutputPath: string;
+  relativeOutputPath: string;
   fileCount: number;
 }
 

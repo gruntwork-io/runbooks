@@ -36,9 +36,10 @@ func HandleGeneratedFilesCheck(rawOutputPath string) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, GeneratedFilesCheckResponse{
-			HasFiles:   dirInfo.fileCount > 0,
-			OutputPath: dirInfo.absoluteOutputPath,
-			FileCount:  dirInfo.fileCount,
+			HasFiles:           dirInfo.fileCount > 0,
+			AbsoluteOutputPath: dirInfo.absoluteOutputPath,
+			RelativeOutputPath: rawOutputPath,
+			FileCount:          dirInfo.fileCount,
 		})
 	}
 }

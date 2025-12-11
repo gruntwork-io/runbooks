@@ -28,7 +28,7 @@ import { dismissGeneratedFilesAlert } from './utils';
 interface GeneratedFilesAlertProps {
   isOpen: boolean;
   fileCount: number;
-  outputPath: string;
+  absoluteOutputPath: string;
   onClose: () => void;
   onDeleted: () => void;
 }
@@ -36,7 +36,7 @@ interface GeneratedFilesAlertProps {
 export function GeneratedFilesAlert({
   isOpen,
   fileCount,
-  outputPath,
+  absoluteOutputPath,
   onClose,
   onDeleted,
 }: GeneratedFilesAlertProps) {
@@ -115,7 +115,7 @@ export function GeneratedFilesAlert({
           <AlertDialogTitle>Existing Generated Files Detected</AlertDialogTitle>
           <AlertDialogDescription>
             There {fileCount === 1 ? 'is' : 'are'} {fileCount} file{fileCount === 1 ? '' : 's'} in{' '}
-            the <code className="px-1 py-0.5 bg-muted rounded text-sm">{outputPath}/</code> directory. {fileCount === 1 ? 'This' : 'These'} may
+            the <code className="px-1 py-0.5 bg-muted rounded text-sm">{absoluteOutputPath}/</code> directory. {fileCount === 1 ? 'This' : 'These'} may
             conflict with the files you generate from the current runbook. Would you like to delete the existing file{fileCount === 1 ? '' : 's'}?
           </AlertDialogDescription>
         </AlertDialogHeader>

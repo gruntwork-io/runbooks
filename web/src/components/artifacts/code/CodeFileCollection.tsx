@@ -1,7 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { FileTree, type FileTreeNode } from './FileTree'
 import { CodeFile } from './CodeFile'
-import { FolderOpen, ChevronLeft } from 'lucide-react'
+import { FolderOpen, ChevronLeft, Info, Copy, Check } from 'lucide-react'
+import { copyTextToClipboard } from '@/lib/utils'
 
 
 interface CodeFileCollectionProps {
@@ -9,13 +10,17 @@ interface CodeFileCollectionProps {
   className?: string;
   onHide?: () => void;
   hideContent?: boolean;
+  absoluteOutputPath?: string;
+  relativeOutputPath?: string;
 }
 
-export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false }: CodeFileCollectionProps) => {
+export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath }: CodeFileCollectionProps) => {
   const [treeWidth, setTreeWidth] = useState(200);
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isPathVisible, setIsPathVisible] = useState(false);
+  const [didCopyPath, setDidCopyPath] = useState(false);
   
   // Track if the user manually selected a file (vs automatic data updates)
   const userSelectedFileRef = useRef<string | null>(null);
@@ -79,11 +84,95 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     setTreeWidth(width);
   };
 
+  // Reset the "copied" state after a brief delay
+  useEffect(() => {
+    if (!didCopyPath) return;
+    const timer = window.setTimeout(() => setDidCopyPath(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [didCopyPath]);
+
+  const generatedFilesAbsolutePath = absoluteOutputPath;
+  const generatedFilesRelativePath = useMemo(() => {
+    // This should reflect the CLI `--output-path` value (relative to where runbooks was launched),
+    // NOT an inferred suffix of the absolute path (which can be any directory).
+    const raw = (relativeOutputPath || '').trim()
+
+    if (!raw) return '/generated'
+
+    // Normalize windows separators for display
+    const normalized = raw.replaceAll('\\', '/')
+
+    // If user provided an absolute path, show it as-is.
+    if (normalized.startsWith('/')) return normalized
+    if (/^[a-zA-Z]:\//.test(normalized)) return normalized
+
+    // Relative paths:
+    // - "." / "./foo" should stay as-is (clearly relative)
+    // - "generated" / "foo/bar" we render with a leading slash for readability in the sentence
+    if (normalized === '.' || normalized.startsWith('./') || normalized.startsWith('../')) return normalized
+    return `/${normalized}`
+  }, [relativeOutputPath])
+
+  const copyToClipboard = async (text: string) => {
+    const ok = await copyTextToClipboard(text)
+    if (ok) setDidCopyPath(true)
+  }
+
   return (
     <div className={`w-full h-full flex flex-col ${className}`}>
-      {/* Header - shown on desktop */}
-      <div className="hidden lg:flex lg:items-center lg:justify-between lg:py-2 lg:mb-3 lg:border-b lg:border-gray-200 lg:bg-transparent">
-        <h2 className="text-lg font-semibold text-gray-700">Generated Files</h2>
+      {/* Header */}
+      <div className="flex items-start justify-between py-2 mb-3 border-b border-gray-200 bg-transparent">
+        <div className="min-w-0 pl-4 lg:pl-0">
+          <h2 className="text-lg font-semibold text-gray-700">Generated Files</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 italic">
+            <span>
+              The files below are located in <code className="px-1 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-500 not-italic">{generatedFilesRelativePath}</code> relative to where you ran the runbook
+            </span>
+
+            <button
+              type="button"
+              className={`inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 ${
+                !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              }`}
+              aria-label="Show generated files absolute path"
+              title={generatedFilesAbsolutePath ? 'Show absolute path' : 'Absolute path unavailable'}
+              disabled={!generatedFilesAbsolutePath}
+              onClick={() => setIsPathVisible((prev) => !prev)}
+            >
+              <Info className="h-3.5 w-3.5 text-gray-600" />
+            </button>
+
+            <button
+              type="button"
+              className={`inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 ${
+                !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              }`}
+              aria-label="Copy generated files absolute path"
+              title={generatedFilesAbsolutePath ? 'Copy absolute path' : 'Absolute path unavailable'}
+              disabled={!generatedFilesAbsolutePath}
+              onClick={() => {
+                if (!generatedFilesAbsolutePath) return;
+                void copyToClipboard(generatedFilesAbsolutePath);
+              }}
+            >
+              {didCopyPath ? (
+                <Check className="h-3.5 w-3.5 text-green-600" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 text-gray-600" />
+              )}
+            </button>
+          </div>
+
+          {isPathVisible && generatedFilesAbsolutePath && (
+            <div className="mt-1 mb-1 text-xs text-gray-600">
+              <span className="mr-1 text-gray-500 italic">Absolute path:</span>
+              <code className="break-all rounded bg-gray-50 px-1 py-0.5 text-[11px] text-gray-500 border border-gray-200">
+                {generatedFilesAbsolutePath}
+              </code>
+            </div>
+          )}
+        </div>
+
         {onHide && (
           <button
             onClick={onHide}

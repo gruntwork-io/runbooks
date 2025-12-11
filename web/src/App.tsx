@@ -219,6 +219,8 @@ function App() {
                     className="absolute top-0 left-0 right-0 h-full" 
                     onHide={() => setIsArtifactsHidden(true)}
                     hideContent={!showArtifacts}
+                    absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
+                    relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
                   />
                 </div>
               </div>
@@ -255,7 +257,12 @@ function App() {
                 {/* Artifacts Section */}
                 <div className={activeMobileSection === 'code' ? 'block' : 'hidden'}>
                   <div className="w-full h-[calc(100vh-12rem)] border border-gray-200 rounded-lg shadow-md overflow-hidden">
-                    <ArtifactsContainer className="w-full h-full" onHide={() => setIsArtifactsHidden(true)} />
+                    <ArtifactsContainer
+                      className="w-full h-full"
+                      onHide={() => setIsArtifactsHidden(true)}
+                      absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
+                      relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
+                    />
                   </div>
                 </div>
               </div>
@@ -269,7 +276,7 @@ function App() {
         <GeneratedFilesAlert
           isOpen={showGeneratedFilesAlert}
           fileCount={generatedFilesCheck.data.fileCount}
-          outputPath={generatedFilesCheck.data.outputPath}
+          absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
           onClose={handleCloseAlert}
           onDeleted={handleFilesDeleted}
         />
