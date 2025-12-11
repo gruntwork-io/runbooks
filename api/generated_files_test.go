@@ -1,12 +1,58 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
+
+// setupTestLaunchDir creates a temporary directory to simulate the "runbook launch directory"
+// (the directory from which the user runs `runbooks open ...`). It changes to that directory
+// and registers cleanup to restore the original working directory and remove the temp dir.
+// Returns the absolute path to the launch directory (with symlinks resolved).
+func setupTestLaunchDir(t *testing.T) string {
+	t.Helper()
+
+	// Save original working directory
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get original working directory: %v", err)
+	}
+
+	// Create temp directory
+	launchDir, err := os.MkdirTemp("", "runbooks-test-launch-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp launch directory: %v", err)
+	}
+
+	// Resolve symlinks (macOS has /var -> /private/var symlink)
+	launchDir, err = filepath.EvalSymlinks(launchDir)
+	if err != nil {
+		os.RemoveAll(launchDir)
+		t.Fatalf("Failed to resolve symlinks in launch directory: %v", err)
+	}
+
+	// Change to launch directory
+	if err := os.Chdir(launchDir); err != nil {
+		os.RemoveAll(launchDir)
+		t.Fatalf("Failed to chdir to launch directory: %v", err)
+	}
+
+	// Register cleanup
+	t.Cleanup(func() {
+		os.Chdir(originalWd)
+		os.RemoveAll(launchDir)
+	})
+
+	return launchDir
+}
 
 func TestValidatePathSafeToDelete(t *testing.T) {
 	// Get current working directory for test setup
@@ -272,6 +318,308 @@ func TestValidatePathSafeToDelete_CaseSensitivity(t *testing.T) {
 				t.Errorf("Expected error for case variant %q, but got none", path)
 			} else {
 				t.Logf("Successfully caught case variant %q: %v", path, err)
+			}
+		})
+	}
+}
+
+// TestHandleGeneratedFilesCheck_OutputPaths tests that the handler returns correct
+// absoluteOutputPath and relativeOutputPath values for different input configurations.
+// It simulates a working directory (where the CLI was launched) and tests various
+// configuredOutputPath values.
+func TestHandleGeneratedFilesCheck_OutputPaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	launchDir := setupTestLaunchDir(t)
+
+	tests := []struct {
+		name                 string
+		configuredOutputPath string // The --output-path CLI flag value
+		expectedRelative     string // Expected relativeOutputPath in response
+		expectedAbsolute     string // Expected absoluteOutputPath in response (exact match)
+	}{
+		{
+			name:                 "default generated path",
+			configuredOutputPath: "generated",
+			expectedRelative:     "generated",
+			expectedAbsolute:     filepath.Join(launchDir, "generated"),
+		},
+		{
+			name:                 "custom relative path",
+			configuredOutputPath: "my-output",
+			expectedRelative:     "my-output",
+			expectedAbsolute:     filepath.Join(launchDir, "my-output"),
+		},
+		{
+			name:                 "nested relative path",
+			configuredOutputPath: "build/output/files",
+			expectedRelative:     "build/output/files",
+			expectedAbsolute:     filepath.Join(launchDir, "build/output/files"),
+		},
+		{
+			name:                 "dot-prefixed relative path",
+			configuredOutputPath: "./my-output",
+			expectedRelative:     "./my-output",
+			expectedAbsolute:     filepath.Join(launchDir, "my-output"),
+		},
+		{
+			name:                 "current directory as output",
+			configuredOutputPath: ".",
+			expectedRelative:     ".",
+			expectedAbsolute:     launchDir,
+		},
+		{
+			name:                 "absolute path within launch dir",
+			configuredOutputPath: filepath.Join(launchDir, "abs-output"),
+			expectedRelative:     filepath.Join(launchDir, "abs-output"),
+			expectedAbsolute:     filepath.Join(launchDir, "abs-output"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := gin.New()
+			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(tt.configuredOutputPath))
+
+			req, err := http.NewRequest("GET", "/api/generated-files/check", nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+
+			if recorder.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d. Body: %s", recorder.Code, recorder.Body.String())
+				return
+			}
+
+			var response GeneratedFilesCheckResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to parse response JSON: %v", err)
+			}
+
+			// Verify relativeOutputPath matches exactly
+			if response.RelativeOutputPath != tt.expectedRelative {
+				t.Errorf("RelativeOutputPath mismatch:\n  got:      %q\n  expected: %q",
+					response.RelativeOutputPath, tt.expectedRelative)
+			}
+
+			// Verify absoluteOutputPath matches exactly
+			if response.AbsoluteOutputPath != tt.expectedAbsolute {
+				t.Errorf("AbsoluteOutputPath mismatch:\n  got:      %q\n  expected: %q",
+					response.AbsoluteOutputPath, tt.expectedAbsolute)
+			}
+
+			// Verify absoluteOutputPath is actually an absolute path
+			if !filepath.IsAbs(response.AbsoluteOutputPath) {
+				t.Errorf("AbsoluteOutputPath %q is not an absolute path", response.AbsoluteOutputPath)
+			}
+
+			t.Logf("OK: launchDir=%q, configured=%q → relative=%q, absolute=%q",
+				launchDir, tt.configuredOutputPath, response.RelativeOutputPath, response.AbsoluteOutputPath)
+		})
+	}
+}
+
+// TestHandleGeneratedFilesCheck_DefaultOutputPath tests that when the CLI default
+// output path ("generated") is used, the handler works correctly.
+// Note: The default value "generated" is set in cmd/root.go via the --output-path flag.
+// This test verifies the handler correctly processes this default value.
+func TestHandleGeneratedFilesCheck_DefaultOutputPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	launchDir := setupTestLaunchDir(t)
+
+	// "generated" is the CLI default value (see cmd/root.go)
+	const cliDefaultOutputPath = "generated"
+
+	router := gin.New()
+	router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(cliDefaultOutputPath))
+
+	req, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response GeneratedFilesCheckResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Verify the relative path is exactly "generated" (the default)
+	if response.RelativeOutputPath != cliDefaultOutputPath {
+		t.Errorf("RelativeOutputPath should be %q (CLI default), got %q",
+			cliDefaultOutputPath, response.RelativeOutputPath)
+	}
+
+	// Verify the absolute path is launchDir/generated
+	expectedAbsolute := filepath.Join(launchDir, cliDefaultOutputPath)
+	if response.AbsoluteOutputPath != expectedAbsolute {
+		t.Errorf("AbsoluteOutputPath mismatch:\n  got:      %q\n  expected: %q",
+			response.AbsoluteOutputPath, expectedAbsolute)
+	}
+
+	t.Logf("OK: CLI default 'generated' → relative=%q, absolute=%q",
+		response.RelativeOutputPath, response.AbsoluteOutputPath)
+}
+
+// TestHandleGeneratedFilesCheck_InvalidAbsolutePaths tests that invalid absolute paths
+// (malformed, path traversal attacks, paths outside launch dir, etc.) return appropriate errors.
+func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	launchDir := setupTestLaunchDir(t)
+
+	// Create another directory OUTSIDE the launch directory for testing
+	outsideDir, err := os.MkdirTemp("", "runbooks-test-outside-*")
+	if err != nil {
+		t.Fatalf("Failed to create outside directory: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(outsideDir) })
+
+	outsideDir, err = filepath.EvalSymlinks(outsideDir)
+	if err != nil {
+		t.Fatalf("Failed to resolve symlinks in outside directory: %v", err)
+	}
+
+	invalidPaths := []struct {
+		name        string
+		path        string
+		shouldError bool
+	}{
+		// Path traversal attacks
+		{
+			name:        "path traversal attack with ..",
+			path:        "../../../etc/passwd",
+			shouldError: true,
+		},
+		{
+			name:        "path traversal via absolute then ..",
+			path:        filepath.Join(launchDir, "..", "escape-attempt"),
+			shouldError: true,
+		},
+		{
+			name:        "double dot at start",
+			path:        "..",
+			shouldError: true,
+		},
+		{
+			name:        "hidden double dot in path",
+			path:        "output/../../../tmp/evil",
+			shouldError: true,
+		},
+		// Absolute paths outside launch directory
+		{
+			name:        "absolute path to root",
+			path:        "/",
+			shouldError: true,
+		},
+		{
+			name:        "absolute path to etc",
+			path:        "/etc",
+			shouldError: true,
+		},
+		{
+			name:        "absolute path to /tmp",
+			path:        "/tmp/some-output",
+			shouldError: true,
+		},
+		{
+			name:        "absolute path to different temp dir",
+			path:        outsideDir,
+			shouldError: true,
+		},
+		{
+			name:        "absolute path to parent directory",
+			path:        filepath.Dir(launchDir),
+			shouldError: true,
+		},
+		// Valid edge cases
+		{
+			name:        "tilde expansion attempt",
+			path:        "~/Desktop",
+			shouldError: false, // ~ is not expanded by Go, treated as literal directory "~" - valid relative path
+		},
+	}
+
+	for _, tt := range invalidPaths {
+		t.Run(tt.name, func(t *testing.T) {
+			router := gin.New()
+			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(tt.path))
+
+			req, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+
+			if tt.shouldError {
+				if recorder.Code == http.StatusOK {
+					t.Errorf("Expected error for invalid path %q, but got 200 OK", tt.path)
+				} else {
+					t.Logf("OK: Invalid path %q correctly rejected with status %d", tt.path, recorder.Code)
+				}
+			} else {
+				if recorder.Code != http.StatusOK {
+					t.Errorf("Expected success for path %q, but got status %d: %s",
+						tt.path, recorder.Code, recorder.Body.String())
+				}
+			}
+		})
+	}
+}
+
+// TestHandleGeneratedFilesCheck_RelativePathPreserved verifies that the relativeOutputPath
+// is exactly what was passed to the handler (the CLI --output-path value), not modified.
+func TestHandleGeneratedFilesCheck_RelativePathPreserved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	launchDir := setupTestLaunchDir(t)
+
+	// These are various ways users might specify the output path via CLI
+	testCases := []string{
+		"generated",
+		"./generated",
+		"output/files",
+		".",
+		"my-custom-dir",
+		"nested/deep/path",
+	}
+
+	for _, configuredPath := range testCases {
+		t.Run(configuredPath, func(t *testing.T) {
+			router := gin.New()
+			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(configuredPath))
+
+			req, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+
+			if recorder.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", recorder.Code)
+				return
+			}
+
+			var response GeneratedFilesCheckResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to parse response: %v", err)
+			}
+
+			// The relative path should be EXACTLY what was configured (unchanged)
+			if response.RelativeOutputPath != configuredPath {
+				t.Errorf("RelativeOutputPath was modified!\n  input:  %q\n  output: %q",
+					configuredPath, response.RelativeOutputPath)
+			}
+
+			// The absolute path should be the launch dir + the relative path
+			expectedAbsolute := filepath.Join(launchDir, configuredPath)
+			if configuredPath == "." {
+				expectedAbsolute = launchDir
+			} else if strings.HasPrefix(configuredPath, "./") {
+				expectedAbsolute = filepath.Join(launchDir, configuredPath[2:])
+			}
+
+			if response.AbsoluteOutputPath != expectedAbsolute {
+				t.Errorf("AbsoluteOutputPath mismatch:\n  got:      %q\n  expected: %q",
+					response.AbsoluteOutputPath, expectedAbsolute)
 			}
 		})
 	}
