@@ -41,7 +41,7 @@ function Command({
     sourceCode,
     language,
     fileError: getFileError,
-    collectedVariables,
+    importedVarValues,
     requiredVariables,
     hasAllRequiredVariables,
     inlineInputsId,
@@ -334,7 +334,7 @@ function Command({
             <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
               <AlertTriangle className="size-4" />
               You can run the command once we have values for the following variables: {requiredVariables.filter(varName => {
-                const value = collectedVariables[varName];
+                const value = importedVarValues[varName];
                 return value === undefined || value === null || value === '';
               }).map(varName => formatVariableLabel(varName)).join(', ')}
             </div>
