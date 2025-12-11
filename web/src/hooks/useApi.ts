@@ -50,8 +50,12 @@ export function useApi<T>(
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         setError(createAppError(
-          errorData?.message || `HTTP error: ${response.status}`,
-          errorData?.details || `Failed to connect to runbook server at ${fullUrl}. Is the backend server running?`
+          errorData?.message || errorData?.error || `HTTP error: ${response.status}`,
+          errorData?.details || `Failed to connect to runbook server at ${fullUrl}. Is the backend server running?`,
+          {
+            specifiedPath: errorData?.specifiedPath,
+            currentWorkingDir: errorData?.currentWorkingDir,
+          }
         ));
         setIsLoading(false);
         return;
