@@ -169,17 +169,10 @@ function Template({
   )
 
   // Update global file tree when render result is available
+  // The backend returns the complete output directory tree, so we simply replace
   useEffect(() => {
     if (renderResult && renderResult.fileTree) {
-      const fileTree = renderResult.fileTree as FileTreeNode[];
-      setFileTree(prev => {
-        // Merge with existing file tree instead of replacing
-        if (!prev) return fileTree;
-        // Simple merge - in practice you might want smarter merging
-        const existingPaths = new Set(prev.map(n => n.id));
-        const newNodes = fileTree.filter(n => !existingPaths.has(n.id));
-        return [...prev, ...newNodes];
-      });
+      setFileTree(renderResult.fileTree as FileTreeNode[]);
     }
   }, [renderResult, setFileTree]);
 

@@ -8,7 +8,6 @@ import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
-import { mergeFileTrees } from '@/lib/mergeFileTrees'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 
 interface TemplateInlineProps {
@@ -170,11 +169,10 @@ function TemplateInline({
       
       renderTemplate(importedVarValues, !isInitialRender)
         .then(newFileTree => {
-          // Only add to file tree if generateFile is true
+          // Only update file tree if generateFile is true
+          // The backend returns the complete output directory tree, so we simply replace
           if (generateFile) {
-            setFileTree((currentFileTree: FileTreeNode[] | null) => {
-              return mergeFileTrees(currentFileTree, newFileTree);
-            });
+            setFileTree(newFileTree);
           }
         })
         .catch(err => {
