@@ -1,10 +1,10 @@
 ---
-title: <TemplatePreview>
+title: <TemplateInline>
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<TemplatePreview>` block renders a preview of the Boilerplate templates inline, displaying the rendered output directly in your runbook. It uses the Gruntwork Boilerplate template engine to generate content, and optionally saves files to your generated files workspace.
+The `<TemplateInline>` block renders a preview of the Boilerplate templates inline, displaying the rendered output directly in your runbook. It uses the Gruntwork Boilerplate template engine to generate content, and optionally saves files to your generated files workspace.
 
 ### Quick example
 
@@ -24,7 +24,7 @@ variables:
 ```
 </Inputs>
 
-<TemplatePreview inputsId="s3-config" outputPath="s3.tf">
+<TemplateInline inputsId="s3-config" outputPath="s3.tf">
 ```hcl
 resource "aws_s3_bucket" "main" {
   bucket = "{{ .BucketName }}-{{ .Environment }}"
@@ -35,16 +35,16 @@ resource "aws_s3_bucket" "main" {
   }
 }
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
 
-After the user fills out the form and clicks Submit, `<TemplatePreview>` will render the Terraform template with the provided values and display the result inline.
+After the user fills out the form and clicks Submit, `<TemplateInline>` will render the Terraform template with the provided values and display the result inline.
 
 TODO: Screenshots
 
 ## When to use
 
-Use `<TemplatePreview>` when you want to show users what generated content looks like, or when you want to show generated content without actually creating files in the generated files workspace.
+Use `<TemplateInline>` when you want to show users what generated content looks like, or when you want to show generated content without actually creating files in the generated files workspace.
 
 Here are some common use cases:
 
@@ -58,16 +58,16 @@ Here are some common use cases:
 **required**  
 **type:** `ReactNode`
 
-The template content to render. Write the template as a fenced code block inside the `<TemplatePreview>` tags. The code block should include a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
+The template content to render. Write the template as a fenced code block inside the `<TemplateInline>` tags. The code block should include a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
 
 #### Example
 
 `````mdx
-<TemplatePreview inputsId="some-config">
+<TemplateInline inputsId="some-config">
 ```txt
 Hello, {{ .Name }}. This is inline template content!
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
 
 ### `inputsId`
@@ -109,7 +109,7 @@ variables:
 ```
 </Inputs>
 
-<TemplatePreview inputsId="docker-config" outputPath="Dockerfile">
+<TemplateInline inputsId="docker-config" outputPath="Dockerfile">
 ```dockerfile
 FROM node:{{ .NodeVersion }}-alpine
 
@@ -121,12 +121,12 @@ COPY . .
 EXPOSE 3000
 CMD ["node", "server.js"]
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
 
 ### Multiple files
 
-You can have multiple `<TemplatePreview>` blocks referencing the same `<Inputs>`:
+You can have multiple `<TemplateInline>` blocks referencing the same `<Inputs>`:
 
 `````mdx
 <Inputs id="app-config">
@@ -140,20 +140,20 @@ variables:
 ```
 </Inputs>
 
-<TemplatePreview inputsId="app-config" outputPath="config.yaml">
+<TemplateInline inputsId="app-config" outputPath="config.yaml">
 ```yaml
 app:
   name: {{ .AppName }}
   environment: {{ .Environment }}
 ```
-</TemplatePreview>
+</TemplateInline>
 
-<TemplatePreview inputsId="app-config" outputPath=".env">
+<TemplateInline inputsId="app-config" outputPath=".env">
 ```bash
 APP_NAME={{ .AppName }}
 ENVIRONMENT={{ .Environment }}
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
 
 ### Reference multiple Inputs
@@ -182,7 +182,7 @@ variables:
 ```
 </Inputs>
 
-<TemplatePreview inputsId={["global-config", "service-config"]} outputPath="deploy.tf">
+<TemplateInline inputsId={["global-config", "service-config"]} outputPath="deploy.tf">
 ```hcl
 resource "aws_ecs_service" "main" {
   name = "{{ .ServiceName }}-{{ .Environment }}"
@@ -192,7 +192,7 @@ resource "aws_ecs_service" "main" {
   }
 }
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
 
 ### With Boilerplate logic
@@ -212,7 +212,7 @@ variables:
 ```
 </Inputs>
 
-<TemplatePreview inputsId="terraform-config" outputPath="main.tf">
+<TemplateInline inputsId="terraform-config" outputPath="main.tf">
 ```hcl
 resource "aws_instance" "app" {
   ami           = "ami-12345678"
@@ -223,7 +223,7 @@ resource "aws_instance" "app" {
   {{- end }}
 }
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
 
 ## Features
@@ -240,21 +240,21 @@ Rendered content is displayed with syntax highlighting based on the language hin
 
 If template rendering fails (e.g., invalid Boilerplate syntax), an error message is displayed instead of the rendered content.
 
-## TemplatePreview vs BoilerplateInputs
+## TemplateInline vs Template
 
-| Feature | `<TemplatePreview>` | `<BoilerplateInputs>` with path |
+| Feature | `<TemplateInline>` | `<Template>` with path |
 |---------|--------------------|---------------------------------|
 | Generates files | Optional (`generateFile={true}`) | Always saves to workspace |
 | Template location | Inline only | Can reference directories |
 | Use case | Show what will be generated, optionally save | Generate files from external templates |
 
 <Aside type="note">
-Use `<TemplatePreview>` when you want to show users what files will look like inline. Add `generateFile={true}` to also save the file to the workspace.
+Use `<TemplateInline>` when you want to show users what files will look like inline. Add `generateFile={true}` to also save the file to the workspace.
 </Aside>
 
 ## Complete example
 
-Here's a complete example showing `<Inputs>` with multiple `<TemplatePreview>` blocks:
+Here's a complete example showing `<Inputs>` with multiple `<TemplateInline>` blocks:
 
 `````mdx
 <Inputs id="service-config">
@@ -273,7 +273,7 @@ variables:
 ```
 </Inputs>
 
-<TemplatePreview inputsId="service-config" outputPath="docker-compose.yaml">
+<TemplateInline inputsId="service-config" outputPath="docker-compose.yaml">
 ```yaml
 version: "3.8"
 services:
@@ -284,14 +284,15 @@ services:
     environment:
       - NODE_ENV={{ .Environment }}
 ```
-</TemplatePreview>
+</TemplateInline>
 
-<TemplatePreview inputsId="service-config" outputPath=".env">
+<TemplateInline inputsId="service-config" outputPath=".env">
 ```bash
 SERVICE_NAME={{ .ServiceName }}
 PORT={{ .Port }}
 ENVIRONMENT={{ .Environment }}
 ```
-</TemplatePreview>
+</TemplateInline>
 `````
+
 

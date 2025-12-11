@@ -30,22 +30,22 @@ Now let's create a standalone inputs
 
 Now let's render an inline template based on both test1 and test2
 
-<TemplatePreview inputsId="test2">
+<TemplateInline inputsId="test2">
 ```yaml
 orgName: {{ .GithubOrgName }} 
 ```
-</TemplatePreview>
+</TemplateInline>
 
 ## Test 4
 
 Now let's render an inline template that pulls from both test1 and test2
 
-<TemplatePreview inputsId={["test1", "test2"]}>
+<TemplateInline inputsId={["test1", "test2"]}>
 ```yaml
 orgName: {{ .GithubOrgName }} 
 orgNamePrefix: {{ .OrgNamePrefix }}
 ```
-</TemplatePreview>
+</TemplateInline>
 
 ## Test 5
 

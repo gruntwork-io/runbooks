@@ -44,3 +44,4 @@ export function extractTemplateVariables(children: ReactNode): string[] {
   return Array.from(variables);
 }
 
+

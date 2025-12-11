@@ -11,7 +11,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { mergeFileTrees } from '@/lib/mergeFileTrees'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 
-interface TemplatePreviewProps {
+interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
   /** Output path prefix for generated files */
@@ -23,18 +23,18 @@ interface TemplatePreviewProps {
 }
 
 /**
- * TemplatePreview renders inline template content with variable substitution.
+ * TemplateInline renders inline template content with variable substitution.
  * It displays the rendered output as code blocks (preview only, no file generation).
  * 
  * Variables are sourced from Inputs components referenced by inputsId.
  * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).
  */
-function TemplatePreview({
+function TemplateInline({
   inputsId,
   outputPath,
   generateFile = false,
   children
-}: TemplatePreviewProps) {
+}: TemplateInlineProps) {
   // Render state
   const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
   const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, File> } | null>(null);
@@ -142,7 +142,7 @@ function TemplatePreview({
   
   useEffect(() => {
     // Check if we have all required variables
-    // Note that TemplatePreview is a pure consumer of variables, so it only has importedVarValues
+    // Note that TemplateInline is a pure consumer of variables, so it only has importedVarValues
     if (!hasAllRequiredVariables(importedVarValues)) {
       return;
     }
@@ -178,7 +178,7 @@ function TemplatePreview({
           }
         })
         .catch(err => {
-          console.error(`[TemplatePreview][${outputPath}] Render failed:`, err);
+          console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
   }, [importedVarValues, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
@@ -222,6 +222,7 @@ function TemplatePreview({
 }
 
 // Set displayName for React DevTools and component detection
-TemplatePreview.displayName = 'TemplatePreview';
+TemplateInline.displayName = 'TemplateInline';
 
-export default TemplatePreview;
+export default TemplateInline;
+

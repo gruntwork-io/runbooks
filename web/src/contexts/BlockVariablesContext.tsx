@@ -21,7 +21,7 @@ export interface InputsData {
  * Context interface for sharing variable values between blocks.
  * 
  * Inputs components register their values and config.
- * TemplatePreview, Command, and Check components consume merged values/configs.
+ * TemplateInline, Command, and Check components consume merged values/configs.
  */
 export interface BlockVariablesContextType {
   /** All registered inputs data, keyed by inputsId */
@@ -44,13 +44,13 @@ export const BlockVariablesContext = createContext<BlockVariablesContextType | u
 
 /**
  * Provider component that enables variable sharing between Inputs and consumer components
- * (Template, TemplatePreview, Command, Check).
+ * (Template, TemplateInline, Command, Check).
  * 
  * @example
  * <BlockVariablesProvider>
  *   <Inputs id="config-a">...</Inputs>
  *   <Inputs id="config-b">...</Inputs>
- *   <TemplatePreview inputsId={["config-a", "config-b"]}>...</TemplatePreview>
+ *   <TemplateInline inputsId={["config-a", "config-b"]}>...</TemplateInline>
  *   <Command inputsId="config-a" ... />
  * </BlockVariablesProvider>
  */

@@ -14,5 +14,5 @@ Blocks are special React components that you can use in your MDX runbooks to add
 - [`<Check>`](/authoring/blocks/check)
 - [`<Command>`](/authoring/blocks/command)
 - [`<Inputs>`](/authoring/blocks/inputs)
-- [`<TemplatePreview>`](/authoring/blocks/templatepreview)
+- [`<TemplateInline>`](/authoring/blocks/templateinline)
 

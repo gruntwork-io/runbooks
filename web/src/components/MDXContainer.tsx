@@ -6,7 +6,7 @@ import type { AppError } from '@/types/error'
 // Support MDX components
 import { Inputs } from '@/components/mdx/Inputs'
 import { Template } from '@/components/mdx/Template'
-import { TemplatePreview } from '@/components/mdx/TemplatePreview'
+import { TemplateInline } from '@/components/mdx/TemplateInline'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { BlockVariablesProvider } from '@/contexts/BlockVariablesContext'
 import { Check } from '@/components/mdx/Check'
@@ -213,7 +213,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       // Form and template components
       Inputs,
       Template,
-      TemplatePreview,
+      TemplateInline,
       // Script execution components
       Check,
       Command,

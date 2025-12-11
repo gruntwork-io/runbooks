@@ -6,20 +6,20 @@ import { extractTemplateFiles } from './extractTemplateFiles';
 
 describe('extractTemplateFiles', () => {
   it('should extract code from HCL template with custom outputPath', async () => {
-    const mdxContent = `<TemplatePreview inputsId="test" outputPath="main.tf">
+    const mdxContent = `<TemplateInline inputsId="test" outputPath="main.tf">
 \`\`\`hcl
 resource "aws_instance" "web" {
   count = {{ .InstanceCount }}
 }
 \`\`\`
-</TemplatePreview>`;
+</TemplateInline>`;
 
     const compiledMDX = await evaluate(mdxContent, {
       ...runtime,
       development: false,
       baseUrl: import.meta.url,
       useMDXComponents: () => ({
-        TemplatePreview: () => React.createElement('div', {}, 'Test component'),
+        TemplateInline: () => React.createElement('div', {}, 'Test component'),
       })
     });
 
@@ -34,21 +34,21 @@ resource "aws_instance" "web" {
   });
 
   it('should extract terraform variables with template syntax', async () => {
-    const mdxContent = `<TemplatePreview inputsId="test" outputPath="variables.tf">
+    const mdxContent = `<TemplateInline inputsId="test" outputPath="variables.tf">
 \`\`\`terraform
 variable "instance_count" {
   type = number
   default = {{ .InstanceCount }}
 }
 \`\`\`
-</TemplatePreview>`;
+</TemplateInline>`;
 
     const compiledMDX = await evaluate(mdxContent, {
       ...runtime,
       development: false,
       baseUrl: import.meta.url,
       useMDXComponents: () => ({
-        TemplatePreview: () => React.createElement('div', {}, 'Test component'),
+        TemplateInline: () => React.createElement('div', {}, 'Test component'),
       })
     });
 
@@ -64,16 +64,16 @@ variable "instance_count" {
   });
 
   it('should return empty object when no code blocks found', async () => {
-    const mdxContent = `<TemplatePreview inputsId="test">
+    const mdxContent = `<TemplateInline inputsId="test">
 Some regular text without code fences
-</TemplatePreview>`;
+</TemplateInline>`;
 
     const compiledMDX = await evaluate(mdxContent, {
       ...runtime,
       development: false,
       baseUrl: import.meta.url,
       useMDXComponents: () => ({
-        TemplatePreview: () => React.createElement('div', {}, 'Test component'),
+        TemplateInline: () => React.createElement('div', {}, 'Test component'),
       })
     });
 
@@ -86,4 +86,5 @@ Some regular text without code fences
     expect(result).toEqual({});
   });
 });
+
 

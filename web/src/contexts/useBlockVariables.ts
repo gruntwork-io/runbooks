@@ -2,7 +2,7 @@
  * # Block Variables Context Hooks
  * 
  * This file provides React hooks for sharing variable values between MDX blocks
- * (Inputs, Template, TemplatePreview, Command, Check).
+ * (Inputs, Template, TemplateInline, Command, Check).
  * 
  * ## Core Concept
  * 
@@ -10,7 +10,7 @@
  * that block's variable values. This enables a data flow where:
  * 
  * 1. **Inputs/Template** blocks collect values from the user and register them to the context
- * 2. **Downstream blocks** (Template, TemplatePreview, Command, Check) import those values
+ * 2. **Downstream blocks** (Template, TemplateInline, Command, Check) import those values
  * 
  * ## Example Usage
  * 

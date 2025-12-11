@@ -19,7 +19,7 @@ import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
  * 
  * The collected variables are published to context so they can be used by:
  * - <Template> components (for file generation)
- * - <TemplatePreview> components (for inline preview)
+ * - <TemplateInline> components (for inline preview)
  * - <Command> and <Check> components (for script variable substitution)
  * 
  * @param props.id - Unique identifier for this component (required)

@@ -124,7 +124,7 @@ We just created the `.mise.toml` file. We're going to use this shortly in your n
 
 Here's a preview of the GitHub Actions workflow we'll add to your repo:
 
-<TemplatePreview inputsId="infrastructure-live-root-repo-inputs" outputPath="ci.yml" generateFile={true}>
+<TemplateInline inputsId="infrastructure-live-root-repo-inputs" outputPath="ci.yml" generateFile={true}>
 ```yaml
 name: CI
 
@@ -148,7 +148,7 @@ jobs:
       - name: Validate
         run: tofu validate
 ```
-</TemplatePreview>
+</TemplateInline>
 
 ### Create Terragrunt foundations
 
