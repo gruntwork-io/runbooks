@@ -34,7 +34,9 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     if (!isBackendHealthy) {
       setError(createAppError(
         'Cannot connect to backend server',
-        'The Runbooks backend server is not responding. It may not be running or may have crashed.'
+        'The Runbooks backend server is not responding. It may not be running or may have crashed.',
+        undefined,
+        'BACKEND_CONNECTION_ERROR'
       ))
       setLoading(false)
       return
@@ -55,7 +57,9 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setError(createAppError(
         'Failed to load executable registry',
-        errorMessage
+        errorMessage,
+        undefined,
+        'REGISTRY_FETCH_FAILED'
       ))
     } finally {
       setLoading(false)
@@ -104,7 +108,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
 
   // Show error state if registry fails to load
   if (error) {
-    const isConnectionError = error.message === 'Cannot connect to backend server'
+    const isConnectionError = error.code === 'BACKEND_CONNECTION_ERROR'
     
     return (
       <div className="p-8 text-center bg-red-50 border-2 border-red-600 m-8 rounded-lg w-2xl mx-auto">
