@@ -88,7 +88,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
               <Admonition 
                 type="warning" 
                 title="**Make sure you trust this Runbook!**" 
-                confirmationText="I trust this Runbook and understand the security implications"
+                confirmationText="I trust this Runbook"
                 allowPermanentHide={true}
                 storageKey="security-banner"
               >
