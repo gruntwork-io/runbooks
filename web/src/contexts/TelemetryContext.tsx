@@ -38,7 +38,7 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
   
   // Block render aggregation - collect blocks and send a single event
   const blockCountsRef = useRef<Record<string, number>>({})
-  const blockAggregateTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const blockAggregateTimerRef = useRef<number | null>(null)
   const hasSentRunbookLoadedRef = useRef(false)
 
   // Fetch telemetry config from backend on mount
@@ -136,7 +136,7 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
     }
     
     // Set a new timer - after 500ms of no new blocks, send the aggregated event
-    blockAggregateTimerRef.current = setTimeout(() => {
+    blockAggregateTimerRef.current = window.setTimeout(() => {
       // Only send once per page load
       if (hasSentRunbookLoadedRef.current) {
         return
