@@ -23,6 +23,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		panic(fmt.Sprintf("failed to get embedded assets filesystem: %v", err))
 	}
 
+	// Health check endpoint - used by frontend to detect if backend is running
+	r.GET("/api/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	// API endpoint to serve the runbook file contents
 	r.POST("/api/file", HandleFileRequest(runbookPath))
 
