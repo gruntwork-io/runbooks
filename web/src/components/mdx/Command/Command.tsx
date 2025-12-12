@@ -1,4 +1,4 @@
-import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash } from "lucide-react"
+import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash, FolderInput } from "lucide-react"
 import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
@@ -336,6 +336,23 @@ function Command({
 
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
+          
+          {/* Indicate when command will capture files to workspace */}
+          {captureFiles && (
+            <div className="mt-3 mb-2 text-sm text-gray-600 flex items-center gap-2">
+              <FolderInput className="size-4 text-blue-500" />
+              <span>
+                Any files created by this command will be added to your generated files
+                {captureFilesOutputPath && (
+                  <span>
+                    <span> in the </span>
+                    <code className="bg-gray-100 text-gray-500 p-0 rounded text-xs">{captureFilesOutputPath}/</code>
+                    <span> subfolder </span>
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
           
           {/* Show status messages for waiting/rendering/error states */}      
           {requiredVariables.length > 0 && !hasAllRequiredVariables && !isRendering && (
