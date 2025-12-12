@@ -14,43 +14,51 @@ Runbooks is [open source](https://github.com/gruntwork-io/runbooks) and free to 
 
 ### What can Runbooks do?
 
-Runbooks have first-class support for rendering markdown files, generating customizable files, and running customizable scripts.
+Runbooks can:
+
+- Render markdown text
+- Generate one or more files based on user-entered values
+- Run dyanmically customized scripts
+- Run dynamically customized "checks"
+- Share user-entered values across more than one block within a runbook 
+
+This collection of primitives is a powerful (and enjoyable) way to consume another person's expertise.
+
+The Runbooks format is designed to be a straightforward authoring experience. Authors can use any text editor to write plain markdown along with a handful of powerful "blocks" (like `<Inputs>` and `<Template>`). Runbooks can be tested locally using the Runbooks CLI tool, offering a fast feedback loop for authors.
 
 ### How are Runbooks useful?
 
 DevOps and Platform Engineers are often the "expertise bottlenecks" when it comes to enabling their organization to achieve an infrastructure goal.
 
-Historically, there has not been a straightforward way to "capture" this hard-won expertise and make it available to others. To fully adopt a pattern defined by a subject matter expert, an end-user needs to:
+Historically, there has not been a straightforward way to "capture" this hard-won expertise and make it available to others. And yet platform engineers are often the bottleneck for application engineers or others who depend on them to accomplish infrastructure goals.
 
-1. Read the documentation
-2. Generate the code from the documentation
-3. Run the code
-4. Validate the code
-5. Iterate as needed
+In any situation where a "consumer" of expertise is blocked on the "producer" of expertise, Runbooks are an opportunity to free up the expert and empower consumers. 
 
-Static documentation meets the first step, but quickly gets out of date, requires manual copy & pasting, manual adaptation of the instructure to fit the end user's needs, and typically lacks validation steps. Worse, the subject matter expert rarely gets feedback about which part of the documentation was incomplete or incorrect. This gives rise to the all-too-common "it's not quite what I wanted" experience of using documentation.
-
-There are various templating tools available to automate the second step above, but code generation is rarely paired with effective documentation, it can be  hard to customize, and the end user experience is often clumsy.
-
-Runbooks aim to offer a new paradigm that dramatically _lowers_ the bar for subject matter experts by making it enjoyable to capture their expertise, and dramatically _raises_ the bar for "expertise consumers" by giving them an interactive, personalized, and clean experience they can use to understand and apply a pattern.
+Runbooks are especially useful for developer self-service, documenting internal processes or standard operating procedures, and codifying all the ways to use a given IaC pattern.
 
 ### What does a Runbook look like?
 
 **Runbook authors** are DevOps subject matter experts and write Runbooks.
 
-A typical Runbook directory looks like this:
+A typical Runbook directory looks like the file tree below. In this example, the file names are somewhat arbitrary, but the folder structure is conventional.
 
 <FileTree >
 
 - runbook.mdx The official Runbook file.
 - checks/ Bash scripts used by [Checks](/authoring/blocks/check/)
+  - preflight_checks.sh
 - scripts/ Bash scripts used by [Commands](/authoring/blocks/command/)
+  - install_mise.sh
 - templates/ Templates used by [BoilerplateInputs](/authoring/blocks/boilerplateinputs)
+  - consume_lambda_module
+    - boilerplate.yml
+    - terragrunt.hcl
 - assets/ Images and other assets used by the Runbook
+  - architecture.jpg
 
 </FileTree>
 
-You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `checks/`, `scripts/`, and `templates/` directories.
+You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `checks/`, `scripts/`, `templates/`, and `assets/` directories.
 
 ### How do you open a Runbook?
 
