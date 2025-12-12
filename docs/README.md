@@ -11,7 +11,7 @@ bun install
 bun start
 ```
 
-## Building docs 
+## Building docs
 
 We build the docs site when we want to deploy it. It can also be helpful to build docs before you git commit to avoid test failures.
 
