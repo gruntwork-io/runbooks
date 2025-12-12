@@ -5,9 +5,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogHeader,
-  AlertDialogTitle,
 } from '../ui/alert-dialog';
-import gruntyImage from '/grunty_with_runbooks.png';
 
 interface HeaderProps {
   pathName: string;
