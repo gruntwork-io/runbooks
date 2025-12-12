@@ -18,8 +18,7 @@ We collect the following anonymous data:
 | Commands | `open`, `watch`, `serve` invocations | Understand which CLI commands are most used |
 | Platform | Operating system, architecture | Ensure compatibility across platforms |
 | Version | Runbooks version | Track adoption of new versions |
-| Blocks | Block types rendered (Command, Check, Template, Inputs) | Prioritize feature development |
-| Execution | Script execution success/failure counts | Identify stability issues |
+| Blocks | Block types in runbooks (Command, Check, Template, Inputs) | Prioritize feature development |
 | Errors | Error types (not messages or content) | Improve reliability |
 
 ## What We Do NOT Collect

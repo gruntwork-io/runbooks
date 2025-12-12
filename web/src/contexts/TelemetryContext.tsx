@@ -6,9 +6,8 @@
  *   - CLI flag: --no-telemetry
  * 
  * We collect minimal, anonymous data to improve Runbooks:
- *   - Block types rendered (Command, Check, Template, Inputs)
- *   - Script execution success/failure counts (not content)
- *   - UI interactions
+ *   - Commands used (open, watch, serve)
+ *   - Block types in runbooks (Command, Check, Template, Inputs)
  * 
  * We do NOT collect:
  *   - Runbook content or file paths
@@ -36,6 +35,11 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
   
   // Guard against double initialization (React StrictMode calls effects twice in dev)
   const initStartedRef = useRef(false)
+  
+  // Block render aggregation - collect blocks and send a single event
+  const blockCountsRef = useRef<Record<string, number>>({})
+  const blockAggregateTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const hasSentRunbookLoadedRef = useRef(false)
 
   // Fetch telemetry config from backend on mount
   useEffect(() => {
@@ -85,6 +89,15 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
 
     fetchConfig()
   }, [])
+  
+  // Cleanup aggregation timer on unmount
+  useEffect(() => {
+    return () => {
+      if (blockAggregateTimerRef.current) {
+        clearTimeout(blockAggregateTimerRef.current)
+      }
+    }
+  }, [])
 
   // Generic track function
   const track = useCallback((event: string, properties?: Record<string, unknown>) => {
@@ -100,17 +113,33 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
     }
   }, [isInitialized, config?.enabled])
 
-  // Track block renders (Command, Check, Template, Inputs, etc.)
+  // Track block renders by aggregating them into a single 'runbook_loaded' event
+  // Instead of sending individual events per block, we collect block types and
+  // send one summary event after blocks stop registering (debounced)
   const trackBlockRender = useCallback((blockType: string) => {
-    track('block_rendered', { block_type: blockType })
-  }, [track])
-
-  // Track script executions (success/failure)
-  const trackScriptExecution = useCallback((blockType: string, success: boolean) => {
-    track('script_executed', {
-      block_type: blockType,
-      success,
-    })
+    // Increment the count for this block type
+    blockCountsRef.current[blockType] = (blockCountsRef.current[blockType] || 0) + 1
+    
+    // Clear existing timer
+    if (blockAggregateTimerRef.current) {
+      clearTimeout(blockAggregateTimerRef.current)
+    }
+    
+    // Set a new timer - after 500ms of no new blocks, send the aggregated event
+    blockAggregateTimerRef.current = setTimeout(() => {
+      // Only send once per page load
+      if (hasSentRunbookLoadedRef.current) {
+        return
+      }
+      hasSentRunbookLoadedRef.current = true
+      
+      // Send a single event with block counts
+      const counts = blockCountsRef.current
+      track('runbook_loaded', {
+        block_counts: counts,
+        total_blocks: Object.values(counts).reduce((sum, count) => sum + count, 0),
+      })
+    }, 500)
   }, [track])
 
   const contextValue = {
@@ -118,7 +147,6 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
     isInitialized,
     track,
     trackBlockRender,
-    trackScriptExecution,
   }
 
   return (

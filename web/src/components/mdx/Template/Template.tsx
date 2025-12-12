@@ -10,6 +10,7 @@ import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.typ
 import { useBlockVariables, useImportedVarValues } from '@/contexts/useBlockVariables'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
+import { useTelemetry } from '@/contexts/useTelemetry'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -61,6 +62,14 @@ function Template({
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
+  
+  // Telemetry context
+  const { trackBlockRender } = useTelemetry()
+  
+  // Track block render on mount
+  useEffect(() => {
+    trackBlockRender('Template')
+  }, [trackBlockRender])
   
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});

@@ -6,7 +6,6 @@ export interface TelemetryContextValue {
   isInitialized: boolean
   track: (event: string, properties?: Record<string, unknown>) => void
   trackBlockRender: (blockType: string) => void
-  trackScriptExecution: (blockType: string, success: boolean) => void
 }
 
 // Default context value when not initialized
@@ -15,7 +14,6 @@ export const defaultContextValue: TelemetryContextValue = {
   isInitialized: false,
   track: () => {},
   trackBlockRender: () => {},
-  trackScriptExecution: () => {},
 }
 
 // Telemetry configuration from backend
