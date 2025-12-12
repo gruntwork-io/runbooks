@@ -152,9 +152,9 @@ func HandleWatchSSE(fileWatcher *FileWatcher) gin.HandlerFunc {
 	}
 }
 
-// resolveRunbookPath resolves the runbook path to an actual file
+// ResolveRunbookPath resolves the runbook path to an actual file
 // If it's a directory, it looks for runbook.mdx or runbook.md
-func resolveRunbookPath(path string) (string, error) {
+func ResolveRunbookPath(path string) (string, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return "", err

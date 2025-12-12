@@ -49,13 +49,27 @@ func watchRunbook(path string) {
 	useExecutableRegistry := disableLiveFileReload
 	slog.Info("Opening runbook with file watching", "path", path, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
+	// Resolve the runbook path before starting the server
+	// This is needed to verify we're connecting to the correct server instance
+	resolvedPath, err := api.ResolveRunbookPath(path)
+	if err != nil {
+		slog.Error("Failed to resolve runbook path", "error", err)
+		os.Exit(1)
+	}
+
+	// Channel to receive server startup errors
+	errCh := make(chan error, 1)
+
 	// Start the API server with watching in a goroutine
 	go func() {
-		if err := api.StartServerWithWatch(path, 7825, outputPath, useExecutableRegistry); err != nil {
-			slog.Error("Failed to start server with watch", "error", err)
-			os.Exit(1)
-		}
+		errCh <- api.StartServerWithWatch(path, 7825, outputPath, useExecutableRegistry)
 	}()
+
+	// Wait for the server to be ready by polling the health endpoint
+	if err := waitForServerReady(defaultPort, resolvedPath, errCh); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Open browser and keep server running
 	browser.LaunchAndWait(7825)

@@ -39,10 +39,27 @@ func init() {
 func openRunbook(path string) {
 	slog.Info("Opening runbook", "path", path, "outputPath", outputPath)
 
+	// Resolve the runbook path before starting the server
+	// This is needed to verify we're connecting to the correct server instance
+	resolvedPath, err := api.ResolveRunbookPath(path)
+	if err != nil {
+		slog.Error("Failed to resolve runbook path", "error", err)
+		os.Exit(1)
+	}
+
+	// Channel to receive server startup errors
+	errCh := make(chan error, 1)
+
 	// Start the API server in a goroutine
 	go func() {
-		api.StartServer(path, 7825, outputPath)
+		errCh <- api.StartServer(path, 7825, outputPath)
 	}()
+
+	// Wait for the server to be ready by polling the health endpoint
+	if err := waitForServerReady(defaultPort, resolvedPath, errCh); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Open browser and keep server running
 	browser.LaunchAndWait(7825)
