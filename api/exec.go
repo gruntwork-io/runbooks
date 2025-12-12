@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -398,7 +399,12 @@ func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([
 
 		if info.IsDir() {
 			// Create the directory in the output
-			return os.MkdirAll(dstPath, info.Mode())
+			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
+				return err
+			}
+			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
+			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
+			return os.Chmod(dstPath, info.Mode())
 		}
 
 		// Copy the file
@@ -471,6 +477,7 @@ func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutpu
 	fileTree, err := buildFileTreeWithRoot(cliOutputPath, "")
 	if err != nil {
 		// Log the error but don't fail - we still captured the files
+		slog.Warn("Failed to build file tree for SSE event", "error", err)
 		fileTree = nil
 	}
 
