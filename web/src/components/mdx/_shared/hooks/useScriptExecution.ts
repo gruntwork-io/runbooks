@@ -3,12 +3,15 @@ import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
 import { useImportedVarValues } from '@/contexts/useBlockVariables'
 import { useApiExec } from '@/hooks/useApiExec'
+import type { FilesCapturedEvent } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
+import { useFileTree } from '@/hooks/useFileTree'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
+import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -18,6 +21,10 @@ interface UseScriptExecutionProps {
   inputsId?: string | string[]
   children?: ReactNode
   componentType: ComponentType
+  /** When true, files written by the script are captured to the workspace */
+  captureFiles?: boolean
+  /** Relative subdirectory within the output folder for captured files */
+  captureFilesOutputPath?: string
 }
 
 interface UseScriptExecutionReturn {
@@ -56,10 +63,23 @@ export function useScriptExecution({
   command,
   inputsId,
   children,
-  componentType
+  componentType,
+  captureFiles,
+  captureFilesOutputPath,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
+  
+  // Get file tree context for updating when files are captured
+  const { setFileTree } = useFileTree()
+  
+  // Callback to handle files captured from command execution
+  const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
+    // Update the file tree with the new tree from the backend
+    if (event.fileTree) {
+      setFileTree(event.fileTree as FileTreeNode[])
+    }
+  }, [setFileTree])
   
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
@@ -131,7 +151,10 @@ export function useScriptExecution({
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
   
   // Use the API exec hook for real script execution
-  const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec()
+  // Pass onFilesCaptured callback to update file tree when command captures files
+  const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
+    onFilesCaptured: captureFiles ? handleFilesCaptured : undefined,
+  })
   
   // Map exec state to our status type, handling warn status for Check components
   // Note: componentType never changes, so we can directly check without memoization
@@ -273,6 +296,12 @@ export function useScriptExecution({
       stringVariables[key] = String(value)
     }
     
+    // Build capture files options (only for commands, not checks)
+    const captureOptions = captureFiles ? {
+      captureFiles,
+      captureFilesOutputPath,
+    } : undefined
+    
     if (execRegistryEnabled) {
       // Registry mode: Look up executable in registry and use executable ID
       const executable = getExecutableByComponentId(componentId)
@@ -282,12 +311,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, stringVariables)
+      executeScript(executable.id, stringVariables, captureOptions)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, stringVariables)
+      executeByComponentId(componentId, stringVariables, captureOptions)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues, captureFiles, captureFilesOutputPath])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

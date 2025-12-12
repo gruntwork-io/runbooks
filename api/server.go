@@ -39,7 +39,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
 	// API endpoint to execute check scripts
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry))
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath))
 
 	// API endpoints for managing generated files
 	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))

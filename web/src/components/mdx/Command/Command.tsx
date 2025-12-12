@@ -18,6 +18,10 @@ interface CommandProps {
   successMessage?: string
   failMessage?: string
   runningMessage?: string
+  /** When true, files written by the command are captured to the workspace */
+  captureFiles?: boolean
+  /** Relative subdirectory within the output folder for captured files. Only valid when captureFiles={true}. */
+  captureFilesOutputPath?: string
   children?: ReactNode // For inline Inputs component
 }
 
@@ -31,6 +35,8 @@ function Command({
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
+  captureFiles,
+  captureFilesOutputPath,
   children,
 }: CommandProps) {
   // Check for duplicate component IDs
@@ -58,7 +64,9 @@ function Command({
     command,
     inputsId,
     children,
-    componentType: 'command'
+    componentType: 'command',
+    captureFiles,
+    captureFilesOutputPath,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component

@@ -1,0 +1,44 @@
+# Test: Command File Capture
+
+This runbook tests the `captureFiles` feature for Command components.
+
+## Test 1: Basic File Capture
+
+This command creates a file that should appear in the workspace.
+
+<Command 
+  id="create-file"
+  title="Create a greeting file"
+  description="This command writes a file to the workspace"
+  command={`echo "Hello from the command!" > greeting.txt`}
+  captureFiles
+  successMessage="File created successfully!"
+  failMessage="Failed to create file"
+/>
+
+## Test 2: File Capture with Output Path
+
+This command creates files in a subdirectory of the workspace.
+
+<Command 
+  id="create-config"
+  title="Create config files"
+  description="This command writes files to a 'config' subdirectory"
+  command={`mkdir -p subdir && echo '{"name": "test"}' > config.json && echo 'key=value' > subdir/settings.ini`}
+  captureFiles
+  captureFilesOutputPath="config"
+  successMessage="Config files created!"
+  failMessage="Failed to create config files"
+/>
+
+## Test 3: Regular Command (No Capture)
+
+This command runs but does NOT capture files (default behavior).
+
+<Command 
+  id="no-capture"
+  title="Run without capture"
+  description="This is a regular command that doesn't capture files"
+  command={`echo "This output goes to logs only"`}
+  successMessage="Command completed!"
+/>

@@ -18,10 +18,31 @@ export interface ExecState {
   error: AppError | null
 }
 
+export interface CaptureFilesOptions {
+  captureFiles?: boolean
+  captureFilesOutputPath?: string
+}
+
+export interface CapturedFile {
+  path: string
+  size: number
+}
+
+export interface FilesCapturedEvent {
+  files: CapturedFile[]
+  count: number
+  fileTree: unknown // File tree structure from backend
+}
+
+export interface UseApiExecOptions {
+  /** Callback invoked when files are captured from a command execution */
+  onFilesCaptured?: (event: FilesCapturedEvent) => void
+}
+
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, string>) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, string>) => void
+  execute: (executableId: string, variables?: Record<string, string>, captureOptions?: CaptureFilesOptions) => void
+  executeByComponentId: (componentId: string, variables?: Record<string, string>, captureOptions?: CaptureFilesOptions) => void
   cancel: () => void
   reset: () => void
 }
@@ -30,7 +51,8 @@ export interface UseApiExecReturn {
  * Hook to execute scripts via the /api/exec endpoint with SSE streaming
  * Uses executable IDs from the executable registry instead of raw script content
  */
-export function useApiExec(): UseApiExecReturn {
+export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
+  const { onFilesCaptured } = options || {}
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -132,6 +154,17 @@ export function useApiExec(): UseApiExecReturn {
               status: statusEvent.status,
               exitCode: statusEvent.exitCode,
             }))
+          } else if (eventType === 'files_captured') {
+            // Files were captured from script execution
+            const filesCapturedEvent = data as FilesCapturedEvent
+            if (onFilesCaptured) {
+              onFilesCaptured(filesCapturedEvent)
+            }
+            // Also log that files were captured
+            setState((prev) => ({
+              ...prev,
+              logs: [...prev.logs, `📁 Captured ${filesCapturedEvent.count} file(s) to workspace`],
+            }))
           } else if (eventType === 'done') {
             // Execution complete
             break
@@ -150,11 +183,17 @@ export function useApiExec(): UseApiExecReturn {
         }
       }
     }
-  }, [])
+  }, [onFilesCaptured])
 
   // Shared execution logic for both registry and live-reload modes
   const executeScript = useCallback(async (
-    payload: { executable_id?: string; component_id?: string; template_var_values: Record<string, string> }
+    payload: { 
+      executable_id?: string; 
+      component_id?: string; 
+      template_var_values: Record<string, string>;
+      capture_files?: boolean;
+      capture_files_output_path?: string;
+    }
   ) => {
     // Cancel any existing execution
     cancel()
@@ -224,8 +263,13 @@ export function useApiExec(): UseApiExecReturn {
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, string> = {}) => {
-      executeScript({ executable_id: executableId, template_var_values: templateVarValues })
+    (executableId: string, templateVarValues: Record<string, string> = {}, captureOptions?: CaptureFilesOptions) => {
+      executeScript({ 
+        executable_id: executableId, 
+        template_var_values: templateVarValues,
+        capture_files: captureOptions?.captureFiles,
+        capture_files_output_path: captureOptions?.captureFilesOutputPath,
+      })
     },
     [executeScript]
   )
@@ -237,8 +281,13 @@ export function useApiExec(): UseApiExecReturn {
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, string> = {}) => {
-      executeScript({ component_id: componentId, template_var_values: templateVarValues })
+    (componentId: string, templateVarValues: Record<string, string> = {}, captureOptions?: CaptureFilesOptions) => {
+      executeScript({ 
+        component_id: componentId, 
+        template_var_values: templateVarValues,
+        capture_files: captureOptions?.captureFiles,
+        capture_files_output_path: captureOptions?.captureFilesOutputPath,
+      })
     },
     [executeScript]
   )
