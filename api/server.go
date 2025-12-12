@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"runbooks/api/telemetry"
 	"runbooks/web"
 
 	"github.com/gin-contrib/cors"
@@ -27,6 +28,12 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// Includes runbook path so CLI can verify it's talking to the correct server instance
 	r.GET("/api/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "runbookPath": runbookPath})
+	})
+
+	// Telemetry configuration endpoint - returns telemetry status for frontend
+	r.GET("/api/telemetry/config", func(c *gin.Context) {
+		config := telemetry.GetConfig()
+		c.JSON(http.StatusOK, config)
 	})
 
 	// API endpoint to serve the runbook file contents

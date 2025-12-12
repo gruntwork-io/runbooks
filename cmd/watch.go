@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"runbooks/api"
+	"runbooks/api/telemetry"
 	"runbooks/browser"
 
 	"github.com/spf13/cobra"
@@ -24,6 +25,9 @@ var watchCmd = &cobra.Command{
 The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
 By default, script changes take effect immediately without server restart (live-file-reload mode).`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Track command usage
+		telemetry.TrackCommand("watch")
+
 		if len(args) == 0 {
 			slog.Error("Error: You must specify a path to a runbook file or directory\n")
 			fmt.Fprintf(os.Stderr, "")

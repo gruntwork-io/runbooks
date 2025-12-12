@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"runbooks/api/telemetry"
+
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +17,9 @@ var (
 
 	// Global flag for output path used by server commands
 	outputPath string
+
+	// Global flag to disable telemetry
+	noTelemetry bool
 )
 
 // getVersionString returns the full version information
@@ -28,6 +33,19 @@ var rootCmd = &cobra.Command{
 	Short:   "Make the knowledge and experience of the few available to the many.",
 	Long:    `Runbooks enables you to make the knowledge and experience of the few available to the many.`,
 	Version: getVersionString(),
+	// PersistentPreRun is a Cobra lifecycle hook that runs BEFORE the Run function
+	// of any subcommand (open, watch, serve, etc.). It's inherited by all subcommands,
+	// making it ideal for global initialization like telemetry.
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Initialize telemetry with version and flag status
+		telemetry.Init(Version, noTelemetry)
+
+		// Print telemetry notice (only if enabled)
+		// Skip for version and help commands to keep output clean
+		if cmd.Name() != "version" && cmd.Name() != "help" && cmd.Name() != "runbooks" {
+			telemetry.PrintNotice()
+		}
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -48,6 +66,10 @@ func init() {
 	// Add persistent flags that are available to all subcommands
 	rootCmd.PersistentFlags().StringVar(&outputPath, "output-path", "generated",
 		"Path where generated files will be rendered (can be relative or absolute)")
+
+	// Add telemetry opt-out flag
+	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,
+		"Disable anonymous telemetry (can also set RUNBOOKS_TELEMETRY_DISABLE=1)")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

@@ -29,6 +29,8 @@ jobs:
 
       - name: Build web frontend
         working-directory: ./web
+        env:
+          VITE_MIXPANEL_TOKEN: ${{ secrets.MIXPANEL_TOKEN }}
         run: bun run build
 
       - name: Upload web dist artifact
@@ -103,6 +105,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          MIXPANEL_TOKEN: ${{ secrets.MIXPANEL_TOKEN }}
         run: |
           # Set binary name based on platform
           BINARY_NAME="runbooks_${{ matrix.goos }}_${{ matrix.goarch }}"
@@ -110,9 +113,9 @@ jobs:
             BINARY_NAME="${BINARY_NAME}.exe"
           fi
           
-          # Build with version info injected via ldflags
+          # Build with version info and telemetry token injected via ldflags
           go build \
-            -ldflags="-s -w -X 'runbooks/cmd.Version=${{ steps.version.outputs.version }}' -X 'runbooks/cmd.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'runbooks/cmd.BuildDate=${{ steps.version.outputs.build_date }}'" \
+            -ldflags="-s -w -X 'runbooks/cmd.Version=${{ steps.version.outputs.version }}' -X 'runbooks/cmd.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'runbooks/cmd.BuildDate=${{ steps.version.outputs.build_date }}' -X 'runbooks/api/telemetry.MixpanelToken=${MIXPANEL_TOKEN}'" \
             -o "$BINARY_NAME" \
             .
           
