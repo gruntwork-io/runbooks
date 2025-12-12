@@ -43,16 +43,16 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
   }, [])
 
   const { errorCount, warningCount } = useMemo(() => {
-    let errors_count = 0
-    let warnings_count = 0
+    let numErrors = 0
+    let numWarnings = 0
     for (const error of errors) {
       if (error.severity === 'error') {
-        errors_count++
+        numErrors++
       } else {
-        warnings_count++
+        numWarnings++
       }
     }
-    return { errorCount: errors_count, warningCount: warnings_count }
+    return { errorCount: numErrors, warningCount: numWarnings }
   }, [errors])
 
   const value = {
