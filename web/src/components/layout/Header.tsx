@@ -5,6 +5,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogHeader,
+  AlertDialogTitle,
 } from '../ui/alert-dialog';
 
 interface HeaderProps {
@@ -48,6 +49,7 @@ export function Header({ pathName }: HeaderProps) {
         <AlertDialogContent>
           <div className="relative">
             <AlertDialogHeader>
+              <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
               <img src="/runbooks-logo-dark-color.svg" alt="Gruntwork Runbooks" className="h-16 mb-2" />
               
               <AlertDialogDescription className="text-left space-y-4">
