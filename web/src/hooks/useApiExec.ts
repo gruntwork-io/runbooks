@@ -1,18 +1,57 @@
 import { useCallback, useRef, useState } from 'react'
+import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
+import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
 
-export interface ExecLogEvent {
+// Zod schemas for SSE events
+const ExecLogEventSchema = z.object({
+  line: z.string(),
+  timestamp: z.string(),
+})
+
+const ExecStatusEventSchema = z.object({
+  status: z.enum(['success', 'warn', 'fail']),
+  exitCode: z.number(),
+})
+
+const CapturedFileSchema = z.object({
+  path: z.string(),
+  size: z.number(),
+})
+
+const FilesCapturedEventSchema = z.object({
+  files: z.array(CapturedFileSchema),
+  count: z.number(),
+  fileTree: FileTreeNodeArraySchema,
+})
+
+const ExecErrorEventSchema = z.object({
+  message: z.string().optional(),
+  details: z.string().optional(),
+})
+
+// Inferred types from Zod schemas
+export type ExecLogEvent = z.infer<typeof ExecLogEventSchema>
+export type ExecStatusEvent = z.infer<typeof ExecStatusEventSchema>
+export type CapturedFile = z.infer<typeof CapturedFileSchema>
+export type FilesCapturedEvent = z.infer<typeof FilesCapturedEventSchema>
+
+/** A single log entry with its timestamp */
+export interface LogEntry {
   line: string
   timestamp: string
 }
 
-export interface ExecStatusEvent {
-  status: 'success' | 'warn' | 'fail'
-  exitCode: number
+/** Create a log entry with the current timestamp */
+function createLogEntry(line: string, timestamp?: string): LogEntry {
+  return {
+    line,
+    timestamp: timestamp ?? new Date().toISOString(),
+  }
 }
 
 export interface ExecState {
-  logs: string[]
+  logs: LogEntry[]
   status: 'pending' | 'running' | 'success' | 'warn' | 'fail'
   exitCode: number | null
   error: AppError | null
@@ -21,17 +60,6 @@ export interface ExecState {
 export interface CaptureFilesOptions {
   captureFiles?: boolean
   captureFilesOutputPath?: string
-}
-
-export interface CapturedFile {
-  path: string
-  size: number
-}
-
-export interface FilesCapturedEvent {
-  files: CapturedFile[]
-  count: number
-  fileTree: unknown // File tree structure from backend
 }
 
 export interface UseApiExecOptions {
@@ -79,7 +107,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     setState((prev) => ({
       ...prev,
       status: 'pending',
-      logs: [...prev.logs, '⚠️ Execution cancelled by user'],
+      logs: [...prev.logs, createLogEntry('⚠️ Execution cancelled by user')],
     }))
   }, [])
 
@@ -142,44 +170,86 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           const data = JSON.parse(eventData)
 
           if (eventType === 'log') {
-            const logEvent = data as ExecLogEvent
-            setState((prev) => ({
-              ...prev,
-              logs: [...prev.logs, logEvent.line],
-            }))
+            const parsed = ExecLogEventSchema.safeParse(data)
+            if (parsed.success) {
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry(parsed.data.line, parsed.data.timestamp)],
+              }))
+            } else {
+              // Non-critical: show placeholder so user knows output was received
+              console.error('Invalid log event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry('[Unable to parse log output]')],
+              }))
+            }
           } else if (eventType === 'status') {
-            const statusEvent = data as ExecStatusEvent
-            setState((prev) => ({
-              ...prev,
-              status: statusEvent.status,
-              exitCode: statusEvent.exitCode,
-            }))
+            const parsed = ExecStatusEventSchema.safeParse(data)
+            if (parsed.success) {
+              setState((prev) => ({
+                ...prev,
+                status: parsed.data.status,
+                exitCode: parsed.data.exitCode,
+              }))
+            } else {
+              // Critical: without status, UI would be stuck in "running" state
+              console.error('Invalid status event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                status: 'fail',
+                error: createAppError(
+                  'Failed to parse execution status',
+                  'The server response was malformed. This may indicate a version mismatch.'
+                ),
+              }))
+            }
           } else if (eventType === 'files_captured') {
             // Files were captured from script execution
-            const filesCapturedEvent = data as FilesCapturedEvent
-            if (onFilesCaptured) {
-              onFilesCaptured(filesCapturedEvent)
+            const parsed = FilesCapturedEventSchema.safeParse(data)
+            if (parsed.success) {
+              if (onFilesCaptured) {
+                onFilesCaptured(parsed.data)
+              }
+              // Also log that files were captured
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry(`📁 Captured ${parsed.data.count} file(s) to workspace`)],
+              }))
+            } else {
+              // File tree won't update - show error so user knows to check manually
+              console.error('Invalid files_captured event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                error: createAppError(
+                  'Files captured but not displayed',
+                  'Your files were saved successfully, but could not be shown in the file tree. Check the output directory manually.'
+                ),
+                logs: [...prev.logs, createLogEntry('⚠️ Files were captured but could not be displayed')],
+              }))
             }
-            // Also log that files were captured
-            setState((prev) => ({
-              ...prev,
-              logs: [...prev.logs, `📁 Captured ${filesCapturedEvent.count} file(s) to workspace`],
-            }))
           } else if (eventType === 'done') {
             // Execution complete
             break
           } else if (eventType === 'error') {
+            const parsed = ExecErrorEventSchema.safeParse(data)
+            const errorData = parsed.success ? parsed.data : { message: undefined, details: undefined }
             setState((prev) => ({
               ...prev,
               status: 'fail',
               error: createAppError(
-                data.message || 'Unknown error',
-                data.details || 'An error occurred during script execution'
+                errorData.message || 'Unknown error',
+                errorData.details || 'An error occurred during script execution'
               ),
             }))
           }
         } catch (e) {
+          // JSON parse error - show to user rather than silently failing
           console.error('Failed to parse SSE message:', e, eventData)
+          setState((prev) => ({
+            ...prev,
+            logs: [...prev.logs, createLogEntry(`[Malformed server response: ${eventType}]`)],
+          }))
         }
       }
     }
@@ -232,7 +302,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
             errorMessage,
             errorData?.details || 'Failed to execute script on the server'
           ),
-          logs: [...prev.logs, `Error: ${errorMessage}`],
+          logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
         }))
 
         return
@@ -254,7 +324,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           'An unexpected error occurred while executing the script',
           errorMessage
         ),
-        logs: [...prev.logs, `Error: ${errorMessage}`],
+        logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
       }))
     } finally {
       abortControllerRef.current = null

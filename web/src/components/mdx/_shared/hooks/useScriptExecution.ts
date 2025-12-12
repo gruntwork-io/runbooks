@@ -11,7 +11,6 @@ import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/ex
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
-import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -76,9 +75,8 @@ export function useScriptExecution({
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
     // Update the file tree with the new tree from the backend
-    if (event.fileTree) {
-      setFileTree(event.fileTree as FileTreeNode[])
-    }
+    // The fileTree is already validated by Zod in useApiExec
+    setFileTree(event.fileTree)
   }, [setFileTree])
   
   // Only load file content if path is provided (not for inline commands)

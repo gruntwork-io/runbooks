@@ -346,7 +346,7 @@ function Command({
                 {captureFilesOutputPath && (
                   <span>
                     <span> in the </span>
-                    <code className="bg-gray-100 text-gray-500 p-0 rounded text-xs">{captureFilesOutputPath}/</code>
+                    <code className="bg-gray-100 text-gray-500 px-1 rounded text-xs">{captureFilesOutputPath}/</code>
                     <span> subfolder </span>
                   </span>
                 )}

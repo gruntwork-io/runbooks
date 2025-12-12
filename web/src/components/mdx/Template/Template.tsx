@@ -6,7 +6,7 @@ import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
-import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
+import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
 import { useBlockVariables, useImportedVarValues } from '@/contexts/useBlockVariables'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { XCircle } from 'lucide-react'
@@ -171,8 +171,12 @@ function Template({
   // Update global file tree when render result is available
   // The backend returns the complete output directory tree, so we simply replace
   useEffect(() => {
-    if (renderResult && renderResult.fileTree) {
-      setFileTree(renderResult.fileTree as FileTreeNode[]);
+    if (renderResult) {
+      // Validate the structure before using it to ensure type safety
+      const validatedTree = parseFileTreeNodeArray(renderResult.fileTree)
+      if (validatedTree) {
+        setFileTree(validatedTree);
+      }
     }
   }, [renderResult, setFileTree]);
 

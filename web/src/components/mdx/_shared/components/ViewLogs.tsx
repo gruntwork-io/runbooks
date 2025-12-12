@@ -2,9 +2,10 @@ import { ChevronDown, ChevronRight, SquareTerminal } from "lucide-react"
 import { useState, useEffect } from "react"
 import type { ExecutionStatus } from "../types"
 import { LinkifiedText } from "@/components/shared/LinkifiedText"
+import type { LogEntry } from "@/hooks/useApiExec"
 
 interface ViewLogsProps {
-  logs: string[]
+  logs: LogEntry[]
   status: ExecutionStatus
   autoOpen?: boolean
 }
@@ -52,16 +53,13 @@ export function ViewLogs({
               {logs.map((log, index) => (
                 <div key={index} className="text-xs font-mono text-gray-100">
                   <span className="text-gray-400 mr-2">
-                    {new Date().toLocaleTimeString()}
+                    {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <LinkifiedText text={log} />
+                  <LinkifiedText text={log.line} />
                 </div>
               ))}
               {status === 'running' && (
                 <div className="text-xs font-mono text-gray-400 animate-pulse">
-                  <span className="text-gray-400 mr-2">
-                    {new Date().toLocaleTimeString()}
-                  </span>
                   Running...
                 </div>
               )}
