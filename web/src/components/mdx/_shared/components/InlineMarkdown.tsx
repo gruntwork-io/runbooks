@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { ExternalLink } from "./ExternalLink"
+import { SmartLink } from "./SmartLink"
 
 interface InlineMarkdownProps {
   children: string
@@ -16,7 +16,7 @@ export const InlineMarkdown = ({ children }: InlineMarkdownProps) => {
       remarkPlugins={[remarkGfm]}
       components={{
         p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
-        a: ExternalLink, // Make all links open in a new window
+        a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
       }}
     >
       {children}
