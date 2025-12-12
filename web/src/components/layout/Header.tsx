@@ -29,7 +29,7 @@ export function Header({ pathName }: HeaderProps) {
     <>
       <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default">
         <div className="hidden md:block md:absolute md:left-5 md:top-1/2 md:transform md:-translate-y-1/2">
-          Gruntwork Runbooks
+          <img src="/runbooks-logo-dark.svg" alt="Gruntwork Runbooks" className="h-8" />
         </div>
         <div className="flex-1 flex items-center gap-2 justify-center">
           <div className="text-xs md:text-sm text-gray-500 font-mono font-normal">
