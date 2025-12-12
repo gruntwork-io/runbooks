@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
+    "prebuild": "cd ../testdata && zip -r ../docs/public/my-first-runbook.zip my-first-runbook",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"

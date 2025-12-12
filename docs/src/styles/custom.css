@@ -88,16 +88,8 @@ header.header {
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5);
 }
 
-/* Stylized site title */
+/* Site logo styling */
 .site-title {
-  font-weight: 700;
-  font-size: 1.25rem;
-  letter-spacing: -0.02em;
-  background: linear-gradient(135deg, var(--sl-color-accent) 0%, var(--sl-color-accent-high) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-fill-color: transparent;
   transition: opacity 0.2s ease;
 }
 
@@ -105,12 +97,9 @@ header.header {
   opacity: 0.8;
 }
 
-:root[data-theme='dark'] .site-title {
-  background: linear-gradient(135deg, var(--sl-color-accent-high) 0%, #60a5fa 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-fill-color: transparent;
+.site-title img {
+  height: 2rem;
+  width: auto;
 }
 
 /* ============================================
@@ -319,3 +308,28 @@ button[data-open-modal]:hover {
   }
 }
 
+/* ============================================
+   CUSTOM STYLES
+   ============================================ */
+
+/* Remove content margin */
+.main-pane .sl-container {
+  margin-inline: 10px;
+}
+
+/* Brand header */
+.header {
+  background-color: #160C56;
+
+  .social-icons svg {
+    fill: #eee;
+  }
+
+  .social-icons::after {
+    border-inline-end: 1px solid #eee;
+  }
+
+  starlight-theme-select label {
+    color: #eee;
+  }
+}

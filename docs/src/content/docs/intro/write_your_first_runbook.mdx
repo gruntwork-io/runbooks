@@ -1,0 +1,49 @@
+---
+title: Write Your First Runbook
+sidebar:
+   order: 3
+---
+
+import SourceFile from '../../../components/SourceFile.astro';
+
+Let's create a simple runbook from scratch!
+
+## Create the Runbook File
+
+1. Create a new folder called `my-first-runbook`.
+1. Inside that folder, create a file called `runbook.mdx`.
+1. Create subfolders called `scripts` and `templates/project`.
+1. Copy/paste the following content into each file:
+
+You can also [download the complete example](/my-first-runbook.zip) as a zip file.
+
+<SourceFile file="testdata/my-first-runbook/runbook.mdx" lang="mdx" title="runbook.mdx" />
+
+<SourceFile file="testdata/my-first-runbook/scripts/setup.sh" lang="bash" title="scripts/setup.sh" />
+
+Make the script executable:
+
+```bash
+chmod +x my-first-runbook/scripts/setup.sh
+```
+
+<SourceFile file="testdata/my-first-runbook/templates/project/boilerplate.yml" lang="yaml" title="templates/project/boilerplate.yml" />
+
+<SourceFile file="testdata/my-first-runbook/templates/project/README.md" lang="markdown" title="templates/project/README.md" />
+
+<SourceFile file="testdata/my-first-runbook/templates/project/.gitignore" lang="text" title="templates/project/.gitignore" />
+
+## Open Your Runbook
+
+Save the files and open the runbook:
+
+```bash
+runbooks open my-first-runbook/
+```
+
+Your browser will open showing the runbook interface. Follow the steps to execute each block!
+
+## Next
+
+If you've already installed `runbooks`, you'll see what the Runbook above looks like for end users. But if you're just browsing for now, let's show you what the end-user experience for the above Runbook looks like.
+

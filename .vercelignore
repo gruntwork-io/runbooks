@@ -1,0 +1,9 @@
+# Prevent Vercel from detecting Go files as serverless functions
+# This is a static docs site only
+api/
+browser/
+cmd/
+*.go
+go.mod
+go.sum
+

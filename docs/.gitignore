@@ -5,6 +5,9 @@ node_modules/
 dist/
 .astro/
 
+# generated assets
+public/my-first-runbook.zip
+
 # environment variables
 .env
 .env.production

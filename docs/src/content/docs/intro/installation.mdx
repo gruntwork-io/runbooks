@@ -4,21 +4,105 @@ sidebar:
    order: 2
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-The quickest way to install Runbooks is to download the pre-built binaries from the [GitHub repo](https://github.com/gruntwork-io/runbooks).
+The quickest way to install Runbooks is to download the pre-built binaries from the [GitHub releases page](https://github.com/gruntwork-io/runbooks/releases).
 
-<Aside type="note">
-Runbooks binaries are not currently signed, so you will need to manually allow them. On macOS, you can do this by running:
+### Installing pre-built binaries
 
-```bash
-xattr -d com.apple.quarantine /path/to/runbooks
-```
-</Aside>
+<Tabs>
+  <TabItem label="macOS">
+    **Using curl (Apple Silicon M1/M2/M3/etc.):**
+    ```bash
+    # Download the latest release
+    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_darwin_arm64
 
-### Installing from Source
+    # Make it executable
+    chmod +x runbooks
 
-You can also build the binaries yourself:
+    # Move to your PATH
+    sudo mv runbooks /usr/local/bin/
+    ```
+    
+    **Using curl (Intel Mac):**
+    ```bash
+    # Download the latest release
+    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_darwin_amd64
+
+    # Make it executable
+    chmod +x runbooks
+
+    # Move to your PATH
+    sudo mv runbooks /usr/local/bin/
+    ```
+
+    <Aside type="tip">
+      Not sure which chip you have? Run `uname -m` in your terminal. If it says `arm64`, you have Apple Silicon. If it says `x86_64`, you have an Intel Mac.
+    </Aside>
+  </TabItem>
+
+  <TabItem label="Linux">
+    **Using curl (x86_64/AMD64):**
+    ```bash
+    # Download the latest release
+    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64
+
+    # Make it executable
+    chmod +x runbooks
+
+    # Move to your PATH
+    sudo mv runbooks /usr/local/bin/
+    ```
+
+    **Using curl (ARM64):**
+    ```bash
+    # Download the latest release
+    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_arm64
+
+    # Make it executable
+    chmod +x runbooks
+
+    # Move to your PATH
+    sudo mv runbooks /usr/local/bin/
+    ```
+
+    <Aside type="tip">
+      Not sure which architecture you have? Run `uname -m` in your terminal. If it says `x86_64`, use the amd64 version. If it says `aarch64` or `arm64`, use the arm64 version.
+    </Aside>
+  </TabItem>
+
+  <TabItem label="Windows">
+    **Using PowerShell:**
+    ```powershell
+    # Download the latest release
+    Invoke-WebRequest -Uri "https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_windows_amd64.exe" -OutFile "runbooks.exe"
+
+    # Move to a directory in your PATH (create if needed)
+    New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\runbooks"
+    Move-Item -Force runbooks.exe "$env:LOCALAPPDATA\runbooks\runbooks.exe"
+    ```
+
+    Then add `%LOCALAPPDATA%\runbooks` to your PATH:
+    1. Press `Win + R`, type `sysdm.cpl`, and press Enter
+    2. Go to the **Advanced** tab and click **Environment Variables**
+    3. Under "User variables", select **Path** and click **Edit**
+    4. Click **New** and add `%LOCALAPPDATA%\runbooks`
+    5. Click **OK** to save
+
+    <Aside type="tip">
+      Alternatively, you can add to PATH via PowerShell (requires reopening your terminal):
+      ```powershell
+      [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\runbooks", "User")
+      ```
+    </Aside>
+  </TabItem>
+</Tabs>
+
+
+
+### Building from Source
+
+As an alternative to downloading pre-built binaries, you can build the binaries yourself:
 
 1. Clone the repository:
    ```bash
@@ -48,7 +132,7 @@ You can also build the binaries yourself:
    chmod u+x /usr/local/bin/runbooks
    ```
 
-6.. Verify installation:
+6. Verify installation:
    ```bash
    runbooks
    ```
