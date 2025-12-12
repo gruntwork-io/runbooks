@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
 import { useImportedVarValues } from '@/contexts/useBlockVariables'
 import { useApiExec } from '@/hooks/useApiExec'
-import type { FilesCapturedEvent } from '@/hooks/useApiExec'
+import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { useFileTree } from '@/hooks/useFileTree'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
@@ -46,7 +46,7 @@ interface UseScriptExecutionReturn {
   
   // Execution
   status: ExecutionStatus
-  logs: string[]
+  logs: LogEntry[]
   execError: AppError | null
   execute: () => void
   cancel: () => void
