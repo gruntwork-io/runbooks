@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
+import remarkGfm from 'remark-gfm'
 import type { AppError } from '@/types/error'
 
 // Support MDX components
@@ -208,6 +209,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
     baseUrl: import.meta.url,
+    remarkPlugins: [remarkGfm], // Enable GFM features like tables, strikethrough, autolinks
     rehypePlugins: [rehypeTransformAssetPaths],
     useMDXComponents: () => ({
       // Form and template components
