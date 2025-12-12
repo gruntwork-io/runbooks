@@ -93,24 +93,12 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
 
   const generatedFilesAbsolutePath = absoluteOutputPath;
   const generatedFilesRelativePath = useMemo(() => {
-    // This should reflect the CLI `--output-path` value (relative to where runbooks was launched),
-    // NOT an inferred suffix of the absolute path (which can be any directory).
-    const raw = (relativeOutputPath || '').trim()
+    // This reflects the CLI `--output-path` value (relative to where runbooks was launched).
+    // The backend always provides this value.
+    const raw = (relativeOutputPath || '').trim();
 
-    if (!raw) return '/generated'
-
-    // Normalize windows separators for display
-    const normalized = raw.replaceAll('\\', '/')
-
-    // If user provided an absolute path, show it as-is.
-    if (normalized.startsWith('/')) return normalized
-    if (/^[a-zA-Z]:\//.test(normalized)) return normalized
-
-    // Relative paths:
-    // - "." / "./foo" should stay as-is (clearly relative)
-    // - "generated" / "foo/bar" we render with a leading slash for readability in the sentence
-    if (normalized === '.' || normalized.startsWith('./') || normalized.startsWith('../')) return normalized
-    return `/${normalized}`
+    // Normalize windows separators for display, but otherwise show the path as the user provided it.
+    return raw.replaceAll('\\', '/');
   }, [relativeOutputPath])
 
   const copyToClipboard = async (text: string) => {
