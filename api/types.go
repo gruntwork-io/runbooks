@@ -1,5 +1,10 @@
 package api
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // Core data types
 // ---
 
@@ -44,12 +49,51 @@ type RenderResponse struct {
 	FileTree     []FileTreeNode `json:"fileTree"`
 }
 
+// FlexibleBool is a boolean type that can be unmarshaled from both JSON boolean and string values.
+// This handles cases where MDX authors write generateFile="true" instead of generateFile={true}.
+type FlexibleBool bool
+
+// UnmarshalJSON implements json.Unmarshaler for FlexibleBool
+func (fb *FlexibleBool) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as bool first
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		*fb = FlexibleBool(b)
+		return nil
+	}
+	
+	// Try to unmarshal as string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		switch s {
+		case "true", "True", "TRUE", "1":
+			*fb = true
+		case "false", "False", "FALSE", "0", "":
+			*fb = false
+		default:
+			return fmt.Errorf("invalid boolean string: %s", s)
+		}
+		return nil
+	}
+	
+	return fmt.Errorf("cannot unmarshal %s into FlexibleBool", string(data))
+}
+
 // RenderInlineRequest represents a request to render template files provided in the request body
 type RenderInlineRequest struct {
 	// Map of relative file paths to their contents
 	// Example: {"boilerplate.yml": "...", "main.tf": "..."}
 	TemplateFiles map[string]string `json:"templateFiles"`
 	Variables     map[string]any    `json:"variables"`
+	// GenerateFile indicates whether to write files to the persistent output directory.
+	// When false (default), files are only rendered and returned in the response.
+	// When true, files are also written to the output directory (CLI-configured path + OutputPath).
+	// Accepts both boolean and string values (e.g., true, "true", "false").
+	GenerateFile  FlexibleBool      `json:"generateFile,omitempty"`
+	// OutputPath is an optional subdirectory within the CLI-configured output path.
+	// Only used when GenerateFile is true.
+	// SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
+	OutputPath    *string           `json:"outputPath,omitempty"`
 }
 
 // RenderInlineResponse represents the response from the inline render endpoint
@@ -151,9 +195,10 @@ type BoilerplateRequest struct {
 
 // GeneratedFilesCheckResponse represents the response from the generated files check endpoint
 type GeneratedFilesCheckResponse struct {
-	HasFiles   bool   `json:"hasFiles"`   // Whether files exist in the output directory
-	OutputPath string `json:"outputPath"` // The output path that was checked
-	FileCount  int    `json:"fileCount"`  // Number of files found (0 if directory doesn't exist)
+	HasFiles           bool   `json:"hasFiles"`           // Whether files exist in the output directory
+	AbsoluteOutputPath string `json:"absoluteOutputPath"` // Absolute output path that was checked
+	RelativeOutputPath string `json:"relativeOutputPath"` // The CLI-configured output path (as provided to --output-path)
+	FileCount          int    `json:"fileCount"`          // Number of files found (0 if directory doesn't exist)
 }
 
 // GeneratedFilesDeleteResponse represents the response from the generated files delete endpoint

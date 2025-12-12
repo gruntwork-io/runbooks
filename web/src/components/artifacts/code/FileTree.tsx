@@ -18,38 +18,11 @@ import { cn } from '../../../lib/utils'
 // Import the headless tree styles
 import '../../../css/headless-tree.css'
 
-/**
- * Represents a file with its content and metadata.
- */
-export interface File {
-  /** Display name of the file */
-  name: string;
-  /** Full path of the file */
-  path: string;
-  /** File content */
-  content: string;
-  /** Programming language for syntax highlighting */
-  language: string;
-  /** File size in bytes */
-  size: number;
-}
+// Import types from the types file
+import type { FileTreeNode } from './FileTree.types'
 
-/**
- * Represents a file or folder in the file tree structure.
- * This interface defines the hierarchical data structure used by FileTree.
- */
-export interface FileTreeNode {
-  /** Unique identifier for the file/folder */
-  id: string;
-  /** Display name of the file/folder */
-  name: string;
-  /** Type of the item - either 'file' or 'folder' */
-  type: 'file' | 'folder';
-  /** Child items (only present for folders) */
-  children?: FileTreeNode[];
-  /** File data (only present for files) */
-  file?: File;
-}
+// Re-export types for backwards compatibility with existing imports
+export type { File, FileTreeNode } from './FileTree.types'
 
 /**
  * Props for the FileTree component.

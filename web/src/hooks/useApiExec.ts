@@ -1,27 +1,76 @@
 import { useCallback, useRef, useState } from 'react'
+import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
+import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
 
-export interface ExecLogEvent {
+// Zod schemas for SSE events
+const ExecLogEventSchema = z.object({
+  line: z.string(),
+  timestamp: z.string(),
+})
+
+const ExecStatusEventSchema = z.object({
+  status: z.enum(['success', 'warn', 'fail']),
+  exitCode: z.number(),
+})
+
+const CapturedFileSchema = z.object({
+  path: z.string(),
+  size: z.number(),
+})
+
+const FilesCapturedEventSchema = z.object({
+  files: z.array(CapturedFileSchema),
+  count: z.number(),
+  fileTree: FileTreeNodeArraySchema,
+})
+
+const ExecErrorEventSchema = z.object({
+  message: z.string().optional(),
+  details: z.string().optional(),
+})
+
+// Inferred types from Zod schemas
+export type ExecLogEvent = z.infer<typeof ExecLogEventSchema>
+export type ExecStatusEvent = z.infer<typeof ExecStatusEventSchema>
+export type CapturedFile = z.infer<typeof CapturedFileSchema>
+export type FilesCapturedEvent = z.infer<typeof FilesCapturedEventSchema>
+
+/** A single log entry with its timestamp */
+export interface LogEntry {
   line: string
   timestamp: string
 }
 
-export interface ExecStatusEvent {
-  status: 'success' | 'warn' | 'fail'
-  exitCode: number
+/** Create a log entry with the current timestamp */
+function createLogEntry(line: string, timestamp?: string): LogEntry {
+  return {
+    line,
+    timestamp: timestamp ?? new Date().toISOString(),
+  }
 }
 
 export interface ExecState {
-  logs: string[]
+  logs: LogEntry[]
   status: 'pending' | 'running' | 'success' | 'warn' | 'fail'
   exitCode: number | null
   error: AppError | null
 }
 
+export interface CaptureFilesOptions {
+  captureFiles?: boolean
+  captureFilesOutputPath?: string
+}
+
+export interface UseApiExecOptions {
+  /** Callback invoked when files are captured from a command execution */
+  onFilesCaptured?: (event: FilesCapturedEvent) => void
+}
+
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, string>) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, string>) => void
+  execute: (executableId: string, variables?: Record<string, string>, captureOptions?: CaptureFilesOptions) => void
+  executeByComponentId: (componentId: string, variables?: Record<string, string>, captureOptions?: CaptureFilesOptions) => void
   cancel: () => void
   reset: () => void
 }
@@ -30,7 +79,8 @@ export interface UseApiExecReturn {
  * Hook to execute scripts via the /api/exec endpoint with SSE streaming
  * Uses executable IDs from the executable registry instead of raw script content
  */
-export function useApiExec(): UseApiExecReturn {
+export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
+  const { onFilesCaptured } = options || {}
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -57,7 +107,7 @@ export function useApiExec(): UseApiExecReturn {
     setState((prev) => ({
       ...prev,
       status: 'pending',
-      logs: [...prev.logs, '⚠️ Execution cancelled by user'],
+      logs: [...prev.logs, createLogEntry('⚠️ Execution cancelled by user')],
     }))
   }, [])
 
@@ -120,41 +170,100 @@ export function useApiExec(): UseApiExecReturn {
           const data = JSON.parse(eventData)
 
           if (eventType === 'log') {
-            const logEvent = data as ExecLogEvent
-            setState((prev) => ({
-              ...prev,
-              logs: [...prev.logs, logEvent.line],
-            }))
+            const parsed = ExecLogEventSchema.safeParse(data)
+            if (parsed.success) {
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry(parsed.data.line, parsed.data.timestamp)],
+              }))
+            } else {
+              // Non-critical: show placeholder so user knows output was received
+              console.error('Invalid log event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry('[Unable to parse log output]')],
+              }))
+            }
           } else if (eventType === 'status') {
-            const statusEvent = data as ExecStatusEvent
-            setState((prev) => ({
-              ...prev,
-              status: statusEvent.status,
-              exitCode: statusEvent.exitCode,
-            }))
+            const parsed = ExecStatusEventSchema.safeParse(data)
+            if (parsed.success) {
+              setState((prev) => ({
+                ...prev,
+                status: parsed.data.status,
+                exitCode: parsed.data.exitCode,
+              }))
+            } else {
+              // Critical: without status, UI would be stuck in "running" state
+              console.error('Invalid status event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                status: 'fail',
+                error: createAppError(
+                  'Failed to parse execution status',
+                  'The server response was malformed. This may indicate a version mismatch.'
+                ),
+              }))
+            }
+          } else if (eventType === 'files_captured') {
+            // Files were captured from script execution
+            const parsed = FilesCapturedEventSchema.safeParse(data)
+            if (parsed.success) {
+              if (onFilesCaptured) {
+                onFilesCaptured(parsed.data)
+              }
+              // Also log that files were captured
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry(`📁 Captured ${parsed.data.count} file(s) to workspace`)],
+              }))
+            } else {
+              // File tree won't update - show error so user knows to check manually
+              console.error('Invalid files_captured event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                error: createAppError(
+                  'Files captured but not displayed',
+                  'Your files were saved successfully, but could not be shown in the file tree. Check the output directory manually.'
+                ),
+                logs: [...prev.logs, createLogEntry('⚠️ Files were captured but could not be displayed')],
+              }))
+            }
           } else if (eventType === 'done') {
             // Execution complete
             break
           } else if (eventType === 'error') {
+            const parsed = ExecErrorEventSchema.safeParse(data)
+            const errorData = parsed.success ? parsed.data : { message: undefined, details: undefined }
             setState((prev) => ({
               ...prev,
               status: 'fail',
               error: createAppError(
-                data.message || 'Unknown error',
-                data.details || 'An error occurred during script execution'
+                errorData.message || 'Unknown error',
+                errorData.details || 'An error occurred during script execution'
               ),
             }))
           }
         } catch (e) {
+          // JSON parse error - show to user rather than silently failing
           console.error('Failed to parse SSE message:', e, eventData)
+          setState((prev) => ({
+            ...prev,
+            logs: [...prev.logs, createLogEntry(`[Malformed server response: ${eventType}]`)],
+          }))
         }
       }
     }
-  }, [])
+  }, [onFilesCaptured])
 
   // Shared execution logic for both registry and live-reload modes
   const executeScript = useCallback(async (
-    payload: { executable_id?: string; component_id?: string; template_var_values: Record<string, string> }
+    payload: { 
+      executable_id?: string; 
+      component_id?: string; 
+      template_var_values: Record<string, string>;
+      capture_files?: boolean;
+      capture_files_output_path?: string;
+    }
   ) => {
     // Cancel any existing execution
     cancel()
@@ -193,7 +302,7 @@ export function useApiExec(): UseApiExecReturn {
             errorMessage,
             errorData?.details || 'Failed to execute script on the server'
           ),
-          logs: [...prev.logs, `Error: ${errorMessage}`],
+          logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
         }))
 
         return
@@ -215,7 +324,7 @@ export function useApiExec(): UseApiExecReturn {
           'An unexpected error occurred while executing the script',
           errorMessage
         ),
-        logs: [...prev.logs, `Error: ${errorMessage}`],
+        logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
       }))
     } finally {
       abortControllerRef.current = null
@@ -224,8 +333,13 @@ export function useApiExec(): UseApiExecReturn {
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, string> = {}) => {
-      executeScript({ executable_id: executableId, template_var_values: templateVarValues })
+    (executableId: string, templateVarValues: Record<string, string> = {}, captureOptions?: CaptureFilesOptions) => {
+      executeScript({ 
+        executable_id: executableId, 
+        template_var_values: templateVarValues,
+        capture_files: captureOptions?.captureFiles,
+        capture_files_output_path: captureOptions?.captureFilesOutputPath,
+      })
     },
     [executeScript]
   )
@@ -237,8 +351,13 @@ export function useApiExec(): UseApiExecReturn {
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, string> = {}) => {
-      executeScript({ component_id: componentId, template_var_values: templateVarValues })
+    (componentId: string, templateVarValues: Record<string, string> = {}, captureOptions?: CaptureFilesOptions) => {
+      executeScript({ 
+        component_id: componentId, 
+        template_var_values: templateVarValues,
+        capture_files: captureOptions?.captureFiles,
+        capture_files_output_path: captureOptions?.captureFilesOutputPath,
+      })
     },
     [executeScript]
   )

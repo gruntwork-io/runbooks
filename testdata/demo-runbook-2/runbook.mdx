@@ -51,7 +51,7 @@ Now let's create the `infrastructure-live-root` repo.
     successMessage="`infrastructure-live-root` repo created successfully!"
     failMessage="Failed to create the `infrastructure-live-root` repo."
 >
-    <BoilerplateInputs id="infrastructure-live-root-repo-inputs">
+    <Inputs id="infrastructure-live-root-repo-inputs">
     ```yaml
     variables:
     - name: GithubOrgName
@@ -64,14 +64,14 @@ Now let's create the `infrastructure-live-root` repo.
       default: "infrastructure-live-root"
       validations: "required"
     ```
-    </BoilerplateInputs>
+    </Inputs>
 </Command>
 
 Let's double check that the repo was created successfully.
 
 <Check id="check-infrastructure-live-root-repo"
     command="gh repo view {{ .GithubOrgName }}/{{ .GithubRepoName }}"
-    boilerplateInputsId="infrastructure-live-root-repo-inputs"
+    inputsId="infrastructure-live-root-repo-inputs"
     title="Confirm the repo was created successfully"
     description="Let's make sure the repo was created successfully."
     successMessage="Repo confirmed!"
@@ -98,21 +98,69 @@ Now copy and paste the values above into the form below.
 
 ### Create `.mise.yml`
 
-<BoilerplateInputs id="mise-config-inputs" templatePath="templates/mise-config" />
+<Inputs id="test1">
+```yaml
+variables:
+- name: Name
+  order: 1
+  description: Your name
+  type: string
+  validations: required
+```
+</Inputs>
+
+<Command id="test-command1"
+    command="echo 'Hello, {{.Name}}'"
+    inputsId="test1"
+    title="Create a pull request with the changes"
+    description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
+    successMessage="Pull request created successfully!"
+    failMessage="Failed to create the pull request."
+/>
+
+<Template id="mise-config-inputs" path="templates/mise-config" />
 
 We just created the `.mise.toml` file. We're going to use this shortly in your new repo!
+
+Here's a preview of the GitHub Actions workflow we'll add to your repo:
+
+<TemplateInline inputsId="infrastructure-live-root-repo-inputs" outputPath="ci.yml" generateFile={true}>
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: {{ .GithubOrgName }}/{{ .GithubRepoName }}
+      
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+      
+      - name: Validate
+        run: tofu validate
+```
+</TemplateInline>
 
 ### Create Terragrunt foundations
 
 Now let's generate a bunch of files that will lay a solid foundation for your new repo with Terragrunt.
 
-<BoilerplateInputs id="infra-live-elements-inputs" templatePath="templates/infra-live-elements" />
+<Template id="infra-live-elements-inputs" path="templates/infra-live-elements" />
 
 ### Create a pull request with the changes
 
 <Command id="create-pull-request-with-changes"
     path="scripts/create-initial-pr.sh"
-    boilerplateInputsId="infrastructure-live-root-repo-inputs"
+    inputsId="infrastructure-live-root-repo-inputs"
     title="Create a pull request with the changes"
     description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
     successMessage="Pull request created successfully!"

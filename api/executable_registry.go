@@ -125,8 +125,17 @@ func (r *ExecutableRegistry) parseAndRegister() error {
 
 // getComponentRegex returns a compiled regex for matching MDX components
 // Matches both self-closing and container components: <Type .../> or <Type ...>...</Type>
+// The props pattern handles characters inside quoted attribute values:
+// - Double quoted strings: "..."
+// - Single quoted strings: '...'
+// - JSX expressions with template literals: {`...`}
+// - JSX expressions with double quotes: {"..."}
+// - JSX expressions with single quotes: {'...'}
 func getComponentRegex(componentType string) *regexp.Regexp {
-	pattern := fmt.Sprintf(`<%s\s+([^>]*?)(?:/>|>([\s\S]*?)</%s>)`, componentType, componentType)
+	// Pattern to match attribute values that may contain > characters
+	// This handles: attr="value with >" or attr='value with >' or attr={`template with >`} etc.
+	propsPattern := `(?:"[^"]*"|'[^']*'|\{` + "`[^`]*`" + `\}|\{"[^"]*"\}|\{'[^']*'\}|[^>])*?`
+	pattern := fmt.Sprintf(`<%s\s+(%s)(?:/>|>([\s\S]*?)</%s>)`, componentType, propsPattern, componentType)
 	return regexp.MustCompile(pattern)
 }
 
@@ -204,15 +213,32 @@ func (r *ExecutableRegistry) registerFileExecutable(componentID, componentType, 
 	// Resolve script path relative to runbook
 	fullPath := filepath.Join(runbookDir, scriptPath)
 
-	// Check if file exists
+	// Check if file exists - if not, add warning and skip (don't fail startup)
 	if _, err := os.Stat(fullPath); err != nil {
-		return fmt.Errorf("script file not found: %s", scriptPath)
+		warning := fmt.Sprintf("<%s id=\"%s\">: Script file not found: %s", componentType, componentID, scriptPath)
+		r.mu.Lock()
+		r.warnings = append(r.warnings, warning)
+		r.mu.Unlock()
+		slog.Warn("Script file not found, skipping registration",
+			"component_type", componentType,
+			"component_id", componentID,
+			"script_path", scriptPath)
+		return nil // Continue without failing (so we can handle in UI)
 	}
 
 	// Read script content
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		return fmt.Errorf("failed to read script file %s: %w", scriptPath, err)
+		warning := fmt.Sprintf("<%s id=\"%s\">: Failed to read script file %s: %v", componentType, componentID, scriptPath, err)
+		r.mu.Lock()
+		r.warnings = append(r.warnings, warning)
+		r.mu.Unlock()
+		slog.Warn("Failed to read script file, skipping registration",
+			"component_type", componentType,
+			"component_id", componentID,
+			"script_path", scriptPath,
+			"error", err)
+		return nil // Continue without failing (so we can handle in UI)
 	}
 
 	scriptContent := string(content)

@@ -30,7 +30,9 @@
     "@tailwindcss/vite": "^4.1.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "copy-to-clipboard": "^3.3.3",
     "lucide-react": "^0.544.0",
+    "mixpanel-browser": "^2.72.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
@@ -38,13 +40,15 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.13",
-    "yaml": "^2.8.1"
+    "yaml": "^2.8.1",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.0.0",
+    "@types/mixpanel-browser": "^2.66.0",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",

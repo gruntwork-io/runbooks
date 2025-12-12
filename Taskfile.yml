@@ -2,10 +2,10 @@ version: '3'
 
 tasks:
   build:
-    desc: Build the complete binary with embedded frontend
+    desc: Build the complete binary with embedded frontend (set MIXPANEL_TOKEN env var to enable telemetry)
     deps: [build:frontend]
     cmds:
-      - go build -o runbooks .
+      - go build -ldflags="-X 'runbooks/api/telemetry.MixpanelToken={{.MIXPANEL_TOKEN}}'" -o runbooks .
     sources:
       - "**/*.go"
       - web/dist/**/*
@@ -15,6 +15,8 @@ tasks:
   build:frontend:
     desc: Build the frontend (creates web/dist)
     dir: web
+    env:
+      VITE_MIXPANEL_TOKEN: "{{.MIXPANEL_TOKEN}}"
     cmds:
       - bun install
       - bun run build

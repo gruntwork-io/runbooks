@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { InlineMarkdown } from "@/components/mdx/shared/components/InlineMarkdown"
+import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 
 type AdmonitionType = "note" | "info" | "warning" | "danger"
@@ -143,21 +143,17 @@ export function Admonition({
         </div>
         
         {confirmationText && (
-          <div className="">
-            <label className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity bg-gray-100 border border-gray-200 rounded-sm p-2 mt-2 -translate-x-2 w-fit text-gray-500">
-              <input
-                type="checkbox"
-                checked={isConfirmed}
-                onChange={(e) => handleConfirmationChange(e.target.checked)}
-                className="cursor-pointer"
-              />
-              <span className="text-sm">
-                <InlineMarkdown>{confirmationText}</InlineMarkdown>
-              </span>
-            </label>
+          <div className="mt-3">
+            <button
+              onClick={() => handleConfirmationChange(true)}
+              disabled={isConfirmed}
+              className="px-4 py-2 text-sm font-medium bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <InlineMarkdown>{confirmationText}</InlineMarkdown>
+            </button>
             
             {allowPermanentHide && storageKey && (
-              <div className="mt-3 mb-1">
+              <div className="mt-3">
                 <label className={`flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity opacity-80`}>
                   <input
                     type="checkbox"

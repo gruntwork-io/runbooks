@@ -101,7 +101,28 @@ func determineOutputDirectory(cliOutputPath string, apiRequestOutputPath *string
 	return outputDir, nil
 }
 
-// This handler renders a boilerplate template with the provided variables.
+// prepareOutputDirectory determines the output directory path and creates it if needed.
+// This is shared logic used by both HandleBoilerplateRender and HandleBoilerplateRenderInline.
+//
+// Parameters:
+//   - cliOutputPath: The base output path from CLI flag
+//   - apiOutputPath: Optional subdirectory from API request (validated for security)
+//
+// Returns the absolute output directory path or an error.
+func prepareOutputDirectory(cliOutputPath string, apiOutputPath *string) (string, error) {
+	// Determine the final output directory path
+	outputDir, err := determineOutputDirectory(cliOutputPath, apiOutputPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to determine output directory: %w", err)
+	}
+
+	// Create the output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	return outputDir, nil
+}
 
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
 func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.HandlerFunc {
@@ -140,33 +161,13 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 			return
 		}
 
-		// Determine the output directory
-		outputDir, err := determineOutputDirectory(cliOutputPath, req.OutputPath)
+		// Prepare the output directory (determine path and create it)
+		// Files accumulate across multiple template renders in the same runbook
+		outputDir, err := prepareOutputDirectory(cliOutputPath, req.OutputPath)
 		if err != nil {
-			slog.Error("Failed to determine output directory", "error", err)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid output path",
-				"details": err.Error(),
-			})
-			return
-		}
-
-		// Create the output directory if it doesn't exist
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			slog.Error("Failed to create output directory", "error", err)
+			slog.Error("Failed to prepare output directory", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to create output directory",
-				"details": err.Error(),
-			})
-			return
-		}
-
-		// Clear any existing files in the output directory before rendering
-		// This ensures each render starts fresh without leftover files from previous renders
-		if err := deleteDirectoryContents(outputDir); err != nil {
-			slog.Error("Failed to clear output directory", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to clear output directory",
+				"error":   "Failed to prepare output directory",
 				"details": err.Error(),
 			})
 			return
@@ -318,7 +319,7 @@ func preConvertJSONTypes(value any, variableType bpVariables.BoilerplateType) an
 }
 
 // HandleBoilerplateRenderInline renders boilerplate templates provided directly in the request body
-func HandleBoilerplateRenderInline() gin.HandlerFunc {
+func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderInlineRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -376,21 +377,22 @@ func HandleBoilerplateRenderInline() gin.HandlerFunc {
 			slog.Debug("Wrote template file", "path", fullPath)
 		}
 
-		// Create a temporary output directory
-		outputDir, err := os.MkdirTemp("", "boilerplate-output-*")
+		// Always render to a temp directory first for inline templates.
+		// This prevents boilerplate from clearing existing files in the persistent output.
+		tempOutputDir, err := os.MkdirTemp("", "boilerplate-output-*")
 		if err != nil {
-			slog.Error("Failed to create output directory", "error", err)
+			slog.Error("Failed to create temp output directory", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to create output directory",
 				"details": err.Error(),
 			})
 			return
 		}
-		defer os.RemoveAll(outputDir) // Clean up output directory when done
-		slog.Info("Created temporary output directory", "outputDir", outputDir)
+		defer os.RemoveAll(tempOutputDir)
+		slog.Info("Created temporary output directory", "outputDir", tempOutputDir)
 
-		// Render the template using the boilerplate package
-		err = renderBoilerplateTemplate(tempDir, outputDir, req.Variables)
+		// Render the template to the temp directory
+		err = renderBoilerplateTemplate(tempDir, tempOutputDir, req.Variables)
 		if err != nil {
 			slog.Error("Failed to render boilerplate template", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -402,8 +404,8 @@ func HandleBoilerplateRenderInline() gin.HandlerFunc {
 
 		slog.Info("Successfully rendered boilerplate template")
 
-		// Read all rendered files from the output directory
-		renderedFiles, err := readAllFilesInDirectory(outputDir)
+		// Read all rendered files from the temp output directory
+		renderedFiles, err := readAllFilesInDirectory(tempOutputDir)
 		if err != nil {
 			slog.Error("Failed to read rendered files", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -413,8 +415,53 @@ func HandleBoilerplateRenderInline() gin.HandlerFunc {
 			return
 		}
 
-		// Build file tree from the generated output
-		fileTree, err := buildFileTreeWithRoot(outputDir, "")
+		// If generateFile is true, copy rendered files to the persistent output directory
+		// This merges with existing files instead of replacing them
+		var persistentOutputDir string
+		if req.GenerateFile {
+			persistentOutputDir, err = prepareOutputDirectory(cliOutputPath, nil)
+			if err != nil {
+				slog.Error("Failed to prepare output directory", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "Failed to prepare output directory",
+					"details": err.Error(),
+				})
+				return
+			}
+
+			// Copy each rendered file to the persistent output (merging with existing files)
+			for relPath, file := range renderedFiles {
+				fullPath := filepath.Join(persistentOutputDir, relPath)
+				
+				// Create parent directories if needed
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					slog.Error("Failed to create directory", "path", filepath.Dir(fullPath), "error", err)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"error":   "Failed to create directory structure",
+						"details": err.Error(),
+					})
+					return
+				}
+
+				if err := os.WriteFile(fullPath, []byte(file.Content), 0644); err != nil {
+					slog.Error("Failed to write file", "path", fullPath, "error", err)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"error":   "Failed to write file",
+						"details": err.Error(),
+					})
+					return
+				}
+				slog.Debug("Copied file to persistent output", "path", fullPath)
+			}
+			slog.Info("Successfully copied files to persistent output", "outputDir", persistentOutputDir)
+		}
+
+		// Build file tree - use persistent dir if files were generated, otherwise temp
+		fileTreeDir := tempOutputDir
+		if persistentOutputDir != "" {
+			fileTreeDir = persistentOutputDir
+		}
+		fileTree, err := buildFileTreeWithRoot(fileTreeDir, "")
 		if err != nil {
 			slog.Error("Failed to build file tree", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{

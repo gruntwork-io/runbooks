@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -151,9 +152,9 @@ func HandleWatchSSE(fileWatcher *FileWatcher) gin.HandlerFunc {
 	}
 }
 
-// resolveRunbookPath resolves the runbook path to an actual file
+// ResolveRunbookPath resolves the runbook path to an actual file
 // If it's a directory, it looks for runbook.mdx or runbook.md
-func resolveRunbookPath(path string) (string, error) {
+func ResolveRunbookPath(path string) (string, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -164,11 +165,15 @@ func resolveRunbookPath(path string) (string, error) {
 		candidates := []string{"runbook.mdx", "runbook.md"}
 		for _, candidate := range candidates {
 			fullPath := filepath.Join(path, candidate)
+			slog.Info("Looking for runbook", "path", fullPath)
 			if _, err := os.Stat(fullPath); err == nil {
 				return fullPath, nil
+			} else if !os.IsNotExist(err) {
+				// An unexpected error occurred (e.g., permissions). Propagate it.
+				return "", fmt.Errorf("error checking for runbook %q: %w", fullPath, err)
 			}
 		}
-		return "", os.ErrNotExist
+		return "", fmt.Errorf("no runbook found in directory %s", path)
 	}
 
 	return path, nil

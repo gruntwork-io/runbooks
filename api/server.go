@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"runbooks/api/telemetry"
 	"runbooks/web"
 
 	"github.com/gin-contrib/cors"
@@ -23,6 +24,18 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		panic(fmt.Sprintf("failed to get embedded assets filesystem: %v", err))
 	}
 
+	// Health check endpoint - used by frontend and CLI to detect if backend is running
+	// Includes runbook path so CLI can verify it's talking to the correct server instance
+	r.GET("/api/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "runbookPath": runbookPath})
+	})
+
+	// Telemetry configuration endpoint - returns telemetry status for frontend
+	r.GET("/api/telemetry/config", func(c *gin.Context) {
+		config := telemetry.GetConfig()
+		c.JSON(http.StatusOK, config)
+	})
+
 	// API endpoint to serve the runbook file contents
 	r.POST("/api/file", HandleFileRequest(runbookPath))
 
@@ -33,13 +46,13 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, outputPath))
 
 	// API endpoint to render boilerplate templates from inline template files
-	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline())
+	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(outputPath))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
 	// API endpoint to execute check scripts
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry))
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath))
 
 	// API endpoints for managing generated files
 	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
@@ -71,7 +84,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 // StartServer serves both the frontend files and also the backend API
 func StartServer(runbookPath string, port int, outputPath string) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := resolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -82,19 +95,18 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
 
-	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
+	// Use release mode for end-users (quieter logs, better performance)
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	// Disable proxy trusting for local development - this is safe since we only run locally
-	// TODO: If runbooks is ever deployed behind a proxy (nginx, load balancer, etc.), 
-	//       we'll need to configure trusted proxies to get accurate client IPs
+	// Disable proxy trusting - this is safe since we only run locally
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
+	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath, outputPath, registry, true)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -103,7 +115,7 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 // StartBackendServer starts the API server for serving runbook files
 func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := resolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -114,7 +126,7 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
 
-	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
+	// Keep debug mode for development (default behavior)
 	r := gin.Default()
 
 	// Disable proxy trusting for local development - this is safe since we only run locally
@@ -131,10 +143,10 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
+	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes (includes all other endpoints)
-	setupCommonRoutes(r, runbookPath, outputPath, registry, true)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -143,7 +155,7 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
 func StartServerWithWatch(runbookPath string, port int, outputPath string, useExecutableRegistry bool) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := resolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -164,22 +176,20 @@ func StartServerWithWatch(runbookPath string, port int, outputPath string, useEx
 	}
 	defer fileWatcher.Close()
 
-	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
+	// Keep debug mode for development (default behavior)
 	r := gin.Default()
 
 	// Disable proxy trusting for local development - this is safe since we only run locally
-	// TODO: If runbooks is ever deployed behind a proxy (nginx, load balancer, etc.), 
-	//       we'll need to configure trusted proxies to get accurate client IPs
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, true, useExecutableRegistry))
+	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, true, useExecutableRegistry))
 
 	// SSE endpoint for file change notifications
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath, outputPath, registry, useExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, useExecutableRegistry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

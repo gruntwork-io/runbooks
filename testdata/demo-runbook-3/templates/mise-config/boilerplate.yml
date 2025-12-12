@@ -1,0 +1,12 @@
+variables:
+  - name: OpenTofuVersion
+    order: 1
+    description: The version of OpenTofu to use
+    type: string
+    
+
+  - name: TerragruntVersion
+    order: 2
+    description: The version of Terragrunt to use
+    type: string
+    validations: "required"

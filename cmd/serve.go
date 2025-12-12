@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"runbooks/api"
+	"runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,9 @@ the server at http://localhost:7825.
 This is useful for local development on the runbooks tool. Runbook authors and consumers will not find this useful.
 `,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Track command usage
+		telemetry.TrackCommand("serve")
+
 		if len(args) == 0 {
 			slog.Error("Error: You must specify a path to a runbook file or directory\n")
 			fmt.Fprintf(os.Stderr, "")
