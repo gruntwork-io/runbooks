@@ -1,0 +1,51 @@
+---
+/**
+ * SourceFile - Displays source file contents from the repository at build time.
+ * 
+ * Usage in .mdx files:
+ *   import SourceFile from '@/components/SourceFile.astro';
+ *   <SourceFile file="testdata/my-first-runbook/runbook.mdx" lang="mdx" />
+ * 
+ * Props:
+ *   - file: Path relative to repo root (not docs folder)
+ *   - lang: Language for syntax highlighting
+ *   - title: Optional display title (defaults to filename)
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from '@astrojs/starlight/components';
+
+interface Props {
+  file: string;
+  lang: string;
+  title?: string;
+}
+
+const { file, lang, title } = Astro.props;
+
+// Resolve path relative to repo root (docs is one level down from repo root)
+const repoRoot = path.resolve(import.meta.dirname, '../../..');
+const absolutePath = path.resolve(repoRoot, file);
+const displayTitle = title || path.basename(file);
+
+let content = '';
+let error = '';
+
+try {
+  content = fs.readFileSync(absolutePath, 'utf-8');
+} catch (e) {
+  error = `Could not read file: ${file}`;
+  console.error(error, e);
+}
+---
+
+<h3><code>{displayTitle}</code></h3>
+
+{error ? (
+  <div style="color: red; padding: 1rem; border: 1px solid red; border-radius: 4px;">
+    ⚠️ {error}
+  </div>
+) : (
+  <Code code={content} lang={lang} />
+)}
+
