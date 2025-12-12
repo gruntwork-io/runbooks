@@ -1,10 +1,10 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
-import { WarningBanner } from './components/layout/WarningBanner/WarningBanner'
+import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
 import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
@@ -13,8 +13,8 @@ import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
 import { useWatchMode } from './hooks/useWatchMode'
-import { useExecutableRegistry } from './hooks/useExecutableRegistry'
 import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
+import { useErrorReporting } from './contexts/useErrorReporting'
 import type { AppError } from './types/error'
 
 function App() {
@@ -32,21 +32,15 @@ function App() {
   // Check for existing generated files when runbook loads
   const generatedFilesCheck = useApiGeneratedFilesCheck()
   
-  // Get executable registry context for warnings (registry mode)
-  // The main use case here is that if our executable registry detects that we have duplicate components
-  // (identical components, including the same ID), we want to show a warning banner to the user.
-  const { warnings: execRegistryWarnings, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
+  // Get error counts from the error reporting context (populated by MDX components)
+  const { errorCount, warningCount, clearAllErrors } = useErrorReporting()
   
-  // Get warnings from the appropriate source based on mode
-  // - Registry mode: warnings from registry (collected at server startup)
-  // - Live-reload mode: warnings from on-demand validation (on each request)
-  const displayedWarnings = useMemo(() => {
-    if (execRegistryEnabled) {
-      return execRegistryWarnings
-    } else {
-      return getRunbookResult.data?.warnings || []
+  // Clear errors when runbook content changes (to avoid stale errors)
+  useEffect(() => {
+    if (getRunbookResult.data?.content) {
+      clearAllErrors()
     }
-  }, [execRegistryEnabled, execRegistryWarnings, getRunbookResult.data?.warnings])
+  }, [getRunbookResult.data?.content, clearAllErrors])
   
   // Enable watch mode - refetch runbook when file changes
   const handleFileChange = useCallback(() => {
@@ -152,8 +146,14 @@ function App() {
       <div className="flex flex-col">
         <Header pathName={pathName} />
         
-        {/* Warning Banner */}
-        <WarningBanner warnings={displayedWarnings} className="translate translate-y-17 w-2xl mx-auto" />
+        {/* Error Summary Banner */}
+        {(errorCount > 0 || warningCount > 0) && (
+          <ErrorSummaryBanner 
+            errorCount={errorCount} 
+            warningCount={warningCount} 
+            className="fixed top-15 left-1/2 -translate-x-1/2 z-50 shadow-md max-w-2xl"
+          />
+        )}
         
         {/* Loading and Error States */}
         {isLoading ? (

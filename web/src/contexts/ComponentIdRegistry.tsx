@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 
 interface ComponentRegistration {
@@ -23,6 +23,9 @@ const ComponentIdRegistryContext = createContext<ComponentIdRegistryContextValue
 export function ComponentIdRegistryProvider({ children }: { children: ReactNode }) {
   const [registrations, setRegistrations] = useState<ComponentRegistration[]>([])
   const instanceCounter = useRef(0)
+  // Use a ref to access current registrations in callbacks without causing re-renders
+  const registrationsRef = useRef<ComponentRegistration[]>([])
+  registrationsRef.current = registrations
 
   const registerComponent = useCallback((id: string, componentType: ComponentRegistration['componentType']): string => {
     const instanceId = `${componentType}-${id}-${++instanceCounter.current}`
@@ -36,21 +39,30 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
     setRegistrations(prev => prev.filter(r => r.instanceId !== instanceId))
   }, [])
 
+  // Use ref-based access to avoid dependency on registrations state
   const getDuplicates = useCallback((id: string): ComponentRegistration[] => {
-    return registrations.filter(r => r.id === id)
-  }, [registrations])
+    return registrationsRef.current.filter(r => r.id === id)
+  }, [])
 
   const isDuplicate = useCallback((id: string, instanceId: string): boolean => {
-    const matches = registrations.filter(r => r.id === id)
+    const matches = registrationsRef.current.filter(r => r.id === id)
     // It's a duplicate if there are multiple registrations with this ID
     // and this instance is not the first one
     if (matches.length <= 1) return false
     const firstMatch = matches[0]
     return firstMatch.instanceId !== instanceId
-  }, [registrations])
+  }, [])
+
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
+    registerComponent,
+    unregisterComponent,
+    getDuplicates,
+    isDuplicate
+  }), [registerComponent, unregisterComponent, getDuplicates, isDuplicate])
 
   return (
-    <ComponentIdRegistryContext.Provider value={{ registerComponent, unregisterComponent, getDuplicates, isDuplicate }}>
+    <ComponentIdRegistryContext.Provider value={value}>
       {children}
     </ComponentIdRegistryContext.Provider>
   )
@@ -66,31 +78,43 @@ export function useComponentIdRegistry(id: string, componentType: ComponentRegis
   const instanceIdRef = useRef<string | null>(null)
   const [isDuplicate, setIsDuplicate] = useState(false)
   const [duplicateInfo, setDuplicateInfo] = useState<ComponentRegistration[]>([])
+  
+  // Extract functions to avoid depending on context object reference
+  const registerComponent = context?.registerComponent
+  const unregisterComponent = context?.unregisterComponent
+  const getDuplicates = context?.getDuplicates
+  const isDuplicateFn = context?.isDuplicate
 
   // Register on mount, unregister on unmount
   useEffect(() => {
-    if (!context) return
+    if (!registerComponent || !unregisterComponent) return
 
     // Register this component
-    instanceIdRef.current = context.registerComponent(id, componentType)
+    instanceIdRef.current = registerComponent(id, componentType)
 
     return () => {
       if (instanceIdRef.current) {
-        context.unregisterComponent(instanceIdRef.current)
+        unregisterComponent(instanceIdRef.current)
       }
     }
-  }, [context, id, componentType])
+  }, [registerComponent, unregisterComponent, id, componentType])
 
-  // Check for duplicates after registration
+  // Check for duplicates after registration - use a small delay to allow all components to register
   useEffect(() => {
-    if (!context || !instanceIdRef.current) return
+    if (!getDuplicates || !isDuplicateFn || !instanceIdRef.current) return
 
-    const duplicates = context.getDuplicates(id)
-    const isThisDuplicate = context.isDuplicate(id, instanceIdRef.current)
-    
-    setIsDuplicate(isThisDuplicate)
-    setDuplicateInfo(duplicates)
-  }, [context, id])
+    // Small timeout to let other components register first
+    const timeoutId = setTimeout(() => {
+      if (!instanceIdRef.current) return
+      const duplicates = getDuplicates(id)
+      const isThisDuplicate = isDuplicateFn(id, instanceIdRef.current)
+      
+      setIsDuplicate(isThisDuplicate)
+      setDuplicateInfo(duplicates)
+    }, 0)
+
+    return () => clearTimeout(timeoutId)
+  }, [getDuplicates, isDuplicateFn, id])
 
   // If no provider, don't enforce uniqueness
   if (!context) {

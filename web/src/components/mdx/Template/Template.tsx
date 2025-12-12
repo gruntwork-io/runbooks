@@ -9,6 +9,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree'
 import { useBlockVariables, useImportedVarValues } from '@/contexts/useBlockVariables'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
+import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -58,6 +59,9 @@ function Template({
   // Register with ID registry to detect duplicates
   const { isDuplicate } = useComponentIdRegistry(id, 'Template')
   
+  // Error reporting context
+  const { reportError, clearError } = useErrorReporting()
+  
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
   
@@ -95,6 +99,36 @@ function Template({
     '', // No inline YAML for Template
     !validationError
   );
+
+  // Report errors to the error reporting context
+  useEffect(() => {
+    // Determine if there's an error to report
+    if (isDuplicate) {
+      reportError({
+        componentId: id,
+        componentType: 'Template',
+        severity: 'error',
+        message: `Duplicate component ID: ${id}`
+      })
+    } else if (validationError) {
+      reportError({
+        componentId: id,
+        componentType: 'Template',
+        severity: 'error',
+        message: validationError.message
+      })
+    } else if (apiError) {
+      reportError({
+        componentId: id,
+        componentType: 'Template',
+        severity: 'error',
+        message: apiError.message
+      })
+    } else {
+      // No error, clear any previously reported error
+      clearError(id)
+    }
+  }, [id, isDuplicate, validationError, apiError, reportError, clearError])
 
   // Compute "shared" variables - those that exist in BOTH imported sources AND this template's boilerplate.yml
   // These variables are read-only in the form and stay live-synced to imported values

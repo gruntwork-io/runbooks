@@ -1,11 +1,12 @@
 import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash } from "lucide-react"
-import { useState, useMemo, cloneElement, isValidElement, useRef } from "react"
+import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
 import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
 
 interface CommandProps {
   id: string
@@ -35,6 +36,9 @@ function Command({
 }: CommandProps) {
   // Check for duplicate component IDs
   const { isDuplicate } = useComponentIdRegistry(id, 'Command')
+  
+  // Error reporting context
+  const { reportError, clearError } = useErrorReporting()
 
   // Use shared script execution hook
   const {
@@ -158,6 +162,39 @@ function Command({
     return { lines, language: languageDisplay }
   }, [path, command, sourceCode, language])
 
+  // Check if component requires variables but none are configured
+  const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !inlineInputsId
+
+  // Report errors to the error reporting context
+  useEffect(() => {
+    // Determine if there's an error to report
+    if (isDuplicate) {
+      reportError({
+        componentId: id,
+        componentType: 'Command',
+        severity: 'error',
+        message: `Duplicate component ID: ${id}`
+      })
+    } else if (getFileError) {
+      reportError({
+        componentId: id,
+        componentType: 'Command',
+        severity: 'error',
+        message: getFileError.message
+      })
+    } else if (missingInputsConfig) {
+      reportError({
+        componentId: id,
+        componentType: 'Command',
+        severity: 'warning',
+        message: `Missing Inputs configuration for variables: ${requiredVariables.join(', ')}`
+      })
+    } else {
+      // No error, clear any previously reported error
+      clearError(id)
+    }
+  }, [id, isDuplicate, getFileError, missingInputsConfig, requiredVariables, reportError, clearError])
+
   // Early return for duplicate ID error
   if (isDuplicate) {
     return (
@@ -191,7 +228,7 @@ function Command({
   }
   
   // Check if command/script requires variables but none are configured
-  if (requiredVariables.length > 0 && !inputsId && !inlineInputsId) {
+  if (missingInputsConfig) {
     return (
       <div className="relative rounded-sm border bg-yellow-50 border-yellow-200 mb-5 p-4">
         <div className="flex items-center text-yellow-700">
