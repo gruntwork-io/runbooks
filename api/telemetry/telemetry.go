@@ -137,8 +137,8 @@ func Track(event string, properties map[string]any) {
 		for k, v := range properties {
 			props[k] = v
 		}
-		props["$os"] = runtime.GOOS
-		props["$os_version"] = runtime.GOARCH
+props["$os"] = runtime.GOOS
+props["arch"] = runtime.GOARCH
 		props["version"] = instance.version
 		props["time"] = time.Now().Unix()
 
