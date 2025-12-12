@@ -2,11 +2,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Check, ChevronDown, ChevronRight, XCircle, AlertTriangle } from "lucide-react"
 import { useState } from 'react'
 import { LinkifiedText } from "@/components/shared/LinkifiedText"
+import type { LogEntry } from "@/hooks/useApiExec"
 
 export interface CheckSummaryProps {
   status: 'success' | 'warn' | 'fail';
   summary: string;
-  logs: string[];
+  logs: LogEntry[];
 }
 
 export const CheckSummary = ({ status, summary, logs }: CheckSummaryProps) => {
@@ -45,7 +46,7 @@ export const CheckSummary = ({ status, summary, logs }: CheckSummaryProps) => {
             {logs.map((log, index) => (
               <div key={index}>
                 <LinkifiedText 
-                  text={log} 
+                  text={log.line} 
                   linkClassName="text-blue-600 hover:text-blue-500 underline"
                 />
               </div>

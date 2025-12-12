@@ -2,11 +2,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ChevronDown, ChevronRight, XCircle, Check } from "lucide-react"
 import { useState } from 'react'
 import { LinkifiedText } from "@/components/shared/LinkifiedText"
+import type { LogEntry } from "@/hooks/useApiExec"
 
 export interface CommandSummaryProps {
   status: 'succeed' | 'fail';
   command: string;
-  logs: string[];
+  logs: LogEntry[];
 }
 
 export const CommandSummary = ({ status, command, logs }: CommandSummaryProps) => {
@@ -43,7 +44,7 @@ export const CommandSummary = ({ status, command, logs }: CommandSummaryProps) =
             {logs.map((log, index) => (
               <div key={index}>
                 <LinkifiedText 
-                  text={log} 
+                  text={log.line} 
                   linkClassName="text-blue-600 hover:text-blue-500 underline"
                 />
               </div>

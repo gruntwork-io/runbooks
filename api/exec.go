@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,9 +18,11 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID      string            `json:"executable_id,omitempty"`      // Used when useExecutableRegistry=true
-	ComponentID       string            `json:"component_id,omitempty"`       // Used when useExecutableRegistry=false
-	TemplateVarValues map[string]string `json:"template_var_values"` // Values for template variables
+	ExecutableID           string            `json:"executable_id,omitempty"`             // Used when useExecutableRegistry=true
+	ComponentID            string            `json:"component_id,omitempty"`              // Used when useExecutableRegistry=false
+	TemplateVarValues      map[string]string `json:"template_var_values"`                 // Values for template variables
+	CaptureFiles           bool              `json:"capture_files"`                       // When true, capture files written by the script to the workspace
+	CaptureFilesOutputPath string            `json:"capture_files_output_path,omitempty"` // Relative subdirectory within the output folder for captured files
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -33,8 +37,21 @@ type ExecStatusEvent struct {
 	ExitCode int    `json:"exitCode"`
 }
 
+// FilesCapturedEvent represents files captured from script execution
+type FilesCapturedEvent struct {
+	Files    []CapturedFile `json:"files"`    // List of captured files
+	Count    int            `json:"count"`    // Total number of files captured
+	FileTree any            `json:"fileTree"` // Updated file tree for the workspace
+}
+
+// CapturedFile represents a single file captured from script output
+type CapturedFile struct {
+	Path string `json:"path"` // Relative path within the output directory
+	Size int64  `json:"size"` // File size in bytes
+}
+
 // HandleExecRequest handles the execution of scripts and streams output via SSE
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -85,6 +102,35 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			scriptContent = rendered
 		}
 
+		// Validate captureFilesOutputPath if captureFiles is enabled
+		var captureOutputDir string
+		if req.CaptureFiles {
+			// Validate the output path (reuse validation from boilerplate_render.go)
+			if err := validateOutputPath(req.CaptureFilesOutputPath); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid captureFilesOutputPath: %v", err)})
+				return
+			}
+
+			// Determine the output directory for captured files
+			captureOutputDir, err = determineOutputDirectory(cliOutputPath, &req.CaptureFilesOutputPath)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to determine capture output directory: %v", err)})
+				return
+			}
+		}
+
+		// Create an isolated working directory for the script when captureFiles is enabled
+		// This ensures all relative file writes are captured
+		var workDir string
+		if req.CaptureFiles {
+			workDir, err = os.MkdirTemp("", "runbook-cmd-workspace-*")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create working directory: %v", err)})
+				return
+			}
+			defer os.RemoveAll(workDir) // Clean up the working directory when done
+		}
+
 		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
@@ -130,6 +176,12 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		// in their local environment! For users who want more security/control here, a commercial version
 		// of Runbooks is probably the answer.
 		cmd.Env = os.Environ()
+
+		// Set working directory if capturing files
+		// This isolates the script so all relative file writes are captured
+		if req.CaptureFiles && workDir != "" {
+			cmd.Dir = workDir
+		}
 
 		// Get stdout and stderr pipes
 		stdoutPipe, err := cmd.StdoutPipe()
@@ -218,6 +270,18 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 				sendSSEStatus(c, status, exitCode)
 				flusher.Flush()
 
+				// Capture files if enabled and execution was successful (or warning)
+				if req.CaptureFiles && workDir != "" && (status == "success" || status == "warn") {
+					capturedFiles, captureErr := captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath)
+					if captureErr != nil {
+						sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
+						flusher.Flush()
+					} else if len(capturedFiles) > 0 {
+						sendSSEFilesCaptured(c, capturedFiles, cliOutputPath)
+						flusher.Flush()
+					}
+				}
+
 				// Send done event
 				sendSSEDone(c)
 				flusher.Flush()
@@ -301,4 +365,126 @@ func sendSSEError(c *gin.Context, message string) {
 	if flusher, ok := c.Writer.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+// captureFilesFromWorkDir copies all files from the working directory to the output directory
+// Returns a list of captured files with their relative paths and sizes
+func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([]CapturedFile, error) {
+	var capturedFiles []CapturedFile
+
+	// Create the output directory if it doesn't exist
+	if err := os.MkdirAll(captureOutputDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Walk the working directory and copy all files
+	err := filepath.Walk(workDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		// Skip the root directory itself
+		if srcPath == workDir {
+			return nil
+		}
+
+		// Get the relative path from the working directory
+		relPath, err := filepath.Rel(workDir, srcPath)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
+
+		// Construct the destination path
+		dstPath := filepath.Join(captureOutputDir, relPath)
+
+		if info.IsDir() {
+			// Create the directory in the output
+			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
+				return err
+			}
+			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
+			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
+			return os.Chmod(dstPath, info.Mode())
+		}
+
+		// Copy the file
+		if err := copyFile(srcPath, dstPath); err != nil {
+			return fmt.Errorf("failed to copy file %s: %w", relPath, err)
+		}
+
+		// Calculate relative path from CLI output path for the response
+		// This is what the frontend expects to see in the file tree
+		outputRelPath := relPath
+		if captureOutputDir != cliOutputPath {
+			// If we're in a subdirectory, include that in the relative path
+			subDir, _ := filepath.Rel(cliOutputPath, captureOutputDir)
+			if subDir != "" && subDir != "." {
+				outputRelPath = filepath.Join(subDir, relPath)
+			}
+		}
+
+		capturedFiles = append(capturedFiles, CapturedFile{
+			Path: filepath.ToSlash(outputRelPath), // Use forward slashes for consistency
+			Size: info.Size(),
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return capturedFiles, nil
+}
+
+// copyFile copies a single file from src to dst
+func copyFile(src, dst string) error {
+	// Create parent directories if needed
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	// Open source file
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	// Get source file info for permissions
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	// Create destination file
+	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	// Copy contents
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
+// sendSSEFilesCaptured sends a files_captured event via SSE with the list of captured files
+// and the updated file tree
+func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
+	// Build the updated file tree from the output directory
+	fileTree, err := buildFileTreeWithRoot(cliOutputPath, "")
+	if err != nil {
+		// Log the error but don't fail - we still captured the files
+		slog.Warn("Failed to build file tree for SSE event", "error", err)
+		fileTree = nil
+	}
+
+	event := FilesCapturedEvent{
+		Files:    capturedFiles,
+		Count:    len(capturedFiles),
+		FileTree: fileTree,
+	}
+	c.SSEvent("files_captured", event)
 }
