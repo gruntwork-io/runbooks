@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -166,6 +167,9 @@ func resolveRunbookPath(path string) (string, error) {
 			fullPath := filepath.Join(path, candidate)
 			if _, err := os.Stat(fullPath); err == nil {
 				return fullPath, nil
+			} else if !os.IsNotExist(err) {
+				// An unexpected error occurred (e.g., permissions). Propagate it.
+				return "", fmt.Errorf("error checking for runbook %q: %w", fullPath, err)
 			}
 		}
 		return "", os.ErrNotExist
