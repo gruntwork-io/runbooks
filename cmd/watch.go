@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"runbooks/api"
 	"runbooks/browser"
@@ -49,13 +50,24 @@ func watchRunbook(path string) {
 	useExecutableRegistry := disableLiveFileReload
 	slog.Info("Opening runbook with file watching", "path", path, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
+	// Channel to receive server startup errors
+	errCh := make(chan error, 1)
+
 	// Start the API server with watching in a goroutine
 	go func() {
-		if err := api.StartServerWithWatch(path, 7825, outputPath, useExecutableRegistry); err != nil {
-			slog.Error("Failed to start server with watch", "error", err)
-			os.Exit(1)
-		}
+		errCh <- api.StartServerWithWatch(path, 7825, outputPath, useExecutableRegistry)
 	}()
+
+	// Give the server a moment to bind the port before launching browser
+	select {
+	case err := <-errCh:
+		// Server exited immediately (likely port in use or other startup error)
+		slog.Error("Failed to start server", "error", err)
+		fmt.Fprintln(os.Stderr, "Hint: Is another instance of runbooks already running on port 7825?")
+		os.Exit(1)
+	case <-time.After(100 * time.Millisecond):
+		// Server seems to have started successfully, continue
+	}
 
 	// Open browser and keep server running
 	browser.LaunchAndWait(7825)

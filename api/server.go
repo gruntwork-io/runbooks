@@ -82,12 +82,11 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
 
-	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
+	// Use release mode for end-users (quieter logs, better performance)
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	// Disable proxy trusting for local development - this is safe since we only run locally
-	// TODO: If runbooks is ever deployed behind a proxy (nginx, load balancer, etc.), 
-	//       we'll need to configure trusted proxies to get accurate client IPs
+	// Disable proxy trusting - this is safe since we only run locally
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
@@ -114,7 +113,7 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
 
-	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
+	// Keep debug mode for development (default behavior)
 	r := gin.Default()
 
 	// Disable proxy trusting for local development - this is safe since we only run locally
@@ -164,12 +163,10 @@ func StartServerWithWatch(runbookPath string, port int, outputPath string, useEx
 	}
 	defer fileWatcher.Close()
 
-	// TODO: Consider updating gin to run in release mode (not debug mode, except by flag)
+	// Keep debug mode for development (default behavior)
 	r := gin.Default()
 
 	// Disable proxy trusting for local development - this is safe since we only run locally
-	// TODO: If runbooks is ever deployed behind a proxy (nginx, load balancer, etc.), 
-	//       we'll need to configure trusted proxies to get accurate client IPs
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
