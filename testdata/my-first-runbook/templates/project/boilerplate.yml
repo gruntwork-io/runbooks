@@ -1,0 +1,23 @@
+variables:
+  - name: ProjectName
+    type: string
+    description: What would you like to call your project?
+    default: my-awesome-project
+    validations:
+      - required
+
+  - name: Author
+    type: string
+    description: What's your first name?
+
+  - name: Language
+    type: enum
+    description: What's your favorite programming language?
+    options:
+      - Go
+      - Python
+      - JavaScript
+      - TypeScript
+      - Rust
+    default: Go
+

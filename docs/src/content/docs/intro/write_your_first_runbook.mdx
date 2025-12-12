@@ -1,0 +1,99 @@
+---
+title: Write Your First Runbook
+sidebar:
+   order: 3
+---
+
+import SourceFile from '../../../components/SourceFile.astro';
+
+Let's create a simple runbook from scratch!
+
+## Create the Runbook File
+
+1. Create a new folder called `my-first-runbook`.
+1. Inside that folder, create a file called `runbook.mdx`.
+1. Create subfolders called `scripts` and `templates/project`.
+1. Copy/paste the following content into each file:
+
+You can also [download the complete example](/my-first-runbook.zip) as a zip file.
+
+<SourceFile file="testdata/my-first-runbook/runbook.mdx" lang="mdx" />
+
+<SourceFile file="testdata/my-first-runbook/scripts/setup.sh" lang="bash" />
+
+Make the script executable:
+
+```bash
+chmod +x my-first-runbook/scripts/setup.sh
+```
+
+<SourceFile file="testdata/my-first-runbook/templates/project/boilerplate.yml" lang="yaml" />
+
+<SourceFile file="testdata/my-first-runbook/templates/project/README.md" lang="markdown" title="templates/project/README.md" />
+
+<SourceFile file="testdata/my-first-runbook/templates/project/.gitignore" lang="text" title="templates/project/.gitignore" />
+
+## Open Your Runbook
+
+Save the files and open the runbook:
+
+```bash
+runbooks open my-first-runbook/runbook.mdx
+```
+
+Your browser will open showing the runbook interface. Follow the steps to execute each block!
+
+## Understanding the Blocks
+
+Here's a quick overview of what we used:
+
+### `<Admonition>`
+
+Callout boxes for important information:
+
+```mdx
+<Admonition type="info" title="Title" description="Description" />
+```
+
+Types: `info`, `warning`, `danger`, `success`. [Learn more](/authoring/blocks/admonition).
+
+### `<Check>`
+
+Runs a command and shows success/failure based on exit code:
+
+```mdx
+<Check id="my-check" command="git --version" title="Check Git" />
+```
+
+Exit 0 = success, exit 1 = failure, exit 2 = warning. [Learn more](/authoring/blocks/check).
+
+### `<Template>`
+
+Generates files from a template directory with its own form:
+
+```mdx
+<Template id="my-template" path="templates/my-template" />
+```
+
+The template directory must contain a `boilerplate.yml` that defines the form variables. [Learn more](/authoring/blocks/template).
+
+### `<Command>`
+
+Executes scripts with variable substitution. Use `inputsId` to pull variables from a `<Template>`:
+
+```mdx
+<Command id="run-script" path="scripts/setup.sh" inputsId="my-template" />
+```
+
+Or run inline commands:
+
+```mdx
+<Command id="hello" command="echo 'Hello World!'" />
+```
+
+[Learn more](/authoring/blocks/command).
+
+## Next
+
+If you've already installed `runbooks`, you'll see what the Runbook above looks like for end users. But if you're just browsing for now, let's show you what the end-user experience for the above Runbook looks like.
+

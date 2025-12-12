@@ -1,0 +1,4 @@
+# Build outputs
+dist/
+build/
+*.exe
