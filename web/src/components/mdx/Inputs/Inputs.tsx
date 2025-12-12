@@ -11,6 +11,7 @@ import { extractYamlFromChildren } from '../_shared/lib/extractYamlFromChildren'
 import { useBlockVariables } from '@/contexts/useBlockVariables'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
+import { useTelemetry } from '@/contexts/useTelemetry'
 
 /**
  * Inputs component - collects user input via a web form.
@@ -63,6 +64,14 @@ function Inputs({
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
+  
+  // Telemetry context
+  const { trackBlockRender } = useTelemetry()
+  
+  // Track block render on mount
+  useEffect(() => {
+    trackBlockRender('Inputs')
+  }, [trackBlockRender])
   
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);

@@ -7,6 +7,7 @@ import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/
 import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { useTelemetry } from "@/contexts/useTelemetry"
 
 interface CheckProps {
   id: string
@@ -41,6 +42,9 @@ function Check({
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
+  
+  // Telemetry context
+  const { trackBlockRender } = useTelemetry()
 
   // Use shared script execution hook
   const {
@@ -117,6 +121,11 @@ function Check({
 
   // Check if component requires variables but none are configured
   const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !inlineInputsId
+
+  // Track block render on mount
+  useEffect(() => {
+    trackBlockRender('Check')
+  }, [trackBlockRender])
 
   // Report errors to the error reporting context
   useEffect(() => {

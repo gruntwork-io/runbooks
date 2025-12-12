@@ -96,8 +96,11 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 	}
 
 	// Use release mode for end-users (quieter logs, better performance)
+	// Use gin.New() instead of gin.Default() to skip the default logger middleware
+	// This keeps the logs clean for end-users while still including recovery middleware
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 
 	// Disable proxy trusting - this is safe since we only run locally
 	r.SetTrustedProxies(nil)
