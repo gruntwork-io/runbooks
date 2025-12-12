@@ -7,6 +7,7 @@ require (
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
 	github.com/gruntwork-io/boilerplate v0.10.0
+	github.com/mixpanel/mixpanel-go v1.2.1
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
 )

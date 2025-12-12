@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"runbooks/api"
+	"runbooks/api/telemetry"
 	"runbooks/browser"
 
 	"github.com/spf13/cobra"
@@ -20,6 +21,9 @@ var openCmd = &cobra.Command{
 	Short: "Open a runbook",
 	Long:  `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Track command usage
+		telemetry.TrackCommand("open")
+
 		if len(args) == 0 {
 			slog.Error("Error: You must specify a path to a runbook file or directory\n")
 			fmt.Fprintf(os.Stderr, "")
