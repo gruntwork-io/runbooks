@@ -58,9 +58,9 @@ To launch an _instance_ of that module with its own unique configuration values 
 
 First, let's configure the Lambda function itself. This is boilerplate code that will run "Hello, World!" when the Lambda function is invoked.
 
-<BoilerplateInputs
+<Template
   id="lambda-config"
-  templatePath="templates/lambda-unit"
+  path="templates/lambda-unit"
 />
 
 The generated files will include:
@@ -80,7 +80,7 @@ Once the files are generated, create a pull request to add them to your infrastr
   failMessage="Failed to create pull request. See logs for details on what went wrong."
   boilerplateInputsId="lambda-config"
 >
-   <BoilerplateInputs id="repo-config">
+   <Inputs id="repo-config">
    ```yaml
     variables:
       - name: GithubOrgName
@@ -94,7 +94,7 @@ Once the files are generated, create a pull request to add them to your infrastr
         default: "runbooks-infrastructure-live-example"
         validations: "required"
     ```
-    </BoilerplateInputs>
+    </Inputs>
 </Command>
 
 ## Deploy the Lambda function
@@ -110,7 +110,7 @@ In this case, you can go ahead and manually run the plan and apply commands:
   description="Clone the repo, checkout the PR branch, and preview the infrastructure changes."
   successMessage="Plan completed successfully! Review the changes above."
   failMessage="Terragrunt plan failed. See logs for details."
-  boilerplateInputsId={["lambda-config", "repo-config"]}
+  inputsId={["lambda-config", "repo-config"]}
 />
 
 <Command
@@ -120,7 +120,7 @@ In this case, you can go ahead and manually run the plan and apply commands:
   description="Clone the repo, checkout the PR branch, and apply the infrastructure changes to deploy the Lambda function."
   successMessage="Lambda function deployed successfully!"
   failMessage="Terragrunt apply failed. See logs for details."
-  boilerplateInputsId={["lambda-config", "repo-config"]}
+  inputsId={["lambda-config", "repo-config"]}
 />
 
 ## Test the function
@@ -134,7 +134,7 @@ Congratulations! Your Lambda function has been deployed. Let's test it!
   description="Test the Lambda function by invoking it with a test event"
   successMessage="Lambda function invoked successfully!"
   failMessage="Failed to invoke Lambda function. See logs for details on what went wrong."
-  boilerplateInputsId="lambda-config"
+  inputsId="lambda-config"
 />
 
 

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	bpConfig "github.com/gruntwork-io/boilerplate/config"
@@ -14,52 +13,6 @@ import (
 	bpTemplates "github.com/gruntwork-io/boilerplate/templates"
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 )
-
-// validateOutputPath validates an output path from an API request to prevent security issues.
-// It ensures the path is:
-// - Not absolute (to prevent writing to arbitrary filesystem locations)
-// - Does not contain ".." (to prevent directory traversal attacks)
-// Returns an error if validation fails.
-func validateOutputPath(path string) error {
-	// Empty path is allowed (will use default)
-	if path == "" {
-		return nil
-	}
-	
-	// Check for absolute paths (Unix-style and Windows-style)
-	if filepath.IsAbs(path) {
-		return fmt.Errorf("absolute paths are not allowed in API requests: %s", path)
-	}
-	
-	// Additional check for Windows paths on Unix systems
-	if len(path) >= 2 && path[1] == ':' {
-		return fmt.Errorf("absolute paths are not allowed in API requests: %s", path)
-	}
-	
-	// Check for directory traversal attempts
-	if containsDirectoryTraversal(path) {
-		return fmt.Errorf("directory traversal is not allowed: %s", path)
-	}
-	
-	return nil
-}
-
-// containsDirectoryTraversal checks if a path contains ".." components
-func containsDirectoryTraversal(path string) bool {
-	// Normalize path separators
-	normalizedPath := filepath.ToSlash(path)
-	
-	// Check for ".." as a path component
-	// This handles: "..", "../foo", "foo/../bar", "foo/.."
-	parts := strings.Split(normalizedPath, "/")
-	for _, part := range parts {
-		if part == ".." {
-			return true
-		}
-	}
-	
-	return false
-}
 
 // determineOutputDirectory determines the final output directory based on CLI config and API request.
 // CLI output path is the path set via the --output-path CLI flag and is trusted (specified by end user)
@@ -71,7 +24,7 @@ func determineOutputDirectory(cliOutputPath string, apiRequestOutputPath *string
 	
 	if apiRequestOutputPath != nil && *apiRequestOutputPath != "" {
 		// Validate the API-provided output path for security
-		if err := validateOutputPath(*apiRequestOutputPath); err != nil {
+		if err := ValidateRelativePath(*apiRequestOutputPath); err != nil {
 			return "", fmt.Errorf("invalid output path: %w", err)
 		}
 		
@@ -144,12 +97,19 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 			return
 		}
 
+		if req.TemplateID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "templateId is required",
+			})
+			return
+		}
+
 		// Extract the directory from the baseRunbookPath (which we assume is a file path)
 		runbookDir := filepath.Dir(runbookPath)
 
 		// Construct the full template path
 		fullTemplatePath := filepath.Join(runbookDir, req.TemplatePath)
-		slog.Info("Rendering boilerplate template", "baseDir", runbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath)
+		slog.Info("Rendering boilerplate template", "baseDir", runbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath, "templateId", req.TemplateID)
 
 		// Check if the template directory exists
 		if _, err := os.Stat(fullTemplatePath); os.IsNotExist(err) {
@@ -162,7 +122,6 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 		}
 
 		// Prepare the output directory (determine path and create it)
-		// Files accumulate across multiple template renders in the same runbook
 		outputDir, err := prepareOutputDirectory(cliOutputPath, req.OutputPath)
 		if err != nil {
 			slog.Error("Failed to prepare output directory", "error", err)
@@ -175,8 +134,26 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 
 		slog.Info("Rendering template to output directory", "outputDir", outputDir)
 
-		// Render the template using the boilerplate package
-		err = renderBoilerplateTemplate(fullTemplatePath, outputDir, req.Variables)
+		// Render with manifest tracking for smart file cleanup
+		diff, err := RenderWithManifest(req.TemplateID, func() (string, error) {
+			// Render to a temp directory
+			tempDir, tempErr := os.MkdirTemp("", "boilerplate-render-*")
+			if tempErr != nil {
+				return "", fmt.Errorf("failed to create temp directory: %w", tempErr)
+			}
+
+			// Render the template to temp directory
+			if renderErr := renderBoilerplateTemplate(fullTemplatePath, tempDir, req.Variables); renderErr != nil {
+				if cleanupErr := os.RemoveAll(tempDir); cleanupErr != nil {
+					slog.Warn("Failed to clean up temp directory after render error",
+						"tempDir", tempDir, "cleanupErr", cleanupErr)
+				}
+				return "", renderErr
+			}
+
+			return tempDir, nil
+		}, outputDir)
+
 		if err != nil {
 			slog.Error("Failed to render boilerplate template", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -199,12 +176,20 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 			return
 		}
 
-		// Create response with file tree
+		// Create response with file tree and cleanup info
 		response := RenderResponse{
 			Message:      "Template rendered successfully to output directory",
 			OutputDir:    outputDir,
 			TemplatePath: fullTemplatePath,
 			FileTree:     fileTree,
+		}
+
+		// Include diff information if manifest tracking was used
+		if diff != nil {
+			response.DeletedFiles = diff.Orphaned
+			response.CreatedFiles = diff.Created
+			response.ModifiedFiles = diff.Modified
+			response.SkippedFiles = diff.Unchanged
 		}
 
 		c.JSON(http.StatusOK, response)

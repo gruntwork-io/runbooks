@@ -205,8 +205,10 @@ function Template({
   }, [id, boilerplateConfig, importedVarValues, registerInputs]);
 
   // Render API call - only triggered when shouldRender is true
+  // Pass the component id as templateId to enable smart file cleanup when outputs change
   const { data: renderResult, isLoading: isGenerating, error: renderError, isAutoRendering, autoRender } = useApiBoilerplateRender(
     path,
+    id,
     renderFormData,
     shouldRender
   )

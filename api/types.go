@@ -33,6 +33,11 @@ type FileTreeNode struct {
 type RenderRequest struct {
 	TemplatePath string         `json:"templatePath"`
 	Variables    map[string]any `json:"variables"`
+	// TemplateID uniquely identifies the Template component making this request.
+	// Used for manifest tracking to enable smart file cleanup when template outputs change
+	// (e.g., switching from Python to Node.js runtime deletes orphaned Python files).
+	// If not provided, no manifest tracking or cleanup is performed.
+	TemplateID   string         `json:"templateId,omitempty"`
 	// Optional subdirectory within the configured output path (set via --output-path CLI flag).
 	// SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
 	// Will be joined with the CLI-configured output path (e.g., if CLI sets --output-path=/out
@@ -47,6 +52,11 @@ type RenderResponse struct {
 	OutputDir    string         `json:"outputDir"`
 	TemplatePath string         `json:"templatePath"`
 	FileTree     []FileTreeNode `json:"fileTree"`
+	// Cleanup statistics (only populated when TemplateID is provided in request)
+	DeletedFiles  []string `json:"deletedFiles,omitempty"`  // Files that were deleted (orphaned from previous render)
+	CreatedFiles  []string `json:"createdFiles,omitempty"`  // Files that were newly created
+	ModifiedFiles []string `json:"modifiedFiles,omitempty"` // Files that were updated (content changed)
+	SkippedFiles  []string `json:"skippedFiles,omitempty"`  // Files that were unchanged (no write needed)
 }
 
 // FlexibleBool is a boolean type that can be unmarshaled from both JSON boolean and string values.

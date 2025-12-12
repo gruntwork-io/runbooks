@@ -75,7 +75,7 @@ func TestValidateOutputPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateOutputPath(tt.path)
+			err := ValidateRelativePath(tt.path)
 			
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error for path %q but got none. %s", tt.path, tt.description)
@@ -138,9 +138,9 @@ func TestContainsDirectoryTraversal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := containsDirectoryTraversal(tt.path)
+			result := ContainsPathTraversal(tt.path)
 			if result != tt.expected {
-				t.Errorf("containsDirectoryTraversal(%q) = %v, want %v", tt.path, result, tt.expected)
+				t.Errorf("ContainsPathTraversal(%q) = %v, want %v", tt.path, result, tt.expected)
 			}
 		})
 	}

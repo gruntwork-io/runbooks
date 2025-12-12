@@ -67,36 +67,38 @@ func TestValidatePathSafeToDelete(t *testing.T) {
 		shouldError bool
 		description string
 	}{
-		// Valid paths (within CWD)
-		{
-			name:        "relative path within cwd",
-			path:        "generated",
-			shouldError: false,
-			description: "Simple relative path should be allowed",
-		},
-		{
-			name:        "nested relative path within cwd",
-			path:        "build/output/generated",
-			shouldError: false,
-			description: "Nested relative path should be allowed",
-		},
-		{
-			name:        "relative path with dot",
-			path:        "./generated",
-			shouldError: false,
-			description: "Relative path with ./ prefix should be allowed",
-		},
-		{
-			name:        "cwd itself",
-			path:        ".",
-			shouldError: false,
-			description: "Current directory itself should be allowed",
-		},
+		// Valid paths (absolute, within CWD)
 		{
 			name:        "absolute path within cwd",
 			path:        filepath.Join(cwd, "generated"),
 			shouldError: false,
 			description: "Absolute path within CWD should be allowed",
+		},
+		{
+			name:        "cwd itself absolute",
+			path:        cwd,
+			shouldError: false,
+			description: "CWD itself should be allowed",
+		},
+
+		// Invalid paths (relative - function requires absolute)
+		{
+			name:        "relative path rejected",
+			path:        "generated",
+			shouldError: true,
+			description: "Relative paths must be rejected (function requires absolute)",
+		},
+		{
+			name:        "relative path with dot rejected",
+			path:        "./generated",
+			shouldError: true,
+			description: "Relative paths with ./ must be rejected",
+		},
+		{
+			name:        "dot rejected",
+			path:        ".",
+			shouldError: true,
+			description: "Dot is relative and must be rejected",
 		},
 
 		// Invalid paths (outside CWD)
@@ -111,18 +113,6 @@ func TestValidatePathSafeToDelete(t *testing.T) {
 			path:        "../other-project",
 			shouldError: true,
 			description: "Path using .. to escape CWD should be blocked",
-		},
-		{
-			name:        "multiple parent traversals",
-			path:        "../../..",
-			shouldError: true,
-			description: "Multiple parent traversals should be blocked",
-		},
-		{
-			name:        "sneaky parent traversal",
-			path:        "generated/../../other-project",
-			shouldError: true,
-			description: "Path that goes down then up should be blocked if it escapes CWD",
 		},
 
 		// System directories (Unix)
@@ -178,7 +168,7 @@ func TestValidatePathSafeToDelete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateOutputPathSafety(tt.path)
+			err := ValidateAbsolutePathInCwd(tt.path)
 			
 			if tt.shouldError && err == nil {
 				t.Errorf("Expected error for path %q but got none. Description: %s", tt.path, tt.description)
@@ -234,7 +224,7 @@ func TestValidatePathSafeToDelete_AbsolutePaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateOutputPathSafety(tt.path)
+			err := ValidateAbsolutePathInCwd(tt.path)
 			
 			if tt.shouldError && err == nil {
 				t.Errorf("Expected error for absolute path %q but got none", tt.path)
@@ -274,7 +264,7 @@ func TestValidatePathSafeToDelete_SymlinkAttacks(t *testing.T) {
 	defer os.Remove(symlinkPath)
 
 	// Try to delete through the symlink - should be blocked because it resolves outside CWD
-	err = validateOutputPathSafety(symlinkPath)
+	err = ValidateAbsolutePathInCwd(symlinkPath)
 	if err == nil {
 		t.Error("Expected error when trying to delete through symlink pointing outside CWD, but got none")
 	} else {
@@ -283,7 +273,7 @@ func TestValidatePathSafeToDelete_SymlinkAttacks(t *testing.T) {
 }
 
 func TestValidatePathSafeToDelete_EmptyPath(t *testing.T) {
-	err := validateOutputPathSafety("")
+	err := ValidateAbsolutePathInCwd("")
 	// Empty path should be explicitly rejected
 	if err == nil {
 		t.Error("Expected error for empty path, but got none")
@@ -313,7 +303,7 @@ func TestValidatePathSafeToDelete_CaseSensitivity(t *testing.T) {
 
 	for _, path := range dangerousPaths {
 		t.Run("case_variant_"+strings.ReplaceAll(path, "/", "_"), func(t *testing.T) {
-			err := validateOutputPathSafety(path)
+			err := ValidateAbsolutePathInCwd(path)
 			if err == nil {
 				t.Errorf("Expected error for case variant %q, but got none", path)
 			} else {
