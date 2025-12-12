@@ -117,6 +117,9 @@ export function useScriptExecution({
   const [renderError, setRenderError] = useState<AppError | null>(null)
   const [isRendering, setIsRendering] = useState(false)
   
+  // State for registry errors (when executable not found)
+  const [registryError, setRegistryError] = useState<AppError | null>(null)
+  
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null)
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -267,6 +270,9 @@ export function useScriptExecution({
 
   // Handle starting execution
   const execute = useCallback(() => {
+    // Clear any previous registry error
+    setRegistryError(null)
+    
     // Convert collected variables to strings (boilerplate expects string values)
     const stringVariables: Record<string, string> = {}
     for (const [key, value] of Object.entries(importedVarValues)) {
@@ -278,7 +284,13 @@ export function useScriptExecution({
       const executable = getExecutableByComponentId(componentId)
       
       if (!executable) {
-        console.error(`Executable not found for component ID: ${componentId}`)
+        // Show error to user instead of silently failing
+        setRegistryError(createAppError(
+          `Executable not found for component "${componentId}"`,
+          'This usually means there was a parsing error when the runbook was loaded. ' +
+          'Check the server logs for details, or try restarting the server. ' +
+          'Common causes include syntax errors in the command or script path.'
+        ))
         return
       }
       
@@ -306,6 +318,9 @@ export function useScriptExecution({
     }
   }, [cancelExec])
 
+  // Combine exec error and registry error - show registry error if present
+  const combinedExecError = registryError || execError
+
   return {
     // Script content
     sourceCode,
@@ -327,7 +342,7 @@ export function useScriptExecution({
     // Execution
     status,
     logs,
-    execError,
+    execError: combinedExecError,
     execute,
     cancel: cancelExec,
   }

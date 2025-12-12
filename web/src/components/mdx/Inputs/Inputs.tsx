@@ -10,6 +10,7 @@ import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { extractYamlFromChildren } from '../_shared/lib/extractYamlFromChildren'
 import { useBlockVariables } from '@/contexts/useBlockVariables'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
+import { useErrorReporting } from '@/contexts/useErrorReporting'
 
 /**
  * Inputs component - collects user input via a web form.
@@ -60,6 +61,9 @@ function Inputs({
   // Register with ID registry to detect duplicates
   const { isDuplicate } = useComponentIdRegistry(id, 'Inputs')
   
+  // Error reporting context
+  const { reportError, clearError } = useErrorReporting()
+  
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   
@@ -106,6 +110,43 @@ function Inputs({
     inlineYamlContent,
     !validationError && !inlineContentError
   );
+
+  // Report errors to the error reporting context
+  useEffect(() => {
+    // Determine if there's an error to report
+    if (isDuplicate) {
+      reportError({
+        componentId: id,
+        componentType: 'Inputs',
+        severity: 'error',
+        message: `Duplicate component ID: ${id}`
+      })
+    } else if (validationError) {
+      reportError({
+        componentId: id,
+        componentType: 'Inputs',
+        severity: 'error',
+        message: validationError.message
+      })
+    } else if (inlineContentError) {
+      reportError({
+        componentId: id,
+        componentType: 'Inputs',
+        severity: 'error',
+        message: inlineContentError.message
+      })
+    } else if (apiError) {
+      reportError({
+        componentId: id,
+        componentType: 'Inputs',
+        severity: 'error',
+        message: apiError.message
+      })
+    } else {
+      // No error, clear any previously reported error
+      clearError(id)
+    }
+  }, [id, isDuplicate, validationError, inlineContentError, apiError, reportError, clearError])
 
   // Apply prefilled variables to the boilerplate config
   const boilerplateConfigWithPrefilledVariables = useMemo(() => {
