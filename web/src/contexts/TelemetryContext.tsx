@@ -112,10 +112,20 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
       console.debug('[Telemetry] Track error:', error)
     }
   }, [isInitialized, config?.enabled])
+  
+  // Store track in a ref so trackBlockRender can access the latest version
+  // without needing it in its dependency array (keeps stable identity)
+  const trackRef = useRef(track)
+  trackRef.current = track
 
   // Track block renders by aggregating them into a single 'runbook_loaded' event
   // Instead of sending individual events per block, we collect block types and
   // send one summary event after blocks stop registering (debounced)
+  // 
+  // NOTE: This callback has an empty dependency array for stable identity.
+  // Components use this in useEffect deps, and we don't want identity changes
+  // to cause blocks to be counted multiple times. We use trackRef to access
+  // the latest track function.
   const trackBlockRender = useCallback((blockType: string) => {
     // Increment the count for this block type
     blockCountsRef.current[blockType] = (blockCountsRef.current[blockType] || 0) + 1
@@ -135,12 +145,12 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
       
       // Send a single event with block counts
       const counts = blockCountsRef.current
-      track('runbook_loaded', {
+      trackRef.current('runbook_loaded', {
         block_counts: counts,
         total_blocks: Object.values(counts).reduce((sum, count) => sum + count, 0),
       })
     }, 500)
-  }, [track])
+  }, []) // Empty deps for stable identity - uses trackRef for latest track function
 
   const contextValue = {
     isEnabled: config?.enabled ?? false,
