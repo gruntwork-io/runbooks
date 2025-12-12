@@ -2,15 +2,7 @@ import { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Copy, Check } from "lucide-react"
-
-// Copy function
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (err) {
-    console.error('Failed to copy text: ', err);
-  }
-};
+import { copyTextToClipboard } from "@/lib/utils"
 
 export interface CodeFileHeaderProps {
   filePath: string;
@@ -33,7 +25,11 @@ export const CodeFileHeader = ({
   // Handle copy code with checkmark feedback
   const handleCopyCode = async () => {
     if (code) {
-      await copyToClipboard(code);
+      const ok = await copyTextToClipboard(code)
+      if (!ok) {
+        console.error('Failed to copy text')
+        return
+      }
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     }
@@ -41,7 +37,11 @@ export const CodeFileHeader = ({
 
   // Handle copy path with checkmark feedback
   const handleCopyPath = async () => {
-    await copyToClipboard(filePath);
+    const ok = await copyTextToClipboard(filePath)
+    if (!ok) {
+      console.error('Failed to copy text')
+      return
+    }
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
   };

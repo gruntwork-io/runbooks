@@ -28,17 +28,27 @@ func HandleGeneratedFilesCheck(rawOutputPath string) gin.HandlerFunc {
 		dirInfo, err := validateAndGetOutputDirectory(rawOutputPath)
 		if err != nil {
 			slog.Error("Failed to validate output directory", "error", err, "outputPath", rawOutputPath)
+
+			// Get the current working directory for the error message
+			cwd, cwdErr := os.Getwd()
+			if cwdErr != nil {
+				cwd = "(unknown)"
+			}
+
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to validate output directory",
-				"details": err.Error(),
+				"error":              "Failed to validate output directory",
+				"details":            err.Error(),
+				"specifiedPath":      rawOutputPath,
+				"currentWorkingDir":  cwd,
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, GeneratedFilesCheckResponse{
-			HasFiles:   dirInfo.fileCount > 0,
-			OutputPath: dirInfo.absoluteOutputPath,
-			FileCount:  dirInfo.fileCount,
+			HasFiles:           dirInfo.fileCount > 0,
+			AbsoluteOutputPath: dirInfo.absoluteOutputPath,
+			RelativeOutputPath: rawOutputPath,
+			FileCount:          dirInfo.fileCount,
 		})
 	}
 }

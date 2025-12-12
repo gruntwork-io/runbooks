@@ -195,9 +195,10 @@ type BoilerplateRequest struct {
 
 // GeneratedFilesCheckResponse represents the response from the generated files check endpoint
 type GeneratedFilesCheckResponse struct {
-	HasFiles   bool   `json:"hasFiles"`   // Whether files exist in the output directory
-	OutputPath string `json:"outputPath"` // The output path that was checked
-	FileCount  int    `json:"fileCount"`  // Number of files found (0 if directory doesn't exist)
+	HasFiles           bool   `json:"hasFiles"`           // Whether files exist in the output directory
+	AbsoluteOutputPath string `json:"absoluteOutputPath"` // Absolute output path that was checked
+	RelativeOutputPath string `json:"relativeOutputPath"` // The CLI-configured output path (as provided to --output-path)
+	FileCount          int    `json:"fileCount"`          // Number of files found (0 if directory doesn't exist)
 }
 
 // GeneratedFilesDeleteResponse represents the response from the generated files delete endpoint

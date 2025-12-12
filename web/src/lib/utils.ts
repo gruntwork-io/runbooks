@@ -2,9 +2,37 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import type { FileTreeNode } from '../components/artifacts/code/FileTree'
+import copy from "copy-to-clipboard"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Copies text to the clipboard.
+ *
+ * - Prefer modern Clipboard API when available
+ * - Fall back to `copy-to-clipboard` for broader compatibility
+ *
+ * @returns true if the copy likely succeeded, false otherwise
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  // Modern Clipboard API (async)
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to legacy fallback
+  }
+
+  // Legacy fallback (sync) via library
+  try {
+    return copy(text)
+  } catch {
+    return false
+  }
 }
 
 /**

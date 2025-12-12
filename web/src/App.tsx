@@ -163,6 +163,32 @@ function App() {
               <p className="text-gray-600">Loading runbook...</p>
             </div>
           </div>
+        ) : generatedFilesCheck.error ? (
+          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
+            <div className="text-center max-w-xl mx-auto p-6">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-left">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
+                  <AlertTriangle className="w-6 h-6 text-red-600" />
+                </div>
+                <h3 className="text-lg font-medium text-red-800 mb-2 text-center">Invalid Output Path</h3>
+                <p className="text-red-700 mb-4 text-center">{generatedFilesCheck.error.message}</p>
+                <div className="bg-red-100 rounded-md p-4 text-sm text-red-800">
+                  <p className="mb-2">
+                    When you launched Runbooks, you specified an <code className="bg-red-200 px-1 rounded">--output-path</code> of{' '}
+                    <code className="bg-red-200 px-1 rounded font-mono">
+                      {generatedFilesCheck.error.context?.specifiedPath || '(unknown)'}
+                    </code>, but the path must be within the current working directory.
+                  </p>
+                  <p>
+                    Your current working directory is{' '}
+                    <code className="bg-red-200 px-1 rounded font-mono">
+                      {generatedFilesCheck.error.context?.currentWorkingDir || '(unknown)'}
+                    </code>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : hasError() ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
@@ -219,6 +245,8 @@ function App() {
                     className="absolute top-0 left-0 right-0 h-full" 
                     onHide={() => setIsArtifactsHidden(true)}
                     hideContent={!showArtifacts}
+                    absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
+                    relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
                   />
                 </div>
               </div>
@@ -255,7 +283,12 @@ function App() {
                 {/* Artifacts Section */}
                 <div className={activeMobileSection === 'code' ? 'block' : 'hidden'}>
                   <div className="w-full h-[calc(100vh-12rem)] border border-gray-200 rounded-lg shadow-md overflow-hidden">
-                    <ArtifactsContainer className="w-full h-full" onHide={() => setIsArtifactsHidden(true)} />
+                    <ArtifactsContainer
+                      className="w-full h-full"
+                      onHide={() => setIsArtifactsHidden(true)}
+                      absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
+                      relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
+                    />
                   </div>
                 </div>
               </div>
@@ -269,7 +302,7 @@ function App() {
         <GeneratedFilesAlert
           isOpen={showGeneratedFilesAlert}
           fileCount={generatedFilesCheck.data.fileCount}
-          outputPath={generatedFilesCheck.data.outputPath}
+          absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
           onClose={handleCloseAlert}
           onDeleted={handleFilesDeleted}
         />
