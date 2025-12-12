@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"time"
 
 	"runbooks/api"
 	"runbooks/browser"
@@ -40,6 +39,14 @@ func init() {
 func openRunbook(path string) {
 	slog.Info("Opening runbook", "path", path, "outputPath", outputPath)
 
+	// Resolve the runbook path before starting the server
+	// This is needed to verify we're connecting to the correct server instance
+	resolvedPath, err := api.ResolveRunbookPath(path)
+	if err != nil {
+		slog.Error("Failed to resolve runbook path", "error", err)
+		os.Exit(1)
+	}
+
 	// Channel to receive server startup errors
 	errCh := make(chan error, 1)
 
@@ -48,15 +55,10 @@ func openRunbook(path string) {
 		errCh <- api.StartServer(path, 7825, outputPath)
 	}()
 
-	// Give the server a moment to bind the port before launching browser
-	select {
-	case err := <-errCh:
-		// Server exited immediately (likely port in use or other startup error)
-		slog.Error("Failed to start server", "error", err)
-		fmt.Fprintln(os.Stderr, "Hint: Is another instance of runbooks already running on port 7825?")
+	// Wait for the server to be ready by polling the health endpoint
+	if err := waitForServerReady(defaultPort, resolvedPath, errCh); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
-	case <-time.After(100 * time.Millisecond):
-		// Server seems to have started successfully, continue
 	}
 
 	// Open browser and keep server running

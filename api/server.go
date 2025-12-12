@@ -23,9 +23,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		panic(fmt.Sprintf("failed to get embedded assets filesystem: %v", err))
 	}
 
-	// Health check endpoint - used by frontend to detect if backend is running
+	// Health check endpoint - used by frontend and CLI to detect if backend is running
+	// Includes runbook path so CLI can verify it's talking to the correct server instance
 	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "runbookPath": runbookPath})
 	})
 
 	// API endpoint to serve the runbook file contents
@@ -76,7 +77,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 // StartServer serves both the frontend files and also the backend API
 func StartServer(runbookPath string, port int, outputPath string) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := resolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -107,7 +108,7 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 // StartBackendServer starts the API server for serving runbook files
 func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := resolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -147,7 +148,7 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
 func StartServerWithWatch(runbookPath string, port int, outputPath string, useExecutableRegistry bool) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := resolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
