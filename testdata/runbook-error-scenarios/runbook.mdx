@@ -1,0 +1,305 @@
+# Error Scenarios Test Runbook
+
+This runbook demonstrates how errors are displayed to users for each block type.
+
+---
+
+## 1. Command Block Errors
+
+### 1.1 Command with Missing Script File
+
+This Command references a script file that doesn't exist:
+
+<Command 
+  id="cmd-missing-file" 
+  path="scripts/nonexistent-script.sh"
+  title="Command with missing script file"
+  description="This should show a file loading error"
+  failMessage="Script execution failed"
+/>
+
+### 1.2 Command with Syntax Error in Command
+
+This Command has a redirect character that may cause parsing issues:
+
+<Command 
+  id="cmd-with-redirect" 
+  command="echo 'Hello' > /tmp/greeting.txt && cat /tmp/greeting.txt"
+  title="Command with redirect operator"
+  description="Previously this caused a silent parsing error. Now it should work or show an error."
+  successMessage="Redirect worked!"
+  failMessage="Redirect failed"
+/>
+
+### 1.3 Command with Missing Variables
+
+This Command uses variables but doesn't have an Inputs component:
+
+<Command 
+  id="cmd-missing-vars" 
+  command="echo 'Hello {{ .name }}, welcome to {{ .location }}!'"
+  title="Command with unresolved variables"
+  description="This should show a configuration required warning"
+  successMessage="Variables resolved!"
+/>
+
+### 1.4 Command Execution Failure
+
+This Command will fail when executed (exit code 1):
+
+<Command 
+  id="cmd-exec-fail" 
+  command="echo 'This will fail' && exit 1"
+  title="Command that fails on execution"
+  description="Click Run to see the failure error displayed"
+  successMessage="Success!"
+  failMessage="The command exited with a non-zero code"
+/>
+
+### 1.5 Duplicate Command ID
+
+Both of these Commands have the same ID:
+
+<Command 
+  id="duplicate-cmd-id" 
+  command="echo 'First command'"
+  title="First command with ID 'duplicate-cmd-id'"
+/>
+
+<Command 
+  id="duplicate-cmd-id" 
+  command="echo 'Second command'"
+  title="Second command with same ID"
+  description="This should show a duplicate ID error"
+/>
+
+---
+
+## 2. Check Block Errors
+
+### 2.1 Check with Missing Script File
+
+<Check 
+  id="check-missing-file" 
+  path="checks/nonexistent-check.sh"
+  title="Check with missing script file"
+  description="This should show a file loading error"
+  successMessage="Check passed!"
+  failMessage="Check failed"
+/>
+
+### 2.2 Check with Missing Title (Required Prop)
+
+This Check is missing the required `title` prop:
+
+<Check 
+  id="check-missing-title" 
+  command="echo 'No title provided'"
+  successMessage="Check passed!"
+/>
+
+### 2.3 Check Execution with Warning
+
+This Check returns exit code 2 (warning):
+
+<Check 
+  id="check-warning" 
+  command="echo 'Warning: something needs attention' && exit 2"
+  title="Check that produces a warning"
+  description="Click Check to see warning status"
+  successMessage="All good!"
+  warnMessage="Warning: needs attention"
+  failMessage="Check failed"
+/>
+
+### 2.4 Check Execution Failure
+
+This Check returns exit code 1 (failure):
+
+<Check 
+  id="check-failure" 
+  command="echo 'Error: check failed!' >&2 && exit 1"
+  title="Check that fails"
+  description="Click Check to see failure error displayed"
+  successMessage="Check passed!"
+  failMessage="Check failed with errors"
+/>
+
+### 2.5 Duplicate Check ID
+
+<Check 
+  id="duplicate-check-id" 
+  command="echo 'First check'"
+  title="First check with ID 'duplicate-check-id'"
+/>
+
+<Check 
+  id="duplicate-check-id" 
+  command="echo 'Second check'"
+  title="Second check with same ID"
+  description="This should show a duplicate ID error"
+/>
+
+---
+
+## 3. Inputs Block Errors
+
+### 3.1 Inputs with Missing ID
+
+<Inputs>
+```yaml
+variables:
+  - name: test_var
+    type: string
+```
+</Inputs>
+
+### 3.2 Inputs with Invalid YAML
+
+<Inputs id="invalid-yaml-inputs">
+```yaml
+variables:
+  - name: test_var
+    type: string
+  invalid_indentation
+    - another: item
+```
+</Inputs>
+
+### 3.3 Inputs with Unsupported Variable Type
+
+<Inputs id="unsupported-type">
+```yaml
+variables:
+  - name: complex_var
+    type: custom_unsupported_type
+    description: This type is not supported
+```
+</Inputs>
+
+### 3.4 Duplicate Inputs ID
+
+<Inputs id="duplicate-inputs-id">
+```yaml
+variables:
+  - name: var1
+    type: string
+    default: "first"
+```
+</Inputs>
+
+<Inputs id="duplicate-inputs-id">
+```yaml
+variables:
+  - name: var2
+    type: string
+    default: "second"
+```
+</Inputs>
+
+---
+
+## 4. Template Block Errors
+
+### 4.1 Template with Missing Path
+
+<Template 
+  id="template-missing-path"
+  title="Template without path"
+  description="This should show an error for missing path"
+/>
+
+### 4.2 Template with Nonexistent Path
+
+<Template 
+  id="template-nonexistent"
+  path="templates/nonexistent-template"
+  title="Template with invalid path"
+  description="This should show an error when loading the template"
+/>
+
+### 4.3 Duplicate Template ID
+
+<Template 
+  id="duplicate-template-id"
+  path="templates/test"
+  title="First template"
+/>
+
+<Template 
+  id="duplicate-template-id"
+  path="templates/test2"
+  title="Second template with same ID"
+/>
+
+---
+
+## 5. Working Examples (For Comparison)
+
+These examples work correctly and show successful states:
+
+### 5.1 Working Command
+
+<Command 
+  id="working-cmd" 
+  command="echo 'Hello, World!' && date"
+  title="Working command"
+  description="This command should execute successfully"
+  successMessage="Command completed successfully!"
+  failMessage="Command failed"
+/>
+
+### 5.2 Working Check
+
+<Check 
+  id="working-check" 
+  command="echo 'All systems operational' && exit 0"
+  title="Working check"
+  description="This check should pass"
+  successMessage="All systems operational!"
+  warnMessage="Warning detected"
+  failMessage="Check failed"
+/>
+
+### 5.3 Working Inputs with Command
+
+<Inputs id="working-inputs">
+```yaml
+variables:
+  - name: greeting
+    type: string
+    default: "Hello"
+    description: The greeting to display
+  - name: name
+    type: string
+    default: "World"
+    description: Who to greet
+```
+</Inputs>
+
+<Command 
+  id="working-cmd-with-inputs" 
+  inputsId="working-inputs"
+  command="echo '{{ .greeting }}, {{ .name }}!'"
+  title="Command with inputs"
+  description="Uses variables from the Inputs block above"
+  successMessage="Greeting displayed!"
+/>
+
+---
+
+## Summary of Error Types
+
+| Block | Error Type | How It's Displayed |
+|-------|-----------|-------------------|
+| Command/Check | Missing file | Red error box with file path |
+| Command/Check | Missing variables | Yellow warning with variable names |
+| Command/Check | Execution failure | Red error inline + fail message |
+| Command/Check | Duplicate ID | Red error box |
+| Command/Check | Executable not found | Red error inline (previously silent!) |
+| Inputs | Missing ID | Red error box |
+| Inputs | Invalid YAML | Red error with parse details |
+| Inputs | Duplicate ID | Red error box |
+| Template | Missing path | Red error box |
+| Template | Invalid path | Red error with API details |
+| Template | Duplicate ID | Red error box |
