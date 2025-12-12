@@ -91,10 +91,10 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
+	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath, outputPath, registry, true)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -131,10 +131,10 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, false, true))
+	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes (includes all other endpoints)
-	setupCommonRoutes(r, runbookPath, outputPath, registry, true)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -173,13 +173,13 @@ func StartServerWithWatch(runbookPath string, port int, outputPath string, useEx
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(runbookPath, true, useExecutableRegistry))
+	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, true, useExecutableRegistry))
 
 	// SSE endpoint for file change notifications
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 
 	// Set up common routes
-	setupCommonRoutes(r, runbookPath, outputPath, registry, useExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, useExecutableRegistry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

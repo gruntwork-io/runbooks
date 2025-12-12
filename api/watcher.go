@@ -165,6 +165,7 @@ func resolveRunbookPath(path string) (string, error) {
 		candidates := []string{"runbook.mdx", "runbook.md"}
 		for _, candidate := range candidates {
 			fullPath := filepath.Join(path, candidate)
+			slog.Info("Looking for runbook", "path", fullPath)
 			if _, err := os.Stat(fullPath); err == nil {
 				return fullPath, nil
 			} else if !os.IsNotExist(err) {
@@ -172,7 +173,7 @@ func resolveRunbookPath(path string) (string, error) {
 				return "", fmt.Errorf("error checking for runbook %q: %w", fullPath, err)
 			}
 		}
-		return "", os.ErrNotExist
+		return "", fmt.Errorf("no runbook found in directory %s", path)
 	}
 
 	return path, nil
