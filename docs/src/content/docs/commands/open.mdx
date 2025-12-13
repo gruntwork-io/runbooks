@@ -4,9 +4,11 @@ title: open
 
 import { Aside } from '@astrojs/starlight/components';
 
-# `runbooks open`
+# runbooks open
 
-Opens a runbook in your default browser with the interactive web interface.
+This command is intended for **consumers** of Runbooks.
+
+Use `runbooks open` to open a runbook in your browser and use it.
 
 ## Usage
 
@@ -16,23 +18,16 @@ runbooks open <path-to-runbook> [flags]
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to the `runbook.mdx` file.
-
-<Aside type="note">
-You must specify a path to the runbook _file_, not the _directory_ containing a runbook.
-</Aside>
+- `<path-to-runbook>` - Path to a directory containing the `runbook.mdx` file, or to the file itself.
 
 ## Flags
 
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Can be relative (e.g., `./output`) or absolute (e.g., `/tmp/generated`)
   - Relative paths are resolved from the current working directory
+- `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
-## When To Use It
-
-Use `runbooks open` when you want to open a runbook in your browser and use it. This command is intended for consumers of Runbooks.
-
-## What It Does
+## What it does
 
 When you run `runbooks open`:
 

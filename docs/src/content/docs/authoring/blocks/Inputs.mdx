@@ -2,109 +2,93 @@
 title: <Inputs>
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+The `<Inputs>` block dynamically renders a web form to collect user input. The collected values can be used by [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), or [Template](/authoring/blocks/template/) blocks for variable substitution.
 
-The `<Inputs>` block dynamically renders a web form to collect user input based on a [boilerplate.yml file](https://github.com/gruntwork-io/boilerplate?tab=readme-ov-file#the-boilerplateyml-file).
-
-The user-inputted values collected by `<Inputs>` are used by [Commands](./Command.md), [Checks](./Check.md), or other [BoilerplateTemplates](./BoilerplateTemplate.md), either as the primary source of template variable values or as a supplemental source. 
-
-The `<Inputs>` block can be used as a "standalone" block, or it can be written inside a Check or Command block.
-
-### Quick example
-
-For example, let's say we defined an `<Inputs>` block like this:
+## Basic Usage
 
 `````mdx
-<Inputs id="github-inputs">
-```yaml
-variables:
-  - name: GithubOrgName
-    type: string
-    description: The GitHub org where we'll create the repo.
-    validations: "required"
-  - name: GithubRepoName
-    type: string
-    description: The name of your `infrastructure-live-root` repo
-    default: "infrastructure-live-root"
-    validations: "required"
-```
-</Inputs>
-`````
-
-`<Inputs>` will render a web form that looks like this:
-
-XXX - Picture Placeholder
-
-Notice how you can fully control the web form, including the field type, field name, field description, and even which validations are enforced.
-
-Later on, you'll see how we can use these values.
-
-## When to use
-
-Use `<Inputs>` when you want to collect variable values that will be used elsewhere.
-
-Here are some common use cases when that might be useful:
-
-1. **Populate a `<Check>`.** You have a [Check block](./Check.md) that runs a script whose values need to be dynamically populated based on user input.
-1. **Populate a `<Command>`.** You have a [Command block](./Command.md) that runs a script whose values need to be dynamically populated based on user input.
-1. **Supplement a `<Template>`.** You have a [Template block](./BoilerplateTemplate.md) that already collects its own variable values, but you want to add additional values that the user previously entered.
-1. **Global values.** You want to collect a value that is used by many different blocks within a Runbook.
-
-### When not to use
-
-If you need to generate files from a template, use a [Template block](./BoilerplateTemplate.md) instead.
-
-## Props
-
-- _[Required]_ `id` (string) - Unique identifier for this form. Other components use this ID to reference the collected values.
-
-- _[Exactly one required]_ **Variable source**:
-
-    - **Inline YAML** - Write the `boilerplate.yml` contents directly inside the `<Inputs>` tags as a code block.
-    
-    - **`path`** (string) - Path to a directory containing a `boilerplate.yml` file (relative to runbook). The form will load variable definitions from this file.
-
-- _[Optional]_ **`prefilledVariables`** (object) - An object of variable names to values that will pre-populate the form fields. These values override any `default` values defined in the `boilerplate.yml`.
-
-## Basic usage
-
-### With inline YAML
-
-`````mdx
-<Inputs id="user-inputs">
+<Inputs id="config">
 ```yaml
 variables:
   - name: ProjectName
     type: string
-    description: Name for your project
+    description: Name of your project
     validations: "required"
-  - name: Environment
-    type: enum
-    description: Deployment environment
-    options:
-      - dev
-      - staging
-      - production
-    default: dev
 ```
 </Inputs>
 `````
 
-This renders a form with the following fields:
-- ProjectName (text input)
-- Environment (dropdown select)
+## vs. Template
 
-### With path to boilerplate.yml
+Inputs and [Template](/authoring/blocks/template/) both render forms to collect variable values, but they have different purposes:
+
+| Feature | `<Inputs>` | `<Template>` |
+|---------|------------|--------------|
+| Collects variables | ✓ | ✓ |
+| Generates files | ✗ | ✓ |
+| Button text | "Submit" | "Generate" |
+| Use case | Collect values for other blocks | Generate files from templates |
+
+Use `<Inputs>` when you need to collect variable values without generating files. Use `<Template>` when you need to generate files from a Boilerplate template directory.
+
+## Props
+
+### Required Props
+
+- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `inputsId` to access the collected values.
+
+### "Exactly one required" props
+
+You must provide variables using exactly one of the following methods (but not both):
+
+- **Inline YAML** - Write the variable definitions directly inside the `<Inputs>` tags in the style of a `boilerplate.yml` file.
+- `path` (string) - Path to a directory containing a `boilerplate.yml` file, relative to the runbook.
+
+### Optional Props
+
+- `prefilledVariables` (object) - An object of variable names to values that pre-populate the form fields. These values override any `default` values defined in the YAML.
+
+## Variable Definitions
+
+Variables are defined using the [Boilerplate variable syntax](/authoring/boilerplate/#the-boilerplateyml-file).
+
+## Declaring variables
+
+There are two ways to declare the variables you want to collect from users. Use exactly one of these, but not both at the same time.
+
+### Inline YAML
+
+Define variables directly in the Inputs block:
+
+`````mdx
+<Inputs id="user-settings">
+```yaml
+variables:
+  - name: Username
+    type: string
+    description: Your username
+    validations: "required"
+  - name: NotifyByEmail
+    type: bool
+    description: Receive email notifications
+    default: true
+```
+</Inputs>
+`````
+
+## Loading from Path
+
+Load variables from an external `boilerplate.yml` file:
 
 ```mdx
 <Inputs id="vpc-config" path="templates/vpc" />
 ```
 
-This loads variable definitions from `templates/vpc/boilerplate.yml` (relative to your runbook file) and renders a form. The form collects values but does **not** generate any files.
+This loads variable definitions from `templates/vpc/boilerplate.yml` relative to your runbook file.
 
-### With prefilled values
+## Prefilled Variables
 
-Use `prefilledVariables` to set initial form values programmatically. These values override any defaults defined in the YAML:
+Pre-populate form fields with specific values. These override any `default` values:
 
 `````mdx
 <Inputs 
@@ -117,24 +101,11 @@ Use `prefilledVariables` to set initial form values programmatically. These valu
 />
 `````
 
-## Supported variable types
+## Using Variables in Commands and Checks
 
-The `<Inputs>` block renders variables based on the specified [boilerplate.yml file](https://github.com/gruntwork-io/boilerplate?tab=readme-ov-file#the-boilerplateyml-file), and supports the following variable types:
+The primary use case for Inputs is to provide variables to Command and Check blocks. Inputs can also feed other Templates.
 
-- **string** - Text input field
-- **int** - Number input field
-- **bool** - Checkbox
-- **enum** - Dropdown select
-- **list** - Dynamic list of values
-- **map** - Key-value pairs
-
-See the [BoilerplateInputs documentation](/authoring/blocks/boilerplateinputs#supported-variable-types) for detailed examples of each type.
-
-## Using with commands and checks
-
-You can use the `<Inputs>` block to populate templates specified in `<Command>` or `<Check>` blocks.
-
-### Reference by ID
+### Reference by inputsId
 
 `````mdx
 <Inputs id="vpc-config">
@@ -142,9 +113,11 @@ You can use the `<Inputs>` block to populate templates specified in `<Command>` 
 variables:
   - name: VpcName
     type: string
+    description: Name for the VPC
   - name: CidrBlock
     type: string
-    default: 10.0.0.0/16
+    description: CIDR block for the VPC
+    default: "10.0.0.0/16"
 ```
 </Inputs>
 
@@ -153,107 +126,121 @@ variables:
     command="aws ec2 create-vpc --cidr-block {{ .CidrBlock }} --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ .VpcName }}}]'"
     inputsId="vpc-config"
     title="Create VPC"
+    successMessage="VPC {{ .VpcName }} created!"
 />
 `````
 
-### Reference multiple IDs
+### Reference Multiple Inputs
 
 You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
 `````mdx
-<Inputs id="aws-config" path="templates/aws-settings" />
-
-<Inputs id="repo-config">
+<Inputs id="global-config">
 ```yaml
 variables:
-  - name: GithubOrgName
+  - name: Environment
+    type: enum
+    options: [dev, staging, prod]
+    default: dev
+```
+</Inputs>
+
+<Inputs id="app-config">
+```yaml
+variables:
+  - name: AppName
     type: string
-  - name: GithubRepoName
-    type: string
+  - name: Port
+    type: int
+    default: 8080
 ```
 </Inputs>
 
 <Command
     id="deploy" 
     path="scripts/deploy.sh"
-    inputsId={["aws-config", "repo-config"]}
-    title="Deploy"
+    inputsId={["global-config", "app-config"]}
+    title="Deploy Application"
 />
 `````
 
-<Aside type="tip">
-Notice the value of `inputsId` specifies two separate `<Inputs>` blocks!
-</Aside>
+In this example, the command has access to variables from both Inputs blocks.
 
-### Inline (Embedded in Command)
+### Embedded in Command or Check
+
+You can embed Inputs directly inside a Command or Check block:
 
 `````mdx
 <Command 
-    id="echo-greeting" 
+    id="greet" 
     command='echo "Hello, {{ .Name }}!"'
     title="Say Hello"
 >
-    <Inputs id="inline-name">
+    <Inputs id="greeting-inputs">
     ```yaml
     variables:
       - name: Name
         type: string
         description: Your name
+        validations: "required"
     ```
     </Inputs>
 </Command>
 `````
 
-When embedded inside a Command or Check block, the Inputs form renders inline without a submit button. Variable values are automatically available to the parent component.
+When embedded, the Inputs form renders inline within the parent block without a separate submit button. The variables are automatically available to the parent.
 
-## Form Behavior
+Other blocks can still reference embedded Inputs using the standard `inputsId` pattern.
 
-### Submit Button
+## Sections (Grouping Variables)
 
-When used standalone (not embedded in a Command/Check), the form shows a **"Submit"** button. After clicking Submit:
-
-1. The form validates all inputs
-2. Variable values are published to context (making them available to other components)
-3. The button is replaced with a status indicator
-4. Changes to form fields automatically update the variable values
-
-### Auto-Update
-
-After the initial submit, any changes to form fields automatically update the shared variable values. Other components that reference this Inputs block (via `inputsId`) will re-render with the new values.
-
-### Validation
-
-Form validation works the same as [`<BoilerplateInputs>`](/authoring/blocks/boilerplateinputs#validations):
+Group related variables under section headers using the `x-section` extension:
 
 ```yaml
 variables:
-  - name: Email
+  - name: FunctionName
     type: string
-    validations:
-      - type: required
-        message: Email is required
-      - type: email
-        message: Must be a valid email address
+    description: Name of the Lambda function
+    x-section: Basic Configuration
+
+  - name: Runtime
+    type: enum
+    options: [python3.12, nodejs20.x]
+    x-section: Basic Configuration
+
+  - name: MemorySize
+    type: int
+    description: Memory allocation in MB
+    default: 128
+    x-section: Advanced Settings
+
+  - name: Timeout
+    type: int
+    description: Timeout in seconds
+    default: 30
+    x-section: Advanced Settings
 ```
 
-## Inputs vs BoilerplateInputs
+Variables with the same `x-section` value are grouped together in the form under a section header.
 
-| Feature | `<Inputs>` | `<BoilerplateInputs>` |
-|---------|------------|----------------------|
-| Collects variables | ✓ | ✓ |
-| Generates files | ✗ | ✓ (with `templatePath`) |
-| Button text | "Submit" | "Generate" |
-| Use case | Collect values for Commands/Checks | Generate files from templates |
+## Common Use Cases
 
-<Aside type="note">
-If you need both file generation AND variable collection for Commands, use `<BoilerplateInputs>` with a `templatePath`. The generated variables are automatically available to Commands and Checks that reference the `<BoilerplateInputs>` by ID.
-</Aside>
+The `<Inputs>` block works well for:
+
+- **Collecting configuration values**: Gather settings that Commands and Checks need
+- **Reusable variables**: Define values once and reference from multiple blocks
+- **User preferences**: Collect environment-specific settings like regions or account names
+- **Parameterizing scripts**: Provide dynamic values to shell scripts
 
 ## Complete Example
 
-Here's a complete example showing `<Inputs>` used with `<Command>` and `<Check>`:
+Here's a complete example showing Inputs used with Check and Command:
 
 `````mdx
+# Create a GitHub Repository
+
+Enter your repository settings:
+
 <Inputs id="repo-settings">
 ```yaml
 variables:
@@ -275,14 +262,28 @@ variables:
 ```
 </Inputs>
 
+First, verify you're authenticated to GitHub:
+
+<Check 
+    id="check-auth" 
+    command="gh auth status"
+    title="Verify GitHub Authentication"
+    successMessage="Authenticated to GitHub!"
+    failMessage="Not authenticated. Run 'gh auth login' first."
+/>
+
+Now create the repository:
+
 <Command 
     id="create-repo" 
     command="gh repo create {{ .OrgName }}/{{ .RepoName }} --{{ .Visibility }}"
     inputsId="repo-settings"
     title="Create Repository"
-    successMessage="Repository created successfully!"
+    successMessage="Repository {{ .OrgName }}/{{ .RepoName }} created!"
     failMessage="Failed to create repository"
 />
+
+Verify the repository was created:
 
 <Check 
     id="verify-repo" 

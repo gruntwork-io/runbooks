@@ -24,12 +24,10 @@ The `<Admonition>` block creates callout boxes to highlight important informatio
 
 - `title` (string) - Title for the callout box (defaults based on type)
 - `description` (string) - Content/message to display
-- `children` (ReactNode) - Alternative to description for more complex content
 - `closable` (boolean) - Whether users can close the admonition (default: false)
 - `confirmationText` (string) - If provided, shows a checkbox that users must check to dismiss
 - `allowPermanentHide` (boolean) - When true with confirmationText, adds "Don't show again" option
 - `storageKey` (string) - Unique key for localStorage (required with allowPermanentHide)
-- `className` (string) - Additional CSS classes
 
 ## Types
 
@@ -81,9 +79,9 @@ For critical warnings or errors:
 />
 ```
 
-## With Children
+## Inline content
 
-Instead of using the `description` prop, you can provide richer content as children:
+Instead of using the `description` prop, you can provide richer content inline:
 
 ```mdx
 <Admonition type="info" title="Prerequisites">

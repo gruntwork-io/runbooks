@@ -2,27 +2,9 @@
 title: <Check>
 ---
 
-The `<Check>` block validates prerequisites and system state by running shell commands or scripts. It's essential for ensuring users have the right tools installed and their environment is properly configured before proceeding.
-
-### Common Use Cases
-The `<Check>` block works especially well for:
-
-- Pre-flight checks
-- Validating `<Command>` blocks
-- Smoke tests validating the whole Runbook
-
-This might manifest as:
-
-- **Tool Installation Verification**: Check if required CLI tools are installed
-- **Authentication Validation**: Verify users are logged into required services
-- **Infrastructure State**: Validate that required resources exist
-- **Configuration Validation**: Ensure config files are properly formatted
-- **Network Connectivity**: Test connectivity to required services
-- **Permissions**: Verify users have necessary permissions
+The `<Check>` block validates a user's system state by running shell commands or scripts. It's used to ensure that users have the right tools installed and their environment is properly configured before proceeding.
 
 ## Basic Usage
-
-### Simple Command Check
 
 ```mdx
 <Check 
@@ -35,9 +17,64 @@ This might manifest as:
 />
 ```
 
-This will execute `git --version` when the user clicks "Check", and show the appropriate success or failure message.
+## vs. Command
 
-### Script-Based Check
+Check blocks and [Command](/authoring/blocks/command/) blocks share many features in common, however they each have a distinct purpose. Check blocks are focused on _reading_ the state of the world and validating it, while Command blocks are focused on _mutating_ the state of the world to update it to what is needed.
+
+## Props
+
+### Required Props
+
+- `id` (string) - Unique identifier for this check block
+- `title` (string) - Display title shown in the UI
+
+### Optional Props
+- `description` (string) - Longer description of what's being checked
+- `command` (string) - Inline command to execute (alternative to `path`)
+- `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
+- `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
+- `successMessage` (string) - Message shown when check succeeds (default: "Success")
+- `warnMessage` (string) - Message shown on warning (default: "Warning")
+- `failMessage` (string) - Message shown when check fails (default: "Failed")
+- `runningMessage` (string) - Message shown while running (default: "Checking...")
+
+### Inline content
+
+Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest an `<Inputs>` component directly inside the Check:
+
+```mdx
+<Check 
+    id="check-s3-bucket" 
+    path="checks/s3-bucket-exists.sh"
+    title="Verify S3 Bucket Exists"
+>
+    <Inputs id="bucket-config">
+    ```yaml
+    variables:
+      - name: BucketName
+        type: string
+        description: Name of the S3 bucket to check
+        validations: "required"
+    \```
+    </Inputs>
+</Check>
+```
+
+The embedded `<Inputs>` renders directly within the Check block, allowing users to fill in variables before running the check.
+
+Other blocks can reference this Inputs block using the standard `inputsId` pattern.
+
+## Exit Codes
+
+The Check block interprets exit codes as follows:
+
+- **Exit code 0**: Success ✓ (green)
+- **Exit code 1**: Failure ✗ (red)
+- **Exit code 2**: Warning ⚠ (yellow)
+
+## Script-Based Checks
+
+Instead of inline commands, you can reference external shell scripts:
 
 ```mdx
 <Check 
@@ -50,41 +87,16 @@ This will execute `git --version` when the user clicks "Check", and show the app
 />
 ```
 
-This will execute the script located at `checks/aws-authenticated.sh` when the user clicks "Check", and show the appropriate success or failure message.
-
-## Props
-
-### Required Props
-
-- `id` (string) - Unique identifier for this check block
-
-### Optional Props
-
-- `title` (string) - Display title shown in the UI
-- `description` (string) - Longer description of what's being checked
-- `command` (string) - Inline command to execute (alternative to `path`)
-- `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `inputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
-- `successMessage` (string) - Message shown when check succeeds (default: "Success")
-- `warnMessage` (string) - Message shown on warning (default: "Warning")
-- `failMessage` (string) - Message shown when check fails (default: "Failed")
-- `runningMessage` (string) - Message shown while running (default: "Checking...")
-- `children` (ReactNode) - Inline BoilerplateInputs component for parameterized checks
-
-## Exit Codes
-
-The Check block interprets exit codes as follows:
-
-- **Exit code 0**: Success ✓ (green)
-- **Exit code 1**: Failure ✗ (red)
-- **Exit code 2**: Warning ⚠ (yellow)
-
 ## With Variables
+
+There are several ways to collect variables to customize a check's command or script.
 
 ### Using inputsId
 
+The Check command or script pulls its values from a separate Inputs block.
+
 ```mdx
-<BoilerplateInputs id="region-config">
+<Inputs id="region-config">
 ```yaml
 variables:
   - name: AwsRegion
@@ -92,7 +104,7 @@ variables:
     description: AWS region to check
     default: us-east-1
 \```
-</BoilerplateInputs>
+</Inputs>
 
 <Check 
     id="check-region" 
@@ -104,7 +116,9 @@ variables:
 />
 ```
 
-### Using Inline BoilerplateInputs
+### Using Inline Inputs
+
+The Check command collects input values directly. These values can be shared with other blocks, just like a standalone Inputs block.
 
 ```mdx
 <Check 
@@ -112,7 +126,7 @@ variables:
     path="checks/kms-validation.sh"
     title="Validate KMS Key"
 >
-    <BoilerplateInputs id="inline-kms">
+    <Inputs id="inline-kms">
     ```yaml
     variables:
       - name: KmsKeyId
@@ -120,18 +134,18 @@ variables:
         description: KMS Key ID to validate
         validations: "required"
     \```
-    </BoilerplateInputs>
+    </Inputs>
 </Check>
 ```
 
 ### Using Multiple inputsIds
 
-You can reference multiple BoilerplateInputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
 ```mdx
-<BoilerplateInputs id="lambda-config" templatePath="templates/lambda" />
+<Inputs id="lambda-config" templatePath="templates/lambda" />
 
-<BoilerplateInputs id="repo-config">
+<Inputs id="repo-config">
 ```yaml
 variables:
   - name: GithubOrgName
@@ -139,7 +153,7 @@ variables:
   - name: GithubRepoName
     type: string
 \```
-</BoilerplateInputs>
+</Inputs>
 
 <Check 
     id="check-lambda" 
@@ -152,6 +166,8 @@ variables:
 In this example, the check has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
 ## Example Shell Scripts
+
+The Check block accepts any executable script. Here are some common examples:
 
 ### Basic Validation Script
 
@@ -205,91 +221,25 @@ else
 fi
 ```
 
-## Features
+## Common Use Cases
 
-### Skip Checkbox
-All checks have a "Skip" checkbox in the UI. Users can skip non-critical checks if needed. Once a check succeeds, the skip checkbox is disabled.
+The `<Check>` block works especially well for:
 
-### View Source Code
-For path-based checks, users can expand the "View Source Code" section to see the script contents.
+- Pre-flight checks
+- Validating `<Command>` blocks
+- Smoke tests that validate a completed Runbook
 
-### View Logs
-The output (stdout/stderr) from the check command is shown in an expandable "View Logs" section.
+This might manifest as:
 
-### Auto-Open Logs
-When a check is running, the logs section automatically opens. If a check fails, the logs remain open.
-
-## Best Practices
-
-### 1. Check Prerequisites First
-
-Always put checks at the beginning of your runbook to validate the environment:
-
-```mdx
-## Prerequisites
-
-<Check id="check-git" command="git --version" ... />
-<Check id="check-terraform" command="terraform --version" ... />
-<Check id="check-aws" command="aws --version" ... />
-```
-
-### 2. Provide Helpful Failure Messages
-
-Include actionable information in failure messages:
-
-```mdx
-<Check 
-    id="check-docker" 
-    command="docker --version"
-    failMessage="Docker is not installed. Install it from https://docs.docker.com/get-docker/"
-/>
-```
-
-### 3. Use Exit Code 2 for Warnings
-
-Use warnings when something is not ideal but not critical:
-
-```bash
-#!/bin/bash
-if [ "$VERSION" != "$LATEST" ]; then
-    echo "You're using an older version. Consider upgrading."
-    exit 2  # Warning
-fi
-```
-
-### 4. Make Checks Fast
-
-Keep checks quick so users don't wait too long. Avoid checks that take more than a few seconds.
-
-### 5. Group Related Checks
-
-Use Admonition blocks to group related checks:
-
-```mdx
-<Admonition type="info" title="Pre-flight Checks" />
-
-<Check id="check-1" ... />
-<Check id="check-2" ... />
-<Check id="check-3" ... />
-```
+- **Tool Installation Verification**: Check if required CLI tools are installed
+- **Authentication Validation**: Verify users are logged into required services
+- **Infrastructure State**: Validate that required resources exist
+- **Configuration Validation**: Ensure config files are properly formatted
+- **Network Connectivity**: Test connectivity to required services
+- **Permissions**: Verify users have necessary permissions
 
 ## Shell Execution Context
 
 Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
 
-For full details on interpreter detection and workarounds, see [Shell Execution Context](/security/shell-execution-context/).
-
-## Security Considerations
-
-### Avoid Hardcoded Secrets
-
-Never hardcode secrets in commands. Use environment variables or secret management:
-
-```mdx
-<!-- BAD -->
-<Check command="aws s3 cp file.txt s3://bucket --secret MY_SECRET_KEY" />
-
-<!-- GOOD -->
-<Check command="aws s3 cp file.txt s3://bucket" />
-<!-- Assume AWS credentials are configured via AWS CLI or environment -->
-```
+For full details, see [Shell Execution Context](/security/shell-execution-context/).

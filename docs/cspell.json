@@ -1,0 +1,48 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "runbook",
+    "runbooks",
+    "Gruntwork",
+    "Blockquotes",
+    "Strikethrough",
+    "bunx",
+    "elif",
+    "fsnotify",
+    "LOCALAPPDATA",
+    "mozallowfullscreen",
+    "webkitallowfullscreen",
+    "myapp",
+    "prereq",
+    "pyenv",
+    "scaffolder",
+    "sysdm",
+    "testdata",
+    "astro",
+    "starlight",
+    "boilerplate",
+    "templating",
+    "mdx",
+    "tofu",
+    "opentofu",
+    "devops",
+    "infra",
+    "homebrew",
+    "kubectl",
+    "terraform",
+    "terragrunt",
+    "pipelining"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    "dist",
+    "bun.lock",
+    "*.svg"
+  ],
+  "ignoreRegExpList": [
+    "/```[\\s\\S]*?```/g",
+    "/<[^>]+>/g"
+  ]
+}
+

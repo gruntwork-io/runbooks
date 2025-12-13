@@ -8,12 +8,17 @@
     "prebuild": "cd ../testdata && zip -r ../docs/public/my-first-runbook.zip my-first-runbook",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "spellcheck": "cspell \"src/content/**/*.{md,mdx}\" --no-progress",
+    "spellcheck:fix": "cspell \"src/content/**/*.{md,mdx}\" --no-progress --show-suggestions"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.36.0",
     "@vercel/analytics": "^1.5.0",
     "astro": "^5.6.1",
     "sharp": "^0.34.2"
+  },
+  "devDependencies": {
+    "cspell": "^9.4.0"
   }
 }

@@ -4,9 +4,11 @@ title: serve
 
 import { Aside } from '@astrojs/starlight/components';
 
-# `runbooks serve`
+# runbooks serve
 
-Starts the backend API server without opening the browser. This command is useful for local development.
+This command is intended for **developers** of Runbooks.
+
+Use `runbooks serve` to start the backend API server without starting the frontend server or opening the browser.
 
 ## Usage
 
@@ -16,23 +18,16 @@ runbooks serve <path-to-runbook> [flags]
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to the `runbook.mdx` file
-
-<Aside type="note">
-You must specify a path to the runbook _file_, not the _directory_ containing a runbook.
-</Aside>
+- `<path-to-runbook>` - Path to a directory containing the `runbook.mdx` file, or to the file itself.
 
 ## Flags
 
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Can be relative (e.g., `./output`) or absolute (e.g., `/tmp/generated`)
   - Relative paths are resolved from the current working directory
+- `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
-## When To Use It
-
-Use `runbooks serve` when you want to start the backend API server without opening the browser. This command is intended for developers working on the Runbooks tool itself.
-
-## What It Does
+## What it does
 
 When you run `runbooks serve`:
 
@@ -40,32 +35,20 @@ When you run `runbooks serve`:
 2. **Serves the API** - Provides REST endpoints for the frontend to call
 3. **Does NOT Open Browser** - You must manually navigate to `http://localhost:7825` or run the frontend separately
 
-## Technical Details
+## Development workflow
 
-### Port
-The server runs on **port 7825** by default (not currently configurable via flags).
-
-### CORS
-The server is configured to allow CORS requests from the Vite dev server during development.
-
-### Frontend Assets
-In production, the server serves the compiled React app from the `/web/dist` directory. During development, you typically run Vite separately on port 5173.
-
-## Development Workflow
-
-A typical development workflow:
+Here's a typical development workflow:
 
 1. Start the backend:
    ```bash
-   runbooks serve ./testdata/demo-runbook-1/runbook.mdx
+   runbooks serve testdata/demo-runbook
    ```
 
    Or if you want to easily re-compile the backend:
 
    ```bash
-   go run main.go serve ./testdata/demo-runbook-1/runbook.mdx
+   go run main.go serve testdata/demo-runbook
    ```
-
 
 2. In another terminal, start the frontend:
    ```bash
@@ -79,8 +62,4 @@ A typical development workflow:
    - React code in `/web/src` - hot reloads automatically
    - Go code - restart the `serve` command
    - Runbook files - refresh the browser
-
-## See Also
-
-- [`runbooks open`](/commands/open) - The command for regular runbook usage
 

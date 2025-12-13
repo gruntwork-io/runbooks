@@ -1,0 +1,126 @@
+---
+title: Generated Files
+sidebar:
+  order: 5
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+When you use a Runbook, files are generated locally on your machine. This page explains how file generation works and where those files end up.
+
+## How files are generated
+
+Files can be generated in two ways:
+
+### 1. Template blocks
+
+The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/blocks/templateinline/) blocks generate files from [Boilerplate templates](/authoring/boilerplate/). When you fill in the form fields and click "Generate", the template engine processes your inputs and creates the output files.
+
+```mdx
+<Template id="vpc-setup" path="templates/vpc" />
+```
+
+Template blocks automatically re-render when you change input values, so your generated files stay in sync with the form.
+
+### 2. Command blocks with file capture
+
+[Command](/authoring/blocks/command/) blocks can optionally capture files they create using the `captureFiles` prop:
+
+```mdx
+<Command 
+  id="create-config"
+  command={`terraform output -json > tf-outputs.json`}
+  captureFiles
+  title="Export Terraform outputs"
+/>
+```
+
+This is useful when scripts or tools generate files as part of their execution.
+
+<Aside type="note">
+The current approach to how Commands handle file capture is not ideal. See https://github.com/gruntwork-io/runbooks/issues/32 for additional information, and to track improvements.
+</Aside>
+
+## Where files are stored
+
+Generated files are persisted to a folder on your local machine—they're not ephemeral or stored in memory.
+
+### Default location
+
+By default, generated files are written to a `generated/` folder in the current working directory (the directory you run the `runbooks` command from):
+
+<FileTree>
+- **generated/** ← Created in your current working directory
+  - main.tf
+  - variables.tf
+  - outputs.tf
+</FileTree>
+
+### Customizing the output path
+
+You can change where generated files are written using the `--output-path` flag:
+
+```bash
+# Write to a custom folder
+runbooks open my-runbook --output-path ./infrastructure
+
+# Nested subdirectory
+runbooks open my-runbook --output-path ./projects/acme/infra
+```
+
+Relative paths are resolved from the current working directory.
+
+<Aside type="tip">
+The `--output-path` flag works with all Runbooks commands: `open`, `serve`, and `watch`.
+</Aside>
+
+### Subdirectories within templates
+
+Within a runbook, you can organize generated files into subdirectories:
+
+- **Template blocks**: The directory structure of your template folder is preserved in the output.
+- **TemplateInline blocks**: Use the `outputPath` prop to specify a path like `config/app.yaml`.
+- **Command blocks**: Use `captureFilesOutputPath` to place captured files in a subdirectory.
+
+```mdx
+<Command 
+  id="create-configs"
+  command={`echo '{}' > config.json`}
+  captureFiles
+  captureFilesOutputPath="config"
+  title="Create config files"
+/>
+```
+
+## Viewing generated files
+
+When files are generated, they appear in the **file panel** on the right side of the Runbooks UI. You can:
+
+- Browse the file tree
+- Click files to view their contents
+- Copy file contents to clipboard
+- See which files changed after each render
+
+## Security: Where files can be written
+
+Runbooks enforces strict rules about where files can be written to protect your system:
+
+### Path restrictions
+
+| Rule | Description |
+|------|-------------|
+| **Within working directory** | All paths must resolve to locations within your current working directory |
+| **No directory traversal** | Paths containing `..` (like `../../../etc/passwd`) are rejected |
+| **No system directories** | Protected directories like `/etc`, `/usr`, `C:\Windows` are blocked |
+
+### Protected directories
+
+Runbooks blocks writes to system-critical directories:
+
+- `/`, `/etc`, `/usr`, `/bin`, `/var`, `/home`, `/root`
+- `C:\`, `C:\Windows`, `C:\Program Files`, `C:\Users`
+
+## Next
+
+Now that you understand how generated files work, explore the [use cases](/intro/use_cases/) where Runbooks shines.
+

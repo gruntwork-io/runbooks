@@ -10,3 +10,37 @@ import Analytics from '@vercel/analytics/astro';
 <link rel="icon" href="/favicon-dark.svg" type="image/svg+xml" media="(prefers-color-scheme: dark)" />
 <Analytics />
 
+<!-- Replace Terraform icons with OpenTofu icons in FileTree for .tf files -->
+<script>
+  // OpenTofu logo SVG path (official logo simplified for 24x24 viewBox)
+  const opentofuPath = `
+    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.26 3.48L12 11.14 5.74 7.66 12 4.18zm-7 5.04l6 3.33v6.63l-6-3.33v-6.63zm8 9.96v-6.63l6-3.33v6.63l-6 3.33z" fill="currentColor"/>
+  `;
+  
+  function replaceTerraformIconsWithOpenTofu() {
+    document.querySelectorAll('starlight-file-tree').forEach(tree => {
+      tree.querySelectorAll('.file .tree-entry').forEach(entry => {
+        const text = entry.textContent || '';
+        // Check if this is a .tf, .tfvars, or .tf.json file
+        if (text.match(/\.tf($|\s|\.json)|\.tfvars/)) {
+          const svg = entry.querySelector('svg.tree-icon');
+          if (svg) {
+            svg.innerHTML = opentofuPath;
+            svg.setAttribute('viewBox', '0 0 24 24');
+          }
+        }
+      });
+    });
+  }
+  
+  // Run when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', replaceTerraformIconsWithOpenTofu);
+  } else {
+    replaceTerraformIconsWithOpenTofu();
+  }
+  
+  // Also run after Astro page transitions (for view transitions)
+  document.addEventListener('astro:page-load', replaceTerraformIconsWithOpenTofu);
+</script>
+

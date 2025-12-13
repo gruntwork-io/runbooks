@@ -1,30 +1,36 @@
 ---
 title: Use Cases
 sidebar:
-  order: 5
+  order: 6
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Let's discuss where Runbooks can be most useful.
+Runbooks enables infrastructure experts to scale their expertise. Here are the most common practical scenarios where infrastructure expertise winds up being a painful bottleneck:
 
-## Developer Self-Service
+## Developer self-service
 
-App developers can use Runbooks to easily launch new infrastructure that follows your organization's best practices. For example:
+It can be painful for app developers to look up how to use an infrastructure pattern, learn enough of the technology to write the code, debug it, and deploy it. Sometimes the pain is too much, so app developers lean on infrastructure experts, which shifts the pain from "learning more than I have capacity for right now" to "waiting for the expert to get back to me."
+
+Runbooks capture a subject matter expert's knowledge and experience in a runbook and enable app developers to easily launch new infrastructure that follows your organization's best practices. For example:
 
 - Create a new K8s Service
 - Scaffold a new app repo
 - Launch a new database
 - Launch a new static website
 
-## Streamline Internal Processes
+:::tip
+In the [UI tour](../ui_tour), we walk through how an app developer might deploy a Lambda function.
+:::
+
+## Streamline internal processes
 
 Many internal processes are captured as static documentation. But with Runbooks, you can complete the actual process by the time you're doing reading the Runbook! For example:
 
 - Provision a new AWS Account, configure the account baseline and all networking configurations, and validate everything along the way.
 - Stand up a new customer with all the infrastructure and all the information they need to get started.
 
-## Document IaC Modules
+## Document IaC modules
 
 When you create a reusable infrastructure-as-code (IaC) module, the code itself is not enough to be useful. You also need to document how to use the module, show common usage examples, and validate that it works as expected.
 

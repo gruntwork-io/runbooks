@@ -57,10 +57,12 @@ export default defineConfig({
 				collapsed: true,
 				items: [
 					'authoring/overview',
-					'authoring/authoring_workflow',
+					'authoring/runbook-structure',
 					'authoring/markdown',
+					'authoring/variables',
+					'authoring/boilerplate',
 					{
-						label: 'Blocks', // Customize this to whatever you want
+						label: 'Blocks',
 						autogenerate: { directory: 'authoring/blocks' },
 					},
 				],
