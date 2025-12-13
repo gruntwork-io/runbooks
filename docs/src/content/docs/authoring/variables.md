@@ -4,11 +4,11 @@ title: Variables
 
 # Variables
 
-One of the most powerful features of Runbooks is the ability to collect input from users and pass those values to commands, checks, and templates. This page explains how to wire variables between blocks.
+One of the most powerful features of Runbooks is the ability to collect input from users and pass those values to [Commands](/authoring/blocks/command/), [Checks](/authoring/blocks/check/), and [Templates](/authoring/blocks/template/). This page explains how to wire variables between blocks.
 
 ## How it works
 
-1. **Collect** — Use `<Inputs>` or `<Template>` blocks to collect values from the user via a form
+1. **Collect** — Use [Inputs](/authoring/blocks/inputs/) or [Template](/authoring/blocks/template/) blocks to collect values from the user via a form
 2. **Reference** — Other blocks reference those values using `inputsId`
 3. **Substitute** — Values are inserted using [Boilerplate template syntax](/authoring/boilerplate/) like `{{ .VarName }}`
 
@@ -21,7 +21,7 @@ There are three ways to collect variables:
 The [Template block](/authoring/blocks/template/) reads variables from a `boilerplate.yml` file and renders a form. It also generates files from templates. Other blocks can reference the collected variables via `inputsId`:
 
 `````mdx
-<!-- Template at templates/vpc with boilerplate.yml defining Environment variable -->
+This Template block reads a boilerplate.yml file located at templates/vpc that defines an Environment variable
 <Template id="infra" path="templates/vpc" />
 
 <Command 

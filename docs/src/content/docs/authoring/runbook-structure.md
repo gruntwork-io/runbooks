@@ -113,11 +113,3 @@ Always reference files relative to your runbook:
 <Template path="templates/my-template" ... />
 ![Diagram](./assets/diagram.png)
 ```
-
-## Next steps
-
-Now that you understand the file and folder structure, learn how to:
-
-- **[Pass variables between blocks](/authoring/variables/)** — Collect user input and use it in commands, checks, and templates
-- **[Write Boilerplate templates](/authoring/boilerplate/)** — Define variables and template syntax for code generation
-

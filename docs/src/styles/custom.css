@@ -181,8 +181,12 @@ header.header {
   text-decoration: underline;
 }
 
-:root[data-theme='dark'] .sl-markdown-content a:hover {
+:root[data-theme='dark'] .sl-markdown-content a {
   color: var(--sl-color-accent-high);
+}
+
+:root[data-theme='dark'] .sl-markdown-content a:hover {
+  color: #93c5fd;
 }
 
 /* Code within links - better contrast */
@@ -230,6 +234,12 @@ header.header {
 .sl-markdown-content th {
   font-weight: 600;
   color: var(--sl-color-white);
+}
+
+/* Prevent text wrapping in first column */
+.sl-markdown-content td:first-child,
+.sl-markdown-content th:first-child {
+  white-space: nowrap;
 }
 
 /* Better table borders in dark mode */

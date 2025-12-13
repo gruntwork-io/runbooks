@@ -4,7 +4,7 @@ title: Markdown Support
 
 # Markdown in Runbooks
 
-Runbooks use **GitHub-flavored Markdown** (GFM) with full support for common markdown elements.
+Runbooks use **GitHub-flavored Markdown** (GFM) with full support for common markdown elements. That means you can include any of the following elements in your runbooks.
 
 ## Supported Elements
 
@@ -60,6 +60,15 @@ Task lists:
 ```markdown
 [Link text](https://example.com)
 [Link with title](https://example.com "Title text")
+```
+
+### Autolinks
+
+URLs and email addresses are automatically converted to clickable links:
+
+```markdown
+Visit https://gruntwork.io for more info.
+Contact support@example.com for help.
 ```
 
 ### Images
@@ -129,13 +138,19 @@ With alignment:
 | Left         | Center         | Right         |
 ```
 
+### Footnotes
+
+```markdown
+Here is a sentence with a footnote.[^1]
+
+[^1]: This is the footnote content.
+```
+
+Footnotes are collected and rendered at the bottom of the document.
+
 ## MDX Features
 
-Since runbooks use MDX, you can also:
-
-### Import and Use React Components
-
-The special blocks (`<Check>`, `<Command>`, etc.) are React components that are automatically available without imports.
+Because Runbooks supports MDX, you also have access to a few special features beyond standard markdown elements.
 
 ### Mix Markdown and JSX
 
@@ -155,7 +170,15 @@ More markdown text.
 Today's date: {new Date().toLocaleDateString()}
 ```
 
-## Special Considerations
+### HTML
+
+You can use HTML directly in markdown:
+
+```markdown
+<div style="color: red;">
+This text will be red.
+</div>
+```
 
 ### Escaping Special Characters
 
@@ -183,22 +206,3 @@ variables:
 
 Note: Use a backslash before the closing triple backticks to escape them within the outer code block.
 
-### HTML
-
-You can use HTML directly in markdown:
-
-```markdown
-<div style="color: red;">
-This text will be red.
-</div>
-```
-
-## Rendering
-
-The runbook frontend uses:
-- **react-markdown** for parsing markdown
-- **remark-gfm** for GitHub-flavored markdown features
-- **rehype-highlight** for syntax highlighting
-- Custom React components for special blocks
-
-This ensures consistent rendering across different browsers and platforms.

@@ -8,6 +8,75 @@ title: Boilerplate Templates
 
 This page covers the aspects of Boilerplate most relevant to Runbook authors. For the complete Boilerplate documentation, see the [official Boilerplate repo](https://github.com/gruntwork-io/boilerplate).
 
+## Boilerplate in a nutshell
+
+Boilerplate is a template engine, similar to [Jinja](https://jinja.palletsprojects.com/en/stable/), [Nunjucks](https://mozilla.github.io/nunjucks/), or [Cookiecutter](https://cookiecutter.readthedocs.io/en/stable/).
+
+### Why boilerplate
+
+Boilerplate is differentiated by being purpose-built for DevOps and infrastructure use cases, which gives it a few key features:
+
+1. **Interactive mode:** When used as a CLI tool, boilerplate interactively prompts the user for a set of variables defined in a `boilerplate.yml` file and makes those variables available to your project templates during copying.
+2. **Non-interactive mode:** Variables can also be set non-interactively, via command-line options, so that Boilerplate can be used in automated settings (e.g. during automated tests).
+3. **Flexible templating:** Boilerplate uses Go Template for templating, which gives you the ability to do formatting, conditionals, loops, and call out to Go functions. It also includes helpers for common tasks such as loading the contents of another file, executing a shell command and rendering the output in a template, and including partial templates.
+4. **Dependencies.** You can "chain" templates together, conditionally including other templates depending on variable values.
+4. **Variable types:** Boilerplate variables support types, so you have first-class support for strings, ints, bools, lists, maps, and enums.
+5. **Validations:** Boilerplate provides a set of validations for a given variable that user input must satisfy.
+6. **Scripting:** Need more power than static templates and variables? Boilerplate includes several hooks that allow you to run arbitrary scripts.
+7. **Cross-platform:** Boilerplate is easy to install (it's a standalone binary) and works on all major platforms (Mac, Linux, Windows).
+
+### Quick example
+
+Say you want to generate a README for new projects. Create a template folder:
+
+```
+my-template/
+├── boilerplate.yml
+└── README.md
+```
+
+**`boilerplate.yml`** — defines the variables:
+
+```yaml
+variables:
+  - name: ProjectName
+    type: string
+    description: Name of the project
+
+  - name: Author
+    type: string
+    description: Who is the author?
+    default: Anonymous
+```
+
+**`README.md`** — the template file:
+
+```markdown
+# {{ .ProjectName }}
+
+Created by {{ .Author }}.
+```
+
+**Run boilerplate on the command line:**
+
+```bash
+boilerplate \
+  --template-url ./my-template \
+  --output-folder ./output \
+  --var ProjectName="My Cool App" \
+  --var Author="Jane Doe"
+```
+
+**Result** — `output/README.md`:
+
+```markdown
+# My Cool App
+
+Created by Jane Doe.
+```
+
+That's it! Boilerplate takes your template, substitutes the variables, and writes the output.
+
 ## What Boilerplate Does for Runbooks
 
 In Runbooks, Boilerplate provides:
@@ -127,6 +196,8 @@ Key-value pairs. Users can add/remove entries.
   default: {}
 ```
 
+For more complex structured data, see [x-schema](#x-schema) below.
+
 ## Validations
 
 Add validation rules to ensure user input meets requirements:
@@ -147,6 +218,20 @@ Add validation rules to ensure user input meets requirements:
 - name: Identifier
   type: string
   validations: "alphanumeric"
+
+- name: CountryCode
+  type: string
+  validations: "countrycode2"
+
+- name: Version
+  type: string
+  validations: "semver"
+
+- name: ManyValidations
+  type: string
+  validations:
+  - "required"
+  - "email"
 ```
 
 Available validation types:
@@ -156,7 +241,11 @@ Available validation types:
 | `required` | Field cannot be empty |
 | `email` | Must be a valid email address |
 | `url` | Must be a valid URL |
+| `alpha` | Only letters allowed (no numbers or special characters) |
+| `digit` | Only digits allowed (0-9) |
 | `alphanumeric` | Only letters and numbers allowed |
+| `countrycode2` | Must be a valid two-letter country code (ISO 3166-1 alpha-2) |
+| `semver` | Must be a valid semantic version (e.g., `1.0.0`, `2.1.3-beta`) |
 
 ## Template Syntax
 
@@ -261,7 +350,9 @@ Runbooks extends Boilerplate with additional YAML properties (prefixed with `x-`
 
 ### `x-section`
 
-Group variables into collapsible sections:
+A large number of fields on a form can be overwhelming for users. Sections allow you to _group_ fields under a named heading so that you can organize a large number of fields into a discrete number of sections.
+
+In this example, the form will render with two sections: "Basic Settings", "Advanced Settings"
 
 ```yaml
 variables:
@@ -289,7 +380,9 @@ Variables without `x-section` appear in an unnamed section at the top.
 
 ### `x-schema`
 
-Define a schema for `map` type variables to render structured forms instead of free-form key-value inputs:
+Sometimes you want to collect a "map" of key-value pairs from users, where the value is a simple string. But in other cases, you want a _collection_ of values for each key. For example, if you want to prompt a user to declare their current AWS accounts, each AWS account has an email address, account ID, and descriptive name. 
+
+In these scenarios, you can define a _schema_ for `map` type variables so that Runbooks will render a structured form instead of free-form key-value inputs:
 
 ```yaml
 - name: AWSAccounts
@@ -297,7 +390,7 @@ Define a schema for `map` type variables to render structured forms instead of f
   description: AWS account configuration
   x-schema:
     email: string
-    environment: string
+    name: string
     id: string
 ```
 
@@ -305,7 +398,7 @@ This renders a form where each map entry has three typed fields instead of arbit
 
 ### `x-schema-instance-label`
 
-Customize the label for each instance in a schema-based map:
+Customize the label for each instance of a key-value pair in a schema-based map:
 
 ```yaml
 - name: AWSAccounts
@@ -473,10 +566,4 @@ resource "aws_s3_bucket" "main" {
 ```
 </TemplateInline>
 `````
-
-## Next Steps
-
-- Learn about the [`<Template>` block](/authoring/blocks/template/) for external template directories
-- Learn about the [`<TemplateInline>` block](/authoring/blocks/templateinline/) for inline templates
-- Learn about the [`<Inputs>` block](/authoring/blocks/inputs/) for collecting values without generating files
 
