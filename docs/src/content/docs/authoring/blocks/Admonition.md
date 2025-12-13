@@ -27,7 +27,7 @@ The `<Admonition>` block creates callout boxes to highlight important informatio
 - `closable` (boolean) - Whether users can close the admonition (default: false)
 - `confirmationText` (string) - If provided, shows a checkbox that users must check to dismiss
 - `allowPermanentHide` (boolean) - When true with confirmationText, adds "Don't show again" option
-- `storageKey` (string) - Unique key for localStorage (required with allowPermanentHide
+- `storageKey` (string) - Unique key for localStorage (required with allowPermanentHide)
 
 ## Types
 

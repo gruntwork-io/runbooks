@@ -52,10 +52,6 @@ Then in your editor:
 2. Save the file
 3. See your changes instantly in the browser - no manual refresh needed!
 
-<Aside type="caution">
-When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the _UI_, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to always restart your runbook (re-run `runbooks watch`) when you make a template or script change.
-</Aside>
-
 ## Technical details
 
 ### File watching

@@ -4,7 +4,7 @@ title: Markdown Support
 
 # Markdown in Runbooks
 
-Runbooks use **GitHub-flavored Markdown** (GFM) with full support for common markdown elements. That means you can include any of the following elements in your runbooks.
+Runbooks uses **GitHub-flavored Markdown** (GFM) with full support for common markdown elements. That means you can include any of the following elements in your runbooks.
 
 ## Supported Elements
 

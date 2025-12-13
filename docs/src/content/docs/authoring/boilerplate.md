@@ -20,10 +20,10 @@ Boilerplate is differentiated by being purpose-built for DevOps and infrastructu
 2. **Non-interactive mode:** Variables can also be set non-interactively, via command-line options, so that Boilerplate can be used in automated settings (e.g. during automated tests).
 3. **Flexible templating:** Boilerplate uses Go Template for templating, which gives you the ability to do formatting, conditionals, loops, and call out to Go functions. It also includes helpers for common tasks such as loading the contents of another file, executing a shell command and rendering the output in a template, and including partial templates.
 4. **Dependencies.** You can "chain" templates together, conditionally including other templates depending on variable values.
-4. **Variable types:** Boilerplate variables support types, so you have first-class support for strings, ints, bools, lists, maps, and enums.
-5. **Validations:** Boilerplate provides a set of validations for a given variable that user input must satisfy.
-6. **Scripting:** Need more power than static templates and variables? Boilerplate includes several hooks that allow you to run arbitrary scripts.
-7. **Cross-platform:** Boilerplate is easy to install (it's a standalone binary) and works on all major platforms (Mac, Linux, Windows).
+5. **Variable types:** Boilerplate variables support types, so you have first-class support for strings, ints, bools, lists, maps, and enums.
+6. **Validations:** Boilerplate provides a set of validations for a given variable that user input must satisfy.
+7. **Scripting:** Need more power than static templates and variables? Boilerplate includes several hooks that allow you to run arbitrary scripts.
+8. **Cross-platform:** Boilerplate is easy to install (it's a standalone binary) and works on all major platforms (Mac, Linux, Windows).
 
 ### Quick example
 

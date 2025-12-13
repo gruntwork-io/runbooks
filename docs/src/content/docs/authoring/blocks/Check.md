@@ -93,7 +93,7 @@ There are several ways to collect variables to customize a check's command or sc
 
 ### Using inputsId
 
-The Check command or script ulls its values from a separate Inputs block.
+The Check command or script pulls its values from a separate Inputs block.
 
 ```mdx
 <Inputs id="region-config">
