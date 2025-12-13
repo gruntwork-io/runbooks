@@ -14,4 +14,4 @@ To learn more about authoring runbooks, see [write your first runbook](../write_
 
 ## Next
 
-Now that you understand how Runbooks work, let's learn about their real-world use cases.
+Now that you understand how Runbooks work, let's learn about [generated files](/intro/generated_files/) and where they end up on your machine.
