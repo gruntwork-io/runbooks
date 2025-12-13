@@ -2,6 +2,8 @@
 title: <Command>
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 The `<Command>` block executes shell commands or scripts with variable substitution. It's used for performing operations like deployments, resource creation, and system configuration.
 
 ## Basic Usage
@@ -36,6 +38,8 @@ Command blocks and [Check](/authoring/blocks/check/) blocks share many features 
 - `successMessage` (string) - Message shown when command succeeds (default: "Success")
 - `failMessage` (string) - Message shown when command fails (default: "Failed")
 - `runningMessage` (string) - Message shown while running (default: "Running...")
+- `captureFiles` (boolean) - When `true`, any files created by the command are captured to the workspace's generated files
+- `captureFilesOutputPath` (string) - Relative subdirectory within the output folder for captured files. Only valid when `captureFiles={true}`
 
 ### Inline content
 
@@ -232,6 +236,45 @@ echo "Running post-deployment validation..."
 
 echo "Deployment successful!"
 ```
+
+## Capturing Output Files
+
+When a command creates files that you want to persist to your generated files folder, use the `captureFiles` prop. This is useful for commands that generate configuration files, artifacts, or other output.
+
+### Basic File Capture
+
+```mdx
+<Command 
+  id="create-file"
+  title="Create a greeting file"
+  command={`echo "Hello from the command!" > greeting.txt`}
+  captureFiles
+  successMessage="File created successfully!"
+/>
+```
+
+Any files created by the command will appear in the workspace's generated files panel.
+
+### File Capture with Output Path
+
+To organize captured files into a subdirectory, use `captureFilesOutputPath`:
+
+```mdx
+<Command 
+  id="create-config"
+  title="Create config files"
+  command={`echo '{"name": "test"}' > config.json && mkdir -p subdir && echo 'key=value' > subdir/settings.ini`}
+  captureFiles
+  captureFilesOutputPath="config"
+  successMessage="Config files created!"
+/>
+```
+
+In this example, all created files will be placed under a `config/` subdirectory in the generated files.
+
+<Aside type="note">
+The current approach to how Commands handle file capture is not ideal. See https://github.com/gruntwork-io/runbooks/issues/32 for additional information, and to track improvements.
+</Aside>
 
 ## Common Use Cases
 

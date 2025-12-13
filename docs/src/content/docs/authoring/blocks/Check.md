@@ -26,10 +26,9 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 ### Required Props
 
 - `id` (string) - Unique identifier for this check block
+- `title` (string) - Display title shown in the UI
 
 ### Optional Props
-
-- `title` (string) - Display title shown in the UI
 - `description` (string) - Longer description of what's being checked
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
