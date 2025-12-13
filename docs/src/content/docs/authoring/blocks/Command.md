@@ -6,30 +6,19 @@ The `<Command>` block executes shell commands or scripts with variable substitut
 
 ## Basic Usage
 
-### Simple Command
-
 ```mdx
 <Command 
-    id="list-files" 
-    command="ls -la"
-    title="List Current Directory"
-    successMessage="Directory listing complete!"
-    failMessage="Failed to list directory"
+    id="trigger-deploy" 
+    command="curl -X POST https://api.example.com/deploy"
+    title="Trigger Deployment"
+    successMessage="Deployment triggered!"
+    failMessage="Failed to trigger deployment"
 />
 ```
 
-### Script-Based Command
+## vs. Check
 
-```mdx
-<Command 
-    id="deploy-app" 
-    path="scripts/deploy.sh"
-    title="Deploy Application"
-    description="This will deploy your application to production"
-    successMessage="Deployment successful!"
-    failMessage="Deployment failed. Check the logs for details."
-/>
-```
+Command blocks and [Check](/authoring/blocks/check/) blocks share many features in common, however they each have a distinct purpose. Check blocks are focused on _reading_ the state of the world and validating it, while Command blocks are focused on _mutating_ the state of the world to update it to what is needed.
 
 ## Props
 
@@ -43,25 +32,69 @@ The `<Command>` block executes shell commands or scripts with variable substitut
 - `description` (string) - Longer description of what the command does
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `inputsId` (string | string[]) - ID of a BoilerplateInputs block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
+- `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `successMessage` (string) - Message shown when command succeeds (default: "Success")
 - `failMessage` (string) - Message shown when command fails (default: "Failed")
 - `runningMessage` (string) - Message shown while running (default: "Running...")
-- `children` (ReactNode) - Inline BoilerplateInputs component for parameterized commands
+
+### Inline content
+
+Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest an `<Inputs>` component directly inside the Command:
+
+```mdx
+<Command 
+    id="echo-message" 
+    command='echo "Hello, {{ .Name }}!"'
+    title="Print Greeting"
+>
+    <Inputs id="inline-greeting">
+    ```yaml
+    variables:
+      - name: Name
+        type: string
+        description: Your name
+        validations: "required"
+    \```
+    </Inputs>
+</Command>
+```
+
+The embedded `<Inputs>` renders directly within the Command block, allowing users to fill in variables before running the command.
+
+Other blocks can reference this Inputs block using the standard `inputsId` pattern.
 
 ## Exit Codes
 
-Commands interpret exit codes as:
+The Command block interprets exit codes as follows:
 
 - **Exit code 0**: Success ✓ (green)
 - **Any other exit code**: Failure ✗ (red)
 
+## Script-Based Commands
+
+Instead of inline commands, you can reference external shell scripts:
+
+```mdx
+<Command 
+    id="deploy-app" 
+    path="scripts/deploy.sh"
+    title="Deploy Application"
+    description="This will deploy your application to production"
+    successMessage="Deployment successful!"
+    failMessage="Deployment failed. Check the logs for details."
+/>
+```
+
 ## With Variables
+
+There are several ways to collect variables to customize a command or script.
 
 ### Using inputsId
 
+The Command's command or script pulls its values from a separate Inputs block.
+
 ```mdx
-<BoilerplateInputs id="repo-config">
+<Inputs id="repo-config">
 ```yaml
 variables:
   - name: OrgName
@@ -71,7 +104,7 @@ variables:
     type: string
     description: Repository name
 \```
-</BoilerplateInputs>
+</Inputs>
 
 <Command 
     id="create-repo" 
@@ -83,7 +116,9 @@ variables:
 />
 ```
 
-### Using Inline BoilerplateInputs
+### Using Inline Inputs
+
+The Command collects input values directly. These values can be shared with other blocks, just like a standalone Inputs block.
 
 ```mdx
 <Command 
@@ -91,7 +126,7 @@ variables:
     command='echo "Hello, {{ .Name }}!"'
     title="Print Greeting"
 >
-    <BoilerplateInputs id="inline-greeting">
+    <Inputs id="inline-greeting">
     ```yaml
     variables:
       - name: Name
@@ -99,18 +134,18 @@ variables:
         description: Your name
         validations: "required"
     \```
-    </BoilerplateInputs>
+    </Inputs>
 </Command>
 ```
 
 ### Using Multiple inputsIds
 
-You can reference multiple BoilerplateInputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
 ```mdx
-<BoilerplateInputs id="lambda-config" templatePath="templates/lambda" />
+<Inputs id="lambda-config" templatePath="templates/lambda" />
 
-<BoilerplateInputs id="repo-config">
+<Inputs id="repo-config">
 ```yaml
 variables:
   - name: GithubOrgName
@@ -120,7 +155,7 @@ variables:
     type: string
     description: Repository name
 \```
-</BoilerplateInputs>
+</Inputs>
 
 <Command 
     id="deploy-lambda" 
@@ -133,45 +168,9 @@ variables:
 
 In this example, the command has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
-## Variable Substitution
-
-Commands support Go template syntax for variable substitution:
-
-### Basic Variable Insertion
-
-```mdx
-<Command command="echo {{ .VarName }}" ... />
-```
-
-### String Manipulation
-
-```mdx
-<!-- Uppercase -->
-<Command command="echo {{ .Name | upper }}" ... />
-
-<!-- Lowercase -->
-<Command command="echo {{ .Email | lower }}" ... />
-```
-
-### Conditional Logic
-
-```mdx
-<Command 
-    command='{{if .EnableLogging}}echo "Logging enabled"{{else}}echo "Logging disabled"{{end}}'
-    ...
-/>
-```
-
-### Complex Command with Multiple Variables
-
-```mdx
-<Command 
-    command='aws s3 mb s3://{{ .BucketName }} --region {{ .Region }} {{if .EnableVersioning}}--enable-versioning{{end}}'
-    inputsId="s3-config"
-/>
-```
-
 ## Example Shell Scripts
+
+The Command block accepts any executable script. Here are some common examples:
 
 ### Simple Deployment Script
 
@@ -234,132 +233,21 @@ echo "Running post-deployment validation..."
 echo "Deployment successful!"
 ```
 
-## Features
+## Common Use Cases
 
-### Skip Checkbox
-Commands have a "Skip" checkbox in the UI. Users can skip optional commands. Once a command succeeds, the skip checkbox is disabled.
+The `<Command>` block works especially well for mutating the world to a desired state. This could be either the user's local environment, the company's world, or the external world.
 
-### View Source Code
-For path-based commands, users can expand the "View Source Code" section to see the script contents. The UI shows:
-- Programming language (detected from file extension)
-- Number of lines
-- File path
-- Link to expand source code
+This might manifest as:
 
-### View Logs
-The output (stdout/stderr) from the command is shown in real-time in an expandable "View Logs" section.
-
-### Stop Button
-While a command is running, users can click "Stop" to terminate execution.
-
-## Best Practices
-
-### 1. Use Set -e in Scripts
-
-Always use `set -e` in bash scripts to exit on errors:
-
-```bash
-#!/bin/bash
-set -e
-
-# Script will exit if any command fails
-```
-
-### 2. Provide Clear Output
-
-Use echo statements to provide feedback:
-
-```bash
-#!/bin/bash
-echo "Step 1: Configuring environment..."
-configure_env
-
-echo "Step 2: Running tests..."
-run_tests
-
-echo "Step 3: Deploying..."
-deploy
-
-echo "All done!"
-```
-
-### 3. Use Descriptive Titles and Messages
-
-```mdx
-<Command 
-    id="deploy-prod" 
-    path="scripts/deploy.sh"
-    title="Deploy to Production"
-    description="This will deploy your application to the production environment. Make sure you've reviewed the changes."
-    successMessage="Production deployment complete! Application is now live."
-    failMessage="Production deployment failed. Check logs and rollback if necessary."
-/>
-```
-
-### 4. Validate Inputs in Scripts
-
-```bash
-#!/bin/bash
-
-if [ -z "{{ .BucketName }}" ]; then
-    echo "Error: BucketName is required"
-    exit 1
-fi
-
-# Rest of script...
-```
-
-### 5. Make Commands Idempotent When Possible
-
-Design commands that can be run multiple times without causing issues:
-
-```bash
-#!/bin/bash
-# Create S3 bucket only if it doesn't exist
-
-if aws s3 ls "s3://{{ .BucketName }}" 2>/dev/null; then
-    echo "Bucket already exists, skipping creation"
-else
-    echo "Creating bucket..."
-    aws s3 mb "s3://{{ .BucketName }}"
-fi
-```
-
-### 6. Use Multi-line Commands for Readability
-
-```mdx
-<Command 
-    id="configure-cluster" 
-    command={`
-        kubectl create namespace {{ .Namespace }} && \
-        kubectl apply -f config.yaml -n {{ .Namespace }} && \
-        kubectl wait --for=condition=ready pod -l app={{ .AppName }} -n {{ .Namespace }}
-    `}
-    title="Configure Kubernetes Cluster"
-/>
-```
+- **Installing tools**: Install tools needed to execute the runbook
+- **Configure environment**: Configure the user's environment
+- **Provisioning resources**: Hit an API to provision resource.
+- **Deployments**: Deploy applications or infrastructure to cloud environments
+- **Database Operations**: Run migrations or seed data
+- **Build Steps**: Compile code or build Docker images
 
 ## Shell Execution Context
 
 Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
 
-For full details on interpreter detection and workarounds, see [Shell Execution Context](/security/shell-execution-context/).
-
-## Security Considerations
-
-### Avoid Hardcoded Secrets
-
-Never hardcode secrets in commands. Use environment variables or secret management:
-
-```mdx
-<!-- BAD -->
-<Command command="aws s3 cp file.txt s3://bucket --secret MY_SECRET_KEY" />
-
-<!-- GOOD -->
-<Command command="aws s3 cp file.txt s3://bucket" />
-<!-- Assume AWS credentials are configured via AWS CLI or environment -->
-```
-
-### Review Commands Before Execution
-
-Encourage users to review commands before running them, especially for destructive operations. Use descriptive titles and descriptions to make it clear what will happen.
+For full details, see [Shell Execution Context](/security/shell-execution-context/).

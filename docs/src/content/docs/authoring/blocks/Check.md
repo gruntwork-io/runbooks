@@ -2,7 +2,7 @@
 title: <Check>
 ---
 
-The `<Check>` block validates a user's system state by running shell commands or scripts. It's essential for ensuring users have the right tools installed and their environment is properly configured before proceeding.
+The `<Check>` block validates a user's system state by running shell commands or scripts. It's used to ensure that users have the right tools installed and their environment is properly configured before proceeding.
 
 ## Basic Usage
 
@@ -16,6 +16,10 @@ The `<Check>` block validates a user's system state by running shell commands or
     failMessage="Git is not installed. Please install it from https://git-scm.com/"
 />
 ```
+
+## vs. Command
+
+Check blocks and [Command](/authoring/blocks/command/) blocks share many features in common, however they each have a distinct purpose. Check blocks are focused on _reading_ the state of the world and validating it, while Command blocks are focused on _mutating_ the state of the world to update it to what is needed.
 
 ## Props
 
