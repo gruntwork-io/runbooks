@@ -110,7 +110,7 @@ func validateAndGetOutputDirectory(rawOutputPath string) (*outputDirInfo, error)
 	}
 
 	// Validate the output path
-	if err := validateOutputPathSafety(absoluteOutputPath); err != nil {
+	if err := ValidateAbsolutePathInCwd(absoluteOutputPath); err != nil {
 		return nil, err
 	}
 
@@ -193,7 +193,7 @@ func countFilesInDirectory(absolutePath string) (int, error) {
 // but preserves the directory itself
 func deleteDirectoryContents(absolutePath string) error {
 	// Just to be sure, validate that the path is safe to delete
-	if err := validateOutputPathSafety(absolutePath); err != nil {
+	if err := ValidateAbsolutePathInCwd(absolutePath); err != nil {
 		return fmt.Errorf("failed to validate output path as safe to delete: %w", err)
 	}
 
@@ -212,85 +212,3 @@ func deleteDirectoryContents(absolutePath string) error {
 
 	return nil
 }
-
-// validateOutputPathSafety checks if a path is valid for file operations
-// It prevents operations on system-critical directories and enforces that the path
-// must be within the current working directory
-func validateOutputPathSafety(absoluteOutputPath string) error {
-	// Reject empty paths
-	if absoluteOutputPath == "" {
-		return fmt.Errorf("output path is not valid: path cannot be empty")
-	}
-
-	// Get absolute path to ensure we're checking the real location
-	absPath, err := filepath.Abs(absoluteOutputPath)
-	if err != nil {
-		return fmt.Errorf("output path is not valid: failed to get absolute path: %w", err)
-	}
-
-	// Resolve symlinks to get the actual target path
-	// This prevents attacks using symlinks pointing outside CWD
-	resolvedPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		// If the path doesn't exist yet, EvalSymlinks will fail
-		// In that case, just use the absolute path
-		resolvedPath = absPath
-	}
-
-	// Clean the path to resolve any . or .. components
-	cleanPath := filepath.Clean(resolvedPath)
-
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("output path is not valid: failed to get current working directory: %w", err)
-	}
-
-	// The path must be within or equal to the current working directory
-	// Use Rel to check if the path is under cwd
-	rel, err := filepath.Rel(cwd, cleanPath)
-	if err != nil {
-		return fmt.Errorf("output path is not valid: failed to get relative path: %w", err)
-	}
-
-	// If rel starts with "..", it's outside the current working directory
-	if filepath.IsAbs(rel) || len(rel) >= 2 && rel[0] == '.' && rel[1] == '.' {
-		return fmt.Errorf("output path is not valid: path must be within the current working directory (path: %s, cwd: %s)", cleanPath, cwd)
-	}
-
-	// Additional safety checks for common system directories
-	// Normalize path for comparison (use ToSlash for cross-platform comparison)
-	normalizedPath := filepath.ToSlash(strings.ToLower(cleanPath))
-	
-	dangerousPaths := []string{
-		"/",
-		"/bin",
-		"/boot",
-		"/dev",
-		"/etc",
-		"/home",
-		"/lib",
-		"/lib64",
-		"/opt",
-		"/proc",
-		"/root",
-		"/sbin",
-		"/sys",
-		"/usr",
-		"/var",
-		"c:/",
-		"c:/windows",
-		"c:/program files",
-		"c:/program files (x86)",
-		"c:/users",
-	}
-
-	for _, dangerous := range dangerousPaths {
-		if normalizedPath == dangerous {
-			return fmt.Errorf("output path is not valid: cannot use system directory: %s", cleanPath)
-		}
-	}
-
-	return nil
-}
-

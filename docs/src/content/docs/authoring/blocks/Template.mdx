@@ -163,6 +163,16 @@ Variables are merged in order—later IDs override earlier ones if there are con
 
 After the initial "Generate" click, the template automatically re-renders whenever form values change. Changes are debounced for performance.
 
+### Smart file cleanup
+
+When a template's output changes because a user changed a variable value in the UI, Runbooks automatically handles file cleanup:
+
+- **Orphaned files are deleted**: Files that were generated in a previous render but are no longer produced are automatically removed.
+- **Unchanged files are skipped**: Files with identical content are not rewritten, reducing disk I/O and avoiding unnecessary file watcher events.
+- **Only changed files are updated**: Files with new content are written, while everything else is left untouched.
+
+This ensures your output directory stays clean without manually deleting stale files when template variables change.
+
 ### File tree integration
 
 Generated files appear in the workspace file tree on the right side of the screen. Users can browse, view, and copy the generated content.

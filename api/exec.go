@@ -106,7 +106,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		var captureOutputDir string
 		if req.CaptureFiles {
 			// Validate the output path (reuse validation from boilerplate_render.go)
-			if err := validateOutputPath(req.CaptureFilesOutputPath); err != nil {
+			if err := ValidateRelativePath(req.CaptureFilesOutputPath); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid captureFilesOutputPath: %v", err)})
 				return
 			}
