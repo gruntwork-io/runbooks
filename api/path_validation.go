@@ -255,15 +255,24 @@ func ValidateAbsolutePathInCwd(path string) error {
 		return fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
+	// Resolve symlinks for CWD as well (e.g., on macOS /tmp -> /private/tmp)
+	// This ensures consistent comparison when both paths involve symlinks
+	resolvedCwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		// If we can't resolve symlinks on the CWD, it's a sign of a problem.
+		// It's better to fail fast than to proceed with a potentially incorrect path.
+		return fmt.Errorf("failed to resolve symlinks for current working directory %q: %w", cwd, err)
+	}
+
 	// The path must be within or equal to the current working directory
-	rel, err := filepath.Rel(cwd, cleanPath)
+	rel, err := filepath.Rel(resolvedCwd, cleanPath)
 	if err != nil {
 		return fmt.Errorf("failed to compute relative path: %w", err)
 	}
 
 	// If rel starts with "..", it's outside the current working directory
 	if filepath.IsAbs(rel) || len(rel) >= 2 && rel[0] == '.' && rel[1] == '.' {
-		return fmt.Errorf("path must be within current working directory (path: %s, cwd: %s)", cleanPath, cwd)
+		return fmt.Errorf("path must be within current working directory (path: %s, cwd: %s)", cleanPath, resolvedCwd)
 	}
 
 	// Reject system-critical directories

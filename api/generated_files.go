@@ -148,6 +148,7 @@ func validateAndGetOutputDirectory(rawOutputPath string) (*outputDirInfo, error)
 // resolveToAbsolutePath converts a file path to its absolute form.
 // Relative paths are resolved relative to the current working directory.
 // Absolute paths are returned unchanged. Returns an error if the path is empty.
+// On macOS, symlinks in the CWD are resolved (e.g., /tmp -> /private/tmp).
 func resolveToAbsolutePath(rawPath string) (string, error) {
 	if rawPath == "" {
 		return "", fmt.Errorf("path cannot be empty")
@@ -164,7 +165,16 @@ func resolveToAbsolutePath(rawPath string) (string, error) {
 		return "", fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
-	return filepath.Join(currentDir, rawPath), nil
+	// Resolve symlinks in the CWD (e.g., on macOS /tmp -> /private/tmp)
+	// This ensures consistent paths even when the output directory doesn't exist yet
+	resolvedDir, err := filepath.EvalSymlinks(currentDir)
+	if err != nil {
+		// If we can't resolve symlinks on the CWD, it's a sign of a problem.
+		// It's better to fail fast than to proceed with a potentially incorrect path.
+		return "", fmt.Errorf("failed to resolve symlinks for current working directory %q: %w", currentDir, err)
+	}
+
+	return filepath.Join(resolvedDir, rawPath), nil
 }
 
 // countFilesInDirectory counts all files (not directories) in a directory recursively
