@@ -58,10 +58,37 @@ if aws lambda invoke \
   --region "$AWS_REGION" \
   "$RESPONSE_FILE" > /dev/null 2>&1; then
   
+  # Check if the response contains a Lambda runtime error
+  RESPONSE=$(cat "$RESPONSE_FILE")
+  if echo "$RESPONSE" | grep -q '"errorType"'; then
+    echo "❌ Lambda function returned an error!"
+    echo ""
+    echo "📄 Response:"
+    echo "$RESPONSE"
+    echo ""
+    
+    # Extract error details if possible
+    ERROR_TYPE=$(echo "$RESPONSE" | grep -o '"errorType":"[^"]*"' | cut -d'"' -f4)
+    ERROR_MESSAGE=$(echo "$RESPONSE" | grep -o '"errorMessage":"[^"]*"' | cut -d'"' -f4)
+    
+    if [ -n "$ERROR_TYPE" ]; then
+      echo "   Error Type: $ERROR_TYPE"
+    fi
+    if [ -n "$ERROR_MESSAGE" ]; then
+      echo "   Error Message: $ERROR_MESSAGE"
+    fi
+    echo ""
+    echo "   Possible causes:"
+    echo "   - Missing dependencies (check your package/deployment)"
+    echo "   - Handler configuration is incorrect"
+    echo "   - Runtime error in your Lambda code"
+    exit 1
+  fi
+  
   echo "✅ Lambda function invoked successfully!"
   echo ""
   echo "📄 Response:"
-  cat "$RESPONSE_FILE"
+  echo "$RESPONSE"
   echo ""
   exit 0
 else
