@@ -109,29 +109,20 @@ func ValidateRelativePath(path string) error {
 //
 // Checks performed:
 // 1. Path is not empty
-// 2. Path is not absolute
-// 3. Path does not contain ".." traversal components
+// 2. Path is not absolute (via ValidateRelativePath)
+// 3. Path does not contain ".." traversal components (via ValidateRelativePath)
 // 4. After joining with dir, the result stays within dir
 //
 // Returns a descriptive error if validation fails, nil if the path is safe.
 func ValidateRelativePathIn(path string, dir string) error {
-	// Reject empty paths
+	// Reject empty paths (unlike ValidateRelativePath which allows them)
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
 
-	// Reject absolute paths
-	if IsAbsolutePath(path) {
-		return fmt.Errorf("absolute paths are not allowed: %s", path)
-	}
-
-	// Reject paths with ".." components (directory traversal)
-	// We check after cleaning to catch normalized traversal attempts
-	cleanPath := filepath.Clean(path)
-	for _, part := range strings.Split(filepath.ToSlash(cleanPath), "/") {
-		if part == ".." {
-			return fmt.Errorf("path traversal not allowed: %s", path)
-		}
+	// Reuse ValidateRelativePath for the common checks (absolute paths, traversal)
+	if err := ValidateRelativePath(path); err != nil {
+		return err
 	}
 
 	// Defense-in-depth: after joining, verify the result is within dir

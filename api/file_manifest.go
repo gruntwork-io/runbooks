@@ -200,8 +200,10 @@ func ApplyDiff(diff DiffResult, sourceDir, outputDir string) (written int, delet
 			if !os.IsNotExist(err) {
 				return written, deleted, fmt.Errorf("failed to delete orphaned file %s: %w", fullPath, err)
 			}
+			// File didn't exist, don't count as deleted
+		} else {
+			deleted++
 		}
-		deleted++
 
 		// Try to remove empty parent directories
 		cleanupEmptyParentDirs(filepath.Dir(fullPath), outputDir)

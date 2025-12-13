@@ -144,8 +144,8 @@ func TestValidateRelativePathIn(t *testing.T) {
 		{
 			name:        "traversal at end that stays within",
 			relPath:     "src/subdir/..",
-			shouldError: false, // This cleans to "src" which is still within the output dir
-			description: "Traversal that stays within base dir is safe",
+			shouldError: true, // Reject any path containing ".." for simplicity and security
+			description: "Any path with '..' should be blocked, even if it stays within bounds",
 		},
 		{
 			name:        "multiple traversals",
