@@ -234,7 +234,22 @@ Add validation rules to ensure user input meets requirements:
   - "email"
 ```
 
-Available validation types:
+### Custom Error Messages
+
+For custom error messages, use the object format with `type` and `message`:
+
+```yaml
+variables:
+  - name: Email
+    type: string
+    validations:
+      - type: required
+        message: Email is required
+      - type: email
+        message: Must be a valid email address
+```
+
+### Available Validation Types
 
 | Validation | Description |
 |------------|-------------|
