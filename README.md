@@ -3,18 +3,16 @@
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="./web/public/runbooks-logo-light-color.svg" height="80">
       <source media="(prefers-color-scheme: light)" srcset="./web/public/runbooks-logo-dark-color.svg" height="80">
-      <img alt="Runbooks" src="./web/public/runbooks-logo-dark-color.svg" height="80">
+      <img alt="Gruntwork Runbooks" src="./web/public/runbooks-logo-dark-color.svg" height="80">
     </picture>
   </a>
 </p>
-
-<h1 align="center">Gruntwork Runbooks</h1>
 
 <p align="center"><em>Runbooks enables infrastructure experts to scale their expertise.</em></p>
 
 Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
 
-For additional information on Runbooks, or to see them in action, check out the [Runbooks docs](https://runbooks.gruntwork.io).
+For additional information on Runbooks, or to see it in action, check out the [Runbooks docs](https://runbooks.gruntwork.io).
 
 ## Project status
 
