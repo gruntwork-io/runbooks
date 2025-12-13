@@ -1,19 +1,29 @@
-# Gruntwork Runbooks
+<p align="center">
+  <a href="https://runbooks.gruntwork.io">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./web/public/runbooks-logo-light-color.svg" height="80">
+      <source media="(prefers-color-scheme: light)" srcset="./web/public/runbooks-logo-dark-color.svg" height="80">
+      <img alt="Runbooks" src="./web/public/runbooks-logo-dark-color.svg" height="80">
+    </picture>
+  </a>
+</p>
 
-_Make the knowledge and experience of the few available to the many._
+<h1 align="center">Gruntwork Runbooks</h1>
 
-Runbooks are interactive markdown documents with a first-class experience for generating files based on custom configurations, running customizable scripts or commands, and validating assertions about their local system or infrastructure.
+<p align="center"><em>Runbooks enables infrastructure experts to scale their expertise.</em></p>
+
+Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
 
 For additional information on Runbooks, or to see them in action, check out the [Runbooks docs](https://runbooks.gruntwork.io).
 
 ## Project status
 
 > [!NOTE]
-> As of October 2025, Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
+> As of December 2025, Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
 
 ## Security concerns
 
-Runbooks are designed to streamline the code generation and commands you might otherwise run on your local computer. This has important security implications you should be aware of prior to running Runbooks.
+Runbooks is designed to streamline the code generation and commands you might otherwise run on your local computer. This has important security implications you should be aware of prior to running Runbooks.
 
 ### Command execution
 
@@ -24,23 +34,6 @@ If you do not trust a Runbook file or you're not sure about the author or origin
 ### Protections against arbitrary command execution
 
 Runbooks executes commands when the Runbooks frontend makes API calls the Runbooks backend. Runbooks takes various [security measures](http://runbooks.gruntwork.io/security/execution-model/) to make sure that only commands and scripts that are part of the Runbook can be executed via this API, however there are some modes where these restrictions are relaxed in favor of more convenience. Read the docs to understand the security posture in more depth.
-
-## Read the docs
-
-For now, you'll need to manually launch the docs site by doing the following:
-
-1. Install [Bun](https://bun.sh/docs/installation)
-
-   Bun is a fast JavaScript runtime and package manager that works out of the box.
-
-1. Git clone this repo and `cd` to the repo dir.
-
-1. Start Vite to run the React frontend:
-   ```bash
-   cd docs
-   bun install
-   bun dev
-   ```
 
 ## Building
 
