@@ -4,9 +4,15 @@ title: watch
 
 import { Aside } from '@astrojs/starlight/components';
 
-# `runbooks watch`
+# runbooks watch
 
-Opens a runbook in your browser and automatically reloads it when you make changes to the runbook file. This command is perfect for runbook authors who want to see their edits in real-time.
+This command is intended for **authors** of Runbooks.
+
+Use `runbooks watch` to "watch" a `runbook.mdx` file (or its scripts, checks, or template files) for changes and automatically reload the Runbook as needed. 
+
+<Aside type="caution">
+When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the _UI_, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to always restart your runbook (re-run `runbooks watch`) when you make a template or script change.
+</Aside>
 
 ## Usage
 
@@ -16,10 +22,7 @@ runbooks watch <path-to-runbook> [flags]
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to a `runbook.mdx` file
-<Aside type="note">
-You must specify a path to the runbook _file_, not the _directory_ containing a runbook.
-</Aside>
+- `<path-to-runbook>` - Path to a directory containing the `runbook.mdx` file, or to the file itself.
 
 ## Flags
 
@@ -27,10 +30,7 @@ You must specify a path to the runbook _file_, not the _directory_ containing a 
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Can be relative (e.g., `./output`) or absolute (e.g., `/tmp/generated`)
   - Relative paths are resolved from the current working directory
-
-## When To Use It
-
-Use `runbooks watch` when you want to "watch" a `runbook.mdx` file (or scripts, checks, or template files) as you make changes. This command is intended for runbook authors who want to see their edits in real-time.
+- `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What It Does
 
@@ -40,16 +40,11 @@ When you run `runbooks watch`:
 2. **Opens Your Browser** - Automatically navigates to `http://localhost:7825`
 3. **Watches for Changes** - Monitors the runbook file for any modifications
 4. **Auto-Reloads** - Automatically refreshes the browser when changes are detected (within ~300ms)
-5. **Live Script Execution** - By default, scripts are read from disk on each execution, so changes to script files take effect immediately without server restart
-
-## When to Use This Command
-
-The `watch` command is designed for **runbook authors** who are actively writing or editing runbooks.
 
 ### Writing a New Runbook
 
 ```bash
-runbooks watch ./my-runbook/runbook.mdx
+runbooks watch /path/to/runbook
 ```
 
 Then in your editor:
@@ -57,19 +52,11 @@ Then in your editor:
 2. Save the file
 3. See your changes instantly in the browser - no manual refresh needed!
 
-### Iterating on Content
-
-The `watch` command is particularly useful when you're:
-- **Writing documentation** - See how your Markdown formatting looks
-- **Refining instructions** - Quickly preview changes to step-by-step instructions
-- **Testing boilerplate templates** - Verify that your templating works correctly
-- **Adjusting layout** - Fine-tune how your runbook appears to users
-- **Debugging issues** - Quickly test fixes to syntax or formatting problems
+<Aside type="caution">
+When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the _UI_, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to always restart your runbook (re-run `runbooks watch`) when you make a template or script change.
+</Aside>
 
 ## Technical Details
-
-### Port
-The server runs on **port 7825** by default (not currently configurable via flags).
 
 ### File Watching
 - Uses `fsnotify` for efficient file system monitoring
