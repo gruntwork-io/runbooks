@@ -169,8 +169,9 @@ func resolveToAbsolutePath(rawPath string) (string, error) {
 	// This ensures consistent paths even when the output directory doesn't exist yet
 	resolvedDir, err := filepath.EvalSymlinks(currentDir)
 	if err != nil {
-		// Fall back to unresolved path if symlink resolution fails
-		resolvedDir = currentDir
+		// If we can't resolve symlinks on the CWD, it's a sign of a problem.
+		// It's better to fail fast than to proceed with a potentially incorrect path.
+		return "", fmt.Errorf("failed to resolve symlinks for current working directory %q: %w", currentDir, err)
 	}
 
 	return filepath.Join(resolvedDir, rawPath), nil

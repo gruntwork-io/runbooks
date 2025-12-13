@@ -259,8 +259,9 @@ func ValidateAbsolutePathInCwd(path string) error {
 	// This ensures consistent comparison when both paths involve symlinks
 	resolvedCwd, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
-		// If we can't resolve symlinks, fall back to the original CWD
-		resolvedCwd = cwd
+		// If we can't resolve symlinks on the CWD, it's a sign of a problem.
+		// It's better to fail fast than to proceed with a potentially incorrect path.
+		return fmt.Errorf("failed to resolve symlinks for current working directory %q: %w", cwd, err)
 	}
 
 	// The path must be within or equal to the current working directory
