@@ -32,7 +32,7 @@ runbooks watch <path-to-runbook> [flags]
   - Relative paths are resolved from the current working directory
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
-## What It Does
+## What it does
 
 When you run `runbooks watch`:
 
@@ -41,7 +41,7 @@ When you run `runbooks watch`:
 3. **Watches for Changes** - Monitors the runbook file for any modifications
 4. **Auto-Reloads** - Automatically refreshes the browser when changes are detected (within ~300ms)
 
-### Writing a New Runbook
+### Writing a new runbook
 
 ```bash
 runbooks watch /path/to/runbook
@@ -56,15 +56,17 @@ Then in your editor:
 When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the _UI_, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to always restart your runbook (re-run `runbooks watch`) when you make a template or script change.
 </Aside>
 
-## Technical Details
+## Technical details
 
-### File Watching
+### File watching
+
 - Uses `fsnotify` for efficient file system monitoring
 - Watches the directory containing your runbook file
 - Implements debouncing (300ms) to handle editors that save files multiple times
 - Only triggers on Write and Create events for your specific runbook file
 
-### Auto-Reload Mechanism
+### Auto-reload mechanism
+
 - Uses Server-Sent Events (SSE) to push notifications from server to browser
 - The browser maintains a persistent connection to `/api/watch/sse`
 - When the file changes, the server sends a `file-change` event

@@ -170,6 +170,12 @@ header.header {
   font-weight: 500;
 }
 
+/* Bold links get full bold weight */
+.sl-markdown-content strong a,
+.sl-markdown-content a strong {
+  font-weight: 700;
+}
+
 .sl-markdown-content a:hover {
   color: var(--sl-color-accent);
   text-decoration: underline;

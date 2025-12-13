@@ -27,7 +27,7 @@ runbooks serve <path-to-runbook> [flags]
   - Relative paths are resolved from the current working directory
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
-## What It Does
+## What it does
 
 When you run `runbooks serve`:
 
@@ -35,7 +35,7 @@ When you run `runbooks serve`:
 2. **Serves the API** - Provides REST endpoints for the frontend to call
 3. **Does NOT Open Browser** - You must manually navigate to `http://localhost:7825` or run the frontend separately
 
-## Development Workflow
+## Development workflow
 
 Here's a typical development workflow:
 
@@ -49,7 +49,6 @@ Here's a typical development workflow:
    ```bash
    go run main.go serve testdata/demo-runbook
    ```
-
 
 2. In another terminal, start the frontend:
    ```bash
