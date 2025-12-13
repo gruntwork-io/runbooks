@@ -17,7 +17,7 @@ When Runbooks loads, it immediately shows a warning to users to confirm that the
 
 ### Localhost-Only Binding for the API
 
-The Runbooks backend server (whicih runs locally on your computer) only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Runbooks server.
+The Runbooks backend server (which runs locally on your computer) only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Runbooks server.
 
 ### Executable Registry
 

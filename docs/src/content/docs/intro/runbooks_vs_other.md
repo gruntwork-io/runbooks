@@ -6,7 +6,7 @@ sidebar:
 
 ## vs. Static documentation
 
-Static documentation is often hosted in services like Notion, Confluence, or directly in git repos (e.g. on GitHub or GitLab). It's easy to write, but can quickly get out of date, lacks automated validation, and requires users to manually copy/paste and adapt the code samples to their unique sneeds.
+Static documentation is often hosted in services like Notion, Confluence, or directly in git repos (e.g. on GitHub or GitLab). It's easy to write, but can quickly get out of date, lacks automated validation, and requires users to manually copy/paste and adapt the code samples to their unique needs.
 
 For consumers, Runbooks can generate the files they need based on custom user inputs entered from a web form, execute arbitrary commands to automate other steps, and give built-in validation checks so users can "do a thing, then check a thing." In short, Runbooks can streamline the "full experience" for consumers, not just a small part of it.
 
@@ -48,10 +48,10 @@ Runbooks also combine both code and documentation in a single environment, howev
 
    By contrast, with each block in a Runbook, the Runbook consumer is making progress against their use case and generating the artifacts of generated files, updated external state (by running commands), and personal confidence that they are succeeding.
    
-   In other words, for Juypter Notebooks, the "artifact" is updates to an internal program, whereas for Runbooks, the artifact is files, external state changes, and end user confidence.
+   In other words, for Jupyter Notebooks, the "artifact" is updates to an internal program, whereas for Runbooks, the artifact is files, external state changes, and end user confidence.
 
 2. **Optimized for power vs UX**: Jupyter Notebooks are powerful environments that can execute arbitrary code, generate charts, and allow authors to trace back execution history and restart execution. 
 
-   By contrast, Runbooks offer a less powerful canvas for code execution. For example, Runbooks do not support a concept of "program state" that can be passed down to subsequent blocks. However, Runbooks offers a more streamlined file generation experience, making it simple for Runbook consumers to enter values in a web form to generate custom files, run cusotm commands, or run custom checks.
+   By contrast, Runbooks offer a less powerful canvas for code execution. For example, Runbooks do not support a concept of "program state" that can be passed down to subsequent blocks. However, Runbooks offers a more streamlined file generation experience, making it simple for Runbook consumers to enter values in a web form to generate custom files, run custom commands, or run custom checks.
 
    In short, Runbooks trades power for a more streamlined UX on a more narrow set of highly important capabilities. As a result, any Runbook _could_ be written as a Jupyter Notebook, but the authorship experience would be more clumsy, and the end user experience would be more confusing.
