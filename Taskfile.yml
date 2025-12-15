@@ -62,3 +62,11 @@ tasks:
     cmds:
       - bun install
       - bun run test
+
+  docs:linkcheck:
+    desc: Check for broken links in documentation (builds first)
+    dir: docs
+    cmds:
+      - bun install
+      - bun run build
+      - bun run linkcheck
