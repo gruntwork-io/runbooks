@@ -11,7 +11,7 @@
     "astro": "astro",
     "spellcheck": "cspell \"src/content/**/*.{md,mdx}\" --no-progress",
     "spellcheck:fix": "cspell \"src/content/**/*.{md,mdx}\" --no-progress --show-suggestions",
-    "linkcheck": "linkinator ./dist --recurse --skip 'github.com'",
+    "linkcheck": "linkinator ./dist --recurse --skip 'github.com' --skip 'localhost'",
     "linkcheck:external": "linkinator ./dist --recurse"
   },
   "dependencies": {
