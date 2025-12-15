@@ -32,7 +32,8 @@
     "kubectl",
     "terraform",
     "terragrunt",
-    "pipelining"
+    "pipelining",
+    "autolinks"
   ],
   "ignorePaths": [
     "node_modules",
