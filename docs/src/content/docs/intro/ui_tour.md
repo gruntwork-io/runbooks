@@ -106,16 +106,14 @@ Finally, the user gets a Check block to validate that the Lambda function deploy
 
 ![Runbooks Example Screenshot 7](../../../assets/screenshots/intro/runbooks-example-7.webp).
 
+And now you've seen the Runbook experience! 
 
+## See a video walkthrough
 
-Here, the Runbook author is using a [Command block](/authoring/blocks/command/) to create the Pull Request, and notice how the author configured the Command block to ask for additional values (GitHub org name, GitHub repo name). Those values will be used to customize the script that runs.
+You can also view the above as a full video walkthrough.
 
-To learn more about authoring runbooks, see [write your first runbook](../write_your_first_runbook).
-
-<div style="position: relative; padding-bottom: 56.25%; height: 0;">
-  <iframe src="https://www.loom.com/embed/0848381b1e174670895e3228a69b865a" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe>
-</div>
+<div style="position: relative; padding-bottom: 56.25%; height: 0;"><iframe src="https://www.loom.com/embed/0848381b1e174670895e3228a69b865a" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe></div>
 
 ## Next
 
-Now that you understand how Runbooks work, let's learn about [generated files](/intro/generated_files/) and where they end up on your machine.
+Now that you understand how Runbooks work, it's time to install the CLI tool on your local machine!
