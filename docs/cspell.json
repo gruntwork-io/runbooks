@@ -33,7 +33,10 @@
     "terraform",
     "terragrunt",
     "pipelining",
-    "autolinks"
+    "autolinks",
+    "parameterizing",
+    "ints",
+    "countrycode"
   ],
   "ignorePaths": [
     "node_modules",
