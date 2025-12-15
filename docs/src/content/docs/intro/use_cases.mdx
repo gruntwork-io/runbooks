@@ -23,6 +23,24 @@ Runbooks capture a subject matter expert's knowledge and experience in a runbook
 In the [UI tour](../ui_tour), we walk through how an app developer might deploy a Lambda function.
 :::
 
+## Landing zones
+
+At some point, most engineering organizations need a way to systematically create new AWS accounts, GCP projects, or Azure subscription, organize them correctly, and install the proper baseline of resources for security and governance. This problem statement is broadly referred to as setting up a "Landing zone."
+
+For a problem statement that can be summarized in one sentence, the solutions available for Landing Zones are surprisingly complex and often treat infrastructure-as-code as a second-class citizen.
+
+One way to think about setting up a landing zone is to solve the following problems:
+
+1. Define your baseline (e.g. as OpenTofu modules)
+2. Define a way to create a new AWS account, GCP project, or Azure subscription (e.g. via the cloud API, or as an OpenTofu module)
+3. Present a UI that allows users to configure their desired account/project/subscription
+
+There are well-established solutions for [1] (like defining an OpenTofu module), and [2] (like calling a cloud API). Runbooks can serve as an excellent way to combine [1] and [2] into [3], a configurable, powerful UI that asks users to configure their desired new account/project/subscription (e.g. with an email, name, description), calls the relevant API to provision the account/project/subscription, and then generates the necessary code to install the baseline.
+
+Because Runbooks can ask for a user-entered value like an AWS account ID, you can plumb this value through your generated code and scripts to accomplish whatever you need.
+
+You could even have the runbook provision SSO access, teach the user how to use the newly provisioned resources, guide them to review policies, or give them customized links to access their account, all without coding any custom user interface.
+
 ## Streamline internal processes
 
 Many internal processes are captured as static documentation. But with Runbooks, you can complete the actual process by the time you're doing reading the Runbook! For example:

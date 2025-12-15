@@ -10,7 +10,9 @@
     "preview": "astro preview",
     "astro": "astro",
     "spellcheck": "cspell \"src/content/**/*.{md,mdx}\" --no-progress",
-    "spellcheck:fix": "cspell \"src/content/**/*.{md,mdx}\" --no-progress --show-suggestions"
+    "spellcheck:fix": "cspell \"src/content/**/*.{md,mdx}\" --no-progress --show-suggestions",
+    "linkcheck": "linkinator ./dist --recurse --skip 'github.com' --skip 'localhost'",
+    "linkcheck:external": "linkinator ./dist --recurse"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.36.0",
@@ -19,6 +21,7 @@
     "sharp": "^0.34.2"
   },
   "devDependencies": {
-    "cspell": "^9.4.0"
+    "cspell": "^9.4.0",
+    "linkinator": "^7.5.1"
   }
 }
