@@ -3,6 +3,13 @@
   "buildCommand": "cd docs && bun run build",
   "outputDirectory": "docs/dist",
   "installCommand": "cd docs && bun install",
-  "framework": null
+  "framework": null,
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/intro/overview/",
+      "permanent": true
+    }
+  ]
 }
 
