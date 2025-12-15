@@ -4,8 +4,6 @@ sidebar:
   order: 1
 ---
 
-import { FileTree } from '@astrojs/starlight/components';
-
 ## Meet Runbooks!
 
 Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
@@ -14,17 +12,16 @@ Runbooks is [open source](https://github.com/gruntwork-io/runbooks) and free to 
 
 ### What can Runbooks do?
 
-Runbooks can:
+The Runbooks tool loads individual "runbook files" that:
 
 - Render markdown text
-- Generate one or more files based on user-entered values
-- Run dynamically customized scripts
-- Run dynamically customized "checks"
-- Share user-entered values across more than one block within a runbook 
+- Collect user input from dynamically generated web forms
+- Propagate user-entered values to:
+  - Generate customized files and folders based on templates
+  - Run customized scripts
+  - Run customized "checks"
 
-This collection of primitives is a powerful (and enjoyable) way to consume another person's expertise.
-
-The Runbooks format is designed to be a straightforward authoring experience. Authors can use any text editor to write plain markdown along with a handful of powerful "blocks" (like `<Inputs>` and `<Template>`). Runbooks can be tested locally using the Runbooks CLI tool, offering a fast feedback loop for authors.
+This collection of primitives -- inputs, code templates, scripts, and checks -- is a streamlined way to capture expertise and a highly efficient (and enjoyable) way for someone else to consume it.
 
 ### How is Runbooks useful?
 
@@ -34,46 +31,63 @@ Historically, there has not been a straightforward way to "capture" this hard-wo
 
 In any situation where a "consumer" of expertise is blocked on the "producer" of expertise, Runbooks is an opportunity to free up the expert and empower consumers. 
 
-Runbooks is especially useful for developer self-service, documenting internal processes or standard operating procedures, and codifying all the ways to use a given IaC pattern.
+In practice, Runbooks is especially useful for:
 
-### What does a Runbook look like?
+- developer self-service
+- setting up landing zones
+- documenting internal processes or standard operating procedures
+- codifying all the ways to use a given IaC pattern
 
-**Runbook authors** are DevOps subject matter experts and write Runbooks.
+Learn more by reading about [Runbooks use cases](/intro/use_cases).
+
+### What does a runbook look like?
+
+When a user runs `runbooks open /path/to/runbook`, here's a sample of what they'll see:
+
+![Runbooks Example Screenshot 1](../../../assets/screenshots/intro/runbooks-example-1.webp)
+
+![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
+
+{/* ![Runbooks Example Screenshot 3](../../../assets/screenshots/intro/runbooks-example-97.webp)
+
+![Runbooks Example Screenshot 4](../../../assets/screenshots/intro/runbooks-example-98.webp) */}
+
+For a full walkthrough of what's happening here, see the [UI tour](/intro/ui_tour).
+
+### How is a runbook structured?
 
 A typical Runbook directory looks like the file tree below. In this example, the file names are somewhat arbitrary, but the folder structure is conventional.
 
-<FileTree >
+```
+├── runbook.mdx
+├── assets/
+│    └── architecture.jpg
+├── checks/
+│   └── preflight_checks.sh
+├── scripts/
+│   └── install_mise.sh
+└── templates/
+    └── consume_lambda_module/
+        ├── boilerplate.yml
+        └── terragrunt.hcl
+```
 
-- runbook.mdx The official Runbook file.
-- checks/ Bash scripts used by [Checks](/authoring/blocks/check/)
-  - preflight_checks.sh
-- scripts/ Bash scripts used by [Commands](/authoring/blocks/command/)
-  - install_mise.sh
-- templates/ Templates used by [BoilerplateInputs](/authoring/blocks/boilerplateinputs)
-  - consume_lambda_module
-    - boilerplate.yml
-    - terragrunt.hcl
-- assets/ Images and other assets used by the Runbook
-  - architecture.jpg
-
-</FileTree>
-
-You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `checks/`, `scripts/`, `templates/`, and `assets/` directories.
+You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `assets/`, `checks/`, `scripts/`, and `templates/`  directories.
 
 ### How do you open a Runbook?
 
-**Runbook consumers** want to apply someone else's DevOps expertise, so they consume Runbooks by opening them on their local machine, and using them in their web browser.
+**Runbook consumers** want to apply the expertise of someone else (**Runbooks authors**), so they consume Runbooks by opening them on their local machine, and using them in their web browser.
 
 To open a Runbook, you can use the `runbooks open` command:
 
 ```bash
-runbooks open /path/to/runbook.mdx
+runbooks open /path/to/runbook
 ```
 
 Note that for now, you will need to manually download the full Runbook directory (`runbook.mdx` plus any other files in the `checks/`, `scripts/`, and `templates/` directories) to your local machine.
 
 ## Next
 
-To see a Runbook in action, let's [Install Runbooks](/intro/installation/) and then [Write Your First Runbook](/intro/write_your_first_runbook).
+To see a Runbook in action, let's take the UI tour!
 
 
