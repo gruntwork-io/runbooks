@@ -37,7 +37,7 @@ One way to think about setting up a landing zone is to solve the following probl
 
 There are well-established solutions for [1] (like defining an OpenTofu module), and [2] (like calling a cloud API). Runbooks can serve as an excellent way to combine [1] and [2] into [3], a configurable, powerful UI that asks users to configure their desired new account/project/subscription (e.g. with an email, name, description), calls the relevant API to provision the account/project/subscription, and then generates the necessary code to install the baseline.
 
-Because Runbooks can ask for a user-entered value like an AWS account ID, you can plum this value through your generated code and scripts to accomplish whatever you need.
+Because Runbooks can ask for a user-entered value like an AWS account ID, you can plumb this value through your generated code and scripts to accomplish whatever you need.
 
 You could even have the runbook provision SSO access, teach the user how to use the newly provisioned resources, guide them to review policies, or give them customized links to access their account, all without coding any custom user interface.
 

@@ -28,7 +28,7 @@ So far, the runbook is just rendering markdown text. Useful, but not very intere
 
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
 
-Here, the user has is given some "pre-flight checks" to make sure their local system has the right tools installed (in this case `mise`, a package manager). The user can click "Check" and Runbooks will run the given command (in this case `mise --version && mise self-update`) directly on their local machine.
+Here, the user is given some "pre-flight checks" to make sure their local system has the right tools installed (in this case `mise`, a package manager). The user can click "Check" and Runbooks will run the given command (in this case `mise --version && mise self-update`) directly on their local machine.
 
 ![Runbooks Example Screenshot 3](../../../assets/screenshots/intro/runbooks-example-3.webp)
 
