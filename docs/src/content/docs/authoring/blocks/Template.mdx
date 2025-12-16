@@ -191,6 +191,32 @@ When you use `<Template path="templates/aws-setup" />`, the form will show **all
 If the same variable name appears in both the parent and a dependency template, the parent template's definition takes precedence.
 </Aside>
 
+### Conditional Dependencies
+
+Boilerplate supports conditional dependencies using the `skip` field:
+
+```yaml
+dependencies:
+  - name: python-source
+    template-url: "../lambda-src/python"
+    skip: '{{ not (hasPrefix "python" .Runtime) }}'
+    
+  - name: nodejs-source
+    template-url: "../lambda-src/nodejs"
+    skip: '{{ not (hasPrefix "nodejs" .Runtime) }}'
+```
+
+**How Runbooks handles conditional dependencies:**
+
+- **Form display**: Variables from *all* dependencies are shown, regardless of skip conditions. Since variable values aren't known until the user fills in the form, Runbooks can't evaluate which dependencies will be skipped.
+- **Template generation**: When the user clicks "Generate", the boilerplate library evaluates skip conditions with the actual variable values and only processes the relevant dependencies.
+
+This means some form fields may be for dependencies that won't actually be used. This is intentional—it ensures users can provide values for any possible code path.
+
+<Aside type="tip">
+If a dependency's variables have sensible defaults, they won't block generation even if that dependency ends up being skipped.
+</Aside>
+
 ## With Variables
 
 There are several ways to provide variables to a Template.
