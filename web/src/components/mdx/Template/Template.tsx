@@ -11,6 +11,7 @@ import { useBlockVariables, useImportedVarValues } from '@/contexts/useBlockVari
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
+import { isRemoteTemplatePath } from '@/lib/utils'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -340,9 +341,12 @@ function Template({
     )
   }
 
-  // Early return for loading state
+  // Early return for loading state - show different message for remote templates
   if (isLoading) {
-    return <LoadingDisplay message="Loading template configuration..." />
+    const loadingMessage = isRemoteTemplatePath(path)
+      ? "Downloading remote template..."
+      : "Loading template configuration..."
+    return <LoadingDisplay message={loadingMessage} />
   }
   
   // Early return for validation errors

@@ -6,13 +6,103 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	bpConfig "github.com/gruntwork-io/boilerplate/config"
+	bpGetterHelper "github.com/gruntwork-io/boilerplate/getterhelper"
 	bpOptions "github.com/gruntwork-io/boilerplate/options"
 	bpTemplates "github.com/gruntwork-io/boilerplate/templates"
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 )
+
+// isRemoteTemplatePath checks if a template path is a remote URL.
+// Remote templates are fetched from the network by the boilerplate library.
+//
+// Supports OpenTofu/Terraform-style module source syntax:
+//
+// Explicit protocol prefixes:
+//   - https:// or http:// - Direct HTTP(S) URLs
+//   - git:: - Git repositories (e.g., git::https://github.com/org/repo//path)
+//   - s3:: - S3 buckets (e.g., s3::https://s3.amazonaws.com/bucket/path)
+//
+// Git hosting shorthand (auto-detected):
+//   - github.com/org/repo - GitHub repositories
+//   - gitlab.com/org/repo - GitLab repositories
+//   - bitbucket.org/org/repo - Bitbucket repositories
+//
+// All other paths are treated as local paths.
+func isRemoteTemplatePath(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	// Explicit protocol prefixes for remote templates
+	remoteProtocols := []string{
+		"https://",
+		"http://",
+		"git::",
+		"s3::",
+	}
+
+	for _, prefix := range remoteProtocols {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	// Git hosting shorthand (matches OpenTofu/Terraform behavior)
+	gitHostingShorthands := []string{
+		"github.com/",
+		"gitlab.com/",
+		"bitbucket.org/",
+	}
+
+	for _, prefix := range gitHostingShorthands {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// normalizeRemoteTemplatePath converts Git hosting URLs to the full git:: format
+// that the boilerplate library expects.
+//
+// Examples:
+//   - github.com/org/repo//path?ref=v1.0 -> git::https://github.com/org/repo//path?ref=v1.0
+//   - https://github.com/org/repo//path -> git::https://github.com/org/repo//path
+//   - gitlab.com/org/repo//path -> git::https://gitlab.com/org/repo//path
+//   - git::https://... -> git::https://... (unchanged)
+//   - https://example.com/file.tar.gz -> https://example.com/file.tar.gz (unchanged, not a git host)
+func normalizeRemoteTemplatePath(path string) string {
+	// Git hosting domains that need git:: protocol
+	gitHostingDomains := []string{
+		"github.com/",
+		"gitlab.com/",
+		"bitbucket.org/",
+	}
+
+	// Check for shorthand (no protocol prefix)
+	for _, domain := range gitHostingDomains {
+		if strings.HasPrefix(path, domain) {
+			return "git::https://" + path
+		}
+	}
+
+	// Check for https:// URLs to git hosting providers (common mistake)
+	// Convert https://github.com/... to git::https://github.com/...
+	for _, domain := range gitHostingDomains {
+		httpsPrefix := "https://" + domain
+		if strings.HasPrefix(path, httpsPrefix) {
+			return "git::" + path
+		}
+	}
+
+	// Already has git:: prefix or is a non-git HTTPS URL, return as-is
+	return path
+}
 
 // determineOutputDirectory determines the final output directory based on CLI config and API request.
 // CLI output path is the path set via the --output-path CLI flag and is trusted (specified by end user)
@@ -104,21 +194,29 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 			return
 		}
 
-		// Extract the directory from the baseRunbookPath (which we assume is a file path)
-		runbookDir := filepath.Dir(runbookPath)
+		// Determine if this is a remote or local template
+		var fullTemplatePath string
+		isRemote := isRemoteTemplatePath(req.TemplatePath)
+		
+		if isRemote {
+			// For remote templates, normalize shorthand URLs to full git:: format
+			fullTemplatePath = normalizeRemoteTemplatePath(req.TemplatePath)
+			slog.Info("Rendering remote boilerplate template", "originalPath", req.TemplatePath, "normalizedPath", fullTemplatePath, "templateId", req.TemplateID)
+		} else {
+			// For local templates, construct the full path relative to the runbook directory
+			runbookDir := filepath.Dir(runbookPath)
+			fullTemplatePath = filepath.Join(runbookDir, req.TemplatePath)
+			slog.Info("Rendering local boilerplate template", "baseDir", runbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath, "templateId", req.TemplateID)
 
-		// Construct the full template path
-		fullTemplatePath := filepath.Join(runbookDir, req.TemplatePath)
-		slog.Info("Rendering boilerplate template", "baseDir", runbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath, "templateId", req.TemplateID)
-
-		// Check if the template directory exists
-		if _, err := os.Stat(fullTemplatePath); os.IsNotExist(err) {
-			slog.Error("Template directory not found", "path", fullTemplatePath)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "Template directory not found",
-				"details": "Tried to access: " + fullTemplatePath,
-			})
-			return
+			// Check if the local template directory exists
+			if _, err := os.Stat(fullTemplatePath); os.IsNotExist(err) {
+				slog.Error("Template directory not found", "path", fullTemplatePath)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error":   "Template directory not found",
+					"details": "Tried to access: " + fullTemplatePath,
+				})
+				return
+			}
 		}
 
 		// Prepare the output directory (determine path and create it)
@@ -200,10 +298,29 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 func renderBoilerplateTemplate(templatePath, outputDir string, variables map[string]any) error {
 	slog.Info("renderBoilerplateTemplate called", "templatePath", templatePath, "outputDir", outputDir)
 
+	var templateFolder string
+	var workingDir string
+
+	// Check if this is a remote template that needs to be downloaded first
+	if isRemoteTemplatePath(templatePath) {
+		// Download the remote template to a temporary folder
+		var downloadErr error
+		workingDir, templateFolder, downloadErr = bpGetterHelper.DownloadTemplatesToTemporaryFolder(templatePath)
+		if downloadErr != nil {
+			return fmt.Errorf("failed to download remote template: %w", downloadErr)
+		}
+		// Clean up the temp directory when done
+		defer os.RemoveAll(workingDir)
+		slog.Info("Downloaded remote template for rendering", "workingDir", workingDir, "templateFolder", templateFolder)
+	} else {
+		// For local templates, use the path directly
+		templateFolder = templatePath
+	}
+
 	// Create boilerplate options for direct function calls
 	opts := &bpOptions.BoilerplateOptions{
 		TemplateURL:             templatePath,
-		TemplateFolder:          templatePath, // For local templates, use the same path
+		TemplateFolder:          templateFolder,
 		OutputFolder:            outputDir,
 		Vars:                    variables,
 		NonInteractive:          true, // Don't prompt for input

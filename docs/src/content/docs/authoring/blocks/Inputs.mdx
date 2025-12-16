@@ -86,6 +86,18 @@ Load variables from an external `boilerplate.yml` file:
 
 This loads variable definitions from `templates/vpc/boilerplate.yml` relative to your runbook file.
 
+### Remote Paths
+
+The `path` prop also supports remote templates using explicit protocol prefixes. See the [Template remote templates documentation](/authoring/blocks/template/#remote-templates) for details on supported protocols.
+
+```mdx
+{/* Load from a Git repository */}
+<Inputs 
+  id="vpc-config" 
+  path="git::https://github.com/acme-corp/templates//vpc?ref=v1.0.0" 
+/>
+```
+
 ## Prefilled Variables
 
 Pre-populate form fields with specific values. These override any `default` values:

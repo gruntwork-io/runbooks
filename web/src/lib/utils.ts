@@ -106,3 +106,59 @@ export function hasGeneratedFiles(fileTree: FileTreeNode[] | null | undefined): 
   
   return traverse(fileTree)
 }
+
+/**
+ * Checks if a template path is a remote URL.
+ * Remote templates are fetched from the network and may take longer to load.
+ * 
+ * Supports OpenTofu/Terraform-style module source syntax:
+ * 
+ * **Explicit protocol prefixes:**
+ * - `https://` or `http://` - Direct HTTP(S) URLs
+ * - `git::` - Git repositories (e.g., git::https://github.com/org/repo//path)
+ * - `s3::` - S3 buckets (e.g., s3::https://s3.amazonaws.com/bucket/path)
+ * 
+ * **Git hosting shorthand (auto-detected):**
+ * - `github.com/org/repo` - GitHub repositories
+ * - `gitlab.com/org/repo` - GitLab repositories
+ * - `bitbucket.org/org/repo` - Bitbucket repositories
+ * 
+ * All other paths are treated as local paths.
+ * 
+ * @param path - The template path to check
+ * @returns true if the path is a remote URL, false if it's a local path
+ * 
+ * @example
+ * isRemoteTemplatePath("github.com/gruntwork-io/repo//templates/vpc") // true (shorthand)
+ * isRemoteTemplatePath("git::https://github.com/org/repo//templates") // true (explicit)
+ * isRemoteTemplatePath("https://example.com/template.tar.gz") // true
+ * isRemoteTemplatePath("s3::https://s3.amazonaws.com/bucket/template") // true
+ * isRemoteTemplatePath("./templates/vpc") // false
+ * isRemoteTemplatePath("templates/vpc") // false
+ */
+export function isRemoteTemplatePath(path: string | undefined | null): boolean {
+  if (!path) {
+    return false
+  }
+  
+  // Explicit protocol prefixes for remote templates
+  const remoteProtocols = [
+    'https://',
+    'http://',
+    'git::',
+    's3::',
+  ]
+  
+  if (remoteProtocols.some(prefix => path.startsWith(prefix))) {
+    return true
+  }
+  
+  // Git hosting shorthand (matches OpenTofu/Terraform behavior)
+  const gitHostingShorthands = [
+    'github.com/',
+    'gitlab.com/',
+    'bitbucket.org/',
+  ]
+  
+  return gitHostingShorthands.some(prefix => path.startsWith(prefix))
+}

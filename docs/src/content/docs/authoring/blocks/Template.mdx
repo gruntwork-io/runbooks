@@ -56,6 +56,141 @@ templates/vpc/
 
 The `boilerplate.yml` file defines the variables that will be collected from the user. Template files use [Boilerplate's Go template syntax](/authoring/boilerplate/#template-syntax) for variable substitution.
 
+## Remote Templates
+
+Templates can be loaded from remote sources instead of local directories. Remote templates are downloaded when the runbook loads, with the Template block showing a "Downloading remote template..." status while the rest of the runbook renders normally.
+
+### Supported Remote Sources
+
+Runbooks supports OpenTofu/Terraform-style module source syntax:
+
+| Source Type | Format | Example |
+|-------------|--------|---------|
+| **GitHub** (shorthand) | `github.com/org/repo//path` | `github.com/acme/templates//vpc?ref=v1.0` |
+| **GitLab** (shorthand) | `gitlab.com/org/repo//path` | `gitlab.com/acme/templates//vpc` |
+| **Bitbucket** (shorthand) | `bitbucket.org/org/repo//path` | `bitbucket.org/acme/templates//vpc` |
+| **Git** (explicit) | `git::URL` | `git::https://example.com/repo.git//path` |
+| **HTTP** (direct download) | `https://URL` | `https://example.com/template.tar.gz` |
+| **S3** | `s3::URL` | `s3::https://s3.amazonaws.com/bucket/path` |
+
+### GitHub Shorthand (Recommended)
+
+The simplest way to reference GitHub templates—just use `github.com/...` directly:
+
+```mdx
+<Template 
+  id="vpc" 
+  path="github.com/gruntwork-io/terragrunt-scale-catalog//templates/boilerplate/aws/github/account?ref=v1.3.2" 
+/>
+```
+
+The URL structure follows [OpenTofu/Terraform conventions](https://opentofu.org/docs/language/modules/sources/):
+- Use `//` (double slash) to separate the repo from the subdirectory path
+- Use `?ref=` to specify a branch, tag, or commit
+
+### Explicit Git Protocol
+
+For non-GitHub hosts or when you need explicit control, use the `git::` prefix:
+
+```mdx
+{/* HTTPS */}
+<Template 
+  id="vpc" 
+  path="git::https://git.example.com/org/templates.git//vpc?ref=v1.0.0" 
+/>
+
+{/* SSH */}
+<Template 
+  id="vpc" 
+  path="git::git@git.example.com:org/templates.git//vpc?ref=main" 
+/>
+```
+
+### HTTP Direct Download
+
+For templates served as archives over HTTP(S):
+
+```mdx
+<Template 
+  id="vpc" 
+  path="https://example.com/templates/vpc.tar.gz" 
+/>
+```
+
+<Aside type="tip">
+All of these formats work for GitHub/GitLab/Bitbucket repos:
+
+```mdx
+{/* All equivalent - pick your preferred style */}
+<Template path="github.com/org/repo//templates/vpc" />
+<Template path="https://github.com/org/repo//templates/vpc" />
+<Template path="git::https://github.com/org/repo//templates/vpc" />
+```
+
+Runbooks auto-converts these to the Git protocol format internally.
+</Aside>
+
+<Aside type="caution">
+Remote templates require network access. If you're running Runbooks in an air-gapped environment, use local templates instead.
+</Aside>
+
+## Template Dependencies
+
+Boilerplate templates can declare [dependencies](https://github.com/gruntwork-io/boilerplate#dependencies)—nested templates that are rendered as part of the parent template. When a template has dependencies, Runbooks automatically discovers and loads variables from all dependency templates.
+
+### How It Works
+
+When you use a Template block, Runbooks:
+
+1. Loads the main template's `boilerplate.yml`
+2. Checks for any `dependencies` declared in that file
+3. Recursively loads each dependency's `boilerplate.yml`
+4. Collects the **union of all variables** from the main template and its dependencies
+5. Displays all variables in a single form
+
+This means users see all required fields—even those defined in nested dependency templates—without you having to manually declare them.
+
+### Example
+
+Consider a template with this structure:
+
+```yaml
+# templates/aws-setup/boilerplate.yml
+variables:
+  - name: AccountName
+    type: string
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+
+dependencies:
+  - name: aws-account
+    template-url: ../shared/aws-account
+    output-folder: .
+```
+
+And the dependency template:
+
+```yaml
+# templates/shared/aws-account/boilerplate.yml
+variables:
+  - name: AWSAccountID
+    type: string
+  - name: AWSRegion
+    type: string
+    default: us-east-1
+```
+
+When you use `<Template path="templates/aws-setup" />`, the form will show **all four variables**:
+- `AccountName` (from main template)
+- `Environment` (from main template)
+- `AWSAccountID` (from dependency)
+- `AWSRegion` (from dependency)
+
+<Aside type="note">
+If the same variable name appears in both the parent and a dependency template, the parent template's definition takes precedence.
+</Aside>
+
 ## With Variables
 
 There are several ways to provide variables to a Template.

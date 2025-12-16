@@ -10,6 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	bpConfig "github.com/gruntwork-io/boilerplate/config"
+	bpGetterHelper "github.com/gruntwork-io/boilerplate/getterhelper"
+	bpOptions "github.com/gruntwork-io/boilerplate/options"
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 	"gopkg.in/yaml.v3"
 )
@@ -60,7 +62,86 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 		var err error
 
 		if req.TemplatePath != "" {
-			// Extract the directory from the runbookPath (which we assume is a file path)
+			// Check if this is a remote template (URL)
+			isRemote := isRemoteTemplatePath(req.TemplatePath)
+			
+			if isRemote {
+				// For remote templates, normalize shorthand URLs to full git:: format
+				normalizedPath := normalizeRemoteTemplatePath(req.TemplatePath)
+				slog.Info("Loading remote boilerplate config", "originalPath", req.TemplatePath, "normalizedPath", normalizedPath)
+				
+				// Download the remote template to a temporary folder
+				workingDir, templateFolder, downloadErr := bpGetterHelper.DownloadTemplatesToTemporaryFolder(normalizedPath)
+				if downloadErr != nil {
+					slog.Error("Failed to download remote template", "error", downloadErr, "templatePath", req.TemplatePath)
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":   "Failed to download remote template",
+						"details": fmt.Sprintf("Could not download the template from '%s': %v", req.TemplatePath, downloadErr),
+					})
+					return
+				}
+				// Clean up the temp directory when done
+				defer os.RemoveAll(workingDir)
+				
+				slog.Info("Downloaded remote template", "workingDir", workingDir, "templateFolder", templateFolder)
+				
+				// Create boilerplate options pointing to the downloaded local folder
+				opts := &bpOptions.BoilerplateOptions{
+					TemplateURL:    normalizedPath,
+					TemplateFolder: templateFolder,
+					NonInteractive: true,
+				}
+				
+				// Load the config from the downloaded template
+				remoteConfig, loadErr := bpConfig.LoadBoilerplateConfig(opts)
+				if loadErr != nil {
+					slog.Error("Failed to load remote boilerplate config", "error", loadErr, "templatePath", req.TemplatePath, "templateFolder", templateFolder)
+					
+					// Check for common error types and provide helpful messages
+					errMsg := loadErr.Error()
+					var errorTitle, errorDetails string
+					
+					if strings.Contains(errMsg, "authentication") || strings.Contains(errMsg, "Permission denied") {
+						errorTitle = "Authentication failed for remote template"
+						errorDetails = fmt.Sprintf("Unable to access the remote template at '%s'. Please check that the repository is public or that you have the necessary credentials configured.", req.TemplatePath)
+					} else if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "404") || strings.Contains(errMsg, "does not exist") {
+						errorTitle = "Remote template not found"
+						errorDetails = fmt.Sprintf("The remote template at '%s' could not be found. Please verify the URL is correct and the repository/path exists.", req.TemplatePath)
+					} else if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline") {
+						errorTitle = "Timeout downloading remote template"
+						errorDetails = fmt.Sprintf("The request to download the template from '%s' timed out. Please check your network connection and try again.", req.TemplatePath)
+					} else if strings.Contains(errMsg, "boilerplate.yml") || strings.Contains(errMsg, "boilerplate.yaml") {
+						errorTitle = "Invalid remote template"
+						errorDetails = fmt.Sprintf("The remote repository at '%s' does not appear to be a valid boilerplate template. Make sure it contains a boilerplate.yml file.", req.TemplatePath)
+					} else {
+						errorTitle = "Failed to load remote template"
+						errorDetails = errMsg
+					}
+					
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":   errorTitle,
+						"details": errorDetails,
+					})
+					return
+				}
+				
+				// Convert to our format, including variables from dependencies
+				config, convertErr := convertBoilerplateConfigWithDependencies(remoteConfig, templateFolder, workingDir)
+				if convertErr != nil {
+					slog.Error("Error converting remote boilerplate config", "error", convertErr)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"error":   "Invalid boilerplate configuration",
+						"details": convertErr.Error(),
+					})
+					return
+				}
+				
+				slog.Info("Successfully loaded remote boilerplate config", "variableCount", len(config.Variables))
+				c.JSON(http.StatusOK, config)
+				return
+			}
+			
+			// For local templates, extract the directory from the runbookPath
 			runbookDir := filepath.Dir(runbookPath)
 
 			// Construct the full path
@@ -185,6 +266,187 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 	}
 
 	return result, nil
+}
+
+// convertBoilerplateConfig converts a boilerplate library config (from remote loading) to our internal format.
+// This is used for remote templates where we load the config via boilerplate's built-in remote loading.
+// Unlike parseBoilerplateConfig, this doesn't have access to the raw YAML, so custom x- fields aren't supported.
+func convertBoilerplateConfig(boilerplateConfig *bpConfig.BoilerplateConfig) (*BoilerplateConfig, error) {
+	if boilerplateConfig == nil {
+		return nil, fmt.Errorf("boilerplate config is nil")
+	}
+
+	slog.Info("Converting remote boilerplate config", "variableCount", len(boilerplateConfig.Variables))
+
+	// Convert to our JSON structure
+	result := &BoilerplateConfig{
+		Variables: make([]BoilerplateVariable, 0, len(boilerplateConfig.Variables)),
+		Sections:  []Section{}, // Remote templates don't support sections via x- fields
+	}
+
+	for _, variable := range boilerplateConfig.Variables {
+		// Convert default value to JSON-serializable format
+		defaultValue := convertToJSONSerializable(variable.Default())
+
+		// Extract validations and determine if required
+		validations := extractValidations(variable.Validations())
+		isRequired := isVariableRequired(variable.Validations())
+
+		slog.Debug("Variable validation info", "name", variable.Name(), "validationCount", len(variable.Validations()), "required", isRequired)
+
+		// Use the variable type as-is
+		variableType := string(variable.Type())
+
+		boilerplateVar := BoilerplateVariable{
+			Name:        variable.Name(),
+			Description: variable.Description(),
+			Type:        variableType,
+			Default:     defaultValue,
+			Required:    isRequired,
+			Validations: validations,
+		}
+
+		// Handle enum type options
+		if variable.Type() == bpVariables.Enum {
+			boilerplateVar.Options = variable.Options()
+		}
+
+		result.Variables = append(result.Variables, boilerplateVar)
+	}
+
+	return result, nil
+}
+
+// convertBoilerplateConfigWithDependencies converts a boilerplate config and recursively collects
+// variables from all dependencies, returning the union of all variables.
+// templateFolder is the local path to the downloaded template.
+// workingDir is the root of the downloaded repo (for resolving relative paths).
+func convertBoilerplateConfigWithDependencies(boilerplateConfig *bpConfig.BoilerplateConfig, templateFolder string, workingDir string) (*BoilerplateConfig, error) {
+	// First, convert the main config
+	result, err := convertBoilerplateConfig(boilerplateConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Track seen variable names to avoid duplicates (parent variables take precedence)
+	seenVars := make(map[string]bool)
+	for _, v := range result.Variables {
+		seenVars[v.Name] = true
+	}
+
+	// Process dependencies to collect their variables
+	if len(boilerplateConfig.Dependencies) > 0 {
+		slog.Info("Processing dependencies for variables", "dependencyCount", len(boilerplateConfig.Dependencies))
+
+		for _, dep := range boilerplateConfig.Dependencies {
+			depVars, err := loadDependencyVariables(dep, templateFolder, workingDir, seenVars)
+			if err != nil {
+				// Log warning but continue - dependency might be optional or have skip conditions
+				slog.Warn("Failed to load dependency variables", "dependency", dep.Name, "error", err)
+				continue
+			}
+
+			// Add new variables from this dependency
+			for _, v := range depVars {
+				if !seenVars[v.Name] {
+					result.Variables = append(result.Variables, v)
+					seenVars[v.Name] = true
+				}
+			}
+		}
+	}
+
+	slog.Info("Collected all variables including dependencies", "totalVariables", len(result.Variables))
+	return result, nil
+}
+
+// loadDependencyVariables loads variables from a dependency template.
+// It resolves the dependency's template URL relative to the parent template folder.
+func loadDependencyVariables(dep bpVariables.Dependency, parentFolder string, workingDir string, seenVars map[string]bool) ([]BoilerplateVariable, error) {
+	templateURL := dep.TemplateUrl()
+	if templateURL == "" {
+		return nil, fmt.Errorf("dependency %s has no template URL", dep.Name)
+	}
+
+	slog.Info("Loading dependency variables", "dependency", dep.Name, "templateURL", templateURL)
+
+	var depTemplateFolder string
+
+	// Check if it's a remote URL or a relative path
+	if isRemoteTemplatePath(templateURL) {
+		// Remote dependency - would need to download
+		// For now, skip remote dependencies as they add complexity
+		slog.Info("Skipping remote dependency (not yet supported)", "dependency", dep.Name, "url", templateURL)
+		return nil, nil
+	}
+
+	// Resolve relative path from the parent template folder
+	depTemplateFolder = filepath.Join(parentFolder, templateURL)
+
+	// Check if the dependency folder exists
+	if _, err := os.Stat(depTemplateFolder); os.IsNotExist(err) {
+		slog.Warn("Dependency folder not found", "dependency", dep.Name, "path", depTemplateFolder)
+		return nil, nil
+	}
+
+	// Create options to load the dependency config
+	opts := &bpOptions.BoilerplateOptions{
+		TemplateFolder: depTemplateFolder,
+		NonInteractive: true,
+	}
+
+	// Load the dependency's boilerplate config
+	depConfig, err := bpConfig.LoadBoilerplateConfig(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load dependency config: %w", err)
+	}
+
+	// Convert the dependency's variables
+	var depVars []BoilerplateVariable
+	for _, variable := range depConfig.Variables {
+		// Skip if we've already seen this variable
+		if seenVars[variable.Name()] {
+			continue
+		}
+
+		defaultValue := convertToJSONSerializable(variable.Default())
+		validations := extractValidations(variable.Validations())
+		isRequired := isVariableRequired(variable.Validations())
+
+		boilerplateVar := BoilerplateVariable{
+			Name:        variable.Name(),
+			Description: variable.Description(),
+			Type:        string(variable.Type()),
+			Default:     defaultValue,
+			Required:    isRequired,
+			Validations: validations,
+		}
+
+		if variable.Type() == bpVariables.Enum {
+			boilerplateVar.Options = variable.Options()
+		}
+
+		depVars = append(depVars, boilerplateVar)
+	}
+
+	slog.Info("Loaded dependency variables", "dependency", dep.Name, "variableCount", len(depVars))
+
+	// Recursively process nested dependencies
+	for _, nestedDep := range depConfig.Dependencies {
+		nestedVars, err := loadDependencyVariables(nestedDep, depTemplateFolder, workingDir, seenVars)
+		if err != nil {
+			slog.Warn("Failed to load nested dependency variables", "dependency", nestedDep.Name, "error", err)
+			continue
+		}
+		for _, v := range nestedVars {
+			if !seenVars[v.Name] {
+				depVars = append(depVars, v)
+				seenVars[v.Name] = true
+			}
+		}
+	}
+
+	return depVars, nil
 }
 
 // extractSchemasFromYAML parses the raw YAML to extract schema definitions for variables

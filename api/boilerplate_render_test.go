@@ -284,3 +284,219 @@ func TestRenderBoilerplateContent(t *testing.T) {
 		})
 	}
 }
+
+func TestIsRemoteTemplatePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+	}{
+		// Remote paths with explicit prefixes (should return true)
+		{
+			name:     "HTTPS GitHub URL",
+			path:     "https://github.com/gruntwork-io/repo//templates/vpc",
+			expected: true,
+		},
+		{
+			name:     "HTTPS URL without double slash",
+			path:     "https://github.com/org/repo",
+			expected: true,
+		},
+		{
+			name:     "HTTP URL",
+			path:     "http://example.com/templates",
+			expected: true,
+		},
+		{
+			name:     "Git protocol with HTTPS",
+			path:     "git::https://github.com/org/repo//templates",
+			expected: true,
+		},
+		{
+			name:     "Git protocol with SSH",
+			path:     "git::git@github.com:org/repo.git//templates",
+			expected: true,
+		},
+		{
+			name:     "Git protocol with SSH no path",
+			path:     "git::git@github.com:org/repo.git",
+			expected: true,
+		},
+		{
+			name:     "S3 protocol",
+			path:     "s3::https://s3.amazonaws.com/bucket/template",
+			expected: true,
+		},
+		{
+			name:     "S3 protocol with region",
+			path:     "s3::https://s3-us-west-2.amazonaws.com/mybucket/path",
+			expected: true,
+		},
+		// Git hosting shorthand (OpenTofu/Terraform style)
+		{
+			name:     "GitHub shorthand",
+			path:     "github.com/gruntwork-io/repo//templates/vpc",
+			expected: true,
+		},
+		{
+			name:     "GitHub shorthand with ref",
+			path:     "github.com/org/repo//path?ref=v1.0.0",
+			expected: true,
+		},
+		{
+			name:     "GitLab shorthand",
+			path:     "gitlab.com/org/repo//templates",
+			expected: true,
+		},
+		{
+			name:     "Bitbucket shorthand",
+			path:     "bitbucket.org/org/repo//templates",
+			expected: true,
+		},
+		// Local paths (should return false)
+		{
+			name:     "Relative path",
+			path:     "templates/vpc",
+			expected: false,
+		},
+		{
+			name:     "Relative path with dot",
+			path:     "./templates/vpc",
+			expected: false,
+		},
+		{
+			name:     "Relative path with parent dir",
+			path:     "../templates/vpc",
+			expected: false,
+		},
+		{
+			name:     "Absolute path",
+			path:     "/home/user/templates/vpc",
+			expected: false,
+		},
+		{
+			name:     "Windows-style absolute path",
+			path:     "C:\\Users\\templates\\vpc",
+			expected: false,
+		},
+		{
+			name:     "Git SSH without git:: prefix (treated as local)",
+			path:     "git@github.com:org/repo.git//templates",
+			expected: false,
+		},
+		// Edge cases
+		{
+			name:     "Empty path",
+			path:     "",
+			expected: false,
+		},
+		{
+			name:     "Path that contains https but doesn't start with it",
+			path:     "my-https-template",
+			expected: false,
+		},
+		{
+			name:     "Path that contains git but doesn't start with it",
+			path:     "my-git-template",
+			expected: false,
+		},
+		{
+			name:     "Path that contains github.com but doesn't start with it",
+			path:     "my-github.com-template",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isRemoteTemplatePath(tt.path)
+			if result != tt.expected {
+				t.Errorf("isRemoteTemplatePath(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeRemoteTemplatePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		// GitHub shorthand should be converted
+		{
+			name:     "GitHub shorthand",
+			path:     "github.com/gruntwork-io/repo//templates/vpc",
+			expected: "git::https://github.com/gruntwork-io/repo//templates/vpc",
+		},
+		{
+			name:     "GitHub shorthand with ref",
+			path:     "github.com/org/repo//path?ref=v1.0.0",
+			expected: "git::https://github.com/org/repo//path?ref=v1.0.0",
+		},
+		// GitLab shorthand
+		{
+			name:     "GitLab shorthand",
+			path:     "gitlab.com/org/repo//templates",
+			expected: "git::https://gitlab.com/org/repo//templates",
+		},
+		// Bitbucket shorthand
+		{
+			name:     "Bitbucket shorthand",
+			path:     "bitbucket.org/org/repo//templates",
+			expected: "git::https://bitbucket.org/org/repo//templates",
+		},
+		// HTTPS URLs to git hosts should be converted
+		{
+			name:     "https://github.com converted to git::",
+			path:     "https://github.com/org/repo//templates/vpc",
+			expected: "git::https://github.com/org/repo//templates/vpc",
+		},
+		{
+			name:     "https://github.com with ref converted to git::",
+			path:     "https://github.com/gruntwork-io/terragrunt-scale-catalog//templates/boilerplate/aws/github/account?ref=v1.3.2",
+			expected: "git::https://github.com/gruntwork-io/terragrunt-scale-catalog//templates/boilerplate/aws/github/account?ref=v1.3.2",
+		},
+		{
+			name:     "https://gitlab.com converted to git::",
+			path:     "https://gitlab.com/org/repo//templates",
+			expected: "git::https://gitlab.com/org/repo//templates",
+		},
+		{
+			name:     "https://bitbucket.org converted to git::",
+			path:     "https://bitbucket.org/org/repo//templates",
+			expected: "git::https://bitbucket.org/org/repo//templates",
+		},
+		// Already explicit - should be unchanged
+		{
+			name:     "git:: prefix unchanged",
+			path:     "git::https://github.com/org/repo//templates",
+			expected: "git::https://github.com/org/repo//templates",
+		},
+		{
+			name:     "https:// to non-git host unchanged",
+			path:     "https://example.com/template.tar.gz",
+			expected: "https://example.com/template.tar.gz",
+		},
+		{
+			name:     "s3:: prefix unchanged",
+			path:     "s3::https://s3.amazonaws.com/bucket/template",
+			expected: "s3::https://s3.amazonaws.com/bucket/template",
+		},
+		// Local paths - should be unchanged
+		{
+			name:     "Local path unchanged",
+			path:     "templates/vpc",
+			expected: "templates/vpc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeRemoteTemplatePath(tt.path)
+			if result != tt.expected {
+				t.Errorf("normalizeRemoteTemplatePath(%q) = %q, want %q", tt.path, result, tt.expected)
+			}
+		})
+	}
+}
