@@ -1,11 +1,21 @@
-The Go server runs on port 7825 by default.
+# Tooling
+- We use bun, so prefer that to npm.
+- We use https://taskfile.dev/ over makefiles. Look for the Taskfile.yml to see what command can you can run.
 
-We use bun, so prefer that to npm.
+# Architecture
+- Docs are located in /docs 
+- The frontend is located in /web 
+- The backend is spread across /api, /browser, and /cmd. When the user requests something, make sure you know if they're asking to update the docs, frontend, or backend.
 
-We use https://taskfile.dev/ over makefiles. Look for the Taskfile.yml to see what command can you can run.
+# Configuration
+- The Go server runs on port 7825 by default.
 
-Docs are located in /docs 
+# Blocks
+- React components like <Template> and <Inputs> that are embedded directly in the runbooks.mdx file are known as "blocks."
+- The official specification for all blocks is documented at /docs/src/content/docs/authoring/blocks.
 
-The frontend is located in /web 
+# Security posture
+- Runbooks are very powerful in that they execute arbitrary code directly on the end user's local computer, read files, modify files, and delete files. For this reason, every request we make needs to consider the security implications and potential attack vectors that a malicious Runbooks author might try to exploit.
 
-The backend is spread across /api, /browser, and /cmd. When the user requests something, make sure you know if they're asking to update the docs, frontend, or backend.
+# Ecosystem
+- Runbooks have "Runbook authors" (the users who write runbooks) and "Runbook consumers" (the users who read runbooks).
