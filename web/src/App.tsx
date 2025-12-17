@@ -212,22 +212,46 @@ function App() {
           </div>
         ) : (
           <>
-            {/* Desktop Layout - Side by side */}
-            <div className="hidden lg:block lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20">
-              <div className="flex gap-8 h-[calc(100vh-5rem)] overflow-hidden justify-center">
-                {/* Markdown/MDX content - takes full width when no files, normal size when files appear */}
-                <div className={`relative ${showArtifacts ? 'flex-1 max-w-3xl min-w-xl' : 'w-full max-w-4xl'}`}>
+            {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
+            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10">
+              <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
+                <ViewContainerToggle
+                  activeView={activeMobileSection}
+                  onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'code')}
+                  views={[
+                    { label: 'Markdown', value: 'markdown', icon: BookOpen },
+                    { label: 'Code', value: 'code', icon: Code }
+                  ]}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
+            <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
+              <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 lg:h-[calc(100vh-5rem)] lg:overflow-hidden justify-start lg:justify-center">
+                
+                {/* MDX Container - Single instance with responsive visibility
+                    Desktop: always visible, sizing depends on artifacts panel
+                    Mobile: visible only when 'markdown' tab is active */}
+                <div className={`
+                  relative px-4 lg:px-0 w-full
+                  ${showArtifacts 
+                    ? 'lg:flex-1 lg:max-w-3xl lg:min-w-xl' 
+                    : 'lg:w-full lg:max-w-4xl'}
+                  ${activeMobileSection === 'markdown' ? '' : 'hidden'} lg:block
+                `}>
                   <MDXContainer 
                     content={content}
                     runbookPath={runbookPath}
-                    className="p-8 h-full"
+                    className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
                   />
                   
-                  {/* Show code icon button when artifacts panel is not showing (with delay) */}
+                  {/* Show code icon button - desktop only, when artifacts panel is hidden */}
                   {showCodeButton && (
                     <button
                       onClick={() => setIsArtifactsHidden(false)}
-                      className="absolute -right-14 top-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 z-10 cursor-pointer"
+                      className="hidden lg:block absolute -right-14 top-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 z-10 cursor-pointer"
                       title="Show generated files"
                     >
                       <Code className="w-5 h-5 text-gray-600" />
@@ -235,9 +259,9 @@ function App() {
                   )}
                 </div>
 
-                {/* Artifacts - grows/shrinks width smoothly */}
+                {/* Artifacts - Desktop layout (grows/shrinks width smoothly) */}
                 <div 
-                  className={`relative max-w-4xl transition-all duration-700 ease-in-out overflow-hidden ${
+                  className={`hidden lg:block relative max-w-4xl transition-all duration-700 ease-in-out overflow-hidden ${
                     showArtifacts ? 'flex-2' : 'w-0'
                   }`}
                 >
@@ -249,39 +273,9 @@ function App() {
                     relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
                   />
                 </div>
-              </div>
-            </div>
 
-            {/* Mobile Layout - Tabbed interface */}
-            <div className="lg:hidden w-full pt-20">
-              {/* Mobile Navigation */}
-              <div className="flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out">
-                <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
-                  <ViewContainerToggle
-                    activeView={activeMobileSection}
-                    onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'code')}
-                    views={[
-                      { label: 'Markdown', value: 'markdown', icon: BookOpen },
-                      { label: 'Code', value: 'code', icon: Code }
-                    ]}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              {/* Mobile Content */}
-              <div className="relative w-full px-4 mt-15">
-                {/* Markdown/MDX Section */}
-                <div className={activeMobileSection === 'markdown' ? 'block' : 'hidden'}>
-                  <MDXContainer 
-                    content={content}
-                    runbookPath={runbookPath}
-                    className="p-6 w-full max-h-[calc(100vh-9.5rem)]"
-                  />
-                </div>
-
-                {/* Artifacts Section */}
-                <div className={activeMobileSection === 'code' ? 'block' : 'hidden'}>
+                {/* Artifacts - Mobile layout (shown when 'code' tab is active) */}
+                <div className={`lg:hidden px-4 ${activeMobileSection === 'code' ? 'block' : 'hidden'}`}>
                   <div className="w-full h-[calc(100vh-12rem)] border border-gray-200 rounded-lg shadow-md overflow-hidden">
                     <ArtifactsContainer
                       className="w-full h-full"

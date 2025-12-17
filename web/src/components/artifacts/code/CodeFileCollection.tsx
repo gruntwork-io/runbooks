@@ -164,7 +164,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
         {onHide && (
           <button
             onClick={onHide}
-            className="p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+            className="hidden lg:block p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 cursor-pointer"
             title="Hide generated files"
           >
             <ChevronLeft className="w-5 h-5 text-gray-600" />
