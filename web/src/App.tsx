@@ -234,13 +234,14 @@ function App() {
                 {/* MDX Container - Single instance with responsive visibility
                     Desktop: always visible, sizing depends on artifacts panel
                     Mobile: visible only when 'markdown' tab is active */}
-                <div className={`
-                  relative px-4 lg:px-0 w-full
-                  ${showArtifacts 
-                    ? 'lg:flex-1 lg:max-w-3xl lg:min-w-xl' 
-                    : 'lg:w-full lg:max-w-4xl'}
-                  ${activeMobileSection === 'markdown' ? '' : 'hidden'} lg:block
-                `}>
+                <div className={cn(
+                  'relative w-full px-4 lg:px-0 lg:block',
+                  {
+                    'lg:flex-1 lg:max-w-3xl lg:min-w-xl': showArtifacts,
+                    'lg:w-full lg:max-w-4xl': !showArtifacts,
+                    'hidden': activeMobileSection !== 'markdown',
+                  }
+                )}>
                   <MDXContainer 
                     content={content}
                     runbookPath={runbookPath}
