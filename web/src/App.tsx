@@ -15,6 +15,8 @@ import { useFileTree } from './hooks/useFileTree'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
+import { cn } from './lib/utils'
+
 import type { AppError } from './types/error'
 
 function App() {
