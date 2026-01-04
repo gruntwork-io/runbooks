@@ -1,18 +1,5 @@
 import React from 'react'
-
-/**
- * Regular expression to match ANSI escape codes.
- * Matches color codes, cursor movement, and other terminal escape sequences.
- */
-// eslint-disable-next-line no-control-regex
-const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]/g
-
-/**
- * Strips ANSI escape codes from text.
- */
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_REGEX, '')
-}
+import { stripAnsi } from '@/lib/utils'
 
 /**
  * Regular expression to match URLs in text.

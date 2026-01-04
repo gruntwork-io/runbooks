@@ -443,6 +443,7 @@ function Check({
             logs={logs}
             status={checkStatus}
             autoOpen={checkStatus === 'running'}
+            blockId={id}
           />
           {/* Only show ViewSourceCode if path is used */}
           {path && (
