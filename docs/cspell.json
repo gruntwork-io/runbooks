@@ -36,7 +36,8 @@
     "autolinks",
     "parameterizing",
     "ints",
-    "countrycode"
+    "countrycode",
+    "templatize"
   ],
   "ignorePaths": [
     "node_modules",

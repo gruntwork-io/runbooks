@@ -92,6 +92,9 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const cancel = useCallback(() => {
+    // Track if there was actually something to cancel
+    const hadActiveExecution = eventSourceRef.current !== null || abortControllerRef.current !== null
+
     // Close SSE connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -104,11 +107,14 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       abortControllerRef.current = null
     }
 
-    setState((prev) => ({
-      ...prev,
-      status: 'pending',
-      logs: [...prev.logs, createLogEntry('⚠️ Execution cancelled by user')],
-    }))
+    // Only add cancellation log and update state if there was actually an active execution
+    if (hadActiveExecution) {
+      setState((prev) => ({
+        ...prev,
+        status: 'pending',
+        logs: [...prev.logs, createLogEntry('⚠️ Execution cancelled by user')],
+      }))
+    }
   }, [])
 
   const reset = useCallback(() => {

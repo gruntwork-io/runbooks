@@ -478,6 +478,7 @@ function Command({
             logs={logs}
             status={commandStatus}
             autoOpen={commandStatus === 'running'}
+            blockId={id}
           />
           {/* Only show ViewSourceCode if path is used */}
           {path && (

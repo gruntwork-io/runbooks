@@ -67,14 +67,41 @@ The embedded `<Inputs>` renders directly within the Command block, allowing user
 
 Other blocks can reference this Inputs block using the standard `inputsId` pattern.
 
-## Exit Codes
+## Writing Scripts
 
-The Command block interprets exit codes as follows:
+Command blocks run shell scripts to perform operations like deployments, installations, and configuration changes.
 
-- **Exit code 0**: Success ✓ (green)
-- **Any other exit code**: Failure ✗ (red)
+Scripts can be defined inline using the `command` prop or stored in external files using the `path` prop.
 
-## Script-Based Commands
+When writing scripts for Command blocks:
+
+- **Exit codes matter.** Return `0` for success, any other code for failure
+- **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
+- **Templatize with variables.** Use `{{ .VariableName }}` syntax to inject user input
+
+Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
+
+### Defining Scripts
+
+You can write scripts either inline or by referencing script files.
+
+#### Inline Scripts
+
+For simple commands, you can define the script directly in the `command` prop:
+
+```mdx
+<Command 
+    id="deploy-trigger" 
+    command="curl -X POST https://api.example.com/deploy"
+    title="Trigger Deployment"
+    successMessage="Deployment triggered!"
+    failMessage="Failed to trigger deployment"
+/>
+```
+
+Inline scripts work best for one-liners or short commands. For anything more complex, use an external script file.
+
+#### External Scripts
 
 Instead of inline commands, you can reference external shell scripts:
 
@@ -89,11 +116,84 @@ Instead of inline commands, you can reference external shell scripts:
 />
 ```
 
-## With Variables
+External scripts are plain old bash scripts. The referenced script `scripts/deploy.sh` might look like:
+
+```bash
+#!/bin/bash
+
+log_info "Starting deployment..."
+kubectl apply -f deployment.yaml
+
+if kubectl rollout status deployment/myapp; then
+    log_info "Deployment complete!"
+    exit 0
+else
+    log_error "Deployment failed"
+    exit 1
+fi
+```
+
+### Exit Codes
+
+The Command block interprets your script's exit codes as follows:
+
+- **Exit code 0**: Success ✓ (green)
+- **Any other exit code**: Failure ✗ (red)
+
+These exit codes will determine how the Runbooks UI renders the result of running a script.
+
+### Logging
+
+Runbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Runbooks UI to parse log levels for filtering and export.
+
+#### Log Levels
+
+| Function | Output | Description |
+|----------|--------|-------------|
+| `log_info "msg"` | `[timestamp] [INFO]  msg` | General informational messages |
+| `log_warn "msg"` | `[timestamp] [WARN]  msg` | Warning conditions |
+| `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
+| `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
+
+#### Usage Example
+
+```bash
+#!/bin/bash
+log_info "Starting deployment..."
+log_debug "Target environment: $ENVIRONMENT"
+
+if [ -z "$API_KEY" ]; then
+  log_warn "API_KEY not set, some features may be unavailable"
+fi
+
+if ! deploy_application; then
+  log_error "Deployment failed"
+  exit 1
+fi
+
+log_info "Deployment complete"
+```
+
+#### Local Development
+
+When running scripts locally (outside the Runbooks UI), the logging functions won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks environment, copy/paste this snippet to the top of your script:
+
+```bash
+# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/command#logging) ---
+if ! type log_info &>/dev/null; then
+  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
+  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
+fi
+# --- End Runbooks Logging ---
+```
+
+This snippet checks if the logging functions are already defined, attempts to fetch them from GitHub, and falls back to simple implementations if offline.
+
+### With Variables
 
 There are several ways to collect variables to customize a command or script.
 
-### Using inputsId
+#### Using inputsId
 
 The Command's command or script pulls its values from a separate Inputs block.
 
@@ -120,7 +220,7 @@ variables:
 />
 ```
 
-### Using Inline Inputs
+#### Using Inline Inputs
 
 The Command collects input values directly. These values can be shared with other blocks, just like a standalone Inputs block.
 
@@ -142,7 +242,7 @@ The Command collects input values directly. These values can be shared with othe
 </Command>
 ```
 
-### Using Multiple inputsIds
+#### Using Multiple inputsIds
 
 You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
@@ -172,11 +272,17 @@ variables:
 
 In this example, the command has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
-## Example Shell Scripts
+### Execution Context
 
-The Command block accepts any executable script. Here are some common examples:
+Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
 
-### Simple Deployment Script
+For full details, see [Shell Execution Context](/security/shell-execution-context/).
+
+### Examples
+
+Let's take a look at some example scripts:
+
+#### Simple Deployment Script
 
 ```bash
 #!/bin/bash
@@ -184,14 +290,14 @@ The Command block accepts any executable script. Here are some common examples:
 
 set -e  # Exit on error
 
-echo "Starting deployment..."
+log_info "Starting deployment..."
 kubectl apply -f deployment.yaml
 kubectl rollout status deployment/myapp
 
-echo "Deployment complete!"
+log_info "Deployment complete!"
 ```
 
-### Parameterized Script
+#### Parameterized Script
 
 ```bash
 #!/bin/bash
@@ -201,16 +307,18 @@ REGION="{{ .AwsRegion }}"
 VPC_NAME="{{ .VpcName }}"
 CIDR_BLOCK="{{ .CidrBlock }}"
 
-echo "Creating VPC $VPC_NAME in $REGION..."
+log_info "Creating VPC $VPC_NAME in $REGION..."
+log_debug "CIDR block: $CIDR_BLOCK"
+
 aws ec2 create-vpc \
     --cidr-block "$CIDR_BLOCK" \
     --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=$VPC_NAME}]" \
     --region "$REGION"
 
-echo "VPC created successfully!"
+log_info "VPC created successfully!"
 ```
 
-### Script with Error Handling
+#### Script with Error Handling
 
 ```bash
 #!/bin/bash
@@ -219,22 +327,22 @@ echo "VPC created successfully!"
 set -e
 
 function cleanup {
-    echo "Cleaning up..."
+    log_info "Cleaning up..."
     # Cleanup code here
 }
 
 trap cleanup EXIT
 
-echo "Running pre-deployment checks..."
-./check-prerequisites.sh || { echo "Pre-checks failed"; exit 1; }
+log_info "Running pre-deployment checks..."
+./check-prerequisites.sh || { log_error "Pre-checks failed"; exit 1; }
 
-echo "Deploying..."
+log_info "Deploying..."
 ./deploy.sh
 
-echo "Running post-deployment validation..."
-./validate-deployment.sh || { echo "Validation failed"; exit 1; }
+log_info "Running post-deployment validation..."
+./validate-deployment.sh || { log_error "Validation failed"; exit 1; }
 
-echo "Deployment successful!"
+log_info "Deployment successful!"
 ```
 
 ## Capturing Output Files
@@ -288,9 +396,3 @@ This might manifest as:
 - **Deployments**: Deploy applications or infrastructure to cloud environments
 - **Database Operations**: Run migrations or seed data
 - **Build Steps**: Compile code or build Docker images
-
-## Shell Execution Context
-
-Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
-
-For full details, see [Shell Execution Context](/security/shell-execution-context/).

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createAppError } from '@/types/error'
 import type { AppError } from '@/types/error'
 import { type Executable, type ExecutableRegistry, type ExecutableRegistryResponse } from '@/types/executable'
@@ -25,7 +25,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     }
   }
 
-  const fetchRegistry = async () => {
+  const fetchRegistry = useCallback(async () => {
     setLoading(true)
     setError(null)
 
@@ -64,7 +64,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     const fetchRunbookInfo = async () => {
@@ -90,7 +90,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
       // Skip registry loading in live reload mode
       setLoading(false)
     }
-  }, [useExecutableRegistry])
+  }, [useExecutableRegistry, fetchRegistry])
 
   const getExecutableByComponentId = (componentId: string): Executable | null => {
     if (!registry) return null

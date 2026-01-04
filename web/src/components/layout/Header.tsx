@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronDown, Download, Info } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -7,6 +8,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import { useLogs } from '@/contexts/useLogs';
+import {
+  createLogsZipRaw,
+  createLogsZipJson,
+  downloadBlob,
+  generateAllLogsZipFilename,
+} from '@/lib/logs';
 
 interface HeaderProps {
   pathName: string;
@@ -23,6 +38,19 @@ interface HeaderProps {
  */
 export function Header({ pathName }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
+  const { getAllLogs, hasLogs } = useLogs();
+
+  const handleDownloadRaw = async () => {
+    const logsMap = getAllLogs();
+    const blob = await createLogsZipRaw(logsMap);
+    downloadBlob(blob, generateAllLogsZipFilename());
+  };
+
+  const handleDownloadJson = async () => {
+    const logsMap = getAllLogs();
+    const blob = await createLogsZipJson(logsMap);
+    downloadBlob(blob, generateAllLogsZipFilename());
+  };
 
   return (
     <>
@@ -35,13 +63,36 @@ export function Header({ pathName }: HeaderProps) {
             {pathName}
           </div>
         </div>
-        <div className="hidden md:block md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md hover:underline decoration-current">
-          <button 
-            onClick={() => setIsAboutDialogOpen(true)}
-            className="cursor-pointer"
-          >
-            About
-          </button>
+        <div className="hidden md:block md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors">
+              Menu
+              <ChevronDown className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={handleDownloadRaw}
+                disabled={!hasLogs}
+                className={!hasLogs ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <Download className="size-4" />
+                Download logs (Raw)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleDownloadJson}
+                disabled={!hasLogs}
+                className={!hasLogs ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <Download className="size-4" />
+                Download logs (JSON)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
+                <Info className="size-4" />
+                About
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -66,4 +117,3 @@ export function Header({ pathName }: HeaderProps) {
     </>
   );
 }
-

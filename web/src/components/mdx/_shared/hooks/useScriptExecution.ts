@@ -6,6 +6,7 @@ import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
 import type { ComponentType, ExecutionStatus } from '../types'
@@ -71,6 +72,9 @@ export function useScriptExecution({
   
   // Get file tree context for updating when files are captured
   const { setFileTree } = useFileTree()
+  
+  // Get logs context for global log aggregation
+  const { registerLogs } = useLogs()
   
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
@@ -166,6 +170,11 @@ export function useScriptExecution({
   
   const logs = execState.logs
   const execError = execState.error
+  
+  // Register logs with global context whenever they change
+  useEffect(() => {
+    registerLogs(componentId, logs)
+  }, [componentId, logs, registerLogs])
 
   // Function to render script with variables
   const renderScript = useCallback(async (variables: Record<string, unknown>) => {
