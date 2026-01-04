@@ -160,17 +160,7 @@ export function downloadFile(
 ): void {
   // Ensure UTF-8 charset for proper emoji support
   const blob = new Blob([content], { type: `${mimeType}; charset=utf-8` })
-  const url = URL.createObjectURL(blob)
-  
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  
-  // Cleanup
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  downloadBlob(blob, filename)
 }
 
 /**
