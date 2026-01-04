@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { useLogs } from '@/contexts/LogsContext';
+import { useLogs } from '@/contexts/useLogs';
 import {
   createLogsZipRaw,
   createLogsZipJson,

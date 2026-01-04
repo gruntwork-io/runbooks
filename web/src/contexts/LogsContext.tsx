@@ -1,30 +1,6 @@
-import { createContext, useContext, useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import type { LogEntry } from '@/hooks/useApiExec'
-
-// =============================================================================
-// Types
-// =============================================================================
-
-interface LogsContextType {
-  /** Register or update logs for a specific block (component) */
-  registerLogs: (blockId: string, logs: LogEntry[]) => void
-  /** Get all collected logs keyed by blockId */
-  getAllLogs: () => Map<string, LogEntry[]>
-  /** Check if any logs exist */
-  hasLogs: boolean
-  /** Clear all logs (useful when loading a new runbook) */
-  clearLogs: () => void
-}
-
-// =============================================================================
-// Context
-// =============================================================================
-
-const LogsContext = createContext<LogsContextType | undefined>(undefined)
-
-// =============================================================================
-// Provider
-// =============================================================================
+import { LogsContext } from './LogsContext.types'
 
 interface LogsProviderProps {
   children: ReactNode
@@ -72,20 +48,5 @@ export function LogsProvider({ children }: LogsProviderProps) {
       {children}
     </LogsContext.Provider>
   )
-}
-
-// =============================================================================
-// Hook
-// =============================================================================
-
-/**
- * Hook to access the logs context for registering and retrieving logs.
- */
-export function useLogs(): LogsContextType {
-  const context = useContext(LogsContext)
-  if (context === undefined) {
-    throw new Error('useLogs must be used within a LogsProvider')
-  }
-  return context
 }
 

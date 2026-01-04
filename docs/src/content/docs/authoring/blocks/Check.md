@@ -173,7 +173,7 @@ log_info "Validation complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging function won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks enviroment, copy/paste this snippet to the top of your script:
+When running scripts locally (outside the Runbooks UI), the logging function won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks environment, copy/paste this snippet to the top of your script:
 
 ```bash
 # --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/check#logging) ---
