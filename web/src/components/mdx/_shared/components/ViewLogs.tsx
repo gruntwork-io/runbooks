@@ -11,13 +11,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { copyTextToClipboard } from "@/lib/utils"
 import {
-  copyTextToClipboard,
   stripAnsi,
   parseLogsToStructured,
   downloadFile,
   generateLogFilename,
-} from "@/lib/utils"
+} from "@/lib/logs"
 
 interface ViewLogsProps {
   logs: LogEntry[]

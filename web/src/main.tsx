@@ -6,6 +6,7 @@ import { FileTreeProvider } from './contexts/FileTreeContext'
 import { ExecutableRegistryProvider } from './contexts/ExecutableRegistryContext'
 import { ErrorReportingProvider } from './contexts/ErrorReportingContext'
 import { TelemetryProvider } from './contexts/TelemetryContext'
+import { LogsProvider } from './contexts/LogsContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -13,7 +14,9 @@ createRoot(document.getElementById('root')!).render(
       <ErrorReportingProvider>
         <ExecutableRegistryProvider>
           <FileTreeProvider>
-            <App />
+            <LogsProvider>
+              <App />
+            </LogsProvider>
           </FileTreeProvider>
         </ExecutableRegistryProvider>
       </ErrorReportingProvider>

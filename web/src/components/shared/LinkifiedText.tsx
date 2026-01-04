@@ -1,5 +1,5 @@
 import React from 'react'
-import { stripAnsi } from '@/lib/utils'
+import { stripAnsi } from '@/lib/logs'
 
 /**
  * Regular expression to match URLs in text.
