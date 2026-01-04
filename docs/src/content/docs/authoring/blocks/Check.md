@@ -64,15 +64,41 @@ The embedded `<Inputs>` renders directly within the Check block, allowing users 
 
 Other blocks can reference this Inputs block using the standard `inputsId` pattern.
 
-## Exit Codes
+## Writing Scripts
 
-The Check block interprets exit codes as follows:
+Check blocks run shell scripts to enable users to run some kind of validation.
 
-- **Exit code 0**: Success ✓ (green)
-- **Exit code 1**: Failure ✗ (red)
-- **Exit code 2**: Warning ⚠ (yellow)
+Scripts can be defined inline using the `command` prop or stored in external files using the `path` prop.
 
-## Script-Based Checks
+When writing scripts for Check blocks:
+
+- **Exit codes matter.** Return `0` for success, `1` for failure, or `2` for warning
+- **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
+- **Templatize with variables.** Use `{{ .VariableName }}` syntax to inject user input
+
+Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
+
+### Defining Scripts
+
+You can write scripts either inline or by referencing script files.
+
+#### Inline Scripts
+
+For simple checks, you can define the script directly in the `command` prop:
+
+```mdx
+<Check 
+    id="check-git" 
+    command="git --version"
+    title="Check if Git is installed"
+    successMessage="Git is installed!"
+    failMessage="Git is not installed."
+/>
+```
+
+Inline scripts work best for one-liners or short commands. For anything more complex, use an external script file.
+
+#### External Scripts
 
 Instead of inline commands, you can reference external shell scripts:
 
@@ -87,11 +113,84 @@ Instead of inline commands, you can reference external shell scripts:
 />
 ```
 
-## With Variables
+External scripts are plain old bash scripts. The referenced script `checks/aws-authenticated.sh` might look like:
+
+```bash
+#!/bin/bash
+
+log_info "Checking AWS authentication..."
+
+if aws sts get-caller-identity &>/dev/null; then
+    log_info "AWS credentials are valid"
+    exit 0
+else
+    log_error "Not authenticated to AWS"
+    exit 1
+fi
+```
+
+### Exit Codes
+
+The Check block interprets your script's exit codes as follows:
+
+- **Exit code 0**: Success ✓ (green)
+- **Exit code 1**: Failure ✗ (red)
+- **Exit code 2**: Warning ⚠ (yellow)
+
+These exit codes will determine how the Runbooks UI renders the result of running a script.
+
+### Logging
+
+Runbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Runbooks UI to parse log levels for filtering and export.
+
+#### Log Levels
+
+| Function | Output | Description |
+|----------|--------|-------------|
+| `log_info "msg"` | `[timestamp] [INFO]  msg` | General informational messages |
+| `log_warn "msg"` | `[timestamp] [WARN]  msg` | Warning conditions |
+| `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
+| `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
+
+#### Usage Example
+
+```bash
+#!/bin/bash
+log_info "Starting validation..."
+log_debug "Checking environment variable: $MY_VAR"
+
+if [ -z "$MY_VAR" ]; then
+  log_warn "MY_VAR is not set, using default"
+fi
+
+if ! command -v aws &>/dev/null; then
+  log_error "AWS CLI is not installed"
+  exit 1
+fi
+
+log_info "Validation complete"
+```
+
+#### Local Development
+
+When running scripts locally (outside the Runbooks UI), the logging function won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks enviroment, copy/paste this snippet to the top of your script:
+
+```bash
+# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/check#logging) ---
+if ! type log_info &>/dev/null; then
+  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
+  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
+fi
+# --- End Runbooks Logging ---
+```
+
+This snippet checks if the logging functions are already defined, attempts to fetch them from GitHub, and falls back to simple implementations if offline.
+
+### With Variables
 
 There are several ways to collect variables to customize a check's command or script.
 
-### Using inputsId
+#### Using inputsId
 
 The Check command or script pulls its values from a separate Inputs block.
 
@@ -116,7 +215,7 @@ variables:
 />
 ```
 
-### Using Inline Inputs
+#### Using Inline Inputs
 
 The Check command collects input values directly. These values can be shared with other blocks, just like a standalone Inputs block.
 
@@ -138,7 +237,7 @@ The Check command collects input values directly. These values can be shared wit
 </Check>
 ```
 
-### Using Multiple inputsIds
+#### Using Multiple inputsIds
 
 You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
@@ -165,46 +264,56 @@ variables:
 
 In this example, the check has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
-## Example Shell Scripts
+### Execution Context
 
-The Check block accepts any executable script. Here are some common examples:
+Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
 
-### Basic Validation Script
+For full details, see [Shell Execution Context](/security/shell-execution-context/).
+
+### Examples
+
+Let's take a look at some example scripts:
+
+#### Basic Validation Script
 
 ```bash
 #!/bin/bash
 # checks/terraform-installed.sh
 
-if command -v terraform &> /dev/null; then
-    echo "Terraform is installed: $(terraform version)"
+log_info "Checking for OpenTofu installation..."
+
+if command -v tofu &> /dev/null; then
+    log_info "OpenTofu is installed: $(tofu version | head -1)"
     exit 0
 else
-    echo "Terraform is not installed"
+    log_error "OpenTofu is not installed"
     exit 1
 fi
 ```
 
-### Script with Warning
+#### Script with Warning
 
 ```bash
 #!/bin/bash
 # checks/disk-space.sh
 
+log_info "Checking available disk space..."
 available=$(df -h / | awk 'NR==2 {print $4}' | sed 's/G//')
+log_debug "Available space: ${available}GB"
 
 if [ "$available" -lt 1 ]; then
-    echo "Critical: Less than 1GB available"
+    log_error "Less than 1GB available"
     exit 1
 elif [ "$available" -lt 5 ]; then
-    echo "Warning: Less than 5GB available"
+    log_warn "Less than 5GB available"
     exit 2
 else
-    echo "Disk space OK: ${available}GB available"
+    log_info "Disk space OK: ${available}GB available"
     exit 0
 fi
 ```
 
-### Parameterized Script
+#### Parameterized Script
 
 ```bash
 #!/bin/bash
@@ -212,11 +321,14 @@ fi
 
 BUCKET_NAME="{{ .BucketName }}"
 
+log_info "Checking if S3 bucket exists..."
+log_debug "Bucket name: ${BUCKET_NAME}"
+
 if aws s3 ls "s3://${BUCKET_NAME}" &> /dev/null; then
-    echo "Bucket ${BUCKET_NAME} exists"
+    log_info "Bucket ${BUCKET_NAME} exists"
     exit 0
 else
-    echo "Bucket ${BUCKET_NAME} does not exist"
+    log_error "Bucket ${BUCKET_NAME} does not exist"
     exit 1
 fi
 ```
@@ -237,9 +349,3 @@ This might manifest as:
 - **Configuration Validation**: Ensure config files are properly formatted
 - **Network Connectivity**: Test connectivity to required services
 - **Permissions**: Verify users have necessary permissions
-
-## Shell Execution Context
-
-Scripts run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**. Environment variables are inherited from the process that launched Runbooks.
-
-For full details, see [Shell Execution Context](/security/shell-execution-context/).

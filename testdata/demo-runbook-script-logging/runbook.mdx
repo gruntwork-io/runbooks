@@ -1,0 +1,82 @@
+# Script Logging Demo
+
+This runbook demonstrates how to use the standardized logging functions in your Runbooks scripts.
+
+## Why Use Standardized Logging?
+
+Runbooks provides four logging functions that give you:
+
+- **Consistent formatting** — All logs follow the `[timestamp] [LEVEL] message` format
+- **Severity levels** — INFO, WARN, ERROR, and DEBUG for filtering and parsing
+- **Debug mode** — Verbose output only when `DEBUG=true` is set
+- **Convenience** — Runbooks exposes logging functions "for free" to make script authorship easy, and a copy/paste snippet for local functions so that you can run them independent of Runbooks.
+
+## Log Levels Reference
+
+| Function | When to Use |
+|----------|-------------|
+| `log_info` | General progress messages, status updates |
+| `log_warn` | Non-fatal issues, deprecation notices |
+| `log_error` | Failures that will cause the script to exit |
+| `log_debug` | Verbose output for troubleshooting |
+
+## See It In Action
+
+Run this command to see all four log levels in action:
+
+<Command 
+    id="logging-demo" 
+    path="scripts/logging-demo.sh"
+    title="Run Logging Demo"
+    description="Demonstrates log_info, log_warn, log_error, and log_debug functions"
+    successMessage="Demo complete! Notice how each log level has a distinct prefix."
+    failMessage="Demo failed unexpectedly"
+/>
+
+## Debug Mode
+
+The `log_debug` function only produces output when the `DEBUG` environment variable is set to `true`. This is useful for adding verbose diagnostics that don't clutter normal output.
+
+Run this check with and without debug mode to see the difference:
+
+<Check 
+    id="debug-check" 
+    path="checks/debug-check.sh"
+    title="Check with Debug Output"
+    description="Run with DEBUG=true to see verbose output"
+    successMessage="Check passed!"
+    failMessage="Check failed"
+>
+    <Inputs id="debug-toggle">
+    ```yaml
+    variables:
+      - name: EnableDebug
+        type: bool
+        description: "Enable debug logging by setting `DEBUG=true` for this script run."
+        default: false
+    ```
+    </Inputs>
+</Check>
+
+## Using Logging in Your Scripts
+
+To make your scripts portable (work both in Runbooks UI and locally), add this snippet at the top:
+
+```bash
+# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/command#logging) ---
+if ! type log_info &>/dev/null; then
+  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
+  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
+fi
+# --- End Runbooks Logging ---
+```
+
+Then use the functions throughout your script:
+
+```bash
+log_info "Starting process..."
+log_debug "Detailed variable state: $MY_VAR"
+log_warn "Optional dependency not found, continuing anyway"
+log_error "Critical failure, exiting"
+```
+

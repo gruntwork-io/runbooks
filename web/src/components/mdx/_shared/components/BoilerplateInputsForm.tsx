@@ -66,36 +66,42 @@ interface VariableFieldProps {
   disabled?: boolean
 }
 
-const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange, onBlur, disabled }) => (
-  <div className="space-y-1">
-    <label 
-      htmlFor={`${id}-${variable.name}`}
-      className={`block text-md font-medium ${disabled ? 'text-gray-500' : 'text-gray-700'}`}
-    >
-      {formatVariableLabel(variable.name)}
-      {variable.required && !disabled && <span className="text-gray-400 ml-1">*</span>}
-      {disabled && <span className="text-gray-400 ml-2 text-sm font-normal">(inherited)</span>}
-    </label>
-    
-    <FormControl
-      variable={variable}
-      value={value}
-      error={error}
-      onChange={disabled ? () => {} : onChange}
-      onBlur={onBlur}
-      id={id}
-      disabled={disabled}
-    />
+const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange, onBlur, disabled }) => {
+  const isBooleanType = variable.type === 'bool'
+  
+  return (
+    <div className="space-y-1">
+      <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1 -mb-5' : 'contents space-y-1'}>
+        <label 
+          htmlFor={`${id}-${variable.name}`}
+          className={`${isBooleanType ? 'cursor-pointer' : 'block'} text-md font-medium ${disabled ? 'text-gray-500' : 'text-gray-700'}`}
+        >
+          {formatVariableLabel(variable.name)}
+          {variable.required && !disabled && <span className="text-gray-400 ml-1">*</span>}
+          {disabled && <span className="text-gray-400 ml-2 text-sm font-normal">(inherited)</span>}
+        </label>
+        
+        <FormControl
+          variable={variable}
+          value={value}
+          error={error}
+          onChange={disabled ? () => {} : onChange}
+          onBlur={onBlur}
+          id={id}
+          disabled={disabled}
+        />
 
-    {variable.description && (
-      <p className="text-sm text-gray-400">{variable.description}</p>
-    )}
-    
-    {error && !disabled && (
-      <p className="text-sm text-red-600">{error}</p>
-    )}
-  </div>
-)
+        {variable.description && (
+          <p className={`text-sm text-gray-400 ${isBooleanType ? 'w-full' : ''}`}>{variable.description}</p>
+        )}
+        
+        {error && !disabled && (
+          <p className={`text-sm text-red-600 ${isBooleanType ? 'w-full' : ''}`}>{error}</p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
