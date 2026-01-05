@@ -1,0 +1,6 @@
+[tools]
+opentofu = "latest"
+terragrunt = "latest"
+awscli = { version = "latest", symlink_bins = "true" }
+granted = "latest"
+gh = "latest"

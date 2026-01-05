@@ -62,6 +62,7 @@ function Check({
     execError,
     execute: handleExecute,
     cancel,
+    hasScriptDrift,
   } = useScriptExecution({
     componentId: id,
     path,
@@ -298,6 +299,18 @@ function Check({
   // Main render - form with success indicator overlay if needed
   return (
     <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+      {/* Script drift warning */}
+      {hasScriptDrift && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded-sm text-amber-800 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="size-4 mt-0.5 flex-shrink-0 text-amber-600" />
+            <div>
+              <strong>Script changed:</strong> This script has changed since the runbook was opened. Reload the runbook to use the latest version. If you are authoring this runbook, consider using <code className="bg-amber-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Skip overlay */}
       {skipCheck && (
         <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
