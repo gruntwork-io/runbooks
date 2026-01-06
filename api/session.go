@@ -169,25 +169,21 @@ func (sm *SessionManager) HasSession() bool {
 // Returns the session if valid, nil otherwise.
 func (sm *SessionManager) ValidateToken(token string) (*Session, bool) {
 	sm.mu.RLock()
-	session := sm.session
-	sm.mu.RUnlock()
+	defer sm.mu.RUnlock()
 
-	if session == nil {
+	if sm.session == nil {
 		// No session exists, but still do a comparison to prevent timing attacks
 		_ = token == "dummy-comparison-to-prevent-timing-attack"
 		return nil, false
 	}
 
 	// Check if token is in the valid tokens map
-	sm.mu.RLock()
-	_, valid := session.ValidTokens[token]
-	sm.mu.RUnlock()
-
+	_, valid := sm.session.ValidTokens[token]
 	if !valid {
 		return nil, false
 	}
 
-	return session, true
+	return sm.session, true
 }
 
 // JoinSession creates a new token for an existing session (useful for new browser tabs).
