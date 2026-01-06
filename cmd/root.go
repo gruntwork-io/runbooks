@@ -31,7 +31,7 @@ func getVersionString() string {
 var rootCmd = &cobra.Command{
 	Use:     "runbooks",
 	Short:   "Make the knowledge and experience of the few available to the many.",
-	Long:    `Runbooks enables you to make the knowledge and experience of the few available to the many.`,
+	Long:    `Runbooks makes it easy for subject matter experts to capture their knowledge, and easy for others to consume it.`,
 	Version: getVersionString(),
 	// PersistentPreRun is a Cobra lifecycle hook that runs BEFORE the Run function
 	// of any subcommand (open, watch, serve, etc.). It's inherited by all subcommands,
@@ -62,6 +62,10 @@ func init() {
 	// Cobra supports:
 	// - persistent flags: if defined here, will be global for your application.
 	// - local flags: will only run when this action is called directly.
+
+	// Add command groups for organized help output
+	rootCmd.AddGroup(&cobra.Group{ID: "main", Title: "Main Commands:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "other", Title: "All Other Commands:"})
 
 	// Add persistent flags that are available to all subcommands
 	rootCmd.PersistentFlags().StringVar(&outputPath, "output-path", "generated",

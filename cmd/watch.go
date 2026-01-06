@@ -20,7 +20,7 @@ var disableLiveFileReload bool
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
 	Use:   "watch PATH",
-	Short: "Open a runbook and automatically reload on changes",
+	Short: "Open a runbook and automatically reload changes (useful for runbook authors)",
 	Long: `Open the runbook located at PATH, or the runbook contained in the PATH directory.
 The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
 By default, script changes take effect immediately without server restart (live-file-reload mode).`,
