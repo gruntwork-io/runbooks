@@ -362,9 +362,9 @@ var excludedEnvVars = map[string]bool{
 	"HISTCMD":          	 true, // History number of current command
 	"SRANDOM":          	 true, // 32-bit random (bash 5.1+)
 
-	// Internal wrapper variables
-	"ENV_CAPTURE_FILE": 	true,
-	"PWD_CAPTURE_FILE": 	true,
+	// Internal wrapper variables (must match wrapScriptForEnvCapture)
+	"__RUNBOOKS_ENV_CAPTURE_PATH": true,
+	"__RUNBOOKS_PWD_CAPTURE_PATH": true,
 }
 
 // FilterCapturedEnv filters out shell-internal variables from captured environment.
