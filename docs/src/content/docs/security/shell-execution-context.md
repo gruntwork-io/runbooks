@@ -1,21 +1,49 @@
 ---
 title: Shell Execution Context
-description: Understanding how Runbooks executes scripts in a non-interactive shell
+description: Understanding how Runbooks executes scripts and maintains environment state
 ---
 
-Scripts executed by Runbooks in [Check](/authoring/blocks/check) or [Command](/authoring/blocks/command) blocks run in a **non-interactive shell**. This has important implications for what works and what doesn't.
+## Persistent Environment Model
 
-## What's Available
+**Think of Runbooks like a persistent terminal session.** When you run scripts in Check or Command blocks, environment changes carry forward to subsequent blocks — just like typing commands in a terminal.
+
+| What persists | Example |
+|---------------|---------|
+| Environment variables | `export AWS_PROFILE=prod` stays set for later blocks |
+| Working directory | `cd /path/to/project` changes where later scripts run |
+| Unset variables | `unset DEBUG` removes the variable for later blocks |
+
+This means you can structure your runbook like a workflow:
+
+1. **Block 1**: Set up environment (`export AWS_REGION=us-east-1`)
+2. **Block 2**: Run a command that uses `$AWS_REGION`
+3. **Block 3**: Clean up (`unset AWS_REGION`)
+
+### Multiple Browser Tabs
+
+If you open the same runbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.
+
+### Implementation Notes
+
+The Runbooks server maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
+
+The session resets when you restart the Runbooks server. You can also manually reset the environment to its initial state using the session controls in the UI.
+
+---
+
+## Non-Interactive Shell
+
+Scripts run in a **non-interactive shell**, which affects what's available:
 
 | Feature | Available? | Notes |
 |---------|------------|-------|
-| Environment variables | ✅ Yes | Inherited from the process that launched Runbooks |
+| Environment variables | ✅ Yes | Inherited from Runbooks + changes from previous blocks |
 | Binaries in `$PATH` | ✅ Yes | `git`, `aws`, `terraform`, etc. |
 | Shell aliases | ❌ No | `ll`, `la`, custom aliases |
 | Shell functions | ❌ No | `nvm`, `rvm`, `assume`, etc. |
 | RC files | ❌ No | `.bashrc`, `.zshrc` are NOT sourced |
 
-## Example: Aliases vs Binaries
+### Example: Aliases vs Binaries
 
 ```bash
 # ❌ Will NOT work - ll is typically a bash alias for "ls -l"
@@ -25,9 +53,9 @@ Scripts executed by Runbooks in [Check](/authoring/blocks/check) or [Command](/a
 <Check command="ls -l" ... />
 ```
 
-## Why This Matters
+### Why This Matters
 
-Many developer tools are implemented as **shell functions** rather than standalone binaries. These functions are often defined in your shell's RC files (`.bashrc`, `.zshrc`) and only exist in interactive shell sessions.
+Many developer tools are implemented as **shell functions** rather than standalone binaries. These functions are defined in your shell's RC files (`.bashrc`, `.zshrc`) and only exist in interactive shell sessions.
 
 Common tools that are shell functions (not binaries):
 - **nvm** — Node Version Manager
@@ -36,11 +64,11 @@ Common tools that are shell functions (not binaries):
 - **conda activate**
 - **assume** — Shell function from [Granted](https://docs.commonfate.io/granted/introduction)
 
-These tools need to be shell functions because they modify your current shell's environment (e.g., changing `$PATH` or setting environment variables), which can't be done from a subprocess.
+These tools need to be shell functions because they modify your current shell's environment (e.g., changing `$PATH`), which can't be done from a subprocess.
 
-## Workarounds
+### Workarounds
 
-For tools that are shell functions, instead of invoking them directly, you can check for the underlying installation instead:
+For tools that are shell functions, check for the underlying installation instead:
 
 ```bash
 #!/bin/bash
@@ -54,7 +82,7 @@ else
 fi
 ```
 
-If you absolutely need shell functions, you can source the RC file in your script that runs in the Check or Command block (use with caution):
+If you absolutely need shell functions, source the RC file in your script (use with caution):
 
 ```bash
 #!/bin/bash
@@ -64,6 +92,8 @@ source ~/.bashrc 2>/dev/null || source ~/.zshrc 2>/dev/null
 # Now nvm should be available
 nvm --version
 ```
+
+---
 
 ## Interpreter Detection
 
@@ -90,4 +120,3 @@ Always include a shebang in your scripts to ensure predictable execution:
 set -e
 # Your script here...
 ```
-

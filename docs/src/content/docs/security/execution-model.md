@@ -127,4 +127,4 @@ Regardless of mode, the actual execution process is:
 
 **Security note:** Scripts run with your user's full environment variables and permissions. Runbooks is designed for **trusted runbooks only** - it's meant to streamline tasks you would otherwise run manually in your terminal.
 
-For details on interpreter detection and shell limitations (aliases, functions, RC files), see [Shell Execution Context](/security/shell-execution-context/).
+For details on interpreter detection, shell limitations, and how environment changes persist across script executions, see [Shell Execution Context](/security/shell-execution-context/).

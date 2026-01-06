@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
+import { useSession } from '@/contexts/useSession'
 
 // Zod schemas for SSE events
 const ExecLogEventSchema = z.object({
@@ -78,9 +79,15 @@ export interface UseApiExecReturn {
 /**
  * Hook to execute scripts via the /api/exec endpoint with SSE streaming
  * Uses executable IDs from the executable registry instead of raw script content
+ * 
+ * Integrates with SessionContext for persistent environment support:
+ * - Sends Authorization header for session validation
+ * - Environment changes made by scripts persist to subsequent executions
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const { onFilesCaptured } = options || {}
+  const { getAuthHeader } = useSession()
+  
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -287,11 +294,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
-      // Send POST request to /api/exec
+      // Send POST request to /api/exec with session auth header
       const response = await fetch('/api/exec', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeader(),
         },
         body: JSON.stringify(payload),
         signal: abortController.signal,
@@ -335,7 +343,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     } finally {
       abortControllerRef.current = null
     }
-  }, [cancel, processSSEStream])
+  }, [cancel, processSSEStream, getAuthHeader])
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(

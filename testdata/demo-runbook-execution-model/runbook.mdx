@@ -1,0 +1,123 @@
+# Persistent Environment Model Demo
+
+This runbook demonstrates the persistent execution environment model, where environment 
+variable changes made in one block persist to subsequent blocks within the same session.
+
+## Overview
+
+In this demo, we'll:
+1. Set environment variables in Block 1
+2. Read those variables in Block 2 to prove persistence
+3. Modify the variables in Block 3
+4. Verify the modifications in Block 4
+5. Change the working directory and verify persistence
+
+---
+
+## 1. Set Initial Environment Variables
+
+Let's start by setting some environment variables. These will persist to all subsequent blocks.
+
+<Command 
+    id="set-initial-env"
+    path="scripts/set-initial-env.sh"
+    title="Set initial environment variables"
+    description="This command exports DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT. These will be available in all subsequent blocks."
+    successMessage="Environment variables set successfully!"
+    failMessage="Failed to set environment variables."
+/>
+
+---
+
+## 2. Verify Environment Variables Persist
+
+Now let's verify that the variables we set in Block 1 are available in this block.
+
+<Check 
+    id="verify-env-vars"
+    path="checks/verify-env-vars.sh"
+    title="Verify environment variables"
+    description="This check reads the environment variables set in the previous block. If they're present, the persistent environment is working!"
+    successMessage="Environment variables persisted successfully!"
+    failMessage="Environment variables did not persist. The session may not be working correctly."
+/>
+
+---
+
+## 3. Modify Environment Variables
+
+Let's modify the environment variables to demonstrate that changes propagate forward.
+
+<Command 
+    id="modify-env"
+    path="scripts/modify-env.sh"
+    title="Modify environment variables"
+    description="This command modifies DEMO_COUNT and adds a new DEMO_MODIFIED variable."
+    successMessage="Environment variables modified!"
+    failMessage="Failed to modify environment variables."
+/>
+
+---
+
+## 4. Verify Modifications
+
+Let's verify that the modifications from Block 3 are visible.
+
+<Check 
+    id="verify-modified-env"
+    path="checks/verify-modified-env.sh"
+    title="Verify modified environment"
+    description="This check verifies that DEMO_COUNT was incremented and DEMO_MODIFIED exists."
+    successMessage="Environment modifications persisted!"
+    failMessage="Environment modifications did not persist."
+/>
+
+---
+
+## 5. Change Working Directory
+
+The persistent environment also tracks the working directory. Let's change it.
+
+<Command 
+    id="change-workdir"
+    path="scripts/change-workdir.sh"
+    title="Change working directory"
+    description="This command changes to /tmp and exports a marker variable."
+    successMessage="Working directory changed!"
+    failMessage="Failed to change working directory."
+/>
+
+---
+
+## 6. Verify Working Directory
+
+Let's verify that the working directory change persisted.
+
+<Check 
+    id="verify-workdir"
+    path="checks/verify-workdir.sh"
+    title="Verify working directory"
+    description="This check verifies we're now in /tmp."
+    successMessage="Working directory persisted!"
+    failMessage="Working directory did not persist."
+/>
+
+---
+
+## Summary
+
+If all checks passed, you've successfully demonstrated the persistent environment model:
+
+- **Environment variables** set in one block are available in subsequent blocks
+- **Modifications** to environment variables propagate forward
+- **Working directory** changes persist across blocks
+
+This is similar to how Jupyter notebooks maintain state across cells, enabling complex 
+multi-step workflows where each step builds on the previous one.
+
+### Re-execution Note
+
+If you re-run Block 1 now, it will execute with the **current** environment state, 
+not a historical snapshot. The environment will be reset to the initial values specified 
+in that block.
+

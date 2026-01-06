@@ -51,12 +51,24 @@ type CapturedFile struct {
 }
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		// Validate session token if Authorization header is provided
+		var session *Session
+		token := extractBearerToken(c)
+		if token != "" {
+			var valid bool
+			session, valid = sessionManager.ValidateToken(token)
+			if !valid {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
+				return
+			}
 		}
 
 		var executable *Executable
@@ -137,6 +149,28 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		c.Header("Connection", "keep-alive")
 		c.Header("Transfer-Encoding", "chunked")
 
+		// Create temp files for environment capture (used to capture env changes after script execution)
+		var envCapturePath, pwdCapturePath string
+		if session != nil {
+			envFile, err := os.CreateTemp("", "runbook-env-capture-*.txt")
+			if err != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to create env capture file: %v", err))
+				return
+			}
+			envCapturePath = envFile.Name()
+			envFile.Close()
+			defer os.Remove(envCapturePath)
+
+			pwdFile, err := os.CreateTemp("", "runbook-pwd-capture-*.txt")
+			if err != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to create pwd capture file: %v", err))
+				return
+			}
+			pwdCapturePath = pwdFile.Name()
+			pwdFile.Close()
+			defer os.Remove(pwdCapturePath)
+		}
+
 		// Create a temporary file for the script
 		tmpFile, err := os.CreateTemp("", "runbook-check-*.sh")
 		if err != nil {
@@ -146,7 +180,13 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		defer os.Remove(tmpFile.Name())
 
 		// Write script content to temp file
-		if _, err := tmpFile.WriteString(scriptContent); err != nil {
+		// If we have a session, wrap the script to capture environment changes
+		scriptToWrite := scriptContent
+		if session != nil {
+			scriptToWrite = wrapScriptForEnvCapture(scriptContent, envCapturePath, pwdCapturePath)
+		}
+
+		if _, err := tmpFile.WriteString(scriptToWrite); err != nil {
 			tmpFile.Close()
 			sendSSEError(c, fmt.Sprintf("Failed to write script: %v", err))
 			return
@@ -171,16 +211,20 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		cmdArgs := append(args, tmpFile.Name())
 		cmd := exec.CommandContext(ctx, interpreter, cmdArgs...)
 
-		// Pass through all environment variables
-		// This feels dirty, but the point of a Runbook is to streamline what a user would otherwise do
-		// in their local environment! For users who want more security/control here, a commercial version
-		// of Runbooks is probably the answer.
-		cmd.Env = os.Environ()
+		// Set environment variables
+		// If we have a session, use the session's environment; otherwise use the process environment
+		if session != nil {
+			cmd.Env = session.EnvSlice()
+		} else {
+			cmd.Env = os.Environ()
+		}
 
-		// Set working directory if capturing files
-		// This isolates the script so all relative file writes are captured
+		// Set working directory
+		// Priority: captureFiles workDir > session workDir > default
 		if req.CaptureFiles && workDir != "" {
 			cmd.Dir = workDir
+		} else if session != nil {
+			cmd.Dir = session.WorkingDir
 		}
 
 		// Get stdout and stderr pipes
@@ -270,6 +314,23 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 				sendSSEStatus(c, status, exitCode)
 				flusher.Flush()
 
+				// Update session environment if we have a session and execution succeeded
+				// We capture env even on warnings since the script may have made partial changes
+				if session != nil && (status == "success" || status == "warn") {
+					capturedEnv, capturedPwd := parseEnvCapture(envCapturePath, pwdCapturePath)
+					if capturedEnv != nil {
+						// Filter out shell internals
+						filteredEnv := FilterCapturedEnv(capturedEnv)
+						// Determine new working directory
+						newWorkDir := session.WorkingDir
+						if capturedPwd != "" {
+							newWorkDir = capturedPwd
+						}
+						// Update session (ignore errors, non-critical)
+						_ = sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir)
+					}
+				}
+
 				// Capture files if enabled and execution was successful (or warning)
 				if req.CaptureFiles && workDir != "" && (status == "success" || status == "warn") {
 					capturedFiles, captureErr := captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath)
@@ -289,6 +350,72 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			}
 		}
 	}
+}
+
+// wrapScriptForEnvCapture wraps a script to capture environment changes after execution.
+// The wrapper appends commands to dump the environment and working directory to temp files.
+func wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) string {
+	// We wrap the script to capture environment after it runs
+	// The wrapper:
+	// 1. Sources/executes the original script
+	// 2. Captures the resulting environment to a temp file
+	// 3. Captures the working directory to another temp file
+	//
+	// We use a subshell to run the user script so that 'exit' calls don't skip our capture
+	// but we need the environment changes to propagate, so we use 'source' instead
+	//
+	// The wrapper preserves the exit code of the original script
+	wrapper := fmt.Sprintf(`#!/bin/bash
+# Runbooks environment capture wrapper
+# This wrapper captures environment changes after the user script runs
+
+__RUNBOOKS_ENV_CAPTURE_PATH=%q
+__RUNBOOKS_PWD_CAPTURE_PATH=%q
+
+# Run the user script in the current shell context so env changes propagate
+# We use a function and trap to ensure we capture env even if script calls 'exit'
+__runbooks_capture_env() {
+    env > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
+    pwd > "$__RUNBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
+}
+
+trap __runbooks_capture_env EXIT
+
+# Execute the user script inline (not sourced, to preserve proper error handling)
+# --- BEGIN USER SCRIPT ---
+%s
+# --- END USER SCRIPT ---
+`, envCapturePath, pwdCapturePath, script)
+
+	return wrapper
+}
+
+// parseEnvCapture reads the captured environment and working directory from temp files.
+func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, string) {
+	env := make(map[string]string)
+
+	// Read environment capture
+	if envData, err := os.ReadFile(envCapturePath); err == nil {
+		for _, line := range strings.Split(string(envData), "\n") {
+			if idx := strings.Index(line, "="); idx != -1 {
+				key := line[:idx]
+				value := line[idx+1:]
+				env[key] = value
+			}
+		}
+	}
+
+	// Read working directory capture
+	var pwd string
+	if pwdData, err := os.ReadFile(pwdCapturePath); err == nil {
+		pwd = strings.TrimSpace(string(pwdData))
+	}
+
+	if len(env) == 0 {
+		return nil, pwd
+	}
+
+	return env, pwd
 }
 
 // detectInterpreter detects the interpreter from the shebang line or uses provided language

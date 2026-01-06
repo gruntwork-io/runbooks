@@ -13,7 +13,7 @@ import (
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, registry *ExecutableRegistry, useExecutableRegistry bool) {
+func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
 	if err != nil {
@@ -51,8 +51,15 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
+	// Session management endpoints (single session per runbook server)
+	r.POST("/api/session", HandleCreateSession(sessionManager, runbookPath))
+	r.POST("/api/session/join", HandleJoinSession(sessionManager))
+	r.GET("/api/session", HandleGetSession(sessionManager))
+	r.POST("/api/session/reset", HandleResetSession(sessionManager))
+	r.DELETE("/api/session", HandleDeleteSession(sessionManager))
+
 	// API endpoint to execute check scripts
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath))
+	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
 
 	// API endpoints for managing generated files
 	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
@@ -95,6 +102,9 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
 
+	// Create session manager for persistent environment
+	sessionManager := NewSessionManager()
+
 	// Use release mode for end-users (quieter logs, better performance)
 	// Use gin.New() instead of gin.Default() to skip the default logger middleware
 	// This keeps the logs clean for end-users while still including recovery middleware
@@ -109,7 +119,7 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes
-	setupCommonRoutes(r, resolvedPath, outputPath, registry, true)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, sessionManager, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -128,6 +138,9 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create executable registry: %w", err)
 	}
+
+	// Create session manager for persistent environment
+	sessionManager := NewSessionManager()
 
 	// Keep debug mode for development (default behavior)
 	r := gin.Default()
@@ -149,7 +162,7 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes (includes all other endpoints)
-	setupCommonRoutes(r, resolvedPath, outputPath, registry, true)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, sessionManager, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
@@ -172,6 +185,9 @@ func StartServerWithWatch(runbookPath string, port int, outputPath string, useEx
 		}
 	}
 
+	// Create session manager for persistent environment
+	sessionManager := NewSessionManager()
+
 	// Create file watcher
 	fileWatcher, err := NewFileWatcher(resolvedPath)
 	if err != nil {
@@ -192,7 +208,7 @@ func StartServerWithWatch(runbookPath string, port int, outputPath string, useEx
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 
 	// Set up common routes
-	setupCommonRoutes(r, resolvedPath, outputPath, registry, useExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, outputPath, registry, sessionManager, useExecutableRegistry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

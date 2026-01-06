@@ -7,19 +7,22 @@ import { ExecutableRegistryProvider } from './contexts/ExecutableRegistryContext
 import { ErrorReportingProvider } from './contexts/ErrorReportingContext'
 import { TelemetryProvider } from './contexts/TelemetryContext'
 import { LogsProvider } from './contexts/LogsContext'
+import { SessionProvider } from './contexts/SessionContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TelemetryProvider>
-      <ErrorReportingProvider>
-        <ExecutableRegistryProvider>
-          <FileTreeProvider>
-            <LogsProvider>
-              <App />
-            </LogsProvider>
-          </FileTreeProvider>
-        </ExecutableRegistryProvider>
-      </ErrorReportingProvider>
+      <SessionProvider>
+        <ErrorReportingProvider>
+          <ExecutableRegistryProvider>
+            <FileTreeProvider>
+              <LogsProvider>
+                <App />
+              </LogsProvider>
+            </FileTreeProvider>
+          </ExecutableRegistryProvider>
+        </ErrorReportingProvider>
+      </SessionProvider>
     </TelemetryProvider>
   </StrictMode>,
 )
