@@ -18,8 +18,6 @@ const (
 	commandIndent = "  "
 	// commandNameWidth is the width allocated for command names
 	commandNameWidth = 14
-	// flagNameWidth is the width allocated for flag names
-	flagNameWidth = 26
 )
 
 var (
@@ -130,19 +128,13 @@ func formatHelpLine(name, description string) string {
 }
 
 // formatFlagLine formats a flag help line with proper wrapping
-func formatFlagLine(flagStr, description string) string {
+// nameWidth is the width allocated for the flag name (should be longest flag + 2)
+func formatFlagLine(flagStr, description string, nameWidth int) string {
 	// Calculate the column where description starts
-	descStartCol := len(commandIndent) + flagNameWidth
-
-	// If the flag string is too long, put description on next line
-	if len(commandIndent)+len(flagStr) >= descStartCol-1 {
-		namePart := fmt.Sprintf("%s%s\n%s", commandIndent, flagStr, strings.Repeat(" ", descStartCol))
-		wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
-		return namePart + wrappedDesc
-	}
+	descStartCol := len(commandIndent) + nameWidth
 
 	// Format the flag part with padding
-	namePart := fmt.Sprintf("%s%-*s", commandIndent, flagNameWidth, flagStr)
+	namePart := fmt.Sprintf("%s%-*s", commandIndent, nameWidth, flagStr)
 
 	// Wrap the description
 	wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
@@ -169,16 +161,22 @@ func formatFlags(cmd *cobra.Command, inherited bool) string {
 			return
 		}
 
+		// Skip showing shorthand for help and version flags (they still work, just not displayed)
 		var flagStr string
-		if f.Shorthand != "" {
+		if f.Shorthand != "" && f.Name != "help" && f.Name != "version" {
 			flagStr = fmt.Sprintf("-%s, --%s", f.Shorthand, f.Name)
 		} else {
-			flagStr = fmt.Sprintf("    --%s", f.Name)
+			flagStr = fmt.Sprintf("--%s", f.Name)
 		}
 
-		// Add type if not bool
+		// Add type if not bool (use = format like OpenTofu)
 		if f.Value.Type() != "bool" {
-			flagStr += " " + f.Value.Type()
+			// Use descriptive type names instead of Go types
+			typeName := f.Value.Type()
+			if strings.HasSuffix(f.Name, "-path") || f.Name == "path" {
+				typeName = "path"
+			}
+			flagStr += "=" + typeName
 		}
 
 		flags = append(flags, struct {
@@ -187,8 +185,18 @@ func formatFlags(cmd *cobra.Command, inherited bool) string {
 		}{flagStr, f.Usage})
 	})
 
+	// Find the longest flag name to calculate dynamic width
+	maxLen := 0
 	for _, f := range flags {
-		result.WriteString(formatFlagLine(f.name, f.desc))
+		if len(f.name) > maxLen {
+			maxLen = len(f.name)
+		}
+	}
+	// Add 2 spaces after the longest flag
+	nameWidth := maxLen + 2
+
+	for _, f := range flags {
+		result.WriteString(formatFlagLine(f.name, f.desc, nameWidth))
 		result.WriteString("\n")
 	}
 
@@ -246,6 +254,9 @@ func customHelp(cmd *cobra.Command, args []string) {
 
 	if cmd.Name() == "runbooks" {
 		fmt.Printf("Use \"%s [command] --help\" for more information about a command.\n", cmd.Use)
+		fmt.Println()
+		fmt.Println("To learn more about Runbooks, go to https://runbooks.gruntwork.io.")
+		fmt.Println()
 	}
 }
 
