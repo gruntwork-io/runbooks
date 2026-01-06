@@ -52,11 +52,18 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
 	// Session management endpoints (single session per runbook server)
+	// Public session endpoints (no auth required)
 	r.POST("/api/session", HandleCreateSession(sessionManager, runbookPath))
 	r.POST("/api/session/join", HandleJoinSession(sessionManager))
-	r.GET("/api/session", HandleGetSession(sessionManager))
-	r.POST("/api/session/reset", HandleResetSession(sessionManager))
-	r.DELETE("/api/session", HandleDeleteSession(sessionManager))
+
+	// Protected session endpoints (require Bearer token)
+	sessionAuth := r.Group("/api/session")
+	sessionAuth.Use(SessionAuthMiddleware(sessionManager))
+	{
+		sessionAuth.GET("", HandleGetSession(sessionManager))
+		sessionAuth.POST("/reset", HandleResetSession(sessionManager))
+		sessionAuth.DELETE("", HandleDeleteSession(sessionManager))
+	}
 
 	// API endpoint to execute check scripts
 	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))

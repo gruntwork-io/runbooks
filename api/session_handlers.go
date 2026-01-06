@@ -47,25 +47,31 @@ func HandleJoinSession(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
-// HandleGetSession returns session metadata (NOT environment variables).
-// GET /api/session
-// Requires Bearer token authentication.
-func HandleGetSession(sm *SessionManager) gin.HandlerFunc {
+// SessionAuthMiddleware validates the Bearer token and aborts if invalid.
+// Use this middleware on routes that require session authentication.
+func SessionAuthMiddleware(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Validate token
 		token := extractBearerToken(c)
 		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header. Include 'Authorization: Bearer <token>' from session creation."})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header. Include 'Authorization: Bearer <token>' from session creation."})
 			return
 		}
 		if _, valid := sm.ValidateToken(token); !valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
 			return
 		}
+		c.Next()
+	}
+}
 
+// HandleGetSession returns session metadata (NOT environment variables).
+// GET /api/session
+// Requires Bearer token authentication (enforced by SessionAuthMiddleware).
+func HandleGetSession(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		metadata, ok := sm.GetMetadata()
 		if !ok {
-			// This shouldn't happen since we just validated the token, but handle it anyway
+			// This shouldn't happen since middleware validated the token, but handle it anyway
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -76,20 +82,9 @@ func HandleGetSession(sm *SessionManager) gin.HandlerFunc {
 
 // HandleResetSession resets a session to its initial environment state.
 // POST /api/session/reset
-// Requires Bearer token authentication.
+// Requires Bearer token authentication (enforced by SessionAuthMiddleware).
 func HandleResetSession(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Validate token
-		token := extractBearerToken(c)
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header. Include 'Authorization: Bearer <token>' from session creation."})
-			return
-		}
-		if _, valid := sm.ValidateToken(token); !valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
-			return
-		}
-
 		if err := sm.ResetSession(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset session"})
 			return
@@ -101,20 +96,9 @@ func HandleResetSession(sm *SessionManager) gin.HandlerFunc {
 
 // HandleDeleteSession deletes a session.
 // DELETE /api/session
-// Requires Bearer token authentication.
+// Requires Bearer token authentication (enforced by SessionAuthMiddleware).
 func HandleDeleteSession(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Validate token
-		token := extractBearerToken(c)
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header. Include 'Authorization: Bearer <token>' from session creation."})
-			return
-		}
-		if _, valid := sm.ValidateToken(token); !valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
-			return
-		}
-
 		sm.DeleteSession()
 		c.JSON(http.StatusOK, gin.H{"message": "Session deleted"})
 	}
