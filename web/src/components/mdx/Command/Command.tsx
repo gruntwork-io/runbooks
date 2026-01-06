@@ -279,7 +279,7 @@ function Command({
       {/* Script drift warning */}
       {hasScriptDrift && (
         <Admonition type="warning" title="Script changed" className="space-y-2">
-          <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
+          <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
           <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.</p>
         </Admonition>
       )}
