@@ -9,6 +9,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
+import { computeSha256Hash } from '@/lib/hash'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -51,6 +52,9 @@ interface UseScriptExecutionReturn {
   execError: AppError | null
   execute: () => void
   cancel: () => void
+  
+  // Drift detection (script changed on disk since runbook was opened)
+  hasScriptDrift: boolean
 }
 
 /**
@@ -90,6 +94,54 @@ export function useScriptExecution({
   // Determine raw script content: command prop takes precedence over file path
   const rawScriptContent = command || fileData?.content || ''
   const language = fileData?.language
+  
+  // State for computed hash of inline command content (for drift detection)
+  // Store the command along with its hash to avoid race conditions when command prop changes
+  const [commandHashResult, setCommandHashResult] = useState<{ command: string; hash: string } | null>(null)
+  
+  // Compute hash of inline command content when it changes
+  useEffect(() => {
+    if (!command) {
+      setCommandHashResult(null)
+      return
+    }
+    
+    // Track if this effect instance is still active (handles unmount and re-runs)
+    let isActive = true
+    computeSha256Hash(command).then(hash => {
+      if (isActive) {
+        setCommandHashResult({ command, hash })
+      }
+    })
+    
+    return () => {
+      isActive = false
+    }
+  }, [command])
+  
+  // Detect script drift: when the current content differs from what's registered
+  // This applies in registry mode for both file-based scripts AND inline commands
+  const hasScriptDrift = useMemo(() => {
+    // No drift detection needed in live reload mode (scripts are always fresh)
+    if (!execRegistryEnabled) return false
+    
+    const executable = getExecutableByComponentId(componentId)
+    if (!executable?.script_content_hash) return false
+    
+    // For inline commands, compare computed hash against registry hash
+    if (command) {
+      // If the hash we have is not for the current command, we can't know the drift status yet.
+      // Returning false is a safe default until the new hash is computed.
+      if (commandHashResult?.command !== command) {
+        return false
+      }
+      return commandHashResult.hash !== executable.script_content_hash
+    }
+    
+    // For file-based scripts, compare file hash against registry hash
+    if (!fileData?.contentHash) return false
+    return fileData.contentHash !== executable.script_content_hash
+  }, [execRegistryEnabled, command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
@@ -381,6 +433,9 @@ export function useScriptExecution({
     execError: combinedExecError,
     execute,
     cancel: cancelExec,
+    
+    // Drift detection
+    hasScriptDrift,
   }
 }
 

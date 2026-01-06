@@ -6,6 +6,7 @@ import type { UseApiReturn } from './useApi';
 export interface GetFileReturn {
   path: string;
   content: string;
+  contentHash: string;
   language: string;
   size: number;
   isWatchMode?: boolean;
