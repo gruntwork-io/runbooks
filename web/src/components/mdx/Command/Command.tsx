@@ -1,4 +1,5 @@
 import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash, FolderInput } from "lucide-react"
+import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
@@ -277,14 +278,10 @@ function Command({
     <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
       {/* Script drift warning */}
       {hasScriptDrift && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded-sm text-amber-800 text-sm">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="size-4 mt-0.5 flex-shrink-0 text-amber-600" />
-            <div>
-              <strong>Script changed:</strong> This script has changed since the runbook was opened. Reload the runbook to use the latest version. If you are authoring this runbook, consider using <code className="bg-amber-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.
-            </div>
-          </div>
-        </div>
+        <Admonition type="warning" title="Script changed" className="space-y-2">
+          <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
+          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.</p>
+        </Admonition>
       )}
       
       {/* Skip overlay */}

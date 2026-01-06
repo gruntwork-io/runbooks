@@ -28,16 +28,16 @@ const (
 
 // Executable represents a registered script that can be executed
 type Executable struct {
-	ID               string         `json:"id"`
-	Type             ExecutableType `json:"type"`
-	ComponentID      string         `json:"component_id"`
-	ComponentType    string         `json:"component_type"` // "check" or "command"
-	ScriptContent    string         `json:"-"`              // Not sent to frontend for security
-	ContentHash      string         `json:"content_hash"`   // Hash of script content for drift detection
-	ScriptPath       string         `json:"script_path,omitempty"`
-	BoilerplatePath  string         `json:"boilerplate_path,omitempty"`
-	TemplateVarNames []string       `json:"template_var_names,omitempty"` // Variable names used in template
-	Language         string         `json:"language,omitempty"`
+	ID                string         `json:"id"`
+	Type              ExecutableType `json:"type"`
+	ComponentID       string         `json:"component_id"`
+	ComponentType     string         `json:"component_type"` // "check" or "command"
+	ScriptContent     string         `json:"-"`                          // Not sent to frontend for security
+	ScriptContentHash string         `json:"script_content_hash"`        // Hash of script content for drift detection
+	ScriptPath        string         `json:"script_path,omitempty"`
+	BoilerplatePath   string         `json:"boilerplate_path,omitempty"`
+	TemplateVarNames  []string       `json:"template_var_names,omitempty"` // Variable names used in template
+	Language          string         `json:"language,omitempty"`
 }
 
 // ExecutableRegistry manages registered executables for a runbook
@@ -80,15 +80,15 @@ func (r *ExecutableRegistry) GetAllExecutables() map[string]*Executable {
 	result := make(map[string]*Executable)
 	for id, exec := range r.executables {
 		result[id] = &Executable{
-			ID:               exec.ID,
-			Type:             exec.Type,
-			ComponentID:      exec.ComponentID,
-			ComponentType:    exec.ComponentType,
-			ContentHash:      exec.ContentHash,
-			ScriptPath:       exec.ScriptPath,
-			BoilerplatePath:  exec.BoilerplatePath,
-			TemplateVarNames: exec.TemplateVarNames,
-			Language:         exec.Language,
+			ID:                exec.ID,
+			Type:              exec.Type,
+			ComponentID:       exec.ComponentID,
+			ComponentType:     exec.ComponentType,
+			ScriptContentHash: exec.ScriptContentHash,
+			ScriptPath:        exec.ScriptPath,
+			BoilerplatePath:   exec.BoilerplatePath,
+			TemplateVarNames:  exec.TemplateVarNames,
+			Language:          exec.Language,
 		}
 	}
 	return result
@@ -183,13 +183,13 @@ func (r *ExecutableRegistry) registerInlineExecutable(componentID, componentType
 	scriptContent = unescapeString(scriptContent)
 
 	exec := &Executable{
-		ID:               computeExecutableID(componentID, scriptContent),
-		Type:             ExecutableTypeInline,
-		ComponentID:      componentID,
-		ComponentType:    strings.ToLower(componentType),
-		ScriptContent:    scriptContent,
-		ContentHash:      computeContentHash(scriptContent),
-		TemplateVarNames: extractTemplateVars(scriptContent),
+		ID:                computeExecutableID(componentID, scriptContent),
+		Type:              ExecutableTypeInline,
+		ComponentID:       componentID,
+		ComponentType:     strings.ToLower(componentType),
+		ScriptContent:     scriptContent,
+		ScriptContentHash: computeContentHash(scriptContent),
+		TemplateVarNames:  extractTemplateVars(scriptContent),
 	}
 
 	r.mu.Lock()
@@ -247,14 +247,14 @@ func (r *ExecutableRegistry) registerFileExecutable(componentID, componentType, 
 	scriptContent := string(content)
 
 	exec := &Executable{
-		ID:               computeExecutableID(componentID, scriptContent),
-		Type:             ExecutableTypeFile,
-		ComponentID:      componentID,
-		ComponentType:    strings.ToLower(componentType),
-		ScriptContent:    scriptContent,
-		ContentHash:      computeContentHash(scriptContent),
-		ScriptPath:       scriptPath,
-		TemplateVarNames: extractTemplateVars(scriptContent),
+		ID:                computeExecutableID(componentID, scriptContent),
+		Type:              ExecutableTypeFile,
+		ComponentID:       componentID,
+		ComponentType:     strings.ToLower(componentType),
+		ScriptContent:     scriptContent,
+		ScriptContentHash: computeContentHash(scriptContent),
+		ScriptPath:        scriptPath,
+		TemplateVarNames:  extractTemplateVars(scriptContent),
 	}
 
 	r.mu.Lock()

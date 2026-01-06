@@ -3,7 +3,7 @@ export interface Executable {
   type: 'inline' | 'file'
   component_id: string
   component_type: 'check' | 'command'
-  content_hash: string
+  script_content_hash: string
   script_path?: string
   template_var_names?: string[]
   language?: string

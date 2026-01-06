@@ -118,17 +118,17 @@ export function useScriptExecution({
     if (!execRegistryEnabled) return false
     
     const executable = getExecutableByComponentId(componentId)
-    if (!executable?.content_hash) return false
+    if (!executable?.script_content_hash) return false
     
     // For inline commands, compare computed hash against registry hash
     if (command) {
       if (!inlineCommandHash) return false // Hash not computed yet
-      return inlineCommandHash !== executable.content_hash
+      return inlineCommandHash !== executable.script_content_hash
     }
     
     // For file-based scripts, compare file hash against registry hash
     if (!fileData?.contentHash) return false
-    return fileData.contentHash !== executable.content_hash
+    return fileData.contentHash !== executable.script_content_hash
   }, [execRegistryEnabled, command, inlineCommandHash, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present
