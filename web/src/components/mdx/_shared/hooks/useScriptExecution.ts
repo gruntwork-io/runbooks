@@ -96,19 +96,27 @@ export function useScriptExecution({
   const language = fileData?.language
   
   // State for computed hash of inline command content (for drift detection)
-  const [inlineCommandHash, setInlineCommandHash] = useState<string | null>(null)
+  // Store the command along with its hash to avoid race conditions when command prop changes
+  const [commandHashResult, setCommandHashResult] = useState<{ command: string; hash: string } | null>(null)
   
   // Compute hash of inline command content when it changes
   useEffect(() => {
     if (!command) {
-      setInlineCommandHash(null)
+      setCommandHashResult(null)
       return
     }
     
-    // Compute hash asynchronously
+    // Track if this effect instance is still active (handles unmount and re-runs)
+    let isActive = true
     computeSha256Hash(command).then(hash => {
-      setInlineCommandHash(hash)
+      if (isActive) {
+        setCommandHashResult({ command, hash })
+      }
     })
+    
+    return () => {
+      isActive = false
+    }
   }, [command])
   
   // Detect script drift: when the current content differs from what's registered
@@ -122,14 +130,18 @@ export function useScriptExecution({
     
     // For inline commands, compare computed hash against registry hash
     if (command) {
-      if (!inlineCommandHash) return false // Hash not computed yet
-      return inlineCommandHash !== executable.script_content_hash
+      // If the hash we have is not for the current command, we can't know the drift status yet.
+      // Returning false is a safe default until the new hash is computed.
+      if (commandHashResult?.command !== command) {
+        return false
+      }
+      return commandHashResult.hash !== executable.script_content_hash
     }
     
     // For file-based scripts, compare file hash against registry hash
     if (!fileData?.contentHash) return false
     return fileData.contentHash !== executable.script_content_hash
-  }, [execRegistryEnabled, command, inlineCommandHash, fileData?.contentHash, componentId, getExecutableByComponentId])
+  }, [execRegistryEnabled, command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
