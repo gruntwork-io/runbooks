@@ -23,6 +23,7 @@ the server at http://localhost:7825.
 
 This is useful for local development on the runbooks tool. Runbook authors and consumers will not find this useful.
 `,
+	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
 		telemetry.TrackCommand("serve")

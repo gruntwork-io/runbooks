@@ -24,6 +24,7 @@ var watchCmd = &cobra.Command{
 	Long: `Open the runbook located at PATH, or the runbook contained in the PATH directory.
 The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
 By default, script changes take effect immediately without server restart (live-file-reload mode).`,
+	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
 		telemetry.TrackCommand("watch")
