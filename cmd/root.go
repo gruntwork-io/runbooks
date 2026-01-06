@@ -16,8 +16,6 @@ const (
 	maxLineWidth = 76
 	// commandIndent is the leading indentation for commands/flags
 	commandIndent = "  "
-	// commandNameWidth is the width allocated for command names
-	commandNameWidth = 14
 )
 
 var (
@@ -71,9 +69,6 @@ func Execute() {
 // mainCommandOrder defines the order of main commands in help output
 var mainCommandOrder = []string{"open", "watch"}
 
-// defaultHelpFunc stores the default Cobra help function
-var defaultHelpFunc func(*cobra.Command, []string)
-
 // wrapText wraps text to fit within maxWidth, with subsequent lines indented
 // to startColumn. Returns a single string with newlines.
 func wrapText(text string, startColumn, maxWidth int) string {
@@ -114,12 +109,13 @@ func wrapText(text string, startColumn, maxWidth int) string {
 
 // formatHelpLine formats a single help line with name and description,
 // wrapping the description if needed.
-func formatHelpLine(name, description string) string {
+// nameWidth is the width allocated for the command name (should be longest command name + 2)
+func formatHelpLine(name, description string, nameWidth int) string {
 	// Calculate the column where description starts
-	descStartCol := len(commandIndent) + commandNameWidth
+	descStartCol := len(commandIndent) + nameWidth
 
 	// Format the name part with padding
-	namePart := fmt.Sprintf("%s%-*s", commandIndent, commandNameWidth, name)
+	namePart := fmt.Sprintf("%s%-*s", commandIndent, nameWidth, name)
 
 	// Wrap the description
 	wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
@@ -217,12 +213,22 @@ func customHelp(cmd *cobra.Command, args []string) {
 
 	// For root command, print commands in sections
 	if cmd.Name() == "runbooks" {
+		// Calculate the maximum command name width dynamically
+		maxNameLen := 0
+		for _, subcmd := range cmd.Commands() {
+			if !subcmd.Hidden && len(subcmd.Name()) > maxNameLen {
+				maxNameLen = len(subcmd.Name())
+			}
+		}
+		// Add 2 spaces after the longest command name for padding
+		commandNameWidth := maxNameLen + 2
+
 		// Print main commands in specified order
 		fmt.Println("Main Commands:")
 		for _, name := range mainCommandOrder {
 			for _, subcmd := range cmd.Commands() {
 				if subcmd.Name() == name && subcmd.GroupID == "main" {
-					fmt.Println(formatHelpLine(subcmd.Name(), subcmd.Short))
+					fmt.Println(formatHelpLine(subcmd.Name(), subcmd.Short, commandNameWidth))
 				}
 			}
 		}
@@ -232,7 +238,7 @@ func customHelp(cmd *cobra.Command, args []string) {
 		fmt.Println("All Other Commands:")
 		for _, subcmd := range cmd.Commands() {
 			if subcmd.GroupID == "other" && !subcmd.Hidden {
-				fmt.Println(formatHelpLine(subcmd.Name(), subcmd.Short))
+				fmt.Println(formatHelpLine(subcmd.Name(), subcmd.Short, commandNameWidth))
 			}
 		}
 		fmt.Println()
@@ -269,9 +275,6 @@ func init() {
 	// Add command groups for organized help output
 	rootCmd.AddGroup(&cobra.Group{ID: "main", Title: "Main Commands:"})
 	rootCmd.AddGroup(&cobra.Group{ID: "other", Title: "All Other Commands:"})
-
-	// Save the default help function before overriding
-	defaultHelpFunc = rootCmd.HelpFunc()
 
 	// Set custom help function to control command order
 	rootCmd.SetHelpFunc(customHelp)
