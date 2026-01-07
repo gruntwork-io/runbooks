@@ -48,6 +48,14 @@ type SessionMetadata struct {
 	ActiveTabs     int       `json:"activeTabs"` // Number of active tokens (browser tabs)
 }
 
+// SessionExecContext contains an immutable snapshot of session data needed for script execution.
+// This is returned by ValidateToken to avoid race conditions from exposing the mutable Session pointer.
+// All fields are copied while holding the lock, so they're safe to use after the lock is released.
+type SessionExecContext struct {
+	Env     []string // Environment as KEY=VALUE pairs, ready for exec.Cmd.Env
+	WorkDir string   // Current working directory
+}
+
 // SessionTokenResponse is returned when creating or restoring a session.
 type SessionTokenResponse struct {
 	Token string `json:"token"`
@@ -166,8 +174,12 @@ func (sm *SessionManager) HasSession() bool {
 }
 
 // ValidateToken verifies that the provided token is one of the session's valid tokens.
-// Returns the session if valid, nil otherwise.
-func (sm *SessionManager) ValidateToken(token string) (*Session, bool) {
+// Returns an immutable execution context if valid, nil otherwise.
+//
+// The returned SessionExecContext contains copies of the session data needed for script
+// execution. This avoids race conditions that would occur if we returned the mutable
+// Session pointer, which could be modified by other goroutines after the lock is released.
+func (sm *SessionManager) ValidateToken(token string) (*SessionExecContext, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
@@ -183,7 +195,12 @@ func (sm *SessionManager) ValidateToken(token string) (*Session, bool) {
 		return nil, false
 	}
 
-	return sm.session, true
+	// Return a snapshot of the execution context, copied while holding the lock.
+	// This ensures thread-safe access to session data after the lock is released.
+	return &SessionExecContext{
+		Env:     sm.session.EnvSlice(), // Creates a new slice, safe to use after unlock
+		WorkDir: sm.session.WorkingDir, // String is immutable in Go, safe to copy
+	}, true
 }
 
 // JoinSession creates a new token for an existing session (useful for new browser tabs).

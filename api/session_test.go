@@ -140,17 +140,48 @@ func TestValidateToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session, valid := sm.ValidateToken(tt.token)
+			execCtx, valid := sm.ValidateToken(tt.token)
 			if valid != tt.wantValid {
 				t.Errorf("ValidateToken() valid = %v, want %v", valid, tt.wantValid)
 			}
-			if tt.wantValid && session == nil {
-				t.Error("ValidateToken() should return session when valid")
+			if tt.wantValid && execCtx == nil {
+				t.Error("ValidateToken() should return exec context when valid")
 			}
-			if !tt.wantValid && session != nil {
-				t.Error("ValidateToken() should not return session when invalid")
+			if !tt.wantValid && execCtx != nil {
+				t.Error("ValidateToken() should not return exec context when invalid")
 			}
 		})
+	}
+}
+
+func TestValidateTokenReturnsSnapshot(t *testing.T) {
+	sm := NewSessionManager()
+	tmpDir := t.TempDir()
+	response, _ := sm.CreateSession(tmpDir)
+
+	// Get execution context
+	execCtx, valid := sm.ValidateToken(response.Token)
+	if !valid {
+		t.Fatal("Token should be valid")
+	}
+
+	// Verify it contains a snapshot of the data
+	if execCtx.WorkDir != tmpDir {
+		t.Errorf("WorkDir should be %s, got %s", tmpDir, execCtx.WorkDir)
+	}
+
+	if len(execCtx.Env) == 0 {
+		t.Error("Env should not be empty")
+	}
+
+	// Verify the env is a copy (modifying it shouldn't affect the session)
+	originalLen := len(execCtx.Env)
+	execCtx.Env = append(execCtx.Env, "NEW_VAR=test")
+
+	// Get a new context - it should have the original length
+	execCtx2, _ := sm.ValidateToken(response.Token)
+	if len(execCtx2.Env) != originalLen {
+		t.Error("Modifying returned Env should not affect session")
 	}
 }
 

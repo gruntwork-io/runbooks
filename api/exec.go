@@ -58,11 +58,11 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 
 		// Validate session token if Authorization header is provided
-		var session *Session
+		var execCtx *SessionExecContext
 		token := extractBearerToken(c)
 		if token != "" {
 			var valid bool
-			session, valid = sessionManager.ValidateToken(token)
+			execCtx, valid = sessionManager.ValidateToken(token)
 			if !valid {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
 				return
@@ -129,7 +129,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 
 		// Create temp files for environment capture (used to capture env changes after script execution)
 		var envCapturePath, pwdCapturePath string
-		if session != nil {
+		if execCtx != nil {
 			envFile, err := os.CreateTemp("", "runbook-env-capture-*.txt")
 			if err != nil {
 				sendSSEError(c, fmt.Sprintf("Failed to create env capture file: %v", err))
@@ -169,7 +169,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		//    their own subprocess and wouldn't propagate back to the session
 		scriptToWrite := scriptContent
 		isBashCompatible := isBashInterpreter(interpreter)
-		if session != nil && isBashCompatible {
+		if execCtx != nil && isBashCompatible {
 			scriptToWrite = wrapScriptForEnvCapture(scriptContent, envCapturePath, pwdCapturePath)
 		}
 
@@ -197,8 +197,8 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 
 		// Set environment variables
 		// If we have a session, use the session's environment; otherwise use the process environment
-		if session != nil {
-			cmd.Env = session.EnvSlice()
+		if execCtx != nil {
+			cmd.Env = execCtx.Env
 		} else {
 			cmd.Env = os.Environ()
 		}
@@ -208,8 +208,8 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		cmd.Env = append(cmd.Env, "RUNBOOKS_OUTPUT="+captureDir)
 
 		// Set working directory from session if available
-		if session != nil {
-			cmd.Dir = session.WorkingDir
+		if execCtx != nil {
+			cmd.Dir = execCtx.WorkDir
 		}
 
 		// Get stdout and stderr pipes
@@ -303,13 +303,13 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 				// We capture env even on warnings since the script may have made partial changes.
 				// Non-bash scripts (Python, Ruby, etc.) don't get environment capture - their env changes
 				// only affect their own subprocess and can't propagate back to the session.
-				if session != nil && isBashCompatible && (status == "success" || status == "warn") {
+				if execCtx != nil && isBashCompatible && (status == "success" || status == "warn") {
 					capturedEnv, capturedPwd := parseEnvCapture(envCapturePath, pwdCapturePath)
 					if capturedEnv != nil {
 						// Filter out shell internals
 						filteredEnv := FilterCapturedEnv(capturedEnv)
-						// Determine new working directory
-						newWorkDir := session.WorkingDir
+						// Determine new working directory (use captured pwd, or fall back to the original)
+						newWorkDir := execCtx.WorkDir
 						if capturedPwd != "" {
 							newWorkDir = capturedPwd
 						}
