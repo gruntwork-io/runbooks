@@ -29,6 +29,51 @@ Let's start by setting some environment variables. These will persist to all sub
 
 ---
 
+## 1.1 Python Can READ Bash-Set Environment Variables
+
+Non-bash scripts like Python can **read** environment variables set by earlier bash scripts. This Python script verifies it can access DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT set in Block 1.
+
+<Command 
+    id="python-test"
+    path="scripts/python-test.py"
+    title="Python reads bash env vars"
+    description="This Python script reads and verifies the environment variables set by bash in Block 1."
+    successMessage="Python successfully read all bash-set environment variables!"
+    failMessage="Python could not read the environment variables. Run Block 1 first!"
+/>
+
+---
+
+## 1.2 Test Python Setting Environment Variables
+
+Now let's test if a Python script can SET environment variables that persist to subsequent blocks.
+
+<Command 
+    id="python-set-env"
+    path="scripts/python-set-env.py"
+    title="Set env vars from Python"
+    description="This Python script attempts to set PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT using os.environ."
+    successMessage="Python script executed!"
+    failMessage="Python script failed."
+/>
+
+---
+
+## 1.3 Demonstrate That Environment Variables Set By Python Do NOT Persist
+
+Let's check if the environment variables set by Python persisted to this block.
+
+<Check 
+    id="verify-python-env"
+    path="checks/verify-python-env.sh"
+    title="Check Python env vars"
+    description="This check verifies whether PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT are available."
+    successMessage="Python environment variables persisted!"
+    failMessage="Python environment variables did NOT persist (expected - see explanation below)."
+/>
+
+---
+
 ## 2. Verify Environment Variables Persist
 
 Now let's verify that the variables we set in Block 1 are available in this block.

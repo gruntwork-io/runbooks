@@ -19,6 +19,23 @@ This means you can structure your runbook like a workflow:
 2. **Block 2**: Run a command that uses `$AWS_REGION`
 3. **Block 3**: Clean up (`unset AWS_REGION`)
 
+### Bash Scripts Only
+
+:::caution[Environment persistence requires Bash]
+Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or `#!/bin/sh`). Non-Bash scripts like Python, Ruby, or Node.js can **read** environment variables from the session, but changes they make (e.g., `os.environ["VAR"] = "value"` in Python) will **not** persist to subsequent blocks.
+:::
+
+| Script Type | Can read env vars | Can set persistent env vars |
+|-------------|-------------------|----------------------------|
+| Bash (`#!/bin/bash`) | ✅ Yes | ✅ Yes |
+| Sh (`#!/bin/sh`) | ✅ Yes | ✅ Yes |
+| Python (`#!/usr/bin/env python3`) | ✅ Yes | ❌ No |
+| Ruby (`#!/usr/bin/env ruby`) | ✅ Yes | ❌ No |
+| Node.js (`#!/usr/bin/env node`) | ✅ Yes | ❌ No |
+| Other interpreters | ✅ Yes | ❌ No |
+
+**Why?** Environment persistence works by wrapping your script in a Bash wrapper that captures environment changes after execution. This wrapper is Bash-specific and can't be applied to other interpreters. Additionally, environment changes in subprocesses (like a Python script) can't propagate back to the parent process — this is a fundamental limitation of how Unix processes work.
+
 ### Multiple Browser Tabs
 
 If you open the same runbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.

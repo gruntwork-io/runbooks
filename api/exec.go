@@ -179,10 +179,19 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 		defer os.Remove(tmpFile.Name())
 
+		// Detect interpreter from shebang or use language from executable
+		// We need this BEFORE deciding whether to wrap, so we can skip wrapping for non-bash scripts
+		interpreter, args := detectInterpreter(scriptContent, executable.Language)
+
 		// Write script content to temp file
-		// If we have a session, wrap the script to capture environment changes
+		// If we have a session AND the script is bash-compatible, wrap to capture environment changes.
+		// Non-bash scripts (Python, Ruby, etc.) cannot have their environment changes captured because:
+		// 1. The wrapper is bash code that wouldn't be valid in other interpreters
+		// 2. Even if we ran non-bash scripts separately, their os.environ changes only affect
+		//    their own subprocess and wouldn't propagate back to the session
 		scriptToWrite := scriptContent
-		if session != nil {
+		isBashCompatible := isBashInterpreter(interpreter)
+		if session != nil && isBashCompatible {
 			scriptToWrite = wrapScriptForEnvCapture(scriptContent, envCapturePath, pwdCapturePath)
 		}
 
@@ -199,9 +208,6 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 		tmpFile.Close()
-
-		// Detect interpreter from shebang or use language from executable
-		interpreter, args := detectInterpreter(scriptContent, executable.Language)
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -314,9 +320,11 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 				sendSSEStatus(c, status, exitCode)
 				flusher.Flush()
 
-				// Update session environment if we have a session and execution succeeded
-				// We capture env even on warnings since the script may have made partial changes
-				if session != nil && (status == "success" || status == "warn") {
+				// Update session environment if we have a session, the script is bash-compatible, and execution succeeded.
+				// We capture env even on warnings since the script may have made partial changes.
+				// Non-bash scripts (Python, Ruby, etc.) don't get environment capture - their env changes
+				// only affect their own subprocess and can't propagate back to the session.
+				if session != nil && isBashCompatible && (status == "success" || status == "warn") {
 					capturedEnv, capturedPwd := parseEnvCapture(envCapturePath, pwdCapturePath)
 					if capturedEnv != nil {
 						// Filter out shell internals
@@ -458,6 +466,18 @@ func detectInterpreter(script string, providedLang string) (string, []string) {
 
 	// Default to bash
 	return "bash", []string{}
+}
+
+// isBashInterpreter returns true if the interpreter is bash or sh compatible.
+// Only bash-compatible scripts can have their environment changes captured,
+// because the environment capture wrapper is written in bash.
+func isBashInterpreter(interpreter string) bool {
+	switch interpreter {
+	case "bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh":
+		return true
+	default:
+		return false
+	}
 }
 
 // streamOutput reads from a pipe and sends lines to the output channel
