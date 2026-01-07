@@ -38,8 +38,6 @@ Command blocks and [Check](/authoring/blocks/check/) blocks share many features 
 - `successMessage` (string) - Message shown when command succeeds (default: "Success")
 - `failMessage` (string) - Message shown when command fails (default: "Failed")
 - `runningMessage` (string) - Message shown while running (default: "Running...")
-- `captureFiles` (boolean) - When `true`, any files created by the command are captured to the workspace's generated files
-- `captureFilesOutputPath` (string) - Relative subdirectory within the output folder for captured files. Only valid when `captureFiles={true}`
 
 ### Inline content
 
@@ -349,41 +347,67 @@ log_info "Deployment successful!"
 
 ## Capturing Output Files
 
-When a command creates files that you want to persist to your generated files folder, use the `captureFiles` prop. This is useful for commands that generate configuration files, artifacts, or other output.
+Commands can save files to the generated files directory using the `$RUNBOOKS_OUTPUT` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
 
-### Basic File Capture
+### Basic Example
+
+```bash
+#!/bin/bash
+# Export OpenTofu outputs to generated files
+tofu output -json > "$RUNBOOKS_OUTPUT/tf-outputs.json"
+
+# Copy a config file
+cp config.yaml "$RUNBOOKS_OUTPUT/"
+```
+
+Or as an inline command:
 
 ```mdx
 <Command 
   id="create-file"
   title="Create a greeting file"
-  command={`echo "Hello from the command!" > greeting.txt`}
-  captureFiles
+  command={`echo "Hello from the command!" > "$RUNBOOKS_OUTPUT/greeting.txt"`}
   successMessage="File created successfully!"
 />
 ```
 
-Any files created by the command will appear in the workspace's generated files panel.
+### Organizing Files with Subdirectories
 
-### File Capture with Output Path
+You can create subdirectories within `$RUNBOOKS_OUTPUT` to organize your captured files:
 
-To organize captured files into a subdirectory, use `captureFilesOutputPath`:
+```bash
+#!/bin/bash
+mkdir -p "$RUNBOOKS_OUTPUT/terraform"
+mkdir -p "$RUNBOOKS_OUTPUT/config"
 
-```mdx
-<Command 
-  id="create-config"
-  title="Create config files"
-  command={`echo '{"name": "test"}' > config.json && mkdir -p subdir && echo 'key=value' > subdir/settings.ini`}
-  captureFiles
-  captureFilesOutputPath="config"
-  successMessage="Config files created!"
-/>
+tofu output -json > "$RUNBOOKS_OUTPUT/opentofu/outputs.json"
+echo '{"env": "production"}' > "$RUNBOOKS_OUTPUT/config/settings.json"
 ```
 
-In this example, all created files will be placed under a `config/` subdirectory in the generated files.
+This creates:
+
+```
+generated/
+├── opentofu/
+│   └── outputs.json
+└── config/
+    └── settings.json
+```
+
+### How It Works
+
+1. Before your script runs, Runbooks creates a temporary capture directory
+2. The `$RUNBOOKS_OUTPUT` environment variable points to this directory
+3. Your script writes files to `$RUNBOOKS_OUTPUT`
+4. After successful execution, files are copied to the generated files directory
+5. The temporary directory is cleaned up
+
+<Aside type="tip">
+Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOKS_OUTPUT` are discarded.
+</Aside>
 
 <Aside type="note">
-The current approach to how Commands handle file capture is not ideal. See https://github.com/gruntwork-io/runbooks/issues/32 for additional information, and to track improvements.
+If multiple commands run concurrently and write files with the same name, the last command to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
 </Aside>
 
 ## Common Use Cases

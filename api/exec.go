@@ -18,11 +18,9 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID           string            `json:"executable_id,omitempty"`             // Used when useExecutableRegistry=true
-	ComponentID            string            `json:"component_id,omitempty"`              // Used when useExecutableRegistry=false
-	TemplateVarValues      map[string]string `json:"template_var_values"`                 // Values for template variables
-	CaptureFiles           bool              `json:"capture_files"`                       // When true, capture files written by the script to the workspace
-	CaptureFilesOutputPath string            `json:"capture_files_output_path,omitempty"` // Relative subdirectory within the output folder for captured files
+	ExecutableID      string            `json:"executable_id,omitempty"` // Used when useExecutableRegistry=true
+	ComponentID       string            `json:"component_id,omitempty"`  // Used when useExecutableRegistry=false
+	TemplateVarValues map[string]string `json:"template_var_values"`     // Values for template variables
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -114,34 +112,14 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			scriptContent = rendered
 		}
 
-		// Validate captureFilesOutputPath if captureFiles is enabled
-		var captureOutputDir string
-		if req.CaptureFiles {
-			// Validate the output path (reuse validation from boilerplate_render.go)
-			if err := ValidateRelativePath(req.CaptureFilesOutputPath); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid captureFilesOutputPath: %v", err)})
-				return
-			}
-
-			// Determine the output directory for captured files
-			captureOutputDir, err = determineOutputDirectory(cliOutputPath, &req.CaptureFilesOutputPath)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to determine capture output directory: %v", err)})
-				return
-			}
+		// Create capture directory for RUNBOOKS_OUTPUT
+		// Scripts can write files here to have them captured to the output directory
+		captureDir, err := os.MkdirTemp("", "runbook-output-*")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create capture directory: %v", err)})
+			return
 		}
-
-		// Create an isolated working directory for the script when captureFiles is enabled
-		// This ensures all relative file writes are captured
-		var workDir string
-		if req.CaptureFiles {
-			workDir, err = os.MkdirTemp("", "runbook-cmd-workspace-*")
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create working directory: %v", err)})
-				return
-			}
-			defer os.RemoveAll(workDir) // Clean up the working directory when done
-		}
+		defer os.RemoveAll(captureDir)
 
 		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
@@ -225,11 +203,12 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			cmd.Env = os.Environ()
 		}
 
-		// Set working directory
-		// Priority: captureFiles workDir > session workDir > default
-		if req.CaptureFiles && workDir != "" {
-			cmd.Dir = workDir
-		} else if session != nil {
+		// Add RUNBOOKS_OUTPUT environment variable
+		// Scripts can write files to this directory to have them captured to the output
+		cmd.Env = append(cmd.Env, "RUNBOOKS_OUTPUT="+captureDir)
+
+		// Set working directory from session if available
+		if session != nil {
 			cmd.Dir = session.WorkingDir
 		}
 
@@ -344,9 +323,10 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 					}
 				}
 
-				// Capture files if enabled and execution was successful (or warning)
-				if req.CaptureFiles && workDir != "" && (status == "success" || status == "warn") {
-					capturedFiles, captureErr := captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath)
+				// Capture files from RUNBOOKS_OUTPUT if execution was successful (or warning)
+				// Scripts can write files to $RUNBOOKS_OUTPUT to have them captured
+				if status == "success" || status == "warn" {
+					capturedFiles, captureErr := copyFilesFromCaptureDir(captureDir, cliOutputPath)
 					if captureErr != nil {
 						sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
 						flusher.Flush()
@@ -519,43 +499,51 @@ func sendSSEError(c *gin.Context, message string) {
 	}
 }
 
-// captureFilesFromWorkDir copies all files from the working directory to the output directory
-// Returns a list of captured files with their relative paths and sizes
-func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([]CapturedFile, error) {
+// copyFilesFromCaptureDir copies all files from the capture directory (RUNBOOKS_OUTPUT) to the output directory.
+// Returns a list of captured files with their relative paths and sizes.
+// If the capture directory is empty, returns nil with no error.
+func copyFilesFromCaptureDir(captureDir, outputDir string) ([]CapturedFile, error) {
 	var capturedFiles []CapturedFile
 
+	// Check if capture directory has any files
+	entries, err := os.ReadDir(captureDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read capture directory: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, nil // No files to capture
+	}
+
 	// Create the output directory if it doesn't exist
-	if err := os.MkdirAll(captureOutputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Walk the working directory and copy all files
-	err := filepath.Walk(workDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+	// Walk the capture directory and copy all files
+	err = filepath.Walk(captureDir, func(srcPath string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 
 		// Skip the root directory itself
-		if srcPath == workDir {
+		if srcPath == captureDir {
 			return nil
 		}
 
-		// Get the relative path from the working directory
-		relPath, err := filepath.Rel(workDir, srcPath)
+		// Get the relative path from the capture directory
+		relPath, err := filepath.Rel(captureDir, srcPath)
 		if err != nil {
 			return fmt.Errorf("failed to get relative path: %w", err)
 		}
 
 		// Construct the destination path
-		dstPath := filepath.Join(captureOutputDir, relPath)
+		dstPath := filepath.Join(outputDir, relPath)
 
 		if info.IsDir() {
 			// Create the directory in the output
 			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
 				return err
 			}
-			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
-			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
 			return os.Chmod(dstPath, info.Mode())
 		}
 
@@ -564,19 +552,8 @@ func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([
 			return fmt.Errorf("failed to copy file %s: %w", relPath, err)
 		}
 
-		// Calculate relative path from CLI output path for the response
-		// This is what the frontend expects to see in the file tree
-		outputRelPath := relPath
-		if captureOutputDir != cliOutputPath {
-			// If we're in a subdirectory, include that in the relative path
-			subDir, _ := filepath.Rel(cliOutputPath, captureOutputDir)
-			if subDir != "" && subDir != "." {
-				outputRelPath = filepath.Join(subDir, relPath)
-			}
-		}
-
 		capturedFiles = append(capturedFiles, CapturedFile{
-			Path: filepath.ToSlash(outputRelPath), // Use forward slashes for consistency
+			Path: filepath.ToSlash(relPath), // Use forward slashes for consistency
 			Size: info.Size(),
 		})
 

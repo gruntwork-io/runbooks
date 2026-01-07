@@ -48,6 +48,34 @@ The session resets when you restart the Runbooks server. You can also manually r
 
 ---
 
+## Built-in Environment Variables
+
+Runbooks exposes the following environment variables to all scripts:
+
+| Variable | Description |
+|----------|-------------|
+| `RUNBOOKS_OUTPUT` | Path to a directory where scripts can write files to be captured. Files written here appear in the generated files panel after successful execution. |
+
+### Capturing Output Files
+
+To save files to the generated files directory, write them to `$RUNBOOKS_OUTPUT`:
+
+```bash
+#!/bin/bash
+# Generate a config and capture it
+tofu output -json > "$RUNBOOKS_OUTPUT/outputs.json"
+
+# Create subdirectories as needed
+mkdir -p "$RUNBOOKS_OUTPUT/config"
+echo '{"env": "production"}' > "$RUNBOOKS_OUTPUT/config/settings.json"
+```
+
+Files are only captured after successful execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOKS_OUTPUT` are discarded.
+
+See [Capturing Output Files](/authoring/blocks/command/#capturing-output-files) for more details.
+
+---
+
 ## Non-Interactive Shell
 
 Scripts run in a **non-interactive shell**, which affects what's available:
