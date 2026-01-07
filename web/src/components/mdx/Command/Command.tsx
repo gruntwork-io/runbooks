@@ -1,4 +1,4 @@
-import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash, FolderInput } from "lucide-react"
+import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash } from "lucide-react"
 import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
@@ -21,10 +21,6 @@ interface CommandProps {
   successMessage?: string
   failMessage?: string
   runningMessage?: string
-  /** When true, files written by the command are captured to the workspace */
-  captureFiles?: boolean
-  /** Relative subdirectory within the output folder for captured files. Only valid when captureFiles={true}. */
-  captureFilesOutputPath?: string
   children?: ReactNode // For inline Inputs component
 }
 
@@ -38,8 +34,6 @@ function Command({
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
-  captureFiles,
-  captureFilesOutputPath,
   children,
 }: CommandProps) {
   // Check for duplicate component IDs
@@ -75,8 +69,6 @@ function Command({
     inputsId,
     children,
     componentType: 'command',
-    captureFiles,
-    captureFilesOutputPath,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -407,23 +399,6 @@ function Command({
 
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
-          
-          {/* Indicate when command will capture files to workspace */}
-          {captureFiles && (
-            <div className="mt-3 mb-2 text-sm text-gray-600 flex items-center gap-2">
-              <FolderInput className="size-4 text-blue-500" />
-              <span>
-                Any files created by this command will be added to your generated files
-                {captureFilesOutputPath && (
-                  <span>
-                    <span> in the </span>
-                    <code className="bg-gray-100 text-gray-500 px-1 rounded text-xs">{captureFilesOutputPath}/</code>
-                    <span> subfolder </span>
-                  </span>
-                )}
-              </span>
-            </div>
-          )}
           
           {/* Show status messages for waiting/rendering/error states */}      
           {requiredVariables.length > 0 && !hasAllRequiredVariables && !isRendering && (

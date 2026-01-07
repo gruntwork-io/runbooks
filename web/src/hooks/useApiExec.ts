@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
+import { useSession } from '@/contexts/useSession'
 
 // Zod schemas for SSE events
 const ExecLogEventSchema = z.object({
@@ -57,11 +58,6 @@ export interface ExecState {
   error: AppError | null
 }
 
-export interface CaptureFilesOptions {
-  captureFiles?: boolean
-  captureFilesOutputPath?: string
-}
-
 export interface UseApiExecOptions {
   /** Callback invoked when files are captured from a command execution */
   onFilesCaptured?: (event: FilesCapturedEvent) => void
@@ -69,8 +65,8 @@ export interface UseApiExecOptions {
 
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, string>, captureOptions?: CaptureFilesOptions) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, string>, captureOptions?: CaptureFilesOptions) => void
+  execute: (executableId: string, variables?: Record<string, string>) => void
+  executeByComponentId: (componentId: string, variables?: Record<string, string>) => void
   cancel: () => void
   reset: () => void
 }
@@ -78,9 +74,15 @@ export interface UseApiExecReturn {
 /**
  * Hook to execute scripts via the /api/exec endpoint with SSE streaming
  * Uses executable IDs from the executable registry instead of raw script content
+ * 
+ * Integrates with SessionContext for persistent environment support:
+ * - Sends Authorization header for session validation
+ * - Environment changes made by scripts persist to subsequent executions
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const { onFilesCaptured } = options || {}
+  const { getAuthHeader } = useSession()
+  
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -267,8 +269,6 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       executable_id?: string; 
       component_id?: string; 
       template_var_values: Record<string, string>;
-      capture_files?: boolean;
-      capture_files_output_path?: string;
     }
   ) => {
     // Cancel any existing execution
@@ -287,11 +287,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
-      // Send POST request to /api/exec
+      // Send POST request to /api/exec with session auth header
       const response = await fetch('/api/exec', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeader(),
         },
         body: JSON.stringify(payload),
         signal: abortController.signal,
@@ -335,16 +336,14 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     } finally {
       abortControllerRef.current = null
     }
-  }, [cancel, processSSEStream])
+  }, [cancel, processSSEStream, getAuthHeader])
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, string> = {}, captureOptions?: CaptureFilesOptions) => {
+    (executableId: string, templateVarValues: Record<string, string> = {}) => {
       executeScript({ 
         executable_id: executableId, 
         template_var_values: templateVarValues,
-        capture_files: captureOptions?.captureFiles,
-        capture_files_output_path: captureOptions?.captureFilesOutputPath,
       })
     },
     [executeScript]
@@ -357,12 +356,10 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, string> = {}, captureOptions?: CaptureFilesOptions) => {
+    (componentId: string, templateVarValues: Record<string, string> = {}) => {
       executeScript({ 
         component_id: componentId, 
         template_var_values: templateVarValues,
-        capture_files: captureOptions?.captureFiles,
-        capture_files_output_path: captureOptions?.captureFilesOutputPath,
       })
     },
     [executeScript]

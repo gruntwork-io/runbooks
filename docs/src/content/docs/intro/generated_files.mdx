@@ -22,24 +22,19 @@ The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/bloc
 
 Template blocks automatically re-render when you change input values, so your generated files stay in sync with the form.
 
-### 2. Command blocks with file capture
+### 2. Command blocks with $RUNBOOKS_OUTPUT
 
-[Command](/authoring/blocks/command/) blocks can optionally capture files they create using the `captureFiles` prop:
+[Command](/authoring/blocks/command/) blocks can write files to the `$RUNBOOKS_OUTPUT` environment variable to capture them:
 
 ```mdx
 <Command 
-  id="create-config"
-  command={`terraform output -json > tf-outputs.json`}
-  captureFiles
+  id="export-terraform"
+  command={`tofu output -json > "$RUNBOOKS_OUTPUT/tf-outputs.json"`}
   title="Export Terraform outputs"
 />
 ```
 
-This is useful when scripts or tools generate files as part of their execution.
-
-<Aside type="note">
-The current approach to how Commands handle file capture is not ideal. See https://github.com/gruntwork-io/runbooks/issues/32 for additional information, and to track improvements.
-</Aside>
+Any files written to `$RUNBOOKS_OUTPUT` automatically appear in your generated files after the command completes successfully.
 
 ## Where files are stored
 
@@ -80,16 +75,12 @@ Within a runbook, you can organize generated files into subdirectories:
 
 - **Template blocks**: The directory structure of your template folder is preserved in the output.
 - **TemplateInline blocks**: Use the `outputPath` prop to specify a path like `config/app.yaml`.
-- **Command blocks**: Use `captureFilesOutputPath` to place captured files in a subdirectory.
+- **Command/Check blocks**: Create subdirectories within `$RUNBOOKS_OUTPUT`.
 
-```mdx
-<Command 
-  id="create-configs"
-  command={`echo '{}' > config.json`}
-  captureFiles
-  captureFilesOutputPath="config"
-  title="Create config files"
-/>
+```bash
+# In your command script
+mkdir -p "$RUNBOOKS_OUTPUT/config"
+echo '{}' > "$RUNBOOKS_OUTPUT/config/app.json"
 ```
 
 ## Viewing generated files

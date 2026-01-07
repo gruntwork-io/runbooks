@@ -18,11 +18,9 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID           string            `json:"executable_id,omitempty"`             // Used when useExecutableRegistry=true
-	ComponentID            string            `json:"component_id,omitempty"`              // Used when useExecutableRegistry=false
-	TemplateVarValues      map[string]string `json:"template_var_values"`                 // Values for template variables
-	CaptureFiles           bool              `json:"capture_files"`                       // When true, capture files written by the script to the workspace
-	CaptureFilesOutputPath string            `json:"capture_files_output_path,omitempty"` // Relative subdirectory within the output folder for captured files
+	ExecutableID      string            `json:"executable_id,omitempty"` // Used when useExecutableRegistry=true
+	ComponentID       string            `json:"component_id,omitempty"`  // Used when useExecutableRegistry=false
+	TemplateVarValues map[string]string `json:"template_var_values"`     // Values for template variables
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -51,12 +49,24 @@ type CapturedFile struct {
 }
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		// Validate session token if Authorization header is provided
+		var execCtx *SessionExecContext
+		token := extractBearerToken(c)
+		if token != "" {
+			var valid bool
+			execCtx, valid = sessionManager.ValidateToken(token)
+			if !valid {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
+				return
+			}
 		}
 
 		var executable *Executable
@@ -102,40 +112,42 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			scriptContent = rendered
 		}
 
-		// Validate captureFilesOutputPath if captureFiles is enabled
-		var captureOutputDir string
-		if req.CaptureFiles {
-			// Validate the output path (reuse validation from boilerplate_render.go)
-			if err := ValidateRelativePath(req.CaptureFilesOutputPath); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid captureFilesOutputPath: %v", err)})
-				return
-			}
-
-			// Determine the output directory for captured files
-			captureOutputDir, err = determineOutputDirectory(cliOutputPath, &req.CaptureFilesOutputPath)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to determine capture output directory: %v", err)})
-				return
-			}
+		// Create capture directory for RUNBOOKS_OUTPUT
+		// Scripts can write files here to have them captured to the output directory
+		captureDir, err := os.MkdirTemp("", "runbook-output-*")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create capture directory: %v", err)})
+			return
 		}
-
-		// Create an isolated working directory for the script when captureFiles is enabled
-		// This ensures all relative file writes are captured
-		var workDir string
-		if req.CaptureFiles {
-			workDir, err = os.MkdirTemp("", "runbook-cmd-workspace-*")
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create working directory: %v", err)})
-				return
-			}
-			defer os.RemoveAll(workDir) // Clean up the working directory when done
-		}
+		defer os.RemoveAll(captureDir)
 
 		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("Transfer-Encoding", "chunked")
+
+		// Create temp files for environment capture (used to capture env changes after script execution)
+		var envCapturePath, pwdCapturePath string
+		if execCtx != nil {
+			envFile, err := os.CreateTemp("", "runbook-env-capture-*.txt")
+			if err != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to create env capture file: %v", err))
+				return
+			}
+			envCapturePath = envFile.Name()
+			envFile.Close()
+			defer os.Remove(envCapturePath)
+
+			pwdFile, err := os.CreateTemp("", "runbook-pwd-capture-*.txt")
+			if err != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to create pwd capture file: %v", err))
+				return
+			}
+			pwdCapturePath = pwdFile.Name()
+			pwdFile.Close()
+			defer os.Remove(pwdCapturePath)
+		}
 
 		// Create a temporary file for the script
 		tmpFile, err := os.CreateTemp("", "runbook-check-*.sh")
@@ -145,8 +157,23 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 		defer os.Remove(tmpFile.Name())
 
+		// Detect interpreter from shebang or use language from executable
+		// We need this BEFORE deciding whether to wrap, so we can skip wrapping for non-bash scripts
+		interpreter, args := detectInterpreter(scriptContent, executable.Language)
+
 		// Write script content to temp file
-		if _, err := tmpFile.WriteString(scriptContent); err != nil {
+		// If we have a session AND the script is bash-compatible, wrap to capture environment changes.
+		// Non-bash scripts (Python, Ruby, etc.) cannot have their environment changes captured because:
+		// 1. The wrapper is bash code that wouldn't be valid in other interpreters
+		// 2. Even if we ran non-bash scripts separately, their os.environ changes only affect
+		//    their own subprocess and wouldn't propagate back to the session
+		scriptToWrite := scriptContent
+		isBashCompatible := isBashInterpreter(interpreter)
+		if execCtx != nil && isBashCompatible {
+			scriptToWrite = wrapScriptForEnvCapture(scriptContent, envCapturePath, pwdCapturePath)
+		}
+
+		if _, err := tmpFile.WriteString(scriptToWrite); err != nil {
 			tmpFile.Close()
 			sendSSEError(c, fmt.Sprintf("Failed to write script: %v", err))
 			return
@@ -160,9 +187,6 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 		tmpFile.Close()
 
-		// Detect interpreter from shebang or use language from executable
-		interpreter, args := detectInterpreter(scriptContent, executable.Language)
-
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -171,16 +195,21 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		cmdArgs := append(args, tmpFile.Name())
 		cmd := exec.CommandContext(ctx, interpreter, cmdArgs...)
 
-		// Pass through all environment variables
-		// This feels dirty, but the point of a Runbook is to streamline what a user would otherwise do
-		// in their local environment! For users who want more security/control here, a commercial version
-		// of Runbooks is probably the answer.
-		cmd.Env = os.Environ()
+		// Set environment variables
+		// If we have a session, use the session's environment; otherwise use the process environment
+		if execCtx != nil {
+			cmd.Env = execCtx.Env
+		} else {
+			cmd.Env = os.Environ()
+		}
 
-		// Set working directory if capturing files
-		// This isolates the script so all relative file writes are captured
-		if req.CaptureFiles && workDir != "" {
-			cmd.Dir = workDir
+		// Add RUNBOOKS_OUTPUT environment variable
+		// Scripts can write files to this directory to have them captured to the output
+		cmd.Env = append(cmd.Env, "RUNBOOKS_OUTPUT="+captureDir)
+
+		// Set working directory from session if available
+		if execCtx != nil {
+			cmd.Dir = execCtx.WorkDir
 		}
 
 		// Get stdout and stderr pipes
@@ -270,9 +299,34 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 				sendSSEStatus(c, status, exitCode)
 				flusher.Flush()
 
-				// Capture files if enabled and execution was successful (or warning)
-				if req.CaptureFiles && workDir != "" && (status == "success" || status == "warn") {
-					capturedFiles, captureErr := captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath)
+				// Update session environment if we have a session, the script is bash-compatible, and execution succeeded.
+				// We capture env even on warnings since the script may have made partial changes.
+				// Non-bash scripts (Python, Ruby, etc.) don't get environment capture - their env changes
+				// only affect their own subprocess and can't propagate back to the session.
+				if execCtx != nil && isBashCompatible && (status == "success" || status == "warn") {
+					capturedEnv, capturedPwd := parseEnvCapture(envCapturePath, pwdCapturePath)
+					if capturedEnv != nil {
+						// Filter out shell internals
+						filteredEnv := FilterCapturedEnv(capturedEnv)
+						// Determine new working directory (use captured pwd, or fall back to the original)
+						newWorkDir := execCtx.WorkDir
+						if capturedPwd != "" {
+							newWorkDir = capturedPwd
+						}
+						// Update session (ignore errors, non-critical)
+						if err := sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir); err != nil {
+							// If the session was deleted concurrently, we can't update it.
+							// Log a warning to the user's console.
+							// TODO: Surface this warning in the UI, perhaps with a toaster notification
+							sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
+						}
+					}
+				}
+
+				// Capture files from RUNBOOKS_OUTPUT if execution was successful (or warning)
+				// Scripts can write files to $RUNBOOKS_OUTPUT to have them captured
+				if status == "success" || status == "warn" {
+					capturedFiles, captureErr := copyFilesFromCaptureDir(captureDir, cliOutputPath)
 					if captureErr != nil {
 						sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
 						flusher.Flush()
@@ -289,6 +343,72 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			}
 		}
 	}
+}
+
+// wrapScriptForEnvCapture wraps a script to capture environment changes after execution.
+// The wrapper appends commands to dump the environment and working directory to temp files.
+func wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) string {
+	// We wrap the script to capture environment after it runs
+	// The wrapper:
+	// 1. Sources/executes the original script
+	// 2. Captures the resulting environment to a temp file
+	// 3. Captures the working directory to another temp file
+	//
+	// We use a subshell to run the user script so that 'exit' calls don't skip our capture
+	// but we need the environment changes to propagate, so we use 'source' instead
+	//
+	// The wrapper preserves the exit code of the original script
+	wrapper := fmt.Sprintf(`#!/bin/bash
+# Runbooks environment capture wrapper
+# This wrapper captures environment changes after the user script runs
+
+__RUNBOOKS_ENV_CAPTURE_PATH=%q
+__RUNBOOKS_PWD_CAPTURE_PATH=%q
+
+# Run the user script in the current shell context so env changes propagate
+# We use a function and trap to ensure we capture env even if script calls 'exit'
+__runbooks_capture_env() {
+    env > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
+    pwd > "$__RUNBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
+}
+
+trap __runbooks_capture_env EXIT
+
+# Execute the user script inline (not sourced, to preserve proper error handling)
+# --- BEGIN USER SCRIPT ---
+%s
+# --- END USER SCRIPT ---
+`, envCapturePath, pwdCapturePath, script)
+
+	return wrapper
+}
+
+// parseEnvCapture reads the captured environment and working directory from temp files.
+func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, string) {
+	env := make(map[string]string)
+
+	// Read environment capture
+	if envData, err := os.ReadFile(envCapturePath); err == nil {
+		for _, line := range strings.Split(string(envData), "\n") {
+			if idx := strings.Index(line, "="); idx != -1 {
+				key := line[:idx]
+				value := line[idx+1:]
+				env[key] = value
+			}
+		}
+	}
+
+	// Read working directory capture
+	var pwd string
+	if pwdData, err := os.ReadFile(pwdCapturePath); err == nil {
+		pwd = strings.TrimSpace(string(pwdData))
+	}
+
+	if len(env) == 0 {
+		return nil, pwd
+	}
+
+	return env, pwd
 }
 
 // detectInterpreter detects the interpreter from the shebang line or uses provided language
@@ -326,6 +446,18 @@ func detectInterpreter(script string, providedLang string) (string, []string) {
 
 	// Default to bash
 	return "bash", []string{}
+}
+
+// isBashInterpreter returns true if the interpreter is bash or sh compatible.
+// Only bash-compatible scripts can have their environment changes captured,
+// because the environment capture wrapper is written in bash.
+func isBashInterpreter(interpreter string) bool {
+	switch interpreter {
+	case "bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh":
+		return true
+	default:
+		return false
+	}
 }
 
 // streamOutput reads from a pipe and sends lines to the output channel
@@ -367,43 +499,51 @@ func sendSSEError(c *gin.Context, message string) {
 	}
 }
 
-// captureFilesFromWorkDir copies all files from the working directory to the output directory
-// Returns a list of captured files with their relative paths and sizes
-func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([]CapturedFile, error) {
+// copyFilesFromCaptureDir copies all files from the capture directory (RUNBOOKS_OUTPUT) to the output directory.
+// Returns a list of captured files with their relative paths and sizes.
+// If the capture directory is empty, returns nil with no error.
+func copyFilesFromCaptureDir(captureDir, outputDir string) ([]CapturedFile, error) {
 	var capturedFiles []CapturedFile
 
+	// Check if capture directory has any files
+	entries, err := os.ReadDir(captureDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read capture directory: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, nil // No files to capture
+	}
+
 	// Create the output directory if it doesn't exist
-	if err := os.MkdirAll(captureOutputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Walk the working directory and copy all files
-	err := filepath.Walk(workDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+	// Walk the capture directory and copy all files
+	err = filepath.Walk(captureDir, func(srcPath string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 
 		// Skip the root directory itself
-		if srcPath == workDir {
+		if srcPath == captureDir {
 			return nil
 		}
 
-		// Get the relative path from the working directory
-		relPath, err := filepath.Rel(workDir, srcPath)
+		// Get the relative path from the capture directory
+		relPath, err := filepath.Rel(captureDir, srcPath)
 		if err != nil {
 			return fmt.Errorf("failed to get relative path: %w", err)
 		}
 
 		// Construct the destination path
-		dstPath := filepath.Join(captureOutputDir, relPath)
+		dstPath := filepath.Join(outputDir, relPath)
 
 		if info.IsDir() {
 			// Create the directory in the output
 			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
 				return err
 			}
-			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
-			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
 			return os.Chmod(dstPath, info.Mode())
 		}
 
@@ -412,19 +552,8 @@ func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([
 			return fmt.Errorf("failed to copy file %s: %w", relPath, err)
 		}
 
-		// Calculate relative path from CLI output path for the response
-		// This is what the frontend expects to see in the file tree
-		outputRelPath := relPath
-		if captureOutputDir != cliOutputPath {
-			// If we're in a subdirectory, include that in the relative path
-			subDir, _ := filepath.Rel(cliOutputPath, captureOutputDir)
-			if subDir != "" && subDir != "." {
-				outputRelPath = filepath.Join(subDir, relPath)
-			}
-		}
-
 		capturedFiles = append(capturedFiles, CapturedFile{
-			Path: filepath.ToSlash(outputRelPath), // Use forward slashes for consistency
+			Path: filepath.ToSlash(relPath), // Use forward slashes for consistency
 			Size: info.Size(),
 		})
 
