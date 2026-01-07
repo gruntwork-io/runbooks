@@ -327,7 +327,12 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 							newWorkDir = capturedPwd
 						}
 						// Update session (ignore errors, non-critical)
-						_ = sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir)
+						if err := sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir); err != nil {
+							// If the session was deleted concurrently, we can't update it.
+							// Log a warning to the user's console.
+							// TODO: Surface this warning in the UI, perhaps with a toaster notification
+							sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
+						}
 					}
 				}
 
