@@ -684,11 +684,12 @@ cd /tmp`
 	}
 }
 
-// Test env capture parsing
+// Test env capture parsing with NUL-terminated format (from env -0)
 func TestParseEnvCapture(t *testing.T) {
-	// Create temp files with test content
+	// Create temp files with test content using NUL-terminated format
 	envFile, _ := os.CreateTemp("", "test-env-*.txt")
-	envFile.WriteString("VAR1=value1\nVAR2=value2\nPATH=/usr/bin:/usr/local/bin\n")
+	// NUL-terminated entries as produced by `env -0`
+	envFile.WriteString("VAR1=value1\x00VAR2=value2\x00PATH=/usr/bin:/usr/local/bin\x00")
 	envFile.Close()
 	defer os.Remove(envFile.Name())
 
@@ -716,6 +717,112 @@ func TestParseEnvCapture(t *testing.T) {
 	}
 }
 
+// Test that env capture correctly handles multiline values (e.g., RSA keys, JSON)
+func TestParseEnvCaptureMultilineValues(t *testing.T) {
+	envFile, _ := os.CreateTemp("", "test-env-multiline-*.txt")
+	// Simulate a multiline value like an RSA key or JSON
+	multilineValue := "line1\nline2\nline3"
+	jsonValue := `{"key": "value", "nested": {"foo": "bar"}}`
+	// NUL-terminated entries - the newlines are WITHIN the values
+	envFile.WriteString("SIMPLE=simple_value\x00MULTILINE=" + multilineValue + "\x00JSON=" + jsonValue + "\x00")
+	envFile.Close()
+	defer os.Remove(envFile.Name())
+
+	pwdFile, _ := os.CreateTemp("", "test-pwd-*.txt")
+	pwdFile.WriteString("/home/user\n")
+	pwdFile.Close()
+	defer os.Remove(pwdFile.Name())
+
+	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+
+	if env["SIMPLE"] != "simple_value" {
+		t.Errorf("SIMPLE should be simple_value, got: %s", env["SIMPLE"])
+	}
+
+	if env["MULTILINE"] != multilineValue {
+		t.Errorf("MULTILINE should preserve newlines, expected %q, got: %q", multilineValue, env["MULTILINE"])
+	}
+
+	if env["JSON"] != jsonValue {
+		t.Errorf("JSON should be preserved, expected %q, got: %q", jsonValue, env["JSON"])
+	}
+
+	if pwd != "/home/user" {
+		t.Errorf("pwd should be /home/user, got: %s", pwd)
+	}
+}
+
+// Test fallback to newline-delimited format (for systems without env -0)
+func TestParseEnvCaptureLegacyNewlineFormat(t *testing.T) {
+	envFile, _ := os.CreateTemp("", "test-env-legacy-*.txt")
+	// Legacy newline-delimited format (from plain `env` without -0)
+	envFile.WriteString("VAR1=value1\nVAR2=value2\nPATH=/usr/bin\n")
+	envFile.Close()
+	defer os.Remove(envFile.Name())
+
+	pwdFile, _ := os.CreateTemp("", "test-pwd-*.txt")
+	pwdFile.WriteString("/home/user\n")
+	pwdFile.Close()
+	defer os.Remove(pwdFile.Name())
+
+	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+
+	if env["VAR1"] != "value1" {
+		t.Errorf("VAR1 should be value1, got: %s", env["VAR1"])
+	}
+
+	if env["VAR2"] != "value2" {
+		t.Errorf("VAR2 should be value2, got: %s", env["VAR2"])
+	}
+
+	if env["PATH"] != "/usr/bin" {
+		t.Errorf("PATH should be /usr/bin, got: %s", env["PATH"])
+	}
+
+	if pwd != "/home/user" {
+		t.Errorf("pwd should be /home/user, got: %s", pwd)
+	}
+}
+
+// Test that legacy newline format can still handle multiline values via continuation detection
+func TestParseEnvCaptureLegacyMultilineValues(t *testing.T) {
+	envFile, _ := os.CreateTemp("", "test-env-legacy-multiline-*.txt")
+	// Simulate `env` output with multiline values (no NUL chars)
+	// The continuation lines don't have valid env var names before =
+	envFile.WriteString("SIMPLE=simple\nMULTILINE=line1\nline2\nline3\nJSON={\n  \"key\": \"value\"\n}\nLAST=end\n")
+	envFile.Close()
+	defer os.Remove(envFile.Name())
+
+	pwdFile, _ := os.CreateTemp("", "test-pwd-*.txt")
+	pwdFile.WriteString("/home/user\n")
+	pwdFile.Close()
+	defer os.Remove(pwdFile.Name())
+
+	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+
+	if env["SIMPLE"] != "simple" {
+		t.Errorf("SIMPLE should be 'simple', got: %q", env["SIMPLE"])
+	}
+
+	expectedMultiline := "line1\nline2\nline3"
+	if env["MULTILINE"] != expectedMultiline {
+		t.Errorf("MULTILINE should be %q, got: %q", expectedMultiline, env["MULTILINE"])
+	}
+
+	expectedJSON := "{\n  \"key\": \"value\"\n}"
+	if env["JSON"] != expectedJSON {
+		t.Errorf("JSON should be %q, got: %q", expectedJSON, env["JSON"])
+	}
+
+	if env["LAST"] != "end" {
+		t.Errorf("LAST should be 'end', got: %q", env["LAST"])
+	}
+
+	if pwd != "/home/user" {
+		t.Errorf("pwd should be /home/user, got: %s", pwd)
+	}
+}
+
 func TestParseEnvCaptureNonExistentFiles(t *testing.T) {
 	env, pwd := parseEnvCapture("/non/existent/env.txt", "/non/existent/pwd.txt")
 
@@ -725,5 +832,43 @@ func TestParseEnvCaptureNonExistentFiles(t *testing.T) {
 
 	if pwd != "" {
 		t.Error("pwd should be empty for non-existent file")
+	}
+}
+
+// Test isValidEnvVarName helper function
+func TestIsValidEnvVarName(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected bool
+	}{
+		// Valid names
+		{"PATH", true},
+		{"HOME", true},
+		{"MY_VAR", true},
+		{"_PRIVATE", true},
+		{"var123", true},
+		{"A", true},
+		{"_", true},
+		{"__", true},
+		{"a1b2c3", true},
+
+		// Invalid names
+		{"", false},           // empty
+		{"123VAR", false},     // starts with digit
+		{"MY-VAR", false},     // contains hyphen
+		{"MY.VAR", false},     // contains dot
+		{"MY VAR", false},     // contains space
+		{"  \"key\"", false},  // JSON-like (starts with space)
+		{"{", false},          // JSON brace
+		{"line2", true},       // looks valid but could be continuation - that's OK, context determines
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isValidEnvVarName(tc.name)
+			if result != tc.expected {
+				t.Errorf("isValidEnvVarName(%q) = %v, expected %v", tc.name, result, tc.expected)
+			}
+		})
 	}
 }

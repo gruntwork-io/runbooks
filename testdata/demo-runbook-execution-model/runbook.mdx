@@ -119,7 +119,38 @@ Let's verify that the modifications from Block 3 are visible.
 
 ---
 
-## 5. Change Working Directory
+## 5. Multiline Environment Variables
+
+Environment variables can contain embedded newlines (RSA keys, JSON configs, multiline strings).
+This section demonstrates that such values are correctly preserved across sessions.
+
+<Command 
+    id="set-multiline-env"
+    path="scripts/set-multiline-env.sh"
+    title="Set multiline environment variables"
+    description="Sets MULTILINE_KEY (simulated RSA key), JSON_CONFIG, and MULTILINE_SIMPLE with embedded newlines."
+    successMessage="Multiline environment variables set!"
+    failMessage="Failed to set multiline environment variables."
+/>
+
+---
+
+## 5.1 Verify Multiline Values Persist
+
+Let's verify that the multiline values were preserved correctly - not truncated at the first newline.
+
+<Check 
+    id="verify-multiline-env"
+    path="checks/verify-multiline-env.sh"
+    title="Verify multiline env vars"
+    description="Verifies that MULTILINE_KEY, JSON_CONFIG, and MULTILINE_SIMPLE retained their embedded newlines."
+    successMessage="Multiline environment variables preserved correctly!"
+    failMessage="Multiline values were corrupted - newlines may have been lost."
+/>
+
+---
+
+## 6. Change Working Directory
 
 The persistent environment also tracks the working directory. Let's change it.
 
@@ -134,7 +165,7 @@ The persistent environment also tracks the working directory. Let's change it.
 
 ---
 
-## 6. Verify Working Directory
+## 7. Verify Working Directory
 
 Let's verify that the working directory change persisted.
 
@@ -155,6 +186,7 @@ If all checks passed, you've successfully demonstrated the persistent environmen
 
 - **Environment variables** set in one block are available in subsequent blocks
 - **Modifications** to environment variables propagate forward
+- **Multiline values** (RSA keys, JSON, etc.) preserve embedded newlines correctly
 - **Working directory** changes persist across blocks
 
 This is similar to how Jupyter notebooks maintain state across cells, enabling complex 

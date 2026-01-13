@@ -358,6 +358,10 @@ func wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) stri
 	// but we need the environment changes to propagate, so we use 'source' instead
 	//
 	// The wrapper preserves the exit code of the original script
+	//
+	// We use `env -0` to output NUL-terminated (i.e. ASCII control character for null) entries instead of newline-terminated.
+	// This is critical because environment variable values can contain embedded newlines
+	// (e.g., RSA keys, JSON, multiline strings). Both GNU and BSD/macOS support `env -0`.
 	wrapper := fmt.Sprintf(`#!/bin/bash
 # Runbooks environment capture wrapper
 # This wrapper captures environment changes after the user script runs
@@ -368,7 +372,8 @@ __RUNBOOKS_PWD_CAPTURE_PATH=%q
 # Run the user script in the current shell context so env changes propagate
 # We use a function and trap to ensure we capture env even if script calls 'exit'
 __runbooks_capture_env() {
-    env > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
+    # Use env -0 for NUL-terminated output to handle values with embedded newlines
+    env -0 > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
     pwd > "$__RUNBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
 }
 
@@ -384,16 +389,56 @@ trap __runbooks_capture_env EXIT
 }
 
 // parseEnvCapture reads the captured environment and working directory from temp files.
+// The environment file is expected to be NUL-terminated (from `env -0`) to correctly
+// handle environment variable values that contain embedded newlines.
+// Falls back to newline-delimited parsing if no NUL characters are found (for compatibility
+// with systems where `env -0` might not be available).
 func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, string) {
 	env := make(map[string]string)
 
 	// Read environment capture
 	if envData, err := os.ReadFile(envCapturePath); err == nil {
-		for _, line := range strings.Split(string(envData), "\n") {
-			if idx := strings.Index(line, "="); idx != -1 {
-				key := line[:idx]
-				value := line[idx+1:]
-				env[key] = value
+		data := string(envData)
+
+		// Auto-detect format: if NUL characters are present, use NUL-delimited parsing
+		// (from `env -0`), otherwise fall back to newline-delimited (legacy/fallback)
+		if strings.Contains(data, "\x00") {
+			// NUL-delimited: each entry is a complete KEY=VALUE pair
+			for _, entry := range strings.Split(data, "\x00") {
+				if entry == "" {
+					continue
+				}
+				if idx := strings.Index(entry, "="); idx != -1 {
+					env[entry[:idx]] = entry[idx+1:]
+				}
+			}
+		} else {
+			// Newline-delimited fallback: must handle multiline values by detecting
+			// continuation lines (lines that don't start a new KEY=VALUE pair)
+			var currentKey string
+			var valueLines []string
+
+			for _, line := range strings.Split(data, "\n") {
+				// Check if this line starts a new KEY=VALUE pair
+				// A new pair has format: VALID_ENV_NAME=value
+				// where VALID_ENV_NAME starts with letter/underscore and contains only [A-Za-z0-9_]
+				idx := strings.Index(line, "=")
+				if idx > 0 && isValidEnvVarName(line[:idx]) {
+					// Save previous key-value if any
+					if currentKey != "" {
+						env[currentKey] = strings.Join(valueLines, "\n")
+					}
+					// Start new key
+					currentKey = line[:idx]
+					valueLines = []string{line[idx+1:]}
+				} else if currentKey != "" && line != "" {
+					// Continuation line - append to current value
+					valueLines = append(valueLines, line)
+				}
+			}
+			// Don't forget the last key
+			if currentKey != "" {
+				env[currentKey] = strings.Join(valueLines, "\n")
 			}
 		}
 	}
@@ -409,6 +454,29 @@ func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, 
 	}
 
 	return env, pwd
+}
+
+// isValidEnvVarName checks if a string is a valid environment variable name.
+// Valid names start with a letter or underscore and contain only [A-Za-z0-9_].
+// This is used to distinguish new KEY=VALUE pairs from continuation lines in
+// multiline values when parsing newline-delimited env output.
+func isValidEnvVarName(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	// First character must be letter or underscore
+	first := name[0]
+	if !((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') || first == '_') {
+		return false
+	}
+	// Rest must be alphanumeric or underscore
+	for i := 1; i < len(name); i++ {
+		c := name[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // detectInterpreter detects the interpreter from the shebang line or uses provided language
