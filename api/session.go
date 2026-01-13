@@ -376,8 +376,10 @@ var excludedEnvVars = map[string]bool{
 	"SRANDOM":          	 true, // 32-bit random (bash 5.1+)
 
 	// Internal wrapper variables (must match wrapScriptForEnvCapture)
-	"__RUNBOOKS_ENV_CAPTURE_PATH": true,
-	"__RUNBOOKS_PWD_CAPTURE_PATH": true,
+	"__RUNBOOKS_ENV_CAPTURE_PATH":   true,
+	"__RUNBOOKS_PWD_CAPTURE_PATH":   true,
+	"__RUNBOOKS_USER_EXIT_HANDLER":  true, // Stores user's EXIT trap handler
+	"__RUNBOOKS_COMBINED_EXIT":      true, // Our combined exit handler function name
 }
 
 // FilterCapturedEnv filters out shell-internal variables from captured environment.

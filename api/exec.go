@@ -347,42 +347,154 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 
 // wrapScriptForEnvCapture wraps a script to capture environment changes after execution.
 // The wrapper appends commands to dump the environment and working directory to temp files.
+//
+// ## How the wrapper works
+//
+// The wrapper executes in the same shell context as the user script, allowing environment
+// variable changes (export FOO=bar) and directory changes (cd /somewhere) to be captured.
+// When the script exits (normally or via explicit `exit`), we dump the environment using
+// `env -0` (NUL-terminated to handle values with embedded newlines like RSA keys or JSON)
+// and the working directory using `pwd`.
+//
+// ## The trap override problem
+//
+// A key challenge is that user scripts may set their own EXIT traps (e.g., for cleanup):
+//
+//	trap "rm -rf $TEMP_DIR" EXIT
+//
+// In bash, only one trap handler can exist per signal. If we naively set our own EXIT trap
+// at the start of the wrapper, the user's trap would override it, and we'd never capture
+// the environment.
+//
+// ## Solution: Intercept the trap builtin
+//
+// We solve this by defining a shell function named `trap` that shadows the builtin.
+// When the user script calls `trap "cleanup" EXIT`, our function intercepts it:
+//
+//  1. We detect it's an EXIT trap (signal 0 or "EXIT")
+//  2. We save the user's handler string to __RUNBOOKS_USER_EXIT_HANDLER
+//  3. We return without actually setting the trap (so ours remains active)
+//
+// For non-EXIT traps (e.g., SIGINT, SIGTERM), we pass through to `builtin trap`.
+//
+// Our combined exit handler (__runbooks_combined_exit) runs when the script exits and:
+//  1. Executes the user's saved handler first (so their cleanup runs)
+//  2. Then captures the environment
+//  3. Preserves the original exit code
+//
+// We use `builtin trap` to set our handler, which bypasses our override function.
 func wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) string {
-	// We wrap the script to capture environment after it runs
-	// The wrapper:
-	// 1. Sources/executes the original script
-	// 2. Captures the resulting environment to a temp file
-	// 3. Captures the working directory to another temp file
-	//
-	// We use a subshell to run the user script so that 'exit' calls don't skip our capture
-	// but we need the environment changes to propagate, so we use 'source' instead
-	//
-	// The wrapper preserves the exit code of the original script
-	//
-	// We use `env -0` to output NUL-terminated (i.e. ASCII control character for null) entries instead of newline-terminated.
+	// We use `env -0` to output NUL-terminated entries instead of newline-terminated.
 	// This is critical because environment variable values can contain embedded newlines
 	// (e.g., RSA keys, JSON, multiline strings). Both GNU and BSD/macOS support `env -0`.
 	wrapper := fmt.Sprintf(`#!/bin/bash
-# Runbooks environment capture wrapper
-# This wrapper captures environment changes after the user script runs
+# =============================================================================
+# Runbooks Environment Capture Wrapper
+# =============================================================================
+# This wrapper captures environment changes after the user script runs.
+# It intercepts EXIT traps to ensure both user cleanup AND env capture run.
+#
+# Flow:
+#   1. Define our capture function and trap override
+#   2. Set our combined EXIT handler (using builtin to bypass override)
+#   3. Execute user script (which may call 'trap ... EXIT')
+#   4. On exit: run user's handler first, then capture env
+# =============================================================================
 
 __RUNBOOKS_ENV_CAPTURE_PATH=%q
 __RUNBOOKS_PWD_CAPTURE_PATH=%q
 
-# Run the user script in the current shell context so env changes propagate
-# We use a function and trap to ensure we capture env even if script calls 'exit'
+# -----------------------------------------------------------------------------
+# Environment capture function
+# Called on exit to dump env vars and working directory to temp files
+# -----------------------------------------------------------------------------
 __runbooks_capture_env() {
     # Use env -0 for NUL-terminated output to handle values with embedded newlines
+    # (e.g., RSA keys, JSON, multiline strings)
     env -0 > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
     pwd > "$__RUNBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
 }
 
-trap __runbooks_capture_env EXIT
+# -----------------------------------------------------------------------------
+# Trap override mechanism
+# -----------------------------------------------------------------------------
+# In bash, only one handler can exist per signal. If the user script sets an
+# EXIT trap, it would override ours and we'd lose env capture. To solve this,
+# we define a function named 'trap' that shadows the builtin.
+#
+# When user calls: trap "rm -rf $TEMP_DIR" EXIT
+# Our function:
+#   1. Detects it's an EXIT trap
+#   2. Saves the handler to __RUNBOOKS_USER_EXIT_HANDLER
+#   3. Returns without setting the actual trap (ours remains active)
+#
+# For non-EXIT traps, we pass through to 'builtin trap' so they work normally.
+# -----------------------------------------------------------------------------
 
-# Execute the user script inline (not sourced, to preserve proper error handling)
-# --- BEGIN USER SCRIPT ---
+# Store user's EXIT trap handler (if they set one)
+__RUNBOOKS_USER_EXIT_HANDLER=""
+
+# Override the trap builtin to intercept EXIT handlers
+trap() {
+    # Check if EXIT (or signal 0, which is equivalent) is in the arguments
+    local has_exit=false
+    local i
+    for i in "$@"; do
+        if [[ "$i" == "EXIT" || "$i" == "0" ]]; then
+            has_exit=true
+            break
+        fi
+    done
+
+    if $has_exit && [[ $# -ge 2 ]]; then
+        # This is setting an EXIT trap - intercept it
+        local handler="$1"
+        if [[ "$handler" == "-" ]]; then
+            # trap - EXIT: reset to default (clear user handler)
+            __RUNBOOKS_USER_EXIT_HANDLER=""
+        elif [[ -z "$handler" ]]; then
+            # trap '' EXIT: ignore signal (clear user handler)
+            __RUNBOOKS_USER_EXIT_HANDLER=""
+        else
+            # Save user's handler to call during exit
+            __RUNBOOKS_USER_EXIT_HANDLER="$handler"
+        fi
+        return 0
+    fi
+
+    # Not an EXIT trap (or just querying) - pass through to builtin
+    builtin trap "$@"
+}
+
+# -----------------------------------------------------------------------------
+# Combined exit handler
+# Runs when script exits to execute user cleanup AND capture environment
+# -----------------------------------------------------------------------------
+__runbooks_combined_exit() {
+    local exit_code=$?
+
+    # Run user's EXIT handler first (if any), so their cleanup happens
+    if [[ -n "$__RUNBOOKS_USER_EXIT_HANDLER" ]]; then
+        eval "$__RUNBOOKS_USER_EXIT_HANDLER" || true
+    fi
+
+    # Then capture environment (after user's changes but before exit)
+    __runbooks_capture_env
+
+    # Preserve the original exit code
+    exit $exit_code
+}
+
+# Set our combined exit handler using 'builtin trap' to bypass our override
+builtin trap __runbooks_combined_exit EXIT
+
+# =============================================================================
+# USER SCRIPT BEGIN
+# =============================================================================
 %s
-# --- END USER SCRIPT ---
+# =============================================================================
+# USER SCRIPT END
+# =============================================================================
 `, envCapturePath, pwdCapturePath, script)
 
 	return wrapper

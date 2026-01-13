@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -675,12 +677,85 @@ cd /tmp`
 		t.Error("Wrapper should contain pwd capture path variable")
 	}
 
-	if !strings.Contains(wrapped, "trap __runbooks_capture_env EXIT") {
-		t.Error("Wrapper should set EXIT trap")
+	// The wrapper uses builtin trap to set our combined exit handler
+	// This ensures user EXIT traps don't override our env capture
+	if !strings.Contains(wrapped, "builtin trap __runbooks_combined_exit EXIT") {
+		t.Error("Wrapper should set EXIT trap using builtin")
+	}
+
+	// Verify trap interception is set up
+	if !strings.Contains(wrapped, "__RUNBOOKS_USER_EXIT_HANDLER") {
+		t.Error("Wrapper should have user exit handler variable for trap interception")
 	}
 
 	if !strings.Contains(wrapped, script) {
 		t.Error("Wrapper should contain original script")
+	}
+}
+
+// Test that user EXIT traps are chained with our env capture
+func TestWrapScriptForEnvCaptureWithUserTrap(t *testing.T) {
+	// Create temp files for env capture
+	envFile, err := os.CreateTemp("", "test-env-trap-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp env file: %v", err)
+	}
+	envCapturePath := envFile.Name()
+	envFile.Close()
+	defer os.Remove(envCapturePath)
+
+	pwdFile, err := os.CreateTemp("", "test-pwd-trap-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp pwd file: %v", err)
+	}
+	pwdCapturePath := pwdFile.Name()
+	pwdFile.Close()
+	defer os.Remove(pwdCapturePath)
+
+	// Get a unique path for the user's EXIT trap to create a marker file
+	// We use TempDir to ensure uniqueness without actually creating the file
+	userTrapRanPath := filepath.Join(t.TempDir(), "user-trap-ran.marker")
+
+	// Script that sets an EXIT trap for cleanup AND exports an env var
+	script := fmt.Sprintf(`#!/bin/bash
+export MY_TEST_VAR=test_value_12345
+trap "touch %q" EXIT
+echo "Script running"
+`, userTrapRanPath)
+
+	wrapped := wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath)
+
+	// Write wrapped script to temp file and execute it
+	tmpScript, err := os.CreateTemp("", "test-wrapped-*.sh")
+	if err != nil {
+		t.Fatalf("Failed to create temp script file: %v", err)
+	}
+	tmpScript.WriteString(wrapped)
+	tmpScript.Close()
+	defer os.Remove(tmpScript.Name())
+	os.Chmod(tmpScript.Name(), 0700)
+
+	// Run the script
+	cmd := exec.Command("bash", tmpScript.Name())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Script execution failed: %v\nOutput: %s", err, output)
+	}
+
+	// Verify user's EXIT trap ran (marker file should exist)
+	if _, err := os.Stat(userTrapRanPath); os.IsNotExist(err) {
+		t.Error("User's EXIT trap should have run and created the marker file")
+	}
+	// Note: t.TempDir() handles cleanup automatically
+
+	// Verify our env capture also ran
+	env, _ := parseEnvCapture(envCapturePath, pwdCapturePath)
+	if env == nil {
+		t.Fatal("Environment capture should have run")
+	}
+
+	if env["MY_TEST_VAR"] != "test_value_12345" {
+		t.Errorf("MY_TEST_VAR should be captured, got: %q", env["MY_TEST_VAR"])
 	}
 }
 
