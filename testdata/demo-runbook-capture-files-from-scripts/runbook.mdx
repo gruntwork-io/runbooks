@@ -1,0 +1,77 @@
+# Capturing Files from Scripts
+
+This runbook demonstrates how scripts can generate files that are automatically captured
+and saved to the `/generated` folder. Files written to the special `$RUNBOOKS_OUTPUT` 
+directory are collected after script execution and appear in the Generated Files panel.
+
+## How It Works
+
+1. Every script has access to the `$RUNBOOKS_OUTPUT` environment variable
+2. Any files written to this directory are captured after the script completes
+3. Captured files are copied to the `/generated` folder in your project
+4. The files appear in the Generated Files panel for easy viewing and downloading
+
+This is useful for generating configuration files, OpenTofu modules, setup scripts,
+or any other artifacts as part of your runbook workflow.
+
+---
+
+## 1. Configure Project Variables
+
+First, let's set up some environment variables that describe our project. These will
+be used in the next step to generate customized configuration files.
+
+<Command 
+    id="set-project-vars"
+    path="scripts/set-project-vars.sh"
+    title="Set project variables"
+    description="Exports PROJECT_NAME, ENVIRONMENT, AWS_REGION, and TEAM_EMAIL for use in generated files."
+    successMessage="Project variables configured!"
+    failMessage="Failed to set project variables."
+/>
+
+---
+
+## 2. Generate Configuration Files
+
+Now let's generate some configuration files using the variables we just set. The script
+will write files to `$RUNBOOKS_OUTPUT`, which will be captured and copied to `/generated`.
+
+<Command 
+    id="generate-files"
+    path="scripts/generate-files.sh"
+    title="Generate configuration files"
+    description="Creates OpenTofu configs, a JSON settings file, and a setup script using the project variables."
+    successMessage="Configuration files generated and captured!"
+    failMessage="Failed to generate configuration files."
+/>
+
+After running this command, check the **Generated Files** panel to see the captured files.
+You can also find them in your project's `/generated` folder.
+
+---
+
+## What Gets Generated
+
+The script creates several files demonstrating different use cases:
+
+| File | Description |
+|------|-------------|
+| `config.json` | JSON configuration with project settings |
+| `tofu/variables.tf` | OpenTofu variable definitions |
+| `tofu/main.tf` | Main OpenTofu configuration |
+| `tofu/outputs.tf` | OpenTofu output definitions |
+| `scripts/deploy.sh` | Deployment script using project variables |
+
+---
+
+## Summary
+
+The `$RUNBOOKS_OUTPUT` feature enables runbooks to:
+
+- **Generate customized configs** using environment variables from earlier steps
+- **Create complete project scaffolding** with multiple files and directories
+- **Produce deployment artifacts** that are ready to use
+
+This creates a powerful workflow where earlier steps gather information (from user input,
+checks, or API calls) and later steps use that information to generate tailored output.

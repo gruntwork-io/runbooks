@@ -22,10 +22,6 @@ interface UseScriptExecutionProps {
   inputsId?: string | string[]
   children?: ReactNode
   componentType: ComponentType
-  /** When true, files written by the script are captured to the workspace */
-  captureFiles?: boolean
-  /** Relative subdirectory within the output folder for captured files */
-  captureFilesOutputPath?: string
 }
 
 interface UseScriptExecutionReturn {
@@ -68,8 +64,6 @@ export function useScriptExecution({
   inputsId,
   children,
   componentType,
-  captureFiles,
-  captureFilesOutputPath,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -208,9 +202,9 @@ export function useScriptExecution({
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
   
   // Use the API exec hook for real script execution
-  // Pass onFilesCaptured callback to update file tree when command captures files
+  // Pass onFilesCaptured callback to update file tree when scripts write to $RUNBOOKS_OUTPUT
   const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
-    onFilesCaptured: captureFiles ? handleFilesCaptured : undefined,
+    onFilesCaptured: handleFilesCaptured,
   })
   
   // Map exec state to our status type, handling warn status for Check components
@@ -361,12 +355,6 @@ export function useScriptExecution({
       stringVariables[key] = String(value)
     }
     
-    // Build capture files options (only for commands, not checks)
-    const captureOptions = captureFiles ? {
-      captureFiles,
-      captureFilesOutputPath,
-    } : undefined
-    
     if (execRegistryEnabled) {
       // Registry mode: Look up executable in registry and use executable ID
       const executable = getExecutableByComponentId(componentId)
@@ -375,19 +363,19 @@ export function useScriptExecution({
         // Show error to user instead of silently failing
         setRegistryError(createAppError(
           `Executable not found for component "${componentId}"`,
-          'This usually means there was a parsing error when the runbook was loaded. ' +
-          'Check the runbooks server logs for details, or try restarting runbooks. ' +
-          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path.'
+          'This means that Runbooks attempted to run a script or command that was not defined when Runbooks was first loaded. ' +
+          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path. ' +
+          'Try re-opening your runbook, or check the runbooks server logs for details.'
         ))
         return
       }
       
-      executeScript(executable.id, stringVariables, captureOptions)
+      executeScript(executable.id, stringVariables)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, stringVariables, captureOptions)
+      executeByComponentId(componentId, stringVariables)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues, captureFiles, captureFilesOutputPath])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
