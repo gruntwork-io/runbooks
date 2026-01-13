@@ -737,6 +737,8 @@ func copyFilesFromCaptureDir(captureDir, outputDir string) ([]CapturedFile, erro
 			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
 				return err
 			}
+			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
+			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
 			return os.Chmod(dstPath, info.Mode())
 		}
 
