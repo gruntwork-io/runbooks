@@ -287,6 +287,25 @@ func (sm *SessionManager) UpdateSessionEnv(env map[string]string, workDir string
 	return nil
 }
 
+// AppendToEnv adds environment variables to the session's environment.
+// Unlike UpdateSessionEnv which replaces the entire environment, this only adds or updates
+// the specified variables. This is used by UI components (like AwsAuth) to inject
+// environment variables into the session without running a script.
+func (sm *SessionManager) AppendToEnv(env map[string]string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.session == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	for key, value := range env {
+	}
+	sm.session.LastActivity = time.Now()
+
+	return nil
+}
+
 // ResetSession restores the session to its initial environment state.
 func (sm *SessionManager) ResetSession() error {
 	sm.mu.Lock()

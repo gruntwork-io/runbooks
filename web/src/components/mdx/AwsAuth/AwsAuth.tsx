@@ -6,6 +6,7 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useBlockVariables } from "@/contexts/useBlockVariables"
+import { useSession } from "@/contexts/useSession"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 
@@ -69,6 +70,9 @@ function AwsAuth({
 
   // Block variables context for sharing credentials with other blocks
   const { registerInputs } = useBlockVariables()
+  
+  // Session context for setting environment variables in the persistent session
+  const { getAuthHeader } = useSession()
 
   // State
   const [authMethod, setAuthMethod] = useState<AuthMethod>('credentials')
@@ -122,8 +126,8 @@ function AwsAuth({
     }
   }, [id, isDuplicate, authStatus, errorMessage, reportError, clearError])
 
-  // Register credentials with BlockVariables when authenticated
-  const registerCredentials = useCallback((creds: {
+  // Register credentials with BlockVariables and session environment when authenticated
+  const registerCredentials = useCallback(async (creds: {
     accessKeyId: string
     secretAccessKey: string
     sessionToken?: string
@@ -137,8 +141,35 @@ function AwsAuth({
     if (creds.sessionToken) {
       values.AWS_SESSION_TOKEN = creds.sessionToken
     }
+    
+    // Register with BlockVariables for template variable substitution
     registerInputs(id, values, createAwsCredentialsConfig())
-  }, [id, registerInputs])
+    
+    // Also set in session environment so all subsequent scripts have access
+    // without needing to use inputsId or template syntax
+    try {
+      const envVars: Record<string, string> = {
+        AWS_ACCESS_KEY_ID: creds.accessKeyId,
+        AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
+        AWS_REGION: creds.region,
+      }
+      if (creds.sessionToken) {
+        envVars.AWS_SESSION_TOKEN = creds.sessionToken
+      }
+      
+      await fetch('/api/session/env', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+        body: JSON.stringify({ env: envVars }),
+      })
+    } catch (error) {
+      // Non-critical: log but don't fail auth
+      console.error('Failed to set session environment variables:', error)
+    }
+  }, [id, registerInputs, getAuthHeader])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = async () => {

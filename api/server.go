@@ -63,6 +63,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		sessionAuth.GET("", HandleGetSession(sessionManager))
 		sessionAuth.POST("/reset", HandleResetSession(sessionManager))
 		sessionAuth.DELETE("", HandleDeleteSession(sessionManager))
+		sessionAuth.PATCH("/env", HandleSetSessionEnv(sessionManager))
 	}
 
 	// API endpoint to execute check scripts
