@@ -363,9 +363,9 @@ export function useScriptExecution({
         // Show error to user instead of silently failing
         setRegistryError(createAppError(
           `Executable not found for component "${componentId}"`,
-          'This usually means there was a parsing error when the runbook was loaded. ' +
-          'Check the runbooks server logs for details, or try restarting runbooks. ' +
-          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path.'
+          'This means that Runbooks attempted to run a script or command that was not defined when Runbooks was first loaded. ' +
+          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path. ' +
+          'Try re-opening your runbook, or check the runbooks server logs for details.'
         ))
         return
       }
