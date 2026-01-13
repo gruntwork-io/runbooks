@@ -300,6 +300,7 @@ func (sm *SessionManager) AppendToEnv(env map[string]string) error {
 	}
 
 	for key, value := range env {
+		sm.session.Env[key] = value
 	}
 	sm.session.LastActivity = time.Now()
 
