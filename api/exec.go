@@ -437,6 +437,13 @@ __RUNBOOKS_USER_EXIT_HANDLER=""
 
 # Override the trap builtin to intercept EXIT handlers
 trap() {
+    # Handle query flags (-p, -l) immediately - pass through to builtin
+    # These are for querying trap state, not setting handlers
+    if [[ "$1" == "-p" || "$1" == "-l" ]]; then
+        builtin trap "$@"
+        return $?
+    fi
+
     # Check if EXIT (or signal 0, which is equivalent) is in the arguments
     local has_exit=false
     local i

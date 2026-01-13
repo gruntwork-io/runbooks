@@ -19,6 +19,28 @@ When Runbooks loads, it immediately shows a warning to users to confirm that the
 
 The Runbooks backend server (which runs locally on your computer) only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Runbooks server.
 
+### Session Token Authentication
+
+Even with localhost-only binding, an additional layer of protection prevents unauthorized script execution. When you open a runbook, the browser receives a cryptographically random session token that must be included with every execution request.
+
+Without token authentication, any process on your machine could send requests to `localhost:7825` and execute scripts. The token requirement ensures only browser tabs that loaded the Runbooks UI can trigger execution.
+
+If you see "Invalid or expired session token" errors, try refreshing the page to obtain a new token.
+
+**How it works:**
+
+1. When a browser tab connects, it receives a unique token
+2. The token is stored in memory only (not in cookies or localStorage)
+3. Every `/api/exec` request must include this token in the `Authorization` header
+4. Requests without a valid token are rejected with `401 Unauthorized`
+
+**Multi-tab behavior:**
+
+- Multiple browser tabs share the same session (environment state)
+- Each tab receives its own token when it connects
+- Up to 20 concurrent tokens are supported; older tokens are automatically pruned
+- Closing a tab doesn't invalidate other tabs' tokens
+
 ### Executable Registry
 
 By default, Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the backend server will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).

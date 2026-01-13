@@ -36,6 +36,45 @@ Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or
 
 **Why?** Environment persistence works by wrapping your script in a Bash wrapper that captures environment changes after execution. This wrapper is Bash-specific and can't be applied to other interpreters. Additionally, environment changes in subprocesses (like a Python script) can't propagate back to the parent process — this is a fundamental limitation of how Unix processes work.
 
+### Multiline Environment Variables
+
+Environment variables can contain embedded newlines — RSA keys, JSON configs, multiline strings, etc. These values are correctly preserved across blocks:
+
+```bash
+#!/bin/bash
+export SSH_KEY="-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+-----END RSA PRIVATE KEY-----"
+
+export JSON_CONFIG='{
+  "database": "postgres",
+  "settings": { "timeout": 30 }
+}'
+```
+
+Runbooks uses NUL-terminated output (`env -0`) when capturing environment variables, which correctly handles values containing newlines. This works on Linux, macOS, and Windows with Git Bash.
+
+### User Trap Support
+
+Your scripts can optionally use `trap` commands for cleanup.
+
+```bash
+#!/bin/bash
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+# Your script logic...
+export RESULT="computed value"
+```
+
+Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. When your script exits:
+
+1. Your trap handler runs first (cleanup happens)
+2. Runbooks captures the final environment state
+3. The original exit code is preserved
+
+This means you can write scripts with proper cleanup logic and still have environment changes persist to subsequent blocks.
+
 ### Multiple Browser Tabs
 
 If you open the same runbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.
@@ -182,3 +221,26 @@ Always include a shebang in your scripts to ensure predictable execution:
 set -e
 # Your script here...
 ```
+
+---
+
+## Demo Runbooks
+
+The Runbooks repository includes demo runbooks that showcase these execution features:
+
+### Persistent Environment Demo
+
+The [`demo-runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-execution-model) runbook demonstrates:
+
+- Setting and reading environment variables across blocks
+- Working directory persistence
+- Multiline environment variables (RSA keys, JSON)
+- Non-bash scripts reading (but not setting) persistent env vars
+
+### File Capture Demo
+
+The [`demo-runbook-capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-capture-files-from-scripts) runbook demonstrates:
+
+- Using `$RUNBOOKS_OUTPUT` to capture generated files
+- Combining environment persistence with file generation
+- Creating OpenTofu configs from environment variables set in earlier blocks
