@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -509,7 +510,13 @@ func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, 
 	env := make(map[string]string)
 
 	// Read environment capture
-	if envData, err := os.ReadFile(envCapturePath); err == nil {
+	envData, err := os.ReadFile(envCapturePath)
+	if err != nil {
+		// File not existing is expected if script failed early; other errors should be logged
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("Failed to read environment capture file", "path", envCapturePath, "error", err)
+		}
+	} else {
 		data := string(envData)
 
 		// Auto-detect format: if NUL characters are present, use NUL-delimited parsing
@@ -557,7 +564,13 @@ func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, 
 
 	// Read working directory capture
 	var pwd string
-	if pwdData, err := os.ReadFile(pwdCapturePath); err == nil {
+	pwdData, pwdErr := os.ReadFile(pwdCapturePath)
+	if pwdErr != nil {
+		// File not existing is expected if script failed early; other errors should be logged
+		if !errors.Is(pwdErr, os.ErrNotExist) {
+			slog.Warn("Failed to read working directory capture file", "path", pwdCapturePath, "error", pwdErr)
+		}
+	} else {
 		pwd = strings.TrimSpace(string(pwdData))
 	}
 
