@@ -40,6 +40,23 @@ Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or
 
 If you open the same runbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.
 
+### Concurrent Script Execution
+
+:::caution[Environment changes may be lost when scripts run concurrently]
+If you run multiple scripts at the same time (for example, clicking "Run" on two different blocks before the first completes), environment changes from one script may silently overwrite changes from the other.
+:::
+
+**Why this happens:** When a script starts, it captures the current environment as a snapshot. When it finishes, it replaces the session environment with whatever the script ended with. If two scripts run concurrently:
+
+1. Script A and Script B both start with environment `{X=1}`
+2. Script A sets `X=2`
+3. Script B sets `Y=3`
+4. Whichever finishes last overwrites the other's changes
+
+For example, if Script B finishes last, the session ends up with `{X=1, Y=3}` — losing Script A's change to `X`.
+
+**Recommendation:** If your scripts depend on environment changes from previous scripts, wait for each script to complete before running the next one. The environment model is designed for sequential, step-by-step execution, similar to typing commands in a terminal one at a time.
+
 ### Implementation Notes
 
 The Runbooks server maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
