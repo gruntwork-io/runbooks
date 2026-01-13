@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle } from "lucide-react"
+import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle, Check, ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -9,6 +9,67 @@ import { useBlockVariables } from "@/contexts/useBlockVariables"
 import { useSession } from "@/contexts/useSession"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import { cn } from "@/lib/utils"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+
+// Complete list of AWS regions
+const AWS_REGIONS = [
+  // United States
+  { code: "us-east-1", name: "US East (N. Virginia)", geography: "United States" },
+  { code: "us-east-2", name: "US East (Ohio)", geography: "United States" },
+  { code: "us-west-1", name: "US West (N. California)", geography: "United States" },
+  { code: "us-west-2", name: "US West (Oregon)", geography: "United States" },
+  // Africa
+  { code: "af-south-1", name: "Africa (Cape Town)", geography: "South Africa" },
+  // Asia Pacific
+  { code: "ap-east-1", name: "Asia Pacific (Hong Kong)", geography: "Hong Kong" },
+  { code: "ap-east-2", name: "Asia Pacific (Taipei)", geography: "Taiwan" },
+  { code: "ap-south-1", name: "Asia Pacific (Mumbai)", geography: "India" },
+  { code: "ap-south-2", name: "Asia Pacific (Hyderabad)", geography: "India" },
+  { code: "ap-southeast-1", name: "Asia Pacific (Singapore)", geography: "Singapore" },
+  { code: "ap-southeast-2", name: "Asia Pacific (Sydney)", geography: "Australia" },
+  { code: "ap-southeast-3", name: "Asia Pacific (Jakarta)", geography: "Indonesia" },
+  { code: "ap-southeast-4", name: "Asia Pacific (Melbourne)", geography: "Australia" },
+  { code: "ap-southeast-5", name: "Asia Pacific (Malaysia)", geography: "Malaysia" },
+  { code: "ap-southeast-6", name: "Asia Pacific (New Zealand)", geography: "New Zealand" },
+  { code: "ap-southeast-7", name: "Asia Pacific (Thailand)", geography: "Thailand" },
+  { code: "ap-northeast-1", name: "Asia Pacific (Tokyo)", geography: "Japan" },
+  { code: "ap-northeast-2", name: "Asia Pacific (Seoul)", geography: "South Korea" },
+  { code: "ap-northeast-3", name: "Asia Pacific (Osaka)", geography: "Japan" },
+  // Canada
+  { code: "ca-central-1", name: "Canada (Central)", geography: "Canada" },
+  { code: "ca-west-1", name: "Canada West (Calgary)", geography: "Canada" },
+  // Europe
+  { code: "eu-central-1", name: "Europe (Frankfurt)", geography: "Germany" },
+  { code: "eu-central-2", name: "Europe (Zurich)", geography: "Switzerland" },
+  { code: "eu-west-1", name: "Europe (Ireland)", geography: "Ireland" },
+  { code: "eu-west-2", name: "Europe (London)", geography: "United Kingdom" },
+  { code: "eu-west-3", name: "Europe (Paris)", geography: "France" },
+  { code: "eu-south-1", name: "Europe (Milan)", geography: "Italy" },
+  { code: "eu-south-2", name: "Europe (Spain)", geography: "Spain" },
+  { code: "eu-north-1", name: "Europe (Stockholm)", geography: "Sweden" },
+  // Israel
+  { code: "il-central-1", name: "Israel (Tel Aviv)", geography: "Israel" },
+  // Mexico
+  { code: "mx-central-1", name: "Mexico (Central)", geography: "Mexico" },
+  // Middle East
+  { code: "me-south-1", name: "Middle East (Bahrain)", geography: "Bahrain" },
+  { code: "me-central-1", name: "Middle East (UAE)", geography: "United Arab Emirates" },
+  // South America
+  { code: "sa-east-1", name: "South America (São Paulo)", geography: "Brazil" },
+] as const
 
 type AuthMethod = 'credentials' | 'sso' | 'profile'
 type AuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed'
@@ -92,6 +153,9 @@ function AwsAuth({
   const [profiles, setProfiles] = useState<string[]>([])
   const [selectedProfile, setSelectedProfile] = useState<string>('')
   const [loadingProfiles, setLoadingProfiles] = useState(false)
+
+  // Region picker state
+  const [regionPickerOpen, setRegionPickerOpen] = useState(false)
 
   // Track block render on mount
   useEffect(() => {
@@ -545,7 +609,7 @@ function AwsAuth({
                       value={accessKeyId}
                       onChange={(e) => setAccessKeyId(e.target.value)}
                       placeholder="AKIAIOSFODNN7EXAMPLE"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm placeholder-gray-400"
                       disabled={authStatus === 'authenticating'}
                     />
                   </div>
@@ -560,7 +624,7 @@ function AwsAuth({
                         value={secretAccessKey}
                         onChange={(e) => setSecretAccessKey(e.target.value)}
                         placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm pr-10"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm pr-10 placeholder-gray-400"
                         disabled={authStatus === 'authenticating'}
                       />
                       <button
@@ -583,7 +647,7 @@ function AwsAuth({
                         value={sessionToken}
                         onChange={(e) => setSessionToken(e.target.value)}
                         placeholder="For temporary credentials only"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm pr-10"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm pr-10 placeholder-gray-400"
                         disabled={authStatus === 'authenticating'}
                       />
                       <button
@@ -600,23 +664,63 @@ function AwsAuth({
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Region
                     </label>
-                    <select
-                      value={selectedRegion}
-                      onChange={(e) => setSelectedRegion(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      disabled={authStatus === 'authenticating'}
-                    >
-                      <option value="us-east-1">US East (N. Virginia)</option>
-                      <option value="us-east-2">US East (Ohio)</option>
-                      <option value="us-west-1">US West (N. California)</option>
-                      <option value="us-west-2">US West (Oregon)</option>
-                      <option value="eu-west-1">Europe (Ireland)</option>
-                      <option value="eu-west-2">Europe (London)</option>
-                      <option value="eu-central-1">Europe (Frankfurt)</option>
-                      <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
-                      <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-                      <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
-                    </select>
+                    <Popover open={regionPickerOpen} onOpenChange={setRegionPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={regionPickerOpen}
+                          className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+                          disabled={authStatus === 'authenticating'}
+                        >
+                          {selectedRegion ? (
+                            <span className="flex items-center gap-2 truncate">
+                              <span className="font-mono text-xs text-gray-500">{selectedRegion}</span>
+                              <span className="text-gray-700">
+                                {AWS_REGIONS.find((r) => r.code === selectedRegion)?.name}
+                              </span>
+                            </span>
+                          ) : (
+                            "Select region..."
+                          )}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
+                        <Command>
+                          <CommandInput placeholder="Search regions..." />
+                          <CommandList className="max-h-[300px]">
+                            <CommandEmpty>No region found.</CommandEmpty>
+                            <CommandGroup>
+                              {AWS_REGIONS.map((region) => (
+                                <CommandItem
+                                  key={region.code}
+                                  value={`${region.code} ${region.name} ${region.geography}`}
+                                  onSelect={() => {
+                                    setSelectedRegion(region.code)
+                                    setRegionPickerOpen(false)
+                                  }}
+                                  className="flex items-center gap-2"
+                                >
+                                  <Check
+                                    className={cn(
+                                      "h-4 w-4 shrink-0",
+                                      selectedRegion === region.code ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <span className="font-mono text-xs text-gray-500 w-[120px] shrink-0">
+                                    {region.code}
+                                  </span>
+                                  <span className="text-gray-700 truncate">
+                                    {region.name}
+                                  </span>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
 
                   <Button
