@@ -9,3 +9,5 @@ Docs are located in /docs
 The frontend is located in /web 
 
 The backend is spread across /api, /browser, and /cmd. When the user requests something, make sure you know if they're asking to update the docs, frontend, or backend.
+
+Whenever you plan to use Terraform examples, use OpenTofu instead.

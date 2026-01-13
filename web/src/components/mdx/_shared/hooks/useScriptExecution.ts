@@ -9,6 +9,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
+import { computeSha256Hash } from '@/lib/hash'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -21,10 +22,6 @@ interface UseScriptExecutionProps {
   inputsId?: string | string[]
   children?: ReactNode
   componentType: ComponentType
-  /** When true, files written by the script are captured to the workspace */
-  captureFiles?: boolean
-  /** Relative subdirectory within the output folder for captured files */
-  captureFilesOutputPath?: string
 }
 
 interface UseScriptExecutionReturn {
@@ -51,6 +48,9 @@ interface UseScriptExecutionReturn {
   execError: AppError | null
   execute: () => void
   cancel: () => void
+  
+  // Drift detection (script changed on disk since runbook was opened)
+  hasScriptDrift: boolean
 }
 
 /**
@@ -64,8 +64,6 @@ export function useScriptExecution({
   inputsId,
   children,
   componentType,
-  captureFiles,
-  captureFilesOutputPath,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -90,6 +88,54 @@ export function useScriptExecution({
   // Determine raw script content: command prop takes precedence over file path
   const rawScriptContent = command || fileData?.content || ''
   const language = fileData?.language
+  
+  // State for computed hash of inline command content (for drift detection)
+  // Store the command along with its hash to avoid race conditions when command prop changes
+  const [commandHashResult, setCommandHashResult] = useState<{ command: string; hash: string } | null>(null)
+  
+  // Compute hash of inline command content when it changes
+  useEffect(() => {
+    if (!command) {
+      setCommandHashResult(null)
+      return
+    }
+    
+    // Track if this effect instance is still active (handles unmount and re-runs)
+    let isActive = true
+    computeSha256Hash(command).then(hash => {
+      if (isActive) {
+        setCommandHashResult({ command, hash })
+      }
+    })
+    
+    return () => {
+      isActive = false
+    }
+  }, [command])
+  
+  // Detect script drift: when the current content differs from what's registered
+  // This applies in registry mode for both file-based scripts AND inline commands
+  const hasScriptDrift = useMemo(() => {
+    // No drift detection needed in live reload mode (scripts are always fresh)
+    if (!execRegistryEnabled) return false
+    
+    const executable = getExecutableByComponentId(componentId)
+    if (!executable?.script_content_hash) return false
+    
+    // For inline commands, compare computed hash against registry hash
+    if (command) {
+      // If the hash we have is not for the current command, we can't know the drift status yet.
+      // Returning false is a safe default until the new hash is computed.
+      if (commandHashResult?.command !== command) {
+        return false
+      }
+      return commandHashResult.hash !== executable.script_content_hash
+    }
+    
+    // For file-based scripts, compare file hash against registry hash
+    if (!fileData?.contentHash) return false
+    return fileData.contentHash !== executable.script_content_hash
+  }, [execRegistryEnabled, command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
@@ -156,9 +202,9 @@ export function useScriptExecution({
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
   
   // Use the API exec hook for real script execution
-  // Pass onFilesCaptured callback to update file tree when command captures files
+  // Pass onFilesCaptured callback to update file tree when scripts write to $RUNBOOKS_OUTPUT
   const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
-    onFilesCaptured: captureFiles ? handleFilesCaptured : undefined,
+    onFilesCaptured: handleFilesCaptured,
   })
   
   // Map exec state to our status type, handling warn status for Check components
@@ -309,12 +355,6 @@ export function useScriptExecution({
       stringVariables[key] = String(value)
     }
     
-    // Build capture files options (only for commands, not checks)
-    const captureOptions = captureFiles ? {
-      captureFiles,
-      captureFilesOutputPath,
-    } : undefined
-    
     if (execRegistryEnabled) {
       // Registry mode: Look up executable in registry and use executable ID
       const executable = getExecutableByComponentId(componentId)
@@ -323,19 +363,19 @@ export function useScriptExecution({
         // Show error to user instead of silently failing
         setRegistryError(createAppError(
           `Executable not found for component "${componentId}"`,
-          'This usually means there was a parsing error when the runbook was loaded. ' +
-          'Check the runbooks server logs for details, or try restarting runbooks. ' +
-          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path.'
+          'This means that Runbooks attempted to run a script or command that was not defined when Runbooks was first loaded. ' +
+          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path. ' +
+          'Try re-opening your runbook, or check the runbooks server logs for details.'
         ))
         return
       }
       
-      executeScript(executable.id, stringVariables, captureOptions)
+      executeScript(executable.id, stringVariables)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, stringVariables, captureOptions)
+      executeByComponentId(componentId, stringVariables)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues, captureFiles, captureFilesOutputPath])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
@@ -381,6 +421,9 @@ export function useScriptExecution({
     execError: combinedExecError,
     execute,
     cancel: cancelExec,
+    
+    // Drift detection
+    hasScriptDrift,
   }
 }
 

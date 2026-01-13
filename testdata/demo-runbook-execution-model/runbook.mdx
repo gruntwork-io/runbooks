@@ -1,0 +1,199 @@
+# Persistent Environment Model Demo
+
+This runbook demonstrates the persistent execution environment model, where environment 
+variable changes made in one block persist to subsequent blocks within the same session.
+
+## Overview
+
+In this demo, we'll:
+1. Set environment variables in Block 1
+2. Read those variables in Block 2 to prove persistence
+3. Modify the variables in Block 3
+4. Verify the modifications in Block 4
+5. Change the working directory and verify persistence
+
+---
+
+## 1. Set Initial Environment Variables
+
+Let's start by setting some environment variables. These will persist to all subsequent blocks.
+
+<Command 
+    id="set-initial-env"
+    path="scripts/set-initial-env.sh"
+    title="Set initial environment variables"
+    description="This command exports DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT. These will be available in all subsequent blocks."
+    successMessage="Environment variables set successfully!"
+    failMessage="Failed to set environment variables."
+/>
+
+---
+
+## 1.1 Python Can READ Bash-Set Environment Variables
+
+Non-bash scripts like Python can **read** environment variables set by earlier bash scripts. This Python script verifies it can access DEMO_VAR, DEMO_COUNT, and DEMO_PROJECT set in Block 1.
+
+<Command 
+    id="python-test"
+    path="scripts/python-test.py"
+    title="Python reads bash env vars"
+    description="This Python script reads and verifies the environment variables set by bash in Block 1."
+    successMessage="Python successfully read all bash-set environment variables!"
+    failMessage="Python could not read the environment variables. Run Block 1 first!"
+/>
+
+---
+
+## 1.2 Test Python Setting Environment Variables
+
+Now let's test if a Python script can SET environment variables that persist to subsequent blocks.
+
+<Command 
+    id="python-set-env"
+    path="scripts/python-set-env.py"
+    title="Set env vars from Python"
+    description="This Python script attempts to set PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT using os.environ."
+    successMessage="Python script executed!"
+    failMessage="Python script failed."
+/>
+
+---
+
+## 1.3 Demonstrate That Environment Variables Set By Python Do NOT Persist
+
+Let's check if the environment variables set by Python persisted to this block.
+
+<Check 
+    id="verify-python-env"
+    path="checks/verify-python-env.sh"
+    title="Check Python env vars"
+    description="This check verifies whether PYTHON_SET_VAR, PYTHON_COUNT, and PYTHON_PROJECT are available."
+    successMessage="Python environment variables persisted!"
+    failMessage="Python environment variables did NOT persist (expected - see explanation below)."
+/>
+
+---
+
+## 2. Verify Environment Variables Persist
+
+Now let's verify that the variables we set in Block 1 are available in this block.
+
+<Check 
+    id="verify-env-vars"
+    path="checks/verify-env-vars.sh"
+    title="Verify environment variables"
+    description="This check reads the environment variables set in the previous block. If they're present, the persistent environment is working!"
+    successMessage="Environment variables persisted successfully!"
+    failMessage="Environment variables did not persist. The session may not be working correctly."
+/>
+
+---
+
+## 3. Modify Environment Variables
+
+Let's modify the environment variables to demonstrate that changes propagate forward.
+
+<Command 
+    id="modify-env"
+    path="scripts/modify-env.sh"
+    title="Modify environment variables"
+    description="This command modifies DEMO_COUNT and adds a new DEMO_MODIFIED variable."
+    successMessage="Environment variables modified!"
+    failMessage="Failed to modify environment variables."
+/>
+
+---
+
+## 4. Verify Modifications
+
+Let's verify that the modifications from Block 3 are visible.
+
+<Check 
+    id="verify-modified-env"
+    path="checks/verify-modified-env.sh"
+    title="Verify modified environment"
+    description="This check verifies that DEMO_COUNT was incremented and DEMO_MODIFIED exists."
+    successMessage="Environment modifications persisted!"
+    failMessage="Environment modifications did not persist."
+/>
+
+---
+
+## 5. Multiline Environment Variables
+
+Environment variables can contain embedded newlines (RSA keys, JSON configs, multiline strings).
+This section demonstrates that such values are correctly preserved across sessions.
+
+<Command 
+    id="set-multiline-env"
+    path="scripts/set-multiline-env.sh"
+    title="Set multiline environment variables"
+    description="Sets MULTILINE_KEY (simulated RSA key), JSON_CONFIG, and MULTILINE_SIMPLE with embedded newlines."
+    successMessage="Multiline environment variables set!"
+    failMessage="Failed to set multiline environment variables."
+/>
+
+---
+
+## 5.1 Verify Multiline Values Persist
+
+Let's verify that the multiline values were preserved correctly - not truncated at the first newline.
+
+<Check 
+    id="verify-multiline-env"
+    path="checks/verify-multiline-env.sh"
+    title="Verify multiline env vars"
+    description="Verifies that MULTILINE_KEY, JSON_CONFIG, and MULTILINE_SIMPLE retained their embedded newlines."
+    successMessage="Multiline environment variables preserved correctly!"
+    failMessage="Multiline values were corrupted - newlines may have been lost."
+/>
+
+---
+
+## 6. Change Working Directory
+
+The persistent environment also tracks the working directory. Let's change it.
+
+<Command 
+    id="change-workdir"
+    path="scripts/change-workdir.sh"
+    title="Change working directory"
+    description="This command changes to /tmp and exports a marker variable."
+    successMessage="Working directory changed!"
+    failMessage="Failed to change working directory."
+/>
+
+---
+
+## 7. Verify Working Directory
+
+Let's verify that the working directory change persisted.
+
+<Check 
+    id="verify-workdir"
+    path="checks/verify-workdir.sh"
+    title="Verify working directory"
+    description="This check verifies we're now in /tmp."
+    successMessage="Working directory persisted!"
+    failMessage="Working directory did not persist."
+/>
+
+---
+
+## Summary
+
+If all checks passed, you've successfully demonstrated the persistent environment model:
+
+- **Environment variables** set in one block are available in subsequent blocks
+- **Modifications** to environment variables propagate forward
+- **Multiline values** (RSA keys, JSON, etc.) preserve embedded newlines correctly
+- **Working directory** changes persist across blocks
+
+This is similar to how Jupyter notebooks maintain state across cells, enabling complex 
+multi-step workflows where each step builds on the previous one.
+
+### Re-execution Note
+
+If you re-run Block 1 now, it will execute with the **current** environment state, 
+not a historical snapshot. The environment will be reset to the initial values specified 
+in that block.

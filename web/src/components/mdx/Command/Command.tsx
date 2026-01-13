@@ -1,4 +1,5 @@
-import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash, FolderInput } from "lucide-react"
+import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash } from "lucide-react"
+import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
@@ -20,10 +21,6 @@ interface CommandProps {
   successMessage?: string
   failMessage?: string
   runningMessage?: string
-  /** When true, files written by the command are captured to the workspace */
-  captureFiles?: boolean
-  /** Relative subdirectory within the output folder for captured files. Only valid when captureFiles={true}. */
-  captureFilesOutputPath?: string
   children?: ReactNode // For inline Inputs component
 }
 
@@ -37,8 +34,6 @@ function Command({
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
-  captureFiles,
-  captureFilesOutputPath,
   children,
 }: CommandProps) {
   // Check for duplicate component IDs
@@ -66,6 +61,7 @@ function Command({
     execError,
     execute: handleExecute,
     cancel,
+    hasScriptDrift,
   } = useScriptExecution({
     componentId: id,
     path,
@@ -73,8 +69,6 @@ function Command({
     inputsId,
     children,
     componentType: 'command',
-    captureFiles,
-    captureFilesOutputPath,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -274,6 +268,29 @@ function Command({
   // Main render
   return (
     <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+      {/* Skip checkbox - always positioned at top right */}
+      <div className={`absolute top-4 right-4 flex items-center gap-2 z-20` + (commandStatus === 'success' ? ' text-gray-300' : '')}>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <Checkbox 
+            className="bg-white" 
+            checked={skipCommand} 
+            disabled={commandStatus === 'success'}
+            onCheckedChange={(checked) => setSkipCommand(checked === true)} 
+          />
+          <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 select-none">
+            Skip
+          </span>
+        </label>
+      </div>
+
+      {/* Script drift warning - mr-16 leaves room for the Skip checkbox */}
+      {hasScriptDrift && (
+        <Admonition type="warning" title="Script changed" className="space-y-2 mr-16">
+          <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
+          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.</p>
+        </Admonition>
+      )}
+      
       {/* Skip overlay */}
       {skipCommand && (
         <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
@@ -383,23 +400,6 @@ function Command({
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
           
-          {/* Indicate when command will capture files to workspace */}
-          {captureFiles && (
-            <div className="mt-3 mb-2 text-sm text-gray-600 flex items-center gap-2">
-              <FolderInput className="size-4 text-blue-500" />
-              <span>
-                Any files created by this command will be added to your generated files
-                {captureFilesOutputPath && (
-                  <span>
-                    <span> in the </span>
-                    <code className="bg-gray-100 text-gray-500 px-1 rounded text-xs">{captureFilesOutputPath}/</code>
-                    <span> subfolder </span>
-                  </span>
-                )}
-              </span>
-            </div>
-          )}
-          
           {/* Show status messages for waiting/rendering/error states */}      
           {requiredVariables.length > 0 && !hasAllRequiredVariables && !isRendering && (
             <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
@@ -454,21 +454,6 @@ function Command({
             </div>
           </div>
         </div>
-        </div>
-        
-        {/* Checkbox positioned in top right */}
-        <div className={`@md:absolute @md:top-4 @md:right-4 flex items-center gap-2 self-start z-20` + (commandStatus === 'success' ? ' text-gray-300' : '')}>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox 
-              className="bg-white" 
-              checked={skipCommand} 
-              disabled={commandStatus === 'success'}
-              onCheckedChange={(checked) => setSkipCommand(checked === true)} 
-            />
-            <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 select-none">
-              Skip
-            </span>
-          </label>
         </div>
       </div>
 

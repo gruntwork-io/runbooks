@@ -17,9 +17,10 @@ import (
 
 // openCmd represents the open command
 var openCmd = &cobra.Command{
-	Use:   "open PATH",
-	Short: "Open a runbook",
-	Long:  `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
+	Use:     "open PATH",
+	Short:   "Open a runbook (for runbook consumers)",
+	Long:    `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
+	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
 		telemetry.TrackCommand("open")

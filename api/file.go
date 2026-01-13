@@ -251,6 +251,7 @@ func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode 
 	response := gin.H{
 		"path":                  filePath,
 		"content":               string(content),
+		"contentHash":           computeContentHash(string(content)),
 		"language":              getLanguageFromExtension(filepath.Base(filePath)),
 		"size":                  fileInfo.Size(),
 		"useExecutableRegistry": useExecutableRegistry,
