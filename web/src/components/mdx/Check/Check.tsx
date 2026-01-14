@@ -299,7 +299,7 @@ function Check({
 
   // Main render - form with success indicator overlay if needed
   return (
-    <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
       {/* Skip checkbox - always positioned at top right */}
       <div className={`absolute top-4 right-4 flex items-center gap-2 z-20` + (checkStatus === 'success' ? ' text-gray-300' : '')}>
         <label className="flex items-center gap-2 cursor-pointer">
