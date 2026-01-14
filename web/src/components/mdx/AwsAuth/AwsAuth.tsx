@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle, Check, ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
@@ -157,6 +157,9 @@ function AwsAuth({
   // Region picker state
   const [regionPickerOpen, setRegionPickerOpen] = useState(false)
 
+  // SSO polling cancellation
+  const ssoPollingCancelledRef = useRef(false)
+
   // Track block render on mount
   useEffect(() => {
     trackBlockRender('AwsAuth')
@@ -311,6 +314,7 @@ function AwsAuth({
       return
     }
 
+    ssoPollingCancelledRef.current = false
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
@@ -350,6 +354,11 @@ function AwsAuth({
     let attempts = 0
 
     const poll = async () => {
+      // Check if polling was cancelled
+      if (ssoPollingCancelledRef.current) {
+        return
+      }
+
       try {
         const response = await fetch('/api/aws/sso/poll', {
           method: 'POST',
@@ -363,6 +372,11 @@ function AwsAuth({
             roleName: ssoRoleName,
           })
         })
+
+        // Check again after fetch in case it was cancelled while waiting
+        if (ssoPollingCancelledRef.current) {
+          return
+        }
 
         const data = await response.json()
 
@@ -383,6 +397,10 @@ function AwsAuth({
           setErrorMessage(data.error || 'SSO authentication timed out or failed')
         }
       } catch (error) {
+        // Don't show error if polling was cancelled
+        if (ssoPollingCancelledRef.current) {
+          return
+        }
         setAuthStatus('failed')
         setErrorMessage(error instanceof Error ? error.message : 'Failed to poll SSO status')
       }
@@ -434,6 +452,13 @@ function AwsAuth({
     setAuthStatus('pending')
     setErrorMessage(null)
     setAccountInfo(null)
+  }
+
+  // Cancel SSO authentication
+  const handleCancelSsoAuth = () => {
+    ssoPollingCancelledRef.current = true
+    setAuthStatus('pending')
+    setErrorMessage(null)
   }
 
   // Get status-based styling
@@ -746,31 +771,55 @@ function AwsAuth({
                   {ssoStartUrl ? (
                     <>
                       <div className="bg-amber-100/50 rounded p-3 text-sm text-gray-700">
-                        <p className="mb-2">
-                          Click the button below to open AWS SSO in your browser. After authenticating, you'll be redirected back here.
-                        </p>
-                        <div className="font-mono text-xs text-gray-500 truncate">
-                          {ssoStartUrl}
-                        </div>
-                      </div>
-                      
-                      <Button
-                        onClick={handleSsoAuth}
-                        disabled={authStatus === 'authenticating'}
-                        className="bg-amber-600 hover:bg-amber-700 text-white"
-                      >
                         {authStatus === 'authenticating' ? (
-                          <>
-                            <Loader2 className="size-4 mr-2 animate-spin" />
-                            Waiting for browser authentication...
-                          </>
+                            <p>
+                              Complete the authorization request in the applicable browser tab.<br/>
+                              <span className="text-gray-500 text-xs mt-1 block">
+                                Note: If you cancelled on AWS, click the Cancel button below — AWS doesn't notify this page when you cancel.
+                              </span>
+                            </p>                        
                         ) : (
                           <>
-                            <ExternalLink className="size-4 mr-2" />
-                            Sign in with AWS SSO
+                            <p className="mb-2">
+                              Click the button below to open AWS SSO in your browser. After authenticating, you'll be redirected back here.
+                            </p>
+                            <div className="font-mono text-xs text-gray-500 truncate">
+                              {ssoStartUrl}
+                            </div>
                           </>
                         )}
-                      </Button>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleSsoAuth}
+                          disabled={authStatus === 'authenticating'}
+                          className="bg-amber-600 hover:bg-amber-700 text-white"
+                        >
+                          {authStatus === 'authenticating' ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" />
+                              Waiting for browser authentication...
+                            </>
+                          ) : (
+                            <>
+                              <ExternalLink className="size-4" />
+                              Sign in with AWS SSO
+                            </>
+                          )}
+                        </Button>
+                        
+                        {authStatus === 'authenticating' && (
+                          <Button
+                            onClick={handleCancelSsoAuth}
+                            variant="outline"
+                            className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                          >
+                            <XCircle className="size-4" />
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <div className="text-amber-700 text-sm flex items-start gap-2">

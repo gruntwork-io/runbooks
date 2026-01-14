@@ -383,36 +383,55 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
-		// Try to create token
-		tokenResult, err := oidcClient.CreateToken(ctx, &ssooidc.CreateTokenInput{
-			ClientId:     aws.String(req.ClientID),
-			ClientSecret: aws.String(req.ClientSecret),
-			DeviceCode:   aws.String(req.DeviceCode),
-			GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
-		})
-		if err != nil {
-			// Check if authorization is still pending
-			if strings.Contains(err.Error(), "AuthorizationPendingException") ||
-				strings.Contains(err.Error(), "authorization_pending") {
-				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: "pending",
-				})
-				return
-			}
-			// Check for slow down request
-			if strings.Contains(err.Error(), "SlowDownException") ||
-				strings.Contains(err.Error(), "slow_down") {
-				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: "pending",
-				})
-				return
-			}
+	// Try to create token
+	tokenResult, err := oidcClient.CreateToken(ctx, &ssooidc.CreateTokenInput{
+		ClientId:     aws.String(req.ClientID),
+		ClientSecret: aws.String(req.ClientSecret),
+		DeviceCode:   aws.String(req.DeviceCode),
+		GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
+	})
+	if err != nil {
+		errStr := err.Error()
+		// Check if authorization is still pending
+		if strings.Contains(errStr, "AuthorizationPendingException") ||
+			strings.Contains(errStr, "authorization_pending") {
 			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  fmt.Sprintf("SSO authentication failed: %v", err),
+				Status: "pending",
 			})
 			return
 		}
+		// Check for slow down request
+		if strings.Contains(errStr, "SlowDownException") ||
+			strings.Contains(errStr, "slow_down") {
+			c.JSON(http.StatusOK, SSOPollResponse{
+				Status: "pending",
+			})
+			return
+		}
+		// Check if user denied/cancelled the authorization
+		if strings.Contains(errStr, "AccessDeniedException") ||
+			strings.Contains(errStr, "access_denied") {
+			c.JSON(http.StatusOK, SSOPollResponse{
+				Status: "failed",
+				Error:  "Authorization was denied or cancelled",
+			})
+			return
+		}
+		// Check if the device code expired
+		if strings.Contains(errStr, "ExpiredTokenException") ||
+			strings.Contains(errStr, "expired_token") {
+			c.JSON(http.StatusOK, SSOPollResponse{
+				Status: "failed",
+				Error:  "Authorization request expired. Please try again.",
+			})
+			return
+		}
+		c.JSON(http.StatusOK, SSOPollResponse{
+			Status: "failed",
+			Error:  fmt.Sprintf("SSO authentication failed: %v", err),
+		})
+		return
+	}
 
 		// Got the access token, now we need to get role credentials
 		accessToken := aws.ToString(tokenResult.AccessToken)
