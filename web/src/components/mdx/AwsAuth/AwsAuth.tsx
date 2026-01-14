@@ -728,7 +728,7 @@ function AwsAuth({
                       }`}
                     >
                       <ExternalLink className="size-4 inline mr-2" />
-                      AWS SSO
+                      AWS IAM Identity Center
                     </button>
                   )}
                   {enableProfile && (
@@ -906,7 +906,7 @@ function AwsAuth({
                         ) : (
                           <>
                             <p className="mb-2">
-                              Click the button below to open AWS SSO in your browser. After authenticating, you'll be redirected back here.
+                              Click the button below to open AWS IAM Identity Center (formerly AWS SSO) in your browser. After authenticating, you'll be redirected back here.
                             </p>
                             <div className="font-mono text-xs text-gray-500 truncate">
                               {ssoStartUrl}
@@ -929,7 +929,7 @@ function AwsAuth({
                           ) : (
                             <>
                               <ExternalLink className="size-4" />
-                              Sign in with AWS SSO
+                              Sign in with SSO
                             </>
                           )}
                         </Button>
