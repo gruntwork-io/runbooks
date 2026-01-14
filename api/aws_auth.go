@@ -86,7 +86,53 @@ type SSOPollRequest struct {
 
 // SSOPollResponse represents the response from SSO polling
 type SSOPollResponse struct {
-	Status          string `json:"status"` // "pending", "success", "failed"
+	Status          string `json:"status"` // "pending", "success", "failed", "select_account"
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+	AccountID       string `json:"accountId,omitempty"`
+	Arn             string `json:"arn,omitempty"`
+	Error           string `json:"error,omitempty"`
+	// For account selection flow
+	AccessToken string        `json:"accessToken,omitempty"`
+	Accounts    []SSOAccount  `json:"accounts,omitempty"`
+}
+
+// SSOAccount represents an AWS account from SSO
+type SSOAccount struct {
+	AccountID    string `json:"accountId"`
+	AccountName  string `json:"accountName"`
+	EmailAddress string `json:"emailAddress"`
+}
+
+// SSORole represents a role available in an SSO account
+type SSORole struct {
+	RoleName string `json:"roleName"`
+}
+
+// SSOListRolesRequest represents a request to list roles for an account
+type SSOListRolesRequest struct {
+	AccessToken string `json:"accessToken"`
+	AccountID   string `json:"accountId"`
+	Region      string `json:"region"`
+}
+
+// SSOListRolesResponse represents the response with available roles
+type SSOListRolesResponse struct {
+	Roles []SSORole `json:"roles,omitempty"`
+	Error string    `json:"error,omitempty"`
+}
+
+// SSOCompleteRequest represents a request to complete SSO with selected account/role
+type SSOCompleteRequest struct {
+	AccessToken string `json:"accessToken"`
+	AccountID   string `json:"accountId"`
+	RoleName    string `json:"roleName"`
+	Region      string `json:"region"`
+}
+
+// SSOCompleteResponse represents the response after completing SSO
+type SSOCompleteResponse struct {
 	AccessKeyID     string `json:"accessKeyId,omitempty"`
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
 	SessionToken    string `json:"sessionToken,omitempty"`
@@ -436,7 +482,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 		// Got the access token, now we need to get role credentials
 		accessToken := aws.ToString(tokenResult.AccessToken)
 
-		// If no account/role specified, we need to let the user know
+		// If no account/role specified, list accounts and let user choose
 		if req.AccountID == "" || req.RoleName == "" {
 			// List accounts to give the user info
 			ssoClient := sso.NewFromConfig(cfg)
@@ -459,22 +505,59 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 				return
 			}
 
-			// Use the first account and first role as default
-			account := accountsResult.AccountList[0]
-			rolesResult, err := ssoClient.ListAccountRoles(ctx, &sso.ListAccountRolesInput{
-				AccessToken: aws.String(accessToken),
-				AccountId:   account.AccountId,
-			})
-			if err != nil || len(rolesResult.RoleList) == 0 {
+			// If there's only one account, check if it has only one role
+			if len(accountsResult.AccountList) == 1 {
+				account := accountsResult.AccountList[0]
+				rolesResult, err := ssoClient.ListAccountRoles(ctx, &sso.ListAccountRolesInput{
+					AccessToken: aws.String(accessToken),
+					AccountId:   account.AccountId,
+				})
+				if err != nil || len(rolesResult.RoleList) == 0 {
+					c.JSON(http.StatusOK, SSOPollResponse{
+						Status: "failed",
+						Error:  "No roles available for the account",
+					})
+					return
+				}
+
+				// If only one account with one role, auto-select
+				if len(rolesResult.RoleList) == 1 {
+					req.AccountID = aws.ToString(account.AccountId)
+					req.RoleName = aws.ToString(rolesResult.RoleList[0].RoleName)
+				} else {
+					// One account, multiple roles - need selection
+					accounts := make([]SSOAccount, len(accountsResult.AccountList))
+					for i, acc := range accountsResult.AccountList {
+						accounts[i] = SSOAccount{
+							AccountID:    aws.ToString(acc.AccountId),
+							AccountName:  aws.ToString(acc.AccountName),
+							EmailAddress: aws.ToString(acc.EmailAddress),
+						}
+					}
+					c.JSON(http.StatusOK, SSOPollResponse{
+						Status:      "select_account",
+						AccessToken: accessToken,
+						Accounts:    accounts,
+					})
+					return
+				}
+			} else {
+				// Multiple accounts - return list for user selection
+				accounts := make([]SSOAccount, len(accountsResult.AccountList))
+				for i, acc := range accountsResult.AccountList {
+					accounts[i] = SSOAccount{
+						AccountID:    aws.ToString(acc.AccountId),
+						AccountName:  aws.ToString(acc.AccountName),
+						EmailAddress: aws.ToString(acc.EmailAddress),
+					}
+				}
 				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: "failed",
-					Error:  "No roles available for the account",
+					Status:      "select_account",
+					AccessToken: accessToken,
+					Accounts:    accounts,
 				})
 				return
 			}
-
-			req.AccountID = aws.ToString(account.AccountId)
-			req.RoleName = aws.ToString(rolesResult.RoleList[0].RoleName)
 		}
 
 		// Get role credentials
@@ -523,6 +606,150 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, SSOPollResponse{
 			Status:          "success",
+			AccessKeyID:     aws.ToString(credsResult.RoleCredentials.AccessKeyId),
+			SecretAccessKey: aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
+			SessionToken:    aws.ToString(credsResult.RoleCredentials.SessionToken),
+			AccountID:       aws.ToString(identityResult.Account),
+			Arn:             aws.ToString(identityResult.Arn),
+		})
+	}
+}
+
+// HandleAwsSsoListRoles lists available roles for an SSO account
+func HandleAwsSsoListRoles() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SSOListRolesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, SSOListRolesResponse{
+				Error: "Invalid request format",
+			})
+			return
+		}
+
+		if req.AccessToken == "" || req.AccountID == "" {
+			c.JSON(http.StatusBadRequest, SSOListRolesResponse{
+				Error: "Access token and account ID are required",
+			})
+			return
+		}
+
+		region := req.Region
+		if region == "" {
+			region = "us-east-1"
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			c.JSON(http.StatusOK, SSOListRolesResponse{
+				Error: fmt.Sprintf("Failed to create AWS config: %v", err),
+			})
+			return
+		}
+
+		ssoClient := sso.NewFromConfig(cfg)
+		rolesResult, err := ssoClient.ListAccountRoles(ctx, &sso.ListAccountRolesInput{
+			AccessToken: aws.String(req.AccessToken),
+			AccountId:   aws.String(req.AccountID),
+		})
+		if err != nil {
+			c.JSON(http.StatusOK, SSOListRolesResponse{
+				Error: fmt.Sprintf("Failed to list roles: %v", err),
+			})
+			return
+		}
+
+		roles := make([]SSORole, len(rolesResult.RoleList))
+		for i, role := range rolesResult.RoleList {
+			roles[i] = SSORole{
+				RoleName: aws.ToString(role.RoleName),
+			}
+		}
+
+		c.JSON(http.StatusOK, SSOListRolesResponse{
+			Roles: roles,
+		})
+	}
+}
+
+// HandleAwsSsoComplete completes SSO authentication with selected account/role
+func HandleAwsSsoComplete() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SSOCompleteRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, SSOCompleteResponse{
+				Error: "Invalid request format",
+			})
+			return
+		}
+
+		if req.AccessToken == "" || req.AccountID == "" || req.RoleName == "" {
+			c.JSON(http.StatusBadRequest, SSOCompleteResponse{
+				Error: "Access token, account ID, and role name are required",
+			})
+			return
+		}
+
+		region := req.Region
+		if region == "" {
+			region = "us-east-1"
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			c.JSON(http.StatusOK, SSOCompleteResponse{
+				Error: fmt.Sprintf("Failed to create AWS config: %v", err),
+			})
+			return
+		}
+
+		// Get role credentials
+		ssoClient := sso.NewFromConfig(cfg)
+		credsResult, err := ssoClient.GetRoleCredentials(ctx, &sso.GetRoleCredentialsInput{
+			AccessToken: aws.String(req.AccessToken),
+			AccountId:   aws.String(req.AccountID),
+			RoleName:    aws.String(req.RoleName),
+		})
+		if err != nil {
+			c.JSON(http.StatusOK, SSOCompleteResponse{
+				Error: fmt.Sprintf("Failed to get role credentials: %v", err),
+			})
+			return
+		}
+
+		// Validate the credentials
+		staticCreds := credentials.NewStaticCredentialsProvider(
+			aws.ToString(credsResult.RoleCredentials.AccessKeyId),
+			aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
+			aws.ToString(credsResult.RoleCredentials.SessionToken),
+		)
+
+		validationCfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion(region),
+			config.WithCredentialsProvider(staticCreds),
+		)
+		if err != nil {
+			c.JSON(http.StatusOK, SSOCompleteResponse{
+				Error: fmt.Sprintf("Failed to create validation config: %v", err),
+			})
+			return
+		}
+
+		stsClient := sts.NewFromConfig(validationCfg)
+		identityResult, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		if err != nil {
+			c.JSON(http.StatusOK, SSOCompleteResponse{
+				Error: fmt.Sprintf("Failed to validate SSO credentials: %v", err),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, SSOCompleteResponse{
 			AccessKeyID:     aws.ToString(credsResult.RoleCredentials.AccessKeyId),
 			SecretAccessKey: aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
 			SessionToken:    aws.ToString(credsResult.RoleCredentials.SessionToken),

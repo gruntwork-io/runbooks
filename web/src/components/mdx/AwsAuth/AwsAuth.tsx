@@ -72,7 +72,18 @@ const AWS_REGIONS = [
 ] as const
 
 type AuthMethod = 'credentials' | 'sso' | 'profile'
-type AuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed'
+type AuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed' | 'select_account' | 'select_role'
+
+// SSO account and role types
+interface SSOAccount {
+  accountId: string
+  accountName: string
+  emailAddress: string
+}
+
+interface SSORole {
+  roleName: string
+}
 
 interface AwsAuthProps {
   id: string
@@ -156,6 +167,14 @@ function AwsAuth({
 
   // Region picker state
   const [regionPickerOpen, setRegionPickerOpen] = useState(false)
+
+  // SSO account/role selection state
+  const [ssoAccessToken, setSsoAccessToken] = useState<string | null>(null)
+  const [ssoAccounts, setSsoAccounts] = useState<SSOAccount[]>([])
+  const [ssoRoles, setSsoRoles] = useState<SSORole[]>([])
+  const [selectedSsoAccount, setSelectedSsoAccount] = useState<SSOAccount | null>(null)
+  const [selectedSsoRole, setSelectedSsoRole] = useState<string>('')
+  const [loadingRoles, setLoadingRoles] = useState(false)
 
   // SSO polling cancellation
   const ssoPollingCancelledRef = useRef(false)
@@ -383,6 +402,11 @@ function AwsAuth({
         if (data.status === 'pending' && attempts < maxAttempts) {
           attempts++
           setTimeout(poll, 2000)
+        } else if (data.status === 'select_account') {
+          // User needs to select an account/role
+          setSsoAccessToken(data.accessToken)
+          setSsoAccounts(data.accounts || [])
+          setAuthStatus('select_account')
         } else if (data.status === 'success') {
           setAuthStatus('authenticated')
           setAccountInfo({ accountId: data.accountId, arn: data.arn })
@@ -407,6 +431,95 @@ function AwsAuth({
     }
 
     poll()
+  }
+
+  // Handle SSO account selection - load roles for selected account
+  const handleSsoAccountSelect = async (account: SSOAccount) => {
+    setSelectedSsoAccount(account)
+    setLoadingRoles(true)
+    setSelectedSsoRole('')
+    setSsoRoles([])
+
+    try {
+      const response = await fetch('/api/aws/sso/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken: ssoAccessToken,
+          accountId: account.accountId,
+          region: ssoRegion,
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.roles && data.roles.length > 0) {
+        setSsoRoles(data.roles)
+        // If only one role, auto-select it
+        if (data.roles.length === 1) {
+          setSelectedSsoRole(data.roles[0].roleName)
+        }
+        setAuthStatus('select_role')
+      } else {
+        setErrorMessage(data.error || 'No roles available for this account')
+        setAuthStatus('failed')
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load roles')
+      setAuthStatus('failed')
+    } finally {
+      setLoadingRoles(false)
+    }
+  }
+
+  // Complete SSO authentication with selected account and role
+  const handleSsoComplete = async () => {
+    if (!selectedSsoAccount || !selectedSsoRole || !ssoAccessToken) {
+      setErrorMessage('Please select an account and role')
+      return
+    }
+
+    setAuthStatus('authenticating')
+
+    try {
+      const response = await fetch('/api/aws/sso/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken: ssoAccessToken,
+          accountId: selectedSsoAccount.accountId,
+          roleName: selectedSsoRole,
+          region: ssoRegion,
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.accessKeyId) {
+        setAuthStatus('authenticated')
+        setAccountInfo({ accountId: data.accountId, arn: data.arn })
+        registerCredentials({
+          accessKeyId: data.accessKeyId,
+          secretAccessKey: data.secretAccessKey,
+          sessionToken: data.sessionToken,
+          region: ssoRegion
+        })
+      } else {
+        setAuthStatus('failed')
+        setErrorMessage(data.error || 'Failed to complete SSO authentication')
+      }
+    } catch (error) {
+      setAuthStatus('failed')
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
+    }
+  }
+
+  // Go back to account selection
+  const handleBackToAccountSelection = () => {
+    setSelectedSsoAccount(null)
+    setSelectedSsoRole('')
+    setSsoRoles([])
+    setAuthStatus('select_account')
   }
 
   // Handle profile selection
@@ -452,6 +565,12 @@ function AwsAuth({
     setAuthStatus('pending')
     setErrorMessage(null)
     setAccountInfo(null)
+    // Clear SSO selection state
+    setSsoAccessToken(null)
+    setSsoAccounts([])
+    setSsoRoles([])
+    setSelectedSsoAccount(null)
+    setSelectedSsoRole('')
   }
 
   // Cancel SSO authentication
@@ -463,31 +582,37 @@ function AwsAuth({
 
   // Get status-based styling
   const getStatusClasses = () => {
-    const statusMap = {
+    const statusMap: Record<AuthStatus, string> = {
       authenticated: 'bg-green-50 border-green-200',
       failed: 'bg-red-50 border-red-200',
       authenticating: 'bg-amber-50 border-amber-200',
       pending: 'bg-amber-50/50 border-amber-200',
+      select_account: 'bg-blue-50 border-blue-200',
+      select_role: 'bg-blue-50 border-blue-200',
     }
     return statusMap[authStatus]
   }
 
   const getStatusIcon = () => {
-    const iconMap = {
+    const iconMap: Record<AuthStatus, typeof CheckCircle> = {
       authenticated: CheckCircle,
       failed: XCircle,
       authenticating: Loader2,
       pending: KeyRound,
+      select_account: User,
+      select_role: User,
     }
     return iconMap[authStatus]
   }
 
   const getStatusIconClasses = () => {
-    const colorMap = {
+    const colorMap: Record<AuthStatus, string> = {
       authenticated: 'text-green-600',
       failed: 'text-red-600',
       authenticating: 'text-amber-600',
       pending: 'text-amber-600',
+      select_account: 'text-blue-600',
+      select_role: 'text-blue-600',
     }
     return colorMap[authStatus]
   }
@@ -498,7 +623,7 @@ function AwsAuth({
   // Early return for duplicate ID
   if (isDuplicate) {
     return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -515,7 +640,7 @@ function AwsAuth({
   const iconClasses = getStatusIconClasses()
 
   return (
-    <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-amber-300 pr-3 mr-2">
@@ -574,11 +699,11 @@ function AwsAuth({
             </div>
           )}
 
-          {/* Authentication form (only show when not authenticated) */}
+          {/* Authentication form (only show when not authenticated and not in account/role selection) */}
           {authStatus !== 'authenticated' && (
             <>
-              {/* Method tabs (only if multiple methods enabled) */}
-              {enabledMethods.length > 1 && (
+              {/* Method tabs (only if multiple methods enabled and not in account/role selection) */}
+              {enabledMethods.length > 1 && authStatus !== 'select_account' && authStatus !== 'select_role' && (
                 <div className="flex gap-1 mb-4 border-b border-amber-200">
                   {enableCredentials && (
                     <button
@@ -766,7 +891,7 @@ function AwsAuth({
               )}
 
               {/* SSO Authentication */}
-              {authMethod === 'sso' && enableSso && (
+              {authMethod === 'sso' && enableSso && authStatus !== 'select_account' && authStatus !== 'select_role' && (
                 <div className="space-y-4">
                   {ssoStartUrl ? (
                     <>
@@ -829,6 +954,107 @@ function AwsAuth({
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* SSO Account Selection */}
+              {authStatus === 'select_account' && (
+                <div className="space-y-4">
+                  <div className="text-blue-700 font-semibold text-sm mb-2">
+                    ✓ SSO authentication successful
+                  </div>
+                  <div className="bg-blue-100/50 rounded p-3 text-sm text-gray-700">
+                    <p>Select an AWS account to continue:</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {ssoAccounts.map((account) => (
+                      <button
+                        key={account.accountId}
+                        onClick={() => handleSsoAccountSelect(account)}
+                        disabled={loadingRoles}
+                        className={`w-full text-left px-4 py-3 rounded-md border transition-colors cursor-pointer ${
+                          loadingRoles && selectedSsoAccount?.accountId === account.accountId
+                            ? 'bg-blue-100 border-blue-300'
+                            : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">{account.accountName}</div>
+                            <div className="text-sm text-gray-500">
+                              {account.accountId}
+                              {account.emailAddress && ` • ${account.emailAddress}`}
+                            </div>
+                          </div>
+                          {loadingRoles && selectedSsoAccount?.accountId === account.accountId && (
+                            <Loader2 className="size-4 animate-spin text-blue-600" />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <Button
+                    onClick={handleReset}
+                    variant="outline"
+                    className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
+
+              {/* SSO Role Selection */}
+              {authStatus === 'select_role' && selectedSsoAccount && (
+                <div className="space-y-4">
+                  <div className="text-blue-700 font-semibold text-sm mb-2">
+                    ✓ Account selected: {selectedSsoAccount.accountName}
+                  </div>
+                  <div className="bg-blue-100/50 rounded p-3 text-sm text-gray-700">
+                    <p>Select a role to assume:</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {ssoRoles.map((role) => (
+                      <button
+                        key={role.roleName}
+                        onClick={() => setSelectedSsoRole(role.roleName)}
+                        className={`w-full text-left px-4 py-3 rounded-md border transition-colors cursor-pointer ${
+                          selectedSsoRole === role.roleName
+                            ? 'bg-blue-100 border-blue-400 ring-2 ring-blue-200'
+                            : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Check
+                            className={cn(
+                              "h-4 w-4 shrink-0",
+                              selectedSsoRole === role.roleName ? "opacity-100 text-blue-600" : "opacity-0"
+                            )}
+                          />
+                          <span className="font-medium text-gray-900">{role.roleName}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleSsoComplete}
+                      disabled={!selectedSsoRole}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Continue
+                    </Button>
+                    <Button
+                      onClick={handleBackToAccountSelection}
+                      variant="outline"
+                      className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                    >
+                      Back
+                    </Button>
+                  </div>
                 </div>
               )}
 
