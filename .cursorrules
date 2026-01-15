@@ -11,3 +11,21 @@ The frontend is located in /web
 The backend is spread across /api, /browser, and /cmd. When the user requests something, make sure you know if they're asking to update the docs, frontend, or backend.
 
 Whenever you plan to use Terraform examples, use OpenTofu instead.
+
+## Error Reporting in MDX Components
+
+The `useErrorReporting()` hook and `reportError()` function are for **configuration errors only** - problems with how the runbook MDX is written. These trigger the "This runbook has issues" banner.
+
+**DO report** (configuration errors):
+- Duplicate component IDs
+- Missing required props
+- Invalid prop values/combinations
+- Malformed configurations
+
+**DO NOT report** (runtime/operational errors):
+- Authentication failures (bad credentials, expired tokens)
+- Network errors during API calls
+- AWS/cloud provider API errors
+- User input validation failures during execution
+
+Runtime errors should be displayed inline within the component (e.g., with an alert box) but should NOT call `reportError()`. The distinction: configuration errors are problems with the runbook itself; runtime errors are problems that occur when a user interacts with a correctly-configured runbook.

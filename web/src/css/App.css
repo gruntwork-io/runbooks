@@ -155,9 +155,9 @@
   }
 }
 
-/* Reset markdown-body styles inside runbook blocks (components like AwsAuth, Command, Check, etc.)
-   Must be in @layer components to override github-markdown.css which is also in components layer */
 @layer components {
+  /* Reset markdown-body styles inside runbook blocks (components like AwsAuth, Command, Check, etc.)
+   Must be in @layer components to override github-markdown.css which is also in components layer */
   .markdown-body .runbook-block p,
   .markdown-body .runbook-block blockquote,
   .markdown-body .runbook-block ul,
@@ -174,4 +174,10 @@
     padding-left: 0;
     list-style: none;
   }
+
+  /* Set default styles for Runbook blocks */
+  .runbook-block input {
+    background-color: white;
+  }
+
 }

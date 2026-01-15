@@ -44,7 +44,7 @@ Now let's try a real AWS operation - listing your S3 buckets:
   id="list-buckets"
   title="List S3 Buckets"
   description="Lists all S3 buckets in your AWS account"
-  command="aws s3 ls"
+  command="echo $AWS_REGION && aws s3 ls"
   inputsId="aws-auth"
   successMessage="S3 buckets listed successfully!"
   failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."

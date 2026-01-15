@@ -16,6 +16,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/account"
+	"github.com/aws/aws-sdk-go-v2/service/account/types"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -37,6 +39,7 @@ type ValidateCredentialsResponse struct {
 	AccountID string `json:"accountId,omitempty"`
 	Arn       string `json:"arn,omitempty"`
 	Error     string `json:"error,omitempty"`
+	Warning   string `json:"warning,omitempty"`
 }
 
 // ProfileAuthRequest represents the request to authenticate using a profile
@@ -161,10 +164,11 @@ func HandleAwsValidate() gin.HandlerFunc {
 			return
 		}
 
-		region := req.Region
-		if region == "" {
-			region = "us-east-1"
-		}
+		// Always use us-east-1 for validation - this is a standard region that's
+		// always enabled. The user's selected default region may be an opt-in
+		// region (like af-south-1) that isn't enabled for their account, which
+		// would cause validation to fail even with valid credentials.
+		validationRegion := "us-east-1"
 
 		// Create static credentials provider
 		creds := credentials.NewStaticCredentialsProvider(
@@ -178,7 +182,7 @@ func HandleAwsValidate() gin.HandlerFunc {
 		defer cancel()
 
 		cfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion(region),
+			config.WithRegion(validationRegion),
 			config.WithCredentialsProvider(creds),
 		)
 		if err != nil {
@@ -200,27 +204,76 @@ func HandleAwsValidate() gin.HandlerFunc {
 			return
 		}
 
+		// Check if the user's selected region is enabled (if different from validation region)
+		var warning string
+		if req.Region != "" && req.Region != validationRegion {
+			warning = checkRegionOptInStatus(ctx, cfg, req.Region)
+		}
+
 		c.JSON(http.StatusOK, ValidateCredentialsResponse{
 			Valid:     true,
 			AccountID: aws.ToString(result.Account),
 			Arn:       aws.ToString(result.Arn),
+			Warning:   warning,
 		})
 	}
+}
+
+// checkRegionOptInStatus checks if a region requires opt-in and whether it's enabled.
+// Returns a warning message if the region is not enabled, empty string otherwise.
+func checkRegionOptInStatus(ctx context.Context, cfg aws.Config, region string) string {
+	// The Account API must be called from us-east-1
+	accountCfg := cfg.Copy()
+	accountCfg.Region = "us-east-1"
+
+	accountClient := account.NewFromConfig(accountCfg)
+	result, err := accountClient.GetRegionOptStatus(ctx, &account.GetRegionOptStatusInput{
+		RegionName: aws.String(region),
+	})
+	if err != nil {
+		// If we can't check (e.g., insufficient permissions), don't warn
+		// The user will see the actual error when they try to use the region
+		return ""
+	}
+
+	switch result.RegionOptStatus {
+	case types.RegionOptStatusDisabled:
+		return fmt.Sprintf("The region %s is not enabled for your AWS account. Enable it in the AWS Console under Account Settings > AWS Regions, or choose a different default region.", region)
+	case types.RegionOptStatusDisabling:
+		return fmt.Sprintf("The region %s is currently being disabled for your AWS account.", region)
+	case types.RegionOptStatusEnabling:
+		return fmt.Sprintf("The region %s is currently being enabled for your AWS account. Please wait a few minutes and try again.", region)
+	default:
+		// ENABLED or ENABLED_BY_DEFAULT - no warning needed
+		return ""
+	}
+}
+
+// ProfileInfo represents an AWS profile with its authentication type
+type ProfileInfo struct {
+	Name     string `json:"name"`
+	AuthType string `json:"authType"` // "sso", "static", "assume_role", "unsupported"
 }
 
 // HandleAwsProfiles returns a list of AWS profiles from the user's machine
 func HandleAwsProfiles() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		profiles := []string{}
-		profileSet := make(map[string]bool)
+		profileInfoMap := make(map[string]*ProfileInfo)
 
-		// Read from ~/.aws/credentials
+		// Read from ~/.aws/credentials - profiles here have static credentials
 		credentialsFile := filepath.Join(os.Getenv("HOME"), ".aws", "credentials")
 		if cfg, err := ini.Load(credentialsFile); err == nil {
 			for _, section := range cfg.Sections() {
 				name := section.Name()
-				if name != "DEFAULT" && name != "" {
-					profileSet[name] = true
+				if name == "DEFAULT" || name == "" {
+					continue
+				}
+				// Check if it has access key credentials
+				if section.HasKey("aws_access_key_id") && section.HasKey("aws_secret_access_key") {
+					profileInfoMap[name] = &ProfileInfo{
+						Name:     name,
+						AuthType: "static",
+					}
 				}
 			}
 		}
@@ -233,22 +286,78 @@ func HandleAwsProfiles() gin.HandlerFunc {
 				if name == "DEFAULT" || name == "" {
 					continue
 				}
-				// Config file uses "profile xxx" format
-				if strings.HasPrefix(name, "profile ") {
-					name = strings.TrimPrefix(name, "profile ")
+
+				// Skip non-profile sections (sso-session, services, preview, etc.)
+				if strings.HasPrefix(name, "sso-session ") ||
+					strings.HasPrefix(name, "services ") ||
+					name == "preview" ||
+					name == "plugins" {
+					continue
 				}
-				profileSet[name] = true
+
+				// Config file uses "profile xxx" format for non-default profiles
+				name = strings.TrimPrefix(name, "profile ")
+
+				// Determine auth type based on config keys
+				authType := determineProfileAuthType(section)
+
+				// If profile already exists from credentials file with static creds, keep that
+				if existing, ok := profileInfoMap[name]; ok && existing.AuthType == "static" {
+					continue
+				}
+
+				profileInfoMap[name] = &ProfileInfo{
+					Name:     name,
+					AuthType: authType,
+				}
 			}
 		}
 
 		// Convert to sorted slice
-		for profile := range profileSet {
-			profiles = append(profiles, profile)
+		profiles := make([]ProfileInfo, 0, len(profileInfoMap))
+		for _, info := range profileInfoMap {
+			profiles = append(profiles, *info)
 		}
-		sort.Strings(profiles)
+		sort.Slice(profiles, func(i, j int) bool {
+			return profiles[i].Name < profiles[j].Name
+		})
 
 		c.JSON(http.StatusOK, gin.H{"profiles": profiles})
 	}
+}
+
+// determineProfileAuthType checks the section keys to determine the auth type
+func determineProfileAuthType(section *ini.Section) string {
+	// Check for SSO configuration
+	if section.HasKey("sso_start_url") || section.HasKey("sso_session") {
+		return "sso"
+	}
+
+	// Check for assume role configuration
+	if section.HasKey("role_arn") {
+		// Assume role requires a source - could be source_profile or credential_source
+		if section.HasKey("source_profile") || section.HasKey("credential_source") {
+			return "assume_role"
+		}
+		// role_arn without source might be web identity or other
+		if section.HasKey("web_identity_token_file") {
+			return "unsupported" // Web identity not supported
+		}
+		return "unsupported"
+	}
+
+	// Check for static credentials in config file
+	if section.HasKey("aws_access_key_id") && section.HasKey("aws_secret_access_key") {
+		return "static"
+	}
+
+	// Check for credential process (not supported)
+	if section.HasKey("credential_process") {
+		return "unsupported"
+	}
+
+	// Unknown/default - might be inheriting from default or environment
+	return "unsupported"
 }
 
 // HandleAwsProfileAuth authenticates using a local AWS profile

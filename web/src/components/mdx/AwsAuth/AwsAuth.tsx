@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle, Check, ChevronsUpDown, Info } from "lucide-react"
+import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle, Check, ChevronsUpDown, Info, Search, X, Asterisk } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -88,6 +88,12 @@ interface SSOAccount {
 
 interface SSORole {
   roleName: string
+}
+
+// Profile info from backend with auth type
+interface ProfileInfo {
+  name: string
+  authType: 'sso' | 'static' | 'assume_role' | 'unsupported'
 }
 
 interface AwsAuthProps {
@@ -262,6 +268,7 @@ function AwsAuth({
   const [authMethod, setAuthMethod] = useState<AuthMethod>('credentials')
   const [authStatus, setAuthStatus] = useState<AuthStatus>('pending')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [accountInfo, setAccountInfo] = useState<{ accountId?: string; arn?: string } | null>(null)
 
   // Credentials form state
@@ -273,9 +280,10 @@ function AwsAuth({
   const [showSessionToken, setShowSessionToken] = useState(false)
 
   // Profile state
-  const [profiles, setProfiles] = useState<string[]>([])
-  const [selectedProfile, setSelectedProfile] = useState<string>('')
+  const [profiles, setProfiles] = useState<ProfileInfo[]>([])
+  const [selectedProfile, setSelectedProfile] = useState<ProfileInfo | null>(null)
   const [loadingProfiles, setLoadingProfiles] = useState(false)
+  const [profileSearch, setProfileSearch] = useState('')
 
   // SSO account/role selection state
   const [ssoAccessToken, setSsoAccessToken] = useState<string | null>(null)
@@ -300,7 +308,10 @@ function AwsAuth({
     }
   }, [authMethod, profiles.length])
 
-  // Report errors
+  // Report configuration errors only (not runtime/authentication errors)
+  // Authentication failures are displayed inline but shouldn't trigger
+  // the "runbook has issues" banner since they're user operational errors,
+  // not runbook configuration problems.
   useEffect(() => {
     if (isDuplicate) {
       reportError({
@@ -309,17 +320,10 @@ function AwsAuth({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
-    } else if (authStatus === 'failed' && errorMessage) {
-      reportError({
-        componentId: id,
-        componentType: 'AwsAuth',
-        severity: 'error',
-        message: errorMessage
-      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, authStatus, errorMessage, reportError, clearError])
+  }, [id, isDuplicate, reportError, clearError])
 
   // Register credentials with BlockVariables and session environment when authenticated
   const registerCredentials = useCallback(async (creds: {
@@ -332,9 +336,8 @@ function AwsAuth({
       AWS_ACCESS_KEY_ID: creds.accessKeyId,
       AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
       AWS_REGION: creds.region,
-    }
-    if (creds.sessionToken) {
-      values.AWS_SESSION_TOKEN = creds.sessionToken
+      // Always set session token (empty string clears any previous value)
+      AWS_SESSION_TOKEN: creds.sessionToken || '',
     }
     
     // Register with BlockVariables for template variable substitution
@@ -347,9 +350,9 @@ function AwsAuth({
         AWS_ACCESS_KEY_ID: creds.accessKeyId,
         AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
         AWS_REGION: creds.region,
-      }
-      if (creds.sessionToken) {
-        envVars.AWS_SESSION_TOKEN = creds.sessionToken
+        // Always set session token - empty string clears any previous token
+        // from a different auth method (e.g., switching from SSO to static creds)
+        AWS_SESSION_TOKEN: creds.sessionToken || '',
       }
       
       await fetch('/api/session/env', {
@@ -373,9 +376,12 @@ function AwsAuth({
       const response = await fetch('/api/aws/profiles')
       if (response.ok) {
         const data = await response.json()
-        setProfiles(data.profiles || [])
-        if (data.profiles?.length > 0) {
-          setSelectedProfile(data.profiles[0])
+        const profileList: ProfileInfo[] = data.profiles || []
+        setProfiles(profileList)
+        // Auto-select first static or assume_role profile (not SSO)
+        const firstUsable = profileList.find(p => p.authType === 'static' || p.authType === 'assume_role')
+        if (firstUsable) {
+          setSelectedProfile(firstUsable)
         }
       } else {
         setProfiles([])
@@ -397,6 +403,7 @@ function AwsAuth({
   }) => {
     setAuthStatus('authenticating')
     setErrorMessage(null)
+    setWarningMessage(null)
 
     try {
       const response = await fetch('/api/aws/validate', {
@@ -410,6 +417,10 @@ function AwsAuth({
       if (response.ok && data.valid) {
         setAuthStatus('authenticated')
         setAccountInfo({ accountId: data.accountId, arn: data.arn })
+        // Set warning if the selected region is not enabled
+        if (data.warning) {
+          setWarningMessage(data.warning)
+        }
         registerCredentials(creds)
       } else {
         setAuthStatus('failed')
@@ -638,6 +649,11 @@ function AwsAuth({
       return
     }
 
+    if (selectedProfile.authType === 'unsupported') {
+      setErrorMessage('This authentication method is not supported')
+      return
+    }
+
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
@@ -645,7 +661,7 @@ function AwsAuth({
       const response = await fetch('/api/aws/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile: selectedProfile })
+        body: JSON.stringify({ profile: selectedProfile.name })
       })
 
       const data = await response.json()
@@ -657,7 +673,7 @@ function AwsAuth({
           accessKeyId: data.accessKeyId,
           secretAccessKey: data.secretAccessKey,
           sessionToken: data.sessionToken,
-          region: data.region || selectedDefaultRegion
+          region: selectedDefaultRegion
         })
       } else {
         setAuthStatus('failed')
@@ -673,6 +689,7 @@ function AwsAuth({
   const handleReset = () => {
     setAuthStatus('pending')
     setErrorMessage(null)
+    setWarningMessage(null)
     setAccountInfo(null)
     // Clear SSO selection state
     setSsoAccessToken(null)
@@ -752,7 +769,7 @@ function AwsAuth({
     <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
-        <div className="border-r border-amber-300 pr-3 mr-2">
+        <div className="border-r border-amber-300 pr-3 mr-0 self-stretch">
           <IconComponent className={`size-6 ${iconClasses} ${authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
@@ -787,6 +804,13 @@ function AwsAuth({
                   </div>
                 )}
               </div>
+              {/* Warning about region opt-in status */}
+              {warningMessage && (
+                <div className="mt-3 bg-amber-100 border border-amber-300 rounded p-3 text-sm text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+                  <div>{warningMessage}</div>
+                </div>
+              )}
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -817,7 +841,7 @@ function AwsAuth({
                   {enableCredentials && (
                     <button
                       onClick={() => setAuthMethod('credentials')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
                         authMethod === 'credentials'
                           ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
                           : 'text-gray-500 hover:text-gray-700'
@@ -830,7 +854,7 @@ function AwsAuth({
                   {enableSso && (
                     <button
                       onClick={() => setAuthMethod('sso')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
                         authMethod === 'sso'
                           ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
                           : 'text-gray-500 hover:text-gray-700'
@@ -843,7 +867,7 @@ function AwsAuth({
                   {enableProfile && (
                     <button
                       onClick={() => setAuthMethod('profile')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
                         authMethod === 'profile'
                           ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
                           : 'text-gray-500 hover:text-gray-700'
@@ -1034,7 +1058,7 @@ function AwsAuth({
                         className={`w-full text-left px-4 py-3 rounded-md border transition-colors cursor-pointer ${
                           loadingRoles && selectedSsoAccount?.accountId === account.accountId
                             ? 'bg-blue-100 border-blue-300'
-                            : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-300'
+                            : 'bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -1081,7 +1105,7 @@ function AwsAuth({
                         className={`w-full text-left px-4 py-3 rounded-md border transition-colors cursor-pointer ${
                           selectedSsoRole === role.roleName
                             ? 'bg-blue-100 border-blue-400 ring-2 ring-blue-200'
-                            : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-300'
+                            : 'bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -1128,22 +1152,109 @@ function AwsAuth({
                         <Loader2 className="size-4 animate-spin" />
                         Loading profiles from ~/.aws/credentials...
                       </div>
-                    ) : profiles.length > 0 ? (
-                      <select
-                        value={selectedProfile}
-                        onChange={(e) => setSelectedProfile(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                        disabled={authStatus === 'authenticating'}
-                      >
-                        {profiles.map((profile) => (
-                          <option key={profile} value={profile}>
-                            {profile}
-                          </option>
-                        ))}
-                      </select>
+                    ) : profiles.filter(p => p.authType === 'static' || p.authType === 'assume_role').length > 0 ? (
+                      <div className="space-y-2">
+                        {/* Search input */}
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                          <input
+                            type="text"
+                            value={profileSearch}
+                            onChange={(e) => setProfileSearch(e.target.value)}
+                            placeholder="Search profiles..."
+                            className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                            disabled={authStatus === 'authenticating'}
+                          />
+                          {profileSearch && (
+                            <button
+                              onClick={() => setProfileSearch('')}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          )}
+                        </div>
+                        
+                        {/* Profile list - only show static and assume_role profiles */}
+                        <div className="max-h-[300px] overflow-y-auto space-y-2 px-1">
+                          {profiles
+                            .filter((profile) => 
+                              (profile.authType === 'static' || profile.authType === 'assume_role') &&
+                              profile.name.toLowerCase().includes(profileSearch.toLowerCase())
+                            )
+                            .map((profile) => {
+                              const isSelected = selectedProfile?.name === profile.name
+                              const authTypeLabels: Record<string, string> = {
+                                'static': 'Static Credentials',
+                                'assume_role': 'Assume Role',
+                              }
+                              const authTypeBadgeStyles: Record<string, string> = {
+                                'static': 'bg-green-100 text-green-700',
+                                'assume_role': 'bg-purple-100 text-purple-700',
+                              }
+                              return (
+                                <button
+                                  key={profile.name}
+                                  onClick={() => setSelectedProfile(profile)}
+                                  disabled={authStatus === 'authenticating'}
+                                  className={cn(
+                                    "w-full text-left px-4 py-3 rounded-md border transition-colors",
+                                    isSelected
+                                      ? "bg-blue-100 border-blue-400 ring-2 ring-blue-200"
+                                      : "bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer"
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <Check
+                                        className={cn(
+                                          "h-4 w-4 shrink-0",
+                                          isSelected ? "opacity-100 text-blue-600" : "opacity-0"
+                                        )}
+                                      />
+                                      <span className="font-medium text-gray-900">
+                                        {profile.name}
+                                      </span>
+                                    </div>
+                                    <span className={cn(
+                                      "text-xs px-2 py-0.5 rounded-full",
+                                      authTypeBadgeStyles[profile.authType]
+                                    )}>
+                                      {authTypeLabels[profile.authType]}
+                                    </span>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          {profiles.filter((profile) => 
+                            (profile.authType === 'static' || profile.authType === 'assume_role') &&
+                            profile.name.toLowerCase().includes(profileSearch.toLowerCase())
+                          ).length === 0 && profileSearch && (
+                            <div className="text-gray-500 text-sm py-4 text-center">
+                              No profiles match "{profileSearch}"
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* SSO profiles notice */}
+                        {profiles.some(p => p.authType === 'sso') && (
+                          <div className="text-xs text-gray-500 bg-gray-50 rounded-md px-3 py-2 flex items-start gap-1">
+                            <Asterisk className="size-3.5 mt-0.5 shrink-0" />
+                            <span>SSO profiles are not shown here. Use the <strong>AWS SSO</strong> tab instead.</span>
+                          </div>
+                        )}
+                      </div>
                     ) : (
-                      <div className="text-gray-500 text-sm py-2">
-                        No AWS profiles found in ~/.aws/credentials or ~/.aws/config
+                      <div className="space-y-3">
+                        <div className="text-gray-500 text-sm py-2">
+                          No static credential or assume role profiles found.
+                        </div>
+                        {profiles.some(p => p.authType === 'sso') && (
+                          <div className="text-xs text-gray-500 bg-gray-50 rounded-md px-3 py-2 flex items-start gap-2">
+                            <Info className="size-3.5 mt-0.5 shrink-0" />
+                            <span>SSO profiles are not shown here. Use the <strong>AWS SSO</strong> tab instead.</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1156,7 +1267,7 @@ function AwsAuth({
                   
                   <Button
                     onClick={handleProfileAuth}
-                    disabled={authStatus === 'authenticating' || !selectedProfile}
+                    disabled={authStatus === 'authenticating' || !selectedProfile || selectedProfile.authType === 'unsupported'}
                     className="bg-amber-600 hover:bg-amber-700 text-white"
                   >
                     {authStatus === 'authenticating' ? (
@@ -1171,7 +1282,7 @@ function AwsAuth({
                   
                   <button
                     onClick={loadAwsProfiles}
-                    className="text-sm text-amber-600 hover:text-amber-700 hover:underline"
+                    className="text-sm text-amber-600 hover:text-amber-700 hover:underline ml-5 cursor-pointer"
                     disabled={loadingProfiles}
                   >
                     Refresh profiles
