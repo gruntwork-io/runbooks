@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle, Check, ChevronsUpDown } from "lucide-react"
+import { CheckCircle, XCircle, Loader2, KeyRound, ExternalLink, User, Eye, EyeOff, AlertTriangle, Check, ChevronsUpDown, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -23,6 +23,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 // Complete list of AWS regions
 const AWS_REGIONS = [
@@ -91,13 +96,15 @@ interface AwsAuthProps {
   description?: string
   /** AWS SSO start URL for SSO authentication */
   ssoStartUrl?: string
-  /** AWS SSO region */
+  /** AWS SSO region - the region where your IAM Identity Center is configured */
   ssoRegion?: string
   /** AWS SSO account ID to select after authentication */
   ssoAccountId?: string
   /** AWS SSO role name to assume */
   ssoRoleName?: string
-  /** Default AWS region for authenticated session */
+  /** Default AWS region for CLI commands that don't specify a region */
+  defaultRegion?: string
+  /** @deprecated Use defaultRegion instead */
   region?: string
   /** Enable static credentials input */
   enableCredentials?: boolean
@@ -105,6 +112,92 @@ interface AwsAuthProps {
   enableSso?: boolean
   /** Enable profile selection */
   enableProfile?: boolean
+}
+
+// Reusable Default Region Picker component with tooltip
+interface DefaultRegionPickerProps {
+  selectedRegion: string
+  setSelectedRegion: (region: string) => void
+  disabled?: boolean
+}
+
+function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disabled }: DefaultRegionPickerProps) {
+  const [open, setOpen] = useState(false)
+  
+  return (
+    <div>
+      <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+        Default Region
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+              <Info className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[280px] text-center">
+            The AWS region used by CLI commands that don't explicitly specify a region. This sets the AWS_REGION environment variable.
+          </TooltipContent>
+        </Tooltip>
+      </label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+            disabled={disabled}
+          >
+            {selectedRegion ? (
+              <span className="flex items-center gap-2 truncate">
+                <span className="font-mono text-xs text-gray-500">{selectedRegion}</span>
+                <span className="text-gray-700">
+                  {AWS_REGIONS.find((r) => r.code === selectedRegion)?.name}
+                </span>
+              </span>
+            ) : (
+              "Select region..."
+            )}
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
+          <Command>
+            <CommandInput placeholder="Search regions..." />
+            <CommandList className="max-h-[300px]">
+              <CommandEmpty>No region found.</CommandEmpty>
+              <CommandGroup>
+                {AWS_REGIONS.map((region) => (
+                  <CommandItem
+                    key={region.code}
+                    value={`${region.code} ${region.name} ${region.geography}`}
+                    onSelect={() => {
+                      setSelectedRegion(region.code)
+                      setOpen(false)
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Check
+                      className={cn(
+                        "h-4 w-4 shrink-0",
+                        selectedRegion === region.code ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    <span className="font-mono text-xs text-gray-500 w-[120px] shrink-0">
+                      {region.code}
+                    </span>
+                    <span className="text-gray-700 truncate">
+                      {region.name}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
 }
 
 // Create a minimal boilerplate config for registering credentials as inputs
@@ -126,11 +219,14 @@ function AwsAuth({
   ssoRegion = "us-east-1",
   ssoAccountId,
   ssoRoleName,
-  region = "us-east-1",
+  defaultRegion,
+  region,
   enableCredentials = true,
   enableSso = true,
   enableProfile = true,
 }: AwsAuthProps) {
+  // Support both defaultRegion and deprecated region prop
+  const effectiveDefaultRegion = defaultRegion ?? region ?? "us-east-1"
   // Check for duplicate component IDs
   const { isDuplicate } = useComponentIdRegistry(id, 'AwsAuth')
   
@@ -156,7 +252,7 @@ function AwsAuth({
   const [accessKeyId, setAccessKeyId] = useState('')
   const [secretAccessKey, setSecretAccessKey] = useState('')
   const [sessionToken, setSessionToken] = useState('')
-  const [selectedRegion, setSelectedRegion] = useState(region)
+  const [selectedDefaultRegion, setSelectedDefaultRegion] = useState(effectiveDefaultRegion)
   const [showSecretKey, setShowSecretKey] = useState(false)
   const [showSessionToken, setShowSessionToken] = useState(false)
 
@@ -164,9 +260,6 @@ function AwsAuth({
   const [profiles, setProfiles] = useState<string[]>([])
   const [selectedProfile, setSelectedProfile] = useState<string>('')
   const [loadingProfiles, setLoadingProfiles] = useState(false)
-
-  // Region picker state
-  const [regionPickerOpen, setRegionPickerOpen] = useState(false)
 
   // SSO account/role selection state
   const [ssoAccessToken, setSsoAccessToken] = useState<string | null>(null)
@@ -322,7 +415,7 @@ function AwsAuth({
       accessKeyId,
       secretAccessKey,
       sessionToken: sessionToken || undefined,
-      region: selectedRegion
+      region: selectedDefaultRegion
     })
   }
 
@@ -414,7 +507,7 @@ function AwsAuth({
             accessKeyId: data.accessKeyId,
             secretAccessKey: data.secretAccessKey,
             sessionToken: data.sessionToken,
-            region: ssoRegion
+            region: selectedDefaultRegion
           })
         } else {
           setAuthStatus('failed')
@@ -502,7 +595,7 @@ function AwsAuth({
           accessKeyId: data.accessKeyId,
           secretAccessKey: data.secretAccessKey,
           sessionToken: data.sessionToken,
-          region: ssoRegion
+          region: selectedDefaultRegion
         })
       } else {
         setAuthStatus('failed')
@@ -548,7 +641,7 @@ function AwsAuth({
           accessKeyId: data.accessKeyId,
           secretAccessKey: data.secretAccessKey,
           sessionToken: data.sessionToken,
-          region: data.region || selectedRegion
+          region: data.region || selectedDefaultRegion
         })
       } else {
         setAuthStatus('failed')
@@ -810,68 +903,11 @@ function AwsAuth({
                     </div>
                   </div>
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Region
-                    </label>
-                    <Popover open={regionPickerOpen} onOpenChange={setRegionPickerOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={regionPickerOpen}
-                          className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
-                          disabled={authStatus === 'authenticating'}
-                        >
-                          {selectedRegion ? (
-                            <span className="flex items-center gap-2 truncate">
-                              <span className="font-mono text-xs text-gray-500">{selectedRegion}</span>
-                              <span className="text-gray-700">
-                                {AWS_REGIONS.find((r) => r.code === selectedRegion)?.name}
-                              </span>
-                            </span>
-                          ) : (
-                            "Select region..."
-                          )}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
-                        <Command>
-                          <CommandInput placeholder="Search regions..." />
-                          <CommandList className="max-h-[300px]">
-                            <CommandEmpty>No region found.</CommandEmpty>
-                            <CommandGroup>
-                              {AWS_REGIONS.map((region) => (
-                                <CommandItem
-                                  key={region.code}
-                                  value={`${region.code} ${region.name} ${region.geography}`}
-                                  onSelect={() => {
-                                    setSelectedRegion(region.code)
-                                    setRegionPickerOpen(false)
-                                  }}
-                                  className="flex items-center gap-2"
-                                >
-                                  <Check
-                                    className={cn(
-                                      "h-4 w-4 shrink-0",
-                                      selectedRegion === region.code ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  <span className="font-mono text-xs text-gray-500 w-[120px] shrink-0">
-                                    {region.code}
-                                  </span>
-                                  <span className="text-gray-700 truncate">
-                                    {region.name}
-                                  </span>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                  <DefaultRegionPicker
+                    selectedRegion={selectedDefaultRegion}
+                    setSelectedRegion={setSelectedDefaultRegion}
+                    disabled={authStatus === 'authenticating'}
+                  />
 
                   <Button
                     onClick={handleCredentialsSubmit}
@@ -914,6 +950,12 @@ function AwsAuth({
                           </>
                         )}
                       </div>
+
+                      <DefaultRegionPicker
+                        selectedRegion={selectedDefaultRegion}
+                        setSelectedRegion={setSelectedDefaultRegion}
+                        disabled={authStatus === 'authenticating'}
+                      />
                       
                       <div className="flex gap-2">
                         <Button
@@ -1089,6 +1131,12 @@ function AwsAuth({
                       </div>
                     )}
                   </div>
+
+                  <DefaultRegionPicker
+                    selectedRegion={selectedDefaultRegion}
+                    setSelectedRegion={setSelectedDefaultRegion}
+                    disabled={authStatus === 'authenticating'}
+                  />
                   
                   <Button
                     onClick={handleProfileAuth}
