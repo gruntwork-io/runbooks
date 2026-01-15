@@ -325,6 +325,34 @@ function AwsAuth({
     }
   }, [id, isDuplicate, reportError, clearError])
 
+  // Check if a region is enabled for the AWS account
+  const checkRegionStatus = useCallback(async (creds: {
+    accessKeyId: string
+    secretAccessKey: string
+    sessionToken?: string
+    region: string
+  }) => {
+    try {
+      const response = await fetch('/api/aws/check-region', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessKeyId: creds.accessKeyId,
+          secretAccessKey: creds.secretAccessKey,
+          sessionToken: creds.sessionToken,
+          region: creds.region,
+        })
+      })
+      const data = await response.json()
+      if (data.warning) {
+        setWarningMessage(data.warning)
+      }
+    } catch (error) {
+      // Non-critical: don't fail auth if region check fails
+      console.error('Failed to check region status:', error)
+    }
+  }, [])
+
   // Register credentials with BlockVariables and session environment when authenticated
   const registerCredentials = useCallback(async (creds: {
     accessKeyId: string
@@ -367,7 +395,10 @@ function AwsAuth({
       // Non-critical: log but don't fail auth
       console.error('Failed to set session environment variables:', error)
     }
-  }, [id, registerInputs, getAuthHeader])
+
+    // Check if the selected region is enabled (for all auth methods)
+    await checkRegionStatus(creds)
+  }, [id, registerInputs, getAuthHeader, checkRegionStatus])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = async () => {
@@ -417,10 +448,7 @@ function AwsAuth({
       if (response.ok && data.valid) {
         setAuthStatus('authenticated')
         setAccountInfo({ accountId: data.accountId, arn: data.arn })
-        // Set warning if the selected region is not enabled
-        if (data.warning) {
-          setWarningMessage(data.warning)
-        }
+        // registerCredentials will also check region status
         registerCredentials(creds)
       } else {
         setAuthStatus('failed')

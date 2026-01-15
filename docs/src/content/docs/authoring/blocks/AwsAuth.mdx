@@ -1,0 +1,251 @@
+---
+title: <AwsAuth>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<AwsAuth>` block provides a unified interface for authenticating to AWS. It supports three authentication methods: static credentials, AWS SSO (IAM Identity Center), and local AWS profiles. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+
+## Basic Usage
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to AWS"
+  description="Choose your preferred authentication method"
+  defaultRegion="us-west-2"
+/>
+```
+
+## Authentication Methods
+
+The AwsAuth block provides three ways to authenticate:
+
+| Method | Description | Best For |
+|--------|-------------|----------|
+| **Static Credentials** | Enter Access Key ID and Secret Access Key directly | Quick testing, service accounts |
+| **AWS SSO** | Use AWS IAM Identity Center (formerly AWS SSO) | Organizations with SSO configured |
+| **Local Profile** | Use a profile from `~/.aws/credentials` | Development, existing AWS CLI users |
+
+By default, all three methods are enabled. You can disable specific methods using the `enableCredentials`, `enableSso`, and `enableProfile` props.
+
+## Props
+
+### Required Props
+
+- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `inputsId` to access the authenticated credentials.
+
+### Optional Props
+
+- `title` (string) - Display title shown in the UI (default: "AWS Authentication")
+- `description` (string) - Longer description of the authentication purpose
+- `defaultRegion` (string) - Default AWS region for CLI commands (default: "us-east-1"). Sets `AWS_REGION` environment variable.
+- `enableCredentials` (boolean) - Enable static credentials input (default: `true`)
+- `enableSso` (boolean) - Enable AWS SSO authentication (default: `true`)
+- `enableProfile` (boolean) - Enable local profile selection (default: `true`)
+
+### SSO-Specific Props
+
+These props configure AWS SSO (IAM Identity Center) authentication:
+
+- `ssoStartUrl` (string) - Your organization's AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required when `enableSso` is true.
+- `ssoRegion` (string) - The AWS region where your IAM Identity Center is configured (default: "us-east-1")
+- `ssoAccountId` (string) - Pre-select a specific AWS account after SSO authentication
+- `ssoRoleName` (string) - Pre-select a specific IAM role to assume
+
+## Environment Variables
+
+When authentication succeeds, the following environment variables are automatically set for subsequent Command and Check blocks:
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_ACCESS_KEY_ID` | The AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | The AWS secret key |
+| `AWS_SESSION_TOKEN` | Session token (for temporary credentials from SSO or assume role) |
+| `AWS_REGION` | The selected default region |
+
+These variables are set in the session environment, so all subsequent blocks have access without needing to explicitly reference `inputsId`.
+
+## Using with Commands and Checks
+
+After authenticating, reference the AwsAuth block from Command or Check blocks:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to AWS"
+  defaultRegion="us-west-2"
+  ssoStartUrl="https://my-company.awsapps.com/start"
+/>
+
+<Check
+  id="verify-identity"
+  title="Verify AWS Identity"
+  command="aws sts get-caller-identity"
+  inputsId="aws-auth"
+  successMessage="Successfully authenticated!"
+/>
+
+<Command
+  id="list-buckets"
+  title="List S3 Buckets"
+  command="aws s3 ls"
+  inputsId="aws-auth"
+  successMessage="Buckets listed!"
+/>
+```
+
+<Aside type="tip">
+While you can use `inputsId` to explicitly reference the AwsAuth block, the credentials are also set as session environment variables. This means subsequent blocks will have AWS access even without `inputsId`, though using it makes the dependency explicit.
+</Aside>
+
+## Configuration Examples
+
+### SSO-Only Authentication
+
+For organizations that require SSO:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  title="Sign in with SSO"
+  ssoStartUrl="https://my-company.awsapps.com/start"
+  ssoRegion="us-east-1"
+  enableCredentials={false}
+  enableSso={true}
+  enableProfile={false}
+/>
+```
+
+### Profile-Only Authentication
+
+For development environments using local AWS configuration:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  title="Select AWS Profile"
+  description="Choose a profile from your local AWS configuration"
+  enableCredentials={false}
+  enableSso={false}
+  enableProfile={true}
+/>
+```
+
+### Pre-selected SSO Account and Role
+
+Skip the account/role selection step by pre-configuring them:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to Production"
+  ssoStartUrl="https://my-company.awsapps.com/start"
+  ssoRegion="us-east-1"
+  ssoAccountId="123456789012"
+  ssoRoleName="AdministratorAccess"
+  defaultRegion="us-west-2"
+/>
+```
+
+## Multiple AWS Accounts
+
+You can include multiple AwsAuth blocks in a single runbook to authenticate to different AWS accounts:
+
+```mdx
+<AwsAuth
+  id="source-account"
+  title="Source Account (Development)"
+  defaultRegion="us-west-2"
+/>
+
+<Command
+  id="export-data"
+  title="Export Data from Source"
+  command="aws s3 cp s3://source-bucket/data.json /tmp/data.json"
+  inputsId="source-account"
+/>
+
+<AwsAuth
+  id="target-account"
+  title="Target Account (Production)"
+  defaultRegion="us-east-1"
+/>
+
+<Command
+  id="import-data"
+  title="Import Data to Target"
+  command="aws s3 cp /tmp/data.json s3://target-bucket/data.json"
+  inputsId="target-account"
+/>
+```
+
+<Aside type="caution">
+When using multiple AwsAuth blocks, be aware that the session environment variables (`AWS_ACCESS_KEY_ID`, etc.) will reflect the most recently authenticated credentials. Use `inputsId` to ensure each command uses the correct credentials.
+</Aside>
+
+## Local Profile Support
+
+The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/config` files. Two profile types are supported:
+
+| Profile Type | Description |
+|--------------|-------------|
+| **Static Credentials** | Profiles with `aws_access_key_id` and `aws_secret_access_key` |
+| **Assume Role** | Profiles that use `role_arn` to assume a role |
+
+<Aside type="note">
+SSO profiles configured in `~/.aws/config` are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
+</Aside>
+
+## Security Considerations
+
+- **Static Credentials**: Avoid long-term credentials when possible. Consider using SSO or IAM roles for better security.
+- **AWS SSO**: The recommended option for organizations. Credentials are temporary and automatically expire.
+- **Local Profiles**: Suitable for development. Ensure credential files have appropriate permissions (`chmod 600`).
+
+<Aside type="tip">
+Credentials entered in the AwsAuth block are never stored persistently. They exist only in memory for the duration of the runbook session.
+</Aside>
+
+## Complete Example
+
+Here's a complete runbook that uses AwsAuth to perform AWS operations:
+
+```mdx
+# Deploy to AWS
+
+This runbook deploys an application to AWS ECS.
+
+## Step 1: Authenticate
+
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to AWS"
+  description="Sign in to your AWS account to continue"
+  ssoStartUrl="https://my-company.awsapps.com/start"
+  ssoRegion="us-east-1"
+  defaultRegion="us-west-2"
+/>
+
+## Step 2: Verify Access
+
+<Check
+  id="verify-access"
+  title="Verify AWS Access"
+  command="aws sts get-caller-identity"
+  inputsId="aws-auth"
+  successMessage="Authenticated successfully!"
+  failMessage="Authentication failed. Please try again."
+/>
+
+## Step 3: Deploy
+
+<Command
+  id="deploy"
+  title="Deploy to ECS"
+  path="scripts/deploy-ecs.sh"
+  inputsId="aws-auth"
+  successMessage="Deployment complete!"
+  failMessage="Deployment failed. Check the logs for details."
+/>
+```

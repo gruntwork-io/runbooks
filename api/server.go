@@ -81,6 +81,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	r.POST("/api/aws/sso/poll", HandleAwsSsoPoll())
 	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())
 	r.POST("/api/aws/sso/complete", HandleAwsSsoComplete())
+	r.POST("/api/aws/check-region", HandleAwsCheckRegion())
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))

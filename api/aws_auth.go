@@ -868,6 +868,111 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 	}
 }
 
+// CheckRegionRequest represents a request to check if a region is enabled
+type CheckRegionRequest struct {
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+	Region          string `json:"region"`
+}
+
+// CheckRegionResponse represents the response from region check
+type CheckRegionResponse struct {
+	Enabled bool   `json:"enabled"`
+	Status  string `json:"status,omitempty"`
+	Warning string `json:"warning,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// HandleAwsCheckRegion checks if a region is enabled for the account
+func HandleAwsCheckRegion() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req CheckRegionRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, CheckRegionResponse{
+				Error: "Invalid request format",
+			})
+			return
+		}
+
+		if req.Region == "" {
+			c.JSON(http.StatusBadRequest, CheckRegionResponse{
+				Error: "Region is required",
+			})
+			return
+		}
+
+		if req.AccessKeyID == "" || req.SecretAccessKey == "" {
+			c.JSON(http.StatusBadRequest, CheckRegionResponse{
+				Error: "Credentials are required",
+			})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Create credentials provider
+		creds := credentials.NewStaticCredentialsProvider(
+			req.AccessKeyID,
+			req.SecretAccessKey,
+			req.SessionToken,
+		)
+
+		// Account API must be called from us-east-1
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion("us-east-1"),
+			config.WithCredentialsProvider(creds),
+		)
+		if err != nil {
+			c.JSON(http.StatusOK, CheckRegionResponse{
+				Enabled: true, // Assume enabled if we can't check
+				Error:   fmt.Sprintf("Failed to create AWS config: %v", err),
+			})
+			return
+		}
+
+		accountClient := account.NewFromConfig(cfg)
+		result, err := accountClient.GetRegionOptStatus(ctx, &account.GetRegionOptStatusInput{
+			RegionName: aws.String(req.Region),
+		})
+		if err != nil {
+			// If we can't check (e.g., insufficient permissions), assume enabled
+			c.JSON(http.StatusOK, CheckRegionResponse{
+				Enabled: true,
+			})
+			return
+		}
+
+		switch result.RegionOptStatus {
+		case types.RegionOptStatusDisabled:
+			c.JSON(http.StatusOK, CheckRegionResponse{
+				Enabled: false,
+				Status:  "disabled",
+				Warning: fmt.Sprintf("The region %s is not enabled for your AWS account. Enable it in the AWS Console under Account Settings > AWS Regions, or choose a different default region.", req.Region),
+			})
+		case types.RegionOptStatusDisabling:
+			c.JSON(http.StatusOK, CheckRegionResponse{
+				Enabled: false,
+				Status:  "disabling",
+				Warning: fmt.Sprintf("The region %s is currently being disabled for your AWS account.", req.Region),
+			})
+		case types.RegionOptStatusEnabling:
+			c.JSON(http.StatusOK, CheckRegionResponse{
+				Enabled: false,
+				Status:  "enabling",
+				Warning: fmt.Sprintf("The region %s is currently being enabled for your AWS account. Please wait a few minutes and try again.", req.Region),
+			})
+		default:
+			// ENABLED or ENABLED_BY_DEFAULT
+			c.JSON(http.StatusOK, CheckRegionResponse{
+				Enabled: true,
+				Status:  "enabled",
+			})
+		}
+	}
+}
+
 // hashString creates a short hash for a string (used for cache keys)
 func hashString(s string) string {
 	h := sha256.Sum256([]byte(s))
