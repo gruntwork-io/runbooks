@@ -292,6 +292,8 @@ function AwsAuth({
   const [selectedSsoAccount, setSelectedSsoAccount] = useState<SSOAccount | null>(null)
   const [selectedSsoRole, setSelectedSsoRole] = useState<string>('')
   const [loadingRoles, setLoadingRoles] = useState(false)
+  const [ssoAccountSearch, setSsoAccountSearch] = useState('')
+  const [ssoRoleSearch, setSsoRoleSearch] = useState('')
 
   // SSO polling cancellation
   const ssoPollingCancelledRef = useRef(false)
@@ -667,6 +669,7 @@ function AwsAuth({
     setSelectedSsoAccount(null)
     setSelectedSsoRole('')
     setSsoRoles([])
+    setSsoRoleSearch('')
     setAuthStatus('select_account')
   }
 
@@ -725,6 +728,8 @@ function AwsAuth({
     setSsoRoles([])
     setSelectedSsoAccount(null)
     setSelectedSsoRole('')
+    setSsoAccountSearch('')
+    setSsoRoleSearch('')
   }
 
   // Cancel SSO authentication
@@ -1078,31 +1083,82 @@ function AwsAuth({
                   </div>
                   
                   <div className="space-y-2">
-                    {ssoAccounts.map((account) => (
-                      <button
-                        key={account.accountId}
-                        onClick={() => handleSsoAccountSelect(account)}
+                    {/* Search input */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={ssoAccountSearch}
+                        onChange={(e) => setSsoAccountSearch(e.target.value)}
+                        placeholder="Search accounts..."
+                        className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         disabled={loadingRoles}
-                        className={`w-full text-left px-4 py-3 rounded-md border transition-colors cursor-pointer ${
-                          loadingRoles && selectedSsoAccount?.accountId === account.accountId
-                            ? 'bg-blue-100 border-blue-300'
-                            : 'bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-medium text-gray-900">{account.accountName}</div>
-                            <div className="text-sm text-gray-500">
-                              {account.accountId}
-                              {account.emailAddress && ` • ${account.emailAddress}`}
-                            </div>
-                          </div>
-                          {loadingRoles && selectedSsoAccount?.accountId === account.accountId && (
-                            <Loader2 className="size-4 animate-spin text-blue-600" />
-                          )}
+                      />
+                      {ssoAccountSearch && (
+                        <button
+                          onClick={() => setSsoAccountSearch('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          <X className="size-4" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Account list */}
+                    <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
+                      {ssoAccounts
+                        .filter((account) =>
+                          account.accountName.toLowerCase().includes(ssoAccountSearch.toLowerCase()) ||
+                          account.accountId.includes(ssoAccountSearch) ||
+                          (account.emailAddress && account.emailAddress.toLowerCase().includes(ssoAccountSearch.toLowerCase()))
+                        )
+                        .map((account) => {
+                          const isSelected = selectedSsoAccount?.accountId === account.accountId
+                          return (
+                            <button
+                              key={account.accountId}
+                              onClick={() => handleSsoAccountSelect(account)}
+                              disabled={loadingRoles}
+                              className={cn(
+                                "w-full text-left px-4 py-3 rounded-md border transition-colors",
+                                isSelected
+                                  ? "bg-blue-100 border-blue-400 ring-2 ring-blue-200"
+                                  : "bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer"
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Check
+                                    className={cn(
+                                      "h-4 w-4 shrink-0",
+                                      isSelected ? "opacity-100 text-blue-600" : "opacity-0"
+                                    )}
+                                  />
+                                  <div>
+                                    <div className="font-medium text-gray-900">{account.accountName}</div>
+                                    <div className="text-sm text-gray-500">
+                                      {account.accountId}
+                                      {account.emailAddress && ` • ${account.emailAddress}`}
+                                    </div>
+                                  </div>
+                                </div>
+                                {loadingRoles && isSelected && (
+                                  <Loader2 className="size-4 animate-spin text-blue-600" />
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      {ssoAccounts.filter((account) =>
+                        account.accountName.toLowerCase().includes(ssoAccountSearch.toLowerCase()) ||
+                        account.accountId.includes(ssoAccountSearch) ||
+                        (account.emailAddress && account.emailAddress.toLowerCase().includes(ssoAccountSearch.toLowerCase()))
+                      ).length === 0 && ssoAccountSearch && (
+                        <div className="text-gray-500 text-sm py-4 text-center">
+                          No accounts match "{ssoAccountSearch}"
                         </div>
-                      </button>
-                    ))}
+                      )}
+                    </div>
                   </div>
                   
                   <Button
@@ -1126,27 +1182,65 @@ function AwsAuth({
                   </div>
                   
                   <div className="space-y-2">
-                    {ssoRoles.map((role) => (
-                      <button
-                        key={role.roleName}
-                        onClick={() => setSelectedSsoRole(role.roleName)}
-                        className={`w-full text-left px-4 py-3 rounded-md border transition-colors cursor-pointer ${
-                          selectedSsoRole === role.roleName
-                            ? 'bg-blue-100 border-blue-400 ring-2 ring-blue-200'
-                            : 'bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Check
-                            className={cn(
-                              "h-4 w-4 shrink-0",
-                              selectedSsoRole === role.roleName ? "opacity-100 text-blue-600" : "opacity-0"
-                            )}
-                          />
-                          <span className="font-medium text-gray-900">{role.roleName}</span>
+                    {/* Search input */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={ssoRoleSearch}
+                        onChange={(e) => setSsoRoleSearch(e.target.value)}
+                        placeholder="Search roles..."
+                        className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                      {ssoRoleSearch && (
+                        <button
+                          onClick={() => setSsoRoleSearch('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          <X className="size-4" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Role list */}
+                    <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
+                      {ssoRoles
+                        .filter((role) =>
+                          role.roleName.toLowerCase().includes(ssoRoleSearch.toLowerCase())
+                        )
+                        .map((role) => {
+                          const isSelected = selectedSsoRole === role.roleName
+                          return (
+                            <button
+                              key={role.roleName}
+                              onClick={() => setSelectedSsoRole(role.roleName)}
+                              className={cn(
+                                "w-full text-left px-4 py-3 rounded-md border transition-colors",
+                                isSelected
+                                  ? "bg-blue-100 border-blue-400 ring-2 ring-blue-200"
+                                  : "bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer"
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Check
+                                  className={cn(
+                                    "h-4 w-4 shrink-0",
+                                    isSelected ? "opacity-100 text-blue-600" : "opacity-0"
+                                  )}
+                                />
+                                <span className="font-medium text-gray-900">{role.roleName}</span>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      {ssoRoles.filter((role) =>
+                        role.roleName.toLowerCase().includes(ssoRoleSearch.toLowerCase())
+                      ).length === 0 && ssoRoleSearch && (
+                        <div className="text-gray-500 text-sm py-4 text-center">
+                          No roles match "{ssoRoleSearch}"
                         </div>
-                      </button>
-                    ))}
+                      )}
+                    </div>
                   </div>
                   
                   <div className="flex gap-2">
@@ -1204,7 +1298,7 @@ function AwsAuth({
                         </div>
                         
                         {/* Profile list - only show static and assume_role profiles */}
-                        <div className="max-h-[300px] overflow-y-auto space-y-2 px-1">
+                        <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
                           {profiles
                             .filter((profile) => 
                               (profile.authType === 'static' || profile.authType === 'assume_role') &&
