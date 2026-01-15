@@ -123,6 +123,15 @@ interface DefaultRegionPickerProps {
 
 function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disabled }: DefaultRegionPickerProps) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const listRef = useRef<HTMLDivElement>(null)
+  
+  // Scroll to top whenever search changes or popover opens
+  useEffect(() => {
+    if (open && listRef.current) {
+      listRef.current.scrollTo({ top: 0 })
+    }
+  }, [open, search])
   
   return (
     <div>
@@ -134,12 +143,15 @@ function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disabled }: De
               <Info className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[280px] text-center">
-            The AWS region used by CLI commands that don't explicitly specify a region. This sets the AWS_REGION environment variable.
+          <TooltipContent side="top" className="max-w-[280px]">
+            This is the AWS region used by CLI commands that don't explicitly specify a region. This sets the <code>AWS_REGION</code> environment variable.
           </TooltipContent>
         </Tooltip>
       </label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={(isOpen) => {
+        setOpen(isOpen)
+        if (!isOpen) setSearch("") // Reset search when closing
+      }}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -163,8 +175,12 @@ function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disabled }: De
         </PopoverTrigger>
         <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
           <Command>
-            <CommandInput placeholder="Search regions..." />
-            <CommandList className="max-h-[300px]">
+            <CommandInput 
+              placeholder="Search regions..." 
+              value={search}
+              onValueChange={setSearch}
+            />
+            <CommandList ref={listRef} className="max-h-[300px]">
               <CommandEmpty>No region found.</CommandEmpty>
               <CommandGroup>
                 {AWS_REGIONS.map((region) => (
@@ -821,7 +837,7 @@ function AwsAuth({
                       }`}
                     >
                       <ExternalLink className="size-4 inline mr-2" />
-                      AWS IAM Identity Center
+                      AWS SSO
                     </button>
                   )}
                   {enableProfile && (
