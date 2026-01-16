@@ -266,8 +266,16 @@ func HandleAwsProfiles() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		profileInfoMap := make(map[string]*ProfileInfo)
 
+		// Get home directory using os.UserHomeDir() for cross-platform compatibility
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			// Return empty profiles list if home directory cannot be determined
+			c.JSON(http.StatusOK, gin.H{"profiles": []ProfileInfo{}})
+			return
+		}
+
 		// Read from ~/.aws/credentials - profiles here have static credentials
-		credentialsFile := filepath.Join(os.Getenv("HOME"), ".aws", "credentials")
+		credentialsFile := filepath.Join(homeDir, ".aws", "credentials")
 		if cfg, err := ini.Load(credentialsFile); err == nil {
 			for _, section := range cfg.Sections() {
 				name := section.Name()
@@ -285,7 +293,7 @@ func HandleAwsProfiles() gin.HandlerFunc {
 		}
 
 		// Read from ~/.aws/config
-		configFile := filepath.Join(os.Getenv("HOME"), ".aws", "config")
+		configFile := filepath.Join(homeDir, ".aws", "config")
 		if cfg, err := ini.Load(configFile); err == nil {
 			for _, section := range cfg.Sections() {
 				name := section.Name()
