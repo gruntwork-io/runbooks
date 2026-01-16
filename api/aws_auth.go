@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	sso_types "github.com/aws/aws-sdk-go-v2/service/sso/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
+	ssooidc_types "github.com/aws/aws-sdk-go-v2/service/ssooidc/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/ini.v1"
@@ -883,29 +885,28 @@ func validateStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey
 // classifySSOTokenError examines an SSO token creation error and returns
 // the appropriate status and error message.
 func classifySSOTokenError(err error) (ssoTokenStatus, string) {
-	errStr := err.Error()
+	var authPending *ssooidc_types.AuthorizationPendingException
+	var slowDown *ssooidc_types.SlowDownException
+	var accessDenied *ssooidc_types.AccessDeniedException
+	var expiredToken *ssooidc_types.ExpiredTokenException
 
 	// Authorization still pending - user hasn't completed browser flow yet
-	if strings.Contains(errStr, "AuthorizationPendingException") ||
-		strings.Contains(errStr, "authorization_pending") {
+	if errors.As(err, &authPending) {
 		return ssoTokenPending, ""
 	}
 
 	// Slow down request - treat as pending
-	if strings.Contains(errStr, "SlowDownException") ||
-		strings.Contains(errStr, "slow_down") {
+	if errors.As(err, &slowDown) {
 		return ssoTokenPending, ""
 	}
 
 	// User denied/cancelled the authorization
-	if strings.Contains(errStr, "AccessDeniedException") ||
-		strings.Contains(errStr, "access_denied") {
+	if errors.As(err, &accessDenied) {
 		return ssoTokenFailed, "Authorization was denied or cancelled"
 	}
 
 	// Device code expired
-	if strings.Contains(errStr, "ExpiredTokenException") ||
-		strings.Contains(errStr, "expired_token") {
+	if errors.As(err, &expiredToken) {
 		return ssoTokenFailed, "Authorization request expired. Please try again."
 	}
 
