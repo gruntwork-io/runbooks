@@ -11,20 +11,8 @@ Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block
 3. **Local Profile** - Use a profile configured in your `~/.aws/credentials` file
 
 <AwsAuth
-  id="aws-auth-sandbox"
-  title="Authenticate to AWS: Sandbox"
-  description="Choose your preferred authentication method. Your credentials will be used for subsequent AWS operations in this runbook."
-  defaultRegion="us-west-2"
-  ssoRegion="us-west-2"
-  enableCredentials={true}
-  enableSso={true}
-  enableProfile={true}
-  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
-/>
-
-<AwsAuth
-  id="aws-auth-sandbox2"
-  title="Authenticate to AWS: Sandbox2"
+  id="aws-auth"
+  title="Authenticate to AWS"
   description="Choose your preferred authentication method. Your credentials will be used for subsequent AWS operations in this runbook."
   defaultRegion="us-west-2"
   ssoRegion="us-west-2"
@@ -36,14 +24,13 @@ Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block
 
 ## Verify Your Identity
 
-Once authenticated, let's verify which AWS account and identity you're using:
+Once authenticated, let's verify which AWS account and identity you're using. Note that this check doesn't specify `awsAuthId` - it automatically uses the credentials from the most recently authenticated AwsAuth block.
 
 <Check
   id="verify-identity"
   title="Verify AWS Identity"
   description="Confirms your AWS authentication by calling STS GetCallerIdentity"
   command="aws sts get-caller-identity"
-  awsAuthId="aws-auth"
   successMessage="Successfully authenticated to AWS!"
   failMessage="Failed to authenticate. Please check your credentials above."
 />
@@ -56,26 +43,64 @@ Now let's try a real AWS operation - listing your S3 buckets:
   id="list-buckets"
   title="List S3 Buckets"
   description="Lists all S3 buckets in your AWS account"
-  command="echo $AWS_REGION && aws s3 ls"
-  awsAuthId="aws-auth-sandbox"
+  command="aws s3 ls"
   successMessage="S3 buckets listed successfully!"
   failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."
+/>
+
+---
+
+## Working with Multiple AWS Accounts
+
+In many scenarios, you need to work with multiple AWS accounts in a single runbook - for example, copying data from a development account to production, or comparing resources across accounts.
+
+When you have multiple AwsAuth blocks, the most recently authenticated credentials become the "active" session. However, you can use the `awsAuthId` prop to explicitly specify which credentials a Command or Check should use.
+
+### Authenticate to a Second Account
+
+<AwsAuth
+  id="aws-auth-secondary"
+  title="Secondary AWS Account"
+  description="Authenticate to a second AWS account (e.g., production, shared services)"
+  defaultRegion="us-east-1"
+  ssoRegion="us-west-2"
+  enableCredentials={true}
+  enableSso={true}
+  enableProfile={true}
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+/>
+
+### Compare S3 Buckets Across Accounts
+
+Now that both accounts are authenticated, we can run commands against each one by specifying `awsAuthId`:
+
+<Check
+  id="list-buckets-primary"
+  title="List S3 Buckets (Primary Account)"
+  description="Lists S3 buckets in the primary AWS account"
+  command="echo 'Primary account buckets:' && aws s3 ls"
+  awsAuthId="aws-auth"
+  successMessage="Primary account buckets listed!"
+  failMessage="Failed to list buckets in primary account."
 />
 
 <Check
-  id="list-buckets-2"
-  title="List S3 Buckets 2"
-  description="Lists all S3 buckets in your AWS account"
-  command="echo $AWS_REGION && aws s3 ls"
-  awsAuthId="aws-auth-sandbox2"
-  successMessage="S3 buckets listed successfully!"
-  failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."
+  id="list-buckets-secondary"
+  title="List S3 Buckets (Secondary Account)"
+  description="Lists S3 buckets in the secondary AWS account"
+  command="echo 'Secondary account buckets:' && aws s3 ls"
+  awsAuthId="aws-auth-secondary"
+  successMessage="Secondary account buckets listed!"
+  failMessage="Failed to list buckets in secondary account."
 />
 
+---
 
-## Alternative: SSO-Only Authentication
+## Configuration Examples
 
-Here's an example of an AwsAuth block configured for SSO-only authentication:
+### SSO-Only Authentication
+
+For organizations that require SSO:
 
 <AwsAuth
   id="aws-auth-sso-only"
@@ -88,9 +113,9 @@ Here's an example of an AwsAuth block configured for SSO-only authentication:
   enableProfile={false}
 />
 
-## Alternative: Profile-Only Authentication
+### Profile-Only Authentication
 
-And here's an example configured for local profile selection only:
+For development environments using local AWS configuration:
 
 <AwsAuth
   id="aws-auth-profile-only"
@@ -101,38 +126,25 @@ And here's an example configured for local profile selection only:
   enableProfile={true}
 />
 
-## Example: Running AWS CLI Commands
-
-Once authenticated, you can run any AWS CLI command using the `<Command>` block with `awsAuthId` set to your AwsAuth block ID:
-
-<Command
-  id="describe-regions"
-  title="List AWS Regions"
-  description="Lists all available AWS regions"
-  command="aws ec2 describe-regions --query 'Regions[].RegionName' --output table"
-  awsAuthId="aws-auth"
-  successMessage="Regions listed!"
-  failMessage="Failed to list regions."
-/>
+---
 
 ## Usage Notes
 
-### Passing Credentials to Commands
+### How Credentials Are Passed
 
-When you use `awsAuthId="aws-auth"` on a `<Command>` or `<Check>` block, the following environment variables are automatically available:
+When you authenticate with an AwsAuth block, the following environment variables are set:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_SESSION_TOKEN` (if using temporary credentials)
 - `AWS_REGION`
 
+By default, these are set as **session environment variables**, meaning all subsequent Command and Check blocks will use them automatically.
+
+When you specify `awsAuthId` on a Command or Check, those credentials are passed **directly to that specific execution**, overriding the session environment for that command only.
+
 ### Security Considerations
 
 - **Static Credentials**: Avoid using long-term credentials when possible. Consider using SSO or IAM roles instead.
 - **SSO**: The most secure option for organizations. Credentials automatically expire.
 - **Local Profiles**: Good for development, but be careful not to expose credential files.
-
-### Multiple AwsAuth Blocks
-
-You can have multiple `<AwsAuth>` blocks in a single runbook to authenticate to different AWS accounts. Just give each one a unique `id` and reference the appropriate one in your commands.
-
