@@ -170,13 +170,6 @@ export function useScriptExecution({
   // Get AWS auth variables separately (for environment variable injection)
   const awsAuthVarValues = useImportedVarValues(awsAuthId)
   
-  // Build combined list for checking if any inputs are configured
-  const allInputsIds = useMemo(() => {
-    const ids = [...templateInputsIds]
-    if (awsAuthId) ids.push(awsAuthId)
-    return ids
-  }, [templateInputsIds, awsAuthId])
-  
   // Extract template variables from script content
   const requiredVariables = useMemo(() => {
     return extractTemplateVariables(rawScriptContent)
