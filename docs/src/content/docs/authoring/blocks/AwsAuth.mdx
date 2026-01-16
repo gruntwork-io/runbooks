@@ -33,7 +33,7 @@ By default, all three methods are enabled. You can disable specific methods usin
 
 ### Required Props
 
-- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `inputsId` to access the authenticated credentials.
+- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `awsAuthId` to access the authenticated credentials.
 
 ### Optional Props
 
@@ -64,11 +64,13 @@ When authentication succeeds, the following environment variables are automatica
 | `AWS_SESSION_TOKEN` | Session token (for temporary credentials from SSO or assume role) |
 | `AWS_REGION` | The selected default region |
 
-These variables are set in the session environment, so all subsequent blocks have access without needing to explicitly reference `inputsId`.
+These variables are set in the session environment, so all subsequent blocks have access without needing to explicitly reference `awsAuthId`.
 
 ## Using with Commands and Checks
 
-After authenticating, reference the AwsAuth block from Command or Check blocks:
+Command and Check blocks will use the most recently authenticated AWS account by pulling in the above environment variables.
+
+If you wish to assign specific AWS account authentications to specific blocks, you can reference the AwsAuth block from Command or Check blocks using the `awsAuthId` prop:
 
 ```mdx
 <AwsAuth
@@ -82,7 +84,7 @@ After authenticating, reference the AwsAuth block from Command or Check blocks:
   id="verify-identity"
   title="Verify AWS Identity"
   command="aws sts get-caller-identity"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth"
   successMessage="Successfully authenticated!"
 />
 
@@ -90,13 +92,13 @@ After authenticating, reference the AwsAuth block from Command or Check blocks:
   id="list-buckets"
   title="List S3 Buckets"
   command="aws s3 ls"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth"
   successMessage="Buckets listed!"
 />
 ```
 
 <Aside type="tip">
-While you can use `inputsId` to explicitly reference the AwsAuth block, the credentials are also set as session environment variables. This means subsequent blocks will have AWS access even without `inputsId`, though using it makes the dependency explicit.
+While you can use `awsAuthId` to explicitly reference the AwsAuth block, the credentials are also set as session environment variables. This means subsequent blocks will have AWS access even without `awsAuthId`, though using it makes the dependency explicit.
 </Aside>
 
 ## Configuration Examples
@@ -163,7 +165,7 @@ You can include multiple AwsAuth blocks in a single runbook to authenticate to d
   id="export-data"
   title="Export Data from Source"
   command="aws s3 cp s3://source-bucket/data.json /tmp/data.json"
-  inputsId="source-account"
+  awsAuthId="source-account"
 />
 
 <AwsAuth
@@ -176,12 +178,12 @@ You can include multiple AwsAuth blocks in a single runbook to authenticate to d
   id="import-data"
   title="Import Data to Target"
   command="aws s3 cp /tmp/data.json s3://target-bucket/data.json"
-  inputsId="target-account"
+  awsAuthId="target-account"
 />
 ```
 
 <Aside type="caution">
-When using multiple AwsAuth blocks, be aware that the session environment variables (`AWS_ACCESS_KEY_ID`, etc.) will reflect the most recently authenticated credentials. Use `inputsId` to ensure each command uses the correct credentials.
+When using multiple AwsAuth blocks, be aware that the session environment variables (`AWS_ACCESS_KEY_ID`, etc.) will reflect the most recently authenticated credentials. Use `awsAuthId` to ensure each command uses the correct credentials.
 </Aside>
 
 ## Local Profile Support
@@ -233,7 +235,7 @@ This runbook deploys an application to AWS ECS.
   id="verify-access"
   title="Verify AWS Access"
   command="aws sts get-caller-identity"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth"
   successMessage="Authenticated successfully!"
   failMessage="Authentication failed. Please try again."
 />
@@ -244,7 +246,7 @@ This runbook deploys an application to AWS ECS.
   id="deploy"
   title="Deploy to ECS"
   path="scripts/deploy-ecs.sh"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth"
   successMessage="Deployment complete!"
   failMessage="Deployment failed. Check the logs for details."
 />

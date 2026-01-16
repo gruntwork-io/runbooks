@@ -32,7 +32,8 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 - `description` (string) - Longer description of what's being checked
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
+- `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
+- `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`).
 - `successMessage` (string) - Message shown when check succeeds (default: "Success")
 - `warnMessage` (string) - Message shown on warning (default: "Warning")
 - `failMessage` (string) - Message shown when check fails (default: "Failed")

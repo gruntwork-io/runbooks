@@ -11,8 +11,20 @@ Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block
 3. **Local Profile** - Use a profile configured in your `~/.aws/credentials` file
 
 <AwsAuth
-  id="aws-auth"
-  title="Authenticate to AWS"
+  id="aws-auth-sandbox"
+  title="Authenticate to AWS: Sandbox"
+  description="Choose your preferred authentication method. Your credentials will be used for subsequent AWS operations in this runbook."
+  defaultRegion="us-west-2"
+  ssoRegion="us-west-2"
+  enableCredentials={true}
+  enableSso={true}
+  enableProfile={true}
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+/>
+
+<AwsAuth
+  id="aws-auth-sandbox2"
+  title="Authenticate to AWS: Sandbox2"
   description="Choose your preferred authentication method. Your credentials will be used for subsequent AWS operations in this runbook."
   defaultRegion="us-west-2"
   ssoRegion="us-west-2"
@@ -31,7 +43,7 @@ Once authenticated, let's verify which AWS account and identity you're using:
   title="Verify AWS Identity"
   description="Confirms your AWS authentication by calling STS GetCallerIdentity"
   command="aws sts get-caller-identity"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth"
   successMessage="Successfully authenticated to AWS!"
   failMessage="Failed to authenticate. Please check your credentials above."
 />
@@ -45,10 +57,21 @@ Now let's try a real AWS operation - listing your S3 buckets:
   title="List S3 Buckets"
   description="Lists all S3 buckets in your AWS account"
   command="echo $AWS_REGION && aws s3 ls"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth-sandbox"
   successMessage="S3 buckets listed successfully!"
   failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."
 />
+
+<Check
+  id="list-buckets-2"
+  title="List S3 Buckets 2"
+  description="Lists all S3 buckets in your AWS account"
+  command="echo $AWS_REGION && aws s3 ls"
+  awsAuthId="aws-auth-sandbox2"
+  successMessage="S3 buckets listed successfully!"
+  failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."
+/>
+
 
 ## Alternative: SSO-Only Authentication
 
@@ -80,14 +103,14 @@ And here's an example configured for local profile selection only:
 
 ## Example: Running AWS CLI Commands
 
-Once authenticated, you can run any AWS CLI command using the `<Command>` block with `inputsId` set to your AwsAuth block ID:
+Once authenticated, you can run any AWS CLI command using the `<Command>` block with `awsAuthId` set to your AwsAuth block ID:
 
 <Command
   id="describe-regions"
   title="List AWS Regions"
   description="Lists all available AWS regions"
   command="aws ec2 describe-regions --query 'Regions[].RegionName' --output table"
-  inputsId="aws-auth"
+  awsAuthId="aws-auth"
   successMessage="Regions listed!"
   failMessage="Failed to list regions."
 />
@@ -96,7 +119,7 @@ Once authenticated, you can run any AWS CLI command using the `<Command>` block 
 
 ### Passing Credentials to Commands
 
-When you use `inputsId="aws-auth"` on a `<Command>` or `<Check>` block, the following environment variables are automatically available:
+When you use `awsAuthId="aws-auth"` on a `<Command>` or `<Check>` block, the following environment variables are automatically available:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`

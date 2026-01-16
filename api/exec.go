@@ -21,7 +21,8 @@ import (
 type ExecRequest struct {
 	ExecutableID      string            `json:"executable_id,omitempty"` // Used when useExecutableRegistry=true
 	ComponentID       string            `json:"component_id,omitempty"`  // Used when useExecutableRegistry=false
-	TemplateVarValues map[string]string `json:"template_var_values"`     // Values for template variables
+	TemplateVarValues map[string]string `json:"template_var_values"`     // Values for template variables ({{ .VarName }} substitution)
+	EnvVars           map[string]string `json:"env_vars"`                // Environment variables to set for this execution only (overrides session env)
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -202,6 +203,12 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			cmd.Env = execCtx.Env
 		} else {
 			cmd.Env = os.Environ()
+		}
+
+		// Apply per-request environment variables (e.g., AWS credentials from awsAuthId)
+		// These override any session env vars with the same name
+		if len(req.EnvVars) > 0 {
+			cmd.Env = mergeEnvVars(cmd.Env, req.EnvVars)
 		}
 
 		// Add RUNBOOKS_OUTPUT environment variable
@@ -609,6 +616,40 @@ func isValidEnvVarName(name string) bool {
 		}
 	}
 	return true
+}
+
+// mergeEnvVars merges per-request environment variables into an existing env slice.
+// Per-request vars override existing vars with the same name.
+// This is used to apply awsAuthId credentials to specific command executions
+// without affecting the global session environment.
+func mergeEnvVars(baseEnv []string, overrides map[string]string) []string {
+	// Build a map of existing env vars for quick lookup
+	envMap := make(map[string]int) // maps key to index in result slice
+	result := make([]string, 0, len(baseEnv)+len(overrides))
+
+	// Copy base env and track indices
+	for _, env := range baseEnv {
+		if idx := strings.Index(env, "="); idx > 0 {
+			key := env[:idx]
+			envMap[key] = len(result)
+		}
+		result = append(result, env)
+	}
+
+	// Apply overrides
+	for key, value := range overrides {
+		entry := key + "=" + value
+		if idx, exists := envMap[key]; exists {
+			// Override existing value
+			result[idx] = entry
+		} else {
+			// Add new env var
+			result = append(result, entry)
+			envMap[key] = len(result) - 1
+		}
+	}
+
+	return result
 }
 
 // detectInterpreter detects the interpreter from the shebang line or uses provided language
