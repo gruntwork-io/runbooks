@@ -63,6 +63,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		sessionAuth.GET("", HandleGetSession(sessionManager))
 		sessionAuth.POST("/reset", HandleResetSession(sessionManager))
 		sessionAuth.DELETE("", HandleDeleteSession(sessionManager))
+		sessionAuth.PATCH("/env", HandleSetSessionEnv(sessionManager))
 	}
 
 	// API endpoint to execute check scripts
@@ -71,6 +72,16 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// API endpoints for managing generated files
 	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
 	r.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(outputPath))
+
+	// AWS authentication endpoints
+	r.POST("/api/aws/validate", HandleAwsValidate())
+	r.GET("/api/aws/profiles", HandleAwsProfiles())
+	r.POST("/api/aws/profile", HandleAwsProfileAuth())
+	r.POST("/api/aws/sso/start", HandleAwsSsoStart())
+	r.POST("/api/aws/sso/poll", HandleAwsSsoPoll())
+	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())
+	r.POST("/api/aws/sso/complete", HandleAwsSsoComplete())
+	r.POST("/api/aws/check-region", HandleAwsCheckRegion())
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))

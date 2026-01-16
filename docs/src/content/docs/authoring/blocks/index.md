@@ -9,6 +9,7 @@ Blocks are special React components that you can use in your `runbook.mdx` files
 ## Available Blocks
 
 - [Admonition](/authoring/blocks/admonition)
+- [AwsAuth](/authoring/blocks/awsauth)
 - [Check](/authoring/blocks/check)
 - [Command](/authoring/blocks/command)
 - [Inputs](/authoring/blocks/inputs)

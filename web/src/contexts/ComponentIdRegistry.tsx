@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 interface ComponentRegistration {
   id: string
-  componentType: 'Command' | 'Check' | 'Inputs' | 'Template'
+  componentType: 'Command' | 'Check' | 'Inputs' | 'Template' | 'AwsAuth'
   instanceId: string // Unique per-render instance to track unmounts
 }
 

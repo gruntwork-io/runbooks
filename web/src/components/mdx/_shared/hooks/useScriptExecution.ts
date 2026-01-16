@@ -18,8 +18,10 @@ interface UseScriptExecutionProps {
   componentId: string
   path?: string
   command?: string
-  /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
+  /** Reference to an AwsAuth block by ID for AWS credentials. */
+  awsAuthId?: string
   children?: ReactNode
   componentType: ComponentType
 }
@@ -62,6 +64,7 @@ export function useScriptExecution({
   path,
   command,
   inputsId,
+  awsAuthId,
   children,
   componentType,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
@@ -140,8 +143,8 @@ export function useScriptExecution({
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
   
-  // Build the complete list of inputsIds to merge (inline has highest precedence, so it goes last)
-  const allInputsIds = useMemo(() => {
+  // Build the list of inputsIds for template variables (inline has highest precedence, so it goes last)
+  const templateInputsIds = useMemo(() => {
     const ids: string[] = []
     
     // Add external inputsId(s) first
@@ -161,9 +164,11 @@ export function useScriptExecution({
     return ids
   }, [inputsId, inlineInputsId])
   
-  // Get merged variables from BlockVariablesContext
-  // The hook handles merging with later IDs overriding earlier ones
-  const importedVarValues = useImportedVarValues(allInputsIds.length > 0 ? allInputsIds : undefined)
+  // Get template variables from BlockVariablesContext (for {{ .VarName }} substitution)
+  const importedVarValues = useImportedVarValues(templateInputsIds.length > 0 ? templateInputsIds : undefined)
+  
+  // Get AWS auth variables separately (for environment variable injection)
+  const awsAuthVarValues = useImportedVarValues(awsAuthId)
   
   // Extract template variables from script content
   const requiredVariables = useMemo(() => {
@@ -349,10 +354,16 @@ export function useScriptExecution({
     // Clear any previous registry error
     setRegistryError(null)
     
-    // Convert collected variables to strings (boilerplate expects string values)
+    // Convert template variables to strings (for {{ .VarName }} substitution)
     const stringVariables: Record<string, string> = {}
     for (const [key, value] of Object.entries(importedVarValues)) {
       stringVariables[key] = String(value)
+    }
+    
+    // Convert AWS auth variables to strings (for environment variable injection)
+    const envVars: Record<string, string> = {}
+    for (const [key, value] of Object.entries(awsAuthVarValues)) {
+      envVars[key] = String(value)
     }
     
     if (execRegistryEnabled) {
@@ -370,12 +381,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, stringVariables)
+      executeScript(executable.id, stringVariables, envVars)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, stringVariables)
+      executeByComponentId(componentId, stringVariables, envVars)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues, awsAuthVarValues])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

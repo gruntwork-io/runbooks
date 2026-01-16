@@ -16,8 +16,10 @@ interface CommandProps {
   description?: string
   path?: string
   command?: string
-  /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
+  /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
+  awsAuthId?: string
   successMessage?: string
   failMessage?: string
   runningMessage?: string
@@ -31,6 +33,7 @@ function Command({
   path,
   command,
   inputsId,
+  awsAuthId,
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
@@ -67,6 +70,7 @@ function Command({
     path,
     command,
     inputsId,
+    awsAuthId,
     children,
     componentType: 'command',
   })
@@ -169,7 +173,7 @@ function Command({
   }, [path, command, sourceCode, language])
 
   // Check if component requires variables but none are configured
-  const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !inlineInputsId
+  const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
 
   // Track block render on mount
   useEffect(() => {
@@ -267,7 +271,7 @@ function Command({
 
   // Main render
   return (
-    <div className={`relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
       {/* Skip checkbox - always positioned at top right */}
       <div className={`absolute top-4 right-4 flex items-center gap-2 z-20` + (commandStatus === 'success' ? ' text-gray-300' : '')}>
         <label className="flex items-center gap-2 cursor-pointer">

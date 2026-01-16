@@ -104,6 +104,38 @@ func HandleDeleteSession(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
+// SetEnvRequest represents the request body for setting environment variables.
+type SetEnvRequest struct {
+	Env map[string]string `json:"env" binding:"required"`
+}
+
+// HandleSetSessionEnv sets environment variables in the session.
+// This allows UI components (like AwsAuth) to inject environment variables
+// into the session without running a script.
+// PATCH /api/session/env
+// Requires Bearer token authentication (enforced by SessionAuthMiddleware).
+func HandleSetSessionEnv(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SetEnvRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: env map is required"})
+			return
+		}
+
+		if len(req.Env) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "At least one environment variable is required"})
+			return
+		}
+
+		if err := sm.AppendToEnv(req.Env); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set environment variables"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Environment variables set", "count": len(req.Env)})
+	}
+}
+
 // extractBearerToken extracts the Bearer token from the Authorization header.
 func extractBearerToken(c *gin.Context) string {
 	auth := c.GetHeader("Authorization")

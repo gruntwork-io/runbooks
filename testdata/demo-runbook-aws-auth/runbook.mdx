@@ -1,0 +1,112 @@
+# AWS Authentication Demo
+
+This runbook demonstrates the AWS Authentication block, which provides multiple ways to authenticate to AWS before running AWS-related commands and checks.
+
+## Authenticate to AWS
+
+Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block below provides three methods:
+
+1. **Static Credentials** - Enter your AWS Access Key ID and Secret Access Key directly
+2. **AWS SSO** - Use your organization's AWS Single Sign-On portal
+3. **Local Profile** - Use a profile configured in your `~/.aws/credentials` file
+
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to AWS"
+  description="Choose your preferred authentication method. Your credentials will be used for subsequent AWS operations in this runbook."
+  defaultRegion="us-west-2"
+  ssoRegion="us-west-2"
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+/>
+
+## Verify Your Identity
+
+Once authenticated, let's verify which AWS account and identity you're using. Note that this check doesn't specify `awsAuthId` - it automatically uses the credentials from the most recently authenticated AwsAuth block.
+
+<Check
+  id="verify-identity"
+  title="Verify AWS Identity"
+  description="Confirms your AWS authentication by calling STS GetCallerIdentity"
+  command="aws sts get-caller-identity"
+  successMessage="Successfully authenticated to AWS!"
+  failMessage="Failed to authenticate. Please check your credentials above."
+/>
+
+## List S3 Buckets
+
+Now let's try a real AWS operation - listing your S3 buckets:
+
+<Check
+  id="list-buckets"
+  title="List S3 Buckets"
+  description="Lists all S3 buckets in your AWS account"
+  command="aws s3 ls"
+  successMessage="S3 buckets listed successfully!"
+  failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."
+/>
+
+---
+
+## Working with Multiple AWS Accounts
+
+In many scenarios, you need to work with multiple AWS accounts in a single runbook - for example, copying data from a development account to production, or comparing resources across accounts.
+
+When you have multiple AwsAuth blocks, the most recently authenticated credentials become the "active" session. However, you can use the `awsAuthId` prop to explicitly specify which credentials a Command or Check should use.
+
+### Authenticate to a Second Account
+
+<AwsAuth
+  id="aws-auth-secondary"
+  title="Secondary AWS Account"
+  description="Authenticate to a second AWS account (e.g., production, shared services)"
+  defaultRegion="us-east-1"
+  ssoRegion="us-west-2"
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+/>
+
+### Compare S3 Buckets Across Accounts
+
+Now that both accounts are authenticated, we can run commands against each one by specifying `awsAuthId`:
+
+<Check
+  id="list-buckets-primary"
+  title="List S3 Buckets (Primary Account)"
+  description="Lists S3 buckets in the primary AWS account"
+  command="echo 'Primary account buckets:' && aws s3 ls"
+  awsAuthId="aws-auth"
+  successMessage="Primary account buckets listed!"
+  failMessage="Failed to list buckets in primary account."
+/>
+
+<Check
+  id="list-buckets-secondary"
+  title="List S3 Buckets (Secondary Account)"
+  description="Lists S3 buckets in the secondary AWS account"
+  command="echo 'Secondary account buckets:' && aws s3 ls"
+  awsAuthId="aws-auth-secondary"
+  successMessage="Secondary account buckets listed!"
+  failMessage="Failed to list buckets in secondary account."
+/>
+
+---
+
+## Usage Notes
+
+### How Credentials Are Passed
+
+When you authenticate with an AwsAuth block, the following environment variables are set:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN` (if using temporary credentials)
+- `AWS_REGION`
+
+By default, these are set as **session environment variables**, meaning all subsequent Command and Check blocks will use them automatically.
+
+When you specify `awsAuthId` on a Command or Check, those credentials are passed **directly to that specific execution**, overriding the session environment for that command only.
+
+### Security Considerations
+
+- **Static Credentials**: Avoid using long-term credentials when possible. Consider using SSO or IAM roles instead.
+- **SSO**: The most secure option for organizations. Credentials automatically expire.
+- **Local Profiles**: Good for development, but be careful not to expose credential files.

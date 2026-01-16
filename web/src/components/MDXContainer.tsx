@@ -13,6 +13,7 @@ import { BlockVariablesProvider } from '@/contexts/BlockVariablesContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
+import { AwsAuth } from '@/components/mdx/AwsAuth'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 
 /**
@@ -219,6 +220,8 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       // Script execution components
       Check,
       Command,
+      // Authentication components
+      AwsAuth,
       // Utility components
       Admonition,
       a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
