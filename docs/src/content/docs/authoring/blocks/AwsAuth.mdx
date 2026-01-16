@@ -27,8 +27,6 @@ The AwsAuth block provides three ways to authenticate:
 | **AWS SSO** | Use AWS IAM Identity Center (formerly AWS SSO) | Organizations with SSO configured |
 | **Local Profile** | Use a profile from `~/.aws/credentials` | Development, existing AWS CLI users |
 
-By default, all three methods are enabled. You can disable specific methods using the `enableCredentials`, `enableSso`, and `enableProfile` props.
-
 ## Props
 
 ### Required Props
@@ -40,15 +38,12 @@ By default, all three methods are enabled. You can disable specific methods usin
 - `title` (string) - Display title shown in the UI (default: "AWS Authentication")
 - `description` (string) - Longer description of the authentication purpose
 - `defaultRegion` (string) - Default AWS region for CLI commands (default: "us-east-1"). Sets `AWS_REGION` environment variable.
-- `enableCredentials` (boolean) - Enable static credentials input (default: `true`)
-- `enableSso` (boolean) - Enable AWS SSO authentication (default: `true`)
-- `enableProfile` (boolean) - Enable local profile selection (default: `true`)
 
 ### SSO-Specific Props
 
 These props configure AWS SSO (IAM Identity Center) authentication:
 
-- `ssoStartUrl` (string) - Your organization's AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required when `enableSso` is true.
+- `ssoStartUrl` (string) - Your organization's AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`)
 - `ssoRegion` (string) - The AWS region where your IAM Identity Center is configured (default: "us-east-1")
 - `ssoAccountId` (string) - Pre-select a specific AWS account after SSO authentication
 - `ssoRoleName` (string) - Pre-select a specific IAM role to assume
@@ -102,37 +97,6 @@ While you can use `awsAuthId` to explicitly reference the AwsAuth block, the cre
 </Aside>
 
 ## Configuration Examples
-
-### SSO-Only Authentication
-
-For organizations that require SSO:
-
-```mdx
-<AwsAuth
-  id="aws-auth"
-  title="Sign in with SSO"
-  ssoStartUrl="https://my-company.awsapps.com/start"
-  ssoRegion="us-east-1"
-  enableCredentials={false}
-  enableSso={true}
-  enableProfile={false}
-/>
-```
-
-### Profile-Only Authentication
-
-For development environments using local AWS configuration:
-
-```mdx
-<AwsAuth
-  id="aws-auth"
-  title="Select AWS Profile"
-  description="Choose a profile from your local AWS configuration"
-  enableCredentials={false}
-  enableSso={false}
-  enableProfile={true}
-/>
-```
 
 ### Pre-selected SSO Account and Role
 

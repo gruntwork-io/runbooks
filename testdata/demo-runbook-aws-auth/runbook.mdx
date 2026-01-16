@@ -16,9 +16,6 @@ Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block
   description="Choose your preferred authentication method. Your credentials will be used for subsequent AWS operations in this runbook."
   defaultRegion="us-west-2"
   ssoRegion="us-west-2"
-  enableCredentials={true}
-  enableSso={true}
-  enableProfile={true}
   ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
 />
 
@@ -64,9 +61,6 @@ When you have multiple AwsAuth blocks, the most recently authenticated credentia
   description="Authenticate to a second AWS account (e.g., production, shared services)"
   defaultRegion="us-east-1"
   ssoRegion="us-west-2"
-  enableCredentials={true}
-  enableSso={true}
-  enableProfile={true}
   ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
 />
 
@@ -92,38 +86,6 @@ Now that both accounts are authenticated, we can run commands against each one b
   awsAuthId="aws-auth-secondary"
   successMessage="Secondary account buckets listed!"
   failMessage="Failed to list buckets in secondary account."
-/>
-
----
-
-## Configuration Examples
-
-### SSO-Only Authentication
-
-For organizations that require SSO:
-
-<AwsAuth
-  id="aws-auth-sso-only"
-  title="SSO-Only Authentication"
-  description="This block only allows SSO authentication"
-  ssoStartUrl="https://my-company.awsapps.com/start"
-  ssoRegion="us-east-1"
-  enableCredentials={false}
-  enableSso={true}
-  enableProfile={false}
-/>
-
-### Profile-Only Authentication
-
-For development environments using local AWS configuration:
-
-<AwsAuth
-  id="aws-auth-profile-only"
-  title="Use Local AWS Profile"
-  description="Select a profile from your local AWS configuration"
-  enableCredentials={false}
-  enableSso={false}
-  enableProfile={true}
 />
 
 ---

@@ -112,12 +112,6 @@ interface AwsAuthProps {
   defaultRegion?: string
   /** @deprecated Use defaultRegion instead */
   region?: string
-  /** Enable static credentials input */
-  enableCredentials?: boolean
-  /** Enable AWS SSO authentication */
-  enableSso?: boolean
-  /** Enable profile selection */
-  enableProfile?: boolean
 }
 
 // Reusable Default Region Picker component with tooltip
@@ -243,9 +237,6 @@ function AwsAuth({
   ssoRoleName,
   defaultRegion,
   region,
-  enableCredentials = true,
-  enableSso = true,
-  enableProfile = true,
 }: AwsAuthProps) {
   // Support both defaultRegion and deprecated region prop
   const effectiveDefaultRegion = defaultRegion ?? region ?? "us-east-1"
@@ -776,9 +767,6 @@ function AwsAuth({
     return colorMap[authStatus]
   }
 
-  // Count enabled methods
-  const enabledMethods = [enableCredentials, enableSso, enableProfile].filter(Boolean)
-
   // Early return for duplicate ID
   if (isDuplicate) {
     return (
@@ -868,53 +856,47 @@ function AwsAuth({
           {/* Authentication form (only show when not authenticated and not in account/role selection) */}
           {authStatus !== 'authenticated' && (
             <>
-              {/* Method tabs (only if multiple methods enabled and not in account/role selection) */}
-              {enabledMethods.length > 1 && authStatus !== 'select_account' && authStatus !== 'select_role' && (
+              {/* Method tabs (hide during account/role selection) */}
+              {authStatus !== 'select_account' && authStatus !== 'select_role' && (
                 <div className="flex gap-1 mb-4 border-b border-amber-200">
-                  {enableCredentials && (
-                    <button
-                      onClick={() => setAuthMethod('credentials')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-                        authMethod === 'credentials'
-                          ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
-                          : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      <KeyRound className="size-4 inline mr-2" />
-                      Static Credentials
-                    </button>
-                  )}
-                  {enableSso && (
-                    <button
-                      onClick={() => setAuthMethod('sso')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-                        authMethod === 'sso'
-                          ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
-                          : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      <ExternalLink className="size-4 inline mr-2" />
-                      AWS SSO
-                    </button>
-                  )}
-                  {enableProfile && (
-                    <button
-                      onClick={() => setAuthMethod('profile')}
-                      className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-                        authMethod === 'profile'
-                          ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
-                          : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      <User className="size-4 inline mr-2" />
-                      Local Profile
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setAuthMethod('credentials')}
+                    className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+                      authMethod === 'credentials'
+                        ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <KeyRound className="size-4 inline mr-2" />
+                    Static Credentials
+                  </button>
+                  <button
+                    onClick={() => setAuthMethod('sso')}
+                    className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+                      authMethod === 'sso'
+                        ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <ExternalLink className="size-4 inline mr-2" />
+                    AWS SSO
+                  </button>
+                  <button
+                    onClick={() => setAuthMethod('profile')}
+                    className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+                      authMethod === 'profile'
+                        ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <User className="size-4 inline mr-2" />
+                    Local Profile
+                  </button>
                 </div>
               )}
 
               {/* Static Credentials Form */}
-              {authMethod === 'credentials' && enableCredentials && (
+              {authMethod === 'credentials' && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1000,7 +982,7 @@ function AwsAuth({
               )}
 
               {/* SSO Authentication */}
-              {authMethod === 'sso' && enableSso && authStatus !== 'select_account' && authStatus !== 'select_role' && (
+              {authMethod === 'sso' && authStatus !== 'select_account' && authStatus !== 'select_role' && (
                 <div className="space-y-4">
                   {ssoStartUrl ? (
                     <>
@@ -1263,7 +1245,7 @@ function AwsAuth({
               )}
 
               {/* Profile Selection */}
-              {authMethod === 'profile' && enableProfile && (
+              {authMethod === 'profile' && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
