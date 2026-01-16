@@ -1,10 +1,7 @@
 package api
 
 import (
-	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -144,6 +141,59 @@ type SSOCompleteResponse struct {
 	Error           string `json:"error,omitempty"`
 }
 
+// ProfileInfo represents an AWS profile with its authentication type
+type ProfileInfo struct {
+	Name     string `json:"name"`
+	AuthType string `json:"authType"` // "sso", "static", "assume_role", "unsupported"
+}
+
+// defaultRegion returns the provided region, or "us-east-1" if empty.
+func defaultRegion(region string) string {
+	if region == "" {
+		return "us-east-1"
+	}
+	return region
+}
+
+// callerIdentity holds the result of an STS GetCallerIdentity call.
+type callerIdentity struct {
+	AccountID string
+	Arn       string
+}
+
+// getCallerIdentity calls STS GetCallerIdentity using the provided config.
+func getCallerIdentity(ctx context.Context, cfg aws.Config) (*callerIdentity, error) {
+	stsClient := sts.NewFromConfig(cfg)
+	result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, err
+	}
+	return &callerIdentity{
+		AccountID: aws.ToString(result.Account),
+		Arn:       aws.ToString(result.Arn),
+	}, nil
+}
+
+// validateStaticCredentials creates an AWS config with static credentials and validates them via STS.
+// Returns the config (for further use) and the caller identity.
+func validateStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, sessionToken, region string) (aws.Config, *callerIdentity, error) {
+	creds := credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, sessionToken)
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(creds),
+	)
+	if err != nil {
+		return aws.Config{}, nil, fmt.Errorf("failed to create AWS config: %w", err)
+	}
+
+	identity, err := getCallerIdentity(ctx, cfg)
+	if err != nil {
+		return aws.Config{}, nil, err
+	}
+
+	return cfg, identity, nil
+}
+
 // HandleAwsValidate validates AWS credentials by calling STS GetCallerIdentity
 func HandleAwsValidate() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -170,32 +220,10 @@ func HandleAwsValidate() gin.HandlerFunc {
 		// would cause validation to fail even with valid credentials.
 		validationRegion := "us-east-1"
 
-		// Create static credentials provider
-		creds := credentials.NewStaticCredentialsProvider(
-			req.AccessKeyID,
-			req.SecretAccessKey,
-			req.SessionToken,
-		)
-
-		// Create AWS config with the static credentials
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		cfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion(validationRegion),
-			config.WithCredentialsProvider(creds),
-		)
-		if err != nil {
-			c.JSON(http.StatusOK, ValidateCredentialsResponse{
-				Valid: false,
-				Error: fmt.Sprintf("Failed to create AWS config: %v", err),
-			})
-			return
-		}
-
-		// Call STS GetCallerIdentity to validate credentials
-		stsClient := sts.NewFromConfig(cfg)
-		result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		cfg, identity, err := validateStaticCredentials(ctx, req.AccessKeyID, req.SecretAccessKey, req.SessionToken, validationRegion)
 		if err != nil {
 			c.JSON(http.StatusOK, ValidateCredentialsResponse{
 				Valid: false,
@@ -212,8 +240,8 @@ func HandleAwsValidate() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, ValidateCredentialsResponse{
 			Valid:     true,
-			AccountID: aws.ToString(result.Account),
-			Arn:       aws.ToString(result.Arn),
+			AccountID: identity.AccountID,
+			Arn:       identity.Arn,
 			Warning:   warning,
 		})
 	}
@@ -247,12 +275,6 @@ func checkRegionOptInStatus(ctx context.Context, cfg aws.Config, region string) 
 		// ENABLED or ENABLED_BY_DEFAULT - no warning needed
 		return ""
 	}
-}
-
-// ProfileInfo represents an AWS profile with its authentication type
-type ProfileInfo struct {
-	Name     string `json:"name"`
-	AuthType string `json:"authType"` // "sso", "static", "assume_role", "unsupported"
 }
 
 // HandleAwsProfiles returns a list of AWS profiles from the user's machine
@@ -406,8 +428,7 @@ func HandleAwsProfileAuth() gin.HandlerFunc {
 		}
 
 		// Validate by calling STS GetCallerIdentity
-		stsClient := sts.NewFromConfig(cfg)
-		result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		identity, err := getCallerIdentity(ctx, cfg)
 		if err != nil {
 			c.JSON(http.StatusOK, ProfileAuthResponse{
 				Valid: false,
@@ -418,8 +439,8 @@ func HandleAwsProfileAuth() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, ProfileAuthResponse{
 			Valid:           true,
-			AccountID:       aws.ToString(result.Account),
-			Arn:             aws.ToString(result.Arn),
+			AccountID:       identity.AccountID,
+			Arn:             identity.Arn,
 			AccessKeyID:     creds.AccessKeyID,
 			SecretAccessKey: creds.SecretAccessKey,
 			SessionToken:    creds.SessionToken,
@@ -446,10 +467,7 @@ func HandleAwsSsoStart() gin.HandlerFunc {
 			return
 		}
 
-		region := req.Region
-		if region == "" {
-			region = "us-east-1"
-		}
+		region := defaultRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -519,10 +537,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 			return
 		}
 
-		region := req.Region
-		if region == "" {
-			region = "us-east-1"
-		}
+		region := defaultRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -685,26 +700,11 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 		}
 
 		// Validate the credentials
-		staticCreds := credentials.NewStaticCredentialsProvider(
-			aws.ToString(credsResult.RoleCredentials.AccessKeyId),
-			aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
-			aws.ToString(credsResult.RoleCredentials.SessionToken),
-		)
+		accessKeyID := aws.ToString(credsResult.RoleCredentials.AccessKeyId)
+		secretAccessKey := aws.ToString(credsResult.RoleCredentials.SecretAccessKey)
+		sessionToken := aws.ToString(credsResult.RoleCredentials.SessionToken)
 
-		validationCfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion(region),
-			config.WithCredentialsProvider(staticCreds),
-		)
-		if err != nil {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  fmt.Sprintf("Failed to create validation config: %v", err),
-			})
-			return
-		}
-
-		stsClient := sts.NewFromConfig(validationCfg)
-		identityResult, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		_, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, region)
 		if err != nil {
 			c.JSON(http.StatusOK, SSOPollResponse{
 				Status: "failed",
@@ -715,11 +715,11 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, SSOPollResponse{
 			Status:          "success",
-			AccessKeyID:     aws.ToString(credsResult.RoleCredentials.AccessKeyId),
-			SecretAccessKey: aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
-			SessionToken:    aws.ToString(credsResult.RoleCredentials.SessionToken),
-			AccountID:       aws.ToString(identityResult.Account),
-			Arn:             aws.ToString(identityResult.Arn),
+			AccessKeyID:     accessKeyID,
+			SecretAccessKey: secretAccessKey,
+			SessionToken:    sessionToken,
+			AccountID:       identity.AccountID,
+			Arn:             identity.Arn,
 		})
 	}
 }
@@ -742,10 +742,7 @@ func HandleAwsSsoListRoles() gin.HandlerFunc {
 			return
 		}
 
-		region := req.Region
-		if region == "" {
-			region = "us-east-1"
-		}
+		region := defaultRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -801,10 +798,7 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 			return
 		}
 
-		region := req.Region
-		if region == "" {
-			region = "us-east-1"
-		}
+		region := defaultRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -832,25 +826,11 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 		}
 
 		// Validate the credentials
-		staticCreds := credentials.NewStaticCredentialsProvider(
-			aws.ToString(credsResult.RoleCredentials.AccessKeyId),
-			aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
-			aws.ToString(credsResult.RoleCredentials.SessionToken),
-		)
+		accessKeyID := aws.ToString(credsResult.RoleCredentials.AccessKeyId)
+		secretAccessKey := aws.ToString(credsResult.RoleCredentials.SecretAccessKey)
+		sessionToken := aws.ToString(credsResult.RoleCredentials.SessionToken)
 
-		validationCfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion(region),
-			config.WithCredentialsProvider(staticCreds),
-		)
-		if err != nil {
-			c.JSON(http.StatusOK, SSOCompleteResponse{
-				Error: fmt.Sprintf("Failed to create validation config: %v", err),
-			})
-			return
-		}
-
-		stsClient := sts.NewFromConfig(validationCfg)
-		identityResult, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		_, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, region)
 		if err != nil {
 			c.JSON(http.StatusOK, SSOCompleteResponse{
 				Error: fmt.Sprintf("Failed to validate SSO credentials: %v", err),
@@ -859,11 +839,11 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, SSOCompleteResponse{
-			AccessKeyID:     aws.ToString(credsResult.RoleCredentials.AccessKeyId),
-			SecretAccessKey: aws.ToString(credsResult.RoleCredentials.SecretAccessKey),
-			SessionToken:    aws.ToString(credsResult.RoleCredentials.SessionToken),
-			AccountID:       aws.ToString(identityResult.Account),
-			Arn:             aws.ToString(identityResult.Arn),
+			AccessKeyID:     accessKeyID,
+			SecretAccessKey: secretAccessKey,
+			SessionToken:    sessionToken,
+			AccountID:       identity.AccountID,
+			Arn:             identity.Arn,
 		})
 	}
 }
@@ -973,29 +953,4 @@ func HandleAwsCheckRegion() gin.HandlerFunc {
 	}
 }
 
-// hashString creates a short hash for a string (used for cache keys)
-func hashString(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:8])
-}
-
-// Helper to read INI file sections
-func readIniSections(filePath string) ([]string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var sections []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section := strings.TrimPrefix(strings.TrimSuffix(line, "]"), "[")
-			sections = append(sections, section)
-		}
-	}
-	return sections, scanner.Err()
-}
 
