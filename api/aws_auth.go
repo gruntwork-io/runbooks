@@ -16,10 +16,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/account"
 	"github.com/aws/aws-sdk-go-v2/service/account/types"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
+	sso_types "github.com/aws/aws-sdk-go-v2/service/sso/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/ini.v1"
+)
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// AuthType represents the type of authentication for an AWS profile
+type AuthType string
+
+const (
+	AuthTypeSSO         AuthType = "sso"
+	AuthTypeStatic      AuthType = "static"
+	AuthTypeAssumeRole  AuthType = "assume_role"
+	AuthTypeUnsupported AuthType = "unsupported"
 )
 
 // ValidateCredentialsRequest represents the request to validate AWS credentials
@@ -56,6 +71,12 @@ type ProfileAuthResponse struct {
 	Error           string `json:"error,omitempty"`
 }
 
+// ProfileInfo represents an AWS profile with its authentication type
+type ProfileInfo struct {
+	Name     string   `json:"name"`
+	AuthType AuthType `json:"authType"`
+}
+
 // SSOStartRequest represents the request to start SSO authentication
 type SSOStartRequest struct {
 	StartURL  string `json:"startUrl"`
@@ -84,9 +105,19 @@ type SSOPollRequest struct {
 	RoleName     string `json:"roleName,omitempty"`
 }
 
+// SSOPollStatus represents the status of an SSO poll response
+type SSOPollStatus string
+
+const (
+	SSOPollStatusPending       SSOPollStatus = "pending"
+	SSOPollStatusSuccess       SSOPollStatus = "success"
+	SSOPollStatusFailed        SSOPollStatus = "failed"
+	SSOPollStatusSelectAccount SSOPollStatus = "select_account"
+)
+
 // SSOPollResponse represents the response from SSO polling
 type SSOPollResponse struct {
-	Status          string `json:"status"` // "pending", "success", "failed", "select_account"
+	Status          SSOPollStatus `json:"status"`
 	AccessKeyID     string `json:"accessKeyId,omitempty"`
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
 	SessionToken    string `json:"sessionToken,omitempty"`
@@ -94,8 +125,8 @@ type SSOPollResponse struct {
 	Arn             string `json:"arn,omitempty"`
 	Error           string `json:"error,omitempty"`
 	// For account selection flow
-	AccessToken string        `json:"accessToken,omitempty"`
-	Accounts    []SSOAccount  `json:"accounts,omitempty"`
+	AccessToken string       `json:"accessToken,omitempty"`
+	Accounts    []SSOAccount `json:"accounts,omitempty"`
 }
 
 // SSOAccount represents an AWS account from SSO
@@ -141,18 +172,20 @@ type SSOCompleteResponse struct {
 	Error           string `json:"error,omitempty"`
 }
 
-// ProfileInfo represents an AWS profile with its authentication type
-type ProfileInfo struct {
-	Name     string `json:"name"`
-	AuthType string `json:"authType"` // "sso", "static", "assume_role", "unsupported"
+// CheckRegionRequest represents a request to check if a region is enabled
+type CheckRegionRequest struct {
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+	Region          string `json:"region"`
 }
 
-// defaultRegion returns the provided region, or "us-east-1" if empty.
-func defaultRegion(region string) string {
-	if region == "" {
-		return "us-east-1"
-	}
-	return region
+// CheckRegionResponse represents the response from region check
+type CheckRegionResponse struct {
+	Enabled bool   `json:"enabled"`
+	Status  string `json:"status,omitempty"`
+	Warning string `json:"warning,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // callerIdentity holds the result of an STS GetCallerIdentity call.
@@ -161,38 +194,17 @@ type callerIdentity struct {
 	Arn       string
 }
 
-// getCallerIdentity calls STS GetCallerIdentity using the provided config.
-func getCallerIdentity(ctx context.Context, cfg aws.Config) (*callerIdentity, error) {
-	stsClient := sts.NewFromConfig(cfg)
-	result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if err != nil {
-		return nil, err
-	}
-	return &callerIdentity{
-		AccountID: aws.ToString(result.Account),
-		Arn:       aws.ToString(result.Arn),
-	}, nil
-}
+// ssoTokenStatus represents the status of an SSO token creation attempt.
+type ssoTokenStatus string
 
-// validateStaticCredentials creates an AWS config with static credentials and validates them via STS.
-// Returns the config (for further use) and the caller identity.
-func validateStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, sessionToken, region string) (aws.Config, *callerIdentity, error) {
-	creds := credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, sessionToken)
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion(region),
-		config.WithCredentialsProvider(creds),
-	)
-	if err != nil {
-		return aws.Config{}, nil, fmt.Errorf("failed to create AWS config: %w", err)
-	}
+const (
+	ssoTokenPending ssoTokenStatus = "pending"
+	ssoTokenFailed  ssoTokenStatus = "failed"
+)
 
-	identity, err := getCallerIdentity(ctx, cfg)
-	if err != nil {
-		return aws.Config{}, nil, err
-	}
-
-	return cfg, identity, nil
-}
+// =============================================================================
+// Handlers
+// =============================================================================
 
 // HandleAwsValidate validates AWS credentials by calling STS GetCallerIdentity
 func HandleAwsValidate() gin.HandlerFunc {
@@ -247,36 +259,6 @@ func HandleAwsValidate() gin.HandlerFunc {
 	}
 }
 
-// checkRegionOptInStatus checks if a region requires opt-in and whether it's enabled.
-// Returns a warning message if the region is not enabled, empty string otherwise.
-func checkRegionOptInStatus(ctx context.Context, cfg aws.Config, region string) string {
-	// The Account API must be called from us-east-1
-	accountCfg := cfg.Copy()
-	accountCfg.Region = "us-east-1"
-
-	accountClient := account.NewFromConfig(accountCfg)
-	result, err := accountClient.GetRegionOptStatus(ctx, &account.GetRegionOptStatusInput{
-		RegionName: aws.String(region),
-	})
-	if err != nil {
-		// If we can't check (e.g., insufficient permissions), don't warn
-		// The user will see the actual error when they try to use the region
-		return ""
-	}
-
-	switch result.RegionOptStatus {
-	case types.RegionOptStatusDisabled:
-		return fmt.Sprintf("The region %s is not enabled for your AWS account. Enable it in the AWS Console under Account Settings > AWS Regions, or choose a different default region.", region)
-	case types.RegionOptStatusDisabling:
-		return fmt.Sprintf("The region %s is currently being disabled for your AWS account.", region)
-	case types.RegionOptStatusEnabling:
-		return fmt.Sprintf("The region %s is currently being enabled for your AWS account. Please wait a few minutes and try again.", region)
-	default:
-		// ENABLED or ENABLED_BY_DEFAULT - no warning needed
-		return ""
-	}
-}
-
 // HandleAwsProfiles returns a list of AWS profiles from the user's machine
 func HandleAwsProfiles() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -294,7 +276,7 @@ func HandleAwsProfiles() gin.HandlerFunc {
 				if section.HasKey("aws_access_key_id") && section.HasKey("aws_secret_access_key") {
 					profileInfoMap[name] = &ProfileInfo{
 						Name:     name,
-						AuthType: "static",
+						AuthType: AuthTypeStatic,
 					}
 				}
 			}
@@ -324,7 +306,7 @@ func HandleAwsProfiles() gin.HandlerFunc {
 				authType := determineProfileAuthType(section)
 
 				// If profile already exists from credentials file with static creds, keep that
-				if existing, ok := profileInfoMap[name]; ok && existing.AuthType == "static" {
+				if existing, ok := profileInfoMap[name]; ok && existing.AuthType == AuthTypeStatic {
 					continue
 				}
 
@@ -346,40 +328,6 @@ func HandleAwsProfiles() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{"profiles": profiles})
 	}
-}
-
-// determineProfileAuthType checks the section keys to determine the auth type
-func determineProfileAuthType(section *ini.Section) string {
-	// Check for SSO configuration
-	if section.HasKey("sso_start_url") || section.HasKey("sso_session") {
-		return "sso"
-	}
-
-	// Check for assume role configuration
-	if section.HasKey("role_arn") {
-		// Assume role requires a source - could be source_profile or credential_source
-		if section.HasKey("source_profile") || section.HasKey("credential_source") {
-			return "assume_role"
-		}
-		// role_arn without source might be web identity or other
-		if section.HasKey("web_identity_token_file") {
-			return "unsupported" // Web identity not supported
-		}
-		return "unsupported"
-	}
-
-	// Check for static credentials in config file
-	if section.HasKey("aws_access_key_id") && section.HasKey("aws_secret_access_key") {
-		return "static"
-	}
-
-	// Check for credential process (not supported)
-	if section.HasKey("credential_process") {
-		return "unsupported"
-	}
-
-	// Unknown/default - might be inheriting from default or environment
-	return "unsupported"
 }
 
 // HandleAwsProfileAuth authenticates using a local AWS profile
@@ -530,10 +478,10 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SSOPollRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, SSOPollResponse{
-				Status: "failed",
-				Error:  "Invalid request format",
-			})
+		c.JSON(http.StatusBadRequest, SSOPollResponse{
+			Status: SSOPollStatusFailed,
+			Error:  "Invalid request format",
+		})
 			return
 		}
 
@@ -544,64 +492,30 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 		if err != nil {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  fmt.Sprintf("Failed to create AWS config: %v", err),
-			})
+		c.JSON(http.StatusOK, SSOPollResponse{
+			Status: SSOPollStatusFailed,
+			Error:  fmt.Sprintf("Failed to create AWS config: %v", err),
+		})
 			return
 		}
 
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
-	// Try to create token
-	tokenResult, err := oidcClient.CreateToken(ctx, &ssooidc.CreateTokenInput{
-		ClientId:     aws.String(req.ClientID),
-		ClientSecret: aws.String(req.ClientSecret),
-		DeviceCode:   aws.String(req.DeviceCode),
-		GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
-	})
-	if err != nil {
-		errStr := err.Error()
-		// Check if authorization is still pending
-		if strings.Contains(errStr, "AuthorizationPendingException") ||
-			strings.Contains(errStr, "authorization_pending") {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "pending",
-			})
-			return
-		}
-		// Check for slow down request
-		if strings.Contains(errStr, "SlowDownException") ||
-			strings.Contains(errStr, "slow_down") {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "pending",
-			})
-			return
-		}
-		// Check if user denied/cancelled the authorization
-		if strings.Contains(errStr, "AccessDeniedException") ||
-			strings.Contains(errStr, "access_denied") {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  "Authorization was denied or cancelled",
-			})
-			return
-		}
-		// Check if the device code expired
-		if strings.Contains(errStr, "ExpiredTokenException") ||
-			strings.Contains(errStr, "expired_token") {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  "Authorization request expired. Please try again.",
-			})
-			return
-		}
-		c.JSON(http.StatusOK, SSOPollResponse{
-			Status: "failed",
-			Error:  fmt.Sprintf("SSO authentication failed: %v", err),
+		// Try to create token
+		tokenResult, err := oidcClient.CreateToken(ctx, &ssooidc.CreateTokenInput{
+			ClientId:     aws.String(req.ClientID),
+			ClientSecret: aws.String(req.ClientSecret),
+			DeviceCode:   aws.String(req.DeviceCode),
+			GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
 		})
-		return
-	}
+		if err != nil {
+			status, message := classifySSOTokenError(err)
+		c.JSON(http.StatusOK, SSOPollResponse{
+			Status: SSOPollStatus(status),
+			Error:  message,
+			})
+			return
+		}
 
 		// Got the access token, now we need to get role credentials
 		accessToken := aws.ToString(tokenResult.AccessToken)
@@ -615,7 +529,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 			})
 			if err != nil {
 				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: "failed",
+					Status: SSOPollStatusFailed,
 					Error:  fmt.Sprintf("Failed to list SSO accounts: %v", err),
 				})
 				return
@@ -623,7 +537,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 
 			if len(accountsResult.AccountList) == 0 {
 				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: "failed",
+					Status: SSOPollStatusFailed,
 					Error:  "No accounts available in SSO",
 				})
 				return
@@ -638,7 +552,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 				})
 				if err != nil || len(rolesResult.RoleList) == 0 {
 					c.JSON(http.StatusOK, SSOPollResponse{
-						Status: "failed",
+						Status: SSOPollStatusFailed,
 						Error:  "No roles available for the account",
 					})
 					return
@@ -650,35 +564,19 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 					req.RoleName = aws.ToString(rolesResult.RoleList[0].RoleName)
 				} else {
 					// One account, multiple roles - need selection
-					accounts := make([]SSOAccount, len(accountsResult.AccountList))
-					for i, acc := range accountsResult.AccountList {
-						accounts[i] = SSOAccount{
-							AccountID:    aws.ToString(acc.AccountId),
-							AccountName:  aws.ToString(acc.AccountName),
-							EmailAddress: aws.ToString(acc.EmailAddress),
-						}
-					}
 					c.JSON(http.StatusOK, SSOPollResponse{
-						Status:      "select_account",
+						Status:      SSOPollStatusSelectAccount,
 						AccessToken: accessToken,
-						Accounts:    accounts,
+						Accounts:    convertToSSOAccounts(accountsResult.AccountList),
 					})
 					return
 				}
 			} else {
 				// Multiple accounts - return list for user selection
-				accounts := make([]SSOAccount, len(accountsResult.AccountList))
-				for i, acc := range accountsResult.AccountList {
-					accounts[i] = SSOAccount{
-						AccountID:    aws.ToString(acc.AccountId),
-						AccountName:  aws.ToString(acc.AccountName),
-						EmailAddress: aws.ToString(acc.EmailAddress),
-					}
-				}
 				c.JSON(http.StatusOK, SSOPollResponse{
-					Status:      "select_account",
+					Status:      SSOPollStatusSelectAccount,
 					AccessToken: accessToken,
-					Accounts:    accounts,
+					Accounts:    convertToSSOAccounts(accountsResult.AccountList),
 				})
 				return
 			}
@@ -692,10 +590,10 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 			RoleName:    aws.String(req.RoleName),
 		})
 		if err != nil {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  fmt.Sprintf("Failed to get role credentials: %v", err),
-			})
+		c.JSON(http.StatusOK, SSOPollResponse{
+			Status: SSOPollStatusFailed,
+			Error:  fmt.Sprintf("Failed to get role credentials: %v", err),
+		})
 			return
 		}
 
@@ -706,15 +604,15 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 
 		_, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, region)
 		if err != nil {
-			c.JSON(http.StatusOK, SSOPollResponse{
-				Status: "failed",
-				Error:  fmt.Sprintf("Failed to validate SSO credentials: %v", err),
-			})
+		c.JSON(http.StatusOK, SSOPollResponse{
+			Status: SSOPollStatusFailed,
+			Error:  fmt.Sprintf("Failed to validate SSO credentials: %v", err),
+		})
 			return
 		}
 
 		c.JSON(http.StatusOK, SSOPollResponse{
-			Status:          "success",
+			Status:          SSOPollStatusSuccess,
 			AccessKeyID:     accessKeyID,
 			SecretAccessKey: secretAccessKey,
 			SessionToken:    sessionToken,
@@ -848,22 +746,6 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 	}
 }
 
-// CheckRegionRequest represents a request to check if a region is enabled
-type CheckRegionRequest struct {
-	AccessKeyID     string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-	SessionToken    string `json:"sessionToken,omitempty"`
-	Region          string `json:"region"`
-}
-
-// CheckRegionResponse represents the response from region check
-type CheckRegionResponse struct {
-	Enabled bool   `json:"enabled"`
-	Status  string `json:"status,omitempty"`
-	Warning string `json:"warning,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
 // HandleAwsCheckRegion checks if a region is enabled for the account
 func HandleAwsCheckRegion() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -953,4 +835,157 @@ func HandleAwsCheckRegion() gin.HandlerFunc {
 	}
 }
 
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
+// defaultRegion returns the provided region, or "us-east-1" if empty.
+func defaultRegion(region string) string {
+	if region == "" {
+		return "us-east-1"
+	}
+	return region
+}
+
+// getCallerIdentity calls STS GetCallerIdentity using the provided config.
+func getCallerIdentity(ctx context.Context, cfg aws.Config) (*callerIdentity, error) {
+	stsClient := sts.NewFromConfig(cfg)
+	result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, err
+	}
+	return &callerIdentity{
+		AccountID: aws.ToString(result.Account),
+		Arn:       aws.ToString(result.Arn),
+	}, nil
+}
+
+// validateStaticCredentials creates an AWS config with static credentials and validates them via STS.
+// Returns the config (for further use) and the caller identity.
+func validateStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, sessionToken, region string) (aws.Config, *callerIdentity, error) {
+	creds := credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, sessionToken)
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(creds),
+	)
+	if err != nil {
+		return aws.Config{}, nil, fmt.Errorf("failed to create AWS config: %w", err)
+	}
+
+	identity, err := getCallerIdentity(ctx, cfg)
+	if err != nil {
+		return aws.Config{}, nil, err
+	}
+
+	return cfg, identity, nil
+}
+
+// classifySSOTokenError examines an SSO token creation error and returns
+// the appropriate status and error message.
+func classifySSOTokenError(err error) (ssoTokenStatus, string) {
+	errStr := err.Error()
+
+	// Authorization still pending - user hasn't completed browser flow yet
+	if strings.Contains(errStr, "AuthorizationPendingException") ||
+		strings.Contains(errStr, "authorization_pending") {
+		return ssoTokenPending, ""
+	}
+
+	// Slow down request - treat as pending
+	if strings.Contains(errStr, "SlowDownException") ||
+		strings.Contains(errStr, "slow_down") {
+		return ssoTokenPending, ""
+	}
+
+	// User denied/cancelled the authorization
+	if strings.Contains(errStr, "AccessDeniedException") ||
+		strings.Contains(errStr, "access_denied") {
+		return ssoTokenFailed, "Authorization was denied or cancelled"
+	}
+
+	// Device code expired
+	if strings.Contains(errStr, "ExpiredTokenException") ||
+		strings.Contains(errStr, "expired_token") {
+		return ssoTokenFailed, "Authorization request expired. Please try again."
+	}
+
+	// Unknown error
+	return ssoTokenFailed, fmt.Sprintf("SSO authentication failed: %v", err)
+}
+
+// convertToSSOAccounts converts AWS SDK account info to our SSOAccount type.
+func convertToSSOAccounts(accounts []sso_types.AccountInfo) []SSOAccount {
+	result := make([]SSOAccount, len(accounts))
+	for i, acc := range accounts {
+		result[i] = SSOAccount{
+			AccountID:    aws.ToString(acc.AccountId),
+			AccountName:  aws.ToString(acc.AccountName),
+			EmailAddress: aws.ToString(acc.EmailAddress),
+		}
+	}
+	return result
+}
+
+// checkRegionOptInStatus checks if a region requires opt-in and whether it's enabled.
+// Returns a warning message if the region is not enabled, empty string otherwise.
+func checkRegionOptInStatus(ctx context.Context, cfg aws.Config, region string) string {
+	// The Account API must be called from us-east-1
+	accountCfg := cfg.Copy()
+	accountCfg.Region = "us-east-1"
+
+	accountClient := account.NewFromConfig(accountCfg)
+	result, err := accountClient.GetRegionOptStatus(ctx, &account.GetRegionOptStatusInput{
+		RegionName: aws.String(region),
+	})
+	if err != nil {
+		// If we can't check (e.g., insufficient permissions), don't warn
+		// The user will see the actual error when they try to use the region
+		return ""
+	}
+
+	switch result.RegionOptStatus {
+	case types.RegionOptStatusDisabled:
+		return fmt.Sprintf("The region %s is not enabled for your AWS account. Enable it in the AWS Console under Account Settings > AWS Regions, or choose a different default region.", region)
+	case types.RegionOptStatusDisabling:
+		return fmt.Sprintf("The region %s is currently being disabled for your AWS account.", region)
+	case types.RegionOptStatusEnabling:
+		return fmt.Sprintf("The region %s is currently being enabled for your AWS account. Please wait a few minutes and try again.", region)
+	default:
+		// ENABLED or ENABLED_BY_DEFAULT - no warning needed
+		return ""
+	}
+}
+
+// determineProfileAuthType checks the section keys to determine the auth type
+func determineProfileAuthType(section *ini.Section) AuthType {
+	// Check for SSO configuration
+	if section.HasKey("sso_start_url") || section.HasKey("sso_session") {
+		return AuthTypeSSO
+	}
+
+	// Check for assume role configuration
+	if section.HasKey("role_arn") {
+		// Assume role requires a source - could be source_profile or credential_source
+		if section.HasKey("source_profile") || section.HasKey("credential_source") {
+			return AuthTypeAssumeRole
+		}
+		// role_arn without source might be web identity or other
+		if section.HasKey("web_identity_token_file") {
+			return AuthTypeUnsupported // Web identity not supported
+		}
+		return AuthTypeUnsupported
+	}
+
+	// Check for static credentials in config file
+	if section.HasKey("aws_access_key_id") && section.HasKey("aws_secret_access_key") {
+		return AuthTypeStatic
+	}
+
+	// Check for credential process (not supported)
+	if section.HasKey("credential_process") {
+		return AuthTypeUnsupported
+	}
+
+	// Unknown/default - might be inheriting from default or environment
+	return AuthTypeUnsupported
+}
