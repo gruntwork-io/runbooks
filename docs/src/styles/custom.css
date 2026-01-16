@@ -217,16 +217,33 @@ header.header {
    TABLES
    ============================================ */
 
+/* Table wrapper for horizontal scrolling on mobile */
+.sl-markdown-content {
+  /* Allow tables to overflow and scroll horizontally */
+}
+
 .sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   width: fit-content;
   max-width: 100%;
   border-radius: 0.5rem;
-  overflow: hidden;
   border: 1px solid var(--sl-color-gray-6);
+  white-space: nowrap;
 }
 
 .sl-markdown-content thead {
+  display: table-header-group;
   background-color: var(--sl-color-gray-7);
+}
+
+.sl-markdown-content tbody {
+  display: table-row-group;
+}
+
+.sl-markdown-content tr {
+  display: table-row;
 }
 
 .sl-markdown-content tbody tr {
@@ -239,19 +256,15 @@ header.header {
 
 .sl-markdown-content th,
 .sl-markdown-content td {
+  display: table-cell;
   padding: 0.75rem 1rem;
   text-align: left;
+  white-space: nowrap;
 }
 
 .sl-markdown-content th {
   font-weight: 600;
   color: var(--sl-color-white);
-}
-
-/* Prevent text wrapping in first column */
-.sl-markdown-content td:first-child,
-.sl-markdown-content th:first-child {
-  white-space: nowrap;
 }
 
 /* Better table borders in dark mode */
