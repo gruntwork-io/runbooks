@@ -221,7 +221,7 @@ func HandleAwsValidate() gin.HandlerFunc {
 		}
 
 		if req.AccessKeyID == "" || req.SecretAccessKey == "" {
-			c.JSON(http.StatusBadRequest, ValidateCredentialsResponse{
+			c.JSON(http.StatusOK, ValidateCredentialsResponse{
 				Valid: false,
 				Error: "Access Key ID and Secret Access Key are required",
 			})
