@@ -26,18 +26,18 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 ### Required Props
 
 - `id` (string) - Unique identifier for this check block
-- `title` (string) - Display title shown in the UI
+- `title` (string) - Display title shown in the UI. Supports inline markdown (bold, italic, links, code).
 
 ### Optional Props
-- `description` (string) - Longer description of what's being checked
+- `description` (string) - Longer description of what's being checked. Supports inline markdown.
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
 - `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`).
-- `successMessage` (string) - Message shown when check succeeds (default: "Success")
-- `warnMessage` (string) - Message shown on warning (default: "Warning")
-- `failMessage` (string) - Message shown when check fails (default: "Failed")
-- `runningMessage` (string) - Message shown while running (default: "Checking...")
+- `successMessage` (string) - Message shown when check succeeds (default: "Success"). Supports inline markdown.
+- `warnMessage` (string) - Message shown on warning (default: "Warning"). Supports inline markdown.
+- `failMessage` (string) - Message shown when check fails (default: "Failed"). Supports inline markdown.
+- `runningMessage` (string) - Message shown while running (default: "Checking..."). Supports inline markdown.
 
 ### Inline content
 

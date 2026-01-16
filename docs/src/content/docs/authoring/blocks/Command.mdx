@@ -30,15 +30,15 @@ Command blocks and [Check](/authoring/blocks/check/) blocks share many features 
 
 ### Optional Props
 
-- `title` (string) - Display title shown in the UI
-- `description` (string) - Longer description of what the command does
+- `title` (string) - Display title shown in the UI. Supports inline markdown (bold, italic, links, code).
+- `description` (string) - Longer description of what the command does. Supports inline markdown.
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
 - `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`).
-- `successMessage` (string) - Message shown when command succeeds (default: "Success")
-- `failMessage` (string) - Message shown when command fails (default: "Failed")
-- `runningMessage` (string) - Message shown while running (default: "Running...")
+- `successMessage` (string) - Message shown when command succeeds (default: "Success"). Supports inline markdown.
+- `failMessage` (string) - Message shown when command fails (default: "Failed"). Supports inline markdown.
+- `runningMessage` (string) - Message shown while running (default: "Running..."). Supports inline markdown.
 
 ### Inline content
 

@@ -4,7 +4,7 @@ title: <AwsAuth>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<AwsAuth>` block provides a unified interface for authenticating to AWS. It supports three authentication methods: static credentials, AWS SSO (IAM Identity Center), and local AWS profiles. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+The `<AwsAuth>` block provides a streamlined interface for authenticating to AWS. It supports three authentication methods: static credentials, AWS SSO (IAM Identity Center), and local AWS profiles. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
 
 ## Basic Usage
 
@@ -21,29 +21,34 @@ The `<AwsAuth>` block provides a unified interface for authenticating to AWS. It
 
 The AwsAuth block provides three ways to authenticate:
 
-| Method | Description | Best For |
-|--------|-------------|----------|
-| **Static Credentials** | Enter Access Key ID and Secret Access Key directly | Quick testing, service accounts |
-| **AWS SSO** | Use AWS IAM Identity Center (formerly AWS SSO) | Organizations with SSO configured |
-| **Local Profile** | Use a profile from `~/.aws/credentials` | Development, existing AWS CLI users |
+| Method | Description | 
+|--------|-------------|
+| **Static Credentials** | Enter Access Key ID and Secret Access Key directly |
+| **AWS SSO** | Use AWS IAM Identity Center (formerly AWS SSO) | 
+| **Local Profile** | Use a profile from `~/.aws/credentials` | 
 
 ## Props
 
 ### Required Props
 
-- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `awsAuthId` to access the authenticated credentials.
+- `id` (string) - Unique identifier for this component. See [Using With Commands And Checks](#using-with-commands-and-checks) for how this prop is used.
 
 ### Optional Props
 
-- `title` (string) - Display title shown in the UI (default: "AWS Authentication")
-- `description` (string) - Longer description of the authentication purpose
+- `title` (string) - Display title shown in the UI (default: "AWS Authentication"). Supports inline markdown (bold, italic, links, code).
+- `description` (string) - Longer description of the authentication purpose. Supports inline markdown.
 - `defaultRegion` (string) - Default AWS region for CLI commands (default: "us-east-1"). Sets `AWS_REGION` environment variable.
 
 ### SSO-Specific Props
 
 These props configure AWS SSO (IAM Identity Center) authentication:
 
+#### Required
+
 - `ssoStartUrl` (string) - Your organization's AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`)
+
+#### Optional
+
 - `ssoRegion` (string) - The AWS region where your IAM Identity Center is configured (default: "us-east-1")
 - `ssoAccountId` (string) - Pre-select a specific AWS account after SSO authentication
 - `ssoRoleName` (string) - Pre-select a specific IAM role to assume
@@ -63,9 +68,11 @@ These variables are set in the session environment, so all subsequent blocks hav
 
 ## Using with Commands and Checks
 
-Command and Check blocks will use the most recently authenticated AWS account by pulling in the above environment variables.
+When you authenticate to AWS using the AwsAuth block, the [environment variables above](#environment-variables) are automatically made available to all subsequent Command and Check blocks. This means that Command and Check blocks will use the most recently authenticated AwsAuth block (if any) to get AWS authentication credentials.
 
-If you wish to assign specific AWS account authentications to specific blocks, you can reference the AwsAuth block from Command or Check blocks using the `awsAuthId` prop:
+Any subsequent AWS authentication will update the environment variables and then become the default AWS authentication credentials.
+
+However, in some cases, you may want to use a specific AWS authentication with a block, not just the most recent AWS authentication. To do that, you can reference a specific AwsAuth block from Command or Check blocks using the `awsAuthId` prop. For example:
 
 ```mdx
 <AwsAuth
@@ -163,55 +170,6 @@ The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/
 SSO profiles configured in `~/.aws/config` are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
 </Aside>
 
-## Security Considerations
+## Detailed Example
 
-- **Static Credentials**: Avoid long-term credentials when possible. Consider using SSO or IAM roles for better security.
-- **AWS SSO**: The recommended option for organizations. Credentials are temporary and automatically expire.
-- **Local Profiles**: Suitable for development. Ensure credential files have appropriate permissions (`chmod 600`).
-
-<Aside type="tip">
-Credentials entered in the AwsAuth block are never stored persistently. They exist only in memory for the duration of the runbook session.
-</Aside>
-
-## Complete Example
-
-Here's a complete runbook that uses AwsAuth to perform AWS operations:
-
-```mdx
-# Deploy to AWS
-
-This runbook deploys an application to AWS ECS.
-
-## Step 1: Authenticate
-
-<AwsAuth
-  id="aws-auth"
-  title="Authenticate to AWS"
-  description="Sign in to your AWS account to continue"
-  ssoStartUrl="https://my-company.awsapps.com/start"
-  ssoRegion="us-east-1"
-  defaultRegion="us-west-2"
-/>
-
-## Step 2: Verify Access
-
-<Check
-  id="verify-access"
-  title="Verify AWS Access"
-  command="aws sts get-caller-identity"
-  awsAuthId="aws-auth"
-  successMessage="Authenticated successfully!"
-  failMessage="Authentication failed. Please try again."
-/>
-
-## Step 3: Deploy
-
-<Command
-  id="deploy"
-  title="Deploy to ECS"
-  path="scripts/deploy-ecs.sh"
-  awsAuthId="aws-auth"
-  successMessage="Deployment complete!"
-  failMessage="Deployment failed. Check the logs for details."
-/>
-```
+See the [demo-runbook-aws-auth runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-aws-auth) for a good walkthrough of the AwsAuth block.

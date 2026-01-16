@@ -22,8 +22,8 @@ The `<Admonition>` block creates callout boxes to highlight important informatio
 
 ### Optional Props
 
-- `title` (string) - Title for the callout box (defaults based on type)
-- `description` (string) - Content/message to display
+- `title` (string) - Title for the callout box (defaults based on type). Supports inline markdown (bold, italic, links, code).
+- `description` (string) - Content/message to display. Supports inline markdown.
 - `closable` (boolean) - Whether users can close the admonition (default: false)
 - `confirmationText` (string) - If provided, shows a checkbox that users must check to dismiss
 - `allowPermanentHide` (boolean) - When true with confirmationText, adds "Don't show again" option
