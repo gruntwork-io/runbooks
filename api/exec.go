@@ -81,8 +81,9 @@ type captureFilesConfig struct {
 // Main Handler
 // =============================================================================
 
-// HandleExecRequest handles the execution of scripts and streams output via SSE
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
+// HandleExecRequest handles the execution of scripts and streams output via SSE.
+// This handler must be used with SessionAuthMiddleware to ensure session context is available.
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -90,10 +91,11 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
-		// Validate session token if Authorization header is provided
-		execCtx, errMsg := ValidateOptionalSession(c, sessionManager)
-		if errMsg != "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errMsg})
+		// Get session context (set by SessionAuthMiddleware)
+		execCtx := GetSessionExecContext(c)
+		if execCtx == nil {
+			// This shouldn't happen if middleware is configured correctly
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session context not found. This is a server configuration error."})
 			return
 		}
 
@@ -334,19 +336,14 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	cmdArgs := append(cfg.args, cfg.scriptPath)
 	cmd := exec.CommandContext(ctx, cfg.interpreter, cmdArgs...)
 
-	// Set environment variables
-	// If we have a session, use the session's environment; otherwise use the process environment
-	if cfg.execCtx != nil {
-		cmd.Env = cfg.execCtx.Env
-	} else {
-		cmd.Env = os.Environ()
-	}
+	// Set environment variables from the session
+	cmd.Env = cfg.execCtx.Env
 
 	// Add RUNBOOK_OUTPUT environment variable for block outputs
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
 
-	// Set working directory from session if available
-	if cfg.execCtx != nil && cfg.execCtx.WorkDir != "" {
+	// Set working directory from session
+	if cfg.execCtx.WorkDir != "" {
 		cmd.Dir = cfg.execCtx.WorkDir
 	}
 
