@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
-import { useSession } from '@/contexts/useSession'
 
 // Zod schemas for SSE events
 const ExecLogEventSchema = z.object({
@@ -31,11 +30,16 @@ const ExecErrorEventSchema = z.object({
   details: z.string().optional(),
 })
 
+const BlockOutputsEventSchema = z.object({
+  outputs: z.record(z.string(), z.string()),
+})
+
 // Inferred types from Zod schemas
 export type ExecLogEvent = z.infer<typeof ExecLogEventSchema>
 export type ExecStatusEvent = z.infer<typeof ExecStatusEventSchema>
 export type CapturedFile = z.infer<typeof CapturedFileSchema>
 export type FilesCapturedEvent = z.infer<typeof FilesCapturedEventSchema>
+export type BlockOutputsEvent = z.infer<typeof BlockOutputsEventSchema>
 
 /** A single log entry with its timestamp */
 export interface LogEntry {
@@ -56,17 +60,25 @@ export interface ExecState {
   status: 'pending' | 'running' | 'success' | 'warn' | 'fail'
   exitCode: number | null
   error: AppError | null
+  outputs: Record<string, string> | null
+}
+
+export interface CaptureFilesOptions {
+  captureFiles?: boolean
+  captureFilesOutputPath?: string
 }
 
 export interface UseApiExecOptions {
   /** Callback invoked when files are captured from a command execution */
   onFilesCaptured?: (event: FilesCapturedEvent) => void
+  /** Callback invoked when block outputs are captured from script execution */
+  onOutputsCaptured?: (outputs: Record<string, string>) => void
 }
 
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, string>, envVars?: Record<string, string>) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, string>, envVars?: Record<string, string>) => void
+  execute: (executableId: string, variables?: Record<string, unknown>, captureOptions?: CaptureFilesOptions) => void
+  executeByComponentId: (componentId: string, variables?: Record<string, unknown>, captureOptions?: CaptureFilesOptions) => void
   cancel: () => void
   reset: () => void
 }
@@ -74,20 +86,15 @@ export interface UseApiExecReturn {
 /**
  * Hook to execute scripts via the /api/exec endpoint with SSE streaming
  * Uses executable IDs from the executable registry instead of raw script content
- * 
- * Integrates with SessionContext for persistent environment support:
- * - Sends Authorization header for session validation
- * - Environment changes made by scripts persist to subsequent executions
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
-  const { onFilesCaptured } = options || {}
-  const { getAuthHeader } = useSession()
-  
+  const { onFilesCaptured, onOutputsCaptured } = options || {}
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
     exitCode: null,
     error: null,
+    outputs: null,
   })
 
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -126,6 +133,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       status: 'pending',
       exitCode: null,
       error: null,
+      outputs: null,
     })
   }, [cancel])
 
@@ -212,6 +220,22 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
                 ),
               }))
             }
+          } else if (eventType === 'outputs') {
+            // Block outputs were captured from script execution
+            const parsed = BlockOutputsEventSchema.safeParse(data)
+            if (parsed.success) {
+              // Store outputs in state
+              setState((prev) => ({
+                ...prev,
+                outputs: parsed.data.outputs,
+              }))
+              // Invoke callback if provided
+              if (onOutputsCaptured) {
+                onOutputsCaptured(parsed.data.outputs)
+              }
+            } else {
+              console.error('Invalid outputs event:', parsed.error)
+            }
           } else if (eventType === 'files_captured') {
             // Files were captured from script execution
             const parsed = FilesCapturedEventSchema.safeParse(data)
@@ -261,15 +285,16 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         }
       }
     }
-  }, [onFilesCaptured])
+  }, [onFilesCaptured, onOutputsCaptured])
 
   // Shared execution logic for both registry and live-reload modes
   const executeScript = useCallback(async (
     payload: { 
       executable_id?: string; 
       component_id?: string; 
-      template_var_values: Record<string, string>;
-      env_vars?: Record<string, string>;
+      template_var_values: Record<string, unknown>;
+      capture_files?: boolean;
+      capture_files_output_path?: string;
     }
   ) => {
     // Cancel any existing execution
@@ -281,6 +306,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       status: 'running',
       exitCode: null,
       error: null,
+      outputs: null,
     })
 
     try {
@@ -288,12 +314,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
-      // Send POST request to /api/exec with session auth header
+      // Send POST request to /api/exec
       const response = await fetch('/api/exec', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeader(),
         },
         body: JSON.stringify(payload),
         signal: abortController.signal,
@@ -337,15 +362,16 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     } finally {
       abortControllerRef.current = null
     }
-  }, [cancel, processSSEStream, getAuthHeader])
+  }, [cancel, processSSEStream])
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, string> = {}, envVars: Record<string, string> = {}) => {
+    (executableId: string, templateVarValues: Record<string, unknown> = {}, captureOptions?: CaptureFilesOptions) => {
       executeScript({ 
         executable_id: executableId, 
         template_var_values: templateVarValues,
-        env_vars: envVars,
+        capture_files: captureOptions?.captureFiles,
+        capture_files_output_path: captureOptions?.captureFilesOutputPath,
       })
     },
     [executeScript]
@@ -358,11 +384,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, string> = {}, envVars: Record<string, string> = {}) => {
+    (componentId: string, templateVarValues: Record<string, unknown> = {}, captureOptions?: CaptureFilesOptions) => {
       executeScript({ 
         component_id: componentId, 
         template_var_values: templateVarValues,
-        env_vars: envVars,
+        capture_files: captureOptions?.captureFiles,
+        capture_files_output_path: captureOptions?.captureFilesOutputPath,
       })
     },
     [executeScript]

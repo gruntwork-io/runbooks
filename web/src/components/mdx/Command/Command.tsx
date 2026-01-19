@@ -4,7 +4,7 @@ import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } fr
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
 import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
@@ -57,6 +57,8 @@ function Command({
     requiredVariables,
     hasAllRequiredVariables,
     inlineInputsId,
+    unmetDependencies,
+    hasAllOutputDependencies,
     isRendering,
     renderError,
     status: commandStatus,
@@ -64,6 +66,7 @@ function Command({
     execError,
     execute: handleExecute,
     cancel,
+    outputs,
     hasScriptDrift,
   } = useScriptExecution({
     componentId: id,
@@ -267,7 +270,8 @@ function Command({
     skipCommand || 
     commandStatus === 'running' || 
     isRendering ||
-    (requiredVariables.length > 0 && !hasAllRequiredVariables);
+    (requiredVariables.length > 0 && !hasAllRequiredVariables) ||
+    !hasAllOutputDependencies;
 
   // Main render
   return (
@@ -415,6 +419,26 @@ function Command({
             </div>
           )}
           
+          {/* Show unmet output dependencies */}
+          {!hasAllOutputDependencies && hasAllRequiredVariables && (
+            <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
+              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Waiting for outputs from:</strong>{' '}
+                {unmetDependencies.map((dep, i) => (
+                  <span key={dep.blockId}>
+                    {i > 0 && ', '}
+                    <code className="bg-yellow-100 px-1 rounded text-xs">{dep.blockId}</code>
+                    {' '}({dep.outputNames.join(', ')})
+                  </span>
+                ))}
+                <div className="text-xs mt-1 text-yellow-600">
+                  Run the above block(s) first to produce the required outputs.
+                </div>
+              </div>
+            </div>
+          )}
+          
           {renderError && (
             <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
@@ -468,6 +492,10 @@ function Command({
             status={commandStatus}
             autoOpen={commandStatus === 'running'}
             blockId={id}
+          />
+          <ViewOutputs 
+            outputs={outputs}
+            autoOpen={outputs !== null && Object.keys(outputs).length > 0}
           />
           {/* Only show ViewSourceCode if path is used */}
           {path && (

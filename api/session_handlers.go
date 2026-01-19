@@ -151,3 +151,21 @@ func extractBearerToken(c *gin.Context) string {
 
 	return parts[1]
 }
+
+// ValidateOptionalSession validates the session token if provided.
+// Use this for handlers where authentication is optional.
+// Returns:
+//   - (ctx, "") if token is valid
+//   - (nil, "") if no token provided (proceed without session)
+//   - (nil, errorMsg) if token is invalid (caller should return 401)
+func ValidateOptionalSession(c *gin.Context, sm *SessionManager) (*SessionExecContext, string) {
+	token := extractBearerToken(c)
+	if token == "" {
+		return nil, ""
+	}
+	execCtx, valid := sm.ValidateToken(token)
+	if !valid {
+		return nil, "Invalid or expired session token. Try refreshing the page or restarting Runbooks."
+	}
+	return execCtx, ""
+}

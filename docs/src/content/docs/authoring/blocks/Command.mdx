@@ -411,6 +411,76 @@ Files are only captured after **successful** execution (exit code 0 or 2). If yo
 If multiple commands run concurrently and write files with the same name, the last command to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
 </Aside>
 
+## Block Outputs
+
+Commands can produce **outputs** that downstream blocks can consume. This enables multi-step workflows where each step builds on the previous one.
+
+### Producing Outputs
+
+Scripts write outputs to a file specified by the `$RUNBOOK_OUTPUT` environment variable. Each output is a `key=value` pair on its own line:
+
+```bash
+#!/bin/bash
+# Create an AWS account and output the ID
+ACCOUNT_ID=$(aws organizations create-account ...)
+
+# Write outputs for downstream blocks
+echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+echo "region=us-west-2" >> "$RUNBOOK_OUTPUT"
+```
+
+### Consuming Outputs
+
+Reference outputs from other blocks using the `_blocks` namespace in templates:
+
+```bash
+# Use the account ID from the create-account block
+aws iam create-role --account-id {{ ._blocks.create-account.outputs.account_id }}
+```
+
+The full syntax is: `{{ ._blocks.<block-id>.outputs.<output-name> }}`
+
+### Dependency Behavior
+
+If a block references outputs from another block that hasn't run yet:
+
+- The **Run button is disabled** until the upstream block executes
+- A **warning message** shows which blocks need to run first
+- The template shows the raw syntax until outputs are available
+
+### Viewing Outputs
+
+After a block runs, you can view its outputs by clicking **"View Outputs"** below the log viewer. Outputs are displayed in a table and can be copied as JSON.
+
+### Example Workflow
+
+```mdx
+{/* Step 1: Create account, produces account_id and region */}
+<Command 
+  id="create-account" 
+  path="scripts/create-account.sh"
+  title="Create AWS Account"
+/>
+
+{/* Step 2: Uses outputs from Step 1, produces role_arn */}
+<Command 
+  id="create-resources" 
+  path="scripts/create-resources.sh"
+  title="Create Resources"
+/>
+
+{/* Step 3: Uses outputs from both Step 1 and Step 2 */}
+<Check 
+  id="verify-setup" 
+  path="scripts/verify-setup.sh"
+  title="Verify Setup"
+/>
+```
+
+<Aside type="note">
+Block outputs are stored in browser memory and cleared on page refresh. They persist across hot reloads during development.
+</Aside>
+
 ## Common Use Cases
 
 The `<Command>` block works especially well for mutating the world to a desired state. This could be either the user's local environment, the company's world, or the external world.

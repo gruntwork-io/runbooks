@@ -1,5 +1,5 @@
 /**
- * @deprecated This function is no longer used. Command/Check now use useInputValues from BlockVariablesContext.
+ * @deprecated This function is no longer used. Command/Check now use useInputValues from BlockStateContext.
  * TODO: Remove this file and its tests when cleaning up legacy code.
  * 
  * Merges variables from multiple Inputs components.

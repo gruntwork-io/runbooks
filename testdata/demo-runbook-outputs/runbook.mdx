@@ -1,0 +1,95 @@
+# Block Outputs Demo
+
+This runbook demonstrates how blocks can produce outputs that downstream blocks consume.
+
+## How It Works
+
+### Block Outputs
+
+1. Scripts write outputs to the `$RUNBOOK_OUTPUT` environment variable file
+2. The format is `key=value`, one per line
+3. Downstream blocks access outputs via `{{ ._blocks.block_id.outputs.outputName }}`
+
+**Note:** Block IDs with hyphens are converted to underscores in template syntax (Go templates don't support hyphens in dot notation). For example, a block with `id="create-account"` is accessed as `{{ ._blocks.create_account.outputs.x }}`.
+
+### Standard Inputs vs Block Outputs
+
+This runbook demonstrates both syntaxes:
+
+- **Standard inputs** (from `<Inputs>` blocks): `{{ .variableName }}`
+- **Block outputs** (from previous Command/Check blocks): `{{ ._blocks.block_id.outputs.outputName }}`
+
+Both can be used together in the same script or template.
+
+## Step 1: Create Account
+
+This command simulates creating an AWS account and outputs the account ID.
+
+<Command 
+  id="create-account" 
+  path="scripts/create-account.sh"
+  title="Create AWS Account"
+  description="Creates a new AWS account and outputs the account ID and region"
+/>
+
+## Step 2: Create Resources
+
+This command uses the account ID from Step 1 to create resources.
+
+**Note**: You must run Step 1 first to produce the required outputs.
+
+<Command 
+  id="create-resources" 
+  path="scripts/create-resources.sh"
+  title="Create Resources"
+  description="Creates IAM resources in the new account"
+/>
+
+## Step 3: Tag Resources (Mixed Syntax Example)
+
+This step demonstrates using **both** standard inputs and block outputs together in the same script.
+
+### Syntax Comparison
+
+| Source | Syntax | Example |
+|--------|--------|---------|
+| Inputs block | `{{ .VariableName }}` | `{{ .environment }}` |
+| Block outputs | `{{ ._blocks.block_id.outputs.key }}` | `{{ ._blocks.create_account.outputs.account_id }}` |
+
+<Inputs id="tagging-inputs">
+```yaml
+variables:
+  - name: environment
+    type: enum
+    description: The target environment for these resources
+    options:
+      - dev
+      - staging
+      - prod
+    default: dev
+  - name: owner
+    type: string
+    description: Team or individual responsible for these resources
+    validations: "required"
+```
+</Inputs>
+
+<Command 
+  id="tag-resources" 
+  path="scripts/tag-resources.sh"
+  inputsId="tagging-inputs"
+  title="Tag Resources"
+  description="Applies tags using inputs AND outputs from previous steps"
+/>
+
+## Step 4: Verify Setup
+
+This check validates that everything was set up correctly.
+
+<Check 
+  id="verify-setup" 
+  path="scripts/verify-setup.sh"
+  title="Verify Setup"
+  successMessage="All resources created and verified!"
+  failMessage="Verification failed - check the outputs above"
+/>
