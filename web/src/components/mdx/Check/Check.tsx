@@ -55,7 +55,7 @@ function Check({
     sourceCode,
     language,
     fileError: getFileError,
-    importedVarValues,
+    inputValues,
     requiredVariables,
     hasAllRequiredVariables,
     inlineInputsId,
@@ -403,7 +403,7 @@ function Check({
             <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
               <AlertTriangle className="size-4" />
               You can run the check once we have values for the following variables: {requiredVariables.filter(varName => {
-                const value = importedVarValues[varName];
+                const value = inputValues[varName];
                 return value === undefined || value === null || value === '';
               }).map(varName => formatVariableLabel(varName)).join(', ')}
             </div>
