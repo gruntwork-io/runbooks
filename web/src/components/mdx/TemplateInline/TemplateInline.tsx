@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
-import { useImportedVarValues, useGeneratedYaml } from '@/contexts/useBlockState'
+import { useInputs, inputsToValues } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
@@ -49,10 +49,9 @@ function TemplateInline({
   // Get file tree for merging
   const { setFileTree } = useFileTree();
   
-  // NEW: Use simplified hooks from BlockVariablesContext
-  // These automatically handle merging when inputsId is an array
-  const importedVarValues = useImportedVarValues(inputsId);
-  const boilerplateYaml = useGeneratedYaml(inputsId);
+  // Get inputs for API requests and derive values map for lookups
+  const inputs = useInputs(inputsId);
+  const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
   
   // Extract required variables from template content
   const requiredVariables = useMemo(() => {
@@ -64,15 +63,8 @@ function TemplateInline({
   // so we need to traverse it to extract the actual content. Returns a Record because
   // the Boilerplate API expects a files map (filename → content), even for a single file.
   const templateFiles = useMemo(() => {
-    const files = extractTemplateFiles(children, outputPath);
-    
-    // Include merged boilerplate.yml so backend knows variable types
-    if (boilerplateYaml && boilerplateYaml !== 'variables: []') {
-      files['boilerplate.yml'] = boilerplateYaml;
-    }
-    
-    return files;
-  }, [children, outputPath, boilerplateYaml]);
+    return extractTemplateFiles(children, outputPath);
+  }, [children, outputPath]);
   
   // Helper to check if all required variables are present
   const hasAllRequiredVariables = useCallback((vars: Record<string, unknown>): boolean => {
@@ -85,7 +77,7 @@ function TemplateInline({
   }, [requiredVariables]);
   
   // Core render function that calls the API
-  const renderTemplate = useCallback(async (vars: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
+  const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
     // Only show loading state for initial renders, not auto-updates
     if (!isAutoUpdate) {
       setIsRendering(true);
@@ -97,8 +89,9 @@ function TemplateInline({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          templateFiles, 
-          variables: vars,
+          templateFiles,
+          // Send inputs with name, type, and value for proper type conversion
+          inputs,
           generateFile,
           // Note: outputPath is already used to name the file in templateFiles,
           // so we don't need to send it separately for directory determination
@@ -134,20 +127,20 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, generateFile]);
+  }, [templateFiles, inputs, generateFile]);
   
   // Render when imported values change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
     // Check if we have all required variables
-    // Note that TemplateInline is a pure consumer of variables, so it only has importedVarValues
-    if (!hasAllRequiredVariables(importedVarValues)) {
+    // Note that TemplateInline is a pure consumer of variables, so it only has inputValues
+    if (!hasAllRequiredVariables(inputValues)) {
       return;
     }
     
-    // Check if values actually changed
-    const valuesKey = JSON.stringify(importedVarValues);
+    // Check if inputs actually changed (includes both values and types)
+    const valuesKey = JSON.stringify(inputs);
     if (valuesKey === lastRenderedVariablesRef.current) {
       return;
     }
@@ -167,7 +160,7 @@ function TemplateInline({
       lastRenderedVariablesRef.current = valuesKey;
       hasTriggeredInitialRender.current = true;
       
-      renderTemplate(importedVarValues, !isInitialRender)
+      renderTemplate(!isInitialRender)
         .then(newFileTree => {
           // Only update file tree if generateFile is true
           // The backend returns the complete output directory tree, so we simply replace
@@ -179,7 +172,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [importedVarValues, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [inputValues, inputs, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
   
   // Cleanup timer on unmount
   useEffect(() => {

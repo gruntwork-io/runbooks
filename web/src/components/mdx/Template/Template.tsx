@@ -7,7 +7,7 @@ import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
 import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
-import { useBlockState, useImportedVarValues } from '@/contexts/useBlockState'
+import { useRunbook, useInputs, inputsToValues } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -78,10 +78,11 @@ function Template({
   const { setFileTree } = useFileTree();
   
   // Get the block state context to register our config
-  const { registerInputs } = useBlockState();
+  const { registerInputs } = useRunbook();
   
-  // Get variable values imported from referenced Inputs components (if any)
-  const importedVarValues = useImportedVarValues(inputsId);
+  // Get inputs from referenced Inputs components (if any) and convert to values map
+  const inputs = useInputs(inputsId);
+  const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
 
   // Validate props
   const validationError = useMemo((): AppError | null => {
@@ -145,7 +146,7 @@ function Template({
     if (!boilerplateConfig) return new Set<string>();
     
     const localVarNames = new Set(boilerplateConfig.variables.map(v => v.name));
-    const importedVarNames = new Set(Object.keys(importedVarValues));
+    const importedVarNames = new Set(Object.keys(inputValues));
     
     // Intersection: variables that exist in both
     const shared = new Set<string>();
@@ -155,7 +156,7 @@ function Template({
       }
     }
     return shared;
-  }, [boilerplateConfig, importedVarValues]);
+  }, [boilerplateConfig, inputValues]);
 
   // Compute initial data for the form
   // - Local-only vars: use template defaults (stable, set once)
@@ -170,26 +171,26 @@ function Template({
     for (const variable of boilerplateConfig.variables) {
       if (sharedVarNames.has(variable.name)) {
         // Shared: use imported value (live-synced)
-        data[variable.name] = importedVarValues[variable.name];
+        data[variable.name] = inputValues[variable.name];
       } else {
         // Local-only: use template default (stable)
         data[variable.name] = variable.default;
       }
     }
     return data;
-  }, [boilerplateConfig, sharedVarNames, importedVarValues]);
+  }, [boilerplateConfig, sharedVarNames, inputValues]);
 
   // Compute live values for shared variables (for real-time sync to form)
   // This must be before early returns to maintain hook order
   const liveVarValues = useMemo(() => {
     const values: Record<string, unknown> = {}
     for (const varName of sharedVarNames) {
-      if (importedVarValues[varName] !== undefined) {
-        values[varName] = importedVarValues[varName]
+      if (inputValues[varName] !== undefined) {
+        values[varName] = inputValues[varName]
       }
     }
     return values
-  }, [sharedVarNames, importedVarValues]);
+  }, [sharedVarNames, inputValues]);
 
   // Track the latest local form data for registration (without causing re-renders)
   const localVarValuesRef = useRef<Record<string, unknown>>({});
@@ -199,10 +200,10 @@ function Template({
     if (boilerplateConfig && id) {
       // Merge imported values with local form data (local wins for shared vars after user edits... 
       // but shared vars are read-only, so imported always wins in practice)
-      const mergedData = { ...importedVarValues, ...localVarValuesRef.current };
+      const mergedData = { ...inputValues, ...localVarValuesRef.current };
       registerInputs(id, mergedData, boilerplateConfig);
     }
-  }, [id, boilerplateConfig, importedVarValues, registerInputs]);
+  }, [id, boilerplateConfig, inputValues, registerInputs]);
 
   // Render API call - only triggered when shouldRender is true
   // Pass the component id as templateId to enable smart file cleanup when outputs change
@@ -247,7 +248,7 @@ function Template({
     
     // Update registration with new form data
     if (boilerplateConfig && id) {
-      const mergedData = { ...importedVarValues, ...localVarValues };
+      const mergedData = { ...inputValues, ...localVarValues };
       registerInputs(id, mergedData, boilerplateConfig);
     }
     
@@ -261,14 +262,14 @@ function Template({
     // Debounce: wait 200ms after last change before rendering
     autoRenderTimerRef.current = setTimeout(() => {
       // Merge imported values with local form data
-      const mergedData = { ...importedVarValues, ...localVarValues };
+      const mergedData = { ...inputValues, ...localVarValues };
       
       // Only trigger render when all required values are present
       if (hasAllRequiredValues(localVarValues)) {
         autoRender(path, mergedData);
       }
     }, 200);
-  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, importedVarValues, path, registerInputs]);
+  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, inputValues, path, registerInputs]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -280,7 +281,7 @@ function Template({
   }, []);
 
   // Track previous imported values to detect changes
-  const prevImportedVarValuesRef = useRef<Record<string, unknown>>({});
+  const prevInputValuesRef = useRef<Record<string, unknown>>({});
   
   // Trigger auto-render when imported values change (for pass-through variables)
   // This handles variables from inputsId that aren't in this template's boilerplate.yml
@@ -289,23 +290,23 @@ function Template({
     if (!boilerplateConfig) return;
     
     // Check if imported values actually changed
-    const prev = prevImportedVarValuesRef.current;
+    const prev = prevInputValuesRef.current;
     const prevKeys = Object.keys(prev);
-    const newKeys = Object.keys(importedVarValues);
+    const newKeys = Object.keys(inputValues);
     const unchanged = prevKeys.length === newKeys.length &&
-      prevKeys.every(key => prev[key] === importedVarValues[key]);
+      prevKeys.every(key => prev[key] === inputValues[key]);
     
-    prevImportedVarValuesRef.current = importedVarValues;
+    prevInputValuesRef.current = inputValues;
     
     if (unchanged) return;
     
     // Imported values changed - trigger auto-render with current form data
-    const mergedData = { ...importedVarValues, ...localVarValuesRef.current };
+    const mergedData = { ...inputValues, ...localVarValuesRef.current };
     
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
     }
-  }, [shouldRender, boilerplateConfig, importedVarValues, hasAllRequiredValues, autoRender, path]);
+  }, [shouldRender, boilerplateConfig, inputValues, hasAllRequiredValues, autoRender, path]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
@@ -313,7 +314,7 @@ function Template({
     localVarValuesRef.current = localVarValues;
     
     // Merge imported values with local form data
-    const mergedData = { ...importedVarValues, ...localVarValues };
+    const mergedData = { ...inputValues, ...localVarValues };
     
     // Register our variables in the block context
     if (boilerplateConfig) {
@@ -323,7 +324,7 @@ function Template({
     // Trigger the render with merged data
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, importedVarValues])
+  }, [id, boilerplateConfig, registerInputs, inputValues])
 
   // Early return for duplicate ID error
   if (isDuplicate) {

@@ -106,9 +106,6 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 		return
 	}
 
-	// Include the raw YAML content in the response
-	config.RawYaml = content
-
 	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables))
 	// Return the parsed configuration
 	c.JSON(http.StatusOK, config)
@@ -150,7 +147,7 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 		slog.Debug("Variable validation info", "name", variable.Name(), "validationCount", len(variable.Validations()), "required", isRequired)
 
 		// Use the variable type as-is (no fallback since we enforce strict schema adherence)
-		variableType := string(variable.Type())
+		variableType := BoilerplateVarType(variable.Type())
 
 		boilerplateVar := BoilerplateVariable{
 			Name:        variable.Name(),

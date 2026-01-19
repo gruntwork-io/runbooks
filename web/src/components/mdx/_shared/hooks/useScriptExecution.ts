@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
-import { useImportedVarValues, useBlockState, useAllBlockOutputs } from '@/contexts/useBlockState'
+import { useInputs, useRunbook, useAllOutputs, inputsToValues, type InputValue } from '@/contexts/useRunbook'
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
@@ -14,6 +14,7 @@ import { computeSha256Hash } from '@/lib/hash'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -44,7 +45,7 @@ interface UseScriptExecutionReturn {
   fileError: AppError | null
   
   // Variables
-  importedVarValues: Record<string, unknown>
+  inputValues: Record<string, unknown>
   requiredVariables: string[]
   hasAllRequiredVariables: boolean
   inlineInputsId: string | null
@@ -95,8 +96,8 @@ export function useScriptExecution({
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
   
-  // Get block state context for registering outputs and getting template variables
-  const { registerOutputs, getTemplateVariables } = useBlockState()
+  // Get runbook context for registering outputs and getting template variables
+  const { registerOutputs, getTemplateVariables } = useRunbook()
   
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
@@ -106,9 +107,9 @@ export function useScriptExecution({
   }, [setFileTree])
   
   // Callback to handle outputs captured from script execution
-  const handleOutputsCaptured = useCallback((outputs: Record<string, string>) => {
-    // Register outputs in the block state context so other blocks can access them
-    registerOutputs(componentId, outputs)
+  const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {
+    // Register outputs in the runbook context so other blocks can access them
+    registerOutputs(componentId, outputValues)
   }, [componentId, registerOutputs])
   
   // Only load file content if path is provided (not for inline commands)
@@ -191,9 +192,9 @@ export function useScriptExecution({
     return ids
   }, [inputsId, inlineInputsId])
   
-  // Get merged variables from BlockVariablesContext
-  // The hook handles merging with later IDs overriding earlier ones
-  const importedVarValues = useImportedVarValues(allInputsIds.length > 0 ? allInputsIds : undefined)
+  // Get inputs for API requests and derive values map for lookups
+  const inputs = useInputs(allInputsIds.length > 0 ? allInputsIds : undefined)
+  const inputValues = useMemo(() => inputsToValues(inputs), [inputs])
   
   // Extract template variables from script content
   const requiredVariables = useMemo(() => {
@@ -205,13 +206,13 @@ export function useScriptExecution({
     if (requiredVariables.length === 0) return true // No variables needed
     
     return requiredVariables.every(varName => {
-      const value = importedVarValues[varName]
+      const value = inputValues[varName]
       return value !== undefined && value !== null && value !== ''
     })
-  }, [requiredVariables, importedVarValues])
+  }, [requiredVariables, inputValues])
   
   // Get all block outputs from context to check dependencies
-  const allBlockOutputs = useAllBlockOutputs()
+  const allOutputs = useAllOutputs()
   
   // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
   const outputDependencies = useMemo(() => {
@@ -227,13 +228,13 @@ export function useScriptExecution({
     const unmet: UnmetDependency[] = []
     
     for (const [blockId, outputNames] of byBlock) {
-      const blockOutputs = allBlockOutputs[blockId]?.values
-      if (!blockOutputs) {
+      const blockData = allOutputs[blockId]
+      if (!blockData) {
         // Block hasn't produced any outputs yet
         unmet.push({ blockId, outputNames })
       } else {
         // Check which specific outputs are missing
-        const missingOutputs = outputNames.filter(name => !(name in blockOutputs))
+        const missingOutputs = outputNames.filter(name => !(name in blockData.values))
         if (missingOutputs.length > 0) {
           unmet.push({ blockId, outputNames: missingOutputs })
         }
@@ -241,7 +242,7 @@ export function useScriptExecution({
     }
     
     return unmet
-  }, [outputDependencies, allBlockOutputs])
+  }, [outputDependencies, allOutputs])
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetDependencies.length === 0
@@ -291,8 +292,8 @@ export function useScriptExecution({
     registerLogs(componentId, logs)
   }, [componentId, logs, registerLogs])
 
-  // Function to render script with variables
-  const renderScript = useCallback(async (variables: Record<string, unknown>) => {
+  // Function to render script with inputs
+  const renderScript = useCallback(async (inputs: InputValue[]) => {
     // Cancel any pending render request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -313,9 +314,6 @@ export function useScriptExecution({
       // 'script.sh' is just a filename identifier for the API request/response
       // Each API call is isolated, so no risk of collision between components
       'script.sh': rawScriptContent,
-      // Minimal boilerplate config - no variables or dependencies needed since
-      // we're just doing template substitution with externally-provided values
-      'boilerplate.yml': 'variables: []'
     }
     
     try {
@@ -324,7 +322,7 @@ export function useScriptExecution({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           templateFiles,
-          variables
+          inputs,
         }),
         signal: abortController.signal
       })
@@ -384,12 +382,24 @@ export function useScriptExecution({
       return
     }
     
-    // Get merged template variables (inputs at root + _blocks namespace)
-    const templateVars = getTemplateVariables(allInputsIds.length > 0 ? allInputsIds : undefined)
+    // Build inputs array for the API:
+    // 1. Include input variables (with proper types for JSON-to-Go conversion)
+    // 2. Add _blocks namespace as a map type for block output references
+    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
+    for (const [blockId, data] of Object.entries(allOutputs)) {
+      blocksNamespace[blockId] = { outputs: data.values }
+    }
     
-    // Check if variables actually changed
-    const variablesKey = JSON.stringify(templateVars)
-    if (variablesKey === lastRenderedVariablesRef.current) {
+    const inputsForRender: InputValue[] = [
+      // Filter out any input named "_blocks" since that's a reserved system namespace
+      ...inputs.filter(i => i.name !== '_blocks'),
+      // Add _blocks as a map type containing all block outputs
+      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace },
+    ]
+    
+    // Check if inputs actually changed
+    const inputsKey = JSON.stringify(inputsForRender)
+    if (inputsKey === lastRenderedVariablesRef.current) {
       return
     }
     
@@ -398,14 +408,14 @@ export function useScriptExecution({
       clearTimeout(autoUpdateTimerRef.current)
     }
     
-    // Capture current variables in closure to avoid race condition
-    const variablesToRender = templateVars
-    const keyToStore = variablesKey
+    // Capture current inputs in closure to avoid race condition
+    const inputsToRender = inputsForRender
+    const keyToStore = inputsKey
     
     // Debounce: wait 300ms after last change before rendering
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = keyToStore
-      renderScript(variablesToRender)
+      renderScript(inputsToRender)
     }, 300)
     
     // Cleanup: clear timer when effect re-runs or on unmount
@@ -414,7 +424,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [importedVarValues, allBlockOutputs, allInputsIds, requiredVariables.length, hasAllRequiredVariables, renderScript, getTemplateVariables])
+  }, [inputValues, allOutputs, inputs, requiredVariables.length, hasAllRequiredVariables, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {
@@ -494,7 +504,7 @@ export function useScriptExecution({
     fileError: getFileError,
     
     // Variables
-    importedVarValues,
+    inputValues,
     requiredVariables,
     hasAllRequiredVariables,
     inlineInputsId,

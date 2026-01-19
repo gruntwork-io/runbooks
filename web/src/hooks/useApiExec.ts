@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
+import { useSession } from '@/contexts/useSession'
 
 // Zod schemas for SSE events
 const ExecLogEventSchema = z.object({
@@ -89,6 +90,7 @@ export interface UseApiExecReturn {
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const { onFilesCaptured, onOutputsCaptured } = options || {}
+  const { getAuthHeader } = useSession()
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -319,6 +321,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeader(),
         },
         body: JSON.stringify(payload),
         signal: abortController.signal,
@@ -362,7 +365,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     } finally {
       abortControllerRef.current = null
     }
-  }, [cancel, processSSEStream])
+  }, [cancel, processSSEStream, getAuthHeader])
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(

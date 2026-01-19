@@ -8,7 +8,7 @@ import type { AppError } from '@/types/error'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { extractYamlFromChildren } from '../_shared/lib/extractYamlFromChildren'
-import { useBlockState } from '@/contexts/useBlockState'
+import { useRunbook } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -77,7 +77,7 @@ function Inputs({
   const [hasSubmitted, setHasSubmitted] = useState(false);
   
   // Get the block state context (user-input variable values)
-  const { registerInputs } = useBlockState();
+  const { registerInputs } = useRunbook();
 
   // Extract boolean to avoid React element in dependency array
   const hasChildren = Boolean(children);

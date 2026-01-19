@@ -16,7 +16,7 @@
  * 
  * ```tsx
  * // In a component that imports values from other blocks:
- * const importedVarValues = useImportedVarValues(inputsId);
+ * const inputValues = useInputValues(inputsId);
  * 
  * // In a component that needs to register its values:
  * const { registerInputs } = useBlockVariables();
@@ -33,7 +33,7 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 
 // Stable empty objects to avoid creating new references
 const EMPTY_VALUES: Record<string, unknown> = {}
-const EMPTY_CONFIG: BoilerplateConfig = { variables: [], rawYaml: '' }
+const EMPTY_CONFIG: BoilerplateConfig = { variables: [] }
 
 /**
  * Hook to access the block variables context

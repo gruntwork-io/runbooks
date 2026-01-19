@@ -89,21 +89,49 @@ func (fb *FlexibleBool) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("cannot unmarshal %s into FlexibleBool", string(data))
 }
 
+// BoilerplateVarType represents the supported variable types from boilerplate.
+// These map to the boilerplate package's BoilerplateType values.
+type BoilerplateVarType string
+
+const (
+	VarTypeString BoilerplateVarType = "string"
+	VarTypeInt    BoilerplateVarType = "int"
+	VarTypeFloat  BoilerplateVarType = "float"
+	VarTypeBool   BoilerplateVarType = "bool"
+	VarTypeList   BoilerplateVarType = "list"
+	VarTypeMap    BoilerplateVarType = "map"
+	VarTypeEnum   BoilerplateVarType = "enum"
+)
+
+// InputValue represents a variable with its name, type, and value.
+// This is sent from the frontend to the backend so the backend can properly
+// convert JSON values to the correct Go types (e.g., JSON numbers to int).
+type InputValue struct {
+	Name  string             `json:"name"`
+	Type  BoilerplateVarType `json:"type"`
+	Value any                `json:"value"`
+}
+
 // RenderInlineRequest represents a request to render template files provided in the request body
 type RenderInlineRequest struct {
 	// Map of relative file paths to their contents
-	// Example: {"boilerplate.yml": "...", "main.tf": "..."}
+	// Example: {"main.tf": "..."}
 	TemplateFiles map[string]string `json:"templateFiles"`
-	Variables     map[string]any    `json:"variables"`
+	
+	// Inputs contains input values with their names, types, and values.
+	// The type information is used for proper JSON-to-Go type conversion.
+	Inputs []InputValue `json:"inputs"`
+	
 	// GenerateFile indicates whether to write files to the persistent output directory.
 	// When false (default), files are only rendered and returned in the response.
 	// When true, files are also written to the output directory (CLI-configured path + OutputPath).
 	// Accepts both boolean and string values (e.g., true, "true", "false").
-	GenerateFile  FlexibleBool      `json:"generateFile,omitempty"`
+	GenerateFile FlexibleBool `json:"generateFile,omitempty"`
+	
 	// OutputPath is an optional subdirectory within the CLI-configured output path.
 	// Only used when GenerateFile is true.
 	// SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
-	OutputPath    *string           `json:"outputPath,omitempty"`
+	OutputPath *string `json:"outputPath,omitempty"`
 }
 
 // RenderInlineResponse represents the response from the inline render endpoint
@@ -120,13 +148,14 @@ type RenderInlineResponse struct {
 // Note that we define a simplified version of the BoilerplateVariable struct here.
 // The official Variable struct in the boilerplate package is more complex and includes additional fields we don't need.
 type BoilerplateVariable struct {
-	Name                string            `json:"name"`
-	Description         string            `json:"description"`
-	Type                string            `json:"type"`
+	Name                string             `json:"name"`
+	Description         string             `json:"description"`
+	Type                BoilerplateVarType `json:"type"`
 	Default             interface{}       `json:"default"`
 	Required            bool              `json:"required"`
 	Options             []string          `json:"options,omitempty"`
 	Validations         []ValidationRule  `json:"validations,omitempty"`
+
 	// Schema is a field not known to boilerplate itself, but we use it to allow users to define a schema for structured maps.
 	// For example, a user could specify a schema for an AWS account map with the fields "email", "environment", and "id".
 	// The frontend will then use this schema to render a form for the user to enter the data.
@@ -187,7 +216,6 @@ type Section struct {
 // BoilerplateConfig represents the parsed boilerplate.yml, which is a collection of variables
 type BoilerplateConfig struct {
 	Variables []BoilerplateVariable `json:"variables"`
-	RawYaml   string                `json:"rawYaml"` // The original YAML content
 	// Sections is an ordered list of section groupings for UI rendering.
 	// Each Section contains a name and the list of variable names in that section.
 	// Note: Individual variables also have a SectionName field for direct lookup.

@@ -21,7 +21,6 @@ const createAwsCredentialsConfig = (): BoilerplateConfig => ({
     { name: 'AWS_SESSION_TOKEN', type: BoilerplateVariableType.String, description: 'AWS Session Token (optional)', default: '', required: false },
     { name: 'AWS_REGION', type: BoilerplateVariableType.String, description: 'AWS Region', default: '', required: true },
   ],
-  rawYaml: '',
 })
 
 interface UseAwsAuthOptions {

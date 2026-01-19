@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	bpConfig "github.com/gruntwork-io/boilerplate/config"
@@ -303,6 +304,38 @@ func preConvertJSONTypes(value any, variableType bpVariables.BoilerplateType) an
 	return value
 }
 
+// generateBoilerplateYamlFromInputValues creates a minimal boilerplate.yml from input values.
+// This is used when the frontend sends InputValues with type information.
+// Only the input name and type are needed for proper type conversion during rendering.
+func generateBoilerplateYamlFromInputValues(inputs []InputValue) string {
+	if len(inputs) == 0 {
+		return "variables: []"
+	}
+	
+	lines := []string{"variables:"}
+	for _, input := range inputs {
+		lines = append(lines, fmt.Sprintf("  - name: %s", input.Name))
+		// For enum types, use string instead since boilerplate requires options for enums
+		// and we already have the validated value from the frontend
+		varType := input.Type
+		if varType == VarTypeEnum {
+			varType = VarTypeString
+		}
+		lines = append(lines, fmt.Sprintf("    type: %s", varType))
+	}
+	
+	return fmt.Sprintf("%s\n", strings.Join(lines, "\n"))
+}
+
+// inputValuesToMap converts InputValues to a simple map for template rendering.
+func inputValuesToMap(inputs []InputValue) map[string]any {
+	result := make(map[string]any, len(inputs))
+	for _, input := range inputs {
+		result[input.Name] = input.Value
+	}
+	return result
+}
+
 // HandleBoilerplateRenderInline renders boilerplate templates provided directly in the request body
 func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -335,6 +368,24 @@ func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 		}
 		defer os.RemoveAll(tempDir) // Clean up temp directory when done
 		slog.Info("Created temporary directory for template files", "tempDir", tempDir)
+
+		// Extract variable values from InputValues
+		variables := inputValuesToMap(req.Inputs)
+		
+		// Generate boilerplate.yml from InputValues (for type conversion during rendering)
+		if _, hasBoilerplate := req.TemplateFiles["boilerplate.yml"]; !hasBoilerplate {
+			boilerplateYaml := generateBoilerplateYamlFromInputValues(req.Inputs)
+			boilerplatePath := filepath.Join(tempDir, "boilerplate.yml")
+			if err := os.WriteFile(boilerplatePath, []byte(boilerplateYaml), 0644); err != nil {
+				slog.Error("Failed to write boilerplate.yml", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "Failed to write boilerplate config",
+					"details": err.Error(),
+				})
+				return
+			}
+			slog.Debug("Generated boilerplate.yml from typed variables", "path", boilerplatePath)
+		}
 
 		// Write template files to the temporary directory
 		for relPath, content := range req.TemplateFiles {
@@ -377,7 +428,7 @@ func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 		slog.Info("Created temporary output directory", "outputDir", tempOutputDir)
 
 		// Render the template to the temp directory
-		err = renderBoilerplateTemplate(tempDir, tempOutputDir, req.Variables)
+		err = renderBoilerplateTemplate(tempDir, tempOutputDir, variables)
 		if err != nil {
 			slog.Error("Failed to render boilerplate template", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{

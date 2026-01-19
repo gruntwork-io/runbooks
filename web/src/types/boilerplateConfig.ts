@@ -12,7 +12,6 @@ export interface Section {
 // API response for a collection of boilerplate variables
 export interface BoilerplateConfig {
   variables: BoilerplateVariable[];
-  rawYaml: string; // The original YAML content
   // Ordered list of section groupings for UI rendering.
   // Each Section contains a name and the list of variable names in that section.
   // Note: Individual variables also have a sectionName field for direct lookup.
