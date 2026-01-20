@@ -1,8 +1,6 @@
 import { useState, useCallback, useRef } from "react"
-import { useBlockVariables } from "@/contexts/useBlockVariables"
+import { useRunbook } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
-import { BoilerplateVariableType } from "@/types/boilerplateVariable"
-import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import type {
   AuthMethod,
   AuthStatus,
@@ -12,16 +10,6 @@ import type {
   SSORole,
   ProfileInfo,
 } from "../types"
-
-// Create a minimal boilerplate config for registering credentials as inputs
-const createAwsCredentialsConfig = (): BoilerplateConfig => ({
-  variables: [
-    { name: 'AWS_ACCESS_KEY_ID', type: BoilerplateVariableType.String, description: 'AWS Access Key ID', default: '', required: true },
-    { name: 'AWS_SECRET_ACCESS_KEY', type: BoilerplateVariableType.String, description: 'AWS Secret Access Key', default: '', required: true },
-    { name: 'AWS_SESSION_TOKEN', type: BoilerplateVariableType.String, description: 'AWS Session Token (optional)', default: '', required: false },
-    { name: 'AWS_REGION', type: BoilerplateVariableType.String, description: 'AWS Region', default: '', required: true },
-  ],
-})
 
 interface UseAwsAuthOptions {
   id: string
@@ -40,7 +28,7 @@ export function useAwsAuth({
   ssoRoleName,
   defaultRegion,
 }: UseAwsAuthOptions) {
-  const { registerInputs } = useBlockVariables()
+  const { registerOutputs } = useRunbook()
   const { getAuthHeader } = useSession()
 
   // Core auth state
@@ -99,39 +87,34 @@ export function useAwsAuth({
     }
   }, [])
 
-  // Register credentials with BlockVariables and session environment
+  // Register credentials as outputs and set session environment
   const registerCredentials = useCallback(async (creds: AwsCredentials) => {
-    const values: Record<string, unknown> = {
+    // Register as outputs so other blocks can reference them via awsAuthId
+    const outputs: Record<string, string> = {
       AWS_ACCESS_KEY_ID: creds.accessKeyId,
       AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
       AWS_REGION: creds.region,
       AWS_SESSION_TOKEN: creds.sessionToken || '',
     }
     
-    registerInputs(id, values, createAwsCredentialsConfig())
+    registerOutputs(id, outputs)
     
+    // Also set in session environment for blocks that don't specify awsAuthId
     try {
-      const envVars: Record<string, string> = {
-        AWS_ACCESS_KEY_ID: creds.accessKeyId,
-        AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
-        AWS_REGION: creds.region,
-        AWS_SESSION_TOKEN: creds.sessionToken || '',
-      }
-      
       await fetch('/api/session/env', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeader(),
         },
-        body: JSON.stringify({ env: envVars }),
+        body: JSON.stringify({ env: outputs }),
       })
     } catch (error) {
       console.error('Failed to set session environment variables:', error)
     }
 
     await checkRegionStatus(creds)
-  }, [id, registerInputs, getAuthHeader, checkRegionStatus])
+  }, [id, registerOutputs, getAuthHeader, checkRegionStatus])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = useCallback(async () => {

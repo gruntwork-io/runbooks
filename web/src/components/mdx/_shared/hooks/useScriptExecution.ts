@@ -22,6 +22,8 @@ interface UseScriptExecutionProps {
   command?: string
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
+  /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables for this execution only. */
+  awsAuthId?: string
   children?: ReactNode
   componentType: ComponentType
   /** When true, files written by the script are captured to the workspace */
@@ -82,6 +84,7 @@ export function useScriptExecution({
   path,
   command,
   inputsId,
+  awsAuthId,
   children,
   componentType,
   captureFiles,
@@ -213,6 +216,28 @@ export function useScriptExecution({
   
   // Get all block outputs from context to check dependencies
   const allOutputs = useAllOutputs()
+  
+  // Get AWS auth credentials from outputs if awsAuthId is specified
+  // These will be passed as per-execution env vars (overriding session env)
+  const awsAuthEnvVars = useMemo((): Record<string, string> | undefined => {
+    if (!awsAuthId) return undefined
+    
+    // Normalize the ID (hyphens → underscores) to match how outputs are stored
+    const normalizedId = awsAuthId.replace(/-/g, '_')
+    const blockOutputs = allOutputs[normalizedId]
+    
+    if (!blockOutputs?.values) return undefined
+    
+    // Return the outputs as env vars (only include non-empty values)
+    const envVars: Record<string, string> = {}
+    for (const [key, value] of Object.entries(blockOutputs.values)) {
+      if (value !== '') {
+        envVars[key] = value
+      }
+    }
+    
+    return Object.keys(envVars).length > 0 ? envVars : undefined
+  }, [awsAuthId, allOutputs])
   
   // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
   const outputDependencies = useMemo(() => {
@@ -468,12 +493,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, captureOptions)
+      executeScript(executable.id, processedVariables as Record<string, string>, captureOptions, awsAuthEnvVars)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, captureOptions)
+      executeByComponentId(componentId, processedVariables as Record<string, string>, captureOptions, awsAuthEnvVars)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, captureFiles, captureFilesOutputPath])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, captureFiles, captureFilesOutputPath, awsAuthEnvVars])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

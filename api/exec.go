@@ -23,11 +23,12 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID           string         `json:"executable_id,omitempty"`             // Used when useExecutableRegistry=true
-	ComponentID            string         `json:"component_id,omitempty"`              // Used when useExecutableRegistry=false
-	TemplateVarValues      map[string]any `json:"template_var_values"`                 // Values for template variables (can include nested _blocks)
-	CaptureFiles           bool           `json:"capture_files"`                       // When true, capture files written by the script to the workspace
-	CaptureFilesOutputPath string         `json:"capture_files_output_path,omitempty"` // Relative subdirectory within the output folder for captured files
+	ExecutableID           string            `json:"executable_id,omitempty"`             // Used when useExecutableRegistry=true
+	ComponentID            string            `json:"component_id,omitempty"`              // Used when useExecutableRegistry=false
+	TemplateVarValues      map[string]any    `json:"template_var_values"`                 // Values for template variables (can include nested _blocks)
+	EnvVars                map[string]string `json:"env_vars,omitempty"`                  // Environment variables to set for this execution only (overrides session env)
+	CaptureFiles           bool              `json:"capture_files"`                       // When true, capture files written by the script to the workspace
+	CaptureFilesOutputPath string            `json:"capture_files_output_path,omitempty"` // Relative subdirectory within the output folder for captured files
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -66,6 +67,7 @@ type execCommandConfig struct {
 	interpreter  string
 	args         []string
 	execCtx      *SessionExecContext
+	envVars      map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
 	captureFiles bool
 	workDir      string
 	outputFile   string
@@ -163,6 +165,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			interpreter: interpreter,
 			args:        args,
 			execCtx:     execCtx,
+			envVars:     req.EnvVars,
 			outputFile:  outputFilePath,
 		}
 		if captureConfig != nil {
@@ -339,6 +342,12 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	// Set environment variables from the session
 	cmd.Env = cfg.execCtx.Env
 
+	// Apply per-request env var overrides (e.g., AWS credentials for specific auth block)
+	// These override any session env vars with the same key
+	if len(cfg.envVars) > 0 {
+		cmd.Env = mergeEnvVars(cmd.Env, cfg.envVars)
+	}
+
 	// Add RUNBOOK_OUTPUT environment variable for block outputs
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
 
@@ -354,6 +363,36 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	}
 
 	return cmd
+}
+
+// mergeEnvVars merges override env vars into a base env slice.
+// Override values replace any existing keys in the base slice.
+func mergeEnvVars(base []string, overrides map[string]string) []string {
+	// Build a map from existing env for efficient lookup
+	envMap := make(map[string]int, len(base)) // key -> index in result
+	result := make([]string, 0, len(base)+len(overrides))
+
+	for _, entry := range base {
+		if idx := strings.Index(entry, "="); idx != -1 {
+			key := entry[:idx]
+			envMap[key] = len(result)
+			result = append(result, entry)
+		}
+	}
+
+	// Apply overrides
+	for key, value := range overrides {
+		entry := key + "=" + value
+		if idx, exists := envMap[key]; exists {
+			// Replace existing entry
+			result[idx] = entry
+		} else {
+			// Add new entry
+			result = append(result, entry)
+		}
+	}
+
+	return result
 }
 
 // determineExitStatus converts an exec error and context into exit code and status string
