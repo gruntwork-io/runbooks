@@ -348,17 +348,17 @@ log_info "Deployment successful!"
 
 ## Capturing Output Files
 
-Commands can save files to the generated files directory using the `$RUNBOOKS_OUTPUT` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
+Commands can save files to the generated files directory using the `$RUNBOOK_FILES` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
 
 ### Basic Example
 
 ```bash
 #!/bin/bash
 # Export OpenTofu outputs to generated files
-tofu output -json > "$RUNBOOKS_OUTPUT/tf-outputs.json"
+tofu output -json > "$RUNBOOK_FILES/tf-outputs.json"
 
 # Copy a config file
-cp config.yaml "$RUNBOOKS_OUTPUT/"
+cp config.yaml "$RUNBOOK_FILES/"
 ```
 
 Or as an inline command:
@@ -367,22 +367,22 @@ Or as an inline command:
 <Command 
   id="create-file"
   title="Create a greeting file"
-  command={`echo "Hello from the command!" > "$RUNBOOKS_OUTPUT/greeting.txt"`}
+  command={`echo "Hello from the command!" > "$RUNBOOK_FILES/greeting.txt"`}
   successMessage="File created successfully!"
 />
 ```
 
 ### Organizing Files with Subdirectories
 
-You can create subdirectories within `$RUNBOOKS_OUTPUT` to organize your captured files:
+You can create subdirectories within `$RUNBOOK_FILES` to organize your captured files:
 
 ```bash
 #!/bin/bash
-mkdir -p "$RUNBOOKS_OUTPUT/terraform"
-mkdir -p "$RUNBOOKS_OUTPUT/config"
+mkdir -p "$RUNBOOK_FILES/terraform"
+mkdir -p "$RUNBOOK_FILES/config"
 
-tofu output -json > "$RUNBOOKS_OUTPUT/opentofu/outputs.json"
-echo '{"env": "production"}' > "$RUNBOOKS_OUTPUT/config/settings.json"
+tofu output -json > "$RUNBOOK_FILES/opentofu/outputs.json"
+echo '{"env": "production"}' > "$RUNBOOK_FILES/config/settings.json"
 ```
 
 This creates:
@@ -398,13 +398,13 @@ generated/
 ### How It Works
 
 1. Before your script runs, Runbooks creates a temporary capture directory
-2. The `$RUNBOOKS_OUTPUT` environment variable points to this directory
-3. Your script writes files to `$RUNBOOKS_OUTPUT`
+2. The `$RUNBOOK_FILES` environment variable points to this directory
+3. Your script writes files to `$RUNBOOK_FILES`
 4. After successful execution, files are copied to the generated files directory
 5. The temporary directory is cleaned up
 
 <Aside type="tip">
-Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOKS_OUTPUT` are discarded.
+Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOK_FILES` are discarded.
 </Aside>
 
 <Aside type="note">

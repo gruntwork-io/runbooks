@@ -23,12 +23,10 @@ import (
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID           string            `json:"executable_id,omitempty"`             // Used when useExecutableRegistry=true
-	ComponentID            string            `json:"component_id,omitempty"`              // Used when useExecutableRegistry=false
-	TemplateVarValues      map[string]any    `json:"template_var_values"`                 // Values for template variables (can include nested _blocks)
-	EnvVars                map[string]string `json:"env_vars,omitempty"`                  // Environment variables to set for this execution only (overrides session env)
-	CaptureFiles           bool              `json:"capture_files"`                       // When true, capture files written by the script to the workspace
-	CaptureFilesOutputPath string            `json:"capture_files_output_path,omitempty"` // Relative subdirectory within the output folder for captured files
+	ExecutableID      string            `json:"executable_id,omitempty"` // Used when useExecutableRegistry=true
+	ComponentID       string            `json:"component_id,omitempty"`  // Used when useExecutableRegistry=false
+	TemplateVarValues map[string]any    `json:"template_var_values"`     // Values for template variables (can include nested _blocks)
+	EnvVarsOverride   map[string]string `json:"env_vars_override,omitempty"` // Environment variables to set for this execution only (overrides session env)
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -63,20 +61,13 @@ type BlockOutputsEvent struct {
 
 // execCommandConfig holds configuration for setting up an exec.Cmd
 type execCommandConfig struct {
-	scriptPath   string
-	interpreter  string
-	args         []string
-	execCtx      *SessionExecContext
-	envVars      map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
-	captureFiles bool
-	workDir      string
-	outputFile   string
-}
-
-// captureFilesConfig holds configuration for file capture setup
-type captureFilesConfig struct {
-	outputDir string
-	workDir   string
+	scriptPath  string
+	interpreter string
+	args        []string
+	execCtx     *SessionExecContext
+	envVars     map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
+	outputFile  string            // Temp file for block outputs (RUNBOOK_OUTPUT)
+	filesDir    string            // Temp directory for file capture (RUNBOOK_FILES)
 }
 
 // =============================================================================
@@ -115,20 +106,14 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
-		// Set up capture files configuration if enabled
-		var captureConfig *captureFilesConfig
-		if req.CaptureFiles {
-			captureConfig, err2 = setupCaptureFiles(req.CaptureFilesOutputPath, cliOutputPath)
-			if err2 != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err2.Error()})
-				return
-			}
-			defer func() {
-				if captureConfig.workDir != "" {
-					os.RemoveAll(captureConfig.workDir)
-				}
-			}()
+		// Create a temp directory for file capture (RUNBOOK_FILES)
+		// Scripts can write files here to have them captured to the output directory
+		filesDir, err2 := os.MkdirTemp("", "runbook-files-*")
+		if err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create files directory: %v", err2)})
+			return
 		}
+		defer os.RemoveAll(filesDir)
 
 		// Create a temp file for block outputs (RUNBOOK_OUTPUT)
 		outputFilePath, err2 := createOutputFile()
@@ -165,12 +150,9 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			interpreter: interpreter,
 			args:        args,
 			execCtx:     execCtx,
-			envVars:     req.EnvVars,
+			envVars:     req.EnvVarsOverride,
 			outputFile:  outputFilePath,
-		}
-		if captureConfig != nil {
-			cmdConfig.captureFiles = true
-			cmdConfig.workDir = captureConfig.workDir
+			filesDir:    filesDir,
 		}
 
 		// Create and configure the command
@@ -216,7 +198,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 
 		// Stream logs and wait for completion
-		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, captureConfig, cliOutputPath)
+		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, cliOutputPath)
 	}
 }
 
@@ -273,32 +255,6 @@ func prepareScriptContent(executable *Executable, templateVars map[string]any) (
 	return scriptContent, nil
 }
 
-// setupCaptureFiles validates and creates the capture files configuration
-func setupCaptureFiles(captureFilesOutputPath string, cliOutputPath string) (*captureFilesConfig, error) {
-	// Validate the output path
-	if err := ValidateRelativePath(captureFilesOutputPath); err != nil {
-		return nil, fmt.Errorf("invalid captureFilesOutputPath: %w", err)
-	}
-
-	// Determine the output directory for captured files
-	outputDir, err := determineOutputDirectory(cliOutputPath, &captureFilesOutputPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to determine capture output directory: %w", err)
-	}
-
-	// Create an isolated working directory for the script
-	// This ensures all relative file writes are captured
-	workDir, err := os.MkdirTemp("", "runbook-cmd-workspace-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create working directory: %w", err)
-	}
-
-	return &captureFilesConfig{
-		outputDir: outputDir,
-		workDir:   workDir,
-	}, nil
-}
-
 // createOutputFile creates a temporary file for RUNBOOK_OUTPUT
 func createOutputFile() (string, error) {
 	outputFile, err := os.CreateTemp("", "runbook-output-*.txt")
@@ -348,18 +304,16 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 		cmd.Env = mergeEnvVars(cmd.Env, cfg.envVars)
 	}
 
-	// Add RUNBOOK_OUTPUT environment variable for block outputs
+	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
+
+	// Add RUNBOOK_FILES environment variable for file capture
+	// Scripts can write files to this directory to have them saved to the output directory
+	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", cfg.filesDir))
 
 	// Set working directory from session
 	if cfg.execCtx.WorkDir != "" {
 		cmd.Dir = cfg.execCtx.WorkDir
-	}
-
-	// Override with captureFiles working directory if enabled
-	// This isolates the script so all relative file writes are captured
-	if cfg.captureFiles && cfg.workDir != "" {
-		cmd.Dir = cfg.workDir
 	}
 
 	return cmd
@@ -420,7 +374,7 @@ func determineExitStatus(err error, ctx context.Context) (int, string) {
 }
 
 // streamExecutionOutput handles the main loop of streaming output and handling completion
-func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan string, doneChan <-chan error, ctx context.Context, outputFilePath string, captureConfig *captureFilesConfig, cliOutputPath string) {
+func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan string, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string) {
 	for {
 		select {
 		case line := <-outputChan:
@@ -459,9 +413,10 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 				}
 			}
 
-			// Capture files if enabled and execution was successful (or warning)
-			if captureConfig != nil && (status == "success" || status == "warn") {
-				capturedFiles, captureErr := captureFilesFromWorkDir(captureConfig.workDir, captureConfig.outputDir, cliOutputPath)
+			// Capture files from RUNBOOK_FILES directory if execution was successful (or warning)
+			// Scripts can write files to $RUNBOOK_FILES to have them saved to the output directory
+			if status == "success" || status == "warn" {
+				capturedFiles, captureErr := captureFilesFromDir(filesDir, cliOutputPath)
 				if captureErr != nil {
 					sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
 					flusher.Flush()
@@ -524,35 +479,45 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- string) {
 	}
 }
 
-// captureFilesFromWorkDir copies all files from the working directory to the output directory
-// Returns a list of captured files with their relative paths and sizes
-func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([]CapturedFile, error) {
+// captureFilesFromDir copies all files from the source directory (RUNBOOK_FILES) to the output directory.
+// Returns a list of captured files with their relative paths and sizes.
+// If the source directory is empty, returns nil with no error.
+func captureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
+	// Check if source directory has any files
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read files directory: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, nil // No files to capture
+	}
+
 	var capturedFiles []CapturedFile
 
 	// Create the output directory if it doesn't exist
-	if err := os.MkdirAll(captureOutputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Walk the working directory and copy all files
-	err := filepath.Walk(workDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+	// Walk the source directory and copy all files
+	err = filepath.Walk(srcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 
 		// Skip the root directory itself
-		if srcPath == workDir {
+		if srcPath == srcDir {
 			return nil
 		}
 
-		// Get the relative path from the working directory
-		relPath, err := filepath.Rel(workDir, srcPath)
+		// Get the relative path from the source directory
+		relPath, err := filepath.Rel(srcDir, srcPath)
 		if err != nil {
 			return fmt.Errorf("failed to get relative path: %w", err)
 		}
 
 		// Construct the destination path
-		dstPath := filepath.Join(captureOutputDir, relPath)
+		dstPath := filepath.Join(outputDir, relPath)
 
 		if info.IsDir() {
 			// Create the directory in the output
@@ -560,7 +525,6 @@ func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([
 				return err
 			}
 			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
-			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
 			return os.Chmod(dstPath, info.Mode())
 		}
 
@@ -569,19 +533,8 @@ func captureFilesFromWorkDir(workDir, captureOutputDir, cliOutputPath string) ([
 			return fmt.Errorf("failed to copy file %s: %w", relPath, err)
 		}
 
-		// Calculate relative path from CLI output path for the response
-		// This is what the frontend expects to see in the file tree
-		outputRelPath := relPath
-		if captureOutputDir != cliOutputPath {
-			// If we're in a subdirectory, include that in the relative path
-			subDir, _ := filepath.Rel(cliOutputPath, captureOutputDir)
-			if subDir != "" && subDir != "." {
-				outputRelPath = filepath.Join(subDir, relPath)
-			}
-		}
-
 		capturedFiles = append(capturedFiles, CapturedFile{
-			Path: filepath.ToSlash(outputRelPath), // Use forward slashes for consistency
+			Path: filepath.ToSlash(relPath), // Use forward slashes for consistency
 			Size: info.Size(),
 		})
 

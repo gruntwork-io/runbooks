@@ -26,10 +26,6 @@ interface UseScriptExecutionProps {
   awsAuthId?: string
   children?: ReactNode
   componentType: ComponentType
-  /** When true, files written by the script are captured to the workspace */
-  captureFiles?: boolean
-  /** Relative subdirectory within the output folder for captured files */
-  captureFilesOutputPath?: string
 }
 
 /** Information about an unmet output dependency */
@@ -87,8 +83,6 @@ export function useScriptExecution({
   awsAuthId,
   children,
   componentType,
-  captureFiles,
-  captureFilesOutputPath,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -295,9 +289,10 @@ export function useScriptExecution({
   
   // Use the API exec hook for real script execution
   // Pass onFilesCaptured callback to update file tree when command captures files
-  // Pass onOutputsCaptured callback to register block outputs in context
+  // Pass onFilesCaptured and onOutputsCaptured callbacks
+  // Files written to $RUNBOOK_FILES are automatically captured after successful execution
   const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
-    onFilesCaptured: captureFiles ? handleFilesCaptured : undefined,
+    onFilesCaptured: handleFilesCaptured,
     onOutputsCaptured: handleOutputsCaptured,
   })
   
@@ -472,12 +467,6 @@ export function useScriptExecution({
       }
     }
     
-    // Build capture files options (only for commands, not checks)
-    const captureOptions = captureFiles ? {
-      captureFiles,
-      captureFilesOutputPath,
-    } : undefined
-    
     if (execRegistryEnabled) {
       // Registry mode: Look up executable in registry and use executable ID
       const executable = getExecutableByComponentId(componentId)
@@ -493,12 +482,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, captureOptions, awsAuthEnvVars)
+      executeScript(executable.id, processedVariables as Record<string, string>, awsAuthEnvVars)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, captureOptions, awsAuthEnvVars)
+      executeByComponentId(componentId, processedVariables as Record<string, string>, awsAuthEnvVars)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, captureFiles, captureFilesOutputPath, awsAuthEnvVars])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
