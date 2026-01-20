@@ -78,7 +78,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	protectedAPI := r.Group("/api")
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
-		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath))
+		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)
