@@ -7,7 +7,7 @@ import type { ReactNode } from 'react'
  * so we normalize hyphens to underscores. This means "create-account" and "create_account"
  * would collide when used in templates.
  */
-export function normalizeBlockId(id: string): string {
+function normalizeBlockId(id: string): string {
   return id.replace(/-/g, '_')
 }
 
