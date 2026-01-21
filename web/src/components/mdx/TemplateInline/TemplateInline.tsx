@@ -13,6 +13,7 @@ import { extractOutputDependencies, groupDependenciesByBlock } from './lib/extra
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
+import { normalizeBlockId } from '@/lib/utils'
 
 interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
@@ -79,9 +80,8 @@ function TemplateInline({
     const unmet: UnmetOutputDependency[] = [];
     
     for (const [blockId, outputNames] of byBlock) {
-      // Normalize block ID: hyphens → underscores (matches how outputs are stored)
-      const normalizedBlockId = blockId.replace(/-/g, '_');
-      const blockData = allOutputs[normalizedBlockId];
+      const normalizedId = normalizeBlockId(blockId);
+      const blockData = allOutputs[normalizedId];
       
       if (!blockData) {
         // Block hasn't produced any outputs yet

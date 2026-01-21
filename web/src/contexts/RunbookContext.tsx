@@ -44,6 +44,7 @@ import type { ReactNode } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
+import { normalizeBlockId } from '@/lib/utils'
 
 /**
  * Data stored for each registered Inputs block.
@@ -242,8 +243,7 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
   }, [getConfig, getValues])
 
   const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
-    // Normalize block ID: hyphens → underscores (Go templates don't support hyphens in dot notation)
-    const normalizedId = blockId.replace(/-/g, '_')
+    const normalizedId = normalizeBlockId(blockId)
     console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]:`, values)
     setBlockOutputs(prev => ({
       ...prev,
@@ -255,8 +255,7 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const getOutputs = useCallback((blockId: string): OutputValue[] | undefined => {
-    // Normalize block ID for lookup
-    const normalizedId = blockId.replace(/-/g, '_')
+    const normalizedId = normalizeBlockId(blockId)
     const data = blockOutputs[normalizedId]
     return data ? valuesToOutputs(data.values) : undefined
   }, [blockOutputs])

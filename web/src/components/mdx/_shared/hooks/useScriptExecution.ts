@@ -11,6 +11,7 @@ import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
 import { extractOutputDependenciesFromString, type OutputDependency, groupDependenciesByBlock } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
+import { normalizeBlockId } from '@/lib/utils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -216,8 +217,7 @@ export function useScriptExecution({
   const awsAuthEnvVars = useMemo((): Record<string, string> | undefined => {
     if (!awsAuthId) return undefined
     
-    // Normalize the ID (hyphens → underscores) to match how outputs are stored
-    const normalizedId = awsAuthId.replace(/-/g, '_')
+    const normalizedId = normalizeBlockId(awsAuthId)
     const blockOutputs = allOutputs[normalizedId]
     
     if (!blockOutputs?.values) return undefined

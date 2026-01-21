@@ -1,15 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
-
-/**
- * Normalize a block ID for collision detection.
- * Go templates don't support hyphens in dot notation (e.g., ._blocks.create-account fails),
- * so we normalize hyphens to underscores. This means "create-account" and "create_account"
- * would collide when used in templates.
- */
-function normalizeBlockId(id: string): string {
-  return id.replace(/-/g, '_')
-}
+import { normalizeBlockId } from '../lib/utils'
 
 interface ComponentRegistration {
   id: string

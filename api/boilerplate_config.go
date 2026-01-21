@@ -15,6 +15,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// normalizeBlockID converts a block ID to its canonical form by replacing
+// hyphens with underscores. This normalization is required because Go templates
+// don't support hyphens in dot notation (e.g., ._blocks.create-account fails).
+//
+// This function must be used consistently across both frontend and backend:
+// - Frontend: when registering/looking up outputs (RunbookContext)
+// - Frontend: when checking output dependencies (Template, TemplateInline)
+// - Backend: when extracting output dependencies from templates
+//
+// Example: "create-account" → "create_account"
+func normalizeBlockID(id string) string {
+	return strings.ReplaceAll(id, "-", "_")
+}
+
 // This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
 //
 // There's a design decision here on how much of Boilerplate's native packages to use to parse the boilerplate.yml file,
@@ -571,7 +585,7 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 		matches := outputDepRegex.FindAllStringSubmatch(string(content), -1)
 		for _, match := range matches {
 			if len(match) >= 3 {
-				blockID := match[1]
+				blockID := normalizeBlockID(match[1])
 				outputName := match[2]
 				fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", blockID, outputName)
 

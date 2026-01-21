@@ -12,6 +12,7 @@ import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/c
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
+import { normalizeBlockId } from '@/lib/utils'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -175,13 +176,12 @@ function Template({
     // Group dependencies by block ID
     const byBlock = new Map<string, string[]>();
     for (const dep of boilerplateConfig.outputDependencies) {
-      // Normalize block ID: hyphens → underscores (matches how outputs are stored)
-      const normalizedBlockId = dep.blockId.replace(/-/g, '_');
-      const existing = byBlock.get(normalizedBlockId) || [];
+      const normalizedId = normalizeBlockId(dep.blockId);
+      const existing = byBlock.get(normalizedId) || [];
       if (!existing.includes(dep.outputName)) {
         existing.push(dep.outputName);
       }
-      byBlock.set(normalizedBlockId, existing);
+      byBlock.set(normalizedId, existing);
     }
     
     // Check which dependencies are not satisfied
@@ -192,7 +192,7 @@ function Template({
         // Block hasn't produced any outputs yet - use original block ID for display
         // Find original block ID from the dependencies
         const originalBlockId = boilerplateConfig.outputDependencies.find(
-          d => d.blockId.replace(/-/g, '_') === blockId
+          d => normalizeBlockId(d.blockId) === blockId
         )?.blockId || blockId;
         unmet.push({ blockId: originalBlockId, outputNames });
       } else {
@@ -200,7 +200,7 @@ function Template({
         const missingOutputs = outputNames.filter(name => !(name in blockData.values));
         if (missingOutputs.length > 0) {
           const originalBlockId = boilerplateConfig.outputDependencies.find(
-            d => d.blockId.replace(/-/g, '_') === blockId
+            d => normalizeBlockId(d.blockId) === blockId
           )?.blockId || blockId;
           unmet.push({ blockId: originalBlockId, outputNames: missingOutputs });
         }
