@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react"
-import { useRunbook } from "@/contexts/useRunbook"
+import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import type {
   AuthMethod,
@@ -28,7 +28,7 @@ export function useAwsAuth({
   ssoRoleName,
   defaultRegion,
 }: UseAwsAuthOptions) {
-  const { registerOutputs } = useRunbook()
+  const { registerOutputs } = useRunbookContext()
   const { getAuthHeader } = useSession()
 
   // Core auth state

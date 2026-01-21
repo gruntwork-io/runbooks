@@ -28,7 +28,7 @@
  * ## Usage in Components
  * 
  * ```tsx
- * const { registerInputs, getInputs } = useRunbook()
+ * const { registerInputs, getInputs } = useRunbookContext()
  * 
  * // Register form values
  * registerInputs("my-form", { region: "us-west-2" }, boilerplateConfig)
@@ -154,13 +154,13 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  * - Templates consume both via getTemplateVariables
  * 
  * @example
- * <RunbookProvider>
+ * <RunbookContextProvider>
  *   <Inputs id="config-a">...</Inputs>
  *   <Command id="create-account" ... />
  *   <Command inputsId="config-a" command="echo {{ ._blocks.create_account.outputs.account_id }}" />
- * </RunbookProvider>
+ * </RunbookContextProvider>
  */
-export function RunbookProvider({ children }: { children: ReactNode }) {
+export function RunbookContextProvider({ children }: { children: ReactNode }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
@@ -301,4 +301,4 @@ export function RunbookProvider({ children }: { children: ReactNode }) {
 }
 
 // Hooks are in a separate file to satisfy react-refresh requirements
-// See: useRunbook.ts
+// See: useRunbook.ts for useRunbookContext and other hooks

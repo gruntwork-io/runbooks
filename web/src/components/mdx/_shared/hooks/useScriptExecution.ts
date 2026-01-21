@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
-import { useInputs, useRunbook, useAllOutputs, inputsToValues, type InputValue } from '@/contexts/useRunbook'
+import { useInputs, useRunbookContext, useAllOutputs, inputsToValues, type InputValue } from '@/contexts/useRunbook'
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
@@ -94,7 +94,7 @@ export function useScriptExecution({
   const { registerLogs } = useLogs()
   
   // Get runbook context for registering outputs and getting template variables
-  const { registerOutputs, getTemplateVariables } = useRunbook()
+  const { registerOutputs, getTemplateVariables } = useRunbookContext()
   
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {

@@ -34,7 +34,7 @@
  * // → { region: "us-west-2" }
  * 
  * // Register outputs after script execution
- * const { registerOutputs } = useRunbook()
+ * const { registerOutputs } = useRunbookContext()
  * registerOutputs(blockId, [{ name: "account_id", value: "123456789012" }])
  * ```
  * 
@@ -55,10 +55,10 @@ const EMPTY_TEMPLATE_VARS: Record<string, unknown> = { _blocks: {} }
  * Hook to access the full runbook context.
  * Use this when you need to register inputs or outputs.
  */
-export function useRunbook(): RunbookContextType {
+export function useRunbookContext(): RunbookContextType {
   const context = useContext(RunbookContext)
   if (!context) {
-    throw new Error('useRunbook must be used within a RunbookProvider')
+    throw new Error('useRunbookContext must be used within a RunbookContextProvider')
   }
   return context
 }

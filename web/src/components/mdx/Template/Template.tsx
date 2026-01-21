@@ -7,7 +7,7 @@ import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
 import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
-import { useRunbook, useInputs, inputsToValues } from '@/contexts/useRunbook'
+import { useRunbookContext, useInputs, inputsToValues } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -77,8 +77,8 @@ function Template({
   // Get the global file tree context
   const { setFileTree } = useFileTree();
   
-  // Get the block state context to register our config
-  const { registerInputs } = useRunbook();
+  // Get the runbook context to register our config
+  const { registerInputs } = useRunbookContext();
   
   // Get inputs from referenced Inputs components (if any) and convert to values map
   const inputs = useInputs(inputsId);
