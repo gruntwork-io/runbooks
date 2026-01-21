@@ -244,14 +244,28 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
   const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
     // Normalize block ID: hyphens → underscores (Go templates don't support hyphens in dot notation)
     const normalizedId = blockId.replace(/-/g, '_')
-    console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]:`, values)
-    setBlockOutputs(prev => ({
-      ...prev,
-      [normalizedId]: {
-        values,
-        timestamp: new Date().toISOString()
+    
+    setBlockOutputs(prev => {
+      // Detect collision: Check if normalized ID exists with different original ID
+      if (prev[normalizedId] && (prev[normalizedId] as any)._originalId && (prev[normalizedId] as any)._originalId !== blockId) {
+        console.error(
+          `[RunbookContext] Block ID collision detected!`,
+          `Block "${blockId}" normalizes to "${normalizedId}", which conflicts with "${(prev[normalizedId] as any)._originalId}"`
+        )
       }
-    }))
+      
+      const updated = {
+        ...prev,
+        [normalizedId]: {
+          values,
+          timestamp: new Date().toISOString(),
+          _originalId: blockId  // Store original for collision detection
+        } as any
+      }
+      
+      console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]:`, values)
+      return updated
+    })
   }, [])
 
   const getOutputs = useCallback((blockId: string): OutputValue[] | undefined => {
