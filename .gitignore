@@ -21,3 +21,7 @@ TODO/
 
 # Ignore taskfile.dev artifacts
 .task/
+
+# Node/npm artifacts (project uses bun)
+package-lock.json
+node_modules/
