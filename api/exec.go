@@ -116,14 +116,30 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
+		// Create all temporary resources upfront with cleanup tracking
+		// This ensures all cleanup defers are registered before any other operations
+		type tempResource struct {
+			path    string
+			cleanup func()
+		}
+		var tempResources []tempResource
+		
+		// Cleanup all temp resources on function exit
+		defer func() {
+			for _, res := range tempResources {
+				if res.cleanup != nil {
+					res.cleanup()
+				}
+			}
+		}()
+
 		// Create a temp directory for file capture (RUNBOOK_FILES)
-		// Scripts can write files here to have them captured to the output directory
 		filesDir, err2 := os.MkdirTemp("", "runbook-files-*")
 		if err2 != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create files directory: %v", err2)})
 			return
 		}
-		defer os.RemoveAll(filesDir)
+		tempResources = append(tempResources, tempResource{path: filesDir, cleanup: func() { os.RemoveAll(filesDir) }})
 
 		// Create a temp file for block outputs (RUNBOOK_OUTPUT)
 		outputFilePath, err2 := createOutputFile()
@@ -131,22 +147,22 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err2.Error()})
 			return
 		}
-		defer os.Remove(outputFilePath)
+		tempResources = append(tempResources, tempResource{path: outputFilePath, cleanup: func() { os.Remove(outputFilePath) }})
 
-		// Create temp files for environment capture (used to capture env changes after script execution)
+		// Create temp files for environment capture
 		envCapturePath, err2 := createTempFile("runbook-env-capture-*.txt")
 		if err2 != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create env capture file: %v", err2)})
 			return
 		}
-		defer os.Remove(envCapturePath)
+		tempResources = append(tempResources, tempResource{path: envCapturePath, cleanup: func() { os.Remove(envCapturePath) }})
 
 		pwdCapturePath, err2 := createTempFile("runbook-pwd-capture-*.txt")
 		if err2 != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create pwd capture file: %v", err2)})
 			return
 		}
-		defer os.Remove(pwdCapturePath)
+		tempResources = append(tempResources, tempResource{path: pwdCapturePath, cleanup: func() { os.Remove(pwdCapturePath) }})
 
 		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
@@ -175,7 +191,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			sendSSEError(c, err2.Error())
 			return
 		}
-		defer os.Remove(scriptPath)
+		tempResources = append(tempResources, tempResource{path: scriptPath, cleanup: func() { os.Remove(scriptPath) }})
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
