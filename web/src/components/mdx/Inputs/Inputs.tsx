@@ -8,7 +8,7 @@ import type { AppError } from '@/types/error'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { extractYamlFromChildren } from '../_shared/lib/extractYamlFromChildren'
-import { useBlockVariables } from '@/contexts/useBlockVariables'
+import { useRunbookContext } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -59,8 +59,8 @@ function Inputs({
   children,
   variant = 'standard'
 }: InputsProps) {
-  // Register with ID registry to detect duplicates
-  const { isDuplicate } = useComponentIdRegistry(id, 'Inputs')
+  // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Inputs')
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
@@ -76,8 +76,8 @@ function Inputs({
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   
-  // Get the block variables context (user-input variable values)
-  const { registerInputs } = useBlockVariables();
+  // Get the runbook context to register input values
+  const { registerInputs } = useRunbookContext();
 
   // Extract boolean to avoid React element in dependency array
   const hasChildren = Boolean(children);
@@ -216,7 +216,7 @@ function Inputs({
 
   // Handle form submission
   const handleSubmit = useCallback(async (formData: Record<string, unknown>) => {
-    // Publish to BlockVariablesContext (values + config together)
+    // Publish to RunbookContext (values + config together)
     if (boilerplateConfig) {
       registerInputs(id, formData, boilerplateConfig);
     }
@@ -242,8 +242,19 @@ function Inputs({
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Duplicate ID Error:</strong> Another Inputs component already uses id="{id}".
-            Each Inputs must have a unique id.
+            {isNormalizedCollision ? (
+              <>
+                <strong>ID Collision:</strong><br />
+                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                hyphens are converted to underscores for template access.
+                Use different IDs to avoid this collision.
+              </>
+            ) : (
+              <>
+                <strong>Duplicate ID Error:</strong> Another Inputs component already uses id="{id}".
+                Each Inputs must have a unique id.
+              </>
+            )}
           </div>
         </div>
       </div>

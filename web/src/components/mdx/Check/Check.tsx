@@ -4,8 +4,7 @@ import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } fr
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
-import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -41,8 +40,8 @@ function Check({
   runningMessage = "Checking...",
   children,
 }: CheckProps) {
-  // Check for duplicate component IDs
-  const { isDuplicate } = useComponentIdRegistry(id, 'Check')
+  // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
@@ -55,10 +54,12 @@ function Check({
     sourceCode,
     language,
     fileError: getFileError,
-    importedVarValues,
-    requiredVariables,
-    hasAllRequiredVariables,
+    inputValues,
+    inputDependencies,
+    hasAllInputDependencies,
     inlineInputsId,
+    unmetOutputDependencies,
+    hasAllOutputDependencies,
     isRendering,
     renderError,
     status: checkStatus,
@@ -66,6 +67,7 @@ function Check({
     execError,
     execute: handleExecute,
     cancel,
+    outputs,
     hasScriptDrift,
   } = useScriptExecution({
     componentId: id,
@@ -126,7 +128,7 @@ function Check({
   }, [title]);
 
   // Check if component requires variables but none are configured
-  const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
+  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
 
   // Track block render on mount
   useEffect(() => {
@@ -162,13 +164,13 @@ function Check({
         componentId: id,
         componentType: 'Check',
         severity: 'warning',
-        message: `Missing Inputs configuration for variables: ${requiredVariables.join(', ')}`
+        message: `Missing Inputs configuration for variables: ${inputDependencies.join(', ')}`
       })
     } else {
       // No error, clear any previously reported error
       clearError(id)
     }
-  }, [id, validationErrors, isDuplicate, getFileError, missingInputsConfig, requiredVariables, reportError, clearError])
+  }, [id, validationErrors, isDuplicate, getFileError, missingInputsConfig, inputDependencies, reportError, clearError])
 
   // Show generic error screen if there are validation errors
   if (validationErrors.length > 0) {
@@ -249,9 +251,20 @@ function Check({
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Duplicate Component ID:</strong><br />
-            Another <code className="bg-red-100 px-1 rounded">{"<Check>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
-            Each component must have a unique ID.
+            {isNormalizedCollision ? (
+              <>
+                <strong>ID Collision:</strong><br />
+                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                hyphens are converted to underscores for template access.
+                Use different IDs to avoid this collision.
+              </>
+            ) : (
+              <>
+                <strong>Duplicate Component ID:</strong><br />
+                Another <code className="bg-red-100 px-1 rounded">{"<Check>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
+                Each component must have a unique ID.
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -282,7 +295,7 @@ function Check({
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
-            This check script requires variables ({requiredVariables.join(', ')}) but no Inputs component is configured. 
+            This check script requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured. 
             Please add either:
             <ul className="list-disc ml-6 mt-2">
               <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<Inputs>"}</code> component as a child</li>
@@ -299,7 +312,8 @@ function Check({
     skipCheck || 
     checkStatus === 'running' || 
     isRendering ||
-    (requiredVariables.length > 0 && !hasAllRequiredVariables);
+    (inputDependencies.length > 0 && !hasAllInputDependencies) ||
+    !hasAllOutputDependencies;
 
   // Main render - form with success indicator overlay if needed
   return (
@@ -395,17 +409,20 @@ function Check({
           <div className="border-b border-gray-300"></div>
           
           {/* Show status messages for waiting/rendering/error states */}      
-          {requiredVariables.length > 0 && !hasAllRequiredVariables && !isRendering && (
-            <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
-              <AlertTriangle className="size-4" />
-              You can run the check once we have values for the following variables: {requiredVariables.filter(varName => {
-                const value = importedVarValues[varName];
-                return value === undefined || value === null || value === '';
-              }).map(varName => formatVariableLabel(varName)).join(', ')}
-            </div>
+          {!isRendering && (
+            <UnmetInputDependenciesWarning
+              blockType="check"
+              inputDependencies={inputDependencies}
+              inputValues={inputValues}
+            />
           )}
           
-          {renderError && (
+          {/* Show unmet output dependencies */}
+          {hasAllInputDependencies && (
+            <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+          )}
+          
+          {renderError && hasAllOutputDependencies && (
             <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
@@ -458,6 +475,10 @@ function Check({
             status={checkStatus}
             autoOpen={checkStatus === 'running'}
             blockId={id}
+          />
+          <ViewOutputs 
+            outputs={outputs}
+            autoOpen={outputs !== null && Object.keys(outputs).length > 0}
           />
           {/* Only show ViewSourceCode if path is used */}
           {path && (

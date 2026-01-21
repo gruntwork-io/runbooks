@@ -1,12 +1,12 @@
 # Capturing Files from Scripts
 
 This runbook demonstrates how scripts can generate files that are automatically captured
-and saved to the `/generated` folder. Files written to the special `$RUNBOOKS_OUTPUT` 
+and saved to the `/generated` folder. Files written to the special `$RUNBOOK_FILES` 
 directory are collected after script execution and appear in the Generated Files panel.
 
 ## How It Works
 
-1. Every script has access to the `$RUNBOOKS_OUTPUT` environment variable
+1. Every script has access to the `$RUNBOOK_FILES` environment variable
 2. Any files written to this directory are captured after the script completes
 3. Captured files are copied to the `/generated` folder in your project
 4. The files appear in the Generated Files panel for easy viewing and downloading
@@ -35,7 +35,7 @@ be used in the next step to generate customized configuration files.
 ## 2. Generate Configuration Files
 
 Now let's generate some configuration files using the variables we just set. The script
-will write files to `$RUNBOOKS_OUTPUT`, which will be captured and copied to `/generated`.
+will write files to `$RUNBOOK_FILES`, which will be captured and copied to `/generated`.
 
 <Command 
     id="generate-files"
@@ -67,7 +67,7 @@ The script creates several files demonstrating different use cases:
 
 ## Summary
 
-The `$RUNBOOKS_OUTPUT` feature enables runbooks to:
+The `$RUNBOOK_FILES` feature enables runbooks to:
 
 - **Generate customized configs** using environment variables from earlier steps
 - **Create complete project scaffolding** with multiple files and directories

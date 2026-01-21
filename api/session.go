@@ -374,7 +374,8 @@ func (s *Session) EnvSlice() []string {
 var excludedEnvVars = map[string]bool{
 	"_":                     true, // Last command
 	"SHLVL":                 true, // Shell level
-	"RUNBOOKS_OUTPUT":       true, // Temp capture dir, deleted after each execution
+	"RUNBOOK_OUTPUT":        true, // Temp file for block outputs, deleted after each execution
+	"RUNBOOK_FILES":         true, // Temp directory for file capture, deleted after each execution
 	"OLDPWD":                true, // Previous directory (we track workdir separately)
 	"FUNCNAME":              true, // Bash function name stack
 	"LINENO":                true, // Current line number

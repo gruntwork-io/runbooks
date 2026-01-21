@@ -9,6 +9,29 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Normalizes a block ID to its canonical form.
+ * 
+ * Go templates don't support hyphens in dot notation (e.g., `._blocks.create-account` fails),
+ * so we convert hyphens to underscores. This means "create-account" and "create_account"
+ * are treated as the same ID.
+ * 
+ * IMPORTANT: This normalization must be applied consistently:
+ * - When registering block outputs (RunbookContext)
+ * - When looking up block outputs (Template, TemplateInline)
+ * - When checking for ID collisions (ComponentIdRegistry)
+ * - When resolving AWS auth dependencies (useScriptExecution)
+ * 
+ * The backend (boilerplate_config.go) also normalizes block IDs when extracting
+ * output dependencies, ensuring frontend-backend consistency.
+ * 
+ * @param id - The raw block ID (may contain hyphens)
+ * @returns The normalized ID with hyphens replaced by underscores
+ */
+export function normalizeBlockId(id: string): string {
+  return id.replace(/-/g, '_')
+}
+
+/**
  * Copies text to the clipboard.
  *
  * - Prefer modern Clipboard API when available

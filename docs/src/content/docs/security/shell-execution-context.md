@@ -110,23 +110,23 @@ Runbooks exposes the following environment variables to all scripts:
 
 | Variable | Description |
 |----------|-------------|
-| `RUNBOOKS_OUTPUT` | Path to a directory where scripts can write files to be captured. Files written here appear in the generated files panel after successful execution. |
+| `RUNBOOK_FILES` | Path to a directory where scripts can write files to be captured. Files written here appear in the generated files panel after successful execution. |
 
 ### Capturing Output Files
 
-To save files to the generated files directory, write them to `$RUNBOOKS_OUTPUT`:
+To save files to the generated files directory, write them to `$RUNBOOK_FILES`:
 
 ```bash
 #!/bin/bash
 # Generate a config and capture it
-tofu output -json > "$RUNBOOKS_OUTPUT/outputs.json"
+tofu output -json > "$RUNBOOK_FILES/outputs.json"
 
 # Create subdirectories as needed
-mkdir -p "$RUNBOOKS_OUTPUT/config"
-echo '{"env": "production"}' > "$RUNBOOKS_OUTPUT/config/settings.json"
+mkdir -p "$RUNBOOK_FILES/config"
+echo '{"env": "production"}' > "$RUNBOOK_FILES/config/settings.json"
 ```
 
-Files are only captured after successful execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOKS_OUTPUT` are discarded.
+Files are only captured after successful execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOK_FILES` are discarded.
 
 See [Capturing Output Files](/authoring/blocks/command/#capturing-output-files) for more details.
 
@@ -241,6 +241,6 @@ The [`demo-runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tr
 
 The [`demo-runbook-capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-capture-files-from-scripts) runbook demonstrates:
 
-- Using `$RUNBOOKS_OUTPUT` to capture generated files
+- Using `$RUNBOOK_FILES` to capture generated files
 - Combining environment persistence with file generation
 - Creating OpenTofu configs from environment variables set in earlier blocks

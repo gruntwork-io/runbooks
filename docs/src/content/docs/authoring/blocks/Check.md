@@ -336,6 +336,53 @@ else
 fi
 ```
 
+## Block Outputs
+
+Check blocks can produce **outputs** that downstream blocks can consume. This enables multi-step workflows where each step builds on the previous one.
+
+### Producing Outputs
+
+Scripts write outputs to a file specified by the `$RUNBOOK_OUTPUT` environment variable. Each output is a `key=value` pair on its own line:
+
+```bash
+#!/bin/bash
+# Verify an account and output its ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Write outputs for downstream blocks
+echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+exit 0
+```
+
+### Consuming Outputs
+
+Reference outputs from other blocks using the `_blocks` namespace in templates:
+
+```bash
+# Use the account ID from the verify-account block
+echo "Using account {{ ._blocks.verify-account.outputs.account_id }}"
+```
+
+The full syntax is: `{{ ._blocks.<block-id>.outputs.<output-name> }}`
+
+### Dependency Behavior
+
+If a block references outputs from another block that hasn't run yet:
+
+- The **Check button is disabled** until the upstream block executes
+- A **warning message** shows which blocks need to run first
+- The template shows the raw syntax until outputs are available
+
+### Viewing Outputs
+
+After a block runs, you can view its outputs by clicking **"View Outputs"** below the log viewer. Outputs are displayed in a table and can be copied as JSON.
+
+For more details on block outputs, see the [Command block documentation](/authoring/blocks/command/#block-outputs).
+
+:::tip[See It in Action]
+Check out the [demo-runbook-outputs](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-outputs) example for a complete working demonstration of block outputs, including a Check block that consumes outputs from upstream Command blocks.
+:::
+
 ## Common Use Cases
 
 The `<Check>` block works especially well for:

@@ -1,0 +1,249 @@
+# Block Outputs Demo
+
+This runbook demonstrates how blocks can produce outputs that downstream blocks consume.
+
+## How It Works
+
+### Block Outputs
+
+1. Scripts write outputs to the `$RUNBOOK_OUTPUT` environment variable file
+2. The format is `key=value`, one per line
+3. Downstream blocks access outputs via `{{ ._blocks.block_id.outputs.outputName }}`
+
+**Note:** Block IDs with hyphens are converted to underscores in template syntax (Go templates don't support hyphens in dot notation). For example, a block with `id="create-account"` is accessed as `{{ ._blocks.create_account.outputs.x }}`.
+
+### Standard Inputs vs Block Outputs
+
+This runbook demonstrates both syntaxes:
+
+- **Standard inputs** (from `<Inputs>` blocks): `{{ .variableName }}`
+- **Block outputs** (from previous Command/Check blocks): `{{ ._blocks.block_id.outputs.outputName }}`
+
+Both can be used together in the same script or template.
+
+### Outputs in Templates
+
+Template blocks can also use block outputs! When a Template references outputs:
+
+1. Runbooks scans template files for `{{ ._blocks.*.outputs.* }}` patterns
+2. The Template shows a warning if those outputs don't exist yet
+3. The Generate button is disabled until all output dependencies are satisfied
+4. Once the required Commands/Checks have run, the Template can be generated
+
+## Step 1: Create Account
+
+This command simulates creating an AWS account and outputs the account ID.
+
+<Command 
+  id="create-account" 
+  path="scripts/create-account.sh"
+  title="Create AWS Account"
+  description="Creates a new AWS account and outputs the account ID and region"
+/>
+
+## Step 2: Create Resources
+
+This command uses the account ID from Step 1 to create resources.
+
+**Note**: You must run Step 1 first to produce the required outputs.
+
+<Command 
+  id="create-resources" 
+  path="scripts/create-resources.sh"
+  title="Create Resources"
+  description="Creates IAM resources in the new account"
+/>
+
+## Step 3: Tag Resources (Mixed Syntax Example)
+
+This step demonstrates using **both** standard inputs and block outputs together in the same script.
+
+### Syntax Comparison
+
+| Source | Syntax | Example |
+|--------|--------|---------|
+| Inputs block | `{{ .VariableName }}` | `{{ .environment }}` |
+| Block outputs | `{{ ._blocks.block_id.outputs.key }}` | `{{ ._blocks.create_account.outputs.account_id }}` |
+
+<Inputs id="tagging-inputs">
+```yaml
+variables:
+  - name: environment
+    type: enum
+    description: The target environment for these resources
+    options:
+      - dev
+      - staging
+      - prod
+    default: dev
+  - name: owner
+    type: string
+    description: Team or individual responsible for these resources
+    validations: "required"
+```
+</Inputs>
+
+<Command 
+  id="tag-resources" 
+  path="scripts/tag-resources.sh"
+  inputsId="tagging-inputs"
+  title="Tag Resources"
+  description="Applies tags using inputs AND outputs from previous steps"
+/>
+
+## Step 4: Generate Configuration (Template with Outputs)
+
+This step demonstrates using **block outputs in a Template block**. The template below generates OpenTofu/Terraform configuration files that reference the `account_id` and `region` outputs from Step 1.
+
+### How Template Output Dependencies Work
+
+1. When the Template loads, it scans template files for `{{ ._blocks.*.outputs.* }}` patterns
+2. If those outputs don't exist yet, a warning is shown and the Generate button is disabled
+3. Once you run Step 1, the outputs become available and you can generate the template
+
+<Template 
+  id="account-config"
+  path="templates/account-config"
+/>
+
+**Template syntax used:**
+```hcl
+# Values populated from the create-account Command's outputs
+account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+region     = "{{ ._blocks.create_account.outputs.region }}"
+```
+
+## Step 5: Preview Configuration (TemplateInline with Outputs)
+
+This step demonstrates using **block outputs in a TemplateInline block**. Unlike Template blocks which load from a directory, TemplateInline renders inline template content directly in the runbook.
+
+The preview below shows the account summary using outputs from Step 1:
+
+<TemplateInline outputPath="account-summary.txt">
+```txt
+=== Account Summary ===
+
+Account ID: {{ ._blocks.create_account.outputs.account_id }}
+Region:     {{ ._blocks.create_account.outputs.region }}
+
+This account was created and is ready for use.
+```
+</TemplateInline>
+
+### Combining Inputs and Outputs in TemplateInline
+
+You can also combine standard inputs with block outputs:
+
+<TemplateInline inputsId="tagging-inputs" outputPath="resource-tags.json">
+```json
+{
+  "account_id": "{{ ._blocks.create_account.outputs.account_id }}",
+  "region": "{{ ._blocks.create_account.outputs.region }}",
+  "environment": "{{ .environment }}",
+  "owner": "{{ .owner }}"
+}
+```
+</TemplateInline>
+
+## Step 6: Working with Lists and Maps in Outputs
+
+This step demonstrates outputting **lists and maps** (as JSON strings) and iterating over them in templates using `fromJson` and `range`.
+
+### Outputting Complex Data
+
+Scripts can output complex data structures by serializing them as JSON:
+
+```bash
+# Output a list as JSON
+echo "users=[\"alice\",\"bob\",\"charlie\"]" >> "$RUNBOOK_OUTPUT"
+
+# Output a nested map/object as JSON  
+echo "teams={\"engineering\":{\"lead\":\"alice\"}}" >> "$RUNBOOK_OUTPUT"
+```
+
+<Command 
+  id="list-users" 
+  path="scripts/list-users.sh"
+  title="List Organization Users"
+  description="Fetches users and teams, outputting them as JSON for downstream templates"
+/>
+
+### Iterating Over a List
+
+Use `fromJson` to parse the JSON string, then `range` to iterate:
+
+<TemplateInline outputPath="users.txt">
+```txt
+=== Organization Users ===
+{{- range (fromJson ._blocks.list_users.outputs.users) }}
+- {{ . }}
+{{- end }}
+```
+</TemplateInline>
+
+### Iterating Over a Map
+
+For maps/objects, use `range $key, $value` to access both keys and values:
+
+<TemplateInline outputPath="teams.yaml">
+```yaml
+# Team Configuration
+teams:
+{{- range $teamName, $teamData := (fromJson ._blocks.list_users.outputs.teams) }}
+  {{ $teamName }}:
+    lead: {{ $teamData.lead }}
+    members:
+    {{- range $teamData.members }}
+      - {{ . }}
+    {{- end }}
+{{- end }}
+```
+</TemplateInline>
+
+### Combining List Outputs with Inputs
+
+You can combine list outputs with user inputs for more dynamic templates:
+
+<Inputs id="team-filter">
+```yaml
+variables:
+  - name: team_name
+    type: enum
+    description: Select a team to view
+    options:
+      - engineering
+      - product
+    default: engineering
+```
+</Inputs>
+
+<TemplateInline inputsId="team-filter" outputPath="team-report.md">
+```markdown
+# Team Report: {{ .team_name }}
+
+{{- $teams := (fromJson ._blocks.list_users.outputs.teams) }}
+{{- $team := index $teams .team_name }}
+
+**Team Lead:** {{ $team.lead }}
+
+**Members:**
+{{- range $team.members }}
+- {{ . }}
+{{- end }}
+
+---
+Generated from block outputs and user selection.
+```
+</TemplateInline>
+
+## Step 7: Verify Setup
+
+This check validates that everything was set up correctly.
+
+<Check 
+  id="verify-setup" 
+  path="scripts/verify-setup.sh"
+  title="Verify Setup"
+  successMessage="All resources created and verified!"
+  failMessage="Verification failed - check the outputs above"
+/>

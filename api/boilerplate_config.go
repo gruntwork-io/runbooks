@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,20 @@ import (
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 	"gopkg.in/yaml.v3"
 )
+
+// normalizeBlockID converts a block ID to its canonical form by replacing
+// hyphens with underscores. This normalization is required because Go templates
+// don't support hyphens in dot notation (e.g., ._blocks.create-account fails).
+//
+// This function must be used consistently across both frontend and backend:
+// - Frontend: when registering/looking up outputs (RunbookContext)
+// - Frontend: when checking output dependencies (Template, TemplateInline)
+// - Backend: when extracting output dependencies from templates
+//
+// Example: "create-account" → "create_account"
+func normalizeBlockID(id string) string {
+	return strings.ReplaceAll(id, "-", "_")
+}
 
 // This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
 //
@@ -58,13 +73,15 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 
 		var content string
 		var err error
+		var templateDir string // Track the template directory for output dependency scanning
 
 		if req.TemplatePath != "" {
 			// Extract the directory from the runbookPath (which we assume is a file path)
 			runbookDir := filepath.Dir(runbookPath)
 
-			// Construct the full path
-			fullPath := filepath.Join(runbookDir, req.TemplatePath, "boilerplate.yml")
+			// Construct the full path to boilerplate.yml and remember template dir
+			templateDir = filepath.Join(runbookDir, req.TemplatePath)
+			fullPath := filepath.Join(templateDir, "boilerplate.yml")
 			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
 
 			// Check if the file exists
@@ -106,10 +123,19 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 		return
 	}
 
-	// Include the raw YAML content in the response
-	config.RawYaml = content
+	// If we have a template directory, scan for output dependencies in template files
+	if templateDir != "" {
+		outputDeps, err := extractOutputDependenciesFromTemplateDir(templateDir)
+		if err != nil {
+			// Log warning but don't fail - output dependency scanning is best-effort
+			slog.Warn("Failed to extract output dependencies from template directory", "templateDir", templateDir, "error", err)
+		} else if len(outputDeps) > 0 {
+			config.OutputDependencies = outputDeps
+			slog.Info("Found output dependencies in template files", "count", len(outputDeps), "dependencies", outputDeps)
+		}
+	}
 
-	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables))
+	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables), "outputDepCount", len(config.OutputDependencies))
 	// Return the parsed configuration
 	c.JSON(http.StatusOK, config)
 	}
@@ -150,7 +176,7 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 		slog.Debug("Variable validation info", "name", variable.Name(), "validationCount", len(variable.Validations()), "required", isRequired)
 
 		// Use the variable type as-is (no fallback since we enforce strict schema adherence)
-		variableType := string(variable.Type())
+		variableType := BoilerplateVarType(variable.Type())
 
 		boilerplateVar := BoilerplateVariable{
 			Name:        variable.Name(),
@@ -445,4 +471,168 @@ func convertToJSONSerializable(value interface{}) interface{} {
 	default:
 		return value
 	}
+}
+
+// isBinaryFile detects if a file is binary using a hybrid approach:
+// 1. First, use MIME type detection for known binary formats (images, audio, video, etc.)
+// 2. For unknown types (application/octet-stream), fall back to null-byte detection
+//
+// This approach is robust because:
+// - It handles any file type, including custom/unusual extensions
+// - It's the same heuristic used by git and other tools
+// - It doesn't require maintaining a list of known extensions
+func isBinaryFile(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	// Read enough for both MIME detection (512 bytes) and null-byte check (8KB like git)
+	buf := make([]byte, 8192)
+	n, err := file.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil // Empty files are treated as text
+	}
+
+	// First: check MIME type using Go's built-in sniffer
+	mimeType := http.DetectContentType(buf[:n])
+	mimeType = strings.Split(mimeType, ";")[0] // Remove charset suffix
+	mimeType = strings.TrimSpace(mimeType)
+
+	// Known text types - definitely not binary
+	if strings.HasPrefix(mimeType, "text/") {
+		return false, nil
+	}
+
+	// Known binary types - skip these files
+	if strings.HasPrefix(mimeType, "image/") ||
+		strings.HasPrefix(mimeType, "audio/") ||
+		strings.HasPrefix(mimeType, "video/") ||
+		strings.HasPrefix(mimeType, "font/") ||
+		mimeType == "application/pdf" ||
+		mimeType == "application/zip" ||
+		mimeType == "application/gzip" ||
+		mimeType == "application/x-gzip" ||
+		mimeType == "application/x-tar" ||
+		mimeType == "application/x-rar-compressed" ||
+		mimeType == "application/x-7z-compressed" ||
+		mimeType == "application/x-executable" ||
+		mimeType == "application/x-mach-binary" ||
+		mimeType == "application/x-sharedlib" ||
+		mimeType == "application/vnd.ms-excel" ||
+		mimeType == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+		mimeType == "application/msword" ||
+		mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		return true, nil
+	}
+
+	// For application/octet-stream (unknown) or other types,
+	// fall back to null-byte detection - binary files contain null bytes, text files don't
+	for i := 0; i < n; i++ {
+		if buf[i] == 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// OutputDependencyRegex matches {{ ._blocks.blockId.outputs.outputName }} patterns
+// with optional whitespace and pipe functions.
+//
+// IMPORTANT: Keep in sync with the TypeScript implementation in:
+//   web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
+//
+// Both implementations are validated against testdata/output-dependency-patterns.json
+// to ensure they produce identical results. Run tests in both languages after any changes.
+var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
+
+// extractOutputDependenciesFromContent extracts output dependencies from string content.
+// This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
+func extractOutputDependenciesFromContent(content string) []OutputDependency {
+	var dependencies []OutputDependency
+	seen := make(map[string]bool)
+
+	matches := OutputDependencyRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) >= 3 {
+			originalBlockID := match[1]
+			normalizedBlockID := normalizeBlockID(originalBlockID)
+			outputName := match[2]
+			// FullPath uses normalized ID for consistent lookups in Go templates
+			fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, outputName)
+
+			// Deduplicate
+			if !seen[fullPath] {
+				seen[fullPath] = true
+				dependencies = append(dependencies, OutputDependency{
+					BlockID:    originalBlockID, // Preserve original for display/reference
+					OutputName: outputName,
+					FullPath:   fullPath,
+				})
+			}
+		}
+	}
+
+	return dependencies
+}
+
+// extractOutputDependenciesFromTemplateDir scans all template files in a directory
+// for {{ ._blocks.blockId.outputs.outputName }} patterns and returns unique dependencies.
+// This allows Template blocks to show warnings when dependent Check/Command blocks
+// haven't been executed yet.
+func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDependency, error) {
+	var dependencies []OutputDependency
+	seen := make(map[string]bool)
+
+	// Walk the template directory
+	err := filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Skip binary files using content-based detection
+		isBinary, err := isBinaryFile(path)
+		if err != nil {
+			slog.Warn("Failed to check if file is binary", "path", path, "error", err)
+			return nil // Continue scanning other files
+		}
+		if isBinary {
+			return nil
+		}
+
+		// Read file content
+		content, err := os.ReadFile(path)
+		if err != nil {
+			slog.Warn("Failed to read template file for output dependency extraction", "path", path, "error", err)
+			return nil // Continue scanning other files
+		}
+
+		// Extract dependencies from this file's content
+		fileDeps := extractOutputDependenciesFromContent(string(content))
+		for _, dep := range fileDeps {
+			// Deduplicate across all files
+			if !seen[dep.FullPath] {
+				seen[dep.FullPath] = true
+				dependencies = append(dependencies, dep)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan template directory for output dependencies: %w", err)
+	}
+
+	return dependencies, nil
 }

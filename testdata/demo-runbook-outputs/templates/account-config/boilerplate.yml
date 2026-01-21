@@ -1,0 +1,11 @@
+variables:
+  - name: config_name
+    description: Name for this configuration
+    type: string
+    default: "account-config"
+    validations: "required"
+
+  - name: description
+    description: Description of this configuration
+    type: string
+    default: "Generated account configuration"

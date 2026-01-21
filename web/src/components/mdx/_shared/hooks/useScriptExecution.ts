@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
-import { useImportedVarValues } from '@/contexts/useBlockVariables'
+import { useInputs, useRunbookContext, useAllOutputs, inputsToValues, type InputValue } from '@/contexts/useRunbook'
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
@@ -9,21 +9,30 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
+import { extractOutputDependenciesFromString, type OutputDependency, groupDependenciesByBlock } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
+import { normalizeBlockId } from '@/lib/utils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 interface UseScriptExecutionProps {
   componentId: string
   path?: string
   command?: string
-  /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
+  /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
-  /** Reference to an AwsAuth block by ID for AWS credentials. */
+  /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables for this execution only. */
   awsAuthId?: string
   children?: ReactNode
   componentType: ComponentType
+}
+
+/** Information about an unmet output dependency */
+export interface UnmetOutputDependency {
+  blockId: string
+  outputNames: string[]
 }
 
 interface UseScriptExecutionReturn {
@@ -35,10 +44,15 @@ interface UseScriptExecutionReturn {
   fileError: AppError | null
   
   // Variables
-  importedVarValues: Record<string, unknown>
-  requiredVariables: string[]
-  hasAllRequiredVariables: boolean
+  inputValues: Record<string, unknown>
+  inputDependencies: string[]
+  hasAllInputDependencies: boolean
   inlineInputsId: string | null
+  
+  // Output dependencies
+  outputDependencies: OutputDependency[]
+  unmetOutputDependencies: UnmetOutputDependency[]
+  hasAllOutputDependencies: boolean
   
   // Rendering
   isRendering: boolean
@@ -50,6 +64,9 @@ interface UseScriptExecutionReturn {
   execError: AppError | null
   execute: () => void
   cancel: () => void
+  
+  // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT)
+  outputs: Record<string, string> | null
   
   // Drift detection (script changed on disk since runbook was opened)
   hasScriptDrift: boolean
@@ -77,12 +94,21 @@ export function useScriptExecution({
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
   
+  // Get runbook context for registering outputs and getting template variables
+  const { registerOutputs, getTemplateVariables } = useRunbookContext()
+  
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
     // Update the file tree with the new tree from the backend
     // The fileTree is already validated by Zod in useApiExec
     setFileTree(event.fileTree)
   }, [setFileTree])
+  
+  // Callback to handle outputs captured from script execution
+  const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {
+    // Register outputs in the runbook context so other blocks can access them
+    registerOutputs(componentId, outputValues)
+  }, [componentId, registerOutputs])
   
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
@@ -143,8 +169,8 @@ export function useScriptExecution({
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
   
-  // Build the list of inputsIds for template variables (inline has highest precedence, so it goes last)
-  const templateInputsIds = useMemo(() => {
+  // Build the complete list of inputsIds to merge (inline has highest precedence, so it goes last)
+  const allInputsIds = useMemo(() => {
     const ids: string[] = []
     
     // Add external inputsId(s) first
@@ -164,26 +190,83 @@ export function useScriptExecution({
     return ids
   }, [inputsId, inlineInputsId])
   
-  // Get template variables from BlockVariablesContext (for {{ .VarName }} substitution)
-  const importedVarValues = useImportedVarValues(templateInputsIds.length > 0 ? templateInputsIds : undefined)
+  // Get inputs for API requests and derive values map for lookups
+  const inputs = useInputs(allInputsIds.length > 0 ? allInputsIds : undefined)
+  const inputValues = useMemo(() => inputsToValues(inputs), [inputs])
   
-  // Get AWS auth variables separately (for environment variable injection)
-  const awsAuthVarValues = useImportedVarValues(awsAuthId)
-  
-  // Extract template variables from script content
-  const requiredVariables = useMemo(() => {
+  // Extract template variables from script content (input dependencies)
+  const inputDependencies = useMemo(() => {
     return extractTemplateVariables(rawScriptContent)
   }, [rawScriptContent])
   
-  // Check if we have all required variables
-  const hasAllRequiredVariables = useMemo(() => {
-    if (requiredVariables.length === 0) return true // No variables needed
+  // Check if we have all input dependencies satisfied
+  const hasAllInputDependencies = useMemo(() => {
+    if (inputDependencies.length === 0) return true // No variables needed
     
-    return requiredVariables.every(varName => {
-      const value = importedVarValues[varName]
+    return inputDependencies.every(varName => {
+      const value = inputValues[varName]
       return value !== undefined && value !== null && value !== ''
     })
-  }, [requiredVariables, importedVarValues])
+  }, [inputDependencies, inputValues])
+  
+  // Get all block outputs from context to check dependencies
+  const allOutputs = useAllOutputs()
+  
+  // Get AWS auth credentials from outputs if awsAuthId is specified
+  // These will be passed as per-execution env vars (overriding session env)
+  const awsAuthEnvVars = useMemo((): Record<string, string> | undefined => {
+    if (!awsAuthId) return undefined
+    
+    const normalizedId = normalizeBlockId(awsAuthId)
+    const blockOutputs = allOutputs[normalizedId]
+    
+    if (!blockOutputs?.values) return undefined
+    
+    // Return the outputs as env vars (only include non-empty values)
+    const envVars: Record<string, string> = {}
+    for (const [key, value] of Object.entries(blockOutputs.values)) {
+      if (value !== '') {
+        envVars[key] = value
+      }
+    }
+    
+    return Object.keys(envVars).length > 0 ? envVars : undefined
+  }, [awsAuthId, allOutputs])
+  
+  // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
+  const outputDependencies = useMemo(() => {
+    return extractOutputDependenciesFromString(rawScriptContent)
+  }, [rawScriptContent])
+  
+  // Check which output dependencies are not yet satisfied
+  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
+    if (outputDependencies.length === 0) return []
+    
+    // Group dependencies by block
+    const byBlock = groupDependenciesByBlock(outputDependencies)
+    const unmet: UnmetOutputDependency[] = []
+    
+    for (const [blockId, outputNames] of byBlock) {
+      // Normalize for lookup since outputs are stored under normalized IDs
+      const normalizedId = normalizeBlockId(blockId)
+      const blockData = allOutputs[normalizedId]
+      if (!blockData) {
+        // Block hasn't produced any outputs yet - preserve original blockId for display
+        unmet.push({ blockId, outputNames })
+      } else {
+        // Check which specific outputs are missing
+        const missingOutputs = outputNames.filter(name => !(name in blockData.values))
+        if (missingOutputs.length > 0) {
+          unmet.push({ blockId, outputNames: missingOutputs })
+        }
+      }
+    }
+    
+    return unmet
+  }, [outputDependencies, allOutputs])
+  
+  // Check if all output dependencies are satisfied
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0
   
   // State for rendered script content
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
@@ -207,9 +290,12 @@ export function useScriptExecution({
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
   
   // Use the API exec hook for real script execution
-  // Pass onFilesCaptured callback to update file tree when scripts write to $RUNBOOKS_OUTPUT
+  // Pass onFilesCaptured callback to update file tree when command captures files
+  // Pass onFilesCaptured and onOutputsCaptured callbacks
+  // Files written to $RUNBOOK_FILES are automatically captured after successful execution
   const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
+    onOutputsCaptured: handleOutputsCaptured,
   })
   
   // Map exec state to our status type, handling warn status for Check components
@@ -221,14 +307,15 @@ export function useScriptExecution({
   
   const logs = execState.logs
   const execError = execState.error
+  const outputs = execState.outputs
   
   // Register logs with global context whenever they change
   useEffect(() => {
     registerLogs(componentId, logs)
   }, [componentId, logs, registerLogs])
 
-  // Function to render script with variables
-  const renderScript = useCallback(async (variables: Record<string, unknown>) => {
+  // Function to render script with inputs
+  const renderScript = useCallback(async (inputs: InputValue[]) => {
     // Cancel any pending render request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -249,9 +336,6 @@ export function useScriptExecution({
       // 'script.sh' is just a filename identifier for the API request/response
       // Each API call is isolated, so no risk of collision between components
       'script.sh': rawScriptContent,
-      // Minimal boilerplate config - no variables or dependencies needed since
-      // we're just doing template substitution with externally-provided values
-      'boilerplate.yml': 'variables: []'
     }
     
     try {
@@ -260,7 +344,7 @@ export function useScriptExecution({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           templateFiles,
-          variables
+          inputs,
         }),
         signal: abortController.signal
       })
@@ -308,21 +392,36 @@ export function useScriptExecution({
   
   // Auto-update when variables change (debounced)
   useEffect(() => {
-    // Only render if we have template variables and all required variables are available
-    if (requiredVariables.length === 0) {
+    // Only render if we have template variables and all input dependencies are available
+    if (inputDependencies.length === 0) {
       // No template variables, use raw script
       setRenderedScript(null)
       return
     }
     
-    if (!hasAllRequiredVariables) {
-      // Required variables not available yet
+    if (!hasAllInputDependencies) {
+      // Input dependencies not available yet
       return
     }
     
-    // Check if variables actually changed
-    const variablesKey = JSON.stringify(importedVarValues)
-    if (variablesKey === lastRenderedVariablesRef.current) {
+    // Build inputs array for the API:
+    // 1. Include input variables (with proper types for JSON-to-Go conversion)
+    // 2. Add _blocks namespace as a map type for block output references
+    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
+    for (const [blockId, data] of Object.entries(allOutputs)) {
+      blocksNamespace[blockId] = { outputs: data.values }
+    }
+    
+    const inputsForRender: InputValue[] = [
+      // Filter out any input named "_blocks" since that's a reserved system namespace
+      ...inputs.filter(i => i.name !== '_blocks'),
+      // Add _blocks as a map type containing all block outputs
+      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace },
+    ]
+    
+    // Check if inputs actually changed
+    const inputsKey = JSON.stringify(inputsForRender)
+    if (inputsKey === lastRenderedVariablesRef.current) {
       return
     }
     
@@ -331,14 +430,14 @@ export function useScriptExecution({
       clearTimeout(autoUpdateTimerRef.current)
     }
     
-    // Capture current variables in closure to avoid race condition
-    const variablesToRender = importedVarValues
-    const keyToStore = variablesKey
+    // Capture current inputs in closure to avoid race condition
+    const inputsToRender = inputsForRender
+    const keyToStore = inputsKey
     
     // Debounce: wait 300ms after last change before rendering
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = keyToStore
-      renderScript(variablesToRender)
+      renderScript(inputsToRender)
     }, 300)
     
     // Cleanup: clear timer when effect re-runs or on unmount
@@ -347,23 +446,27 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [importedVarValues, requiredVariables.length, hasAllRequiredVariables, renderScript])
+  }, [inputValues, allOutputs, inputs, inputDependencies.length, hasAllInputDependencies, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {
     // Clear any previous registry error
     setRegistryError(null)
     
-    // Convert template variables to strings (for {{ .VarName }} substitution)
-    const stringVariables: Record<string, string> = {}
-    for (const [key, value] of Object.entries(importedVarValues)) {
-      stringVariables[key] = String(value)
-    }
+    // Get merged template variables (inputs at root + _blocks namespace)
+    const templateVars = getTemplateVariables(allInputsIds.length > 0 ? allInputsIds : undefined)
     
-    // Convert AWS auth variables to strings (for environment variable injection)
-    const envVars: Record<string, string> = {}
-    for (const [key, value] of Object.entries(awsAuthVarValues)) {
-      envVars[key] = String(value)
+    // Convert input variables to strings, but preserve _blocks structure as-is
+    // for nested template access like {{ ._blocks.create-account.outputs.account_id }}
+    const processedVariables: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(templateVars)) {
+      if (key === '_blocks') {
+        // Keep _blocks as nested object for Go template engine
+        processedVariables[key] = value
+      } else {
+        // Convert other values to strings
+        processedVariables[key] = String(value)
+      }
     }
     
     if (execRegistryEnabled) {
@@ -381,12 +484,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, stringVariables, envVars)
+      executeScript(executable.id, processedVariables as Record<string, string>, awsAuthEnvVars)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, stringVariables, envVars)
+      executeByComponentId(componentId, processedVariables as Record<string, string>, awsAuthEnvVars)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, importedVarValues, awsAuthVarValues])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
@@ -417,10 +520,15 @@ export function useScriptExecution({
     fileError: getFileError,
     
     // Variables
-    importedVarValues,
-    requiredVariables,
-    hasAllRequiredVariables,
+    inputValues,
+    inputDependencies,
+    hasAllInputDependencies,
     inlineInputsId,
+    
+    // Output dependencies
+    outputDependencies,
+    unmetOutputDependencies,
+    hasAllOutputDependencies,
     
     // Rendering
     isRendering,
@@ -432,6 +540,9 @@ export function useScriptExecution({
     execError: combinedExecError,
     execute,
     cancel: cancelExec,
+    
+    // Block outputs
+    outputs,
     
     // Drift detection
     hasScriptDrift,

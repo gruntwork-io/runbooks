@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,12 +18,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
 	ExecutableID      string            `json:"executable_id,omitempty"` // Used when useExecutableRegistry=true
 	ComponentID       string            `json:"component_id,omitempty"`  // Used when useExecutableRegistry=false
-	TemplateVarValues map[string]string `json:"template_var_values"`     // Values for template variables ({{ .VarName }} substitution)
-	EnvVars           map[string]string `json:"env_vars"`                // Environment variables to set for this execution only (overrides session env)
+	TemplateVarValues map[string]any    `json:"template_var_values"`     // Values for template variables (can include nested _blocks)
+	EnvVarsOverride   map[string]string `json:"env_vars_override,omitempty"` // Environment variables to set for this execution only (overrides session env)
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -50,7 +55,37 @@ type CapturedFile struct {
 	Size int64  `json:"size"` // File size in bytes
 }
 
-// HandleExecRequest handles the execution of scripts and streams output via SSE
+// BlockOutputsEvent represents outputs produced by a script via $RUNBOOK_OUTPUT
+type BlockOutputsEvent struct {
+	Outputs map[string]string `json:"outputs"` // Key-value pairs from the script
+}
+
+// execCommandConfig holds configuration for setting up an exec.Cmd
+type execCommandConfig struct {
+	scriptPath  string
+	interpreter string
+	args        []string
+	execCtx     *SessionExecContext
+	envVars     map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
+	outputFile  string            // Temp file for block outputs (RUNBOOK_OUTPUT)
+	filesDir    string            // Temp directory for file capture (RUNBOOK_FILES)
+}
+
+// envCaptureConfig holds configuration for environment capture after script execution
+type envCaptureConfig struct {
+	envCapturePath string
+	pwdCapturePath string
+	isBashScript   bool
+	sessionManager *SessionManager
+	execCtx        *SessionExecContext
+}
+
+// =============================================================================
+// Main Handler
+// =============================================================================
+
+// HandleExecRequest handles the execution of scripts and streams output via SSE.
+// This handler must be used with SessionAuthMiddleware to ensure session context is available.
 func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
@@ -59,69 +94,59 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
-		// Validate session token if Authorization header is provided
-		var execCtx *SessionExecContext
-		token := extractBearerToken(c)
-		if token != "" {
-			var valid bool
-			execCtx, valid = sessionManager.ValidateToken(token)
-			if !valid {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
-				return
-			}
-		}
-
-		var executable *Executable
-		var err error
-
-		if useExecutableRegistry {
-			// Registry mode: Validate against registry
-			if req.ExecutableID == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "executable_id is required"})
-				return
-			}
-
-			var ok bool
-			executable, ok = registry.GetExecutable(req.ExecutableID)
-			if !ok {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Executable not found in registry"})
-				return
-			}
-		} else {
-			// Live reload mode: Parse runbook on-demand
-			if req.ComponentID == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "component_id is required"})
-				return
-			}
-
-			executable, err = getExecutableByComponentID(runbookPath, req.ComponentID)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to find component: %v", err)})
-				return
-			}
-		}
-
-		// Get script content
-		scriptContent := executable.ScriptContent
-
-		// If this executable has template variables, render them with provided values
-		if len(executable.TemplateVarNames) > 0 && len(req.TemplateVarValues) > 0 {
-			rendered, err := renderBoilerplateContent(scriptContent, req.TemplateVarValues)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to render template: %v", err)})
-				return
-			}
-			scriptContent = rendered
-		}
-
-		// Create capture directory for RUNBOOKS_OUTPUT
-		// Scripts can write files here to have them captured to the output directory
-		captureDir, err := os.MkdirTemp("", "runbook-output-*")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create capture directory: %v", err)})
+		// Get session context (set by SessionAuthMiddleware)
+		execCtx := GetSessionExecContext(c)
+		if execCtx == nil {
+			// This shouldn't happen if middleware is configured correctly
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session context not found. This is a server configuration error."})
 			return
 		}
-		defer os.RemoveAll(captureDir)
+
+		// Get executable from registry or by parsing runbook
+		executable, err := getExecutable(registry, runbookPath, useExecutableRegistry, req)
+		if err != nil {
+			c.JSON(err.statusCode, gin.H{"error": err.message})
+			return
+		}
+
+		// Prepare script content (render templates if needed)
+		scriptContent, err2 := prepareScriptContent(executable, req.TemplateVarValues)
+		if err2 != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err2.Error()})
+			return
+		}
+
+		// Create a temp directory for file capture (RUNBOOK_FILES)
+		// Scripts can write files here to have them captured to the output directory
+		filesDir, err2 := os.MkdirTemp("", "runbook-files-*")
+		if err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create files directory: %v", err2)})
+			return
+		}
+		defer os.RemoveAll(filesDir)
+
+		// Create a temp file for block outputs (RUNBOOK_OUTPUT)
+		outputFilePath, err2 := createOutputFile()
+		if err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err2.Error()})
+			return
+		}
+		defer os.Remove(outputFilePath)
+
+		// Create temp files for environment capture (used to capture env changes after script execution)
+		envCapturePath, err2 := createTempFile("runbook-env-capture-*.txt")
+		if err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create env capture file: %v", err2)})
+			return
+		}
+		defer os.Remove(envCapturePath)
+
+		pwdCapturePath, err2 := createTempFile("runbook-pwd-capture-*.txt")
+		if err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create pwd capture file: %v", err2)})
+			return
+		}
+		defer os.Remove(pwdCapturePath)
 
 		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
@@ -129,113 +154,63 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		c.Header("Connection", "keep-alive")
 		c.Header("Transfer-Encoding", "chunked")
 
-		// Create temp files for environment capture (used to capture env changes after script execution)
-		var envCapturePath, pwdCapturePath string
-		if execCtx != nil {
-			envFile, err := os.CreateTemp("", "runbook-env-capture-*.txt")
-			if err != nil {
-				sendSSEError(c, fmt.Sprintf("Failed to create env capture file: %v", err))
-				return
-			}
-			envCapturePath = envFile.Name()
-			envFile.Close()
-			defer os.Remove(envCapturePath)
-
-			pwdFile, err := os.CreateTemp("", "runbook-pwd-capture-*.txt")
-			if err != nil {
-				sendSSEError(c, fmt.Sprintf("Failed to create pwd capture file: %v", err))
-				return
-			}
-			pwdCapturePath = pwdFile.Name()
-			pwdFile.Close()
-			defer os.Remove(pwdCapturePath)
-		}
-
-		// Create a temporary file for the script
-		tmpFile, err := os.CreateTemp("", "runbook-check-*.sh")
-		if err != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to create temp file: %v", err))
-			return
-		}
-		defer os.Remove(tmpFile.Name())
-
 		// Detect interpreter from shebang or use language from executable
 		// We need this BEFORE deciding whether to wrap, so we can skip wrapping for non-bash scripts
 		interpreter, args := detectInterpreter(scriptContent, executable.Language)
 
-		// Write script content to temp file
-		// If we have a session AND the script is bash-compatible, wrap to capture environment changes.
+		// Wrap script for environment capture if bash-compatible
 		// Non-bash scripts (Python, Ruby, etc.) cannot have their environment changes captured because:
 		// 1. The wrapper is bash code that wouldn't be valid in other interpreters
 		// 2. Even if we ran non-bash scripts separately, their os.environ changes only affect
 		//    their own subprocess and wouldn't propagate back to the session
 		scriptToWrite := scriptContent
-		isBashCompatible := isBashInterpreter(interpreter)
-		if execCtx != nil && isBashCompatible {
+		isBashScript := isBashInterpreter(interpreter)
+		if isBashScript {
 			scriptToWrite = wrapScriptForEnvCapture(scriptContent, envCapturePath, pwdCapturePath)
 		}
 
-		if _, err := tmpFile.WriteString(scriptToWrite); err != nil {
-			tmpFile.Close()
-			sendSSEError(c, fmt.Sprintf("Failed to write script: %v", err))
+		// Create temporary executable script
+		scriptPath, err2 := createTempScript(scriptToWrite)
+		if err2 != nil {
+			sendSSEError(c, err2.Error())
 			return
 		}
-
-		// Make the file executable
-		if err := os.Chmod(tmpFile.Name(), 0700); err != nil {
-			tmpFile.Close()
-			sendSSEError(c, fmt.Sprintf("Failed to make script executable: %v", err))
-			return
-		}
-		tmpFile.Close()
+		defer os.Remove(scriptPath)
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		// Prepare command
-		cmdArgs := append(args, tmpFile.Name())
-		cmd := exec.CommandContext(ctx, interpreter, cmdArgs...)
-
-		// Set environment variables
-		// If we have a session, use the session's environment; otherwise use the process environment
-		if execCtx != nil {
-			cmd.Env = execCtx.Env
-		} else {
-			cmd.Env = os.Environ()
+		// Set up command configuration
+		cmdConfig := execCommandConfig{
+			scriptPath:  scriptPath,
+			interpreter: interpreter,
+			args:        args,
+			execCtx:     execCtx,
+			envVars:     req.EnvVarsOverride,
+			outputFile:  outputFilePath,
+			filesDir:    filesDir,
 		}
 
-		// Apply per-request environment variables (e.g., AWS credentials from awsAuthId)
-		// These override any session env vars with the same name
-		if len(req.EnvVars) > 0 {
-			cmd.Env = mergeEnvVars(cmd.Env, req.EnvVars)
-		}
-
-		// Add RUNBOOKS_OUTPUT environment variable
-		// Scripts can write files to this directory to have them captured to the output
-		cmd.Env = append(cmd.Env, "RUNBOOKS_OUTPUT="+captureDir)
-
-		// Set working directory from session if available
-		if execCtx != nil {
-			cmd.Dir = execCtx.WorkDir
-		}
+		// Create and configure the command
+		cmd := setupExecCommand(ctx, cmdConfig)
 
 		// Get stdout and stderr pipes
-		stdoutPipe, err := cmd.StdoutPipe()
-		if err != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to create stdout pipe: %v", err))
+		stdoutPipe, err2 := cmd.StdoutPipe()
+		if err2 != nil {
+			sendSSEError(c, fmt.Sprintf("Failed to create stdout pipe: %v", err2))
 			return
 		}
 
-		stderrPipe, err := cmd.StderrPipe()
-		if err != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to create stderr pipe: %v", err))
+		stderrPipe, err2 := cmd.StderrPipe()
+		if err2 != nil {
+			sendSSEError(c, fmt.Sprintf("Failed to create stderr pipe: %v", err2))
 			return
 		}
 
 		// Start the command
-		if err := cmd.Start(); err != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to start script: %v", err))
+		if err2 := cmd.Start(); err2 != nil {
+			sendSSEError(c, fmt.Sprintf("Failed to start script: %v", err2))
 			return
 		}
 
@@ -243,10 +218,8 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		outputChan := make(chan string, 100)
 		doneChan := make(chan error, 1)
 
-		// Stream stdout
+		// Stream stdout and stderr
 		go streamOutput(stdoutPipe, outputChan)
-
-		// Stream stderr
 		go streamOutput(stderrPipe, outputChan)
 
 		// Wait for command to complete
@@ -262,95 +235,329 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 
 		// Stream logs and wait for completion
-		for {
-			select {
-			case line := <-outputChan:
+		envCaptureConfig := &envCaptureConfig{
+			envCapturePath: envCapturePath,
+			pwdCapturePath: pwdCapturePath,
+			isBashScript:   isBashScript,
+			sessionManager: sessionManager,
+			execCtx:        execCtx,
+		}
+		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, cliOutputPath, envCaptureConfig)
+	}
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// execError is a helper type for returning HTTP errors from getExecutable
+type execError struct {
+	statusCode int
+	message    string
+}
+
+// getExecutable retrieves the executable either from registry or by parsing the runbook
+func getExecutable(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, req ExecRequest) (*Executable, *execError) {
+	if useExecutableRegistry {
+		// Registry mode: Validate against registry
+		if req.ExecutableID == "" {
+			return nil, &execError{http.StatusBadRequest, "executable_id is required"}
+		}
+
+		executable, ok := registry.GetExecutable(req.ExecutableID)
+		if !ok {
+			return nil, &execError{http.StatusNotFound, "Executable not found in registry"}
+		}
+		return executable, nil
+	}
+
+	// Live reload mode: Parse runbook on-demand
+	if req.ComponentID == "" {
+		return nil, &execError{http.StatusBadRequest, "component_id is required"}
+	}
+
+	executable, err := getExecutableByComponentID(runbookPath, req.ComponentID)
+	if err != nil {
+		return nil, &execError{http.StatusBadRequest, fmt.Sprintf("Failed to find component: %v", err)}
+	}
+	return executable, nil
+}
+
+// prepareScriptContent renders template variables in the script content if provided
+func prepareScriptContent(executable *Executable, templateVars map[string]any) (string, error) {
+	scriptContent := executable.ScriptContent
+
+	// If template variable values are provided, render the template
+	// This handles both simple {{ .VarName }} patterns and nested paths like {{ ._blocks.xxx.outputs.yyy }}
+	if len(templateVars) > 0 {
+		rendered, err := renderBoilerplateContent(scriptContent, templateVars)
+		if err != nil {
+			return "", fmt.Errorf("failed to render template: %w", err)
+		}
+		return rendered, nil
+	}
+	return scriptContent, nil
+}
+
+// createOutputFile creates a temporary file for RUNBOOK_OUTPUT
+func createOutputFile() (string, error) {
+	outputFile, err := os.CreateTemp("", "runbook-output-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("failed to create output file: %w", err)
+	}
+	path := outputFile.Name()
+	outputFile.Close() // Close so the script can write to it
+	return path, nil
+}
+
+// createTempScript creates a temporary executable script file
+// Returns the path to the script file (caller must clean up)
+func createTempScript(content string) (string, error) {
+	tmpFile, err := os.CreateTemp("", "runbook-script-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write script: %w", err)
+	}
+
+	if err := os.Chmod(tmpFile.Name(), 0700); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to make script executable: %w", err)
+	}
+	tmpFile.Close()
+
+	return tmpFile.Name(), nil
+}
+
+// setupExecCommand creates and configures an exec.Cmd with the given configuration
+func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
+	cmdArgs := append(cfg.args, cfg.scriptPath)
+	cmd := exec.CommandContext(ctx, cfg.interpreter, cmdArgs...)
+
+	// Set environment variables from the session
+	cmd.Env = cfg.execCtx.Env
+
+	// Apply per-request env var overrides (e.g., AWS credentials for specific auth block)
+	// These override any session env vars with the same key
+	if len(cfg.envVars) > 0 {
+		cmd.Env = mergeEnvVars(cmd.Env, cfg.envVars)
+	}
+
+	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
+	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
+
+	// Add RUNBOOK_FILES environment variable for file capture
+	// Scripts can write files to this directory to have them saved to the output directory
+	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", cfg.filesDir))
+
+	// Set working directory from session
+	if cfg.execCtx.WorkDir != "" {
+		cmd.Dir = cfg.execCtx.WorkDir
+	}
+
+	return cmd
+}
+
+// mergeEnvVars merges override env vars into a base env slice.
+// Override values replace any existing keys in the base slice.
+func mergeEnvVars(base []string, overrides map[string]string) []string {
+	// Build a map from existing env for efficient lookup
+	envMap := make(map[string]int, len(base)) // key -> index in result
+	result := make([]string, 0, len(base)+len(overrides))
+
+	for _, entry := range base {
+		if idx := strings.Index(entry, "="); idx != -1 {
+			key := entry[:idx]
+			envMap[key] = len(result)
+			result = append(result, entry)
+		}
+	}
+
+	// Apply overrides
+	for key, value := range overrides {
+		entry := key + "=" + value
+		if idx, exists := envMap[key]; exists {
+			// Replace existing entry
+			result[idx] = entry
+		} else {
+			// Add new entry
+			result = append(result, entry)
+		}
+	}
+
+	return result
+}
+
+// determineExitStatus converts an exec error and context into exit code and status string
+func determineExitStatus(err error, ctx context.Context) (int, string) {
+	if err == nil {
+		return 0, "success"
+	}
+
+	exitCode := 1
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		exitCode = exitErr.ExitCode()
+	} else if ctx.Err() == context.DeadlineExceeded {
+		return -1, "fail"
+	}
+
+	// Map exit code to status
+	switch exitCode {
+	case 0:
+		return 0, "success"
+	case 2:
+		return 2, "warn"
+	default:
+		return exitCode, "fail"
+	}
+}
+
+// streamExecutionOutput handles the main loop of streaming output and handling completion
+func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan string, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
+	for {
+		select {
+		case line := <-outputChan:
+			sendSSELog(c, line)
+			flusher.Flush()
+
+		case err := <-doneChan:
+			// Send any remaining logs
+			for len(outputChan) > 0 {
+				line := <-outputChan
 				sendSSELog(c, line)
 				flusher.Flush()
+			}
 
-			case err := <-doneChan:
-				// Send any remaining logs
-				for len(outputChan) > 0 {
-					line := <-outputChan
-					sendSSELog(c, line)
+			// Determine exit code and status
+			exitCode, status := determineExitStatus(err, ctx)
+
+			// Log timeout message if applicable
+			if ctx.Err() == context.DeadlineExceeded {
+				sendSSELog(c, "Script execution timed out after 5 minutes")
+				flusher.Flush()
+			}
+
+			// Send final status event
+			sendSSEStatus(c, status, exitCode)
+			flusher.Flush()
+
+			// Parse and send block outputs (if any were written to RUNBOOK_OUTPUT)
+			if status == "success" || status == "warn" {
+				outputs, parseErr := parseBlockOutputs(outputFilePath)
+				if parseErr != nil {
+					slog.Warn("Failed to parse block outputs", "error", parseErr)
+				} else if len(outputs) > 0 {
+					sendSSEOutputs(c, outputs)
 					flusher.Flush()
 				}
+			}
 
-				// Determine exit code and status
-				exitCode := 0
-				status := "success"
-
-				if err != nil {
-					if exitErr, ok := err.(*exec.ExitError); ok {
-						exitCode = exitErr.ExitCode()
-					} else if ctx.Err() == context.DeadlineExceeded {
-						exitCode = -1
-						status = "fail"
-						sendSSELog(c, "Script execution timed out after 5 minutes")
-						flusher.Flush()
-					} else {
-						exitCode = 1
-						status = "fail"
+			// Capture environment changes from bash scripts and update session
+			// Non-bash scripts (Python, Ruby, etc.) don't get environment capture - their env changes
+			// only affect their own subprocess and can't propagate back to the session.
+			if envCapture != nil && envCapture.isBashScript && (status == "success" || status == "warn") {
+				capturedEnv, capturedPwd := parseEnvCapture(envCapture.envCapturePath, envCapture.pwdCapturePath)
+				if capturedEnv != nil {
+					// Filter out shell internals
+					filteredEnv := FilterCapturedEnv(capturedEnv)
+					// Determine new working directory (use captured pwd, or fall back to the original)
+					newWorkDir := envCapture.execCtx.WorkDir
+					if capturedPwd != "" {
+						newWorkDir = capturedPwd
 					}
-				}
-
-				// Map exit code to status
-				if exitCode == 0 {
-					status = "success"
-				} else if exitCode == 2 {
-					status = "warn"
-				} else {
-					status = "fail"
-				}
-
-				// Send final status event
-				sendSSEStatus(c, status, exitCode)
-				flusher.Flush()
-
-				// Update session environment if we have a session, the script is bash-compatible, and execution succeeded.
-				// We capture env even on warnings since the script may have made partial changes.
-				// Non-bash scripts (Python, Ruby, etc.) don't get environment capture - their env changes
-				// only affect their own subprocess and can't propagate back to the session.
-				if execCtx != nil && isBashCompatible && (status == "success" || status == "warn") {
-					capturedEnv, capturedPwd := parseEnvCapture(envCapturePath, pwdCapturePath)
-					if capturedEnv != nil {
-						// Filter out shell internals
-						filteredEnv := FilterCapturedEnv(capturedEnv)
-						// Determine new working directory (use captured pwd, or fall back to the original)
-						newWorkDir := execCtx.WorkDir
-						if capturedPwd != "" {
-							newWorkDir = capturedPwd
-						}
-						// Update session (ignore errors, non-critical)
-						if err := sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir); err != nil {
-							// If the session was deleted concurrently, we can't update it.
-							// Log a warning to the user's console.
-							// TODO: Surface this warning in the UI, perhaps with a toaster notification
-							sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
-						}
-					}
-				}
-
-				// Capture files from RUNBOOKS_OUTPUT if execution was successful (or warning)
-				// Scripts can write files to $RUNBOOKS_OUTPUT to have them captured
-				if status == "success" || status == "warn" {
-					capturedFiles, captureErr := copyFilesFromCaptureDir(captureDir, cliOutputPath)
-					if captureErr != nil {
-						sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
-						flusher.Flush()
-					} else if len(capturedFiles) > 0 {
-						sendSSEFilesCaptured(c, capturedFiles, cliOutputPath)
+					// Update session (ignore errors, non-critical)
+					if err := envCapture.sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir); err != nil {
+						// If the session was deleted concurrently, we can't update it.
+						sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
 						flusher.Flush()
 					}
 				}
+			}
 
-				// Send done event
-				sendSSEDone(c)
-				flusher.Flush()
-				return
+			// Capture files from RUNBOOK_FILES directory if execution was successful (or warning)
+			// Scripts can write files to $RUNBOOK_FILES to have them saved to the output directory
+			if status == "success" || status == "warn" {
+				capturedFiles, captureErr := captureFilesFromDir(filesDir, cliOutputPath)
+				if captureErr != nil {
+					sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
+					flusher.Flush()
+				} else if len(capturedFiles) > 0 {
+					sendSSEFilesCaptured(c, capturedFiles, cliOutputPath)
+					flusher.Flush()
+				}
+			}
+
+			// Send done event
+			sendSSEDone(c)
+			flusher.Flush()
+			return
+		}
+	}
+}
+
+// detectInterpreter detects the interpreter from the shebang line or uses provided language
+func detectInterpreter(script string, providedLang string) (string, []string) {
+	// If language is explicitly provided, use it
+	if providedLang != "" {
+		return providedLang, []string{}
+	}
+
+	// Parse shebang line
+	lines := strings.Split(script, "\n")
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
+		shebang := strings.TrimSpace(lines[0][2:]) // Remove #!
+
+		// Handle common patterns
+		if strings.Contains(shebang, "/env ") {
+			// e.g. #!/usr/bin/env python3 -> ["python3"]
+			parts := strings.Fields(shebang)
+			if len(parts) >= 2 {
+				return parts[1], parts[2:]
+			}
+		} else {
+			// e.g. #!/bin/bash -> ["bash"]
+			parts := strings.Fields(shebang)
+			if len(parts) >= 1 {
+				// Get just the binary name (e.g., "bash" from "/bin/bash")
+				interpreter := parts[0]
+				if idx := strings.LastIndex(interpreter, "/"); idx != -1 {
+					interpreter = interpreter[idx+1:]
+				}
+				return interpreter, parts[1:]
 			}
 		}
 	}
+
+	// Default to bash
+	return "bash", []string{}
+}
+
+// isBashInterpreter returns true if the interpreter is a bash-compatible shell.
+// Used to determine if environment capture wrapping should be applied.
+func isBashInterpreter(interpreter string) bool {
+	switch interpreter {
+	case "bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh":
+		return true
+	default:
+		return false
+	}
+}
+
+// createTempFile creates a temporary file and returns its path.
+// The file is closed immediately so other processes can write to it.
+func createTempFile(pattern string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	f.Close()
+	return path, nil
 }
 
 // wrapScriptForEnvCapture wraps a script to capture environment changes after execution.
@@ -360,32 +567,16 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 //
 // The wrapper executes in the same shell context as the user script, allowing environment
 // variable changes (export FOO=bar) and directory changes (cd /somewhere) to be captured.
-// When the script exits (normally or via explicit `exit`), we dump the environment using
-// `env -0` (NUL-terminated to handle values with embedded newlines like RSA keys or JSON)
-// and the working directory using `pwd`.
 //
-// ## The trap override problem
+// ## Handling user EXIT traps
 //
-// A key challenge is that user scripts may set their own EXIT traps (e.g., for cleanup):
+// If the user script sets an EXIT trap (e.g., `trap "cleanup" EXIT`), it would normally
+// override our environment capture trap. To handle this, we:
+//  1. Define a custom `trap` function that intercepts EXIT trap registrations
+//  2. Store the user's EXIT handler in a variable instead of actually setting the trap
+//  3. Our combined exit handler runs both: user's handler first, then env capture
 //
-//	trap "rm -rf $TEMP_DIR" EXIT
-//
-// In bash, only one trap handler can exist per signal. If we naively set our own EXIT trap
-// at the start of the wrapper, the user's trap would override it, and we'd never capture
-// the environment.
-//
-// ## Solution: Intercept the trap builtin
-//
-// We solve this by defining a shell function named `trap` that shadows the builtin.
-// When the user script calls `trap "cleanup" EXIT`, our function intercepts it:
-//
-//  1. We detect it's an EXIT trap (signal 0 or "EXIT")
-//  2. We save the user's handler string to __RUNBOOKS_USER_EXIT_HANDLER
-//  3. We return without actually setting the trap (so ours remains active)
-//
-// For non-EXIT traps (e.g., SIGINT, SIGTERM), we pass through to `builtin trap`.
-//
-// Our combined exit handler (__runbooks_combined_exit) runs when the script exits and:
+// This ensures:
 //  1. Executes the user's saved handler first (so their cleanup runs)
 //  2. Then captures the environment
 //  3. Preserves the original exit code
@@ -618,89 +809,6 @@ func isValidEnvVarName(name string) bool {
 	return true
 }
 
-// mergeEnvVars merges per-request environment variables into an existing env slice.
-// Per-request vars override existing vars with the same name.
-// This is used to apply awsAuthId credentials to specific command executions
-// without affecting the global session environment.
-func mergeEnvVars(baseEnv []string, overrides map[string]string) []string {
-	// Build a map of existing env vars for quick lookup
-	envMap := make(map[string]int) // maps key to index in result slice
-	result := make([]string, 0, len(baseEnv)+len(overrides))
-
-	// Copy base env and track indices
-	for _, env := range baseEnv {
-		if idx := strings.Index(env, "="); idx > 0 {
-			key := env[:idx]
-			envMap[key] = len(result)
-		}
-		result = append(result, env)
-	}
-
-	// Apply overrides
-	for key, value := range overrides {
-		entry := key + "=" + value
-		if idx, exists := envMap[key]; exists {
-			// Override existing value
-			result[idx] = entry
-		} else {
-			// Add new env var
-			result = append(result, entry)
-			envMap[key] = len(result) - 1
-		}
-	}
-
-	return result
-}
-
-// detectInterpreter detects the interpreter from the shebang line or uses provided language
-func detectInterpreter(script string, providedLang string) (string, []string) {
-	// If language is explicitly provided, use it
-	if providedLang != "" {
-		return providedLang, []string{}
-	}
-
-	// Parse shebang line
-	lines := strings.Split(script, "\n")
-	if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
-		shebang := strings.TrimSpace(lines[0][2:]) // Remove #!
-
-		// Handle common patterns
-		if strings.Contains(shebang, "/env ") {
-			// e.g. #!/usr/bin/env python3 -> ["python3"]
-			parts := strings.Fields(shebang)
-			if len(parts) >= 2 {
-				return parts[1], parts[2:]
-			}
-		} else {
-			// e.g. #!/bin/bash -> ["bash"]
-			parts := strings.Fields(shebang)
-			if len(parts) >= 1 {
-				// Get just the binary name (e.g., "bash" from "/bin/bash")
-				interpreter := parts[0]
-				if idx := strings.LastIndex(interpreter, "/"); idx != -1 {
-					interpreter = interpreter[idx+1:]
-				}
-				return interpreter, parts[1:]
-			}
-		}
-	}
-
-	// Default to bash
-	return "bash", []string{}
-}
-
-// isBashInterpreter returns true if the interpreter is bash or sh compatible.
-// Only bash-compatible scripts can have their environment changes captured,
-// because the environment capture wrapper is written in bash.
-func isBashInterpreter(interpreter string) bool {
-	switch interpreter {
-	case "bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh":
-		return true
-	default:
-		return false
-	}
-}
-
 // streamOutput reads from a pipe and sends lines to the output channel
 func streamOutput(pipe io.ReadCloser, outputChan chan<- string) {
 	scanner := bufio.NewScanner(pipe)
@@ -709,70 +817,39 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- string) {
 	}
 }
 
-// sendSSELog sends a log event via SSE
-func sendSSELog(c *gin.Context, line string) {
-	event := ExecLogEvent{
-		Line:      line,
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-	c.SSEvent("log", event)
-}
-
-// sendSSEStatus sends a status event via SSE
-func sendSSEStatus(c *gin.Context, status string, exitCode int) {
-	event := ExecStatusEvent{
-		Status:   status,
-		ExitCode: exitCode,
-	}
-	c.SSEvent("status", event)
-}
-
-// sendSSEDone sends a done event via SSE
-func sendSSEDone(c *gin.Context) {
-	c.SSEvent("done", gin.H{})
-}
-
-// sendSSEError sends an error event and closes the connection
-func sendSSEError(c *gin.Context, message string) {
-	c.SSEvent("error", gin.H{"message": message})
-	if flusher, ok := c.Writer.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
-// copyFilesFromCaptureDir copies all files from the capture directory (RUNBOOKS_OUTPUT) to the output directory.
+// captureFilesFromDir copies all files from the source directory (RUNBOOK_FILES) to the output directory.
 // Returns a list of captured files with their relative paths and sizes.
-// If the capture directory is empty, returns nil with no error.
-func copyFilesFromCaptureDir(captureDir, outputDir string) ([]CapturedFile, error) {
-	var capturedFiles []CapturedFile
-
-	// Check if capture directory has any files
-	entries, err := os.ReadDir(captureDir)
+// If the source directory is empty, returns nil with no error.
+func captureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
+	// Check if source directory has any files
+	entries, err := os.ReadDir(srcDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read capture directory: %w", err)
+		return nil, fmt.Errorf("failed to read files directory: %w", err)
 	}
 	if len(entries) == 0 {
 		return nil, nil // No files to capture
 	}
+
+	var capturedFiles []CapturedFile
 
 	// Create the output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Walk the capture directory and copy all files
-	err = filepath.Walk(captureDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+	// Walk the source directory and copy all files
+	err = filepath.Walk(srcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 
 		// Skip the root directory itself
-		if srcPath == captureDir {
+		if srcPath == srcDir {
 			return nil
 		}
 
-		// Get the relative path from the capture directory
-		relPath, err := filepath.Rel(captureDir, srcPath)
+		// Get the relative path from the source directory
+		relPath, err := filepath.Rel(srcDir, srcPath)
 		if err != nil {
 			return fmt.Errorf("failed to get relative path: %w", err)
 		}
@@ -786,7 +863,6 @@ func copyFilesFromCaptureDir(captureDir, outputDir string) ([]CapturedFile, erro
 				return err
 			}
 			// Ensure correct permissions are set, as MkdirAll won't update them if the dir exists
-			// (can happen due to filepath.Walk's lexical order - a file inside may be processed first)
 			return os.Chmod(dstPath, info.Mode())
 		}
 
@@ -842,6 +918,110 @@ func copyFile(src, dst string) error {
 	return err
 }
 
+// parseBlockOutputs reads the RUNBOOK_OUTPUT file and parses key=value pairs
+// Format: one key=value per line, keys must match ^[a-zA-Z_][a-zA-Z0-9_]*$
+// Returns a map of outputs, or empty map if file is empty/missing
+func parseBlockOutputs(filePath string) (map[string]string, error) {
+	outputs := make(map[string]string)
+
+	// Read the file
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// File doesn't exist - script didn't write any outputs
+			return outputs, nil
+		}
+		return nil, fmt.Errorf("failed to read output file: %w", err)
+	}
+
+	// Parse line by line
+	lines := strings.Split(string(content), "\n")
+	for lineNum, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Find the first = sign
+		eqIdx := strings.Index(line, "=")
+		if eqIdx == -1 {
+			slog.Warn("Invalid output line (no = sign)", "line", lineNum+1, "content", line)
+			continue
+		}
+
+		key := strings.TrimSpace(line[:eqIdx])
+		value := line[eqIdx+1:] // Don't trim value - preserve whitespace
+
+		// Validate key format
+		if !isValidOutputKey(key) {
+			slog.Warn("Invalid output key", "line", lineNum+1, "key", key)
+			continue
+		}
+
+		outputs[key] = value
+	}
+
+	return outputs, nil
+}
+
+// isValidOutputKey checks if a key matches ^[a-zA-Z_][a-zA-Z0-9_]*$
+func isValidOutputKey(key string) bool {
+	if len(key) == 0 {
+		return false
+	}
+
+	// First character must be letter or underscore
+	first := key[0]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+		return false
+	}
+
+	// Rest must be alphanumeric or underscore
+	for i := 1; i < len(key); i++ {
+		c := key[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+
+	return true
+}
+
+// =============================================================================
+// SSE Event Helpers
+// =============================================================================
+
+// sendSSELog sends a log event via SSE
+func sendSSELog(c *gin.Context, line string) {
+	event := ExecLogEvent{
+		Line:      line,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	c.SSEvent("log", event)
+}
+
+// sendSSEStatus sends a status event via SSE
+func sendSSEStatus(c *gin.Context, status string, exitCode int) {
+	event := ExecStatusEvent{
+		Status:   status,
+		ExitCode: exitCode,
+	}
+	c.SSEvent("status", event)
+}
+
+// sendSSEDone sends a done event via SSE
+func sendSSEDone(c *gin.Context) {
+	c.SSEvent("done", gin.H{})
+}
+
+// sendSSEError sends an error event and closes the connection
+func sendSSEError(c *gin.Context, message string) {
+	c.SSEvent("error", gin.H{"message": message})
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 // sendSSEFilesCaptured sends a files_captured event via SSE with the list of captured files
 // and the updated file tree
 func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
@@ -859,4 +1039,18 @@ func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutpu
 		FileTree: fileTree,
 	}
 	c.SSEvent("files_captured", event)
+}
+
+// sendSSEOutputs sends an outputs event via SSE with the parsed outputs
+func sendSSEOutputs(c *gin.Context, outputs map[string]string) {
+	event := BlockOutputsEvent{
+		Outputs: outputs,
+	}
+	jsonBytes, err := json.Marshal(event)
+	if err != nil {
+		slog.Error("Failed to marshal outputs event", "error", err)
+		return
+	}
+	// Write SSE event manually to match gin's format (no spaces after colons)
+	c.Writer.WriteString(fmt.Sprintf("event:outputs\ndata:%s\n\n", string(jsonBytes)))
 }

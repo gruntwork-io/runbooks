@@ -254,14 +254,14 @@ func TestRenderBoilerplateContent(t *testing.T) {
 	tests := []struct {
 		name      string
 		content   string
-		variables map[string]string
+		variables map[string]any
 		expected  string
 		wantErr   bool
 	}{
 		{
 			name:    "simple variable substitution",
 			content: "Hello {{ .Name }}!",
-			variables: map[string]string{
+			variables: map[string]any{
 				"Name": "World",
 			},
 			expected: "Hello World!",

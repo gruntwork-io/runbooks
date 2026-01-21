@@ -9,7 +9,7 @@ import { Inputs } from '@/components/mdx/Inputs'
 import { Template } from '@/components/mdx/Template'
 import { TemplateInline } from '@/components/mdx/TemplateInline'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
-import { BlockVariablesProvider } from '@/contexts/BlockVariablesContext'
+import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
@@ -81,7 +81,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <BlockVariablesProvider>
+        <RunbookContextProvider>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -100,7 +100,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
             </div>
             <CustomMDXComponent />
           </CustomMDXComponentErrorBoundary>
-        </BlockVariablesProvider>
+        </RunbookContextProvider>
       </ComponentIdRegistryProvider>
     </div>
   )

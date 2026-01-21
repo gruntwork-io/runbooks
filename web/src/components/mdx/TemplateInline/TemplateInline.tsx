@@ -2,13 +2,18 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
-import { useImportedVarValues, useGeneratedYaml } from '@/contexts/useBlockVariables'
+import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
+import type { UnmetOutputDependency } from '@/components/mdx/_shared/hooks/useScriptExecution'
+import { useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
+import { extractOutputDependencies, groupDependenciesByBlock } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
+import { normalizeBlockId } from '@/lib/utils'
 
 interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
@@ -49,56 +54,103 @@ function TemplateInline({
   // Get file tree for merging
   const { setFileTree } = useFileTree();
   
-  // NEW: Use simplified hooks from BlockVariablesContext
-  // These automatically handle merging when inputsId is an array
-  const importedVarValues = useImportedVarValues(inputsId);
-  const boilerplateYaml = useGeneratedYaml(inputsId);
+  // Get inputs for API requests and derive values map for lookups
+  const inputs = useInputs(inputsId);
+  const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
   
-  // Extract required variables from template content
-  const requiredVariables = useMemo(() => {
+  // Get all block outputs to check dependencies and pass to template rendering
+  const allOutputs = useAllOutputs();
+  
+  // Extract input dependencies from template content
+  const inputDependencies = useMemo(() => {
     return extractTemplateVariables(children);
   }, [children]);
+  
+  // Extract output dependencies from template content ({{ ._blocks.*.outputs.* }} patterns)
+  const outputDependencies = useMemo(() => {
+    return extractOutputDependencies(children);
+  }, [children]);
+  
+  // Compute unmet output dependencies
+  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
+    if (outputDependencies.length === 0) return [];
+    
+    // Group dependencies by block ID
+    const byBlock = groupDependenciesByBlock(outputDependencies);
+    const unmet: UnmetOutputDependency[] = [];
+    
+    for (const [blockId, outputNames] of byBlock) {
+      const normalizedId = normalizeBlockId(blockId);
+      const blockData = allOutputs[normalizedId];
+      
+      if (!blockData) {
+        // Block hasn't produced any outputs yet
+        unmet.push({ blockId, outputNames });
+      } else {
+        // Check which specific outputs are missing
+        const missingOutputs = outputNames.filter(name => !(name in blockData.values));
+        if (missingOutputs.length > 0) {
+          unmet.push({ blockId, outputNames: missingOutputs });
+        }
+      }
+    }
+    
+    return unmet;
+  }, [outputDependencies, allOutputs]);
+  
+  // Check if all output dependencies are satisfied
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
   
   // Extract template content from children
   // MDX compiles code blocks into a nested React element structure (pre > code > text),
   // so we need to traverse it to extract the actual content. Returns a Record because
   // the Boilerplate API expects a files map (filename → content), even for a single file.
   const templateFiles = useMemo(() => {
-    const files = extractTemplateFiles(children, outputPath);
-    
-    // Include merged boilerplate.yml so backend knows variable types
-    if (boilerplateYaml && boilerplateYaml !== 'variables: []') {
-      files['boilerplate.yml'] = boilerplateYaml;
-    }
-    
-    return files;
-  }, [children, outputPath, boilerplateYaml]);
+    return extractTemplateFiles(children, outputPath);
+  }, [children, outputPath]);
   
-  // Helper to check if all required variables are present
-  const hasAllRequiredVariables = useCallback((vars: Record<string, unknown>): boolean => {
-    if (requiredVariables.length === 0) return true;
+  // Helper to check if all input dependencies are satisfied
+  const hasAllInputDependencies = useCallback((vars: Record<string, unknown>): boolean => {
+    if (inputDependencies.length === 0) return true;
     
-    return requiredVariables.every(varName => {
+    return inputDependencies.every(varName => {
       const value = vars[varName];
       return value !== undefined && value !== null && value !== '';
     });
-  }, [requiredVariables]);
+  }, [inputDependencies]);
+  
+  // Build the _blocks namespace for template rendering
+  const buildBlocksNamespace = useCallback((): Record<string, { outputs: Record<string, string> }> => {
+    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {};
+    for (const [blockId, data] of Object.entries(allOutputs)) {
+      blocksNamespace[blockId] = { outputs: data.values };
+    }
+    return blocksNamespace;
+  }, [allOutputs]);
   
   // Core render function that calls the API
-  const renderTemplate = useCallback(async (vars: Record<string, unknown>, isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
+  const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
     // Only show loading state for initial renders, not auto-updates
     if (!isAutoUpdate) {
       setIsRendering(true);
     }
     setError(null);
     
+    // Build inputs array including _blocks namespace for output access
+    const inputsWithBlocks = [
+      ...inputs.filter(i => i.name !== '_blocks'),
+      { name: '_blocks', type: BoilerplateVariableType.Map, value: buildBlocksNamespace() }
+    ];
+    
     try {
       const response = await fetch('/api/boilerplate/render-inline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          templateFiles, 
-          variables: vars,
+          templateFiles,
+          // Send inputs with name, type, and value for proper type conversion
+          // Includes _blocks namespace for output access
+          inputs: inputsWithBlocks,
           generateFile,
           // Note: outputPath is already used to name the file in templateFiles,
           // so we don't need to send it separately for directory determination
@@ -134,21 +186,28 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, generateFile]);
+  }, [templateFiles, inputs, generateFile, buildBlocksNamespace]);
   
-  // Render when imported values change (handles both initial render and updates)
+  // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
-    // Check if we have all required variables
-    // Note that TemplateInline is a pure consumer of variables, so it only has importedVarValues
-    if (!hasAllRequiredVariables(importedVarValues)) {
+    // Check if we have all input dependencies
+    if (!hasAllInputDependencies(inputValues)) {
       return;
     }
     
-    // Check if values actually changed
-    const valuesKey = JSON.stringify(importedVarValues);
-    if (valuesKey === lastRenderedVariablesRef.current) {
+    // Check if we have all output dependencies
+    if (!hasAllOutputDependencies) {
+      return;
+    }
+    
+    // Check if inputs actually changed (includes both values and types)
+    const valuesKey = JSON.stringify(inputs);
+    const outputsKey = JSON.stringify(allOutputs);
+    const combinedKey = `${valuesKey}|${outputsKey}`;
+    
+    if (combinedKey === lastRenderedVariablesRef.current) {
       return;
     }
     
@@ -164,10 +223,10 @@ function TemplateInline({
     const delay = isInitialRender ? 0 : 300;
     
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = valuesKey;
+      lastRenderedVariablesRef.current = combinedKey;
       hasTriggeredInitialRender.current = true;
       
-      renderTemplate(importedVarValues, !isInitialRender)
+      renderTemplate(!isInitialRender)
         .then(newFileTree => {
           // Only update file tree if generateFile is true
           // The backend returns the complete output directory tree, so we simply replace
@@ -179,7 +238,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [importedVarValues, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -192,30 +251,37 @@ function TemplateInline({
   
   // Render UI
   return (
-    renderState === 'waiting' ? (
-      <LoadingDisplay message="Fill in the variables above and click the Submit button to render this code snippet." />
-    ) : isRendering ? (
-      <LoadingDisplay message="Rendering template..." />
-    ) : error ? (
-      <ErrorDisplay error={error} />
-    ) : renderData?.renderedFiles ? (
-      <>
-        {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (
-          <CodeFile
-            key={filename}
-            fileName={fileData.name}
-            filePath={fileData.path}
-            code={fileData.content}
-            language={fileData.language}
-            showLineNumbers={true}
-            showCopyCodeButton={true}
-            showCopyPathButton={true}
-          />
-        ))}
-      </>
-    ) : (
-      <LoadingDisplay message="Waiting for template to render..." />
-    )
+    <div>
+      {/* Show warning for unmet output dependencies */}
+      {!hasAllOutputDependencies && (
+        <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+      )}
+      
+      {renderState === 'waiting' ? (
+        <LoadingDisplay message="Fill in the values above and click the Submit button to render this code snippet." />
+      ) : isRendering ? (
+        <LoadingDisplay message="Rendering template..." />
+      ) : error ? (
+        <ErrorDisplay error={error} />
+      ) : renderData?.renderedFiles ? (
+        <>
+          {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (
+            <CodeFile
+              key={filename}
+              fileName={fileData.name}
+              filePath={fileData.path}
+              code={fileData.content}
+              language={fileData.language}
+              showLineNumbers={true}
+              showCopyCodeButton={true}
+              showCopyPathButton={true}
+            />
+          ))}
+        </>
+      ) : (
+        <LoadingDisplay message="Waiting for template to render..." />
+      )}
+    </div>
   )
 }
 

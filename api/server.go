@@ -51,12 +51,20 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
-	// Session management endpoints (single session per runbook server)
-	// Public session endpoints (no auth required)
+	// Session management endpoints
+	//
+	// Security model:
+	// - Localhost binding (127.0.0.1) protects against remote attackers
+	// - Bearer token protects sensitive endpoints (exec, session ops) against:
+	//   1. CSRF attacks from malicious websites (browsers don't auto-send bearer tokens)
+	//   2. Other local processes that don't have the token
+	// - Unauthenticated endpoints are lower-risk (read-only info, no command execution)
+	//
+	// These endpoints must be unauthenticated (chicken-and-egg: need to get a token first)
 	r.POST("/api/session", HandleCreateSession(sessionManager, runbookPath))
 	r.POST("/api/session/join", HandleJoinSession(sessionManager))
 
-	// Protected session endpoints (require Bearer token)
+	// Session-scoped endpoints (require Bearer token for session context + CSRF protection)
 	sessionAuth := r.Group("/api/session")
 	sessionAuth.Use(SessionAuthMiddleware(sessionManager))
 	{
@@ -66,14 +74,21 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		sessionAuth.PATCH("/env", HandleSetSessionEnv(sessionManager))
 	}
 
-	// API endpoint to execute check scripts
-	r.POST("/api/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
+	// Execution endpoint (token required: runs arbitrary commands, high-risk without auth)
+	protectedAPI := r.Group("/api")
+	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
+	{
+		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
+	}
 
-	// API endpoints for managing generated files
+	// Generated files endpoints (no session context needed)
 	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
 	r.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(outputPath))
 
 	// AWS authentication endpoints
+	// No token required: lower risk (no command execution, no secrets exposed), and allows
+	// AWS auth UI to render before session is created. /profiles only returns profile names
+	// and auth types, not credentials or config values like SSO URLs or account IDs.
 	r.POST("/api/aws/validate", HandleAwsValidate())
 	r.GET("/api/aws/profiles", HandleAwsProfiles())
 	r.POST("/api/aws/profile", HandleAwsProfileAuth())

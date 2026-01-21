@@ -8,6 +8,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+// sessionExecCtxKey is the key used to store SessionExecContext in gin.Context.
+// Using a constant prevents typos and makes it easy to find all usages.
+const sessionExecCtxKey = "sessionExecCtx"
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// SetEnvRequest represents the request body for setting environment variables.
+type SetEnvRequest struct {
+	Env map[string]string `json:"env" binding:"required"`
+}
+
+// =============================================================================
+// Handlers
+// =============================================================================
+
 // HandleCreateSession creates a new session and returns the token.
 // POST /api/session
 // No authentication required.
@@ -44,23 +65,6 @@ func HandleJoinSession(sm *SessionManager) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, response)
-	}
-}
-
-// SessionAuthMiddleware validates the Bearer token and aborts if invalid.
-// Use this middleware on routes that require session authentication.
-func SessionAuthMiddleware(sm *SessionManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		token := extractBearerToken(c)
-		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header. Include 'Authorization: Bearer <token>' from session creation."})
-			return
-		}
-		if _, valid := sm.ValidateToken(token); !valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
-			return
-		}
-		c.Next()
 	}
 }
 
@@ -104,11 +108,6 @@ func HandleDeleteSession(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
-// SetEnvRequest represents the request body for setting environment variables.
-type SetEnvRequest struct {
-	Env map[string]string `json:"env" binding:"required"`
-}
-
 // HandleSetSessionEnv sets environment variables in the session.
 // This allows UI components (like AwsAuth) to inject environment variables
 // into the session without running a script.
@@ -134,6 +133,46 @@ func HandleSetSessionEnv(sm *SessionManager) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{"message": "Environment variables set", "count": len(req.Env)})
 	}
+}
+
+// =============================================================================
+// Middleware
+// =============================================================================
+
+// SessionAuthMiddleware validates the Bearer token and stores the session context.
+// Use this middleware on routes that require session authentication.
+// After this middleware runs, handlers can use GetSessionExecContext(c) to get the session.
+func SessionAuthMiddleware(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := extractBearerToken(c)
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header. Include 'Authorization: Bearer <token>' from session creation."})
+			return
+		}
+		execCtx, valid := sm.ValidateToken(token)
+		if !valid {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
+			return
+		}
+		c.Set(sessionExecCtxKey, execCtx)
+		c.Next()
+	}
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// GetSessionExecContext retrieves the SessionExecContext stored by SessionAuthMiddleware.
+// Returns nil if the middleware hasn't run or the context wasn't stored.
+// This should only be called in handlers protected by SessionAuthMiddleware.
+func GetSessionExecContext(c *gin.Context) *SessionExecContext {
+	if val, exists := c.Get(sessionExecCtxKey); exists {
+		if execCtx, ok := val.(*SessionExecContext); ok {
+			return execCtx
+		}
+	}
+	return nil
 }
 
 // extractBearerToken extracts the Bearer token from the Authorization header.

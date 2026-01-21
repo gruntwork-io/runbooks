@@ -348,17 +348,17 @@ log_info "Deployment successful!"
 
 ## Capturing Output Files
 
-Commands can save files to the generated files directory using the `$RUNBOOKS_OUTPUT` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
+Commands can save files to the generated files directory using the `$RUNBOOK_FILES` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
 
 ### Basic Example
 
 ```bash
 #!/bin/bash
 # Export OpenTofu outputs to generated files
-tofu output -json > "$RUNBOOKS_OUTPUT/tf-outputs.json"
+tofu output -json > "$RUNBOOK_FILES/tf-outputs.json"
 
 # Copy a config file
-cp config.yaml "$RUNBOOKS_OUTPUT/"
+cp config.yaml "$RUNBOOK_FILES/"
 ```
 
 Or as an inline command:
@@ -367,22 +367,22 @@ Or as an inline command:
 <Command 
   id="create-file"
   title="Create a greeting file"
-  command={`echo "Hello from the command!" > "$RUNBOOKS_OUTPUT/greeting.txt"`}
+  command={`echo "Hello from the command!" > "$RUNBOOK_FILES/greeting.txt"`}
   successMessage="File created successfully!"
 />
 ```
 
 ### Organizing Files with Subdirectories
 
-You can create subdirectories within `$RUNBOOKS_OUTPUT` to organize your captured files:
+You can create subdirectories within `$RUNBOOK_FILES` to organize your captured files:
 
 ```bash
 #!/bin/bash
-mkdir -p "$RUNBOOKS_OUTPUT/terraform"
-mkdir -p "$RUNBOOKS_OUTPUT/config"
+mkdir -p "$RUNBOOK_FILES/terraform"
+mkdir -p "$RUNBOOK_FILES/config"
 
-tofu output -json > "$RUNBOOKS_OUTPUT/opentofu/outputs.json"
-echo '{"env": "production"}' > "$RUNBOOKS_OUTPUT/config/settings.json"
+tofu output -json > "$RUNBOOK_FILES/opentofu/outputs.json"
+echo '{"env": "production"}' > "$RUNBOOK_FILES/config/settings.json"
 ```
 
 This creates:
@@ -398,17 +398,91 @@ generated/
 ### How It Works
 
 1. Before your script runs, Runbooks creates a temporary capture directory
-2. The `$RUNBOOKS_OUTPUT` environment variable points to this directory
-3. Your script writes files to `$RUNBOOKS_OUTPUT`
+2. The `$RUNBOOK_FILES` environment variable points to this directory
+3. Your script writes files to `$RUNBOOK_FILES`
 4. After successful execution, files are copied to the generated files directory
 5. The temporary directory is cleaned up
 
 <Aside type="tip">
-Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOKS_OUTPUT` are discarded.
+Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOK_FILES` are discarded.
 </Aside>
 
 <Aside type="note">
 If multiple commands run concurrently and write files with the same name, the last command to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
+</Aside>
+
+## Block Outputs
+
+Commands can produce **outputs** that downstream blocks can consume. This enables multi-step workflows where each step builds on the previous one.
+
+### Producing Outputs
+
+Scripts write outputs to a file specified by the `$RUNBOOK_OUTPUT` environment variable. Each output is a `key=value` pair on its own line:
+
+```bash
+#!/bin/bash
+# Create an AWS account and output the ID
+ACCOUNT_ID=$(aws organizations create-account ...)
+
+# Write outputs for downstream blocks
+echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+echo "region=us-west-2" >> "$RUNBOOK_OUTPUT"
+```
+
+### Consuming Outputs
+
+Reference outputs from other blocks using the `_blocks` namespace in templates:
+
+```bash
+# Use the account ID from the create-account block
+aws iam create-role --account-id {{ ._blocks.create-account.outputs.account_id }}
+```
+
+The full syntax is: `{{ ._blocks.<block-id>.outputs.<output-name> }}`
+
+### Dependency Behavior
+
+If a block references outputs from another block that hasn't run yet:
+
+- The **Run button is disabled** until the upstream block executes
+- A **warning message** shows which blocks need to run first
+- The template shows the raw syntax until outputs are available
+
+### Viewing Outputs
+
+After a block runs, you can view its outputs by clicking **"View Outputs"** below the log viewer. Outputs are displayed in a table and can be copied as JSON.
+
+### Example Workflow
+
+```mdx
+{/* Step 1: Create account, produces account_id and region */}
+<Command 
+  id="create-account" 
+  path="scripts/create-account.sh"
+  title="Create AWS Account"
+/>
+
+{/* Step 2: Uses outputs from Step 1, produces role_arn */}
+<Command 
+  id="create-resources" 
+  path="scripts/create-resources.sh"
+  title="Create Resources"
+/>
+
+{/* Step 3: Uses outputs from both Step 1 and Step 2 */}
+<Check 
+  id="verify-setup" 
+  path="scripts/verify-setup.sh"
+  title="Verify Setup"
+/>
+```
+
+<Aside type="note">
+Block outputs are stored in browser memory and cleared on page refresh. They persist across hot reloads during development.
+</Aside>
+
+<Aside type="tip" title="See It in Action">
+Check out the [demo-runbook-outputs](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-outputs) example for a complete working demonstration of block outputs, including Command blocks that produce outputs consumed by downstream Commands, Checks, Templates, and TemplateInline blocks.
 </Aside>
 
 ## Common Use Cases

@@ -7,6 +7,8 @@ import { FormControl } from './FormControls'
 import { useFormState } from '../hooks/useFormState'
 import { useFormValidation } from '../hooks/useFormValidation'
 import { FormStatus } from './FormStatus'
+import { UnmetOutputDependenciesWarning } from './UnmetOutputDependenciesWarning'
+import type { UnmetOutputDependency } from '../hooks/useScriptExecution'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -51,6 +53,8 @@ interface BoilerplateInputsFormProps {
   sharedVarNames?: Set<string>
   /** Live values for shared variables - these sync in real-time from imported sources */
   liveVarValues?: Record<string, unknown>
+  /** Unmet output dependencies - shows warning and disables Generate button */
+  unmetOutputDependencies?: UnmetOutputDependency[]
 }
 
 /**
@@ -119,7 +123,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   variant = 'standard',
   isInlineMode = false,
   sharedVarNames = new Set(),
-  liveVarValues = {}
+  liveVarValues = {},
+  unmetOutputDependencies = []
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? 'Submit' : 'Generate')
@@ -310,13 +315,21 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           <div className="pt-4 border-t border-gray-200">
             {!hasGenerated ? (
               // Before first generation: show the Generate button
-              <Button
-                type="submit"
-                variant="default"
-                disabled={isGenerating || isAutoRendering}
-              >
-                {effectiveButtonText}
-              </Button>
+              <>
+                <Button
+                  type="submit"
+                  variant="default"
+                  disabled={isGenerating || isAutoRendering || unmetOutputDependencies.length > 0}
+                >
+                  {effectiveButtonText}
+                </Button>
+                {/* Show warning for unmet output dependencies below the button */}
+                {unmetOutputDependencies.length > 0 && (
+                  <div className="mt-3 -mb-3">
+                    <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+                  </div>
+                )}
+              </>
             ) : (
               // After first generation: show FormStatus instead of button
               <FormStatus
