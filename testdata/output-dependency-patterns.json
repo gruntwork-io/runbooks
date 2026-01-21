@@ -1,0 +1,108 @@
+{
+  "description": "Shared test cases for output dependency extraction regex. Both Go (api/boilerplate_config.go) and TypeScript (web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts) implementations must pass these tests to ensure they stay in sync.",
+  "pattern_description": "Matches {{ ._blocks.blockId.outputs.outputName }} patterns with optional whitespace and pipe functions",
+  "cases": [
+    {
+      "name": "basic pattern with spaces",
+      "input": "{{ ._blocks.create-account.outputs.account_id }}",
+      "expected": [
+        { "blockId": "create-account", "outputName": "account_id" }
+      ]
+    },
+    {
+      "name": "basic pattern without spaces",
+      "input": "{{._blocks.foo.outputs.bar}}",
+      "expected": [
+        { "blockId": "foo", "outputName": "bar" }
+      ]
+    },
+    {
+      "name": "pattern with pipe function",
+      "input": "{{ ._blocks.my-block.outputs.value | UpperCase }}",
+      "expected": [
+        { "blockId": "my-block", "outputName": "value" }
+      ]
+    },
+    {
+      "name": "pattern with multiple pipe functions",
+      "input": "{{ ._blocks.block1.outputs.name | lower | trimSpace }}",
+      "expected": [
+        { "blockId": "block1", "outputName": "name" }
+      ]
+    },
+    {
+      "name": "no dependencies",
+      "input": "No output dependencies here, just plain text",
+      "expected": []
+    },
+    {
+      "name": "multiple different dependencies",
+      "input": "Account: {{ ._blocks.create-account.outputs.account_id }} Region: {{ ._blocks.setup-region.outputs.region_name }}",
+      "expected": [
+        { "blockId": "create-account", "outputName": "account_id" },
+        { "blockId": "setup-region", "outputName": "region_name" }
+      ]
+    },
+    {
+      "name": "duplicate dependencies should be deduplicated",
+      "input": "First: {{ ._blocks.block-a.outputs.value }} Second: {{ ._blocks.block-a.outputs.value }}",
+      "expected": [
+        { "blockId": "block-a", "outputName": "value" }
+      ]
+    },
+    {
+      "name": "block id with underscores",
+      "input": "{{ ._blocks.my_block_name.outputs.result }}",
+      "expected": [
+        { "blockId": "my_block_name", "outputName": "result" }
+      ]
+    },
+    {
+      "name": "block id with numbers",
+      "input": "{{ ._blocks.step1.outputs.output2 }}",
+      "expected": [
+        { "blockId": "step1", "outputName": "output2" }
+      ]
+    },
+    {
+      "name": "mixed alphanumeric block id",
+      "input": "{{ ._blocks.create-ec2-instance-v2.outputs.instance_id }}",
+      "expected": [
+        { "blockId": "create-ec2-instance-v2", "outputName": "instance_id" }
+      ]
+    },
+    {
+      "name": "embedded in terraform template",
+      "input": "resource \"aws_instance\" \"main\" {\n  ami = \"{{ ._blocks.get-ami.outputs.ami_id }}\"\n  instance_type = \"t3.micro\"\n  tags = {\n    Account = \"{{ ._blocks.create-account.outputs.account_name | UpperCase }}\"\n  }\n}",
+      "expected": [
+        { "blockId": "get-ami", "outputName": "ami_id" },
+        { "blockId": "create-account", "outputName": "account_name" }
+      ]
+    },
+    {
+      "name": "regular template variables should not match",
+      "input": "{{ .AccountName }} {{ .Environment }}",
+      "expected": []
+    },
+    {
+      "name": "partial patterns should not match",
+      "input": "{{ ._blocks.incomplete }} {{ .outputs.something }}",
+      "expected": []
+    },
+    {
+      "name": "extra whitespace variations",
+      "input": "{{   ._blocks.block1.outputs.val   }}",
+      "expected": [
+        { "blockId": "block1", "outputName": "val" }
+      ]
+    },
+    {
+      "name": "same block multiple outputs",
+      "input": "ID: {{ ._blocks.setup.outputs.id }} Name: {{ ._blocks.setup.outputs.name }}",
+      "expected": [
+        { "blockId": "setup", "outputName": "id" },
+        { "blockId": "setup", "outputName": "name" }
+      ]
+    }
+  ]
+}

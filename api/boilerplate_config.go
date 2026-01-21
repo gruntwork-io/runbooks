@@ -541,6 +541,46 @@ func isBinaryFile(path string) (bool, error) {
 	return false, nil
 }
 
+// OutputDependencyRegex matches {{ ._blocks.blockId.outputs.outputName }} patterns
+// with optional whitespace and pipe functions.
+//
+// IMPORTANT: Keep in sync with the TypeScript implementation in:
+//   web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
+//
+// Both implementations are validated against testdata/output-dependency-patterns.json
+// to ensure they produce identical results. Run tests in both languages after any changes.
+var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
+
+// extractOutputDependenciesFromContent extracts output dependencies from string content.
+// This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
+func extractOutputDependenciesFromContent(content string) []OutputDependency {
+	var dependencies []OutputDependency
+	seen := make(map[string]bool)
+
+	matches := OutputDependencyRegex.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) >= 3 {
+			originalBlockID := match[1]
+			normalizedBlockID := normalizeBlockID(originalBlockID)
+			outputName := match[2]
+			// FullPath uses normalized ID for consistent lookups in Go templates
+			fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, outputName)
+
+			// Deduplicate
+			if !seen[fullPath] {
+				seen[fullPath] = true
+				dependencies = append(dependencies, OutputDependency{
+					BlockID:    originalBlockID, // Preserve original for display/reference
+					OutputName: outputName,
+					FullPath:   fullPath,
+				})
+			}
+		}
+	}
+
+	return dependencies
+}
+
 // extractOutputDependenciesFromTemplateDir scans all template files in a directory
 // for {{ ._blocks.blockId.outputs.outputName }} patterns and returns unique dependencies.
 // This allows Template blocks to show warnings when dependent Check/Command blocks
@@ -548,10 +588,6 @@ func isBinaryFile(path string) (bool, error) {
 func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDependency, error) {
 	var dependencies []OutputDependency
 	seen := make(map[string]bool)
-
-	// Regular expression to match {{ ._blocks.blockId.outputs.outputName }} patterns
-	// Supports various whitespace and optional pipe functions
-	outputDepRegex := regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
 
 	// Walk the template directory
 	err := filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
@@ -581,25 +617,13 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 			return nil // Continue scanning other files
 		}
 
-		// Find all matches
-		matches := outputDepRegex.FindAllStringSubmatch(string(content), -1)
-		for _, match := range matches {
-			if len(match) >= 3 {
-				originalBlockID := match[1]
-				normalizedBlockID := normalizeBlockID(originalBlockID)
-				outputName := match[2]
-				// FullPath uses normalized ID for consistent lookups in Go templates
-				fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, outputName)
-
-				// Deduplicate
-				if !seen[fullPath] {
-					seen[fullPath] = true
-					dependencies = append(dependencies, OutputDependency{
-						BlockID:    originalBlockID, // Preserve original for display/reference
-						OutputName: outputName,
-						FullPath:   fullPath,
-					})
-				}
+		// Extract dependencies from this file's content
+		fileDeps := extractOutputDependenciesFromContent(string(content))
+		for _, dep := range fileDeps {
+			// Deduplicate across all files
+			if !seen[dep.FullPath] {
+				seen[dep.FullPath] = true
+				dependencies = append(dependencies, dep)
 			}
 		}
 

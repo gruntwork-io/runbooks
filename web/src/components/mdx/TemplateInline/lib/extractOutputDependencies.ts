@@ -1,14 +1,15 @@
 import type { ReactNode } from 'react'
+import { normalizeBlockId } from '@/lib/utils'
 
 /**
  * Represents a single output dependency from a template.
  */
 export interface OutputDependency {
-  /** The block ID that produces the output (e.g., "create-account") */
+  /** The block ID that produces the output (e.g., "create-account") - original, not normalized */
   blockId: string
   /** The output name (e.g., "account_id") */
   outputName: string
-  /** The full template reference (e.g., "_blocks.create-account.outputs.account_id") */
+  /** The full template reference with normalized block ID (e.g., "_blocks.create_account.outputs.account_id") */
   fullPath: string
 }
 
@@ -30,7 +31,14 @@ export function extractOutputDependenciesFromString(content: string): OutputDepe
   const dependencies: OutputDependency[] = []
   const seen = new Set<string>()
   
-  // Match {{ ._blocks.blockId.outputs.outputName }} patterns
+  // Output dependency regex - matches {{ ._blocks.blockId.outputs.outputName }} patterns
+  // 
+  // IMPORTANT: Keep in sync with the Go implementation in:
+  //   api/boilerplate_config.go (OutputDependencyRegex)
+  // 
+  // Both implementations are validated against testdata/output-dependency-patterns.json
+  // to ensure they produce identical results. Run tests in both languages after any changes.
+  //
   // The pattern captures:
   // - blockId: The ID of the block (alphanumeric, hyphens, underscores)
   // - outputName: The output variable name (alphanumeric, underscores)
@@ -38,14 +46,20 @@ export function extractOutputDependenciesFromString(content: string): OutputDepe
   
   let match
   while ((match = regex.exec(content)) !== null) {
-    const blockId = match[1]
+    const originalBlockId = match[1]
+    const normalizedBlockId = normalizeBlockId(originalBlockId)
     const outputName = match[2]
-    const fullPath = `_blocks.${blockId}.outputs.${outputName}`
+    // fullPath uses normalized ID for consistent lookups in Go templates
+    const fullPath = `_blocks.${normalizedBlockId}.outputs.${outputName}`
     
-    // Deduplicate
+    // Deduplicate using normalized fullPath
     if (!seen.has(fullPath)) {
       seen.add(fullPath)
-      dependencies.push({ blockId, outputName, fullPath })
+      dependencies.push({ 
+        blockId: originalBlockId, // Preserve original for display/reference
+        outputName, 
+        fullPath 
+      })
     }
   }
   

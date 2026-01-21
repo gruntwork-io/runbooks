@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -934,6 +936,65 @@ func TestIsBinaryFile(t *testing.T) {
 			isBinary, err := isBinaryFile(tempFile)
 			require.NoError(t, err)
 			assert.Equal(t, tt.isBinary, isBinary, "isBinaryFile(%q) = %v, want %v", tt.name, isBinary, tt.isBinary)
+		})
+	}
+}
+
+// TestOutputDependencyRegex_SharedFixtures validates the Go regex implementation
+// against shared test fixtures that are also used by the TypeScript implementation.
+// This ensures both implementations stay in sync.
+//
+// Shared fixtures: testdata/output-dependency-patterns.json
+// TypeScript implementation: web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
+func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
+	// Load shared test fixtures
+	fixturesPath := "../testdata/output-dependency-patterns.json"
+	fixturesData, err := os.ReadFile(fixturesPath)
+	require.NoError(t, err, "Failed to read shared fixtures file. This file is used by both Go and TypeScript tests.")
+
+	// Parse the fixtures
+	var fixtures struct {
+		Description        string `json:"description"`
+		PatternDescription string `json:"pattern_description"`
+		Cases              []struct {
+			Name     string `json:"name"`
+			Input    string `json:"input"`
+			Expected []struct {
+				BlockID    string `json:"blockId"`
+				OutputName string `json:"outputName"`
+			} `json:"expected"`
+		} `json:"cases"`
+	}
+	err = json.Unmarshal(fixturesData, &fixtures)
+	require.NoError(t, err, "Failed to parse shared fixtures JSON")
+
+	// Run each test case
+	for _, tc := range fixtures.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			// Extract dependencies using the Go implementation
+			deps := extractOutputDependenciesFromContent(tc.Input)
+
+			// Verify the count matches
+			assert.Equal(t, len(tc.Expected), len(deps),
+				"Expected %d dependencies, got %d for input: %q",
+				len(tc.Expected), len(deps), tc.Input)
+
+			// Verify each expected dependency is found
+			for i, expected := range tc.Expected {
+				if i < len(deps) {
+					assert.Equal(t, expected.BlockID, deps[i].BlockID,
+						"BlockID mismatch at index %d", i)
+					assert.Equal(t, expected.OutputName, deps[i].OutputName,
+						"OutputName mismatch at index %d", i)
+					
+					// Also verify the FullPath is constructed correctly
+					// Note: FullPath uses normalized block ID (hyphens → underscores) for Go template compatibility
+					normalizedBlockID := normalizeBlockID(expected.BlockID)
+					expectedFullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, expected.OutputName)
+					assert.Equal(t, expectedFullPath, deps[i].FullPath,
+						"FullPath mismatch at index %d", i)
+				}
+			}
 		})
 	}
 }
