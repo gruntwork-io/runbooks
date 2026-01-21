@@ -247,9 +247,11 @@ export function useScriptExecution({
     const unmet: UnmetOutputDependency[] = []
     
     for (const [blockId, outputNames] of byBlock) {
-      const blockData = allOutputs[blockId]
+      // Normalize for lookup since outputs are stored under normalized IDs
+      const normalizedId = normalizeBlockId(blockId)
+      const blockData = allOutputs[normalizedId]
       if (!blockData) {
-        // Block hasn't produced any outputs yet
+        // Block hasn't produced any outputs yet - preserve original blockId for display
         unmet.push({ blockId, outputNames })
       } else {
         // Check which specific outputs are missing

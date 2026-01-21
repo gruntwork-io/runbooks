@@ -585,15 +585,17 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 		matches := outputDepRegex.FindAllStringSubmatch(string(content), -1)
 		for _, match := range matches {
 			if len(match) >= 3 {
-				blockID := normalizeBlockID(match[1])
+				originalBlockID := match[1]
+				normalizedBlockID := normalizeBlockID(originalBlockID)
 				outputName := match[2]
-				fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", blockID, outputName)
+				// FullPath uses normalized ID for consistent lookups in Go templates
+				fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, outputName)
 
 				// Deduplicate
 				if !seen[fullPath] {
 					seen[fullPath] = true
 					dependencies = append(dependencies, OutputDependency{
-						BlockID:    blockID,
+						BlockID:    originalBlockID, // Preserve original for display/reference
 						OutputName: outputName,
 						FullPath:   fullPath,
 					})

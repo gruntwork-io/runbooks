@@ -711,8 +711,9 @@ func TestExtractOutputDependenciesFromTemplateDir(t *testing.T) {
   account_id = "{{ ._blocks.create-account.outputs.account_id }}"
 }`,
 			},
+			// Hyphens are normalized to underscores because Go templates don't support hyphens in dot notation
 			expectedDeps: []OutputDependency{
-				{BlockID: "create-account", OutputName: "account_id", FullPath: "_blocks.create-account.outputs.account_id"},
+				{BlockID: "create-account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
 			},
 		},
 		{
