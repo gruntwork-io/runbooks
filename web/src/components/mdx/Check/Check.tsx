@@ -411,7 +411,7 @@ function Check({
             <UnmetOutputDependenciesWarning unmetDependencies={unmetDependencies} />
           )}
           
-          {renderError && (
+          {renderError && hasAllOutputDependencies && (
             <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
