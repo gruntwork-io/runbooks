@@ -145,7 +145,98 @@ You can also combine standard inputs with block outputs:
 ```
 </TemplateInline>
 
-## Step 6: Verify Setup
+## Step 6: Working with Lists and Maps in Outputs
+
+This step demonstrates outputting **lists and maps** (as JSON strings) and iterating over them in templates using `fromJson` and `range`.
+
+### Outputting Complex Data
+
+Scripts can output complex data structures by serializing them as JSON:
+
+```bash
+# Output a list as JSON
+echo "users=[\"alice\",\"bob\",\"charlie\"]" >> "$RUNBOOK_OUTPUT"
+
+# Output a nested map/object as JSON  
+echo "teams={\"engineering\":{\"lead\":\"alice\"}}" >> "$RUNBOOK_OUTPUT"
+```
+
+<Command 
+  id="list-users" 
+  path="scripts/list-users.sh"
+  title="List Organization Users"
+  description="Fetches users and teams, outputting them as JSON for downstream templates"
+/>
+
+### Iterating Over a List
+
+Use `fromJson` to parse the JSON string, then `range` to iterate:
+
+<TemplateInline outputPath="users.txt">
+```txt
+=== Organization Users ===
+{{- range (fromJson ._blocks.list_users.outputs.users) }}
+- {{ . }}
+{{- end }}
+```
+</TemplateInline>
+
+### Iterating Over a Map
+
+For maps/objects, use `range $key, $value` to access both keys and values:
+
+<TemplateInline outputPath="teams.yaml">
+```yaml
+# Team Configuration
+teams:
+{{- range $teamName, $teamData := (fromJson ._blocks.list_users.outputs.teams) }}
+  {{ $teamName }}:
+    lead: {{ $teamData.lead }}
+    members:
+    {{- range $teamData.members }}
+      - {{ . }}
+    {{- end }}
+{{- end }}
+```
+</TemplateInline>
+
+### Combining List Outputs with Inputs
+
+You can combine list outputs with user inputs for more dynamic templates:
+
+<Inputs id="team-filter">
+```yaml
+variables:
+  - name: team_name
+    type: enum
+    description: Select a team to view
+    options:
+      - engineering
+      - product
+    default: engineering
+```
+</Inputs>
+
+<TemplateInline inputsId="team-filter" outputPath="team-report.md">
+```markdown
+# Team Report: {{ .team_name }}
+
+{{- $teams := (fromJson ._blocks.list_users.outputs.teams) }}
+{{- $team := index $teams .team_name }}
+
+**Team Lead:** {{ $team.lead }}
+
+**Members:**
+{{- range $team.members }}
+- {{ . }}
+{{- end }}
+
+---
+Generated from block outputs and user selection.
+```
+</TemplateInline>
+
+## Step 7: Verify Setup
 
 This check validates that everything was set up correctly.
 
