@@ -81,15 +81,15 @@ func TestParseBoilerplateConfig(t *testing.T) {
 			require.NotNil(t, config)
 			assert.Equal(t, tt.expectedVariableCount, len(config.Variables))
 
-			// Verify variable types
-			if len(tt.expectedTypes) > 0 {
-				for i, expectedType := range tt.expectedTypes {
-					if i < len(config.Variables) {
-						assert.Equal(t, expectedType, config.Variables[i].Type,
-							"Variable %d (%s) should have type %s", i, config.Variables[i].Name, expectedType)
-					}
+		// Verify variable types
+		if len(tt.expectedTypes) > 0 {
+			for i, expectedType := range tt.expectedTypes {
+				if i < len(config.Variables) {
+					assert.Equal(t, BoilerplateVarType(expectedType), config.Variables[i].Type,
+						"Variable %d (%s) should have type %s", i, config.Variables[i].Name, expectedType)
 				}
 			}
+		}
 
 			// Verify validation rules
 			for varName, expectedValidations := range tt.expectedValidations {
@@ -425,7 +425,7 @@ func TestParseBoilerplateConfig_EnumVariables(t *testing.T) {
 	}
 
 	require.NotNil(t, environmentVar, "Environment variable should exist")
-	assert.Equal(t, "enum", environmentVar.Type)
+	assert.Equal(t, BoilerplateVarType("enum"), environmentVar.Type)
 	assert.Equal(t, []string{"dev", "stage", "prod"}, environmentVar.Options)
 	assert.Equal(t, "dev", environmentVar.Default)
 }
@@ -447,13 +447,13 @@ func TestParseBoilerplateConfig_ComplexDefaults(t *testing.T) {
 	for _, variable := range config.Variables {
 		switch variable.Name {
 		case "Tags":
-			assert.Equal(t, "map", variable.Type)
+			assert.Equal(t, BoilerplateVarType("map"), variable.Type)
 			assert.IsType(t, map[string]interface{}{}, variable.Default)
 		case "AllowedIPs":
-			assert.Equal(t, "list", variable.Type)
+			assert.Equal(t, BoilerplateVarType("list"), variable.Type)
 			assert.IsType(t, []interface{}{}, variable.Default)
 		case "EnableLogging":
-			assert.Equal(t, "bool", variable.Type)
+			assert.Equal(t, BoilerplateVarType("bool"), variable.Type)
 			assert.Equal(t, true, variable.Default)
 		}
 	}
