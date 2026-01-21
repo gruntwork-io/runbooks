@@ -42,7 +42,7 @@
  */
 
 import { useContext, useMemo, useRef } from 'react'
-import { RunbookContext, type RunbookContextType, type InputValue, type BlockOutputs } from './RunbookContext'
+import { RunbookContext, type RunbookContextType, type InputValue, type OutputValue, type BlockOutputs } from './RunbookContext'
 
 // Re-export types and helpers for convenience
 export { type InputValue, type OutputValue, type BlockInputs, type BlockOutputs, inputsToValues, valuesToOutputs } from './RunbookContext'
