@@ -131,6 +131,9 @@ export interface RunbookContextType {
   /** Register or replace a block's outputs (completely replaces previous outputs) */
   registerOutputs: (blockId: string, values: Record<string, string>) => void
   
+  /** Unregister a block's outputs (cleanup on unmount) */
+  unregisterOutputs: (blockId: string) => void
+  
   /** Get outputs for a specific block */
   getOutputs: (blockId: string) => OutputValue[] | undefined
   
@@ -268,6 +271,16 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const unregisterOutputs = useCallback((blockId: string) => {
+    const normalizedId = blockId.replace(/-/g, '_')
+    setBlockOutputs(prev => {
+      const updated = { ...prev }
+      delete updated[normalizedId]
+      console.log(`[RunbookContext] unregisterOutputs [${blockId} → ${normalizedId}]`)
+      return updated
+    })
+  }, [])
+
   const getOutputs = useCallback((blockId: string): OutputValue[] | undefined => {
     // Normalize block ID for lookup
     const normalizedId = blockId.replace(/-/g, '_')
@@ -303,9 +316,10 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
     getInputs,
     blockOutputs,
     registerOutputs,
+    unregisterOutputs,
     getOutputs,
     getTemplateVariables,
-  }), [blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
+  }), [blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, unregisterOutputs, getOutputs, getTemplateVariables])
 
   return (
     <RunbookContext.Provider value={contextValue}>

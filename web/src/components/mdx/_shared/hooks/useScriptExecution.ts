@@ -94,7 +94,7 @@ export function useScriptExecution({
   const { registerLogs } = useLogs()
   
   // Get runbook context for registering outputs and getting template variables
-  const { registerOutputs, getTemplateVariables } = useRunbookContext()
+  const { registerOutputs, unregisterOutputs, getTemplateVariables } = useRunbookContext()
   
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
@@ -503,8 +503,11 @@ export function useScriptExecution({
       
       // Cancel any ongoing execution
       cancelExec()
+      
+      // Cleanup outputs when component unmounts to prevent memory leaks
+      unregisterOutputs(componentId)
     }
-  }, [cancelExec])
+  }, [cancelExec, componentId, unregisterOutputs])
 
   // Combine exec error and registry error - show registry error if present
   const combinedExecError = registryError || execError
