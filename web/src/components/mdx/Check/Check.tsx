@@ -4,8 +4,7 @@ import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } fr
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown } from "@/components/mdx/_shared"
-import { formatVariableLabel } from "@/components/mdx/_shared/lib/formatVariableLabel"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -399,34 +398,17 @@ function Check({
           <div className="border-b border-gray-300"></div>
           
           {/* Show status messages for waiting/rendering/error states */}      
-          {requiredVariables.length > 0 && !hasAllRequiredVariables && !isRendering && (
-            <div className="mb-3 text-sm text-yellow-700 flex items-center gap-2">
-              <AlertTriangle className="size-4" />
-              You can run the check once we have values for the following variables: {requiredVariables.filter(varName => {
-                const value = inputValues[varName];
-                return value === undefined || value === null || value === '';
-              }).map(varName => formatVariableLabel(varName)).join(', ')}
-            </div>
+          {!isRendering && (
+            <UnmetInputDependenciesWarning
+              blockType="check"
+              requiredVariables={requiredVariables}
+              inputValues={inputValues}
+            />
           )}
           
           {/* Show unmet output dependencies */}
-          {!hasAllOutputDependencies && hasAllRequiredVariables && (
-            <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <strong>Waiting for outputs from:</strong>{' '}
-                {unmetDependencies.map((dep, i) => (
-                  <span key={dep.blockId}>
-                    {i > 0 && ', '}
-                    <code className="bg-yellow-100 px-1 rounded text-xs">{dep.blockId}</code>
-                    {' '}({dep.outputNames.join(', ')})
-                  </span>
-                ))}
-                <div className="text-xs mt-1 text-yellow-600">
-                  Run the above block(s) first to produce the required outputs.
-                </div>
-              </div>
-            </div>
+          {hasAllRequiredVariables && (
+            <UnmetOutputDependenciesWarning unmetDependencies={unmetDependencies} />
           )}
           
           {renderError && (
