@@ -53,10 +53,10 @@ function Command({
     language,
     fileError: getFileError,
     inputValues,
-    requiredVariables,
-    hasAllRequiredVariables,
+    inputDependencies,
+    hasAllInputDependencies,
     inlineInputsId,
-    unmetDependencies,
+    unmetOutputDependencies,
     hasAllOutputDependencies,
     isRendering,
     renderError,
@@ -175,7 +175,7 @@ function Command({
   }, [path, command, sourceCode, language])
 
   // Check if component requires variables but none are configured
-  const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
+  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
 
   // Track block render on mount
   useEffect(() => {
@@ -204,13 +204,13 @@ function Command({
         componentId: id,
         componentType: 'Command',
         severity: 'warning',
-        message: `Missing Inputs configuration for variables: ${requiredVariables.join(', ')}`
+        message: `Missing Inputs configuration for variables: ${inputDependencies.join(', ')}`
       })
     } else {
       // No error, clear any previously reported error
       clearError(id)
     }
-  }, [id, isDuplicate, getFileError, missingInputsConfig, requiredVariables, reportError, clearError])
+  }, [id, isDuplicate, getFileError, missingInputsConfig, inputDependencies, reportError, clearError])
 
   // Early return for duplicate ID error
   if (isDuplicate) {
@@ -252,7 +252,7 @@ function Command({
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
-            This command requires variables ({requiredVariables.join(', ')}) but no Inputs component is configured. 
+            This command requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured. 
             Please add either:
             <ul className="list-disc ml-6 mt-2">
               <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<Inputs>"}</code> component as a child</li>
@@ -269,7 +269,7 @@ function Command({
     skipCommand || 
     commandStatus === 'running' || 
     isRendering ||
-    (requiredVariables.length > 0 && !hasAllRequiredVariables) ||
+    (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies;
 
   // Main render
@@ -411,14 +411,14 @@ function Command({
           {!isRendering && (
             <UnmetInputDependenciesWarning
               blockType="command"
-              requiredVariables={requiredVariables}
+              inputDependencies={inputDependencies}
               inputValues={inputValues}
             />
           )}
           
           {/* Show unmet output dependencies */}
-          {hasAllRequiredVariables && (
-            <UnmetOutputDependenciesWarning unmetDependencies={unmetDependencies} />
+          {hasAllInputDependencies && (
+            <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
           )}
           
           {renderError && hasAllOutputDependencies && (

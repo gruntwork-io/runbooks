@@ -4,8 +4,8 @@ import { formatVariableLabel } from '../lib/formatVariableLabel'
 interface UnmetInputDependenciesWarningProps {
   /** The type of block (used in the message text) */
   blockType: 'check' | 'command'
-  /** List of all required variable names */
-  requiredVariables: string[]
+  /** List of all input dependency variable names */
+  inputDependencies: string[]
   /** Current input values to check which are missing */
   inputValues: Record<string, unknown>
 }
@@ -16,10 +16,10 @@ interface UnmetInputDependenciesWarningProps {
  */
 export const UnmetInputDependenciesWarning: React.FC<UnmetInputDependenciesWarningProps> = ({
   blockType,
-  requiredVariables,
+  inputDependencies,
   inputValues
 }) => {
-  const missingVariables = requiredVariables.filter(varName => {
+  const missingVariables = inputDependencies.filter(varName => {
     const value = inputValues[varName]
     return value === undefined || value === null || value === ''
   })

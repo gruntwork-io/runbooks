@@ -29,7 +29,7 @@ interface UseScriptExecutionProps {
 }
 
 /** Information about an unmet output dependency */
-export interface UnmetDependency {
+export interface UnmetOutputDependency {
   blockId: string
   outputNames: string[]
 }
@@ -44,13 +44,13 @@ interface UseScriptExecutionReturn {
   
   // Variables
   inputValues: Record<string, unknown>
-  requiredVariables: string[]
-  hasAllRequiredVariables: boolean
+  inputDependencies: string[]
+  hasAllInputDependencies: boolean
   inlineInputsId: string | null
   
   // Output dependencies
   outputDependencies: OutputDependency[]
-  unmetDependencies: UnmetDependency[]
+  unmetOutputDependencies: UnmetOutputDependency[]
   hasAllOutputDependencies: boolean
   
   // Rendering
@@ -193,20 +193,20 @@ export function useScriptExecution({
   const inputs = useInputs(allInputsIds.length > 0 ? allInputsIds : undefined)
   const inputValues = useMemo(() => inputsToValues(inputs), [inputs])
   
-  // Extract template variables from script content
-  const requiredVariables = useMemo(() => {
+  // Extract template variables from script content (input dependencies)
+  const inputDependencies = useMemo(() => {
     return extractTemplateVariables(rawScriptContent)
   }, [rawScriptContent])
   
-  // Check if we have all required variables
-  const hasAllRequiredVariables = useMemo(() => {
-    if (requiredVariables.length === 0) return true // No variables needed
+  // Check if we have all input dependencies satisfied
+  const hasAllInputDependencies = useMemo(() => {
+    if (inputDependencies.length === 0) return true // No variables needed
     
-    return requiredVariables.every(varName => {
+    return inputDependencies.every(varName => {
       const value = inputValues[varName]
       return value !== undefined && value !== null && value !== ''
     })
-  }, [requiredVariables, inputValues])
+  }, [inputDependencies, inputValues])
   
   // Get all block outputs from context to check dependencies
   const allOutputs = useAllOutputs()
@@ -239,12 +239,12 @@ export function useScriptExecution({
   }, [rawScriptContent])
   
   // Check which output dependencies are not yet satisfied
-  const unmetDependencies = useMemo((): UnmetDependency[] => {
+  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
     if (outputDependencies.length === 0) return []
     
     // Group dependencies by block
     const byBlock = groupDependenciesByBlock(outputDependencies)
-    const unmet: UnmetDependency[] = []
+    const unmet: UnmetOutputDependency[] = []
     
     for (const [blockId, outputNames] of byBlock) {
       const blockData = allOutputs[blockId]
@@ -264,7 +264,7 @@ export function useScriptExecution({
   }, [outputDependencies, allOutputs])
   
   // Check if all output dependencies are satisfied
-  const hasAllOutputDependencies = unmetDependencies.length === 0
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0
   
   // State for rendered script content
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
@@ -390,15 +390,15 @@ export function useScriptExecution({
   
   // Auto-update when variables change (debounced)
   useEffect(() => {
-    // Only render if we have template variables and all required variables are available
-    if (requiredVariables.length === 0) {
+    // Only render if we have template variables and all input dependencies are available
+    if (inputDependencies.length === 0) {
       // No template variables, use raw script
       setRenderedScript(null)
       return
     }
     
-    if (!hasAllRequiredVariables) {
-      // Required variables not available yet
+    if (!hasAllInputDependencies) {
+      // Input dependencies not available yet
       return
     }
     
@@ -444,7 +444,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, requiredVariables.length, hasAllRequiredVariables, renderScript])
+  }, [inputValues, allOutputs, inputs, inputDependencies.length, hasAllInputDependencies, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {
@@ -519,13 +519,13 @@ export function useScriptExecution({
     
     // Variables
     inputValues,
-    requiredVariables,
-    hasAllRequiredVariables,
+    inputDependencies,
+    hasAllInputDependencies,
     inlineInputsId,
     
     // Output dependencies
     outputDependencies,
-    unmetDependencies,
+    unmetOutputDependencies,
     hasAllOutputDependencies,
     
     // Rendering

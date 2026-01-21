@@ -53,8 +53,8 @@ function TemplateInline({
   const inputs = useInputs(inputsId);
   const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
   
-  // Extract required variables from template content
-  const requiredVariables = useMemo(() => {
+  // Extract input dependencies from template content
+  const inputDependencies = useMemo(() => {
     return extractTemplateVariables(children);
   }, [children]);
   
@@ -66,15 +66,15 @@ function TemplateInline({
     return extractTemplateFiles(children, outputPath);
   }, [children, outputPath]);
   
-  // Helper to check if all required variables are present
-  const hasAllRequiredVariables = useCallback((vars: Record<string, unknown>): boolean => {
-    if (requiredVariables.length === 0) return true;
+  // Helper to check if all input dependencies are satisfied
+  const hasAllInputDependencies = useCallback((vars: Record<string, unknown>): boolean => {
+    if (inputDependencies.length === 0) return true;
     
-    return requiredVariables.every(varName => {
+    return inputDependencies.every(varName => {
       const value = vars[varName];
       return value !== undefined && value !== null && value !== '';
     });
-  }, [requiredVariables]);
+  }, [inputDependencies]);
   
   // Core render function that calls the API
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
@@ -133,9 +133,9 @@ function TemplateInline({
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
-    // Check if we have all required variables
+    // Check if we have all input dependencies
     // Note that TemplateInline is a pure consumer of variables, so it only has inputValues
-    if (!hasAllRequiredVariables(inputValues)) {
+    if (!hasAllInputDependencies(inputValues)) {
       return;
     }
     
@@ -172,7 +172,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, hasAllRequiredVariables, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [inputValues, inputs, hasAllInputDependencies, outputPath, renderTemplate, setFileTree, generateFile]);
   
   // Cleanup timer on unmount
   useEffect(() => {

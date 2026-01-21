@@ -55,10 +55,10 @@ function Check({
     language,
     fileError: getFileError,
     inputValues,
-    requiredVariables,
-    hasAllRequiredVariables,
+    inputDependencies,
+    hasAllInputDependencies,
     inlineInputsId,
-    unmetDependencies,
+    unmetOutputDependencies,
     hasAllOutputDependencies,
     isRendering,
     renderError,
@@ -128,7 +128,7 @@ function Check({
   }, [title]);
 
   // Check if component requires variables but none are configured
-  const missingInputsConfig = requiredVariables.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
+  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
 
   // Track block render on mount
   useEffect(() => {
@@ -164,13 +164,13 @@ function Check({
         componentId: id,
         componentType: 'Check',
         severity: 'warning',
-        message: `Missing Inputs configuration for variables: ${requiredVariables.join(', ')}`
+        message: `Missing Inputs configuration for variables: ${inputDependencies.join(', ')}`
       })
     } else {
       // No error, clear any previously reported error
       clearError(id)
     }
-  }, [id, validationErrors, isDuplicate, getFileError, missingInputsConfig, requiredVariables, reportError, clearError])
+  }, [id, validationErrors, isDuplicate, getFileError, missingInputsConfig, inputDependencies, reportError, clearError])
 
   // Show generic error screen if there are validation errors
   if (validationErrors.length > 0) {
@@ -284,7 +284,7 @@ function Check({
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
-            This check script requires variables ({requiredVariables.join(', ')}) but no Inputs component is configured. 
+            This check script requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured. 
             Please add either:
             <ul className="list-disc ml-6 mt-2">
               <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<Inputs>"}</code> component as a child</li>
@@ -301,7 +301,7 @@ function Check({
     skipCheck || 
     checkStatus === 'running' || 
     isRendering ||
-    (requiredVariables.length > 0 && !hasAllRequiredVariables) ||
+    (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies;
 
   // Main render - form with success indicator overlay if needed
@@ -401,14 +401,14 @@ function Check({
           {!isRendering && (
             <UnmetInputDependenciesWarning
               blockType="check"
-              requiredVariables={requiredVariables}
+              inputDependencies={inputDependencies}
               inputValues={inputValues}
             />
           )}
           
           {/* Show unmet output dependencies */}
-          {hasAllRequiredVariables && (
-            <UnmetOutputDependenciesWarning unmetDependencies={unmetDependencies} />
+          {hasAllInputDependencies && (
+            <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
           )}
           
           {renderError && hasAllOutputDependencies && (
