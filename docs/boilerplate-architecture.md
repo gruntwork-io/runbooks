@@ -23,7 +23,7 @@ interface InputsProps {
 **Key Responsibilities:**
 - Parse inline YAML from `children`
 - Render dynamic form based on variable definitions
-- Publish variables to `BlockVariablesContext`
+- Publish variables to `RunbookContext`
 - Handle auto-updates on form changes (debounced)
 
 ### 2. `<Template>`
@@ -77,18 +77,22 @@ interface TemplateInlineProps {
 
 ## Context Architecture
 
-### BlockVariablesContext
+### RunbookContext
 
-**Location:** `web/src/contexts/BlockVariablesContext.tsx`
+**Location:** `web/src/contexts/RunbookContext.tsx`
 
-**Purpose:** Share variable values and boilerplate configs across components.
+**Purpose:** Share variable values, boilerplate configs, and block outputs across components.
 
 **State:**
 ```tsx
 {
-  inputs: Record<string, {
+  blockInputs: Record<string, {
     values: Record<string, unknown>
     config: BoilerplateConfig
+  }>,
+  blockOutputs: Record<string, {
+    values: Record<string, string>
+    timestamp: string
   }>
 }
 ```
@@ -97,25 +101,26 @@ interface TemplateInlineProps {
 ```tsx
 {
   registerInputs: (id, values, config) => void
-  getValues: (inputsId) => Record<string, unknown>
-  getConfig: (inputsId) => BoilerplateConfig
-  generateYaml: (inputsId) => string
+  getInputs: (inputsId) => InputValue[]
+  registerOutputs: (blockId, values) => void
+  getOutputs: (blockId) => OutputValue[] | undefined
+  getTemplateVariables: (inputsId?) => Record<string, unknown>
 }
 ```
 
 **Hooks:**
 ```tsx
 // Access full context
-const { registerInputs } = useBlockVariables()
+const { registerInputs, registerOutputs } = useRunbookContext()
 
-// Get imported variable values (handles single ID or array)
-const values = useImportedVarValues(inputsId)
+// Get inputs for API requests (handles single ID or array)
+const inputs = useInputs(inputsId)
 
-// Get merged config
-const config = useImportedConfig(inputsId)
+// Get template variables (includes _blocks namespace for outputs)
+const templateVars = useTemplateVariables(inputsId)
 
-// Generate YAML for boilerplate
-const yaml = useGeneratedYaml(inputsId)
+// Get outputs from a specific block
+const outputs = useOutputs(blockId)
 ```
 
 ### FileTreeContext
@@ -143,7 +148,7 @@ const yaml = useGeneratedYaml(inputsId)
 ┌─────────────────────────────────────────────────────┐
 │ 2. Template.handleGenerate()                       │
 │    - Merge imported + local variables              │
-│    - Register values to BlockVariablesContext      │
+│    - Register values to RunbookContext             │
 └────────────────────┬────────────────────────────────┘
                      ↓
 ┌─────────────────────────────────────────────────────┐
@@ -173,7 +178,7 @@ const yaml = useGeneratedYaml(inputsId)
                      ↓
 ┌─────────────────────────────────────────────────────┐
 │ 2. TemplateInline detects variable change          │
-│    - useImportedVarValues(inputsId)                │
+│    - useTemplateVariables(inputsId)                │
 │    - Check all required variables present          │
 └────────────────────┬────────────────────────────────┘
                      ↓
@@ -295,7 +300,8 @@ Components publish variables to context, downstream components subscribe:
 registerInputs(id, values, config)
 
 // Subscriber (Template, TemplateInline, Command, Check)
-const values = useImportedVarValues(inputsId)
+const inputs = useInputs(inputsId)
+const templateVars = useTemplateVariables(inputsId)
 ```
 
 ### 3. Debouncing
@@ -319,8 +325,8 @@ autoUpdateTimerRef.current = setTimeout(() => {
 Context hooks maintain stable references to prevent infinite loops:
 
 ```tsx
-// useImportedVarValues returns stable EMPTY_VALUES when no inputsId
-const EMPTY_VALUES: Record<string, unknown> = {}
+// useInputs returns stable EMPTY_INPUTS when no inputsId
+const EMPTY_INPUTS: InputValue[] = []
 
 // registerInputs performs shallow comparison before updating state
 if (unchanged) return prevState

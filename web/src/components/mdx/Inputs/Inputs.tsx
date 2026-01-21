@@ -216,7 +216,7 @@ function Inputs({
 
   // Handle form submission
   const handleSubmit = useCallback(async (formData: Record<string, unknown>) => {
-    // Publish to BlockVariablesContext (values + config together)
+    // Publish to RunbookContext (values + config together)
     if (boilerplateConfig) {
       registerInputs(id, formData, boilerplateConfig);
     }
