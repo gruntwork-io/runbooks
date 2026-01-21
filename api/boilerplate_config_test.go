@@ -936,3 +936,39 @@ func TestIsBinaryFile(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidIdentifier(t *testing.T) {
+tests := []struct {
+name     string
+input    string
+expected bool
+}{
+// Valid identifiers
+{name: "simple lowercase", input: "test", expected: true},
+{name: "simple uppercase", input: "TEST", expected: true},
+{name: "with underscore prefix", input: "_private", expected: true},
+{name: "with numbers", input: "test123", expected: true},
+{name: "with hyphens", input: "my-block-id", expected: true},
+{name: "with underscore", input: "my_var_name", expected: true},
+{name: "mixed case", input: "MyTestBlock", expected: true},
+{name: "single char", input: "a", expected: true},
+{name: "single underscore", input: "_", expected: true},
+
+// Invalid identifiers
+{name: "empty string", input: "", expected: false},
+{name: "starts with number", input: "123test", expected: false},
+{name: "starts with hyphen", input: "-test", expected: false},
+{name: "contains space", input: "my test", expected: false},
+{name: "contains dot", input: "my.test", expected: false},
+{name: "contains special char", input: "test$var", expected: false},
+{name: "contains bracket", input: "test[0]", expected: false},
+{name: "contains pipe", input: "test|func", expected: false},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+result := isValidIdentifier(tt.input)
+assert.Equal(t, tt.expected, result, "isValidIdentifier(%q) = %v, want %v", tt.input, result, tt.expected)
+})
+}
+}

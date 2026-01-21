@@ -536,8 +536,10 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 	seen := make(map[string]bool)
 
 	// Regular expression to match {{ ._blocks.blockId.outputs.outputName }} patterns
-	// Supports various whitespace and optional pipe functions
-	outputDepRegex := regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
+	// Stricter validation: identifiers must start with letter or underscore, followed by alphanumeric or underscore
+	// Block IDs can contain hyphens (will be normalized to underscores), output names cannot
+	// Optional pipe functions must be valid identifiers only (no arbitrary expressions)
+	outputDepRegex := regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z_][a-zA-Z0-9_-]*)\.outputs\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*\|\s*([a-zA-Z_][a-zA-Z0-9_]*))?\s*\}\}`)
 
 	// Walk the template directory
 	err := filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
@@ -573,6 +575,17 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 			if len(match) >= 3 {
 				blockID := match[1]
 				outputName := match[2]
+				
+				// Validate identifiers to prevent injection
+				if !isValidIdentifier(blockID) {
+					slog.Warn("Invalid block ID in output dependency, skipping", "blockID", blockID, "file", path)
+					continue
+				}
+				if !isValidIdentifier(outputName) {
+					slog.Warn("Invalid output name in output dependency, skipping", "outputName", outputName, "file", path)
+					continue
+				}
+				
 				fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", blockID, outputName)
 
 				// Deduplicate
@@ -595,4 +608,29 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 	}
 
 	return dependencies, nil
+}
+
+// isValidIdentifier checks if a string is a valid Go template identifier.
+// Must start with letter or underscore, followed by alphanumeric, underscore, or hyphen.
+// Hyphens are allowed in block IDs (normalized to underscores at runtime).
+func isValidIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	
+	// Must start with letter or underscore
+	first := s[0]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+		return false
+	}
+	
+	// Rest must be alphanumeric, underscore, or hyphen
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	
+	return true
 }
