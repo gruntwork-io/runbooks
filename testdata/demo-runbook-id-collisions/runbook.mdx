@@ -1,0 +1,42 @@
+# Block ID Collision Demo
+
+This runbook demonstrates how Runbooks detects and reports block ID collisions.
+
+## Why ID Collisions Matter
+
+Block IDs must be unique because they're used to:
+- Reference outputs from other blocks (e.g., `{{ ._blocks.my_command.outputs.result }}`)
+- Track execution state
+- Share data between blocks
+
+Since Go templates interpret hyphens as subtraction, IDs like `create-account` are normalized to `create_account` for template access. This means `create-account` and `create_account` would collide.
+
+---
+
+## Example 1: Exact Duplicate IDs
+
+These two Command blocks have the exact same ID. The second one will show a "Duplicate Component ID" error.
+
+<Command id="my-command" path="scripts/hello.sh" args={["first"]} />
+
+<Command id="my-command" path="scripts/hello.sh" args={["second"]} />
+
+---
+
+## Example 2: Normalized ID Collision
+
+These two Command blocks have different IDs (`create-account` vs `create_account`), but they normalize to the same value for template access. The second one will show an "ID Collision" error.
+
+<Command id="create-account" path="scripts/hello.sh" args={["hyphenated"]} />
+
+<Command id="create_account" path="scripts/hello.sh" args={["underscored"]} />
+
+---
+
+## Valid: Different IDs
+
+These blocks have truly different IDs and work fine:
+
+<Command id="setup-dev" path="scripts/hello.sh" args={["dev"]} />
+
+<Command id="setup-prod" path="scripts/hello.sh" args={["prod"]} />

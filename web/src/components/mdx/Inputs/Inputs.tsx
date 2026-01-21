@@ -59,8 +59,8 @@ function Inputs({
   children,
   variant = 'standard'
 }: InputsProps) {
-  // Register with ID registry to detect duplicates
-  const { isDuplicate } = useComponentIdRegistry(id, 'Inputs')
+  // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Inputs')
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
@@ -242,8 +242,19 @@ function Inputs({
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Duplicate ID Error:</strong> Another Inputs component already uses id="{id}".
-            Each Inputs must have a unique id.
+            {isNormalizedCollision ? (
+              <>
+                <strong>ID Collision:</strong><br />
+                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                hyphens are converted to underscores for template access.
+                Use different IDs to avoid this collision.
+              </>
+            ) : (
+              <>
+                <strong>Duplicate ID Error:</strong> Another Inputs component already uses id="{id}".
+                Each Inputs must have a unique id.
+              </>
+            )}
           </div>
         </div>
       </div>

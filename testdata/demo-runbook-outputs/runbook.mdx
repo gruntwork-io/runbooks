@@ -21,6 +21,15 @@ This runbook demonstrates both syntaxes:
 
 Both can be used together in the same script or template.
 
+### Outputs in Templates
+
+Template blocks can also use block outputs! When a Template references outputs:
+
+1. Runbooks scans template files for `{{ ._blocks.*.outputs.* }}` patterns
+2. The Template shows a warning if those outputs don't exist yet
+3. The Generate button is disabled until all output dependencies are satisfied
+4. Once the required Commands/Checks have run, the Template can be generated
+
 ## Step 1: Create Account
 
 This command simulates creating an AWS account and outputs the account ID.
@@ -82,7 +91,61 @@ variables:
   description="Applies tags using inputs AND outputs from previous steps"
 />
 
-## Step 4: Verify Setup
+## Step 4: Generate Configuration (Template with Outputs)
+
+This step demonstrates using **block outputs in a Template block**. The template below generates OpenTofu/Terraform configuration files that reference the `account_id` and `region` outputs from Step 1.
+
+### How Template Output Dependencies Work
+
+1. When the Template loads, it scans template files for `{{ ._blocks.*.outputs.* }}` patterns
+2. If those outputs don't exist yet, a warning is shown and the Generate button is disabled
+3. Once you run Step 1, the outputs become available and you can generate the template
+
+<Template 
+  id="account-config"
+  path="templates/account-config"
+/>
+
+**Template syntax used:**
+```hcl
+# Values populated from the create-account Command's outputs
+account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+region     = "{{ ._blocks.create_account.outputs.region }}"
+```
+
+## Step 5: Preview Configuration (TemplateInline with Outputs)
+
+This step demonstrates using **block outputs in a TemplateInline block**. Unlike Template blocks which load from a directory, TemplateInline renders inline template content directly in the runbook.
+
+The preview below shows the account summary using outputs from Step 1:
+
+<TemplateInline outputPath="account-summary.txt">
+```txt
+=== Account Summary ===
+
+Account ID: {{ ._blocks.create_account.outputs.account_id }}
+Region:     {{ ._blocks.create_account.outputs.region }}
+
+This account was created and is ready for use.
+```
+</TemplateInline>
+
+### Combining Inputs and Outputs in TemplateInline
+
+You can also combine standard inputs with block outputs:
+
+<TemplateInline inputsId="tagging-inputs" outputPath="resource-tags.json">
+```json
+{
+  "account_id": "{{ ._blocks.create_account.outputs.account_id }}",
+  "region": "{{ ._blocks.create_account.outputs.region }}",
+  "environment": "{{ .environment }}",
+  "owner": "{{ .owner }}"
+}
+```
+</TemplateInline>
+
+## Step 6: Verify Setup
 
 This check validates that everything was set up correctly.
 

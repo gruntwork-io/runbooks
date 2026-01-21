@@ -2,10 +2,14 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
-import { useInputs, inputsToValues } from '@/contexts/useRunbook'
+import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
+import type { UnmetOutputDependency } from '@/components/mdx/_shared/hooks/useScriptExecution'
+import { useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
+import { extractOutputDependencies, groupDependenciesByBlock } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
@@ -53,10 +57,49 @@ function TemplateInline({
   const inputs = useInputs(inputsId);
   const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
   
+  // Get all block outputs to check dependencies and pass to template rendering
+  const allOutputs = useAllOutputs();
+  
   // Extract input dependencies from template content
   const inputDependencies = useMemo(() => {
     return extractTemplateVariables(children);
   }, [children]);
+  
+  // Extract output dependencies from template content ({{ ._blocks.*.outputs.* }} patterns)
+  const outputDependencies = useMemo(() => {
+    return extractOutputDependencies(children);
+  }, [children]);
+  
+  // Compute unmet output dependencies
+  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
+    if (outputDependencies.length === 0) return [];
+    
+    // Group dependencies by block ID
+    const byBlock = groupDependenciesByBlock(outputDependencies);
+    const unmet: UnmetOutputDependency[] = [];
+    
+    for (const [blockId, outputNames] of byBlock) {
+      // Normalize block ID: hyphens → underscores (matches how outputs are stored)
+      const normalizedBlockId = blockId.replace(/-/g, '_');
+      const blockData = allOutputs[normalizedBlockId];
+      
+      if (!blockData) {
+        // Block hasn't produced any outputs yet
+        unmet.push({ blockId, outputNames });
+      } else {
+        // Check which specific outputs are missing
+        const missingOutputs = outputNames.filter(name => !(name in blockData.values));
+        if (missingOutputs.length > 0) {
+          unmet.push({ blockId, outputNames: missingOutputs });
+        }
+      }
+    }
+    
+    return unmet;
+  }, [outputDependencies, allOutputs]);
+  
+  // Check if all output dependencies are satisfied
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
   
   // Extract template content from children
   // MDX compiles code blocks into a nested React element structure (pre > code > text),
@@ -76,6 +119,15 @@ function TemplateInline({
     });
   }, [inputDependencies]);
   
+  // Build the _blocks namespace for template rendering
+  const buildBlocksNamespace = useCallback((): Record<string, { outputs: Record<string, string> }> => {
+    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {};
+    for (const [blockId, data] of Object.entries(allOutputs)) {
+      blocksNamespace[blockId] = { outputs: data.values };
+    }
+    return blocksNamespace;
+  }, [allOutputs]);
+  
   // Core render function that calls the API
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
     // Only show loading state for initial renders, not auto-updates
@@ -84,6 +136,12 @@ function TemplateInline({
     }
     setError(null);
     
+    // Build inputs array including _blocks namespace for output access
+    const inputsWithBlocks = [
+      ...inputs.filter(i => i.name !== '_blocks'),
+      { name: '_blocks', type: BoilerplateVariableType.Map, value: buildBlocksNamespace() }
+    ];
+    
     try {
       const response = await fetch('/api/boilerplate/render-inline', {
         method: 'POST',
@@ -91,7 +149,8 @@ function TemplateInline({
         body: JSON.stringify({ 
           templateFiles,
           // Send inputs with name, type, and value for proper type conversion
-          inputs,
+          // Includes _blocks namespace for output access
+          inputs: inputsWithBlocks,
           generateFile,
           // Note: outputPath is already used to name the file in templateFiles,
           // so we don't need to send it separately for directory determination
@@ -127,21 +186,28 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, inputs, generateFile]);
+  }, [templateFiles, inputs, generateFile, buildBlocksNamespace]);
   
-  // Render when imported values change (handles both initial render and updates)
+  // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
     // Check if we have all input dependencies
-    // Note that TemplateInline is a pure consumer of variables, so it only has inputValues
     if (!hasAllInputDependencies(inputValues)) {
+      return;
+    }
+    
+    // Check if we have all output dependencies
+    if (!hasAllOutputDependencies) {
       return;
     }
     
     // Check if inputs actually changed (includes both values and types)
     const valuesKey = JSON.stringify(inputs);
-    if (valuesKey === lastRenderedVariablesRef.current) {
+    const outputsKey = JSON.stringify(allOutputs);
+    const combinedKey = `${valuesKey}|${outputsKey}`;
+    
+    if (combinedKey === lastRenderedVariablesRef.current) {
       return;
     }
     
@@ -157,7 +223,7 @@ function TemplateInline({
     const delay = isInitialRender ? 0 : 300;
     
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = valuesKey;
+      lastRenderedVariablesRef.current = combinedKey;
       hasTriggeredInitialRender.current = true;
       
       renderTemplate(!isInitialRender)
@@ -172,7 +238,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, hasAllInputDependencies, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -185,30 +251,37 @@ function TemplateInline({
   
   // Render UI
   return (
-    renderState === 'waiting' ? (
-      <LoadingDisplay message="Fill in the variables above and click the Submit button to render this code snippet." />
-    ) : isRendering ? (
-      <LoadingDisplay message="Rendering template..." />
-    ) : error ? (
-      <ErrorDisplay error={error} />
-    ) : renderData?.renderedFiles ? (
-      <>
-        {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (
-          <CodeFile
-            key={filename}
-            fileName={fileData.name}
-            filePath={fileData.path}
-            code={fileData.content}
-            language={fileData.language}
-            showLineNumbers={true}
-            showCopyCodeButton={true}
-            showCopyPathButton={true}
-          />
-        ))}
-      </>
-    ) : (
-      <LoadingDisplay message="Waiting for template to render..." />
-    )
+    <div>
+      {/* Show warning for unmet output dependencies */}
+      {!hasAllOutputDependencies && (
+        <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+      )}
+      
+      {renderState === 'waiting' ? (
+        <LoadingDisplay message="Fill in the values above and click the Submit button to render this code snippet." />
+      ) : isRendering ? (
+        <LoadingDisplay message="Rendering template..." />
+      ) : error ? (
+        <ErrorDisplay error={error} />
+      ) : renderData?.renderedFiles ? (
+        <>
+          {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (
+            <CodeFile
+              key={filename}
+              fileName={fileData.name}
+              filePath={fileData.path}
+              code={fileData.content}
+              language={fileData.language}
+              showLineNumbers={true}
+              showCopyCodeButton={true}
+              showCopyPathButton={true}
+            />
+          ))}
+        </>
+      ) : (
+        <LoadingDisplay message="Waiting for template to render..." />
+      )}
+    </div>
   )
 }
 

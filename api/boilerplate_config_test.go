@@ -643,3 +643,296 @@ func TestExtractSchemasFromYAML_WithXPrefix(t *testing.T) {
 	labels := extractSchemaInstanceLabelsFromYAML(yaml)
 	assert.Equal(t, "Account Name", labels["Accounts"])
 }
+
+// Test extractOutputDependenciesFromTemplateDir function
+func TestExtractOutputDependenciesFromTemplateDir(t *testing.T) {
+	tests := []struct {
+		name           string
+		files          map[string]string // filename -> content
+		expectedDeps   []OutputDependency
+		expectError    bool
+	}{
+		{
+			name: "single output dependency in tf file",
+			files: map[string]string{
+				"main.tf": `locals {
+  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
+			},
+		},
+		{
+			name: "multiple output dependencies in same file",
+			files: map[string]string{
+				"main.tf": `locals {
+  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+  region     = "{{ ._blocks.create_account.outputs.region }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
+				{BlockID: "create_account", OutputName: "region", FullPath: "_blocks.create_account.outputs.region"},
+			},
+		},
+		{
+			name: "dependencies from multiple blocks",
+			files: map[string]string{
+				"main.tf": `locals {
+  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+  vpc_id     = "{{ ._blocks.create_vpc.outputs.vpc_id }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
+				{BlockID: "create_vpc", OutputName: "vpc_id", FullPath: "_blocks.create_vpc.outputs.vpc_id"},
+			},
+		},
+		{
+			name: "dependencies across multiple files",
+			files: map[string]string{
+				"main.tf": `locals {
+  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+}`,
+				"outputs.tf": `output "vpc_id" {
+  value = "{{ ._blocks.create_vpc.outputs.vpc_id }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
+				{BlockID: "create_vpc", OutputName: "vpc_id", FullPath: "_blocks.create_vpc.outputs.vpc_id"},
+			},
+		},
+		{
+			name: "block ID with hyphens",
+			files: map[string]string{
+				"main.tf": `locals {
+  account_id = "{{ ._blocks.create-account.outputs.account_id }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "create-account", OutputName: "account_id", FullPath: "_blocks.create-account.outputs.account_id"},
+			},
+		},
+		{
+			name: "template syntax variations",
+			files: map[string]string{
+				"main.tf": `locals {
+  # No spaces
+  a = "{{._blocks.block1.outputs.output1}}"
+  # With spaces
+  b = "{{ ._blocks.block2.outputs.output2 }}"
+  # With pipe function
+  c = "{{ ._blocks.block3.outputs.output3 | upper }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "block1", OutputName: "output1", FullPath: "_blocks.block1.outputs.output1"},
+				{BlockID: "block2", OutputName: "output2", FullPath: "_blocks.block2.outputs.output2"},
+				{BlockID: "block3", OutputName: "output3", FullPath: "_blocks.block3.outputs.output3"},
+			},
+		},
+		{
+			name: "no output dependencies",
+			files: map[string]string{
+				"main.tf": `locals {
+  name = "{{ .Name }}"
+  region = "{{ .Region }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{},
+		},
+		{
+			name: "duplicate dependencies are deduplicated",
+			files: map[string]string{
+				"main.tf": `locals {
+  a = "{{ ._blocks.block1.outputs.output1 }}"
+  b = "{{ ._blocks.block1.outputs.output1 }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "block1", OutputName: "output1", FullPath: "_blocks.block1.outputs.output1"},
+			},
+		},
+		{
+			name: "various file extensions",
+			files: map[string]string{
+				"script.sh": `#!/bin/bash
+ACCOUNT_ID="{{ ._blocks.cmd.outputs.account_id }}"`,
+				"config.yaml": `account_id: {{ ._blocks.cmd.outputs.account_id }}`,
+				"config.json": `{"account_id": "{{ ._blocks.cmd.outputs.account_id }}"}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "cmd", OutputName: "account_id", FullPath: "_blocks.cmd.outputs.account_id"},
+			},
+		},
+		{
+			name:         "empty directory",
+			files:        map[string]string{},
+			expectedDeps: []OutputDependency{},
+		},
+		{
+			name: "subdirectories are scanned",
+			files: map[string]string{
+				"modules/vpc/main.tf": `locals {
+  account_id = "{{ ._blocks.setup.outputs.account_id }}"
+}`,
+			},
+			expectedDeps: []OutputDependency{
+				{BlockID: "setup", OutputName: "account_id", FullPath: "_blocks.setup.outputs.account_id"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temp directory
+			tempDir := t.TempDir()
+
+			// Create test files
+			for filename, content := range tt.files {
+				filePath := filepath.Join(tempDir, filename)
+				
+				// Create parent directories if needed
+				dir := filepath.Dir(filePath)
+				err := os.MkdirAll(dir, 0755)
+				require.NoError(t, err)
+				
+				err = os.WriteFile(filePath, []byte(content), 0644)
+				require.NoError(t, err)
+			}
+
+			// Run extraction
+			deps, err := extractOutputDependenciesFromTemplateDir(tempDir)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Sort both slices for consistent comparison
+			// (order may vary due to filepath.Walk order)
+			assert.ElementsMatch(t, tt.expectedDeps, deps)
+		})
+	}
+}
+
+// Test extractOutputDependenciesFromTemplateDir with non-existent directory
+func TestExtractOutputDependenciesFromTemplateDir_NonExistentDir(t *testing.T) {
+	deps, err := extractOutputDependenciesFromTemplateDir("/nonexistent/path/that/does/not/exist")
+	
+	// Should return error for non-existent directory
+	assert.Error(t, err)
+	assert.Nil(t, deps)
+}
+
+// Test that binary files are skipped
+func TestExtractOutputDependenciesFromTemplateDir_SkipsBinaryFiles(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a text file with output dependencies
+	textFile := filepath.Join(tempDir, "main.tf")
+	err := os.WriteFile(textFile, []byte(`account_id = "{{ ._blocks.cmd.outputs.id }}"`), 0644)
+	require.NoError(t, err)
+
+	// Create a binary file with null bytes (the detection uses content, not extension)
+	// This simulates a real binary file that happens to contain template-like text
+	binaryFile := filepath.Join(tempDir, "data.bin")
+	binaryContent := []byte("binary\x00content {{ ._blocks.ignored.outputs.value }}")
+	err = os.WriteFile(binaryFile, binaryContent, 0644)
+	require.NoError(t, err)
+
+	deps, err := extractOutputDependenciesFromTemplateDir(tempDir)
+	require.NoError(t, err)
+
+	// Should only find the dependency from the text file, not the binary
+	assert.Equal(t, 1, len(deps))
+	assert.Equal(t, "cmd", deps[0].BlockID)
+	assert.Equal(t, "id", deps[0].OutputName)
+}
+
+// Test isBinaryFile function directly
+func TestIsBinaryFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  []byte
+		isBinary bool
+	}{
+		{
+			name:     "plain text",
+			content:  []byte("Hello, world!\nThis is plain text."),
+			isBinary: false,
+		},
+		{
+			name:     "text with template syntax",
+			content:  []byte(`account_id = "{{ ._blocks.cmd.outputs.id }}"`),
+			isBinary: false,
+		},
+		{
+			name:     "binary with null bytes",
+			content:  []byte("binary\x00content"),
+			isBinary: true,
+		},
+		{
+			name:     "PNG header (magic bytes)",
+			content:  []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00},
+			isBinary: true,
+		},
+		{
+			name:     "JPEG header",
+			content:  []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46},
+			isBinary: true,
+		},
+		{
+			name:     "GIF header",
+			content:  []byte("GIF89a\x00\x00\x00\x00"),
+			isBinary: true,
+		},
+		{
+			name:     "PDF header",
+			content:  []byte("%PDF-1.4\x00"),
+			isBinary: true,
+		},
+		{
+			name:     "empty file",
+			content:  []byte{},
+			isBinary: false,
+		},
+		{
+			name:     "JSON content",
+			content:  []byte(`{"key": "value", "number": 123}`),
+			isBinary: false,
+		},
+		{
+			name:     "YAML content",
+			content:  []byte("variables:\n  - name: test\n    type: string"),
+			isBinary: false,
+		},
+		{
+			name:     "shell script",
+			content:  []byte("#!/bin/bash\necho 'hello'\n"),
+			isBinary: false,
+		},
+		{
+			name:     "HCL/Terraform",
+			content:  []byte("resource \"aws_instance\" \"main\" {\n  ami = \"ami-123\"\n}"),
+			isBinary: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temp file with test content
+			tempFile := filepath.Join(t.TempDir(), "testfile")
+			err := os.WriteFile(tempFile, tt.content, 0644)
+			require.NoError(t, err)
+
+			isBinary, err := isBinaryFile(tempFile)
+			require.NoError(t, err)
+			assert.Equal(t, tt.isBinary, isBinary, "isBinaryFile(%q) = %v, want %v", tt.name, isBinary, tt.isBinary)
+		})
+	}
+}

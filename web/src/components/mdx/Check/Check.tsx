@@ -40,8 +40,8 @@ function Check({
   runningMessage = "Checking...",
   children,
 }: CheckProps) {
-  // Check for duplicate component IDs
-  const { isDuplicate } = useComponentIdRegistry(id, 'Check')
+  // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
@@ -251,9 +251,20 @@ function Check({
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Duplicate Component ID:</strong><br />
-            Another <code className="bg-red-100 px-1 rounded">{"<Check>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
-            Each component must have a unique ID.
+            {isNormalizedCollision ? (
+              <>
+                <strong>ID Collision:</strong><br />
+                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                hyphens are converted to underscores for template access.
+                Use different IDs to avoid this collision.
+              </>
+            ) : (
+              <>
+                <strong>Duplicate Component ID:</strong><br />
+                Another <code className="bg-red-100 px-1 rounded">{"<Check>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
+                Each component must have a unique ID.
+              </>
+            )}
           </div>
         </div>
       </div>

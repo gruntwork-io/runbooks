@@ -2,12 +2,13 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
 import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
 import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
+import type { UnmetOutputDependency } from '../_shared/hooks/useScriptExecution'
 import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
 import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
-import { useRunbookContext, useInputs, inputsToValues } from '@/contexts/useRunbook'
+import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -57,8 +58,8 @@ function Template({
   path,
   inputsId
 }: TemplateProps) {
-  // Register with ID registry to detect duplicates
-  const { isDuplicate } = useComponentIdRegistry(id, 'Template')
+  // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Template')
   
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
@@ -74,6 +75,9 @@ function Template({
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
   
+  // Track if we've ever successfully generated (stays true even if subsequent renders fail)
+  const hasEverGeneratedRef = useRef(false);
+  
   // Get the global file tree context
   const { setFileTree } = useFileTree();
   
@@ -83,6 +87,9 @@ function Template({
   // Get inputs from referenced Inputs components (if any) and convert to values map
   const inputs = useInputs(inputsId);
   const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
+  
+  // Get all block outputs to check dependencies and pass to template rendering
+  const allOutputs = useAllOutputs();
 
   // Validate props
   const validationError = useMemo((): AppError | null => {
@@ -157,6 +164,54 @@ function Template({
     }
     return shared;
   }, [boilerplateConfig, inputValues]);
+  
+  // Compute unmet output dependencies - outputs from other blocks that this template needs
+  // but which haven't been produced yet
+  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
+    if (!boilerplateConfig?.outputDependencies || boilerplateConfig.outputDependencies.length === 0) {
+      return [];
+    }
+    
+    // Group dependencies by block ID
+    const byBlock = new Map<string, string[]>();
+    for (const dep of boilerplateConfig.outputDependencies) {
+      // Normalize block ID: hyphens → underscores (matches how outputs are stored)
+      const normalizedBlockId = dep.blockId.replace(/-/g, '_');
+      const existing = byBlock.get(normalizedBlockId) || [];
+      if (!existing.includes(dep.outputName)) {
+        existing.push(dep.outputName);
+      }
+      byBlock.set(normalizedBlockId, existing);
+    }
+    
+    // Check which dependencies are not satisfied
+    const unmet: UnmetOutputDependency[] = [];
+    for (const [blockId, outputNames] of byBlock) {
+      const blockData = allOutputs[blockId];
+      if (!blockData) {
+        // Block hasn't produced any outputs yet - use original block ID for display
+        // Find original block ID from the dependencies
+        const originalBlockId = boilerplateConfig.outputDependencies.find(
+          d => d.blockId.replace(/-/g, '_') === blockId
+        )?.blockId || blockId;
+        unmet.push({ blockId: originalBlockId, outputNames });
+      } else {
+        // Check which specific outputs are missing
+        const missingOutputs = outputNames.filter(name => !(name in blockData.values));
+        if (missingOutputs.length > 0) {
+          const originalBlockId = boilerplateConfig.outputDependencies.find(
+            d => d.blockId.replace(/-/g, '_') === blockId
+          )?.blockId || blockId;
+          unmet.push({ blockId: originalBlockId, outputNames: missingOutputs });
+        }
+      }
+    }
+    
+    return unmet;
+  }, [boilerplateConfig?.outputDependencies, allOutputs]);
+  
+  // Check if all output dependencies are satisfied
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
 
   // Compute initial data for the form
   // - Local-only vars: use template defaults (stable, set once)
@@ -218,6 +273,9 @@ function Template({
   // The backend returns the complete output directory tree, so we simply replace
   useEffect(() => {
     if (renderResult) {
+      // Mark that we've successfully generated at least once
+      hasEverGeneratedRef.current = true;
+      
       // Validate the structure before using it to ensure type safety
       const validatedTree = parseFileTreeNodeArray(renderResult.fileTree)
       if (validatedTree) {
@@ -241,6 +299,15 @@ function Template({
     });
   }, [boilerplateConfig]);
 
+  // Build the _blocks namespace for template rendering
+  const buildBlocksNamespace = useCallback((): Record<string, { outputs: Record<string, string> }> => {
+    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {};
+    for (const [blockId, data] of Object.entries(allOutputs)) {
+      blocksNamespace[blockId] = { outputs: data.values };
+    }
+    return blocksNamespace;
+  }, [allOutputs]);
+  
   // Handle form changes - store in ref (no state update to avoid loops)
   const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
     // Store latest local form data in ref for registration
@@ -254,6 +321,9 @@ function Template({
     
     if (!shouldRender) return; // Only auto-render after initial generation
     
+    // Don't auto-render if output dependencies are not satisfied
+    if (!hasAllOutputDependencies) return;
+    
     // Clear existing timer
     if (autoRenderTimerRef.current) {
       clearTimeout(autoRenderTimerRef.current);
@@ -261,15 +331,19 @@ function Template({
     
     // Debounce: wait 200ms after last change before rendering
     autoRenderTimerRef.current = setTimeout(() => {
-      // Merge imported values with local form data
-      const mergedData = { ...inputValues, ...localVarValues };
+      // Merge imported values with local form data, plus _blocks namespace
+      const mergedData = { 
+        ...inputValues, 
+        ...localVarValues,
+        _blocks: buildBlocksNamespace()
+      };
       
       // Only trigger render when all required values are present
       if (hasAllRequiredValues(localVarValues)) {
         autoRender(path, mergedData);
       }
     }, 200);
-  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, inputValues, path, registerInputs]);
+  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, buildBlocksNamespace]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -280,51 +354,68 @@ function Template({
     };
   }, []);
 
-  // Track previous imported values to detect changes
+  // Track previous imported values and outputs to detect changes
   const prevInputValuesRef = useRef<Record<string, unknown>>({});
+  const prevOutputsRef = useRef<string>('');
   
-  // Trigger auto-render when imported values change (for pass-through variables)
+  // Trigger auto-render when imported values or outputs change (for pass-through variables)
   // This handles variables from inputsId that aren't in this template's boilerplate.yml
+  // and also re-renders when block outputs change
   useEffect(() => {
     if (!shouldRender) return; // Only after initial generation
     if (!boilerplateConfig) return;
+    if (!hasAllOutputDependencies) return; // Don't render if output deps unsatisfied
     
     // Check if imported values actually changed
     const prev = prevInputValuesRef.current;
     const prevKeys = Object.keys(prev);
     const newKeys = Object.keys(inputValues);
-    const unchanged = prevKeys.length === newKeys.length &&
+    const inputsUnchanged = prevKeys.length === newKeys.length &&
       prevKeys.every(key => prev[key] === inputValues[key]);
     
+    // Check if outputs changed
+    const currentOutputsKey = JSON.stringify(allOutputs);
+    const outputsUnchanged = currentOutputsKey === prevOutputsRef.current;
+    
     prevInputValuesRef.current = inputValues;
+    prevOutputsRef.current = currentOutputsKey;
     
-    if (unchanged) return;
+    if (inputsUnchanged && outputsUnchanged) return;
     
-    // Imported values changed - trigger auto-render with current form data
-    const mergedData = { ...inputValues, ...localVarValuesRef.current };
+    // Imported values or outputs changed - trigger auto-render with current form data
+    const mergedData = { 
+      ...inputValues, 
+      ...localVarValuesRef.current,
+      _blocks: buildBlocksNamespace()
+    };
     
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
     }
-  }, [shouldRender, boilerplateConfig, inputValues, hasAllRequiredValues, autoRender, path]);
+  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, buildBlocksNamespace]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
     // Store latest form data
     localVarValuesRef.current = localVarValues;
     
-    // Merge imported values with local form data
-    const mergedData = { ...inputValues, ...localVarValues };
+    // Merge imported values with local form data, plus _blocks namespace for output access
+    const mergedData = { 
+      ...inputValues, 
+      ...localVarValues,
+      _blocks: buildBlocksNamespace()
+    };
     
-    // Register our variables in the block context
+    // Register our variables in the block context (without _blocks)
     if (boilerplateConfig) {
-      registerInputs(id, mergedData, boilerplateConfig);
+      const registrationData = { ...inputValues, ...localVarValues };
+      registerInputs(id, registrationData, boilerplateConfig);
     }
     
-    // Trigger the render with merged data
+    // Trigger the render with merged data (including _blocks)
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, inputValues])
+  }, [id, boilerplateConfig, registerInputs, inputValues, buildBlocksNamespace])
 
   // Early return for duplicate ID error
   if (isDuplicate) {
@@ -333,8 +424,19 @@ function Template({
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Duplicate ID Error:</strong> Another Template component already uses id="{id}".
-            Each Template must have a unique id.
+            {isNormalizedCollision ? (
+              <>
+                <strong>ID Collision:</strong><br />
+                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                hyphens are converted to underscores for template access.
+                Use different IDs to avoid this collision.
+              </>
+            ) : (
+              <>
+                <strong>Duplicate ID Error:</strong> Another Template component already uses id="{id}".
+                Each Template must have a unique id.
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -351,33 +453,36 @@ function Template({
     return <ErrorDisplay error={validationError} />
   }
 
-  // Early return for API errors
+  // Early return for API errors (config loading errors)
   if (apiError) {
     return <ErrorDisplay error={apiError} />
   }
 
-  // Early return for render errors
-  if (renderError) {
-    return <ErrorDisplay error={renderError} />
-  }
-
-  // Render the form
+  // Render the form with output dependency warning and inline render errors
   return (
-    <BoilerplateInputsForm
-      id={id}
-      boilerplateConfig={boilerplateConfig}
-      initialData={initialData}
-      onAutoRender={handleAutoRender}
-      onGenerate={handleGenerate}
-      isGenerating={isGenerating}
-      isAutoRendering={isAutoRendering}
-      enableAutoRender={true}
-      hasGeneratedSuccessfully={Boolean(renderResult)}
-      variant="standard"
-      isInlineMode={false}
-      sharedVarNames={sharedVarNames}
-      liveVarValues={liveVarValues}
-    />
+    <div>
+      {/* Show render errors inline (don't unmount the form) */}
+      {renderError && (
+        <ErrorDisplay error={renderError} />
+      )}
+      
+      <BoilerplateInputsForm
+        id={id}
+        boilerplateConfig={boilerplateConfig}
+        initialData={initialData}
+        onAutoRender={handleAutoRender}
+        onGenerate={handleGenerate}
+        isGenerating={isGenerating}
+        isAutoRendering={isAutoRendering}
+        enableAutoRender={true}
+        hasGeneratedSuccessfully={hasEverGeneratedRef.current || Boolean(renderResult)}
+        variant="standard"
+        isInlineMode={false}
+        sharedVarNames={sharedVarNames}
+        liveVarValues={liveVarValues}
+        unmetOutputDependencies={unmetOutputDependencies}
+      />
+    </div>
   )
 }
 

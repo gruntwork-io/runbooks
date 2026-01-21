@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -58,13 +59,15 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 
 		var content string
 		var err error
+		var templateDir string // Track the template directory for output dependency scanning
 
 		if req.TemplatePath != "" {
 			// Extract the directory from the runbookPath (which we assume is a file path)
 			runbookDir := filepath.Dir(runbookPath)
 
-			// Construct the full path
-			fullPath := filepath.Join(runbookDir, req.TemplatePath, "boilerplate.yml")
+			// Construct the full path to boilerplate.yml and remember template dir
+			templateDir = filepath.Join(runbookDir, req.TemplatePath)
+			fullPath := filepath.Join(templateDir, "boilerplate.yml")
 			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
 
 			// Check if the file exists
@@ -106,7 +109,19 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 		return
 	}
 
-	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables))
+	// If we have a template directory, scan for output dependencies in template files
+	if templateDir != "" {
+		outputDeps, err := extractOutputDependenciesFromTemplateDir(templateDir)
+		if err != nil {
+			// Log warning but don't fail - output dependency scanning is best-effort
+			slog.Warn("Failed to extract output dependencies from template directory", "templateDir", templateDir, "error", err)
+		} else if len(outputDeps) > 0 {
+			config.OutputDependencies = outputDeps
+			slog.Info("Found output dependencies in template files", "count", len(outputDeps), "dependencies", outputDeps)
+		}
+	}
+
+	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables), "outputDepCount", len(config.OutputDependencies))
 	// Return the parsed configuration
 	c.JSON(http.StatusOK, config)
 	}
@@ -442,4 +457,142 @@ func convertToJSONSerializable(value interface{}) interface{} {
 	default:
 		return value
 	}
+}
+
+// isBinaryFile detects if a file is binary using a hybrid approach:
+// 1. First, use MIME type detection for known binary formats (images, audio, video, etc.)
+// 2. For unknown types (application/octet-stream), fall back to null-byte detection
+//
+// This approach is robust because:
+// - It handles any file type, including custom/unusual extensions
+// - It's the same heuristic used by git and other tools
+// - It doesn't require maintaining a list of known extensions
+func isBinaryFile(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	// Read enough for both MIME detection (512 bytes) and null-byte check (8KB like git)
+	buf := make([]byte, 8192)
+	n, err := file.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil // Empty files are treated as text
+	}
+
+	// First: check MIME type using Go's built-in sniffer
+	mimeType := http.DetectContentType(buf[:n])
+	mimeType = strings.Split(mimeType, ";")[0] // Remove charset suffix
+	mimeType = strings.TrimSpace(mimeType)
+
+	// Known text types - definitely not binary
+	if strings.HasPrefix(mimeType, "text/") {
+		return false, nil
+	}
+
+	// Known binary types - skip these files
+	if strings.HasPrefix(mimeType, "image/") ||
+		strings.HasPrefix(mimeType, "audio/") ||
+		strings.HasPrefix(mimeType, "video/") ||
+		strings.HasPrefix(mimeType, "font/") ||
+		mimeType == "application/pdf" ||
+		mimeType == "application/zip" ||
+		mimeType == "application/gzip" ||
+		mimeType == "application/x-gzip" ||
+		mimeType == "application/x-tar" ||
+		mimeType == "application/x-rar-compressed" ||
+		mimeType == "application/x-7z-compressed" ||
+		mimeType == "application/x-executable" ||
+		mimeType == "application/x-mach-binary" ||
+		mimeType == "application/x-sharedlib" ||
+		mimeType == "application/vnd.ms-excel" ||
+		mimeType == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+		mimeType == "application/msword" ||
+		mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		return true, nil
+	}
+
+	// For application/octet-stream (unknown) or other types,
+	// fall back to null-byte detection - binary files contain null bytes, text files don't
+	for i := 0; i < n; i++ {
+		if buf[i] == 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// extractOutputDependenciesFromTemplateDir scans all template files in a directory
+// for {{ ._blocks.blockId.outputs.outputName }} patterns and returns unique dependencies.
+// This allows Template blocks to show warnings when dependent Check/Command blocks
+// haven't been executed yet.
+func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDependency, error) {
+	var dependencies []OutputDependency
+	seen := make(map[string]bool)
+
+	// Regular expression to match {{ ._blocks.blockId.outputs.outputName }} patterns
+	// Supports various whitespace and optional pipe functions
+	outputDepRegex := regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
+
+	// Walk the template directory
+	err := filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Skip binary files using content-based detection
+		isBinary, err := isBinaryFile(path)
+		if err != nil {
+			slog.Warn("Failed to check if file is binary", "path", path, "error", err)
+			return nil // Continue scanning other files
+		}
+		if isBinary {
+			return nil
+		}
+
+		// Read file content
+		content, err := os.ReadFile(path)
+		if err != nil {
+			slog.Warn("Failed to read template file for output dependency extraction", "path", path, "error", err)
+			return nil // Continue scanning other files
+		}
+
+		// Find all matches
+		matches := outputDepRegex.FindAllStringSubmatch(string(content), -1)
+		for _, match := range matches {
+			if len(match) >= 3 {
+				blockID := match[1]
+				outputName := match[2]
+				fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", blockID, outputName)
+
+				// Deduplicate
+				if !seen[fullPath] {
+					seen[fullPath] = true
+					dependencies = append(dependencies, OutputDependency{
+						BlockID:    blockID,
+						OutputName: outputName,
+						FullPath:   fullPath,
+					})
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan template directory for output dependencies: %w", err)
+	}
+
+	return dependencies, nil
 }

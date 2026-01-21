@@ -157,6 +157,82 @@ resource "aws_flow_log" "main" {
 {{- end }}
 ```
 
+## Using Block Outputs
+
+Templates can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks that have already run. This allows you to generate files based on dynamic values produced by previous steps.
+
+### Output Syntax
+
+Access block outputs using the `_blocks` namespace:
+
+```hcl
+# In your template file
+account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+region     = "{{ ._blocks.create_account.outputs.region }}"
+```
+
+<Aside type="note">
+**ID Naming:** You can use hyphens or underscores in your block IDs (e.g., `id="create-account"` or `id="create_account"`). 
+In template syntax, always use underscores: `._blocks.create_account`. This is because Go templates interpret hyphens as the subtraction operator.
+
+Note: IDs that would normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same runbook.
+</Aside>
+
+### Output Dependencies
+
+When a Template loads, Runbooks automatically scans the template files for `{{ ._blocks.*.outputs.* }}` patterns. If those outputs don't exist yet:
+
+1. A warning is displayed showing which blocks need to run first
+2. The "Generate" button is disabled until the required blocks have executed
+
+### Example: Using Command Outputs in a Template
+
+```mdx
+## Step 1: Create Account
+
+<Command 
+  id="create-account" 
+  path="scripts/create-account.sh"
+  title="Create AWS Account"
+/>
+
+## Step 2: Generate Configuration
+
+This template uses the account ID from Step 1:
+
+<Template 
+  id="account-config" 
+  path="templates/account-config" 
+/>
+```
+
+And in `templates/account-config/main.tf`:
+
+```hcl
+# Values populated from the create-account Command's outputs
+locals {
+  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+  region     = "{{ ._blocks.create_account.outputs.region }}"
+}
+
+resource "aws_iam_account_alias" "alias" {
+  account_alias = "my-org-${local.account_id}"
+}
+```
+
+### Combining Inputs and Outputs
+
+You can use both standard inputs (from `<Inputs>` blocks) and block outputs in the same template:
+
+```hcl
+# Standard inputs from Inputs block
+environment = "{{ .Environment }}"
+owner       = "{{ .Owner }}"
+
+# Block outputs from Command/Check blocks  
+account_id  = "{{ ._blocks.create_account.outputs.account_id }}"
+```
+
 ## Common Use Cases
 
 The `<Template>` block works especially well for generating files from structured templates:
