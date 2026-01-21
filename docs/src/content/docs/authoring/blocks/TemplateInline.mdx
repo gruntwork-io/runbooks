@@ -234,7 +234,7 @@ When a TemplateInline component renders, it automatically scans the template con
 
 ### Example: Displaying Command Outputs
 
-```mdx
+`````mdx
 ## Step 1: Create Account
 
 <Command 
@@ -253,7 +253,7 @@ Account ID: {{ ._blocks.create_account.outputs.account_id }}
 Region:     {{ ._blocks.create_account.outputs.region }}
 ```
 </TemplateInline>
-```
+`````
 
 ### Combining Inputs and Outputs
 
@@ -279,6 +279,10 @@ account_id: {{ ._blocks.create_account.outputs.account_id }}
 ```
 </TemplateInline>
 `````
+
+<Aside type="tip" title="See It in Action">
+Check out the [demo-runbook-outputs](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-outputs) example for a complete working demonstration of TemplateInline blocks that consume outputs from upstream Command blocks, including examples of iterating over lists and maps.
+</Aside>
 
 ## Generating Files
 

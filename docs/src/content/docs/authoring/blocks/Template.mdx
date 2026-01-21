@@ -233,6 +233,10 @@ owner       = "{{ .Owner }}"
 account_id  = "{{ ._blocks.create_account.outputs.account_id }}"
 ```
 
+<Aside type="tip" title="See It in Action">
+Check out the [demo-runbook-outputs](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-outputs) example for a complete working demonstration of Template blocks that consume outputs from upstream Command blocks.
+</Aside>
+
 ## Common Use Cases
 
 The `<Template>` block works especially well for generating files from structured templates:
