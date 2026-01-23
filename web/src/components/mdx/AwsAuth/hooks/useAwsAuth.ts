@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
+import { normalizeBlockId } from "@/lib/utils"
 import type {
   AuthMethod,
   AuthStatus,
@@ -9,6 +10,9 @@ import type {
   SSOAccount,
   SSORole,
   ProfileInfo,
+  PrefillStatus,
+  PrefilledCredentials,
+  PrefilledCredentialsType,
 } from "../types"
 
 interface UseAwsAuthOptions {
@@ -18,6 +22,8 @@ interface UseAwsAuthOptions {
   ssoAccountId?: string
   ssoRoleName?: string
   defaultRegion: string
+  prefilledCredentials?: PrefilledCredentials
+  allowOverridePrefilled?: boolean
 }
 
 export function useAwsAuth({
@@ -27,8 +33,9 @@ export function useAwsAuth({
   ssoAccountId,
   ssoRoleName,
   defaultRegion,
+  prefilledCredentials,
 }: UseAwsAuthOptions) {
-  const { registerOutputs } = useRunbookContext()
+  const { registerOutputs, blockOutputs } = useRunbookContext()
   const { getAuthHeader } = useSession()
 
   // Core auth state
@@ -37,6 +44,19 @@ export function useAwsAuth({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
+  
+  // Prefill state
+  const [prefillStatus, setPrefillStatus] = useState<PrefillStatus>(
+    prefilledCredentials ? 'pending' : 'not-configured'
+  )
+  const [prefillError, setPrefillError] = useState<string | null>(null)
+  const [prefillSource, setPrefillSource] = useState<PrefilledCredentialsType | null>(null)
+  const prefillAttemptedRef = useRef(false)
+  const [prefillRetryCount, setPrefillRetryCount] = useState(0)
+  // Track if we're waiting for a block to produce outputs (vs actively checking)
+  const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(
+    prefilledCredentials?.type === 'block' ? prefilledCredentials.blockId : null
+  )
 
   // Credentials form state
   const [accessKeyId, setAccessKeyId] = useState('')
@@ -64,6 +84,34 @@ export function useAwsAuth({
 
   // SSO polling cancellation
   const ssoPollingCancelledRef = useRef(false)
+
+  // Helper to check for prefilled credentials from block outputs
+  const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: Partial<AwsCredentials>; error?: string } => {
+    // Normalize block ID (hyphens to underscores) to match how they're stored
+    const normalizedId = normalizeBlockId(blockId)
+    const outputs = blockOutputs[normalizedId]?.values
+    
+    if (!outputs) {
+      return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
+    }
+    
+    const accessKeyId = outputs.AWS_ACCESS_KEY_ID
+    const secretAccessKey = outputs.AWS_SECRET_ACCESS_KEY
+    
+    if (!accessKeyId || !secretAccessKey) {
+      return { found: false, error: `Block "${blockId}" did not output AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY` }
+    }
+    
+    return {
+      found: true,
+      creds: {
+        accessKeyId,
+        secretAccessKey,
+        sessionToken: outputs.AWS_SESSION_TOKEN,
+        region: outputs.AWS_REGION || defaultRegion,
+      }
+    }
+  }, [blockOutputs, defaultRegion])
 
   // Check if a region is enabled for the AWS account
   const checkRegionStatus = useCallback(async (creds: AwsCredentials) => {
@@ -115,6 +163,230 @@ export function useAwsAuth({
 
     await checkRegionStatus(creds)
   }, [id, registerOutputs, getAuthHeader, checkRegionStatus])
+
+  // Attempt to prefill credentials from block outputs
+  const attemptBlockPrefill = useCallback(async (blockId: string) => {
+    const result = getBlockCredentials(blockId)
+    
+    if (!result.found || !result.creds) {
+      return { success: false, error: result.error || 'Could not read credentials from block' }
+    }
+
+    // Validate and register the credentials
+    const creds: AwsCredentials = {
+      accessKeyId: result.creds.accessKeyId!,
+      secretAccessKey: result.creds.secretAccessKey!,
+      sessionToken: result.creds.sessionToken,
+      region: result.creds.region || defaultRegion,
+    }
+
+    // Validate via backend
+    const response = await fetch('/api/aws/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds)
+    })
+
+    const data = await response.json()
+
+    if (!data.valid) {
+      return { success: false, error: data.error || 'Block credentials are invalid' }
+    }
+
+    // Register credentials
+    await registerCredentials(creds)
+    
+    return { 
+      success: true, 
+      accountId: data.accountId, 
+      arn: data.arn,
+      warning: data.warning 
+    }
+  }, [getBlockCredentials, defaultRegion, registerCredentials])
+
+  // Handle prefilled credentials on mount (for env and static types)
+  useEffect(() => {
+    // Skip if not configured or if it's block type (handled separately)
+    if (!prefilledCredentials || prefilledCredentials.type === 'block') {
+      return
+    }
+    
+    // Only attempt prefill once per retry cycle
+    if (prefillAttemptedRef.current) {
+      return
+    }
+    
+    prefillAttemptedRef.current = true
+
+    const attemptPrefill = async () => {
+      setPrefillStatus('pending')
+      setPrefillError(null)
+
+      try {
+        if (prefilledCredentials.type === 'env') {
+          // Call backend to read and validate credentials from environment
+          const response = await fetch('/api/aws/env-credentials', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getAuthHeader(),
+            },
+            body: JSON.stringify({
+              prefix: prefilledCredentials.prefix || '',
+              awsAuthId: id,
+              defaultRegion,
+            })
+          })
+
+          const data = await response.json()
+
+          if (!data.found) {
+            setPrefillStatus('failed')
+            setPrefillError(data.error || 'No credentials found in environment')
+            return
+          }
+
+          if (!data.valid) {
+            setPrefillStatus('failed')
+            setPrefillError(data.error || 'Environment credentials are invalid')
+            return
+          }
+
+          // Credentials validated and registered on the server side
+          setPrefillStatus('success')
+          setPrefillSource('env')
+          setAuthStatus('authenticated')
+          setAccountInfo({ accountId: data.accountId, arn: data.arn })
+
+          // Note: We do NOT register actual credential outputs to RunbookContext for env-prefilled credentials.
+          // The actual credentials are stored in the server session environment, and commands
+          // will access them from there. Registering placeholder values would break awsAuthId
+          // lookups since they'd pass the placeholders instead of real credentials.
+          // 
+          // However, we DO register a marker to indicate that this AwsAuth block has been
+          // authenticated. This allows dependent blocks (Command/Check with awsAuthId) to
+          // know that credentials are available, even though they're stored server-side.
+          registerOutputs(id, { __AUTHENTICATED: 'true' })
+
+          if (data.warning) {
+            setWarningMessage(data.warning)
+          }
+        } else if (prefilledCredentials.type === 'static') {
+          // Use static values directly
+          if (!prefilledCredentials.accessKeyId || !prefilledCredentials.secretAccessKey) {
+            setPrefillStatus('failed')
+            setPrefillError('Static credentials missing accessKeyId or secretAccessKey')
+            return
+          }
+
+          const creds: AwsCredentials = {
+            accessKeyId: prefilledCredentials.accessKeyId,
+            secretAccessKey: prefilledCredentials.secretAccessKey,
+            sessionToken: prefilledCredentials.sessionToken,
+            region: prefilledCredentials.region || defaultRegion,
+          }
+
+          // Validate via backend
+          const response = await fetch('/api/aws/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(creds)
+          })
+
+          const data = await response.json()
+
+          if (!data.valid) {
+            setPrefillStatus('failed')
+            setPrefillError(data.error || 'Static credentials are invalid')
+            return
+          }
+
+          // Register credentials
+          await registerCredentials(creds)
+          
+          setPrefillStatus('success')
+          setPrefillSource('static')
+          setAuthStatus('authenticated')
+          setAccountInfo({ accountId: data.accountId, arn: data.arn })
+
+          if (data.warning) {
+            setWarningMessage(data.warning)
+          }
+        }
+      } catch (error) {
+        setPrefillStatus('failed')
+        setPrefillError(error instanceof Error ? error.message : 'Failed to prefill credentials')
+      }
+    }
+
+    attemptPrefill()
+  }, [prefilledCredentials, id, defaultRegion, getAuthHeader, registerCredentials, prefillRetryCount])
+
+  // Handle block-based credential prefill - watches for block outputs to become available
+  useEffect(() => {
+    // Only handle block type prefill
+    if (prefilledCredentials?.type !== 'block') {
+      return
+    }
+    
+    // Don't retry if already authenticated
+    if (authStatus === 'authenticated') {
+      return
+    }
+    
+    // Don't auto-prefill if user opted for manual auth
+    if (prefillStatus === 'not-configured') {
+      return
+    }
+
+    // Don't auto-retry on failure - user must explicitly retry
+    if (prefillStatus === 'failed') {
+      return
+    }
+
+    // Check if the source block has outputs
+    const result = getBlockCredentials(prefilledCredentials.blockId)
+    
+    if (!result.found) {
+      // Block hasn't produced outputs yet - show waiting state
+      setWaitingForBlockId(prefilledCredentials.blockId)
+      if (prefillStatus !== 'pending') {
+        setPrefillStatus('pending')
+        setPrefillError(null)
+      }
+      return
+    }
+
+    // Block has outputs - clear waiting state and attempt to authenticate
+    setWaitingForBlockId(null)
+    
+    const doAuth = async () => {
+      setPrefillStatus('pending')
+      setPrefillError(null)
+      
+      try {
+        const authResult = await attemptBlockPrefill(prefilledCredentials.blockId)
+        
+        if (authResult.success) {
+          setPrefillStatus('success')
+          setPrefillSource('block')
+          setAuthStatus('authenticated')
+          setAccountInfo({ accountId: authResult.accountId, arn: authResult.arn })
+          if (authResult.warning) {
+            setWarningMessage(authResult.warning)
+          }
+        } else {
+          setPrefillStatus('failed')
+          setPrefillError(authResult.error || 'Failed to authenticate with block credentials')
+        }
+      } catch (error) {
+        setPrefillStatus('failed')
+        setPrefillError(error instanceof Error ? error.message : 'Failed to prefill credentials')
+      }
+    }
+
+    doAuth()
+  }, [prefilledCredentials, authStatus, blockOutputs, getBlockCredentials, attemptBlockPrefill, prefillStatus])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = useCallback(async () => {
@@ -191,10 +463,20 @@ export function useAwsAuth({
     const poll = async () => {
       if (ssoPollingCancelledRef.current) return
 
+      const authHeader = getAuthHeader()
+      if (!authHeader.Authorization) {
+        setAuthStatus('failed')
+        setErrorMessage('Session not ready. Please wait a moment and try again.')
+        return
+      }
+
       try {
         const response = await fetch('/api/aws/sso/poll', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeader,
+          },
           body: JSON.stringify({ 
             deviceCode, 
             clientId, 
@@ -237,7 +519,7 @@ export function useAwsAuth({
     }
 
     poll()
-  }, [ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials])
+  }, [ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
   // Handle SSO authentication
   const handleSsoAuth = useCallback(async () => {
@@ -322,12 +604,21 @@ export function useAwsAuth({
       return
     }
 
+    const authHeader = getAuthHeader()
+    if (!authHeader.Authorization) {
+      setErrorMessage('Session not ready. Please wait a moment and try again.')
+      return
+    }
+
     setAuthStatus('authenticating')
 
     try {
       const response = await fetch('/api/aws/sso/complete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeader,
+        },
         body: JSON.stringify({
           accessToken: ssoAccessToken,
           accountId: selectedSsoAccount.accountId,
@@ -355,7 +646,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
     }
-  }, [selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials])
+  }, [selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
   // Go back to account selection
   const handleBackToAccountSelection = useCallback(() => {
@@ -378,13 +669,22 @@ export function useAwsAuth({
       return
     }
 
+    const authHeader = getAuthHeader()
+    if (!authHeader.Authorization) {
+      setErrorMessage('Session not ready. Please wait a moment and try again.')
+      return
+    }
+
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
     try {
       const response = await fetch('/api/aws/profile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeader,
+        },
         body: JSON.stringify({ profile: selectedProfile.name })
       })
 
@@ -407,10 +707,23 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [selectedProfile, selectedDefaultRegion, registerCredentials])
+  }, [selectedProfile, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
-  // Reset authentication state
-  const handleReset = useCallback(() => {
+  // Retry prefilled credentials (re-read from env, re-check block outputs, etc.)
+  const handleRetryPrefill = useCallback(() => {
+    setAuthStatus('pending')
+    setErrorMessage(null)
+    setWarningMessage(null)
+    setAccountInfo(null)
+    setPrefillStatus('pending')
+    setPrefillError(null)
+    // Reset the attempt flag and increment retry count to trigger the effect
+    prefillAttemptedRef.current = false
+    setPrefillRetryCount(c => c + 1)
+  }, [])
+
+  // Reset to manual authentication (show auth tabs)
+  const handleManualAuth = useCallback(() => {
     setAuthStatus('pending')
     setErrorMessage(null)
     setWarningMessage(null)
@@ -422,7 +735,12 @@ export function useAwsAuth({
     setSelectedSsoRole('')
     setSsoAccountSearch('')
     setSsoRoleSearch('')
+    // Clear prefill state so manual auth UI shows
+    setPrefillStatus('not-configured')
+    setPrefillSource(null)
+    setPrefillError(null)
   }, [])
+
 
   // Cancel SSO authentication
   const handleCancelSsoAuth = useCallback(() => {
@@ -439,6 +757,12 @@ export function useAwsAuth({
     errorMessage,
     warningMessage,
     accountInfo,
+
+    // Prefill state
+    prefillStatus,
+    prefillError,
+    prefillSource,
+    waitingForBlockId,
 
     // Credentials form
     accessKeyId,
@@ -482,7 +806,9 @@ export function useAwsAuth({
     handleSsoComplete,
     handleBackToAccountSelection,
     handleProfileAuth,
-    handleReset,
+    
+    handleRetryPrefill,
+    handleManualAuth,
     handleCancelSsoAuth,
   }
 }

@@ -35,6 +35,11 @@ export interface UnmetOutputDependency {
   outputNames: string[]
 }
 
+/** Information about an unmet AWS auth dependency */
+export interface UnmetAwsAuthDependency {
+  blockId: string
+}
+
 interface UseScriptExecutionReturn {
   // Script content
   sourceCode: string
@@ -53,6 +58,10 @@ interface UseScriptExecutionReturn {
   outputDependencies: OutputDependency[]
   unmetOutputDependencies: UnmetOutputDependency[]
   hasAllOutputDependencies: boolean
+  
+  // AWS Auth dependency
+  unmetAwsAuthDependency: UnmetAwsAuthDependency | null
+  hasAwsAuthDependency: boolean
   
   // Rendering
   isRendering: boolean
@@ -232,6 +241,28 @@ export function useScriptExecution({
     
     return Object.keys(envVars).length > 0 ? envVars : undefined
   }, [awsAuthId, allOutputs])
+  
+  // Check if AWS auth dependency is met (when awsAuthId is specified)
+  // The dependency is met when the referenced AwsAuth block has registered credentials
+  // OR has registered the __AUTHENTICATED marker (for env-prefilled credentials where
+  // actual credentials are stored server-side in the session environment)
+  const unmetAwsAuthDependency = useMemo((): UnmetAwsAuthDependency | null => {
+    if (!awsAuthId) return null // No dependency specified
+    
+    // If we have credentials to pass, the dependency is met
+    if (awsAuthEnvVars && Object.keys(awsAuthEnvVars).length > 0) return null
+    
+    // Check for the __AUTHENTICATED marker (used by env-prefilled credentials)
+    const normalizedId = normalizeBlockId(awsAuthId)
+    const blockOutputs = allOutputs[normalizedId]
+    if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
+    
+    // Dependency not met - return the original block ID for display
+    return { blockId: awsAuthId }
+  }, [awsAuthId, awsAuthEnvVars, allOutputs])
+  
+  // Boolean flag for easier checks
+  const hasAwsAuthDependency = unmetAwsAuthDependency === null
   
   // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
   const outputDependencies = useMemo(() => {
@@ -529,6 +560,10 @@ export function useScriptExecution({
     outputDependencies,
     unmetOutputDependencies,
     hasAllOutputDependencies,
+    
+    // AWS Auth dependency
+    unmetAwsAuthDependency,
+    hasAwsAuthDependency,
     
     // Rendering
     isRendering,

@@ -11,6 +11,8 @@ export { ViewSourceCode } from './components/ViewSourceCode'
 export { InlineMarkdown } from './components/InlineMarkdown'
 export { UnmetOutputDependenciesWarning } from './components/UnmetOutputDependenciesWarning'
 export { UnmetInputDependenciesWarning } from './components/UnmetInputDependenciesWarning'
+export { UnmetAwsAuthDependencyWarning } from './components/UnmetAwsAuthDependencyWarning'
+export { BlockIdLabel } from './components/BlockIdLabel'
 
 // Export shared utilities
 export { extractInlineInputsId } from './lib/extractInlineInputsId'

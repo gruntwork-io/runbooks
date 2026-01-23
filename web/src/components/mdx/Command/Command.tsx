@@ -1,10 +1,9 @@
-import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle, CircleSlash } from "lucide-react"
+import { SquareTerminal, CheckCircle, XCircle, Loader2, Square, AlertTriangle } from "lucide-react"
 import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -58,6 +57,8 @@ function Command({
     inlineInputsId,
     unmetOutputDependencies,
     hasAllOutputDependencies,
+    unmetAwsAuthDependency,
+    hasAwsAuthDependency,
     isRendering,
     renderError,
     status: commandStatus,
@@ -89,8 +90,6 @@ function Command({
     return children;
   }, [children]);
 
-  const [skipCommand, setSkipCommand] = useState(false);
-
   // State for controlling ViewSourceCode
   const [showSourceCode, setShowSourceCode] = useState(false);
   
@@ -99,8 +98,6 @@ function Command({
 
   // Get visual styling based on status
   const getStatusClasses = () => {
-    if (skipCommand) return 'bg-gray-100 border-gray-200'
-    
     const statusMap = {
       success: 'bg-green-50 border-green-200',
       fail: 'bg-red-50 border-red-200',
@@ -124,8 +121,6 @@ function Command({
   }
 
   const getStatusIconClasses = () => {
-    if (skipCommand) return 'text-gray-300'
-    
     const colorMap = {
       success: 'text-green-600',
       fail: 'text-red-600',
@@ -277,60 +272,37 @@ function Command({
   
   // Determine if the Run button should be disabled
   const isRunDisabled = 
-    skipCommand || 
     commandStatus === 'running' || 
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
-    !hasAllOutputDependencies;
+    !hasAllOutputDependencies ||
+    !hasAwsAuthDependency;
 
   // Main render
   return (
     <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
-      {/* Skip checkbox - always positioned at top right */}
-      <div className={`absolute top-4 right-4 flex items-center gap-2 z-20` + (commandStatus === 'success' ? ' text-gray-300' : '')}>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <Checkbox 
-            className="bg-white" 
-            checked={skipCommand} 
-            disabled={commandStatus === 'success'}
-            onCheckedChange={(checked) => setSkipCommand(checked === true)} 
-          />
-          <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 select-none">
-            Skip
-          </span>
-        </label>
+      {/* ID label - positioned at top right */}
+      <div className="absolute top-3 right-3 z-20">
+        <BlockIdLabel id={id} size="large" />
       </div>
 
-      {/* Script drift warning - mr-16 leaves room for the Skip checkbox */}
+      {/* Script drift warning - mr-12 leaves room for the ID label */}
       {hasScriptDrift && (
-        <Admonition type="warning" title="Script changed" className="space-y-2 mr-16">
+        <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
           <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
           <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.</p>
         </Admonition>
       )}
-      
-      {/* Skip overlay */}
-      {skipCommand && (
-        <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
-      )}
 
       {/* Command main container */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4">
-          <IconComponent className={`size-6 ${iconClasses} mr-1 ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
+        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+          <IconComponent className={`size-6 ${iconClasses} ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">
-
-        {skipCommand && (
-          <div className="mb-3 text-sm text-gray-800 bg-gray-300 w-fit p-3 flex items-center gap-2">
-            <CircleSlash className="size-4" />
-            This command has been skipped.
-          </div>
-        )}
-        
         {/* Command main body */}
-        <div className={`flex-1 space-y-2 ${skipCommand ? 'opacity-40' : ''}`}>
+        <div className="flex-1 space-y-2">
           {commandStatus === 'pending' && command && !title && (
             <div className="text-gray-600 font-semibold text-sm">Run a command</div>
           )}
@@ -430,6 +402,11 @@ function Command({
           {/* Show unmet output dependencies */}
           {hasAllInputDependencies && (
             <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+          )}
+          
+          {/* Show unmet AWS auth dependency */}
+          {hasAllInputDependencies && hasAllOutputDependencies && (
+            <UnmetAwsAuthDependencyWarning unmetAwsAuthDependency={unmetAwsAuthDependency} />
           )}
           
           {renderError && hasAllOutputDependencies && (

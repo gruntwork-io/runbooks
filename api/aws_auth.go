@@ -190,6 +190,26 @@ type CheckRegionResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// EnvCredentialsRequest represents a request to read and validate AWS credentials from environment variables
+type EnvCredentialsRequest struct {
+	Prefix        string `json:"prefix"`
+	AwsAuthID     string `json:"awsAuthId"`
+	DefaultRegion string `json:"defaultRegion"`
+}
+
+// EnvCredentialsResponse represents the response from environment credential validation
+// Note: Raw credentials are NEVER returned to the frontend for security
+type EnvCredentialsResponse struct {
+	Found           bool   `json:"found"`
+	Valid           bool   `json:"valid,omitempty"`
+	AccountID       string `json:"accountId,omitempty"`
+	Arn             string `json:"arn,omitempty"`
+	Region          string `json:"region,omitempty"`
+	HasSessionToken bool   `json:"hasSessionToken,omitempty"`
+	Warning         string `json:"warning,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
 // callerIdentity holds the result of an STS GetCallerIdentity call.
 type callerIdentity struct {
 	AccountID string
@@ -842,6 +862,94 @@ func HandleAwsCheckRegion() gin.HandlerFunc {
 				Status:  "enabled",
 			})
 		}
+	}
+}
+
+// HandleAwsEnvCredentials reads AWS credentials from the process environment,
+// validates them, and registers them to the session.
+// Returns only metadata (accountId, arn) - never returns raw credentials.
+// This is a security measure to prevent credentials from being transmitted to the browser.
+func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req EnvCredentialsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid request format",
+			})
+			return
+		}
+
+		// Read credentials from environment (values are NEVER logged)
+		accessKeyID := os.Getenv(req.Prefix + "AWS_ACCESS_KEY_ID")
+		secretAccessKey := os.Getenv(req.Prefix + "AWS_SECRET_ACCESS_KEY")
+		sessionToken := os.Getenv(req.Prefix + "AWS_SESSION_TOKEN")
+		region := os.Getenv(req.Prefix + "AWS_REGION")
+		if region == "" {
+			region = req.DefaultRegion
+		}
+		if region == "" {
+			region = "us-east-1"
+		}
+
+		if accessKeyID == "" || secretAccessKey == "" {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment",
+			})
+			return
+		}
+
+		// Validate the credentials via STS
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cfg, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
+		if err != nil {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: true,
+				Valid: false,
+				Error: fmt.Sprintf("Credentials found but invalid: %v", err),
+			})
+			return
+		}
+
+		// Register credentials to session environment (server-side only)
+		// This is the same as what happens after manual authentication
+		envVars := map[string]string{
+			"AWS_ACCESS_KEY_ID":     accessKeyID,
+			"AWS_SECRET_ACCESS_KEY": secretAccessKey,
+			"AWS_REGION":            region,
+		}
+		if sessionToken != "" {
+			envVars["AWS_SESSION_TOKEN"] = sessionToken
+		}
+
+		if err := sm.AppendToEnv(envVars); err != nil {
+			c.JSON(http.StatusInternalServerError, EnvCredentialsResponse{
+				Found: true,
+				Valid: true,
+				Error: "Failed to register credentials to session",
+			})
+			return
+		}
+
+		// Check if the user's selected region is enabled
+		var warning string
+		if region != "us-east-1" {
+			warning = checkRegionOptInStatus(ctx, cfg, region)
+		}
+
+		// Return only safe metadata - NEVER return raw credentials
+		c.JSON(http.StatusOK, EnvCredentialsResponse{
+			Found:           true,
+			Valid:           true,
+			AccountID:       identity.AccountID,
+			Arn:             identity.Arn,
+			Region:          region,
+			HasSessionToken: sessionToken != "",
+			Warning:         warning,
+		})
 	}
 }
 
