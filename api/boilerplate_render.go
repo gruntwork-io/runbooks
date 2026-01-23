@@ -518,9 +518,10 @@ func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 	}
 }
 
-// renderBoilerplateContent renders boilerplate template content with variables and returns the rendered string
-// Variables can be simple strings or nested structures (like _blocks for block outputs)
-func renderBoilerplateContent(content string, variables map[string]any) (string, error) {
+// RenderBoilerplateContent renders boilerplate template content with variables and returns the rendered string.
+// Variables can be simple strings or nested structures (like _blocks for block outputs).
+// This function is exported for use by the testing package.
+func RenderBoilerplateContent(content string, variables map[string]any) (string, error) {
 	// Create a temporary directory for the template
 	tempDir, err := os.MkdirTemp("", "inline-template-*")
 	if err != nil {

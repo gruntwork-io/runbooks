@@ -1,0 +1,323 @@
+package testing
+
+import (
+	"crypto/rand"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+)
+
+// FuzzGenerator generates random values for fuzz testing.
+type FuzzGenerator struct{}
+
+// NewFuzzGenerator creates a new fuzz value generator.
+func NewFuzzGenerator() *FuzzGenerator {
+	return &FuzzGenerator{}
+}
+
+// Generate generates a fuzz value based on the config.
+func (g *FuzzGenerator) Generate(config *FuzzConfig) (interface{}, error) {
+	if config == nil {
+		return nil, fmt.Errorf("fuzz config is nil")
+	}
+
+	switch config.Type {
+	case FuzzString:
+		return g.generateString(config)
+	case FuzzInt:
+		return g.generateInt(config)
+	case FuzzFloat:
+		return g.generateFloat(config)
+	case FuzzBool:
+		return g.generateBool()
+	case FuzzEnum:
+		return g.generateEnum(config)
+	case FuzzEmail:
+		return g.generateEmail(config)
+	case FuzzURL:
+		return g.generateURL(config)
+	case FuzzUUID:
+		return g.generateUUID()
+	case FuzzDate:
+		return g.generateDate(config)
+	case FuzzTimestamp:
+		return g.generateTimestamp(config)
+	case FuzzWords:
+		return g.generateWords(config)
+	default:
+		return nil, fmt.Errorf("unknown fuzz type: %s", config.Type)
+	}
+}
+
+// generateString generates a random string respecting constraints.
+func (g *FuzzGenerator) generateString(config *FuzzConfig) (string, error) {
+	// Determine length
+	length := config.Length
+	if length <= 0 {
+		// Use min/max if provided
+		minLen := config.MinLength
+		maxLen := config.MaxLength
+
+		if minLen <= 0 {
+			minLen = 8
+		}
+		if maxLen <= 0 {
+			maxLen = minLen + 10
+		}
+		if maxLen < minLen {
+			maxLen = minLen
+		}
+
+		// Random length between min and max
+		rangeSize := maxLen - minLen + 1
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random length: %w", err)
+		}
+		length = minLen + int(n.Int64())
+	}
+
+	// Build charset based on options
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	if config.IncludeSpaces {
+		charset += " "
+	}
+	if config.IncludeSpecialChars {
+		charset += "!@#$%^&*()-_=+[]{}|;:,.<>?"
+	}
+
+	// Generate random string
+	result := make([]byte, length)
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random character: %w", err)
+		}
+		result[i] = charset[idx.Int64()]
+	}
+
+	// Apply prefix and suffix
+	finalResult := config.Prefix + string(result) + config.Suffix
+	return finalResult, nil
+}
+
+// generateInt generates a random integer in the given range.
+func (g *FuzzGenerator) generateInt(config *FuzzConfig) (int, error) {
+	min := config.Min
+	max := config.Max
+
+	if max <= min {
+		min, max = 0, 100 // Default range
+	}
+
+	rangeSize := big.NewInt(int64(max - min + 1))
+	n, err := rand.Int(rand.Reader, rangeSize)
+	if err != nil {
+		return 0, fmt.Errorf("failed to generate random number: %w", err)
+	}
+
+	return int(n.Int64()) + min, nil
+}
+
+// generateFloat generates a random float in the given range.
+func (g *FuzzGenerator) generateFloat(config *FuzzConfig) (float64, error) {
+	min := float64(config.Min)
+	max := float64(config.Max)
+
+	if max <= min {
+		min, max = 0.0, 100.0 // Default range
+	}
+
+	// Generate random value between 0 and 1
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return 0, fmt.Errorf("failed to generate random number: %w", err)
+	}
+
+	ratio := float64(n.Int64()) / 1000000.0
+	return min + (max-min)*ratio, nil
+}
+
+// generateBool generates a random boolean.
+func (g *FuzzGenerator) generateBool() (bool, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(2))
+	if err != nil {
+		return false, fmt.Errorf("failed to generate random number: %w", err)
+	}
+	return n.Int64() == 1, nil
+}
+
+// generateEnum generates a random value from the enum options.
+func (g *FuzzGenerator) generateEnum(config *FuzzConfig) (string, error) {
+	if len(config.Options) == 0 {
+		return "", fmt.Errorf("no enum options provided")
+	}
+
+	idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(config.Options))))
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random number: %w", err)
+	}
+
+	return config.Options[idx.Int64()], nil
+}
+
+// generateEmail generates a random email address.
+func (g *FuzzGenerator) generateEmail(config *FuzzConfig) (string, error) {
+	// Generate local part
+	localConfig := &FuzzConfig{Type: FuzzString, MinLength: 6, MaxLength: 10}
+	localPart, err := g.generateString(localConfig)
+	if err != nil {
+		return "", err
+	}
+
+	domain := config.Domain
+	if domain == "" {
+		domains := []string{"example.com", "test.org", "demo.net", "sample.io"}
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(domains))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random number: %w", err)
+		}
+		domain = domains[idx.Int64()]
+	}
+
+	return fmt.Sprintf("%s@%s", strings.ToLower(localPart), domain), nil
+}
+
+// generateURL generates a random URL.
+func (g *FuzzGenerator) generateURL(config *FuzzConfig) (string, error) {
+	// Generate path
+	pathConfig := &FuzzConfig{Type: FuzzString, MinLength: 4, MaxLength: 8}
+	path, err := g.generateString(pathConfig)
+	if err != nil {
+		return "", err
+	}
+
+	domain := config.Domain
+	if domain == "" {
+		domains := []string{"example.com", "test.org", "demo.net", "sample.io"}
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(domains))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random number: %w", err)
+		}
+		domain = domains[idx.Int64()]
+	}
+
+	return fmt.Sprintf("https://%s/%s", domain, strings.ToLower(path)), nil
+}
+
+// generateUUID generates a random UUID v4.
+func (g *FuzzGenerator) generateUUID() (string, error) {
+	uuid := make([]byte, 16)
+	_, err := rand.Read(uuid)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+
+	// Set version 4 and variant bits
+	uuid[6] = (uuid[6] & 0x0f) | 0x40
+	uuid[8] = (uuid[8] & 0x3f) | 0x80
+
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16]), nil
+}
+
+// generateDate generates a random date string (YYYY-MM-DD).
+func (g *FuzzGenerator) generateDate(config *FuzzConfig) (string, error) {
+	// TODO: Support minDate/maxDate constraints
+	now := time.Now()
+	daysBack, err := rand.Int(rand.Reader, big.NewInt(365))
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random number: %w", err)
+	}
+
+	date := now.AddDate(0, 0, -int(daysBack.Int64()))
+
+	format := config.Format
+	if format == "" {
+		format = "2006-01-02"
+	}
+
+	return date.Format(format), nil
+}
+
+// generateTimestamp generates a random timestamp (RFC3339).
+func (g *FuzzGenerator) generateTimestamp(config *FuzzConfig) (string, error) {
+	// TODO: Support minDate/maxDate constraints
+	now := time.Now()
+	secondsBack, err := rand.Int(rand.Reader, big.NewInt(365*24*60*60))
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random number: %w", err)
+	}
+
+	ts := now.Add(-time.Duration(secondsBack.Int64()) * time.Second)
+
+	format := config.Format
+	if format == "" {
+		format = time.RFC3339
+	}
+
+	return ts.Format(format), nil
+}
+
+// generateWords generates random words.
+func (g *FuzzGenerator) generateWords(config *FuzzConfig) (string, error) {
+	count := config.WordCount
+	if count <= 0 {
+		minCount := config.MinWordCount
+		maxCount := config.MaxWordCount
+
+		if minCount <= 0 {
+			minCount = 2
+		}
+		if maxCount <= 0 {
+			maxCount = minCount + 3
+		}
+
+		rangeSize := maxCount - minCount + 1
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random count: %w", err)
+		}
+		count = minCount + int(n.Int64())
+	}
+
+	words := []string{
+		"alpha", "bravo", "charlie", "delta", "echo",
+		"foxtrot", "golf", "hotel", "india", "juliet",
+		"kilo", "lima", "mike", "november", "oscar",
+		"papa", "quebec", "romeo", "sierra", "tango",
+		"uniform", "victor", "whiskey", "xray", "yankee", "zulu",
+	}
+
+	result := make([]string, count)
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(words))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random number: %w", err)
+		}
+		result[i] = words[idx.Int64()]
+	}
+
+	return strings.Join(result, " "), nil
+}
+
+// ResolveInputs resolves all test inputs, generating fuzz values where needed.
+func ResolveInputs(inputs map[string]InputValue) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+	generator := NewFuzzGenerator()
+
+	for name, value := range inputs {
+		if value.IsLiteral() {
+			result[name] = value.Literal
+		} else {
+			fuzzValue, err := generator.Generate(value.Fuzz)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate fuzz value for %q: %w", name, err)
+			}
+			result[name] = fuzzValue
+		}
+	}
+
+	return result, nil
+}

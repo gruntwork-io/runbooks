@@ -271,15 +271,15 @@ func TestRenderBoilerplateContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := renderBoilerplateContent(tt.content, tt.variables)
+			result, err := RenderBoilerplateContent(tt.content, tt.variables)
 			
 			if (err != nil) != tt.wantErr {
-				t.Errorf("renderBoilerplateContent() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("RenderBoilerplateContent() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			
 			if !tt.wantErr && result != tt.expected {
-				t.Errorf("renderBoilerplateContent() = %q, want %q", result, tt.expected)
+				t.Errorf("RenderBoilerplateContent() = %q, want %q", result, tt.expected)
 			}
 		})
 	}

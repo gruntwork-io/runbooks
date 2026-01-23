@@ -1,0 +1,456 @@
+---
+title: Testing Runbooks
+description: How to write and run automated tests for your runbooks.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Runbooks includes a built-in testing framework that lets you validate your runbooks work correctly. Tests are defined in YAML files alongside your runbooks and can be run locally or in CI.
+
+## Quick Start
+
+1. Generate a test configuration for your runbook:
+
+```bash
+runbooks test init ./my-runbook
+```
+
+This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks.
+
+2. Edit the generated file to add your test values and assertions.
+
+3. Run the tests:
+
+```bash
+runbooks test ./my-runbook
+```
+
+## Test Configuration
+
+Tests are defined in `runbook_test.yml` files located in the same directory as your `runbook.mdx`.
+
+```yaml
+version: 1
+
+settings:
+  use_temp_output: true  # Generate files to temp directory
+  timeout: 5m            # Test timeout
+  parallelizable: true   # Can run in parallel with other runbooks
+
+tests:
+  - name: happy-path
+    description: Standard successful execution
+    
+    inputs:
+      project.Name: "test-project"
+      project.Language: "python"
+    
+    steps:
+      - block: check-requirements
+        expect: success
+      
+      - block: create-project
+        expect: success
+        outputs: [project_id]
+    
+    assertions:
+      - type: file_exists
+        path: generated/README.md
+      
+      - type: file_contains
+        path: generated/README.md
+        contains: "test-project"
+    
+    cleanup:
+      - command: rm -rf /tmp/test-resources
+```
+
+## Test Structure
+
+### Settings
+
+Global settings that apply to all tests in the file:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `use_temp_output` | `true` | Generate files to a temporary directory (automatically cleaned up) |
+| `timeout` | `5m` | Maximum time for each test case |
+| `parallelizable` | `true` | Whether this runbook's tests can run in parallel with others |
+
+### Test Cases
+
+Each test case has:
+
+- **name** (required): Unique identifier for the test
+- **description**: Human-readable description
+- **inputs**: Variable values for the test
+- **steps**: Blocks to execute (in order)
+- **assertions**: Validations to run after all steps
+- **cleanup**: Actions to run after the test (even on failure)
+
+### Steps
+
+Each step specifies a block to execute and the expected result:
+
+```yaml
+steps:
+  - block: check-git
+    expect: success
+
+  - block: create-resources
+    expect: success
+    outputs: [resource_id, resource_name]
+```
+
+**Expected statuses:**
+
+| Status | Description |
+|--------|-------------|
+| `success` | Block completed successfully (exit code 0) |
+| `fail` | Block failed (exit code 1+) |
+| `warn` | Block completed with warning (exit code 2) |
+| `blocked` | Block should be blocked due to missing dependencies |
+| `skip` | Skip this block (useful for AwsAuth in non-AWS tests) |
+
+### Per-Step Assertions
+
+You can run assertions immediately after a step completes:
+
+```yaml
+steps:
+  - block: create-resource
+    expect: success
+    assertions:
+      - type: output_exists
+        output: resource_id
+```
+
+## Assertions
+
+Assertions validate the test results. They run after all steps complete (or immediately after a step if defined inline).
+
+### File Assertions
+
+```yaml
+assertions:
+  # Check file exists
+  - type: file_exists
+    path: generated/README.md
+
+  # Check file does not exist
+  - type: file_not_exists
+    path: generated/temp.txt
+
+  # Check file contains substring
+  - type: file_contains
+    path: generated/README.md
+    contains: "My Project"
+
+  # Check file does not contain substring
+  - type: file_not_contains
+    path: generated/README.md
+    contains: "TODO"
+
+  # Check file matches regex pattern
+  - type: file_matches
+    path: generated/config.json
+    pattern: '"version":\s*"\d+\.\d+\.\d+"'
+
+  # Check file equals exact content
+  - type: file_equals
+    path: generated/version.txt
+    value: "1.0.0"
+```
+
+### Directory Assertions
+
+```yaml
+assertions:
+  - type: dir_exists
+    path: generated/src
+
+  - type: dir_not_exists
+    path: generated/temp
+```
+
+### Output Assertions
+
+```yaml
+assertions:
+  # Check output equals value
+  - type: output_equals
+    block: create-resource
+    output: status
+    value: "created"
+
+  # Check output matches pattern
+  - type: output_matches
+    block: create-resource
+    output: resource_id
+    pattern: "^[a-f0-9]{12}$"
+
+  # Check output exists
+  - type: output_exists
+    block: create-resource
+    output: resource_id
+```
+
+### Template Assertions
+
+```yaml
+assertions:
+  # Check template generated files
+  - type: files_generated
+    block: my-template
+    min_count: 1
+```
+
+### Script Assertions
+
+```yaml
+assertions:
+  # Run custom script (exit 0 = pass)
+  - type: script
+    command: test -f generated/config.json && jq -e '.version' generated/config.json
+```
+
+## Inputs
+
+### Literal Values
+
+```yaml
+inputs:
+  project.Name: "test-project"
+  project.Description: "A test project"
+  config.Port: 8080
+  config.Enabled: true
+```
+
+### Fuzz Values
+
+Generate random values for testing:
+
+```yaml
+inputs:
+  # Random alphanumeric string
+  project.Name:
+    fuzz: { type: alphanumeric, length: 15 }
+  
+  # Random words
+  project.Description:
+    fuzz: { type: words, length: 5 }
+  
+  # Random from enum options
+  project.Language:
+    fuzz: { type: enum }
+  
+  # Random UUID
+  resource.ID:
+    fuzz: { type: uuid }
+  
+  # Random integer
+  config.Port:
+    fuzz: { type: int, min: 3000, max: 9000 }
+  
+  # Random boolean
+  config.Enabled:
+    fuzz: { type: bool }
+  
+  # Random email
+  user.Email:
+    fuzz: { type: email }
+  
+  # Random URL
+  config.Endpoint:
+    fuzz: { type: url }
+  
+  # Random date (YYYY-MM-DD)
+  project.StartDate:
+    fuzz: { type: date }
+  
+  # Random timestamp (RFC3339)
+  event.Timestamp:
+    fuzz: { type: timestamp }
+```
+
+## Cleanup
+
+Cleanup actions run after the test completes, even if the test fails:
+
+```yaml
+cleanup:
+  # Inline command
+  - command: rm -rf /tmp/test-resources
+
+  # Script file
+  - path: cleanup/teardown.sh
+```
+
+## Testing AwsAuth Blocks
+
+For runbooks with `<AwsAuth>` blocks, use `prefilledCredentials={{ type: "env" }}` to enable headless testing:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  prefilledCredentials={{ type: "env" }}
+  allowOverridePrefilled={false}
+/>
+```
+
+In CI, set the environment variables before running tests:
+
+```yaml
+# .github/workflows/test.yml
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
+    aws-region: us-west-2
+
+- name: Run runbook tests
+  run: runbooks test ./runbooks/...
+```
+
+For runbooks without `prefilledCredentials`, skip the AwsAuth block:
+
+```yaml
+steps:
+  - block: aws-auth
+    expect: skip
+  - block: other-block
+    expect: success
+```
+
+## Running Tests
+
+### Single Runbook
+
+```bash
+# Run all tests for a runbook
+runbooks test ./my-runbook
+
+# Run a specific test case
+runbooks test ./my-runbook --test happy-path
+
+# Verbose output
+runbooks test ./my-runbook -v
+```
+
+### Multiple Runbooks
+
+Use the `...` glob pattern to discover and test all runbooks:
+
+```bash
+# Test all runbooks in a directory tree
+runbooks test ./runbooks/...
+
+# Control parallel execution
+runbooks test ./runbooks/... --max-parallel 4
+```
+
+### CI Output
+
+Generate JUnit XML for CI integration:
+
+```bash
+runbooks test ./runbooks/... --output junit --output-file results.xml
+```
+
+## Out-of-Order Testing
+
+Test that blocks correctly enforce dependencies by checking for blocked status:
+
+```yaml
+tests:
+  - name: out-of-order
+    description: Test dependency enforcement
+    
+    steps:
+      # This should be blocked because create-account hasn't run
+      - block: create-resources
+        expect: blocked
+        missing_outputs:
+          - _blocks.create_account.outputs.account_id
+
+      # Run the dependency
+      - block: create-account
+        expect: success
+
+      # Now this should succeed
+      - block: create-resources
+        expect: success
+```
+
+## Example Workflow
+
+<Tabs>
+  <TabItem label="GitHub Actions">
+```yaml
+# .github/workflows/test-runbooks.yml
+name: Test Runbooks
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up runbooks
+        run: |
+          curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
+          chmod +x runbooks
+      
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
+          aws-region: us-west-2
+      
+      - name: Run runbook tests
+        run: ./runbooks test ./runbooks/... --output junit --output-file results.xml
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: results.xml
+```
+  </TabItem>
+  <TabItem label="GitLab CI">
+```yaml
+# .gitlab-ci.yml
+test-runbooks:
+  stage: test
+  script:
+    - curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
+    - chmod +x runbooks
+    - ./runbooks test ./runbooks/... --output junit --output-file results.xml
+  artifacts:
+    reports:
+      junit: results.xml
+```
+  </TabItem>
+</Tabs>
+
+## Best Practices
+
+1. **Start with `test init`**: Generate your test configuration automatically, then customize it.
+
+2. **Test happy paths first**: Ensure your runbook works when everything goes right.
+
+3. **Test edge cases**: Add tests for expected failures, missing dependencies, and error handling.
+
+4. **Use fuzz values**: Generate random inputs to catch edge cases you might not think of.
+
+5. **Keep tests fast**: Use `use_temp_output: true` and avoid slow external dependencies when possible.
+
+6. **Clean up resources**: Use the `cleanup` section to remove any resources created during testing.
+
+7. **Use CI**: Run tests on every pull request to catch issues early.

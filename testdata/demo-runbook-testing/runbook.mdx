@@ -1,0 +1,42 @@
+# Demo: Runbook Testing
+
+This runbook demonstrates the testing framework features.
+
+## Step 1: Check Prerequisites
+
+<Check 
+  id="check-git"
+  title="Check Git Version"
+  path="checks/check-git.sh"
+/>
+
+## Step 2: Configure Project
+
+Enter your project details:
+
+<Inputs id="project" path="templates/project/boilerplate.yml" />
+
+## Step 3: Create Project
+
+<Command
+  id="create-project"
+  title="Create Project"
+  path="scripts/create-project.sh"
+/>
+
+## Step 4: Generate Configuration
+
+<Template
+  id="project-template"
+  title="Generate Project Files"
+  inputs="project"
+  path="templates/project"
+/>
+
+## Step 5: Verify
+
+<Check
+  id="verify-project"
+  title="Verify Project"
+  path="checks/verify-project.sh"
+/>

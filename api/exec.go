@@ -290,7 +290,7 @@ func prepareScriptContent(executable *Executable, templateVars map[string]any) (
 	// If template variable values are provided, render the template
 	// This handles both simple {{ .VarName }} patterns and nested paths like {{ ._blocks.xxx.outputs.yyy }}
 	if len(templateVars) > 0 {
-		rendered, err := renderBoilerplateContent(scriptContent, templateVars)
+		rendered, err := RenderBoilerplateContent(scriptContent, templateVars)
 		if err != nil {
 			return "", fmt.Errorf("failed to render template: %w", err)
 		}

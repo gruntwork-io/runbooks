@@ -46,10 +46,11 @@ tasks:
       - go run . serve {{.RUNBOOK_PATH | default "testdata/my-first-runbook"}}
 
   test:
-    desc: Run all tests (frontend, backend, and docs)
+    desc: Run all tests (frontend, backend, runbooks, and docs)
     cmds:
       - task: test:backend
       - task: test:frontend
+      - task: test:runbooks
       - task: test:docs
 
   test:backend:
@@ -72,6 +73,12 @@ tasks:
       - bun run spellcheck
       - bun run build
       - bun run linkcheck
+
+  test:runbooks:
+    desc: Run automated tests for demo runbooks
+    deps: [build]
+    cmds:
+      - ./runbooks test ./testdata/...
 
   docs:linkcheck:
     desc: Check for broken links in documentation (builds first)
