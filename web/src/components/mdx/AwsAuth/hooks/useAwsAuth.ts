@@ -258,10 +258,15 @@ export function useAwsAuth({
           setAuthStatus('authenticated')
           setAccountInfo({ accountId: data.accountId, arn: data.arn })
 
-          // Note: We do NOT register outputs to RunbookContext for env-prefilled credentials.
+          // Note: We do NOT register actual credential outputs to RunbookContext for env-prefilled credentials.
           // The actual credentials are stored in the server session environment, and commands
           // will access them from there. Registering placeholder values would break awsAuthId
           // lookups since they'd pass the placeholders instead of real credentials.
+          // 
+          // However, we DO register a marker to indicate that this AwsAuth block has been
+          // authenticated. This allows dependent blocks (Command/Check with awsAuthId) to
+          // know that credentials are available, even though they're stored server-side.
+          registerOutputs(id, { __AUTHENTICATED: 'true' })
 
           if (data.warning) {
             setWarningMessage(data.warning)

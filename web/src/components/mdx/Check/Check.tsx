@@ -4,7 +4,7 @@ import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } fr
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -60,6 +60,8 @@ function Check({
     inlineInputsId,
     unmetOutputDependencies,
     hasAllOutputDependencies,
+    unmetAwsAuthDependency,
+    hasAwsAuthDependency,
     isRendering,
     renderError,
     status: checkStatus,
@@ -313,7 +315,8 @@ function Check({
     checkStatus === 'running' || 
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
-    !hasAllOutputDependencies;
+    !hasAllOutputDependencies ||
+    !hasAwsAuthDependency;
 
   // Main render - form with success indicator overlay if needed
   return (
@@ -420,6 +423,11 @@ function Check({
           {/* Show unmet output dependencies */}
           {hasAllInputDependencies && (
             <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+          )}
+          
+          {/* Show unmet AWS auth dependency */}
+          {hasAllInputDependencies && hasAllOutputDependencies && (
+            <UnmetAwsAuthDependencyWarning unmetAwsAuthDependency={unmetAwsAuthDependency} />
           )}
           
           {renderError && hasAllOutputDependencies && (
