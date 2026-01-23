@@ -41,9 +41,9 @@ func TestRenderBoilerplateTemplate(t *testing.T) {
 	}
 
 	// Test the render function
-	err = renderBoilerplateTemplate(testDataDir, tempDir, variables)
+	err = RenderBoilerplateTemplate(testDataDir, tempDir, variables)
 	if err != nil {
-		t.Fatalf("renderBoilerplateTemplate failed: %v", err)
+		t.Fatalf("RenderBoilerplateTemplate failed: %v", err)
 	}
 
 	// Compare generated files with expected files
@@ -84,9 +84,9 @@ func TestRenderBoilerplateTemplateWithDifferentVariables(t *testing.T) {
 	}
 
 	// Test the render function
-	err = renderBoilerplateTemplate(testDataDir, tempDir, variables)
+	err = RenderBoilerplateTemplate(testDataDir, tempDir, variables)
 	if err != nil {
-		t.Fatalf("renderBoilerplateTemplate failed: %v", err)
+		t.Fatalf("RenderBoilerplateTemplate failed: %v", err)
 	}
 
 	// Compare generated files with expected files

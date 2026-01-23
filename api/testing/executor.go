@@ -35,14 +35,24 @@ type TestExecutor struct {
 
 	// Parsed TemplateInline blocks from the runbook
 	templateInlines map[string]*TemplateInlineBlock // blockID -> block info
+
+	// Parsed Template blocks from the runbook
+	templates map[string]*TemplateBlock // blockID -> block info
 }
 
 // TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
 type TemplateInlineBlock struct {
 	ID         string
-	Content    string   // The template content (between the tags)
-	OutputPath string   // The outputPath prop
-	InputsID   string   // The inputsId prop (may be empty)
+	Content    string // The template content (between the tags)
+	OutputPath string // The outputPath prop
+	InputsID   string // The inputsId prop (may be empty)
+}
+
+// TemplateBlock holds information about a Template block parsed from the runbook
+type TemplateBlock struct {
+	ID           string
+	TemplatePath string // The path prop (relative to runbook directory)
+	InputsID     string // The inputsId prop (may be empty)
 }
 
 // ExecutorOption configures a TestExecutor.
@@ -91,6 +101,12 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 		return nil, fmt.Errorf("failed to parse TemplateInline blocks: %w", err)
 	}
 
+	// Parse Template blocks from the runbook
+	templates, err := parseTemplateBlocks(runbookPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Template blocks: %w", err)
+	}
+
 	e := &TestExecutor{
 		runbookPath:     runbookPath,
 		outputPath:      outputPath,
@@ -101,6 +117,7 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 		validator:       validator,
 		blockOutputs:    make(map[string]map[string]string),
 		templateInlines: templateInlines,
+		templates:       templates,
 	}
 
 	for _, opt := range opts {
@@ -155,6 +172,44 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 			Content:    templateContent,
 			OutputPath: outputPath,
 			InputsID:   inputsID,
+		}
+	}
+
+	return blocks, nil
+}
+
+// parseTemplateBlocks parses Template blocks from a runbook MDX file
+func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) {
+	content, err := os.ReadFile(runbookPath)
+	if err != nil {
+		return nil, err
+	}
+
+	blocks := make(map[string]*TemplateBlock)
+	contentStr := string(content)
+
+	// Match Template blocks (self-closing or with closing tag)
+	// <Template id="..." path="..." />
+	// <Template id="..." path="..."></Template>
+	re := regexp.MustCompile(`<Template\s+([^>]*?)(?:/>|>(?:</Template>)?)`)
+	matches := re.FindAllStringSubmatch(contentStr, -1)
+
+	for _, match := range matches {
+		props := match[1]
+
+		// Extract props
+		id := extractMDXPropValue(props, "id")
+		templatePath := extractMDXPropValue(props, "path")
+		inputsID := extractMDXPropValue(props, "inputsId")
+
+		if id == "" || templatePath == "" {
+			continue // Skip invalid blocks
+		}
+
+		blocks[id] = &TemplateBlock{
+			ID:           id,
+			TemplatePath: templatePath,
+			InputsID:     inputsID,
 		}
 	}
 
@@ -371,10 +426,10 @@ func getBlocksInDocumentOrder(runbookPath string) ([]string, error) {
 	}
 
 	// Find all TemplateInline components with their positions
-	templateRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>`)
-	templateMatches := templateRe.FindAllStringSubmatchIndex(contentStr, -1)
+	templateInlineRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>`)
+	templateInlineMatches := templateInlineRe.FindAllStringSubmatchIndex(contentStr, -1)
 	templateCount := 0
-	for _, match := range templateMatches {
+	for _, match := range templateInlineMatches {
 		if len(match) >= 4 {
 			props := contentStr[match[2]:match[3]]
 			outputPath := extractMDXPropValue(props, "outputPath")
@@ -392,6 +447,19 @@ func getBlocksInDocumentOrder(runbookPath string) ([]string, error) {
 				id = fmt.Sprintf("template-inline-%d", templateCount)
 			}
 			blocks = append(blocks, blockPosition{id: id, position: match[0]})
+		}
+	}
+
+	// Find all Template components (not TemplateInline) with their positions
+	templateRe := regexp.MustCompile(`<Template\s+([^>]*?)(?:/>|>)`)
+	templateMatches := templateRe.FindAllStringSubmatchIndex(contentStr, -1)
+	for _, match := range templateMatches {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractMDXPropValue(props, "id")
+			if id != "" {
+				blocks = append(blocks, blockPosition{id: id, position: match[0]})
+			}
 		}
 	}
 
@@ -438,6 +506,11 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 	// Check if this is a TemplateInline block
 	if templateInline, ok := e.templateInlines[step.Block]; ok {
 		return e.executeTemplateInline(step, templateInline, start)
+	}
+
+	// Check if this is a Template block
+	if template, ok := e.templates[step.Block]; ok {
+		return e.executeTemplate(step, template, start)
 	}
 
 	// Find the executable for this block (Check/Command)
@@ -582,6 +655,87 @@ func (e *TestExecutor) executeTemplateInline(step TestStep, block *TemplateInlin
 		}
 		if block.OutputPath != "" {
 			fmt.Printf("--- Output Path: %s ---\n", block.OutputPath)
+		}
+		fmt.Printf("--- Result: ✓ success ---\n")
+	}
+
+	return result
+}
+
+// executeTemplate renders a Template block and returns the result.
+func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, start time.Time) StepResult {
+	result := StepResult{
+		Block:          step.Block,
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// Resolve template path relative to runbook directory
+	runbookDir := filepath.Dir(e.runbookPath)
+	templatePath := filepath.Join(runbookDir, block.TemplatePath)
+
+	// Build template variables from test inputs
+	vars := e.buildTemplateVars()
+
+	// Determine output directory - use "generated" subdirectory in the test output path
+	// This keeps test artifacts in the temp directory for automatic cleanup
+	outputDir := filepath.Join(e.outputPath, "generated")
+
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("failed to create output directory: %v", err)
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("--- Result: ✗ error ---\n")
+			fmt.Printf("  Error: %s\n", result.Error)
+		}
+		return result
+	}
+
+	if e.verbose {
+		fmt.Printf("--- Rendering Template ---\n")
+		fmt.Printf("  Template: %s\n", block.TemplatePath)
+		fmt.Printf("  Output: %s\n", outputDir)
+	}
+
+	// Render the template using boilerplate
+	err := api.RenderBoilerplateTemplate(templatePath, outputDir, vars)
+	if err != nil {
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("failed to render template: %v", err)
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("--- Result: ✗ error ---\n")
+			fmt.Printf("  Error: %s\n", result.Error)
+		}
+		return result
+	}
+
+	// List generated files for verbose output
+	var generatedFiles []string
+	filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		relPath, _ := filepath.Rel(outputDir, path)
+		generatedFiles = append(generatedFiles, relPath)
+		return nil
+	})
+
+	// Success - template rendered
+	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
+	result.ActualStatus = "success"
+	result.Duration = time.Since(start)
+
+	if e.verbose {
+		if len(generatedFiles) > 0 {
+			fmt.Printf("--- Generated Files ---\n")
+			for _, f := range generatedFiles {
+				fmt.Printf("  %s\n", f)
+			}
 		}
 		fmt.Printf("--- Result: ✓ success ---\n")
 	}

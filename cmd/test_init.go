@@ -47,12 +47,12 @@ func runTestInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("runbook not found: %s", runbookPath)
 	}
 
-	// Check if test config already exists
 	dir := filepath.Dir(runbookPath)
 	testConfigPath := filepath.Join(dir, "runbook_test.yml")
-	if _, err := os.Stat(testConfigPath); err == nil {
-		return fmt.Errorf("runbook_test.yml already exists in %s", dir)
-	}
+
+	// Check if file already exists (for messaging)
+	_, existsErr := os.Stat(testConfigPath)
+	fileExists := existsErr == nil
 
 	// Parse runbook to find blocks
 	blocks, err := parseRunbookBlocks(runbookPath)
@@ -68,7 +68,11 @@ func runTestInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write test config: %w", err)
 	}
 
-	fmt.Printf("Created %s\n", testConfigPath)
+	if fileExists {
+		fmt.Printf("Overwrote %s\n", testConfigPath)
+	} else {
+		fmt.Printf("Created %s\n", testConfigPath)
+	}
 	fmt.Printf("Found %d blocks: %s\n", len(blocks), strings.Join(getBlockNames(blocks), ", "))
 	fmt.Println("\nEdit the file to configure inputs and assertions for your tests.")
 
@@ -539,7 +543,8 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 	// Generate steps (executable blocks: Check, Command, and TemplateInline)
 	sb.WriteString("    steps:\n")
 	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
-	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n\n")
+	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n")
+	sb.WriteString("      # If no blocks are listed, the test runs all blocks in document order.\n\n")
 
 	for _, b := range blocks {
 		switch b.Type {
@@ -618,7 +623,12 @@ func formatFuzzConfig(v variableInfo, indent string) string {
 	switch fuzzType {
 	case "enum":
 		sb.WriteString(indent)
-		sb.WriteString(fmt.Sprintf("  options: [%s]\n", strings.Join(v.Options, ", ")))
+		// Quote options to handle empty strings and special characters
+		quotedOpts := make([]string, len(v.Options))
+		for i, opt := range v.Options {
+			quotedOpts[i] = fmt.Sprintf("%q", opt)
+		}
+		sb.WriteString(fmt.Sprintf("  options: [%s]\n", strings.Join(quotedOpts, ", ")))
 
 	case "string":
 		// Add length constraints if present

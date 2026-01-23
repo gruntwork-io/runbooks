@@ -144,7 +144,7 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 			}
 
 			// Render the template to temp directory
-			if renderErr := renderBoilerplateTemplate(fullTemplatePath, tempDir, req.Variables); renderErr != nil {
+			if renderErr := RenderBoilerplateTemplate(fullTemplatePath, tempDir, req.Variables); renderErr != nil {
 				if cleanupErr := os.RemoveAll(tempDir); cleanupErr != nil {
 					slog.Warn("Failed to clean up temp directory after render error",
 						"tempDir", tempDir, "cleanupErr", cleanupErr)
@@ -197,9 +197,10 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 	}
 }
 
-// renderBoilerplateTemplate renders a boilerplate template using direct function calls
-func renderBoilerplateTemplate(templatePath, outputDir string, variables map[string]any) error {
-	slog.Info("renderBoilerplateTemplate called", "templatePath", templatePath, "outputDir", outputDir)
+// RenderBoilerplateTemplate renders a boilerplate template using direct function calls.
+// This function is exported for use by the testing package.
+func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[string]any) error {
+	slog.Info("RenderBoilerplateTemplate called", "templatePath", templatePath, "outputDir", outputDir)
 
 	// Create boilerplate options for direct function calls
 	opts := &bpOptions.BoilerplateOptions{
@@ -428,7 +429,7 @@ func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 		slog.Info("Created temporary output directory", "outputDir", tempOutputDir)
 
 		// Render the template to the temp directory
-		err = renderBoilerplateTemplate(tempDir, tempOutputDir, variables)
+		err = RenderBoilerplateTemplate(tempDir, tempOutputDir, variables)
 		if err != nil {
 			slog.Error("Failed to render boilerplate template", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -551,7 +552,7 @@ func RenderBoilerplateContent(content string, variables map[string]any) (string,
 	defer os.RemoveAll(outputDir)
 
 	// Render using boilerplate (variables are already map[string]any)
-	if err := renderBoilerplateTemplate(tempDir, outputDir, variables); err != nil {
+	if err := RenderBoilerplateTemplate(tempDir, outputDir, variables); err != nil {
 		return "", fmt.Errorf("failed to render boilerplate template: %w", err)
 	}
 
