@@ -547,7 +547,7 @@ func isBinaryFile(path string) (bool, error) {
 // IMPORTANT: Keep in sync with the TypeScript implementation in:
 //   web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
 //
-// Both implementations are validated against testdata/output-dependency-patterns.json
+// Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
 // to ensure they produce identical results. Run tests in both languages after any changes.
 var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
 
