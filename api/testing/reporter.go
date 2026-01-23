@@ -64,6 +64,8 @@ func (r *TextReporter) Report(suites []RunbookTestSuite) error {
 			}
 
 			if r.Verbose {
+				// In verbose mode, detailed logs were already shown during execution.
+				// Here we show a condensed summary of each step.
 				for _, step := range result.StepResults {
 					stepIcon := "✓"
 					stepColor := "\033[32m"
@@ -71,9 +73,16 @@ func (r *TextReporter) Report(suites []RunbookTestSuite) error {
 						stepIcon = "✗"
 						stepColor = "\033[31m"
 					}
-					fmt.Fprintf(r.Writer, "    %s%s%s Step %s: %s (%s)\n",
+
+					// Show step with output count if any
+					outputInfo := ""
+					if len(step.Outputs) > 0 {
+						outputInfo = fmt.Sprintf(" [%d output(s)]", len(step.Outputs))
+					}
+
+					fmt.Fprintf(r.Writer, "    %s%s%s %s: %s%s (%s)\n",
 						stepColor, stepIcon, resetColor,
-						step.Block, step.ActualStatus,
+						step.Block, step.ActualStatus, outputInfo,
 						step.Duration.Round(time.Millisecond))
 
 					if step.Error != "" && step.Error != result.Error {

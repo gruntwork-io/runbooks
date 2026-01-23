@@ -1,7 +1,7 @@
 package testing
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -207,11 +207,19 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 		Outputs:        make(map[string]string),
 	}
 
+	// Print block header if verbose
+	if e.verbose {
+		fmt.Printf("\n=== Block: %s ===\n", step.Block)
+	}
+
 	// Handle skip expectation
 	if step.Expect == StatusSkip {
 		result.Passed = true
 		result.ActualStatus = "skipped"
 		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Println("  (skipped)")
+		}
 		return result
 	}
 
@@ -235,6 +243,9 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 		result.ActualStatus = "error"
 		result.Error = fmt.Sprintf("block %q not found in runbook", step.Block)
 		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("  Error: %s\n", result.Error)
+		}
 		return result
 	}
 
@@ -252,14 +263,23 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 			result.Error = "expected block to be blocked but all dependencies are satisfied"
 		}
 		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("  Status: %s\n", result.ActualStatus)
+		}
 		return result
 	}
 
 	// Execute the block
-	status, exitCode, outputs, err := e.executeBlock(executable)
+	status, exitCode, outputs, logs, err := e.executeBlock(executable)
 	result.ActualStatus = status
 	result.ExitCode = exitCode
 	result.Outputs = outputs
+	result.Logs = logs
+
+	// Print organized output if verbose
+	if e.verbose {
+		e.printBlockOutput(step.Block, logs, outputs, status, err)
+	}
 
 	// Store outputs for later assertions
 	if len(outputs) > 0 {
@@ -275,6 +295,41 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 
 	result.Duration = time.Since(start)
 	return result
+}
+
+// printBlockOutput prints organized output for a block execution.
+func (e *TestExecutor) printBlockOutput(blockID string, logs string, outputs map[string]string, status string, err error) {
+	// Print logs if any
+	if logs != "" {
+		fmt.Println("--- Script Output ---")
+		// Indent each line for readability
+		for _, line := range strings.Split(strings.TrimRight(logs, "\n"), "\n") {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+
+	// Print outputs if any
+	if len(outputs) > 0 {
+		fmt.Println("--- Outputs ---")
+		for key, value := range outputs {
+			// Truncate long values for readability
+			displayValue := value
+			if len(displayValue) > 100 {
+				displayValue = displayValue[:97] + "..."
+			}
+			fmt.Printf("  %s = %s\n", key, displayValue)
+		}
+	}
+
+	// Print status
+	statusIcon := "✓"
+	if status != "success" && status != "warn" {
+		statusIcon = "✗"
+	}
+	fmt.Printf("--- Result: %s %s ---\n", statusIcon, status)
+	if err != nil {
+		fmt.Printf("  Error: %s\n", err.Error())
+	}
 }
 
 // checkMissingOutputs checks which expected outputs are missing.
@@ -294,12 +349,12 @@ func (e *TestExecutor) checkMissingOutputs(expected []string) []string {
 	return missing
 }
 
-// executeBlock executes a single block and returns status, exit code, outputs, and error.
-func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, map[string]string, error) {
+// executeBlock executes a single block and returns status, exit code, outputs, logs, and error.
+func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, map[string]string, string, error) {
 	// Get session context
 	execCtx, valid := e.session.ValidateToken(e.getSessionToken())
 	if !valid {
-		return "error", -1, nil, fmt.Errorf("invalid session")
+		return "error", -1, nil, "", fmt.Errorf("invalid session")
 	}
 
 	// Prepare script content
@@ -308,7 +363,7 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	// Check for missing block output dependencies before rendering
 	// This provides a clearer error message than the Go template "map has no entry for key" error
 	if missing := e.findMissingOutputDependencies(scriptContent); len(missing) > 0 {
-		return "error", -1, nil, fmt.Errorf("block references outputs that haven't been produced yet: %s. "+
+		return "error", -1, nil, "", fmt.Errorf("block references outputs that haven't been produced yet: %s. "+
 			"Make sure the blocks that produce these outputs run before this block in your test steps",
 			strings.Join(missing, ", "))
 	}
@@ -318,14 +373,14 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	vars := e.buildTemplateVars()
 	rendered, err := api.RenderBoilerplateContent(scriptContent, vars)
 	if err != nil {
-		return "error", -1, nil, fmt.Errorf("failed to render template: %w", err)
+		return "error", -1, nil, "", fmt.Errorf("failed to render template: %w", err)
 	}
 	scriptContent = rendered
 
 	// Create temp files for outputs and file capture
 	outputFile, err := os.CreateTemp("", "runbook-output-*.txt")
 	if err != nil {
-		return "error", -1, nil, fmt.Errorf("failed to create output file: %w", err)
+		return "error", -1, nil, "", fmt.Errorf("failed to create output file: %w", err)
 	}
 	outputFilePath := outputFile.Name()
 	outputFile.Close()
@@ -333,14 +388,14 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 
 	filesDir, err := os.MkdirTemp("", "runbook-files-*")
 	if err != nil {
-		return "error", -1, nil, fmt.Errorf("failed to create files directory: %w", err)
+		return "error", -1, nil, "", fmt.Errorf("failed to create files directory: %w", err)
 	}
 	defer os.RemoveAll(filesDir)
 
 	// Create temporary script file
 	scriptFile, err := os.CreateTemp("", "runbook-script-*.sh")
 	if err != nil {
-		return "error", -1, nil, fmt.Errorf("failed to create script file: %w", err)
+		return "error", -1, nil, "", fmt.Errorf("failed to create script file: %w", err)
 	}
 	scriptPath := scriptFile.Name()
 	scriptFile.WriteString(scriptContent)
@@ -368,21 +423,19 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 		cmd.Dir = execCtx.WorkDir
 	}
 
-	// Capture output
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+	// Capture output to buffer instead of streaming
+	var combinedOutput bytes.Buffer
+	cmd.Stdout = &combinedOutput
+	cmd.Stderr = &combinedOutput
 
-	// Start command
+	// Start and wait for command
 	if err := cmd.Start(); err != nil {
-		return "error", -1, nil, fmt.Errorf("failed to start script: %w", err)
+		return "error", -1, nil, "", fmt.Errorf("failed to start script: %w", err)
 	}
-
-	// Read output
-	go e.streamOutput(stdout)
-	go e.streamOutput(stderr)
 
 	// Wait for completion
 	waitErr := cmd.Wait()
+	logs := combinedOutput.String()
 
 	// Determine status
 	exitCode := 0
@@ -391,7 +444,7 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 		if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else if ctx.Err() == context.DeadlineExceeded {
-			return "timeout", -1, nil, fmt.Errorf("script execution timed out")
+			return "timeout", -1, nil, logs, fmt.Errorf("script execution timed out")
 		} else {
 			exitCode = 1
 		}
@@ -418,17 +471,7 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 		}
 	}
 
-	return status, exitCode, outputs, nil
-}
-
-// streamOutput reads from a pipe and prints if verbose.
-func (e *TestExecutor) streamOutput(r io.ReadCloser) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		if e.verbose {
-			fmt.Println(scanner.Text())
-		}
-	}
+	return status, exitCode, outputs, logs, nil
 }
 
 // matchesExpectedStatus checks if actual status matches expected.
@@ -469,22 +512,25 @@ func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []str
 	var missing []string
 
 	for _, dep := range dependencies {
-		// Normalize block ID (hyphens -> underscores) to match how we store outputs
-		normalizedBlockID := strings.ReplaceAll(dep.BlockID, "-", "_")
+		// Templates use underscores (Go template limitation), but block IDs in MDX use hyphens.
+		// We need to check both forms since blockOutputs uses the original block ID (with hyphens).
+		hyphenatedBlockID := strings.ReplaceAll(dep.BlockID, "_", "-")
 
-		// Check if this block's output exists
+		// Check if this block's output exists (try both hyphenated and original forms)
 		blockOutputs, blockExists := e.blockOutputs[dep.BlockID]
 		if !blockExists {
-			// Also check with normalized ID in case it was stored that way
-			blockOutputs, blockExists = e.blockOutputs[normalizedBlockID]
+			blockOutputs, blockExists = e.blockOutputs[hyphenatedBlockID]
 		}
+
+		// Use the hyphenated form for display since that's what the user sees in MDX
+		displayBlockID := hyphenatedBlockID
 
 		if !blockExists {
 			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q hasn't run yet)",
-				dep.BlockID, dep.OutputName, dep.BlockID))
+				dep.BlockID, dep.OutputName, displayBlockID))
 		} else if _, outputExists := blockOutputs[dep.OutputName]; !outputExists {
 			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q ran but didn't produce output %q)",
-				dep.BlockID, dep.OutputName, dep.BlockID, dep.OutputName))
+				dep.BlockID, dep.OutputName, displayBlockID, dep.OutputName))
 		}
 	}
 

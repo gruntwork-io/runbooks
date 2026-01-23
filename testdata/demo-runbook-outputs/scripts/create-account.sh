@@ -14,5 +14,3 @@ echo "Region: $REGION"
 # The $RUNBOOK_OUTPUT file is set by the runbook server
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 echo "region=$REGION" >> "$RUNBOOK_OUTPUT"
-
-exit 1

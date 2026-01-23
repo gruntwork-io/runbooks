@@ -213,14 +213,15 @@ const (
 
 // StepResult represents the result of executing a single test step.
 type StepResult struct {
-	Block           string                 `json:"block"`
-	ExpectedStatus  ExpectedStatus         `json:"expectedStatus"`
-	ActualStatus    string                 `json:"actualStatus"`
-	ExitCode        int                    `json:"exitCode"`
-	Passed          bool                   `json:"passed"`
-	Error           string                 `json:"error,omitempty"`
-	Outputs         map[string]string      `json:"outputs,omitempty"`
-	Duration        time.Duration          `json:"duration"`
+	Block            string                `json:"block"`
+	ExpectedStatus   ExpectedStatus        `json:"expectedStatus"`
+	ActualStatus     string                `json:"actualStatus"`
+	ExitCode         int                   `json:"exitCode"`
+	Passed           bool                  `json:"passed"`
+	Error            string                `json:"error,omitempty"`
+	Outputs          map[string]string     `json:"outputs,omitempty"`
+	Logs             string                `json:"logs,omitempty"`
+	Duration         time.Duration         `json:"duration"`
 	AssertionResults []AssertionResult     `json:"assertionResults,omitempty"`
 }
 
