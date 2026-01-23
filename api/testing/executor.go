@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +32,17 @@ type TestExecutor struct {
 
 	// Test inputs from the current test case
 	testInputs map[string]interface{} // inputsID.varName -> value
+
+	// Parsed TemplateInline blocks from the runbook
+	templateInlines map[string]*TemplateInlineBlock // blockID -> block info
+}
+
+// TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
+type TemplateInlineBlock struct {
+	ID         string
+	Content    string   // The template content (between the tags)
+	OutputPath string   // The outputPath prop
+	InputsID   string   // The inputsId prop (may be empty)
 }
 
 // ExecutorOption configures a TestExecutor.
@@ -72,15 +85,22 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 		return nil, fmt.Errorf("failed to create input validator: %w", err)
 	}
 
+	// Parse TemplateInline blocks from the runbook
+	templateInlines, err := parseTemplateInlineBlocks(runbookPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse TemplateInline blocks: %w", err)
+	}
+
 	e := &TestExecutor{
-		runbookPath:  runbookPath,
-		outputPath:   outputPath,
-		registry:     registry,
-		session:      session,
-		timeout:      5 * time.Minute,
-		verbose:      false,
-		validator:    validator,
-		blockOutputs: make(map[string]map[string]string),
+		runbookPath:     runbookPath,
+		outputPath:      outputPath,
+		registry:        registry,
+		session:         session,
+		timeout:         5 * time.Minute,
+		verbose:         false,
+		validator:       validator,
+		blockOutputs:    make(map[string]map[string]string),
+		templateInlines: templateInlines,
 	}
 
 	for _, opt := range opts {
@@ -88,6 +108,114 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 	}
 
 	return e, nil
+}
+
+// parseTemplateInlineBlocks parses TemplateInline blocks from a runbook MDX file
+func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBlock, error) {
+	content, err := os.ReadFile(runbookPath)
+	if err != nil {
+		return nil, err
+	}
+
+	blocks := make(map[string]*TemplateInlineBlock)
+	contentStr := string(content)
+
+	// Match TemplateInline blocks with their content
+	// <TemplateInline outputPath="..." inputsId="...">...</TemplateInline>
+	re := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>([\s\S]*?)</TemplateInline>`)
+	matches := re.FindAllStringSubmatch(contentStr, -1)
+
+	templateCount := 0
+	for _, match := range matches {
+		props := match[1]
+		templateContent := match[2]
+
+		// Extract props
+		outputPath := extractMDXPropValue(props, "outputPath")
+		inputsID := extractMDXPropValue(props, "inputsId")
+
+		// Generate ID from outputPath
+		var id string
+		if outputPath != "" {
+			baseName := filepath.Base(outputPath)
+			if idx := strings.LastIndex(baseName, "."); idx > 0 {
+				baseName = baseName[:idx]
+			}
+			id = "template-" + baseName
+		} else {
+			templateCount++
+			id = fmt.Sprintf("template-inline-%d", templateCount)
+		}
+
+		// Extract the actual template content from code fence if present
+		templateContent = extractTemplateContent(templateContent)
+
+		blocks[id] = &TemplateInlineBlock{
+			ID:         id,
+			Content:    templateContent,
+			OutputPath: outputPath,
+			InputsID:   inputsID,
+		}
+	}
+
+	return blocks, nil
+}
+
+// extractMDXPropValue extracts a prop value from an MDX props string
+func extractMDXPropValue(props, propName string) string {
+	patterns := []string{
+		fmt.Sprintf(`%s="([^"]*)"`, propName),
+		fmt.Sprintf(`%s='([^']*)'`, propName),
+		fmt.Sprintf(`%s=\{`+"`([^`]*)`"+`\}`, propName),
+		fmt.Sprintf(`%s=\{"([^"]*)"\}`, propName),
+		fmt.Sprintf(`%s=\{'([^']*)'\}`, propName),
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		if match := re.FindStringSubmatch(props); len(match) > 1 {
+			return match[1]
+		}
+	}
+
+	return ""
+}
+
+// extractTemplateContent extracts template content from a code fence
+func extractTemplateContent(content string) string {
+	// Look for ```language ... ``` pattern
+	codeFenceRe := regexp.MustCompile("(?s)```[a-zA-Z]*\\s*\\n(.+?)```")
+	if match := codeFenceRe.FindStringSubmatch(content); len(match) > 1 {
+		return match[1]
+	}
+	// Return trimmed content if no code fence
+	return strings.TrimSpace(content)
+}
+
+// PrintRunbookHeader prints a prominent header for the runbook being tested.
+// Call this before running tests in verbose mode.
+func (e *TestExecutor) PrintRunbookHeader() {
+	if !e.verbose {
+		return
+	}
+
+	relPath, _ := filepath.Rel(".", e.runbookPath)
+	if relPath == "" {
+		relPath = e.runbookPath
+	}
+
+	fmt.Println()
+	fmt.Println("╔══════════════════════════════════════════════════════════════════════════════")
+	fmt.Printf("║ RUNBOOK: %s\n", relPath)
+	fmt.Println("╚══════════════════════════════════════════════════════════════════════════════")
+}
+
+// PrintTestHeader prints a header for an individual test case.
+func (e *TestExecutor) PrintTestHeader(testName string) {
+	if !e.verbose {
+		return
+	}
+	fmt.Printf("\n── Test: %s ──\n", testName)
 }
 
 // RunTest runs a single test case and returns the result.
@@ -184,17 +312,101 @@ func (e *TestExecutor) determineBlocks(tc TestCase) []TestStep {
 		return tc.Steps
 	}
 
-	// No steps specified - run all blocks in registry order
-	// The registry doesn't preserve order, so we return executables by component ID
-	executables := e.registry.GetAllExecutables()
-	steps := make([]TestStep, 0, len(executables))
-	for _, exec := range executables {
+	// No steps specified - parse runbook to get blocks in document order
+	blockIDs, err := getBlocksInDocumentOrder(e.runbookPath)
+	if err != nil {
+		// Fallback to registry (unordered) if parsing fails
+		slog.Warn("Failed to get blocks in document order, falling back to registry order", "error", err)
+		executables := e.registry.GetAllExecutables()
+		steps := make([]TestStep, 0, len(executables))
+		for _, exec := range executables {
+			steps = append(steps, TestStep{
+				Block:  exec.ComponentID,
+				Expect: StatusSuccess,
+			})
+		}
+		return steps
+	}
+
+	steps := make([]TestStep, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
 		steps = append(steps, TestStep{
-			Block:  exec.ComponentID,
+			Block:  blockID,
 			Expect: StatusSuccess,
 		})
 	}
 	return steps
+}
+
+// blockPosition tracks a block's ID and its position in the document
+type blockPosition struct {
+	id       string
+	position int
+}
+
+// getBlocksInDocumentOrder parses the runbook and returns all Command, Check,
+// and TemplateInline block IDs in the order they appear in the document.
+func getBlocksInDocumentOrder(runbookPath string) ([]string, error) {
+	content, err := os.ReadFile(runbookPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read runbook: %w", err)
+	}
+
+	contentStr := string(content)
+	var blocks []blockPosition
+
+	// Find all Command and Check components with their positions
+	for _, componentType := range []string{"Command", "Check"} {
+		re := regexp.MustCompile(fmt.Sprintf(`<%s\s+([^>]*?)(?:/>|>)`, componentType))
+		matches := re.FindAllStringSubmatchIndex(contentStr, -1)
+		for _, match := range matches {
+			if len(match) >= 4 {
+				props := contentStr[match[2]:match[3]]
+				id := extractMDXPropValue(props, "id")
+				if id != "" {
+					blocks = append(blocks, blockPosition{id: id, position: match[0]})
+				}
+			}
+		}
+	}
+
+	// Find all TemplateInline components with their positions
+	templateRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>`)
+	templateMatches := templateRe.FindAllStringSubmatchIndex(contentStr, -1)
+	templateCount := 0
+	for _, match := range templateMatches {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			outputPath := extractMDXPropValue(props, "outputPath")
+
+			// Generate ID from outputPath (same logic as parseTemplateInlineBlocks)
+			var id string
+			if outputPath != "" {
+				baseName := filepath.Base(outputPath)
+				if idx := strings.LastIndex(baseName, "."); idx > 0 {
+					baseName = baseName[:idx]
+				}
+				id = "template-" + baseName
+			} else {
+				templateCount++
+				id = fmt.Sprintf("template-inline-%d", templateCount)
+			}
+			blocks = append(blocks, blockPosition{id: id, position: match[0]})
+		}
+	}
+
+	// Sort by position in document
+	sort.Slice(blocks, func(i, j int) bool {
+		return blocks[i].position < blocks[j].position
+	})
+
+	// Extract just the IDs
+	result := make([]string, len(blocks))
+	for i, b := range blocks {
+		result[i] = b.id
+	}
+
+	return result, nil
 }
 
 // executeStep runs a single block and returns the result.
@@ -223,7 +435,12 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 		return result
 	}
 
-	// Find the executable for this block
+	// Check if this is a TemplateInline block
+	if templateInline, ok := e.templateInlines[step.Block]; ok {
+		return e.executeTemplateInline(step, templateInline, start)
+	}
+
+	// Find the executable for this block (Check/Command)
 	// Note: We need to look up by component ID and get the full executable with script content
 	var executable *api.Executable
 	for _, exec := range e.registry.GetAllExecutables() {
@@ -294,6 +511,81 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 	result.Passed = e.matchesExpectedStatus(step.Expect, status, exitCode)
 
 	result.Duration = time.Since(start)
+	return result
+}
+
+// executeTemplateInline renders a TemplateInline block and returns the result.
+func (e *TestExecutor) executeTemplateInline(step TestStep, block *TemplateInlineBlock, start time.Time) StepResult {
+	result := StepResult{
+		Block:          step.Block,
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// Check for missing output dependencies before rendering
+	if missing := e.findMissingOutputDependencies(block.Content); len(missing) > 0 {
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("template references outputs that haven't been produced yet: %s",
+			strings.Join(missing, ", "))
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Println("--- Template Content ---")
+			// Show first few lines of template
+			lines := strings.Split(block.Content, "\n")
+			for i, line := range lines {
+				if i >= 5 {
+					fmt.Println("  ...")
+					break
+				}
+				fmt.Printf("  %s\n", line)
+			}
+			fmt.Printf("--- Result: ✗ error ---\n")
+			fmt.Printf("  Error: %s\n", result.Error)
+		}
+		return result
+	}
+
+	// Build template variables
+	vars := e.buildTemplateVars()
+
+	// Render the template
+	rendered, err := api.RenderBoilerplateContent(block.Content, vars)
+	if err != nil {
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("failed to render template: %v", err)
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("--- Result: ✗ error ---\n")
+			fmt.Printf("  Error: %s\n", result.Error)
+		}
+		return result
+	}
+
+	// Success - template rendered
+	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
+	result.ActualStatus = "success"
+	result.Logs = rendered
+	result.Duration = time.Since(start)
+
+	if e.verbose {
+		fmt.Println("--- Rendered Output ---")
+		// Show rendered content (truncate if too long)
+		lines := strings.Split(rendered, "\n")
+		for i, line := range lines {
+			if i >= 20 {
+				fmt.Printf("  ... (%d more lines)\n", len(lines)-20)
+				break
+			}
+			fmt.Printf("  %s\n", line)
+		}
+		if block.OutputPath != "" {
+			fmt.Printf("--- Output Path: %s ---\n", block.OutputPath)
+		}
+		fmt.Printf("--- Result: ✓ success ---\n")
+	}
+
 	return result
 }
 
@@ -508,16 +800,34 @@ func (e *TestExecutor) getSessionToken() string {
 // findMissingOutputDependencies checks the script content for {{ ._blocks.x.outputs.y }} references
 // and returns a list of any that aren't available in blockOutputs.
 func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []string {
-	dependencies := api.ExtractOutputDependenciesFromContent(scriptContent)
+	// Use a more permissive regex that finds _blocks.xxx.outputs.yyy anywhere in the content
+	// This handles patterns inside function calls like: fromJson ._blocks.list_users.outputs.users
+	re := regexp.MustCompile(`_blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+	matches := re.FindAllStringSubmatch(scriptContent, -1)
+
+	seen := make(map[string]bool)
 	var missing []string
 
-	for _, dep := range dependencies {
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		blockID := match[1]
+		outputName := match[2]
+
+		// Deduplicate
+		key := blockID + "." + outputName
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
 		// Templates use underscores (Go template limitation), but block IDs in MDX use hyphens.
 		// We need to check both forms since blockOutputs uses the original block ID (with hyphens).
-		hyphenatedBlockID := strings.ReplaceAll(dep.BlockID, "_", "-")
+		hyphenatedBlockID := strings.ReplaceAll(blockID, "_", "-")
 
 		// Check if this block's output exists (try both hyphenated and original forms)
-		blockOutputs, blockExists := e.blockOutputs[dep.BlockID]
+		blockOutputs, blockExists := e.blockOutputs[blockID]
 		if !blockExists {
 			blockOutputs, blockExists = e.blockOutputs[hyphenatedBlockID]
 		}
@@ -527,10 +837,10 @@ func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []str
 
 		if !blockExists {
 			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q hasn't run yet)",
-				dep.BlockID, dep.OutputName, displayBlockID))
-		} else if _, outputExists := blockOutputs[dep.OutputName]; !outputExists {
+				blockID, outputName, displayBlockID))
+		} else if _, outputExists := blockOutputs[outputName]; !outputExists {
 			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q ran but didn't produce output %q)",
-				dep.BlockID, dep.OutputName, displayBlockID, dep.OutputName))
+				blockID, outputName, displayBlockID, outputName))
 		}
 	}
 

@@ -30,7 +30,7 @@ tests:
           minLength: 5
           maxLength: 20
       # environment: enum [dev, staging, prod]
-      tagging-inputs.environment: 
+      tagging-inputs.environment:
         fuzz:
           type: enum
           options: [dev, staging, prod]
@@ -46,27 +46,57 @@ tests:
           type: enum
           options: [engineering, product]
 
-    steps:
-      # Note: Order matters! Blocks that produce outputs must run before
-      # blocks that consume them via {{ ._blocks.x.outputs.y }}
-      - block: create-account
-        expect: success
+    # steps:
+    #   # Note: Order matters! Blocks that produce outputs must run before
+    #   # blocks that consume them via {{ ._blocks.x.outputs.y }}
 
-      - block: create-resources
-        expect: success
+    #   # First: Commands that produce outputs
+    #   - block: create-account
+    #     expect: success
 
-      - block: tag-resources
-        expect: success
+    #   - block: create-resources
+    #     expect: success
 
-      - block: list-users
-        expect: success
+    #   - block: tag-resources
+    #     expect: success
 
-      # verify-setup depends on outputs from create-account and create-resources
-      - block: verify-setup
-        expect: success
+    #   - block: list-users
+    #     expect: success
+
+    #   # Then: TemplateInline blocks that depend on those outputs
+    #   - block: template-account-summary
+    #     # Renders: account-summary.txt
+    #     # Depends on: create_account.account_id, create_account.region
+    #     expect: success
+
+    #   - block: template-resource-tags
+    #     # Renders: resource-tags.json
+    #     # Uses inputs from: tagging-inputs
+    #     # Depends on: create_account.account_id, create_account.region
+    #     expect: success
+
+    #   - block: template-users
+    #     # Renders: users.txt
+    #     # Depends on: list_users.users
+    #     expect: success
+
+    #   - block: template-teams
+    #     # Renders: teams.yaml
+    #     # Depends on: list_users.teams
+    #     expect: success
+
+    #   - block: template-team-report
+    #     # Renders: team-report.md
+    #     # Uses inputs from: team-filter
+    #     expect: success
+
+    #   # Finally: verify-setup depends on create-account and create-resources outputs
+    #   - block: verify-setup
+    #     expect: success
 
     assertions:
-      # Add assertions to validate test results
+      # TemplateInline blocks automatically validate their output dependencies.
+      # Add additional assertions to validate test results:
       # - type: file_exists
       #   path: generated/README.md
       # - type: file_contains

@@ -40,7 +40,14 @@ func (r *TextReporter) Report(suites []RunbookTestSuite) error {
 		if relPath == "" {
 			relPath = suite.RunbookPath
 		}
-		fmt.Fprintf(r.Writer, "\n=== %s ===\n", relPath)
+
+		// In verbose mode, the runbook header was already shown at the start
+		// Show a summary section header instead
+		if r.Verbose {
+			fmt.Fprintf(r.Writer, "\n── Summary: %s ──\n", relPath)
+		} else {
+			fmt.Fprintf(r.Writer, "\n=== %s ===\n", relPath)
+		}
 
 		for _, result := range suite.Results {
 			statusIcon := "✓"

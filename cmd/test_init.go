@@ -17,8 +17,9 @@ var testInitCmd = &cobra.Command{
 	Short: "Initialize a test configuration for a runbook",
 	Long: `Generate a runbook_test.yml file for a runbook based on its structure.
 
-This command analyzes the runbook's MDX file to discover Check, Command, and
-Template blocks, then generates a test configuration file with reasonable defaults.`,
+This command analyzes the runbook's MDX file to discover Check, Command, Template,
+TemplateInline, Inputs, and AwsAuth blocks, then generates a test configuration
+file with reasonable defaults.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestInit,
 }
@@ -76,11 +77,20 @@ func runTestInit(cmd *cobra.Command, args []string) error {
 
 // blockInfo holds information about a parsed block
 type blockInfo struct {
-	ID            string
-	Type          string // "Check", "Command", "Template"
-	HasInputs     bool
-	TemplatePath  string
-	Variables     []variableInfo // Variables discovered for this inputs/template block
+	ID                 string
+	Type               string // "Check", "Command", "Template", "TemplateInline"
+	HasInputs          bool
+	TemplatePath       string
+	OutputPath         string             // For TemplateInline blocks
+	InputsID           string             // For TemplateInline blocks - references an Inputs block
+	Variables          []variableInfo     // Variables discovered for this inputs/template block
+	OutputDependencies []outputDependency // Output dependencies for TemplateInline blocks
+}
+
+// outputDependency represents a dependency on a block output
+type outputDependency struct {
+	BlockID    string
+	OutputName string
 }
 
 // variableInfo holds information about a single variable
@@ -245,7 +255,74 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 		}
 	}
 
+	// Parse TemplateInline blocks with their content
+	// TemplateInline blocks don't have an id prop - we generate one from outputPath
+	templateInlineWithContentRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>([\s\S]*?)</TemplateInline>`)
+	templateInlineCount := 0
+	for _, match := range templateInlineWithContentRe.FindAllStringSubmatch(contentStr, -1) {
+		props := match[1]
+		content := match[2]
+		outputPath := extractPropValue(props, "outputPath")
+		inputsID := extractPropValue(props, "inputsId")
+
+		// Generate ID from outputPath or use a counter
+		var id string
+		if outputPath != "" {
+			// Convert path to a valid ID: "account-summary.txt" -> "template-account-summary"
+			baseName := filepath.Base(outputPath)
+			// Remove extension
+			if idx := strings.LastIndex(baseName, "."); idx > 0 {
+				baseName = baseName[:idx]
+			}
+			id = "template-" + baseName
+		} else {
+			templateInlineCount++
+			id = fmt.Sprintf("template-inline-%d", templateInlineCount)
+		}
+
+		if !seen[id] {
+			seen[id] = true
+			// Extract output dependencies from template content
+			deps := extractOutputDependencies(content)
+			blocks = append(blocks, blockInfo{
+				ID:                 id,
+				Type:               "TemplateInline",
+				OutputPath:         outputPath,
+				InputsID:           inputsID,
+				OutputDependencies: deps,
+			})
+		}
+	}
+
 	return blocks, nil
+}
+
+// extractOutputDependencies extracts {{ ._blocks.blockId.outputs.outputName }} patterns from content
+func extractOutputDependencies(content string) []outputDependency {
+	// Match patterns like {{ ._blocks.list_users.outputs.users }}
+	re := regexp.MustCompile(`\{\{\s*-?\s*(?:range\s+[^}]*)?\.?_blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+	matches := re.FindAllStringSubmatch(content, -1)
+
+	seen := make(map[string]bool)
+	var deps []outputDependency
+
+	for _, match := range matches {
+		if len(match) >= 3 {
+			blockID := match[1]
+			outputName := match[2]
+			key := blockID + "." + outputName
+
+			if !seen[key] {
+				seen[key] = true
+				deps = append(deps, outputDependency{
+					BlockID:    blockID,
+					OutputName: outputName,
+				})
+			}
+		}
+	}
+
+	return deps
 }
 
 // parseBoilerplateFile reads a boilerplate.yml file and extracts variable info
@@ -459,12 +536,31 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 		sb.WriteString("\n")
 	}
 
-	// Generate steps (only for executable blocks: Check and Command)
+	// Generate steps (executable blocks: Check, Command, and TemplateInline)
 	sb.WriteString("    steps:\n")
+	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
+	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n\n")
+
 	for _, b := range blocks {
 		switch b.Type {
 		case "Check", "Command":
 			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
+			sb.WriteString("        expect: success\n\n")
+		case "TemplateInline":
+			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
+			if b.OutputPath != "" {
+				sb.WriteString(fmt.Sprintf("        # Renders: %s\n", b.OutputPath))
+			}
+			if b.InputsID != "" {
+				sb.WriteString(fmt.Sprintf("        # Uses inputs from: %s\n", b.InputsID))
+			}
+			if len(b.OutputDependencies) > 0 {
+				deps := make([]string, 0, len(b.OutputDependencies))
+				for _, dep := range b.OutputDependencies {
+					deps = append(deps, fmt.Sprintf("%s.%s", dep.BlockID, dep.OutputName))
+				}
+				sb.WriteString(fmt.Sprintf("        # Depends on: %s\n", strings.Join(deps, ", ")))
+			}
 			sb.WriteString("        expect: success\n\n")
 		case "AwsAuth":
 			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
@@ -477,7 +573,8 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 
 	// Generate assertions section
 	sb.WriteString("    assertions:\n")
-	sb.WriteString("      # Add assertions to validate test results\n")
+	sb.WriteString("      # TemplateInline blocks automatically validate their output dependencies.\n")
+	sb.WriteString("      # Add additional assertions to validate test results:\n")
 	sb.WriteString("      # - type: file_exists\n")
 	sb.WriteString("      #   path: generated/README.md\n")
 	sb.WriteString("      # - type: file_contains\n")

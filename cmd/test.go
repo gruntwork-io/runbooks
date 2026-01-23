@@ -295,12 +295,18 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 	}
 	defer executor.Close()
 
+	// Print runbook header in verbose mode
+	executor.PrintRunbookHeader()
+
 	// Run each test case
 	for _, tc := range config.Tests {
 		// Skip if a specific test was requested and this isn't it
 		if testTestName != "" && tc.Name != testTestName {
 			continue
 		}
+
+		// Print test header in verbose mode
+		executor.PrintTestHeader(tc.Name)
 
 		result := executor.RunTest(tc)
 		suite.Results = append(suite.Results, result)
