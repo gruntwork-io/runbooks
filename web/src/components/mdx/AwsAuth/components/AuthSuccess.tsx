@@ -1,18 +1,27 @@
 import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { AccountInfo } from "../types"
+import type { AccountInfo, PrefilledCredentialsType } from "../types"
 
 interface AuthSuccessProps {
   accountInfo: AccountInfo
   warningMessage: string | null
-  onReset: () => void
+  onRetryPrefill?: () => void
+  onManualAuth?: () => void
+  prefillSource?: PrefilledCredentialsType | null
 }
 
-export function AuthSuccess({ accountInfo, warningMessage, onReset }: AuthSuccessProps) {
+export function AuthSuccess({ accountInfo, warningMessage, onRetryPrefill, onManualAuth, prefillSource }: AuthSuccessProps) {
   return (
     <div className="mb-4">
-      <div className="text-green-700 font-semibold text-sm mb-2">
-        ✓ Authenticated to AWS
+      <div className="text-green-700 font-semibold text-sm mb-2 flex items-center gap-2">
+        <span>✓ Authenticated to AWS</span>
+        {prefillSource && (
+          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-normal">
+            {prefillSource === 'env' && 'From Environment'}
+            {prefillSource === 'block' && 'From Command Output'}
+            {prefillSource === 'static' && 'Pre-configured'}
+          </span>
+        )}
       </div>
       <div className="bg-green-100/50 rounded p-3 text-sm">
         <div className="text-gray-700">
@@ -31,14 +40,29 @@ export function AuthSuccess({ accountInfo, warningMessage, onReset }: AuthSucces
           <div>{warningMessage}</div>
         </div>
       )}
-      <Button 
-        variant="outline" 
-        size="sm" 
-        onClick={onReset}
-        className="mt-3"
-      >
-        Re-authenticate
-      </Button>
+      {/* Action buttons */}
+      {(onRetryPrefill || onManualAuth) && (
+        <div className="mt-3 flex items-center gap-3">
+          {onRetryPrefill && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={onRetryPrefill}
+            >
+              Re-authenticate
+            </Button>
+          )}
+          {onManualAuth && (
+            <Button 
+              variant="link" 
+              size="sm" 
+              onClick={onManualAuth}
+            >
+              Authenticate manually
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

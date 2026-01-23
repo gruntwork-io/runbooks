@@ -90,6 +90,61 @@ Now that both accounts are authenticated, we can run commands against each one b
 
 ---
 
+## Pre-filled Credentials
+
+### From Environment Variables (CI/CD Mode)
+
+When running in CI/CD environments where AWS credentials are already available (e.g., via OIDC, IAM roles, or aws-vault), you can pre-fill the AwsAuth block from environment variables:
+
+<AwsAuth
+  id="aws-auth-from-env"
+  title="AWS Access (from environment)"
+  description="Credentials are automatically loaded from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc."
+  prefilledCredentials={{ type: "env" }}
+  defaultRegion="us-west-2"
+/>
+
+<Check
+  id="verify-env-auth"
+  title="Verify Environment Credentials"
+  description="Confirms authentication using credentials loaded from environment"
+  command="aws sts get-caller-identity"
+  awsAuthId="aws-auth-from-env"
+  successMessage="Environment credentials are valid!"
+  failMessage="No valid credentials found in environment."
+/>
+
+### Dynamic Credential Generation
+
+In cross-account scenarios, you might need to assume a role and use those credentials. A Command block can generate credentials that are then consumed by an AwsAuth block:
+
+<Command
+  id="assume-cross-account-role"
+  path="scripts/assume-role.sh"
+  title="Assume Cross-Account Role"
+  description="Assumes a role in another account and outputs credentials. Requires ROLE_ARN environment variable."
+/>
+
+<AwsAuth
+  id="cross-account-auth"
+  title="Cross-Account Access"
+  description="Uses credentials from the assume-role script above"
+  prefilledCredentials={{ type: "block", blockId: "assume-cross-account-role" }}
+  defaultRegion="us-east-1"
+/>
+
+<Check
+  id="verify-cross-account"
+  title="Verify Cross-Account Access"
+  description="Confirms that the assumed role credentials are working"
+  command="aws sts get-caller-identity"
+  awsAuthId="cross-account-auth"
+  successMessage="Successfully assumed cross-account role!"
+  failMessage="Failed to verify cross-account credentials."
+/>
+
+---
+
 ## Usage Notes
 
 ### How Credentials Are Passed

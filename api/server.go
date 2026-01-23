@@ -79,6 +79,8 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
 		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
+		// Environment credential prefill - requires session to register credentials
+		protectedAPI.POST("/aws/env-credentials", HandleAwsEnvCredentials(sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)

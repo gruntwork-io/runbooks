@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { XCircle, AlertTriangle } from "lucide-react"
+import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
@@ -13,6 +13,7 @@ import { AuthSuccess } from "./components/AuthSuccess"
 import { CredentialsForm } from "./components/CredentialsForm"
 import { SsoForm, SsoAccountSelector, SsoRoleSelector } from "./components/SsoFlow"
 import { ProfileSelector } from "./components/ProfileSelector"
+import { Button } from "@/components/ui/button"
 
 function AwsAuth({
   id,
@@ -23,6 +24,8 @@ function AwsAuth({
   ssoAccountId,
   ssoRoleName,
   defaultRegion = "us-east-1",
+  prefilledCredentials,
+  allowOverridePrefilled = true,
 }: AwsAuthProps) {
   
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
@@ -42,6 +45,8 @@ function AwsAuth({
     ssoAccountId,
     ssoRoleName,
     defaultRegion,
+    prefilledCredentials,
+    allowOverridePrefilled,
   })
 
   // Track block render on mount
@@ -128,16 +133,54 @@ function AwsAuth({
             </div>
           )}
 
+          {/* Prefill pending state - waiting for block or checking credentials */}
+          {auth.prefillStatus === 'pending' && (
+            <div className="mb-4 text-blue-600 text-sm flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin" />
+              <span>
+                {auth.waitingForBlockId 
+                  ? `Waiting for "${auth.waitingForBlockId}" to run...`
+                  : 'Checking for credentials...'}
+              </span>
+            </div>
+          )}
+
           {/* Success state */}
           {auth.authStatus === 'authenticated' && auth.accountInfo && (
             <AuthSuccess
               accountInfo={auth.accountInfo}
               warningMessage={auth.warningMessage}
-              onReset={auth.handleReset}
+              prefillSource={auth.prefillSource}
+              // If prefill was used and override is allowed, show both retry and manual options
+              // If no prefill (manual auth), just show retry (which acts as re-authenticate)
+              onRetryPrefill={allowOverridePrefilled ? (auth.prefillSource ? auth.handleRetryPrefill : auth.handleManualAuth) : undefined}
+              onManualAuth={allowOverridePrefilled && auth.prefillSource ? auth.handleManualAuth : undefined}
             />
           )}
 
-          {/* Error state */}
+          {/* Prefill failed state */}
+          {auth.prefillStatus === 'failed' && auth.prefillError && allowOverridePrefilled && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex items-start gap-2">
+              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Could not load prefilled credentials:</strong> {auth.prefillError}
+                <br />
+                <span className="text-amber-700">Please authenticate manually below.</span>
+              </div>
+            </div>
+          )}
+
+          {/* Prefill failed without override - just show error */}
+          {auth.prefillStatus === 'failed' && auth.prefillError && !allowOverridePrefilled && (
+            <div className="mb-4 text-red-600 text-sm flex items-start gap-2">
+              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Credential prefill failed:</strong> {auth.prefillError}
+              </div>
+            </div>
+          )}
+
+          {/* Error state (for manual auth failures) */}
           {auth.authStatus === 'failed' && auth.errorMessage && (
             <div className="mb-4 text-red-600 text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
@@ -147,8 +190,8 @@ function AwsAuth({
             </div>
           )}
 
-          {/* Authentication form (only show when not authenticated) */}
-          {auth.authStatus !== 'authenticated' && (
+          {/* Authentication form (only show when not authenticated and not pending prefill, and allow override) */}
+          {auth.authStatus !== 'authenticated' && auth.prefillStatus !== 'pending' && (auth.prefillStatus !== 'failed' || allowOverridePrefilled) && (
             <>
               {/* Method tabs (hide during account/role selection) */}
               {showTabs && (
@@ -199,7 +242,7 @@ function AwsAuth({
                   searchValue={auth.ssoAccountSearch}
                   setSearchValue={auth.setSsoAccountSearch}
                   onAccountSelect={auth.handleSsoAccountSelect}
-                  onCancel={auth.handleReset}
+                  onCancel={auth.handleManualAuth}
                 />
               )}
 
@@ -232,6 +275,22 @@ function AwsAuth({
                   onProfileAuth={auth.handleProfileAuth}
                   onRefreshProfiles={auth.loadAwsProfiles}
                 />
+              )}
+
+              {/* Option to use prefilled credentials when in manual auth mode */}
+              {prefilledCredentials && auth.prefillStatus === 'not-configured' && showTabs && (
+                <div className="mt-4 text-sm text-gray-600">
+                  {prefilledCredentials.type === 'env' && 'Environment'}
+                  {prefilledCredentials.type === 'block' && 'Command output'}
+                  {prefilledCredentials.type === 'static' && 'Prefilled'} credentials are available.{' '}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={auth.handleRetryPrefill}
+                  >
+                    Use {prefilledCredentials.type === 'env' ? 'environment' : prefilledCredentials.type === 'block' ? 'command output' : 'prefilled'} credentials
+                  </Button>
+                </div>
               )}
             </>
           )}
