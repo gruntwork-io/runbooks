@@ -8,6 +8,7 @@ import { useFormState } from '../hooks/useFormState'
 import { useFormValidation } from '../hooks/useFormValidation'
 import { FormStatus } from './FormStatus'
 import { UnmetOutputDependenciesWarning } from './UnmetOutputDependenciesWarning'
+import { BlockIdLabel } from './BlockIdLabel'
 import type { UnmetOutputDependency } from '../hooks/useScriptExecution'
 
 /**
@@ -305,6 +306,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 
   return (
     <div className={containerClasses}>
+      {/* ID label in top-right corner for standard variant */}
+      {variant === 'standard' && (
+        <div className="absolute top-2 right-3">
+          <BlockIdLabel id={id} size="large" />
+        </div>
+      )}
       
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">

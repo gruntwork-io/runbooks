@@ -1,10 +1,9 @@
-import { CircleQuestionMark, CheckCircle, AlertTriangle, XCircle, Loader2, Square, CircleSlash } from "lucide-react"
+import { CircleQuestionMark, CheckCircle, AlertTriangle, XCircle, Loader2, Square } from "lucide-react"
 import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -92,8 +91,6 @@ function Check({
     
     return children;
   }, [children]);
-  
-  const [skipCheck, setSkipCheck] = useState(false);
 
   // State for controlling ViewSourceCode
   const [showSourceCode, setShowSourceCode] = useState(false);
@@ -196,8 +193,6 @@ function Check({
 
   // Get visual styling based on status
   const getStatusClasses = () => {
-    if (skipCheck) return 'bg-gray-100 border-gray-200'
-    
     const statusMap = {
       success: 'bg-green-50 border-green-200',
       warn: 'bg-yellow-50 border-yellow-300', 
@@ -221,7 +216,6 @@ function Check({
   }
 
   const getStatusIconClasses = () => {
-    if (skipCheck) return 'text-gray-300'
     const colorMap = {
       success: 'text-green-600',
       warn: 'text-yellow-600',
@@ -311,7 +305,6 @@ function Check({
   
   // Determine if the Check button should be disabled
   const isCheckDisabled = 
-    skipCheck || 
     checkStatus === 'running' || 
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
@@ -321,50 +314,27 @@ function Check({
   // Main render - form with success indicator overlay if needed
   return (
     <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
-      {/* Skip checkbox - always positioned at top right */}
-      <div className={`absolute top-4 right-4 flex items-center gap-2 z-20` + (checkStatus === 'success' ? ' text-gray-300' : '')}>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <Checkbox 
-            className="bg-white" 
-            checked={skipCheck} 
-            disabled={checkStatus === 'success'}
-            onCheckedChange={(checked) => setSkipCheck(checked === true)} 
-          />
-          <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 select-none">
-            Skip
-          </span>
-        </label>
+      {/* ID label - positioned at top right */}
+      <div className="absolute top-3 right-3 z-20">
+        <BlockIdLabel id={id} size="large" />
       </div>
 
-      {/* Script drift warning - mr-16 leaves room for the Skip checkbox */}
+      {/* Script drift warning - mr-12 leaves room for the ID label */}
       {hasScriptDrift && (
-        <Admonition type="warning" title="Script changed" className="space-y-2 mr-16">
+        <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
           <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
           <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes.</p>
         </Admonition>
       )}
       
-      {/* Skip overlay */}
-      {skipCheck && (
-        <div className="absolute inset-0 bg-gray-500/20 border-2 border-gray-200 rounded-sm z-10"></div>
-      )}
-      
       {/* Check main body */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4">
-          <IconComponent className={`size-6 ${iconClasses} mr-1 ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
+        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+          <IconComponent className={`size-6 ${iconClasses} ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">
-        
-        {skipCheck && (
-          <div className="mb-3 text-sm text-gray-800 bg-gray-300 w-fit p-3 flex items-center gap-2">
-            <CircleSlash className="size-4" />
-            This check has been skipped.
-          </div>
-        )}
-
-        <div className={`flex-1 space-y-2 ${skipCheck ? 'opacity-40' : ''}`}>
+        <div className="flex-1 space-y-2">
           <div className="text-md font-bold text-gray-600">
             <InlineMarkdown>{title}</InlineMarkdown>
           </div>

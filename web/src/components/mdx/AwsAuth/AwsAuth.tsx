@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
+import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -112,9 +113,14 @@ function AwsAuth({
 
   return (
     <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+      {/* ID label - positioned at top right */}
+      <div className="absolute top-3 right-3 z-20">
+        <BlockIdLabel id={id} size="large" />
+      </div>
+
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
-        <div className="border-r border-amber-300 pr-3 mr-0 self-stretch">
+        <div className="border-r border-amber-300 pr-3 mr-0 flex flex-col items-center">
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
