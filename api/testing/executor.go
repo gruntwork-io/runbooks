@@ -305,6 +305,14 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	// Prepare script content
 	scriptContent := executable.ScriptContent
 
+	// Check for missing block output dependencies before rendering
+	// This provides a clearer error message than the Go template "map has no entry for key" error
+	if missing := e.findMissingOutputDependencies(scriptContent); len(missing) > 0 {
+		return "error", -1, nil, fmt.Errorf("block references outputs that haven't been produced yet: %s. "+
+			"Make sure the blocks that produce these outputs run before this block in your test steps",
+			strings.Join(missing, ", "))
+	}
+
 	// Always render template variables in test mode
 	// Scripts may reference _blocks outputs which aren't detected by TemplateVarNames
 	vars := e.buildTemplateVars()
@@ -452,6 +460,35 @@ func (e *TestExecutor) getSessionToken() string {
 		return token
 	}
 	return ""
+}
+
+// findMissingOutputDependencies checks the script content for {{ ._blocks.x.outputs.y }} references
+// and returns a list of any that aren't available in blockOutputs.
+func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []string {
+	dependencies := api.ExtractOutputDependenciesFromContent(scriptContent)
+	var missing []string
+
+	for _, dep := range dependencies {
+		// Normalize block ID (hyphens -> underscores) to match how we store outputs
+		normalizedBlockID := strings.ReplaceAll(dep.BlockID, "-", "_")
+
+		// Check if this block's output exists
+		blockOutputs, blockExists := e.blockOutputs[dep.BlockID]
+		if !blockExists {
+			// Also check with normalized ID in case it was stored that way
+			blockOutputs, blockExists = e.blockOutputs[normalizedBlockID]
+		}
+
+		if !blockExists {
+			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q hasn't run yet)",
+				dep.BlockID, dep.OutputName, dep.BlockID))
+		} else if _, outputExists := blockOutputs[dep.OutputName]; !outputExists {
+			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q ran but didn't produce output %q)",
+				dep.BlockID, dep.OutputName, dep.BlockID, dep.OutputName))
+		}
+	}
+
+	return missing
 }
 
 // buildTemplateVars builds template variables including test inputs and block outputs.

@@ -972,7 +972,7 @@ func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
 	for _, tc := range fixtures.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			// Extract dependencies using the Go implementation
-			deps := extractOutputDependenciesFromContent(tc.Input)
+			deps := ExtractOutputDependenciesFromContent(tc.Input)
 
 			// Verify the count matches
 			assert.Equal(t, len(tc.Expected), len(deps),

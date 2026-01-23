@@ -551,9 +551,10 @@ func isBinaryFile(path string) (bool, error) {
 // to ensure they produce identical results. Run tests in both languages after any changes.
 var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
 
-// extractOutputDependenciesFromContent extracts output dependencies from string content.
+// ExtractOutputDependenciesFromContent extracts output dependencies from string content.
 // This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
-func extractOutputDependenciesFromContent(content string) []OutputDependency {
+// It finds all {{ ._blocks.blockId.outputs.outputName }} patterns in the content.
+func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 	var dependencies []OutputDependency
 	seen := make(map[string]bool)
 
@@ -618,7 +619,7 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 		}
 
 		// Extract dependencies from this file's content
-		fileDeps := extractOutputDependenciesFromContent(string(content))
+		fileDeps := ExtractOutputDependenciesFromContent(string(content))
 		for _, dep := range fileDeps {
 			// Deduplicate across all files
 			if !seen[dep.FullPath] {
