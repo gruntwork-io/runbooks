@@ -458,12 +458,19 @@ export function useAwsAuth({
     const poll = async () => {
       if (ssoPollingCancelledRef.current) return
 
+      const authHeader = getAuthHeader()
+      if (!authHeader.Authorization) {
+        setAuthStatus('failed')
+        setErrorMessage('Session not ready. Please wait a moment and try again.')
+        return
+      }
+
       try {
         const response = await fetch('/api/aws/sso/poll', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...getAuthHeader(),
+            ...authHeader,
           },
           body: JSON.stringify({ 
             deviceCode, 
@@ -592,6 +599,12 @@ export function useAwsAuth({
       return
     }
 
+    const authHeader = getAuthHeader()
+    if (!authHeader.Authorization) {
+      setErrorMessage('Session not ready. Please wait a moment and try again.')
+      return
+    }
+
     setAuthStatus('authenticating')
 
     try {
@@ -599,7 +612,7 @@ export function useAwsAuth({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeader(),
+          ...authHeader,
         },
         body: JSON.stringify({
           accessToken: ssoAccessToken,
@@ -651,6 +664,12 @@ export function useAwsAuth({
       return
     }
 
+    const authHeader = getAuthHeader()
+    if (!authHeader.Authorization) {
+      setErrorMessage('Session not ready. Please wait a moment and try again.')
+      return
+    }
+
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
@@ -659,7 +678,7 @@ export function useAwsAuth({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeader(),
+          ...authHeader,
         },
         body: JSON.stringify({ profile: selectedProfile.name })
       })
