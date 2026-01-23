@@ -120,7 +120,7 @@ function AwsAuth({
 
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
-        <div className="border-r border-amber-300 pr-3 mr-0 flex flex-col items-center">
+        <div className="border-r border-amber-300 pr-3 mr-0 self-stretch">
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
