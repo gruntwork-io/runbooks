@@ -334,6 +334,11 @@ export function useAwsAuth({
       return
     }
 
+    // Don't auto-retry on failure - user must explicitly retry
+    if (prefillStatus === 'failed') {
+      return
+    }
+
     // Check if the source block has outputs
     const result = getBlockCredentials(prefilledCredentials.blockId)
     
@@ -456,7 +461,10 @@ export function useAwsAuth({
       try {
         const response = await fetch('/api/aws/sso/poll', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+          },
           body: JSON.stringify({ 
             deviceCode, 
             clientId, 
@@ -499,7 +507,7 @@ export function useAwsAuth({
     }
 
     poll()
-  }, [ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials])
+  }, [ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
   // Handle SSO authentication
   const handleSsoAuth = useCallback(async () => {
@@ -589,7 +597,10 @@ export function useAwsAuth({
     try {
       const response = await fetch('/api/aws/sso/complete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
         body: JSON.stringify({
           accessToken: ssoAccessToken,
           accountId: selectedSsoAccount.accountId,
@@ -617,7 +628,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
     }
-  }, [selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials])
+  }, [selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
   // Go back to account selection
   const handleBackToAccountSelection = useCallback(() => {
@@ -646,7 +657,10 @@ export function useAwsAuth({
     try {
       const response = await fetch('/api/aws/profile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
         body: JSON.stringify({ profile: selectedProfile.name })
       })
 
@@ -669,7 +683,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [selectedProfile, selectedDefaultRegion, registerCredentials])
+  }, [selectedProfile, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
   // Retry prefilled credentials (re-read from env, re-check block outputs, etc.)
   const handleRetryPrefill = useCallback(() => {

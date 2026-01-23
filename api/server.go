@@ -81,23 +81,23 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
 		// Environment credential prefill - requires session to register credentials
 		protectedAPI.POST("/aws/env-credentials", HandleAwsEnvCredentials(sessionManager))
+		// AWS auth endpoints that return credentials (token required: returns secrets)
+		protectedAPI.POST("/aws/profile", HandleAwsProfileAuth())
+		protectedAPI.POST("/aws/sso/poll", HandleAwsSsoPoll())
+		protectedAPI.POST("/aws/sso/complete", HandleAwsSsoComplete())
 	}
 
 	// Generated files endpoints (no session context needed)
 	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
 	r.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(outputPath))
 
-	// AWS authentication endpoints
-	// No token required: lower risk (no command execution, no secrets exposed), and allows
-	// AWS auth UI to render before session is created. /profiles only returns profile names
-	// and auth types, not credentials or config values like SSO URLs or account IDs.
+	// AWS authentication endpoints (no credentials returned)
+	// No token required: these endpoints don't return secrets, and allowing them
+	// unauthenticated lets the AWS auth UI render before session is created.
 	r.POST("/api/aws/validate", HandleAwsValidate())
-	r.GET("/api/aws/profiles", HandleAwsProfiles())
-	r.POST("/api/aws/profile", HandleAwsProfileAuth())
-	r.POST("/api/aws/sso/start", HandleAwsSsoStart())
-	r.POST("/api/aws/sso/poll", HandleAwsSsoPoll())
-	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())
-	r.POST("/api/aws/sso/complete", HandleAwsSsoComplete())
+	r.GET("/api/aws/profiles", HandleAwsProfiles())           // Only returns profile names and auth types
+	r.POST("/api/aws/sso/start", HandleAwsSsoStart())         // Returns device code for user to authorize
+	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())     // Returns role names, not credentials
 	r.POST("/api/aws/check-region", HandleAwsCheckRegion())
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
