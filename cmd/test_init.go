@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -89,6 +90,7 @@ type blockInfo struct {
 	InputsID           string             // For TemplateInline blocks - references an Inputs block
 	Variables          []variableInfo     // Variables discovered for this inputs/template block
 	OutputDependencies []outputDependency // Output dependencies for TemplateInline blocks
+	Position           int                // Position in the document (for ordering)
 }
 
 // outputDependency represents a dependency on a block output
@@ -137,125 +139,147 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	var blocks []blockInfo
 	seen := make(map[string]bool)
 
-	// Parse Check blocks
+	// Parse Check blocks with positions
 	checkRe := regexp.MustCompile(`<Check\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range checkRe.FindAllStringSubmatch(contentStr, -1) {
-		id := extractPropValue(match[1], "id")
-		if id != "" && !seen[id] {
-			seen[id] = true
-			blocks = append(blocks, blockInfo{
-				ID:   id,
-				Type: "Check",
-			})
+	for _, match := range checkRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			if id != "" && !seen[id] {
+				seen[id] = true
+				blocks = append(blocks, blockInfo{
+					ID:       id,
+					Type:     "Check",
+					Position: match[0],
+				})
+			}
 		}
 	}
 
-	// Parse Command blocks
+	// Parse Command blocks with positions
 	cmdRe := regexp.MustCompile(`<Command\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range cmdRe.FindAllStringSubmatch(contentStr, -1) {
-		id := extractPropValue(match[1], "id")
-		if id != "" && !seen[id] {
-			seen[id] = true
-			blocks = append(blocks, blockInfo{
-				ID:   id,
-				Type: "Command",
-			})
+	for _, match := range cmdRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			if id != "" && !seen[id] {
+				seen[id] = true
+				blocks = append(blocks, blockInfo{
+					ID:       id,
+					Type:     "Command",
+					Position: match[0],
+				})
+			}
 		}
 	}
 
 	// Parse Template blocks and read their boilerplate.yml
 	templateRe := regexp.MustCompile(`<Template\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range templateRe.FindAllStringSubmatch(contentStr, -1) {
-		id := extractPropValue(match[1], "id")
-		templatePath := extractPropValue(match[1], "path")
-		if id != "" && !seen[id] {
-			seen[id] = true
-			block := blockInfo{
-				ID:           id,
-				Type:         "Template",
-				TemplatePath: templatePath,
-			}
-			// Try to read variables from boilerplate.yml
-			if templatePath != "" {
-				boilerplatePath := filepath.Join(runbookDir, templatePath, "boilerplate.yml")
-				if vars, err := parseBoilerplateFile(boilerplatePath); err == nil {
-					block.Variables = vars
-					block.HasInputs = len(vars) > 0
+	for _, match := range templateRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			templatePath := extractPropValue(props, "path")
+			if id != "" && !seen[id] {
+				seen[id] = true
+				block := blockInfo{
+					ID:           id,
+					Type:         "Template",
+					TemplatePath: templatePath,
+					Position:     match[0],
 				}
+				// Try to read variables from boilerplate.yml
+				if templatePath != "" {
+					boilerplatePath := filepath.Join(runbookDir, templatePath, "boilerplate.yml")
+					if vars, err := parseBoilerplateFile(boilerplatePath); err == nil {
+						block.Variables = vars
+						block.HasInputs = len(vars) > 0
+					}
+				}
+				blocks = append(blocks, block)
 			}
-			blocks = append(blocks, block)
 		}
 	}
 
 	// Parse Inputs blocks - both with path attribute and inline YAML
 	// First, match Inputs with content (container form)
 	inputsContainerRe := regexp.MustCompile(`<Inputs\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)>([\s\S]*?)</Inputs>`)
-	for _, match := range inputsContainerRe.FindAllStringSubmatch(contentStr, -1) {
-		props := match[1]
-		innerContent := match[2]
-		id := extractPropValue(props, "id")
-		inputsPath := extractPropValue(props, "path")
+	for _, match := range inputsContainerRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 6 {
+			props := contentStr[match[2]:match[3]]
+			innerContent := contentStr[match[4]:match[5]]
+			id := extractPropValue(props, "id")
+			inputsPath := extractPropValue(props, "path")
 
-		if id != "" && !seen[id] {
-			seen[id] = true
-			block := blockInfo{
-				ID:        id,
-				Type:      "Inputs",
-				HasInputs: true,
-			}
+			if id != "" && !seen[id] {
+				seen[id] = true
+				block := blockInfo{
+					ID:        id,
+					Type:      "Inputs",
+					HasInputs: true,
+					Position:  match[0],
+				}
 
-			// Try to get variables from path or inline content
-			if inputsPath != "" {
-				// Read from path
-				fullPath := filepath.Join(runbookDir, inputsPath)
-				if vars, err := parseBoilerplateFile(fullPath); err == nil {
-					block.Variables = vars
+				// Try to get variables from path or inline content
+				if inputsPath != "" {
+					// Read from path
+					fullPath := filepath.Join(runbookDir, inputsPath)
+					if vars, err := parseBoilerplateFile(fullPath); err == nil {
+						block.Variables = vars
+					}
+				} else {
+					// Parse inline YAML from content
+					if vars := parseInlineInputsYAML(innerContent); len(vars) > 0 {
+						block.Variables = vars
+					}
 				}
-			} else {
-				// Parse inline YAML from content
-				if vars := parseInlineInputsYAML(innerContent); len(vars) > 0 {
-					block.Variables = vars
-				}
+				blocks = append(blocks, block)
 			}
-			blocks = append(blocks, block)
 		}
 	}
 
 	// Parse self-closing Inputs with path
 	inputsSelfClosingRe := regexp.MustCompile(`<Inputs\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)/>`)
-	for _, match := range inputsSelfClosingRe.FindAllStringSubmatch(contentStr, -1) {
-		props := match[1]
-		id := extractPropValue(props, "id")
-		inputsPath := extractPropValue(props, "path")
+	for _, match := range inputsSelfClosingRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			inputsPath := extractPropValue(props, "path")
 
-		if id != "" && !seen[id] {
-			seen[id] = true
-			block := blockInfo{
-				ID:        id,
-				Type:      "Inputs",
-				HasInputs: true,
-			}
-
-			if inputsPath != "" {
-				fullPath := filepath.Join(runbookDir, inputsPath)
-				if vars, err := parseBoilerplateFile(fullPath); err == nil {
-					block.Variables = vars
+			if id != "" && !seen[id] {
+				seen[id] = true
+				block := blockInfo{
+					ID:        id,
+					Type:      "Inputs",
+					HasInputs: true,
+					Position:  match[0],
 				}
+
+				if inputsPath != "" {
+					fullPath := filepath.Join(runbookDir, inputsPath)
+					if vars, err := parseBoilerplateFile(fullPath); err == nil {
+						block.Variables = vars
+					}
+				}
+				blocks = append(blocks, block)
 			}
-			blocks = append(blocks, block)
 		}
 	}
 
-	// Parse AwsAuth blocks
+	// Parse AwsAuth blocks with positions
 	awsAuthRe := regexp.MustCompile(`<AwsAuth\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range awsAuthRe.FindAllStringSubmatch(contentStr, -1) {
-		id := extractPropValue(match[1], "id")
-		if id != "" && !seen[id] {
-			seen[id] = true
-			blocks = append(blocks, blockInfo{
-				ID:   id,
-				Type: "AwsAuth",
-			})
+	for _, match := range awsAuthRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			if id != "" && !seen[id] {
+				seen[id] = true
+				blocks = append(blocks, blockInfo{
+					ID:       id,
+					Type:     "AwsAuth",
+					Position: match[0],
+				})
+			}
 		}
 	}
 
@@ -263,40 +287,48 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	// TemplateInline blocks don't have an id prop - we generate one from outputPath
 	templateInlineWithContentRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>([\s\S]*?)</TemplateInline>`)
 	templateInlineCount := 0
-	for _, match := range templateInlineWithContentRe.FindAllStringSubmatch(contentStr, -1) {
-		props := match[1]
-		content := match[2]
-		outputPath := extractPropValue(props, "outputPath")
-		inputsID := extractPropValue(props, "inputsId")
+	for _, match := range templateInlineWithContentRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 6 {
+			props := contentStr[match[2]:match[3]]
+			content := contentStr[match[4]:match[5]]
+			outputPath := extractPropValue(props, "outputPath")
+			inputsID := extractPropValue(props, "inputsId")
 
-		// Generate ID from outputPath or use a counter
-		var id string
-		if outputPath != "" {
-			// Convert path to a valid ID: "account-summary.txt" -> "template-account-summary"
-			baseName := filepath.Base(outputPath)
-			// Remove extension
-			if idx := strings.LastIndex(baseName, "."); idx > 0 {
-				baseName = baseName[:idx]
+			// Generate ID from outputPath or use a counter
+			var id string
+			if outputPath != "" {
+				// Convert path to a valid ID: "account-summary.txt" -> "template-account-summary"
+				baseName := filepath.Base(outputPath)
+				// Remove extension
+				if idx := strings.LastIndex(baseName, "."); idx > 0 {
+					baseName = baseName[:idx]
+				}
+				id = "template-" + baseName
+			} else {
+				templateInlineCount++
+				id = fmt.Sprintf("template-inline-%d", templateInlineCount)
 			}
-			id = "template-" + baseName
-		} else {
-			templateInlineCount++
-			id = fmt.Sprintf("template-inline-%d", templateInlineCount)
-		}
 
-		if !seen[id] {
-			seen[id] = true
-			// Extract output dependencies from template content
-			deps := extractOutputDependencies(content)
-			blocks = append(blocks, blockInfo{
-				ID:                 id,
-				Type:               "TemplateInline",
-				OutputPath:         outputPath,
-				InputsID:           inputsID,
-				OutputDependencies: deps,
-			})
+			if !seen[id] {
+				seen[id] = true
+				// Extract output dependencies from template content
+				deps := extractOutputDependencies(content)
+				blocks = append(blocks, blockInfo{
+					ID:                 id,
+					Type:               "TemplateInline",
+					OutputPath:         outputPath,
+					InputsID:           inputsID,
+					OutputDependencies: deps,
+					Position:           match[0],
+				})
+			}
 		}
 	}
+
+	// Sort blocks by their position in the document
+	sort.Slice(blocks, func(i, j int) bool {
+		return blocks[i].Position < blocks[j].Position
+	})
 
 	return blocks, nil
 }
