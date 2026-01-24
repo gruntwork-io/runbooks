@@ -26,7 +26,7 @@ export function extractTemplateFiles(
     
     if (typeof node === 'object' && 'props' in node) {
       const element = node as { 
-        type?: string | { displayName?: string };
+        type?: string | { displayName?: string; name?: string } | ((...args: unknown[]) => unknown);
         props?: { 
           children?: ReactNode; 
           className?: string;
@@ -35,7 +35,17 @@ export function extractTemplateFiles(
       };
       
       // Check if this is a code block (pre > code structure from MDX)
-      const isPreElement = typeof element.type === 'string' && element.type === 'pre';
+      // MDX can use either native 'pre' elements or custom CodeBlock components
+      let isPreElement = false;
+      if (typeof element.type === 'string' && element.type === 'pre') {
+        isPreElement = true;
+      } else if (typeof element.type === 'function') {
+        const funcType = element.type as { name?: string; displayName?: string };
+        isPreElement = funcType.name === 'CodeBlock' || funcType.displayName === 'CodeBlock';
+      } else if (typeof element.type === 'object' && element.type !== null) {
+        isPreElement = element.type.name === 'CodeBlock' || element.type.displayName === 'CodeBlock';
+      }
+      
       const codeChild = isPreElement && element.props?.children;
       
       if (codeChild && typeof codeChild === 'object' && 'props' in codeChild) {

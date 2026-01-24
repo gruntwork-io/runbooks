@@ -1,62 +1,105 @@
 # Demo Runbook 3
 
-## Test 1
+This runbook tests various code block extraction scenarios to ensure MDX code blocks work correctly with the custom CodeBlock component.
 
-First, let's test that a standalone `<Template>` block works:
+## Test 1: Standalone Template (with path)
+
+First, let's test that a standalone `<Template>` block works with a path reference:
 
 <Template id="test1" path="templates/infra-live-elements" />
 
-## Test 2
+## Test 2: Standalone Inputs (inline YAML)
 
-Now let's create a standalone inputs
+Now let's test standalone `<Inputs>` with inline YAML content. This tests that `extractYamlFromChildren` correctly extracts YAML from the custom CodeBlock component.
 
 <Inputs id="test2">
 ```yaml
-    variables:
-      - name: GithubOrgName
-        type: string
-        description: The GitHub organization name where the repository is hosted
-        default: "gruntwork-io"
-        validations: "required"
-      - name: GithubRepoName
-        type: string
-        description: The name of the GitHub repository for infrastructure code
-        default: "runbooks-infrastructure-live-example"
-        validations: "required"
-    ```
+variables:
+  - name: GithubOrgName
+    type: string
+    description: The GitHub organization name where the repository is hosted
+    default: "gruntwork-io"
+    validations: "required"
+  - name: GithubRepoName
+    type: string
+    description: The name of the GitHub repository for infrastructure code
+    default: "runbooks-infrastructure-live-example"
+    validations: "required"
+```
 </Inputs>
 
-## Test 3
+## Test 3: TemplateInline (inline content, single inputsId)
 
-Now let's render an inline template based on both test1 and test2
+This tests that `extractTemplateFiles` correctly extracts template content from the custom CodeBlock component.
 
-<TemplateInline inputsId="test2">
+<TemplateInline inputsId="test2" outputPath="test3-output.yml">
 ```yaml
-orgName: {{ .GithubOrgName }} 
+# Test 3 Output
+orgName: {{ .GithubOrgName }}
+repoName: {{ .GithubRepoName }}
 ```
 </TemplateInline>
 
-## Test 4
+## Test 4: TemplateInline (inline content, multiple inputsIds)
 
-Now let's render an inline template that pulls from both test1 and test2
+Now let's render an inline template that pulls variables from both test1 and test2:
 
-<TemplateInline inputsId={["test1", "test2"]}>
+<TemplateInline inputsId={["test1", "test2"]} outputPath="test4-output.yml">
 ```yaml
-orgName: {{ .GithubOrgName }} 
+# Test 4 Output - Combined Variables
+orgName: {{ .GithubOrgName }}
 orgNamePrefix: {{ .OrgNamePrefix }}
 ```
 </TemplateInline>
 
-## Test 5
+## Test 5: Template with inherited inputs
 
-Let's render a standard template with inputs from test1 and test2
-
-This template:
+Let's render a standard template with inputs from test1 and test2:
 
 | Variable    | Declares | Inherits |
 | ----------- | -------- | -------- |
 | GithubOrgName | Yes | Yes |
 | OrgNamePrefix | No | Yes |
-| FirstName | Yes | No
+| FirstName | Yes | No |
 
 <Template id="test5" path="templates/temp1" inputsId={["test1", "test2"]} />
+
+## Test 6: Inputs nested inside Command
+
+This tests that `<Inputs>` with inline YAML works correctly when nested inside a `<Command>` block (embedded variant):
+
+<Command id="test6-command"
+    command="echo 'Project: {{ .ProjectName }} by {{ .AuthorName }}'"
+    title="Test embedded inputs"
+    description="Tests that inline YAML extraction works for embedded Inputs"
+    successMessage="Embedded inputs work!"
+    failMessage="Failed to run command with embedded inputs"
+>
+    <Inputs id="test6-inputs">
+```yaml
+variables:
+  - name: ProjectName
+    type: string
+    description: Name of the project
+    default: "my-awesome-project"
+    validations: "required"
+  - name: AuthorName
+    type: string
+    description: Name of the author
+    default: "Developer"
+```
+    </Inputs>
+</Command>
+
+## Test 7: TemplateInline referencing embedded inputs
+
+This tests that a `<TemplateInline>` can correctly reference inputs that were defined inside a Command block:
+
+<TemplateInline inputsId="test6-inputs" outputPath="test7-output.txt">
+```text
+Project Configuration
+=====================
+Project: {{ .ProjectName }}
+Author: {{ .AuthorName }}
+```
+</TemplateInline>
