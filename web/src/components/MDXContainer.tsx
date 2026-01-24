@@ -15,6 +15,7 @@ import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
+import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
 
 /**
  * This component renders a markdown/MDX document.
@@ -225,6 +226,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       // Utility components
       Admonition,
       a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
+      pre: CodeBlock, // Code blocks with copy-on-hover button
     })
   })
 
