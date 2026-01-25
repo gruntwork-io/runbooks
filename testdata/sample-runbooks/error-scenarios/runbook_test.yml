@@ -55,10 +55,10 @@ tests:
         expect: success
 
       - block: cmd-missing-vars
-        expect: success
+        expect: skip
 
       - block: cmd-exec-fail
-        expect: success
+        expect: fail
 
       - block: duplicate-cmd-id
         expect: success
@@ -71,24 +71,22 @@ tests:
         expect: success
 
       - block: check-warning
-        expect: success
+        expect: warn
 
       - block: check-failure
-        expect: success
+        expect: fail
 
       - block: duplicate-check-id
         expect: success
 
       - block: template-missing-path
-        expect: success
+        expect: skip  # Frontend validation error - Template without path isn't parsed
 
       - block: template-nonexistent
-        # Template: templates/nonexistent-template
-        expect: success
+        expect: skip  # Template path doesn't exist - demonstrates UI error state
 
       - block: duplicate-template-id
-        # Template: templates/test
-        expect: success
+        expect: skip  # Second template with duplicate ID isn't in the map
 
       - block: working-cmd
         expect: success
