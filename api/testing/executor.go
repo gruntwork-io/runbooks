@@ -503,6 +503,11 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 		return result
 	}
 
+	// Handle config_error expectation - check for configuration warnings
+	if step.Expect == StatusConfigError {
+		return e.handleConfigErrorExpectation(step, start)
+	}
+
 	// Check if this is a TemplateInline block
 	if templateInline, ok := e.templateInlines[step.Block]; ok {
 		return e.executeTemplateInline(step, templateInline, start)
@@ -933,9 +938,76 @@ func (e *TestExecutor) matchesExpectedStatus(expected ExpectedStatus, actual str
 		return actual == "blocked"
 	case StatusSkip:
 		return actual == "skipped"
+	case StatusConfigError:
+		return actual == "config_error"
 	default:
 		return false
 	}
+}
+
+// handleConfigErrorExpectation handles steps that expect a configuration error.
+// It checks the registry warnings for errors related to the specified block.
+func (e *TestExecutor) handleConfigErrorExpectation(step TestStep, start time.Time) StepResult {
+	result := StepResult{
+		Block:          step.Block,
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// Get all warnings from the registry
+	warnings := e.registry.GetWarnings()
+
+	// Look for a warning that mentions this block ID
+	// Warning format: <Command id="block-id">: Error message
+	blockPattern := fmt.Sprintf(`id="%s"`, step.Block)
+	var matchingWarning string
+
+	for _, warning := range warnings {
+		if strings.Contains(warning, blockPattern) {
+			matchingWarning = warning
+			break
+		}
+	}
+
+	if matchingWarning == "" {
+		// No configuration error found for this block
+		result.Passed = false
+		result.ActualStatus = "no_config_error"
+		result.Error = fmt.Sprintf("expected configuration error for block %q but none found", step.Block)
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("  Expected: config_error\n")
+			fmt.Printf("  Actual: no configuration error found\n")
+			if len(warnings) > 0 {
+				fmt.Printf("  Registry warnings: %v\n", warnings)
+			}
+		}
+		return result
+	}
+
+	// If error_contains is specified, verify the warning contains the expected text
+	if step.ErrorContains != "" && !strings.Contains(matchingWarning, step.ErrorContains) {
+		result.Passed = false
+		result.ActualStatus = "config_error"
+		result.Error = fmt.Sprintf("configuration error found but doesn't contain %q: %s", step.ErrorContains, matchingWarning)
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("  Expected error containing: %s\n", step.ErrorContains)
+			fmt.Printf("  Actual error: %s\n", matchingWarning)
+		}
+		return result
+	}
+
+	// Configuration error found and matches expectations
+	result.Passed = true
+	result.ActualStatus = "config_error"
+	result.Error = matchingWarning // Store the actual warning message
+	result.Duration = time.Since(start)
+	if e.verbose {
+		fmt.Printf("  Config error: %s\n", matchingWarning)
+		fmt.Printf("--- Result: ✓ config_error (as expected) ---\n")
+	}
+	return result
 }
 
 // getSessionToken returns a valid session token.

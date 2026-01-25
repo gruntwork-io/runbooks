@@ -44,6 +44,7 @@ type TestStep struct {
 	Expect         ExpectedStatus  `yaml:"expect"`                    // Expected execution status
 	Outputs        []string        `yaml:"outputs,omitempty"`         // Output names to capture
 	MissingOutputs []string        `yaml:"missing_outputs,omitempty"` // Expected missing outputs (for blocked status)
+	ErrorContains  string          `yaml:"error_contains,omitempty"`  // Expected error message substring (for config_error status)
 	Assertions     []TestAssertion `yaml:"assertions,omitempty"`      // Per-step assertions
 }
 
@@ -51,11 +52,12 @@ type TestStep struct {
 type ExpectedStatus string
 
 const (
-	StatusSuccess ExpectedStatus = "success"
-	StatusFail    ExpectedStatus = "fail"
-	StatusWarn    ExpectedStatus = "warn"
-	StatusBlocked ExpectedStatus = "blocked"
-	StatusSkip    ExpectedStatus = "skip"
+	StatusSuccess     ExpectedStatus = "success"
+	StatusFail        ExpectedStatus = "fail"
+	StatusWarn        ExpectedStatus = "warn"
+	StatusBlocked     ExpectedStatus = "blocked"
+	StatusSkip        ExpectedStatus = "skip"
+	StatusConfigError ExpectedStatus = "config_error"
 )
 
 // TestAssertion represents an assertion to validate test results.
@@ -341,7 +343,7 @@ func validateConfig(config *TestConfig) error {
 
 			// Validate expected status
 			switch step.Expect {
-			case StatusSuccess, StatusFail, StatusWarn, StatusBlocked, StatusSkip:
+			case StatusSuccess, StatusFail, StatusWarn, StatusBlocked, StatusSkip, StatusConfigError:
 				// Valid
 			default:
 				return fmt.Errorf("test %q step %d: invalid expect value %q", tc.Name, j+1, step.Expect)
