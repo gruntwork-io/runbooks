@@ -151,7 +151,8 @@ func TestGenerateTestConfig_StepsInDocumentOrder(t *testing.T) {
 	config := generateTestConfig("test-runbook", blocks)
 
 	// Verify executable blocks appear in steps in correct order
-	// (Inputs and Template are not executable, so they shouldn't appear in steps)
+	// (Inputs blocks are not executable, so they shouldn't appear in steps)
+	// (Template blocks ARE now included in steps for testing)
 	lines := strings.Split(config, "\n")
 	var stepBlocks []string
 	for _, line := range lines {
@@ -163,7 +164,7 @@ func TestGenerateTestConfig_StepsInDocumentOrder(t *testing.T) {
 		}
 	}
 
-	expectedSteps := []string{"check-1", "cmd-1", "check-2", "cmd-2"}
+	expectedSteps := []string{"check-1", "cmd-1", "check-2", "template-1", "cmd-2"}
 	if len(stepBlocks) != len(expectedSteps) {
 		t.Fatalf("expected %d step blocks, got %d: %v", len(expectedSteps), len(stepBlocks), stepBlocks)
 	}

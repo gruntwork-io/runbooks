@@ -173,6 +173,14 @@ type FuzzConfig struct {
 	WordCount    int `yaml:"wordCount,omitempty"`
 	MinWordCount int `yaml:"minWordCount,omitempty"`
 	MaxWordCount int `yaml:"maxWordCount,omitempty"`
+
+	// List options
+	Count    int `yaml:"count,omitempty"`    // Exact number of items
+	MinCount int `yaml:"minCount,omitempty"` // Minimum number of items
+	MaxCount int `yaml:"maxCount,omitempty"` // Maximum number of items
+
+	// Schema for nested maps (x-schema fields)
+	Schema []string `yaml:"schema,omitempty"` // Field names for nested map values
 }
 
 // FuzzType represents the type of fuzz value to generate.
@@ -190,6 +198,8 @@ const (
 	FuzzDate      FuzzType = "date"      // Date (YYYY-MM-DD)
 	FuzzTimestamp FuzzType = "timestamp" // ISO timestamp
 	FuzzWords     FuzzType = "words"     // Random words
+	FuzzList      FuzzType = "list"      // List of strings (JSON format)
+	FuzzMap       FuzzType = "map"       // Map of string keys to string values (JSON format)
 )
 
 // TestResult represents the result of running a test case.

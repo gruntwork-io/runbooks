@@ -2,6 +2,7 @@ package testing
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -45,6 +46,10 @@ func (g *FuzzGenerator) Generate(config *FuzzConfig) (interface{}, error) {
 		return g.generateTimestamp(config)
 	case FuzzWords:
 		return g.generateWords(config)
+	case FuzzList:
+		return g.generateList(config)
+	case FuzzMap:
+		return g.generateMap(config)
 	default:
 		return nil, fmt.Errorf("unknown fuzz type: %s", config.Type)
 	}
@@ -300,6 +305,165 @@ func (g *FuzzGenerator) generateWords(config *FuzzConfig) (string, error) {
 	}
 
 	return strings.Join(result, " "), nil
+}
+
+// generateList generates a list of random strings in JSON format.
+// Boilerplate expects lists in JSON format: ["value1", "value2", "value3"]
+func (g *FuzzGenerator) generateList(config *FuzzConfig) (string, error) {
+	// Determine count
+	count := config.Count
+	if count <= 0 {
+		minCount := config.MinCount
+		maxCount := config.MaxCount
+
+		if minCount <= 0 {
+			minCount = 2
+		}
+		if maxCount <= 0 {
+			maxCount = minCount + 3
+		}
+		if maxCount < minCount {
+			maxCount = minCount
+		}
+
+		rangeSize := maxCount - minCount + 1
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random count: %w", err)
+		}
+		count = minCount + int(n.Int64())
+	}
+
+	// Generate list items using string generation
+	items := make([]string, count)
+	itemConfig := &FuzzConfig{
+		Type:      FuzzString,
+		MinLength: config.MinLength,
+		MaxLength: config.MaxLength,
+	}
+	// Use reasonable defaults if not specified
+	if itemConfig.MinLength <= 0 {
+		itemConfig.MinLength = 5
+	}
+	if itemConfig.MaxLength <= 0 {
+		itemConfig.MaxLength = 12
+	}
+
+	for i := 0; i < count; i++ {
+		item, err := g.generateString(itemConfig)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate list item: %w", err)
+		}
+		items[i] = item
+	}
+
+	// Return as JSON array string (boilerplate expects this format)
+	jsonBytes, err := json.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal list to JSON: %w", err)
+	}
+
+	return string(jsonBytes), nil
+}
+
+// generateMap generates a map of random string keys to values.
+// If schema is provided, generates a map[string]map[string]string (nested map) as a Go map.
+// Otherwise, returns a JSON string for flat maps: {"key1": "value1", "key2": "value2"}
+func (g *FuzzGenerator) generateMap(config *FuzzConfig) (interface{}, error) {
+	// Determine count of key-value pairs
+	count := config.Count
+	if count <= 0 {
+		minCount := config.MinCount
+		maxCount := config.MaxCount
+
+		if minCount <= 0 {
+			minCount = 2
+		}
+		if maxCount <= 0 {
+			maxCount = minCount + 2
+		}
+		if maxCount < minCount {
+			maxCount = minCount
+		}
+
+		rangeSize := maxCount - minCount + 1
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random count: %w", err)
+		}
+		count = minCount + int(n.Int64())
+	}
+
+	keyConfig := &FuzzConfig{
+		Type:      FuzzString,
+		MinLength: 5,
+		MaxLength: 12,
+	}
+
+	// If schema is provided, generate nested maps (for x-schema maps)
+	if len(config.Schema) > 0 {
+		result := make(map[string]interface{})
+		valueConfig := &FuzzConfig{
+			Type:      FuzzString,
+			MinLength: 5,
+			MaxLength: 15,
+		}
+
+		for i := 0; i < count; i++ {
+			key, err := g.generateString(keyConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate map key: %w", err)
+			}
+
+			// Generate nested map with schema fields
+			nested := make(map[string]interface{})
+			for _, field := range config.Schema {
+				fieldValue, err := g.generateString(valueConfig)
+				if err != nil {
+					return nil, fmt.Errorf("failed to generate nested field %s: %w", field, err)
+				}
+				nested[field] = fieldValue
+			}
+			result[key] = nested
+		}
+
+		// Return as Go map (not JSON string) for proper boilerplate handling
+		return result, nil
+	}
+
+	// No schema - generate flat map as JSON string
+	result := make(map[string]string)
+	valueConfig := &FuzzConfig{
+		Type:      FuzzString,
+		MinLength: config.MinLength,
+		MaxLength: config.MaxLength,
+	}
+	if valueConfig.MinLength <= 0 {
+		valueConfig.MinLength = 5
+	}
+	if valueConfig.MaxLength <= 0 {
+		valueConfig.MaxLength = 12
+	}
+
+	for i := 0; i < count; i++ {
+		key, err := g.generateString(keyConfig)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate map key: %w", err)
+		}
+		value, err := g.generateString(valueConfig)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate map value: %w", err)
+		}
+		result[key] = value
+	}
+
+	// Return as JSON object string (boilerplate expects this format for flat maps)
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal map to JSON: %w", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 // ResolveInputs resolves all test inputs, generating fuzz values where needed.

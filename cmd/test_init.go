@@ -106,6 +106,7 @@ type variableInfo struct {
 	Default     interface{}
 	Options     []string // For enum types
 	Validations []interface{}
+	Schema      map[string]string // x-schema for nested map types
 	// Parsed constraint values
 	MinLength int
 	MaxLength int
@@ -119,11 +120,12 @@ type variableInfo struct {
 // boilerplateConfig represents a boilerplate.yml file structure
 type boilerplateConfig struct {
 	Variables []struct {
-		Name        string        `yaml:"name"`
-		Type        string        `yaml:"type"`
-		Default     interface{}   `yaml:"default"`
-		Options     []string      `yaml:"options"`
-		Validations interface{}   `yaml:"validations"` // Can be string or slice
+		Name        string            `yaml:"name"`
+		Type        string            `yaml:"type"`
+		Default     interface{}       `yaml:"default"`
+		Options     []string          `yaml:"options"`
+		Validations interface{}       `yaml:"validations"` // Can be string or slice
+		XSchema     map[string]string `yaml:"x-schema"`    // Schema for nested map types
 	} `yaml:"variables"`
 }
 
@@ -380,6 +382,7 @@ func parseBoilerplateFile(path string) ([]variableInfo, error) {
 			Type:    v.Type,
 			Default: v.Default,
 			Options: v.Options,
+			Schema:  v.XSchema,
 		}
 		parseValidations(&vi, v.Validations)
 		vars = append(vars, vi)
@@ -572,7 +575,7 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 		sb.WriteString("\n")
 	}
 
-	// Generate steps (executable blocks: Check, Command, and TemplateInline)
+	// Generate steps (executable blocks: Check, Command, Template, and TemplateInline)
 	sb.WriteString("    steps:\n")
 	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
 	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n")
@@ -582,6 +585,12 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 		switch b.Type {
 		case "Check", "Command":
 			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
+			sb.WriteString("        expect: success\n\n")
+		case "Template":
+			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
+			if b.TemplatePath != "" {
+				sb.WriteString(fmt.Sprintf("        # Template: %s\n", b.TemplatePath))
+			}
 			sb.WriteString("        expect: success\n\n")
 		case "TemplateInline":
 			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
@@ -604,7 +613,7 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 			sb.WriteString("        # Set expect: skip if not testing AWS auth\n")
 			sb.WriteString("        # Or ensure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set\n")
 			sb.WriteString("        expect: skip\n\n")
-		// Template and Inputs blocks are not executable, so don't add them to steps
+		// Inputs blocks are not executable, so don't add them to steps
 		}
 	}
 
@@ -645,6 +654,32 @@ func formatFuzzConfig(v variableInfo, indent string) string {
 
 	// Determine fuzz type based on variable type and validations
 	fuzzType := determineFuzzType(v)
+
+	// For maps with x-schema, pass the schema fields so fuzz generator can create nested maps
+	if fuzzType == "map" && len(v.Schema) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString(indent)
+		sb.WriteString("fuzz:\n")
+		sb.WriteString(indent)
+		sb.WriteString("  type: map\n")
+		sb.WriteString(indent)
+		sb.WriteString("  minCount: 2\n")
+		sb.WriteString(indent)
+		sb.WriteString("  maxCount: 4\n")
+		sb.WriteString(indent)
+		sb.WriteString("  schema:\n")
+		// Get sorted field names for consistent output
+		var fields []string
+		for field := range v.Schema {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		for _, field := range fields {
+			sb.WriteString(indent)
+			sb.WriteString(fmt.Sprintf("    - %s\n", field))
+		}
+		return sb.String()
+	}
 
 	sb.WriteString("\n")
 	sb.WriteString(indent)
@@ -704,6 +739,18 @@ func formatFuzzConfig(v variableInfo, indent string) string {
 	case "url":
 		sb.WriteString(indent)
 		sb.WriteString("  domain: example.com\n")
+
+	case "list":
+		sb.WriteString(indent)
+		sb.WriteString("  minCount: 2\n")
+		sb.WriteString(indent)
+		sb.WriteString("  maxCount: 4\n")
+
+	case "map":
+		sb.WriteString(indent)
+		sb.WriteString("  minCount: 2\n")
+		sb.WriteString(indent)
+		sb.WriteString("  maxCount: 4\n")
 	}
 
 	return sb.String()
@@ -730,9 +777,9 @@ func determineFuzzType(v variableInfo) string {
 	case "bool":
 		return "bool"
 	case "list":
-		return "string" // Default to string for lists
+		return "list"
 	case "map":
-		return "string" // Default to string for maps
+		return "map"
 	default:
 		return "string"
 	}
