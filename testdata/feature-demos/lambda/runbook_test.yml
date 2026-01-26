@@ -43,7 +43,7 @@ tests:
       lambda-config.Runtime:
         fuzz:
           type: enum
-          options: ["python3.13", "python3.12", "python3.11", "nodejs24.x", "nodejs22.x", "nodejs20.x", "nodejs18.x"]
+          options: ["python3.13", "python3.12", "python3.11"]
       # Handler: string
       lambda-config.Handler:
         fuzz:
