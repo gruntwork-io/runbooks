@@ -229,7 +229,7 @@ const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent;
 ## Testing
 
 Test examples are available in:
-- `/testdata/runbook-with-parameterized-check/`
+- `/testdata/test-fixtures/runbooks/with-parameterized-check/`
 
 This includes:
 - Inline BoilerplateInputs example

@@ -228,17 +228,17 @@ func TestGenerateTestConfig_InputsInDocumentOrder(t *testing.T) {
 }
 
 func TestParseRunbookBlocks_RealWorldDemo2(t *testing.T) {
-	// Test with the actual demo-runbook-2 if it exists
-	runbookPath := "testdata/sample-runbooks/demo-runbook-2/runbook.mdx"
+	// Test with the actual demo2 runbook if it exists
+	runbookPath := "testdata/sample-runbooks/demo2/runbook.mdx"
 	
 	// Try relative path from workspace root
 	if _, err := os.Stat(runbookPath); os.IsNotExist(err) {
 		// Try from parent directory (when running from cmd/)
-		runbookPath = "../testdata/sample-runbooks/demo-runbook-2/runbook.mdx"
+		runbookPath = "../testdata/sample-runbooks/demo2/runbook.mdx"
 	}
 	
 	if _, err := os.Stat(runbookPath); os.IsNotExist(err) {
-		t.Skip("demo-runbook-2 not found, skipping real-world test")
+		t.Skip("demo2 not found, skipping real-world test")
 	}
 
 	blocks, err := parseRunbookBlocks(runbookPath)

@@ -9,8 +9,8 @@ import (
 
 func TestRenderBoilerplateTemplate(t *testing.T) {
 	// Get the test data directory (relative to project root)
-	testDataDir := "../testdata/runbook-with-boilerplate/runbook"
-	expectedDir := "../testdata/runbook-with-boilerplate/expected-outputs/dev"
+	testDataDir := "../testdata/test-fixtures/runbooks/with-boilerplate/runbook"
+	expectedDir := "../testdata/test-fixtures/runbooks/with-boilerplate/expected-outputs/dev"
 
 	// Check if test data exists
 	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
@@ -52,8 +52,8 @@ func TestRenderBoilerplateTemplate(t *testing.T) {
 
 func TestRenderBoilerplateTemplateWithDifferentVariables(t *testing.T) {
 	// Get the test data directory (relative to project root)
-	testDataDir := "../testdata/runbook-with-boilerplate/runbook"
-	expectedDir := "../testdata/runbook-with-boilerplate/expected-outputs/prod"
+	testDataDir := "../testdata/test-fixtures/runbooks/with-boilerplate/runbook"
+	expectedDir := "../testdata/test-fixtures/runbooks/with-boilerplate/expected-outputs/prod"
 
 	// Check if test data exists
 	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
