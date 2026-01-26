@@ -576,43 +576,46 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 	}
 
 	// Generate steps (executable blocks: Check, Command, Template, and TemplateInline)
+	// All blocks are commented out by default so tests run all blocks in document order.
+	// This ensures new blocks added to the runbook are automatically included in tests.
 	sb.WriteString("    steps:\n")
 	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
 	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n")
-	sb.WriteString("      # If no blocks are listed, the test runs all blocks in document order.\n\n")
+	sb.WriteString("      # All blocks below are commented out, so this test runs all blocks\n")
+	sb.WriteString("      # in document order. Uncomment specific blocks to run only those.\n\n")
 
 	for _, b := range blocks {
 		switch b.Type {
 		case "Check", "Command":
-			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
-			sb.WriteString("        expect: success\n\n")
+			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
+			sb.WriteString("      #   expect: success\n\n")
 		case "Template":
-			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
+			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
 			if b.TemplatePath != "" {
-				sb.WriteString(fmt.Sprintf("        # Template: %s\n", b.TemplatePath))
+				sb.WriteString(fmt.Sprintf("      #   # Template: %s\n", b.TemplatePath))
 			}
-			sb.WriteString("        expect: success\n\n")
+			sb.WriteString("      #   expect: success\n\n")
 		case "TemplateInline":
-			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
+			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
 			if b.OutputPath != "" {
-				sb.WriteString(fmt.Sprintf("        # Renders: %s\n", b.OutputPath))
+				sb.WriteString(fmt.Sprintf("      #   # Renders: %s\n", b.OutputPath))
 			}
 			if b.InputsID != "" {
-				sb.WriteString(fmt.Sprintf("        # Uses inputs from: %s\n", b.InputsID))
+				sb.WriteString(fmt.Sprintf("      #   # Uses inputs from: %s\n", b.InputsID))
 			}
 			if len(b.OutputDependencies) > 0 {
 				deps := make([]string, 0, len(b.OutputDependencies))
 				for _, dep := range b.OutputDependencies {
 					deps = append(deps, fmt.Sprintf("%s.%s", dep.BlockID, dep.OutputName))
 				}
-				sb.WriteString(fmt.Sprintf("        # Depends on: %s\n", strings.Join(deps, ", ")))
+				sb.WriteString(fmt.Sprintf("      #   # Depends on: %s\n", strings.Join(deps, ", ")))
 			}
-			sb.WriteString("        expect: success\n\n")
+			sb.WriteString("      #   expect: success\n\n")
 		case "AwsAuth":
-			sb.WriteString(fmt.Sprintf("      - block: %s\n", b.ID))
-			sb.WriteString("        # Set expect: skip if not testing AWS auth\n")
-			sb.WriteString("        # Or ensure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set\n")
-			sb.WriteString("        expect: skip\n\n")
+			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
+			sb.WriteString("      #   # Set expect: skip if not testing AWS auth\n")
+			sb.WriteString("      #   # Or ensure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set\n")
+			sb.WriteString("      #   expect: skip\n\n")
 		// Inputs blocks are not executable, so don't add them to steps
 		}
 	}
