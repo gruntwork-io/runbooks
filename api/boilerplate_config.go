@@ -29,6 +29,18 @@ func normalizeBlockID(id string) string {
 	return strings.ReplaceAll(id, "-", "_")
 }
 
+// ResolveBoilerplatePath resolves a template path to the template directory and
+// the full boilerplate.yml path. The path prop in <Inputs> and <Template> is
+// treated as a directory containing a boilerplate.yml file.
+//
+// Example: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc")
+// returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
+func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boilerplatePath string) {
+	templateDir = filepath.Join(runbookDir, templatePath)
+	boilerplatePath = filepath.Join(templateDir, "boilerplate.yml")
+	return
+}
+
 // This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
 //
 // There's a design decision here on how much of Boilerplate's native packages to use to parse the boilerplate.yml file,
@@ -79,9 +91,9 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 			// Extract the directory from the runbookPath (which we assume is a file path)
 			runbookDir := filepath.Dir(runbookPath)
 
-			// Construct the full path to boilerplate.yml and remember template dir
-			templateDir = filepath.Join(runbookDir, req.TemplatePath)
-			fullPath := filepath.Join(templateDir, "boilerplate.yml")
+			// Resolve the template directory and boilerplate.yml path
+			var fullPath string
+			templateDir, fullPath = ResolveBoilerplatePath(runbookDir, req.TemplatePath)
 			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
 
 			// Check if the file exists

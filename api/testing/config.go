@@ -231,6 +231,7 @@ type StepResult struct {
 	ExitCode         int                   `json:"exitCode"`
 	Passed           bool                  `json:"passed"`
 	Error            string                `json:"error,omitempty"`
+	ErrorDisplayed   bool                  `json:"-"` // True if error was shown in verbose block detail
 	Outputs          map[string]string     `json:"outputs,omitempty"`
 	Logs             string                `json:"logs,omitempty"`
 	Duration         time.Duration         `json:"duration"`

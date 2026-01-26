@@ -29,3 +29,7 @@ The `useErrorReporting()` hook and `reportError()` function are for **configurat
 - User input validation failures during execution
 
 Runtime errors should be displayed inline within the component (e.g., with an alert box) but should NOT call `reportError()`. The distinction: configuration errors are problems with the runbook itself; runtime errors are problems that occur when a user interacts with a correctly-configured runbook.
+
+# Writing automated tests
+
+Wherever possible, use the "source of truth" to recreate the program behavior, versus manually re-implementing the same logic in the test.

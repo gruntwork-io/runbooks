@@ -92,9 +92,10 @@ func (r *TextReporter) Report(suites []RunbookTestSuite) error {
 						step.Block, step.ActualStatus, outputInfo,
 						step.Duration.Round(time.Millisecond))
 
-					if step.Error != "" && step.Error != result.Error {
-						fmt.Fprintf(r.Writer, "      Error: %s\n", step.Error)
-					}
+				// Show step error if: has error, not already displayed in verbose block, and not same as result error
+				if step.Error != "" && !step.ErrorDisplayed && step.Error != result.Error {
+					fmt.Fprintf(r.Writer, "      Error: %s\n", step.Error)
+				}
 				}
 
 				for _, ar := range result.Assertions {

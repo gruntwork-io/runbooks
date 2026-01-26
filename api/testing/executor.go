@@ -89,7 +89,7 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	// Create input validator
+	// Create input validator (config errors are reported during test execution, not here)
 	validator, err := NewInputValidator(runbookPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create input validator: %w", err)
@@ -273,6 +273,68 @@ func (e *TestExecutor) PrintTestHeader(testName string) {
 	fmt.Printf("\n── Test: %s ──\n", testName)
 }
 
+// validateComponentConfigurations validates all component configurations and returns step results.
+// This checks that Inputs, Templates, etc. have valid configurations before test execution.
+// Returns: (stepResults, errorCount, firstErrorMessage)
+func (e *TestExecutor) validateComponentConfigurations() ([]StepResult, int, string) {
+	var results []StepResult
+	var errorCount int
+	var firstError string
+
+	// Get all component validations (Inputs, Templates, etc.)
+	validations := e.validator.GetComponentValidations()
+
+	for _, validation := range validations {
+		stepResult := StepResult{
+			Block:          fmt.Sprintf("%s:%s", lowercaseFirst(validation.ComponentType), validation.ComponentID),
+			ExpectedStatus: StatusSuccess,
+			Duration:       0,
+		}
+
+		if validation.Error != "" {
+			// Validation failed
+			stepResult.ActualStatus = "config_error"
+			stepResult.Passed = false
+			stepResult.Error = validation.Error
+			errorCount++
+
+			// Capture first error for non-verbose summary
+			if firstError == "" {
+				firstError = fmt.Sprintf("%s block '%s': %s", validation.ComponentType, validation.ComponentID, validation.Error)
+			}
+
+			if e.verbose {
+				fmt.Printf("\n=== %s: %s ===\n", validation.ComponentType, validation.ComponentID)
+				fmt.Printf("--- Result: ✗ config_error ---\n")
+				fmt.Printf("  Error: %s\n", validation.Error)
+				// Mark that error was displayed so reporter can skip it in summary
+				stepResult.ErrorDisplayed = true
+			}
+		} else {
+			// Validation passed
+			stepResult.ActualStatus = "success"
+			stepResult.Passed = true
+
+			if e.verbose {
+				fmt.Printf("\n=== %s: %s ===\n", validation.ComponentType, validation.ComponentID)
+				fmt.Printf("--- Result: ✓ success ---\n")
+			}
+		}
+
+		results = append(results, stepResult)
+	}
+
+	return results, errorCount, firstError
+}
+
+// lowercaseFirst returns the string with the first character lowercased.
+func lowercaseFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
+}
+
 // RunTest runs a single test case and returns the result.
 func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	start := time.Now()
@@ -280,6 +342,27 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	result := TestResult{
 		TestCase: tc.Name,
 		Status:   TestPassed,
+	}
+
+	// Validate all component configurations (Inputs, Templates, etc.)
+	configResults, configErrorCount, firstError := e.validateComponentConfigurations()
+	result.StepResults = append(result.StepResults, configResults...)
+
+	if configErrorCount > 0 {
+		result.Status = TestFailed
+		if e.verbose {
+			// In verbose mode, errors were shown in block details above
+			if configErrorCount == 1 {
+				result.Error = "component validation failed (see details above)"
+			} else {
+				result.Error = fmt.Sprintf("%d components failed validation (see details above)", configErrorCount)
+			}
+		} else {
+			// In non-verbose mode, show the first error with context
+			result.Error = firstError
+		}
+		result.Duration = time.Since(start)
+		return result
 	}
 
 	// Resolve test inputs (generate fuzz values where needed)
