@@ -30,12 +30,23 @@ func normalizeBlockID(id string) string {
 }
 
 // ResolveBoilerplatePath resolves a template path to the template directory and
-// the full boilerplate.yml path. The path prop in <Inputs> and <Template> is
-// treated as a directory containing a boilerplate.yml file.
+// the full boilerplate.yml path. The path prop in <Inputs> and <Template> can be
+// either a directory containing a boilerplate.yml file, or a direct path to the
+// boilerplate.yml file itself.
 //
-// Example: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc")
+// Example with directory path: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc")
+// returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
+//
+// Example with file path: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc/boilerplate.yml")
 // returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
 func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boilerplatePath string) {
+	// Check if the path already points to a boilerplate config file
+	if strings.HasSuffix(templatePath, "boilerplate.yml") || strings.HasSuffix(templatePath, "boilerplate.yaml") {
+		boilerplatePath = filepath.Join(runbookDir, templatePath)
+		templateDir = filepath.Dir(boilerplatePath)
+		return
+	}
+	// Otherwise, treat as directory and append boilerplate.yml
 	templateDir = filepath.Join(runbookDir, templatePath)
 	boilerplatePath = filepath.Join(templateDir, "boilerplate.yml")
 	return

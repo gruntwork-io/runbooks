@@ -32,4 +32,6 @@ Runtime errors should be displayed inline within the component (e.g., with an al
 
 # Writing automated tests
 
-Wherever possible, use the "source of truth" to recreate the program behavior, versus manually re-implementing the same logic in the test.
+Wherever possible, use the "source of truth" to recreate the program behavior, versus manually re-implementing the same logic in the test. For example, do not re-implement logic in the testing framework if you can avoid it. Instead, reference the actual codebase, and if necessary re-factor that codebase into public functions to call those functions as needed.
+
+When you encounter a test failure, assume that the problem is with the runbooks configuration. If that appears to be correct, check the runbooks codebase itself. Only consider updating the test framework if the test framework does not faithfully reproduce the results the "real" runbooks codebase uses. Otherwise, be very hesitant to update the Runbooks test code. The goal is to make sure both the tested runbooks are correct and that the runbook codebase has not had regressions, so we don't want to "make the tests pass" by updating the test code to detect an otherwise legitimate failure.

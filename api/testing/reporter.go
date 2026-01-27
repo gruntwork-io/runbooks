@@ -219,7 +219,7 @@ func (r *JUnitReporter) Report(suites []RunbookTestSuite) error {
 				}
 				for _, step := range result.StepResults {
 					if !step.Passed {
-						details = append(details, fmt.Sprintf("Step %s: %s", step.Block, step.Error))
+						details = append(details, fmt.Sprintf("Block %s: %s", step.Block, step.Error))
 					}
 				}
 				for _, ar := range result.Assertions {

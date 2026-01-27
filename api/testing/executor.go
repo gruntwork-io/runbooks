@@ -398,7 +398,7 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 		// Check if step passed
 		if !stepResult.Passed {
 			result.Status = TestFailed
-			result.Error = fmt.Sprintf("step %q failed: %s", step.Block, stepResult.Error)
+			result.Error = e.formatBlockError(step.Block, stepResult)
 			// Continue to cleanup but don't run more steps
 			break
 		}
@@ -409,7 +409,8 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 			stepResult.AssertionResults = append(stepResult.AssertionResults, ar)
 			if !ar.Passed {
 				result.Status = TestFailed
-				result.Error = fmt.Sprintf("step %q assertion failed: %s", step.Block, ar.Message)
+				blockType := e.getBlockType(step.Block)
+				result.Error = fmt.Sprintf("%s block %q assertion failed: %s", blockType, step.Block, ar.Message)
 				break
 			}
 		}
@@ -926,26 +927,20 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	}
 	defer os.RemoveAll(filesDir)
 
-	// Create temporary script file
-	scriptFile, err := os.CreateTemp("", "runbook-script-*.sh")
+	// Prepare script for execution using the same helper as the runbook server
+	// This handles interpreter detection, env capture wrapping, and temp file creation
+	scriptSetup, err := api.PrepareScriptForExecution(scriptContent, executable.Language)
 	if err != nil {
-		return "error", -1, nil, "", fmt.Errorf("failed to create script file: %w", err)
+		return "error", -1, nil, "", err
 	}
-	scriptPath := scriptFile.Name()
-	scriptFile.WriteString(scriptContent)
-	scriptFile.Close()
-	os.Chmod(scriptPath, 0700)
-	defer os.Remove(scriptPath)
-
-	// Detect interpreter
-	interpreter, args := detectInterpreter(scriptContent, executable.Language)
+	defer scriptSetup.Cleanup()
 
 	// Create command
 	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
 	defer cancel()
 
-	cmdArgs := append(args, scriptPath)
-	cmd := exec.CommandContext(ctx, interpreter, cmdArgs...)
+	cmdArgs := append(scriptSetup.Args, scriptSetup.ScriptPath)
+	cmd := exec.CommandContext(ctx, scriptSetup.Interpreter, cmdArgs...)
 
 	// Set environment
 	cmd.Env = execCtx.Env
@@ -996,6 +991,13 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	outputs := make(map[string]string)
 	if status == "success" || status == "warn" {
 		outputs, _ = parseBlockOutputs(outputFilePath)
+	}
+
+	// Capture environment changes from bash scripts and update session
+	if status == "success" || status == "warn" {
+		if err := scriptSetup.CaptureEnvironmentChanges(e.session, execCtx.WorkDir); err != nil {
+			slog.Warn("Failed to update session environment", "error", err)
+		}
 	}
 
 	// Copy captured files to output directory
@@ -1282,35 +1284,6 @@ func parseBlockOutputs(filePath string) (map[string]string, error) {
 	return outputs, nil
 }
 
-// detectInterpreter detects the interpreter from shebang or uses default.
-func detectInterpreter(script string, providedLang string) (string, []string) {
-	if providedLang != "" {
-		return providedLang, []string{}
-	}
-
-	lines := strings.Split(script, "\n")
-	if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
-		shebang := strings.TrimSpace(lines[0][2:])
-		if strings.Contains(shebang, "/env ") {
-			parts := strings.Fields(shebang)
-			if len(parts) >= 2 {
-				return parts[1], parts[2:]
-			}
-		} else {
-			parts := strings.Fields(shebang)
-			if len(parts) >= 1 {
-				interpreter := parts[0]
-				if idx := strings.LastIndex(interpreter, "/"); idx != -1 {
-					interpreter = interpreter[idx+1:]
-				}
-				return interpreter, parts[1:]
-			}
-		}
-	}
-
-	return "bash", []string{}
-}
-
 // runCleanup runs a single cleanup action.
 func (e *TestExecutor) runCleanup(action CleanupAction) error {
 	var script string
@@ -1369,4 +1342,82 @@ func (e *TestExecutor) SetInputs(inputs map[string]interface{}) {
 	// Store inputs for use in template rendering
 	// For now, inputs are handled through environment variables or direct template vars
 	// This will be enhanced when we add full input support
+}
+
+// getBlockType determines the type of a block from its ID.
+// Returns "Check", "Command", "Template", or "TemplateInline".
+func (e *TestExecutor) getBlockType(blockID string) string {
+	// Check if it's a TemplateInline block
+	if _, ok := e.templateInlines[blockID]; ok {
+		return "TemplateInline"
+	}
+
+	// Check if it's a Template block
+	if _, ok := e.templates[blockID]; ok {
+		return "Template"
+	}
+
+	// Check the registry for Check/Command blocks
+	for _, exec := range e.registry.GetAllExecutables() {
+		if exec.ComponentID == blockID {
+			// ComponentType is stored as "check" or "command"
+			switch exec.ComponentType {
+			case "check":
+				return "Check"
+			case "command":
+				return "Command"
+			default:
+				// Capitalize first letter for unknown types
+				if len(exec.ComponentType) > 0 {
+					return strings.ToUpper(exec.ComponentType[:1]) + exec.ComponentType[1:]
+				}
+				return "Block"
+			}
+		}
+	}
+
+	return "Block" // Fallback if type can't be determined
+}
+
+// formatBlockError creates a detailed error message for a failed block.
+func (e *TestExecutor) formatBlockError(blockID string, stepResult StepResult) string {
+	blockType := e.getBlockType(blockID)
+
+	// If there's a specific error message, use it
+	if stepResult.Error != "" {
+		return fmt.Sprintf("%s block %q failed: %s", blockType, blockID, stepResult.Error)
+	}
+
+	// No specific error - build a detailed message from available info
+	var details []string
+
+	// Add status info
+	if stepResult.ActualStatus != "" {
+		details = append(details, fmt.Sprintf("status=%s", stepResult.ActualStatus))
+	}
+
+	// Add exit code if relevant
+	if stepResult.ExitCode != 0 {
+		details = append(details, fmt.Sprintf("exit_code=%d", stepResult.ExitCode))
+	}
+
+	// Add truncated log output if available
+	if stepResult.Logs != "" {
+		// Get last few lines of output (most relevant)
+		lines := strings.Split(strings.TrimSpace(stepResult.Logs), "\n")
+		maxLines := 5
+		if len(lines) > maxLines {
+			lines = lines[len(lines)-maxLines:]
+		}
+		logSnippet := strings.Join(lines, "\n")
+		if logSnippet != "" {
+			details = append(details, fmt.Sprintf("output:\n%s", logSnippet))
+		}
+	}
+
+	if len(details) > 0 {
+		return fmt.Sprintf("%s block %q failed:\n  %s", blockType, blockID, strings.Join(details, "\n  "))
+	}
+
+	return fmt.Sprintf("%s block %q failed", blockType, blockID)
 }
