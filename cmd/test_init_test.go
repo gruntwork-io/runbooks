@@ -153,12 +153,13 @@ func TestGenerateTestConfig_StepsInDocumentOrder(t *testing.T) {
 	// Verify executable blocks appear in steps in correct order
 	// (Inputs blocks are not executable, so they shouldn't appear in steps)
 	// (Template blocks ARE now included in steps for testing)
+	// Note: Steps are commented out by default, so we look for "# - block:" pattern
 	lines := strings.Split(config, "\n")
 	var stepBlocks []string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "- block:") {
-			id := strings.TrimPrefix(line, "- block:")
+		if strings.HasPrefix(line, "# - block:") {
+			id := strings.TrimPrefix(line, "# - block:")
 			id = strings.TrimSpace(id)
 			stepBlocks = append(stepBlocks, id)
 		}

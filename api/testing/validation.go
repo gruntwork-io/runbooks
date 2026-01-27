@@ -544,8 +544,10 @@ func findComponentPosition(content, componentType, id string) int {
 	return 0
 }
 
-// Validate validates resolved inputs against the discovered schemas.
-func (v *InputValidator) Validate(inputs map[string]interface{}) ValidationErrors {
+// ValidateInputValues validates resolved test values against the discovered boilerplate schemas.
+// This checks that the values provided in the test YAML are valid according to the schema
+// (correct types, valid enum values, required fields, etc.).
+func (v *InputValidator) ValidateInputValues(inputs map[string]interface{}) ValidationErrors {
 	var errors ValidationErrors
 
 	for key, value := range inputs {

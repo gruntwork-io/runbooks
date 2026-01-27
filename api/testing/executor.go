@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -267,118 +266,6 @@ func (e *TestExecutor) PrintTestHeader(testName string) {
 	fmt.Printf("\n── Test: %s ──\n", testName)
 }
 
-// validateComponentConfigurations validates all component configurations and returns step results.
-// This checks that Inputs, Templates, etc. have valid configurations before test execution.
-// Config errors are checked against test steps - if a step expects config_error for a block,
-// the error is deferred to step execution. Otherwise, unhandled errors fail upfront.
-//
-// For components that will be executed later (Check, Command, Template, TemplateInline),
-// we only add results here if there's a config error. This avoids duplicate entries in the
-// output (once for validation, once for execution).
-//
-// Returns: (stepResults, errorCount, firstErrorMessage)
-func (e *TestExecutor) validateComponentConfigurations(steps []TestStep) ([]StepResult, int, string) {
-	// Build a map of blocks that expect config_error
-	expectsConfigError := make(map[string]bool)
-	for _, step := range steps {
-		if step.Expect == StatusConfigError {
-			expectsConfigError[step.Block] = true
-		}
-	}
-	var results []StepResult
-	var errorCount int
-	var firstError string
-
-	// Get all components in document order
-	components := e.validator.GetComponents()
-
-	// Get registry warnings for Check/Command validation (ExecutableRegistry is the source of truth)
-	registryWarnings := e.registry.GetWarnings()
-
-	for _, comp := range components {
-		// Determine the validation error for this component
-		var validationError string
-		switch comp.Type {
-		case "Check", "Command":
-			// For Check/Command, check both registry warnings and validator config errors.
-			// Registry warnings cover file-not-found errors; validator covers structural errors like missing ID.
-			validationError = e.getRegistryWarningForBlock(registryWarnings, comp.ID)
-			if validationError == "" {
-				validationError = e.validator.GetConfigError(comp.Type, comp.ID)
-			}
-		case "Inputs", "Template", "TemplateInline":
-			// For Inputs/Template/TemplateInline, get errors from InputValidator
-			validationError = e.validator.GetConfigError(comp.Type, comp.ID)
-		default:
-			// Unknown component type - this indicates we need to update the test framework
-			panic(fmt.Sprintf("unsupported component type %q in test validation - update validateComponentConfigurations to handle this type", comp.Type))
-		}
-
-		// For executable components (Check, Command, Template, TemplateInline) that pass validation,
-		// don't add a result here - let the execution phase handle them to avoid duplicate entries.
-		// Only add results for:
-		// 1. Components with config errors (need to fail upfront or be tested)
-		// 2. Inputs blocks (validation-only, not executed)
-		isExecutable := comp.Type == "Check" || comp.Type == "Command" || comp.Type == "Template" || comp.Type == "TemplateInline"
-		if validationError == "" && isExecutable {
-			// Skip - execution phase will handle this component
-			continue
-		}
-
-		stepResult := StepResult{
-			Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
-			ExpectedStatus: StatusSuccess,
-			Duration:       0,
-		}
-
-		if validationError != "" {
-			stepResult.ActualStatus = "config_error"
-			stepResult.Error = validationError
-
-			// Check if a test step expects this config error
-			blockName := comp.ID // Steps can use just the ID
-			if expectsConfigError[blockName] {
-				// Let step execution handle this error
-				stepResult.Passed = true
-				if e.verbose {
-					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
-					fmt.Printf("--- Result: config_error (will be tested) ---\n")
-					fmt.Printf("  Error: %s\n", validationError)
-					stepResult.ErrorDisplayed = true
-				}
-			} else {
-				// No step expects this error - fail upfront
-				stepResult.Passed = false
-				errorCount++
-
-				if firstError == "" {
-					firstError = fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, validationError)
-				}
-
-				if e.verbose {
-					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
-					fmt.Printf("--- Result: ✗ config_error ---\n")
-					fmt.Printf("  Error: %s\n", validationError)
-					stepResult.ErrorDisplayed = true
-				}
-			}
-		} else {
-			// Validation passed (this branch is only for Inputs blocks now)
-			stepResult.ActualStatus = "success"
-			stepResult.Passed = true
-
-			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
-				fmt.Printf("--- Result: ✓ success ---\n")
-			}
-		}
-
-		results = append(results, stepResult)
-	}
-
-	return results, errorCount, firstError
-}
-
 // getRegistryWarningForBlock searches warnings for one matching the given block ID.
 func (e *TestExecutor) getRegistryWarningForBlock(warnings []string, blockID string) string {
 	blockPattern := fmt.Sprintf(`id="%s"`, blockID)
@@ -399,6 +286,7 @@ func lowercaseFirst(s string) string {
 }
 
 // RunTest runs a single test case and returns the result.
+// Blocks are processed in document order, with validation and execution happening per-block.
 func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	start := time.Now()
 
@@ -407,38 +295,17 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 		Status:   TestPassed,
 	}
 
-	// Validate all component configurations (Inputs, Templates, etc.)
-	configResults, configErrorCount, firstError := e.validateComponentConfigurations(tc.Steps)
-	result.StepResults = append(result.StepResults, configResults...)
-
-	if configErrorCount > 0 {
-		result.Status = TestFailed
-		if e.verbose {
-			// In verbose mode, errors were shown in block details above
-			if configErrorCount == 1 {
-				result.Error = "component validation failed (see details above)"
-			} else {
-				result.Error = fmt.Sprintf("%d components failed validation (see details above)", configErrorCount)
-			}
-		} else {
-			// In non-verbose mode, show the first error with context
-			result.Error = firstError
-		}
-		result.Duration = time.Since(start)
-		return result
-	}
-
-	// Resolve test inputs (generate fuzz values where needed)
-	resolvedInputs, err := ResolveInputs(tc.Inputs)
+	// 1. Generate test values from fuzz specs/literals (upfront, before any block processing)
+	resolvedInputs, err := ResolveTestConfig(tc.Inputs)
 	if err != nil {
 		result.Status = TestFailed
-		result.Error = fmt.Sprintf("failed to resolve inputs: %v", err)
+		result.Error = fmt.Sprintf("failed to resolve test config: %v", err)
 		result.Duration = time.Since(start)
 		return result
 	}
 
-	// Validate resolved inputs against boilerplate schemas
-	if validationErrors := e.validator.Validate(resolvedInputs); len(validationErrors) > 0 {
+	// 2. Validate test values against boilerplate schemas
+	if validationErrors := e.validator.ValidateInputValues(resolvedInputs); len(validationErrors) > 0 {
 		result.Status = TestFailed
 		result.Error = validationErrors.Error()
 		result.Duration = time.Since(start)
@@ -450,36 +317,58 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	// Reset block outputs for this test
 	e.blockOutputs = make(map[string]map[string]string)
 
-	// Determine which blocks to execute
-	blocks := e.determineBlocks(tc)
+	// 3. Get all components in document order
+	allComponents := e.validator.GetComponents()
 
-	// Execute each block
-	for _, step := range blocks {
-		stepResult := e.executeStep(step)
+	// 4. Build maps for step handling
+	expectsConfigError := make(map[string]bool)
+	stepsToExecute := make(map[string]TestStep)
+	hasExplicitSteps := len(tc.Steps) > 0
+
+	for _, step := range tc.Steps {
+		if step.Expect == StatusConfigError {
+			expectsConfigError[step.Block] = true
+		}
+		stepsToExecute[step.Block] = step
+	}
+
+	// Get registry warnings for Check/Command validation
+	registryWarnings := e.registry.GetWarnings()
+
+	// 5. Process each block in document order
+	for _, comp := range allComponents {
+		stepResult := e.processBlock(comp, stepsToExecute, expectsConfigError, registryWarnings, hasExplicitSteps)
 		result.StepResults = append(result.StepResults, stepResult)
 
-		// Check if step passed
+		// Check if we should stop execution
 		if !stepResult.Passed {
-			result.Status = TestFailed
-			result.Error = e.formatBlockError(step.Block, stepResult)
-			// Continue to cleanup but don't run more steps
-			break
-		}
-
-		// Run per-step assertions
-		for _, assertion := range step.Assertions {
-			ar := e.runAssertion(assertion)
-			stepResult.AssertionResults = append(stepResult.AssertionResults, ar)
-			if !ar.Passed {
+			// Determine if this block was requested (in steps list or no explicit steps)
+			_, isRequested := stepsToExecute[comp.ID]
+			if !hasExplicitSteps || isRequested {
+				// Unexpected error in a requested block - stop execution
 				result.Status = TestFailed
-				blockType := e.getBlockType(step.Block)
-				result.Error = fmt.Sprintf("%s block %q assertion failed: %s", blockType, step.Block, ar.Message)
+				result.Error = e.formatBlockErrorFromResult(comp, stepResult)
 				break
 			}
+			// Error in non-requested block - continue but mark as failed
+			// (This shouldn't happen often since non-requested blocks aren't executed)
 		}
 
-		if result.Status == TestFailed {
-			break
+		// Run per-step assertions if this was an executed step
+		if step, ok := stepsToExecute[comp.ID]; ok && stepResult.Passed {
+			for _, assertion := range step.Assertions {
+				ar := e.runAssertion(assertion)
+				stepResult.AssertionResults = append(stepResult.AssertionResults, ar)
+				if !ar.Passed {
+					result.Status = TestFailed
+					result.Error = fmt.Sprintf("%s block %q assertion failed: %s", comp.Type, comp.ID, ar.Message)
+					break
+				}
+			}
+
+			if result.Status == TestFailed {
+				break
+			}
 		}
 	}
 
@@ -507,130 +396,144 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	return result
 }
 
-// determineBlocks returns the list of steps to execute.
-// If steps is empty, returns all executable blocks in document order.
-func (e *TestExecutor) determineBlocks(tc TestCase) []TestStep {
-	if len(tc.Steps) > 0 {
-		return tc.Steps
-	}
-
-	// No steps specified - parse runbook to get blocks in document order
-	blockIDs, err := getBlocksInDocumentOrder(e.runbookPath)
-	if err != nil {
-		// Fallback to registry (unordered) if parsing fails
-		slog.Warn("Failed to get blocks in document order, falling back to registry order", "error", err)
-		executables := e.registry.GetAllExecutables()
-		steps := make([]TestStep, 0, len(executables))
-		for _, exec := range executables {
-			steps = append(steps, TestStep{
-				Block:  exec.ComponentID,
-				Expect: StatusSuccess,
-			})
-		}
-		return steps
-	}
-
-	steps := make([]TestStep, 0, len(blockIDs))
-	for _, blockID := range blockIDs {
-		steps = append(steps, TestStep{
-			Block:  blockID,
-			Expect: StatusSuccess,
-		})
-	}
-	return steps
-}
-
-// blockPosition tracks a block's ID and its position in the document
-type blockPosition struct {
-	id       string
-	position int
-}
-
-// getBlocksInDocumentOrder parses the runbook and returns all Command, Check,
-// and TemplateInline block IDs in the order they appear in the document.
-func getBlocksInDocumentOrder(runbookPath string) ([]string, error) {
-	content, err := os.ReadFile(runbookPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read runbook: %w", err)
-	}
-
-	contentStr := string(content)
-	var blocks []blockPosition
-
-	// Find all Command and Check components with their positions
-	for _, componentType := range []string{"Command", "Check"} {
-		re := regexp.MustCompile(fmt.Sprintf(`<%s\s+([^>]*?)(?:/>|>)`, componentType))
-		matches := re.FindAllStringSubmatchIndex(contentStr, -1)
-		for _, match := range matches {
-			if len(match) >= 4 {
-				props := contentStr[match[2]:match[3]]
-				id := extractMDXPropValue(props, "id")
-				if id != "" {
-					blocks = append(blocks, blockPosition{id: id, position: match[0]})
-				}
-			}
-		}
-	}
-
-	// Find all TemplateInline components with their positions
-	templateInlineRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>`)
-	templateInlineMatches := templateInlineRe.FindAllStringSubmatchIndex(contentStr, -1)
-	templateCount := 0
-	for _, match := range templateInlineMatches {
-		if len(match) >= 4 {
-			props := contentStr[match[2]:match[3]]
-			outputPath := extractMDXPropValue(props, "outputPath")
-
-			// Generate ID from outputPath
-			id := generateTemplateInlineID(outputPath)
-			if id == "" {
-				templateCount++
-				id = fmt.Sprintf("template-inline-%d", templateCount)
-			}
-			blocks = append(blocks, blockPosition{id: id, position: match[0]})
-		}
-	}
-
-	// Find all Template components (not TemplateInline) with their positions
-	templateRe := regexp.MustCompile(`<Template\s+([^>]*?)(?:/>|>)`)
-	templateMatches := templateRe.FindAllStringSubmatchIndex(contentStr, -1)
-	for _, match := range templateMatches {
-		if len(match) >= 4 {
-			props := contentStr[match[2]:match[3]]
-			id := extractMDXPropValue(props, "id")
-			if id != "" {
-				blocks = append(blocks, blockPosition{id: id, position: match[0]})
-			}
-		}
-	}
-
-	// Sort by position in document
-	sort.Slice(blocks, func(i, j int) bool {
-		return blocks[i].position < blocks[j].position
-	})
-
-	// Extract just the IDs
-	result := make([]string, len(blocks))
-	for i, b := range blocks {
-		result[i] = b.id
-	}
-
-	return result, nil
-}
-
-// executeStep runs a single block and returns the result.
-func (e *TestExecutor) executeStep(step TestStep) StepResult {
+// processBlock handles validation and execution for a single block.
+// It validates configuration, and for executable blocks, executes them if they're in the steps list.
+func (e *TestExecutor) processBlock(
+	comp api.ParsedComponent,
+	stepsToExecute map[string]TestStep,
+	expectsConfigError map[string]bool,
+	registryWarnings []string,
+	hasExplicitSteps bool,
+) StepResult {
 	start := time.Now()
 
+	// Determine if this block should be executed
+	step, shouldExecute := stepsToExecute[comp.ID]
+	if !hasExplicitSteps {
+		// No explicit steps - execute all executable blocks
+		shouldExecute = comp.Type != "Inputs" // Inputs blocks are validation-only
+		step = TestStep{Block: comp.ID, Expect: StatusSuccess}
+	}
+
 	result := StepResult{
-		Block:          step.Block,
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// 1. Check for configuration errors
+	configError := e.getConfigErrorForComponent(comp, registryWarnings)
+
+	// 2. Handle config errors
+	if configError != "" {
+		result.ActualStatus = "config_error"
+		result.Error = configError
+
+		// Determine if this block was requested
+		_, isRequested := stepsToExecute[comp.ID]
+		isRequested = isRequested || !hasExplicitSteps // All blocks are "requested" when no explicit steps
+
+		if expectsConfigError[comp.ID] {
+			// Check error_contains if specified
+			if step.ErrorContains != "" && !strings.Contains(strings.ToLower(configError), strings.ToLower(step.ErrorContains)) {
+				// Error doesn't contain expected text
+				result.Passed = false
+				if e.verbose {
+					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("--- Result: ✗ config_error (wrong message) ---\n")
+					fmt.Printf("  Expected error containing: %s\n", step.ErrorContains)
+					fmt.Printf("  Actual error: %s\n", configError)
+					result.ErrorDisplayed = true
+				}
+			} else {
+				// Expected config error - pass
+				result.Passed = true
+				if e.verbose {
+					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("--- Result: ✓ config_error (expected) ---\n")
+					fmt.Printf("  Error: %s\n", configError)
+					result.ErrorDisplayed = true
+				}
+			}
+		} else if !isRequested {
+			// Config error in non-requested block - show as warning but don't fail
+			result.Passed = true // Don't fail the test for non-requested blocks
+			if e.verbose {
+				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("--- Config: ⚠ error (not in steps) ---\n")
+				fmt.Printf("  Error: %s\n", configError)
+				result.ErrorDisplayed = true
+			}
+		} else {
+			// Unexpected config error in requested block - fail
+			result.Passed = false
+			if e.verbose {
+				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("--- Result: ✗ config_error ---\n")
+				fmt.Printf("  Error: %s\n", configError)
+				result.ErrorDisplayed = true
+			}
+		}
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// 3. For Inputs blocks: validation-only, show "Config: valid"
+	if comp.Type == "Inputs" {
+		result.ActualStatus = "valid"
+		result.Passed = true
+		if e.verbose {
+			fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+			fmt.Printf("--- Config: ✓ valid ---\n")
+		}
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// 4. For executable blocks: execute if requested
+	if !shouldExecute {
+		// Not in steps list - skip execution (config was already validated)
+		result.ActualStatus = "skipped"
+		result.Passed = true
+		// Don't print anything for skipped blocks in verbose mode
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// 5. Execute the block
+	return e.executeBlockForComponent(comp, step, start)
+}
+
+// getConfigErrorForComponent returns any configuration error for the component.
+func (e *TestExecutor) getConfigErrorForComponent(comp api.ParsedComponent, registryWarnings []string) string {
+	switch comp.Type {
+	case "Check", "Command":
+		// For Check/Command, check both registry warnings and validator config errors.
+		// Registry warnings cover file-not-found errors; validator covers structural errors like missing ID.
+		if warning := e.getRegistryWarningForBlock(registryWarnings, comp.ID); warning != "" {
+			return warning
+		}
+		return e.validator.GetConfigError(comp.Type, comp.ID)
+	case "Inputs", "Template", "TemplateInline":
+		// For Inputs/Template/TemplateInline, get errors from InputValidator
+		return e.validator.GetConfigError(comp.Type, comp.ID)
+	default:
+		// Unknown component type
+		return fmt.Sprintf("unsupported component type %q", comp.Type)
+	}
+}
+
+// executeBlockForComponent executes a single block and returns the result.
+func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step TestStep, start time.Time) StepResult {
+	result := StepResult{
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
 
 	// Print block header if verbose
 	if e.verbose {
-		fmt.Printf("\n=== Block: %s ===\n", step.Block)
+		fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
 	}
 
 	// Handle skip expectation
@@ -644,93 +547,129 @@ func (e *TestExecutor) executeStep(step TestStep) StepResult {
 		return result
 	}
 
-	// Handle config_error expectation - check for configuration warnings
+	// Handle config_error expectation - but config errors were already checked above
+	// If we reach here with config_error expectation but no config error, it's an error
 	if step.Expect == StatusConfigError {
-		return e.handleConfigErrorExpectation(step, start)
-	}
-
-	// Check if this is a TemplateInline block
-	if templateInline, ok := e.templateInlines[step.Block]; ok {
-		return e.executeTemplateInline(step, templateInline, start)
-	}
-
-	// Check if this is a Template block
-	if template, ok := e.templates[step.Block]; ok {
-		return e.executeTemplate(step, template, start)
-	}
-
-	// Find the executable for this block (Check/Command)
-	// Note: We need to look up by component ID and get the full executable with script content
-	var executable *api.Executable
-	for _, exec := range e.registry.GetAllExecutables() {
-		if exec.ComponentID == step.Block {
-			// GetAllExecutables() strips script content for security
-			// Use GetExecutable() to get the full executable with content
-			fullExec, ok := e.registry.GetExecutable(exec.ID)
-			if ok {
-				executable = fullExec
-			}
-			break
-		}
-	}
-
-	if executable == nil {
 		result.Passed = false
-		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("block %q not found in runbook", step.Block)
+		result.ActualStatus = "no_config_error"
+		result.Error = "expected config_error but component configuration is valid"
 		result.Duration = time.Since(start)
 		if e.verbose {
+			fmt.Printf("--- Result: ✗ no_config_error ---\n")
 			fmt.Printf("  Error: %s\n", result.Error)
 		}
 		return result
 	}
 
-	// Handle blocked expectation - check for missing dependencies
-	if step.Expect == StatusBlocked {
-		// Check if the required outputs exist
-		missingOutputs := e.checkMissingOutputs(step.MissingOutputs)
-		if len(missingOutputs) > 0 {
-			result.Passed = true
-			result.ActualStatus = "blocked"
-			result.Error = fmt.Sprintf("blocked due to missing outputs: %v", missingOutputs)
-		} else {
-			result.Passed = false
-			result.ActualStatus = "not_blocked"
-			result.Error = "expected block to be blocked but all dependencies are satisfied"
+	// Execute based on component type
+	switch comp.Type {
+	case "TemplateInline":
+		if templateInline, ok := e.templateInlines[comp.ID]; ok {
+			return e.executeTemplateInline(step, templateInline, start)
 		}
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("TemplateInline block %q not found", comp.ID)
 		result.Duration = time.Since(start)
-		if e.verbose {
-			fmt.Printf("  Status: %s\n", result.ActualStatus)
+		return result
+
+	case "Template":
+		if template, ok := e.templates[comp.ID]; ok {
+			return e.executeTemplate(step, template, start)
 		}
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("Template block %q not found", comp.ID)
+		result.Duration = time.Since(start)
+		return result
+
+	case "Check", "Command":
+		// Find the executable for this block
+		var executable *api.Executable
+		for _, exec := range e.registry.GetAllExecutables() {
+			if exec.ComponentID == comp.ID {
+				fullExec, ok := e.registry.GetExecutable(exec.ID)
+				if ok {
+					executable = fullExec
+				}
+				break
+			}
+		}
+
+		if executable == nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("block %q not found in runbook", comp.ID)
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("  Error: %s\n", result.Error)
+			}
+			return result
+		}
+
+		// Handle blocked expectation
+		if step.Expect == StatusBlocked {
+			missingOutputs := e.checkMissingOutputs(step.MissingOutputs)
+			if len(missingOutputs) > 0 {
+				result.Passed = true
+				result.ActualStatus = "blocked"
+				result.Error = fmt.Sprintf("blocked due to missing outputs: %v", missingOutputs)
+			} else {
+				result.Passed = false
+				result.ActualStatus = "not_blocked"
+				result.Error = "expected block to be blocked but all dependencies are satisfied"
+			}
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("  Status: %s\n", result.ActualStatus)
+			}
+			return result
+		}
+
+		// Execute the block
+		status, exitCode, outputs, logs, err := e.executeBlock(executable)
+		result.ActualStatus = status
+		result.ExitCode = exitCode
+		result.Outputs = outputs
+		result.Logs = logs
+
+		if e.verbose {
+			e.printBlockOutput(comp.ID, logs, outputs, status, err)
+		}
+
+		// Store outputs for later assertions
+		if len(outputs) > 0 {
+			e.blockOutputs[comp.ID] = outputs
+		}
+
+		if err != nil {
+			result.Error = err.Error()
+		}
+
+		// Check if result matches expected status
+		result.Passed = e.matchesExpectedStatus(step.Expect, status, exitCode)
+		result.Duration = time.Since(start)
+		return result
+
+	default:
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("unsupported component type %q for execution", comp.Type)
+		result.Duration = time.Since(start)
 		return result
 	}
+}
 
-	// Execute the block
-	status, exitCode, outputs, logs, err := e.executeBlock(executable)
-	result.ActualStatus = status
-	result.ExitCode = exitCode
-	result.Outputs = outputs
-	result.Logs = logs
-
-	// Print organized output if verbose
-	if e.verbose {
-		e.printBlockOutput(step.Block, logs, outputs, status, err)
+// formatBlockErrorFromResult formats an error message for a failed block.
+func (e *TestExecutor) formatBlockErrorFromResult(comp api.ParsedComponent, stepResult StepResult) string {
+	if stepResult.ErrorDisplayed {
+		// Error was already shown in verbose mode
+		return fmt.Sprintf("%s block '%s' failed (see details above)", comp.Type, comp.ID)
 	}
-
-	// Store outputs for later assertions
-	if len(outputs) > 0 {
-		e.blockOutputs[step.Block] = outputs
+	if stepResult.Error != "" {
+		return fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, stepResult.Error)
 	}
-
-	if err != nil {
-		result.Error = err.Error()
-	}
-
-	// Check if result matches expected status
-	result.Passed = e.matchesExpectedStatus(step.Expect, status, exitCode)
-
-	result.Duration = time.Since(start)
-	return result
+	return fmt.Sprintf("%s block '%s' failed with status: %s", comp.Type, comp.ID, stepResult.ActualStatus)
 }
 
 // executeTemplateInline renders a TemplateInline block and returns the result.
@@ -1085,66 +1024,6 @@ func (e *TestExecutor) matchesExpectedStatus(expected ExpectedStatus, actual str
 	default:
 		return false
 	}
-}
-
-// handleConfigErrorExpectation handles steps that expect a configuration error.
-// It checks both the registry warnings (for Check/Command) and validator config errors
-// (for Template/TemplateInline) to find errors related to the specified block.
-func (e *TestExecutor) handleConfigErrorExpectation(step TestStep, start time.Time) StepResult {
-	result := StepResult{
-		Block:          step.Block,
-		ExpectedStatus: step.Expect,
-		Outputs:        make(map[string]string),
-	}
-
-	// Check registry warnings (Check/Command - ExecutableRegistry is source of truth)
-	warnings := e.registry.GetWarnings()
-	matchingError := e.getRegistryWarningForBlock(warnings, step.Block)
-
-	// If not found in registry, check validator config errors (Inputs/Template/TemplateInline blocks)
-	if matchingError == "" {
-		matchingError = e.validator.GetConfigErrorByID(step.Block)
-	}
-
-	if matchingError == "" {
-		// No configuration error found for this block
-		result.Passed = false
-		result.ActualStatus = "no_config_error"
-		result.Error = fmt.Sprintf("expected configuration error for block %q but none found", step.Block)
-		result.Duration = time.Since(start)
-		if e.verbose {
-			fmt.Printf("  Expected: config_error\n")
-			fmt.Printf("  Actual: no configuration error found\n")
-			if len(warnings) > 0 {
-				fmt.Printf("  Registry warnings: %v\n", warnings)
-			}
-		}
-		return result
-	}
-
-	// If error_contains is specified, verify the error contains the expected text
-	if step.ErrorContains != "" && !strings.Contains(strings.ToLower(matchingError), strings.ToLower(step.ErrorContains)) {
-		result.Passed = false
-		result.ActualStatus = "config_error"
-		result.Error = fmt.Sprintf("configuration error found but doesn't contain %q: %s", step.ErrorContains, matchingError)
-		result.Duration = time.Since(start)
-		if e.verbose {
-			fmt.Printf("  Expected error containing: %s\n", step.ErrorContains)
-			fmt.Printf("  Actual error: %s\n", matchingError)
-		}
-		return result
-	}
-
-	// Configuration error found and matches expectations
-	result.Passed = true
-	result.ActualStatus = "config_error"
-	result.Error = matchingError // Store the actual error message
-	result.Duration = time.Since(start)
-	if e.verbose {
-		fmt.Printf("  Config error: %s\n", matchingError)
-		fmt.Printf("--- Result: ✓ config_error (as expected) ---\n")
-	}
-	return result
 }
 
 // getSessionToken returns a valid session token.

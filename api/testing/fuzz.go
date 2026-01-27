@@ -466,8 +466,9 @@ func (g *FuzzGenerator) generateMap(config *FuzzConfig) (interface{}, error) {
 	return string(jsonBytes), nil
 }
 
-// ResolveInputs resolves all test inputs, generating fuzz values where needed.
-func ResolveInputs(inputs map[string]InputValue) (map[string]interface{}, error) {
+// ResolveTestConfig resolves all test inputs, generating fuzz values where needed.
+// This generates concrete values from fuzz specs and literal values in the test YAML.
+func ResolveTestConfig(inputs map[string]InputValue) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	generator := NewFuzzGenerator()
 
