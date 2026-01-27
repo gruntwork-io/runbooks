@@ -152,14 +152,8 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 		inputsID := extractMDXPropValue(props, "inputsId")
 
 		// Generate ID from outputPath
-		var id string
-		if outputPath != "" {
-			baseName := filepath.Base(outputPath)
-			if idx := strings.LastIndex(baseName, "."); idx > 0 {
-				baseName = baseName[:idx]
-			}
-			id = "template-" + baseName
-		} else {
+		id := generateTemplateInlineID(outputPath)
+		if id == "" {
 			templateCount++
 			id = fmt.Sprintf("template-inline-%d", templateCount)
 		}
@@ -275,40 +269,73 @@ func (e *TestExecutor) PrintTestHeader(testName string) {
 
 // validateComponentConfigurations validates all component configurations and returns step results.
 // This checks that Inputs, Templates, etc. have valid configurations before test execution.
+// Note: Only Inputs config errors fail the test upfront. Check/Command/Template errors are
+// handled during step execution when expect: config_error is specified.
 // Returns: (stepResults, errorCount, firstErrorMessage)
 func (e *TestExecutor) validateComponentConfigurations() ([]StepResult, int, string) {
 	var results []StepResult
 	var errorCount int
 	var firstError string
 
-	// Get all component validations (Inputs, Templates, etc.)
-	validations := e.validator.GetComponentValidations()
+	// Get all components in document order
+	components := e.validator.GetComponents()
 
-	for _, validation := range validations {
+	// Get registry warnings for Check/Command validation (ExecutableRegistry is the source of truth)
+	registryWarnings := e.registry.GetWarnings()
+
+	for _, comp := range components {
 		stepResult := StepResult{
-			Block:          fmt.Sprintf("%s:%s", lowercaseFirst(validation.ComponentType), validation.ComponentID),
+			Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
 			ExpectedStatus: StatusSuccess,
 			Duration:       0,
 		}
 
-		if validation.Error != "" {
-			// Validation failed
-			stepResult.ActualStatus = "config_error"
-			stepResult.Passed = false
-			stepResult.Error = validation.Error
-			errorCount++
+		// Determine the validation error for this component
+		var validationError string
+		switch comp.Type {
+		case "Check", "Command":
+			// For Check/Command, get errors from ExecutableRegistry (source of truth)
+			validationError = e.getRegistryWarningForBlock(registryWarnings, comp.ID)
+		case "Inputs", "Template", "TemplateInline":
+			// For Inputs/Template/TemplateInline, get errors from InputValidator
+			validationError = e.validator.GetConfigError(comp.Type, comp.ID)
+		default:
+			// Unknown component type - this indicates we need to update the test framework
+			panic(fmt.Sprintf("unsupported component type %q in test validation - update validateComponentConfigurations to handle this type", comp.Type))
+		}
 
-			// Capture first error for non-verbose summary
-			if firstError == "" {
-				firstError = fmt.Sprintf("%s block '%s': %s", validation.ComponentType, validation.ComponentID, validation.Error)
-			}
+		if validationError != "" {
+			// For Inputs blocks, config errors fail upfront (no other mechanism to test them)
+			// For Check/Command/Template/TemplateInline, config errors are checked during step
+			// execution via handleConfigErrorExpectation when expect: config_error is specified
+			if comp.Type == "Inputs" {
+				stepResult.ActualStatus = "config_error"
+				stepResult.Passed = false
+				stepResult.Error = validationError
+				errorCount++
 
-			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", validation.ComponentType, validation.ComponentID)
-				fmt.Printf("--- Result: ✗ config_error ---\n")
-				fmt.Printf("  Error: %s\n", validation.Error)
-				// Mark that error was displayed so reporter can skip it in summary
-				stepResult.ErrorDisplayed = true
+				if firstError == "" {
+					firstError = fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, validationError)
+				}
+
+				if e.verbose {
+					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("--- Result: ✗ config_error ---\n")
+					fmt.Printf("  Error: %s\n", validationError)
+					stepResult.ErrorDisplayed = true
+				}
+			} else {
+				// Non-Inputs: show the error was detected but don't fail upfront
+				stepResult.ActualStatus = "config_error"
+				stepResult.Passed = true // Don't fail here, let step execution handle it
+				stepResult.Error = validationError
+
+				if e.verbose {
+					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("--- Result: ✗ config_error ---\n")
+					fmt.Printf("  Error: %s\n", validationError)
+					stepResult.ErrorDisplayed = true
+				}
 			}
 		} else {
 			// Validation passed
@@ -316,7 +343,7 @@ func (e *TestExecutor) validateComponentConfigurations() ([]StepResult, int, str
 			stepResult.Passed = true
 
 			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", validation.ComponentType, validation.ComponentID)
+				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
 				fmt.Printf("--- Result: ✓ success ---\n")
 			}
 		}
@@ -325,6 +352,17 @@ func (e *TestExecutor) validateComponentConfigurations() ([]StepResult, int, str
 	}
 
 	return results, errorCount, firstError
+}
+
+// getRegistryWarningForBlock searches warnings for one matching the given block ID.
+func (e *TestExecutor) getRegistryWarningForBlock(warnings []string, blockID string) string {
+	blockPattern := fmt.Sprintf(`id="%s"`, blockID)
+	for _, warning := range warnings {
+		if strings.Contains(warning, blockPattern) {
+			return warning
+		}
+	}
+	return ""
 }
 
 // lowercaseFirst returns the string with the first character lowercased.
@@ -518,15 +556,9 @@ func getBlocksInDocumentOrder(runbookPath string) ([]string, error) {
 			props := contentStr[match[2]:match[3]]
 			outputPath := extractMDXPropValue(props, "outputPath")
 
-			// Generate ID from outputPath (same logic as parseTemplateInlineBlocks)
-			var id string
-			if outputPath != "" {
-				baseName := filepath.Base(outputPath)
-				if idx := strings.LastIndex(baseName, "."); idx > 0 {
-					baseName = baseName[:idx]
-				}
-				id = "template-" + baseName
-			} else {
+			// Generate ID from outputPath
+			id := generateTemplateInlineID(outputPath)
+			if id == "" {
 				templateCount++
 				id = fmt.Sprintf("template-inline-%d", templateCount)
 			}
@@ -1031,7 +1063,8 @@ func (e *TestExecutor) matchesExpectedStatus(expected ExpectedStatus, actual str
 }
 
 // handleConfigErrorExpectation handles steps that expect a configuration error.
-// It checks the registry warnings for errors related to the specified block.
+// It checks both the registry warnings (for Check/Command) and validator config errors
+// (for Template/TemplateInline) to find errors related to the specified block.
 func (e *TestExecutor) handleConfigErrorExpectation(step TestStep, start time.Time) StepResult {
 	result := StepResult{
 		Block:          step.Block,
@@ -1039,22 +1072,16 @@ func (e *TestExecutor) handleConfigErrorExpectation(step TestStep, start time.Ti
 		Outputs:        make(map[string]string),
 	}
 
-	// Get all warnings from the registry
+	// Check registry warnings (Check/Command - ExecutableRegistry is source of truth)
 	warnings := e.registry.GetWarnings()
+	matchingError := e.getRegistryWarningForBlock(warnings, step.Block)
 
-	// Look for a warning that mentions this block ID
-	// Warning format: <Command id="block-id">: Error message
-	blockPattern := fmt.Sprintf(`id="%s"`, step.Block)
-	var matchingWarning string
-
-	for _, warning := range warnings {
-		if strings.Contains(warning, blockPattern) {
-			matchingWarning = warning
-			break
-		}
+	// If not found in registry, check validator config errors (Inputs/Template/TemplateInline blocks)
+	if matchingError == "" {
+		matchingError = e.validator.GetConfigErrorByID(step.Block)
 	}
 
-	if matchingWarning == "" {
+	if matchingError == "" {
 		// No configuration error found for this block
 		result.Passed = false
 		result.ActualStatus = "no_config_error"
@@ -1070,15 +1097,15 @@ func (e *TestExecutor) handleConfigErrorExpectation(step TestStep, start time.Ti
 		return result
 	}
 
-	// If error_contains is specified, verify the warning contains the expected text
-	if step.ErrorContains != "" && !strings.Contains(matchingWarning, step.ErrorContains) {
+	// If error_contains is specified, verify the error contains the expected text
+	if step.ErrorContains != "" && !strings.Contains(strings.ToLower(matchingError), strings.ToLower(step.ErrorContains)) {
 		result.Passed = false
 		result.ActualStatus = "config_error"
-		result.Error = fmt.Sprintf("configuration error found but doesn't contain %q: %s", step.ErrorContains, matchingWarning)
+		result.Error = fmt.Sprintf("configuration error found but doesn't contain %q: %s", step.ErrorContains, matchingError)
 		result.Duration = time.Since(start)
 		if e.verbose {
 			fmt.Printf("  Expected error containing: %s\n", step.ErrorContains)
-			fmt.Printf("  Actual error: %s\n", matchingWarning)
+			fmt.Printf("  Actual error: %s\n", matchingError)
 		}
 		return result
 	}
@@ -1086,10 +1113,10 @@ func (e *TestExecutor) handleConfigErrorExpectation(step TestStep, start time.Ti
 	// Configuration error found and matches expectations
 	result.Passed = true
 	result.ActualStatus = "config_error"
-	result.Error = matchingWarning // Store the actual warning message
+	result.Error = matchingError // Store the actual error message
 	result.Duration = time.Since(start)
 	if e.verbose {
-		fmt.Printf("  Config error: %s\n", matchingWarning)
+		fmt.Printf("  Config error: %s\n", matchingError)
 		fmt.Printf("--- Result: ✓ config_error (as expected) ---\n")
 	}
 	return result

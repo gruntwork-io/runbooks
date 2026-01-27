@@ -14,6 +14,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// generateTemplateInlineID generates an ID for a TemplateInline block based on its outputPath.
+// If outputPath is provided, generates "template-{basename}" (without extension).
+// If outputPath is empty, returns empty string (caller should handle fallback).
+func generateTemplateInlineID(outputPath string) string {
+	if outputPath == "" {
+		return ""
+	}
+	baseName := filepath.Base(outputPath)
+	if idx := strings.LastIndex(baseName, "."); idx > 0 {
+		baseName = baseName[:idx]
+	}
+	return "template-" + baseName
+}
+
 // ValidationError represents a single validation error.
 type ValidationError struct {
 	InputKey string // e.g., "project.Name"
@@ -194,114 +208,104 @@ func (e ConfigErrors) Error() string {
 	return sb.String()
 }
 
-// ComponentValidationResult holds the validation result for a single component.
-// This is used for Inputs, Template, and other component types.
-type ComponentValidationResult struct {
-	ComponentType string // e.g., "Inputs", "Template"
-	ComponentID   string // The component's id prop
-	Error         string // Empty if valid, error message if invalid
-}
-
-
-// InputValidator parses Inputs blocks from a runbook, validates their
+// InputValidator parses component blocks from a runbook, validates their
 // configurations can be loaded, and validates test inputs against the schemas.
 type InputValidator struct {
-	runbookPath        string
-	schemas            map[string]*InputsBlockSchema // inputsID -> schema
-	configErrors       ConfigErrors                  // errors encountered while loading schemas
-	inputsValidations  []ComponentValidationResult   // validation results for all Inputs blocks (in order)
+	runbookPath  string
+	schemas      map[string]*InputsBlockSchema // inputsID -> schema
+	configErrors ConfigErrors                  // errors encountered during validation
+	components   []api.ParsedComponent         // all components in document order
+}
+
+// validateComponent performs structural validation on a parsed component.
+// This mirrors frontend validation in web/src/components/mdx/*/
+// Note: File existence checks are done separately since they require a runbook directory.
+func validateComponent(comp api.ParsedComponent) []ConfigError {
+	var errors []ConfigError
+
+	switch comp.Type {
+	case "Inputs":
+		if !comp.HasExplicitID {
+			errors = append(errors, ConfigError{
+				ComponentType: "Inputs",
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+		}
+		configPath := api.ExtractProp(comp.Props, "path")
+		configInline := comp.Content
+		if configPath == "" && strings.TrimSpace(configInline) == "" {
+			errors = append(errors, ConfigError{
+				ComponentType: "Inputs",
+				ComponentID:   comp.ID,
+				Message:       "either 'path' prop or inline YAML content is required",
+			})
+		}
+
+	case "Template":
+		if !comp.HasExplicitID {
+			errors = append(errors, ConfigError{
+				ComponentType: "Template",
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+		}
+		if api.ExtractProp(comp.Props, "path") == "" {
+			errors = append(errors, ConfigError{
+				ComponentType: "Template",
+				ComponentID:   comp.ID,
+				Message:       "the 'path' prop is required",
+			})
+		}
+
+	case "TemplateInline":
+		if api.ExtractProp(comp.Props, "outputPath") == "" {
+			errors = append(errors, ConfigError{
+				ComponentType: "TemplateInline",
+				ComponentID:   comp.ID,
+				Message:       "the 'outputPath' prop is required",
+			})
+		}
+		if strings.TrimSpace(comp.Content) == "" {
+			errors = append(errors, ConfigError{
+				ComponentType: "TemplateInline",
+				ComponentID:   comp.ID,
+				Message:       "template content is empty",
+			})
+		}
+
+	case "Check", "Command":
+		if !comp.HasExplicitID {
+			errors = append(errors, ConfigError{
+				ComponentType: comp.Type,
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+		}
+		// Other validation (path/command props, file existence) handled by ExecutableRegistry
+	}
+
+	return errors
 }
 
 // NewInputValidator creates a validator for inputs in a runbook.
 func NewInputValidator(runbookPath string) (*InputValidator, error) {
 	v := &InputValidator{
-		runbookPath:       runbookPath,
-		schemas:           make(map[string]*InputsBlockSchema),
-		configErrors:      make(ConfigErrors, 0),
-		inputsValidations: make([]ComponentValidationResult, 0),
+		runbookPath:  runbookPath,
+		schemas:      make(map[string]*InputsBlockSchema),
+		configErrors: make(ConfigErrors, 0),
+		components:   make([]api.ParsedComponent, 0),
 	}
 
-	if err := v.loadSchemas(); err != nil {
-		return nil, fmt.Errorf("failed to load input schemas: %w", err)
+	if err := v.parseAndValidateComponents(); err != nil {
+		return nil, fmt.Errorf("failed to parse runbook components: %w", err)
 	}
 
 	return v, nil
 }
 
-// parsedInputsBlock represents a parsed Inputs block from the MDX.
-// The boilerplate config comes from either configPath (external file) or
-// configInline (YAML content between tags), but not both.
-type parsedInputsBlock struct {
-	id           string
-	configPath   string // path prop: load config from external file
-	configInline string // inner content: inline YAML between <Inputs>...</Inputs>
-}
-
-// validateInputsBlock checks a parsed Inputs block for configuration errors.
-// Returns nil if valid, or a ConfigError describing the problem.
-func validateInputsBlock(block parsedInputsBlock) *ConfigError {
-	if block.id == "" {
-		return &ConfigError{
-			ComponentType: "Inputs",
-			ComponentID:   "(missing)",
-			Message:       "the 'id' prop is required",
-		}
-	}
-
-	if block.configPath == "" && block.configInline == "" {
-		return &ConfigError{
-			ComponentType: "Inputs",
-			ComponentID:   block.id,
-			Message:       "either 'path' prop or inline YAML content is required",
-		}
-	}
-
-	return nil
-}
-
-// parseInputsBlocks extracts all Inputs blocks from MDX content.
-// Handles both container (<Inputs>...</Inputs>) and self-closing (<Inputs />) forms.
-func parseInputsBlocks(content string) []parsedInputsBlock {
-	var blocks []parsedInputsBlock
-	seen := make(map[string]bool)
-
-	// Pattern for container Inputs: <Inputs ...>...</Inputs>
-	containerRe := regexp.MustCompile(`<Inputs\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)>([\s\S]*?)</Inputs>`)
-	for _, match := range containerRe.FindAllStringSubmatch(content, -1) {
-		props := match[1]
-		id := extractPropValue(props, "id")
-		// Include blocks even with empty IDs so we can report them as errors
-		if !seen[id] {
-			seen[id] = true
-			blocks = append(blocks, parsedInputsBlock{
-				id:           id,
-				configPath:   extractPropValue(props, "path"),
-				configInline: match[2],
-			})
-		}
-	}
-
-	// Pattern for self-closing Inputs: <Inputs ... />
-	selfClosingRe := regexp.MustCompile(`<Inputs\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)\s*/>`)
-	for _, match := range selfClosingRe.FindAllStringSubmatch(content, -1) {
-		props := match[1]
-		id := extractPropValue(props, "id")
-		// Include blocks even with empty IDs so we can report them as errors
-		if !seen[id] {
-			seen[id] = true
-			blocks = append(blocks, parsedInputsBlock{
-				id:         id,
-				configPath: extractPropValue(props, "path"),
-				// configInline is empty for self-closing tags
-			})
-		}
-	}
-
-	return blocks
-}
-
-// loadSchemas discovers and parses all Inputs/Template blocks in the runbook.
-func (v *InputValidator) loadSchemas() error {
+// parseAndValidateComponents discovers and parses all component blocks in the runbook.
+func (v *InputValidator) parseAndValidateComponents() error {
 	content, err := os.ReadFile(v.runbookPath)
 	if err != nil {
 		return err
@@ -310,99 +314,227 @@ func (v *InputValidator) loadSchemas() error {
 	runbookDir := filepath.Dir(v.runbookPath)
 	contentStr := string(content)
 
-	// Parse all Inputs blocks (both container and self-closing)
-	inputsBlocks := parseInputsBlocks(contentStr)
+	// Collect all components
+	var allComponents []api.ParsedComponent
 
-	// Process each Inputs block
-	for _, block := range inputsBlocks {
-		validationResult := ComponentValidationResult{
-			ComponentType: "Inputs",
-			ComponentID:   block.id,
-		}
+	// Parse and validate Inputs blocks
+	allComponents = append(allComponents, v.parseAndValidateInputsBlocks(contentStr, runbookDir)...)
 
-		// Validate block structure
-		if err := validateInputsBlock(block); err != nil {
-			v.configErrors = append(v.configErrors, *err)
-			validationResult.Error = err.Message
-			// Use ID from error if block.id is empty
-			if validationResult.ComponentID == "" {
-				validationResult.ComponentID = err.ComponentID
+	// Parse and validate Check blocks (file existence checked by ExecutableRegistry)
+	allComponents = append(allComponents, v.parseAndValidateExecutableBlocks(contentStr, "Check")...)
+
+	// Parse and validate Command blocks (file existence checked by ExecutableRegistry)
+	allComponents = append(allComponents, v.parseAndValidateExecutableBlocks(contentStr, "Command")...)
+
+	// Parse and validate Template blocks
+	allComponents = append(allComponents, v.parseAndValidateTemplateBlocks(contentStr, runbookDir)...)
+
+	// Parse and validate TemplateInline blocks
+	allComponents = append(allComponents, v.parseAndValidateTemplateInlineBlocks(contentStr)...)
+
+	// Sort by document position
+	sortComponentsByPosition(allComponents)
+
+	v.components = allComponents
+	return nil
+}
+
+// parseAndValidateExecutableBlocks parses and validates Check or Command blocks.
+// File existence validation is handled by ExecutableRegistry; this validates structural requirements.
+func (v *InputValidator) parseAndValidateExecutableBlocks(contentStr, componentType string) []api.ParsedComponent {
+	components := api.ParseComponents(contentStr, componentType)
+
+	for _, comp := range components {
+		validationErrors := validateComponent(comp)
+		v.configErrors = append(v.configErrors, validationErrors...)
+	}
+
+	return components
+}
+
+// sortComponentsByPosition sorts components by their position in the document
+func sortComponentsByPosition(components []api.ParsedComponent) {
+	for i := 0; i < len(components); i++ {
+		for j := i + 1; j < len(components); j++ {
+			if components[j].Position < components[i].Position {
+				components[i], components[j] = components[j], components[i]
 			}
-			v.inputsValidations = append(v.inputsValidations, validationResult)
+		}
+	}
+}
+
+// parseAndValidateInputsBlocks parses and validates all Inputs blocks.
+// Returns parsed components and records any validation errors in configErrors.
+func (v *InputValidator) parseAndValidateInputsBlocks(contentStr, runbookDir string) []api.ParsedComponent {
+	components := api.ParseComponents(contentStr, "Inputs")
+	var results []api.ParsedComponent
+
+	for _, comp := range components {
+		// Run structural validation
+		validationErrors := validateComponent(comp)
+		if len(validationErrors) > 0 {
+			v.configErrors = append(v.configErrors, validationErrors...)
+			// Update comp.ID for missing ID case
+			if !comp.HasExplicitID {
+				comp.ID = "(missing)"
+			}
+			results = append(results, comp)
 			continue
 		}
 
 		// Skip duplicates (shouldn't happen, but be defensive)
-		if _, exists := v.schemas[block.id]; exists {
+		if _, exists := v.schemas[comp.ID]; exists {
 			continue
 		}
 
+		// Load schema from config
 		schema := &InputsBlockSchema{
-			ID:        block.id,
+			ID:        comp.ID,
 			Variables: make(map[string]BoilerplateVariable),
 		}
 
-		if block.configPath != "" {
-			// Load from external file - use the same path resolution as the API
-			// The API treats the path as a directory and appends "boilerplate.yml"
-			_, fullPath := api.ResolveBoilerplatePath(runbookDir, block.configPath)
+		configPath := api.ExtractProp(comp.Props, "path")
+		if configPath != "" {
+			_, fullPath := api.ResolveBoilerplatePath(runbookDir, configPath)
 			cfg, err := loadBoilerplateConfig(fullPath)
 			if err != nil {
-				errMsg := fmt.Sprintf("failed to load boilerplate config: %v", err)
 				v.configErrors = append(v.configErrors, ConfigError{
 					ComponentType: "Inputs",
-					ComponentID:   block.id,
-					Message:       errMsg,
+					ComponentID:   comp.ID,
+					Message:       fmt.Sprintf("failed to load boilerplate config: %v", err),
 				})
-				validationResult.Error = errMsg
 			} else {
 				for _, variable := range cfg.Variables {
 					schema.Variables[variable.Name] = variable
 				}
 			}
 		} else {
-			// Parse inline YAML from container content
-			if cfg := parseInlineYAML(block.configInline); cfg != nil {
+			configInline := strings.TrimSpace(comp.Content)
+			if cfg := parseInlineYAML(configInline); cfg != nil {
 				for _, variable := range cfg.Variables {
 					schema.Variables[variable.Name] = variable
 				}
 			}
 		}
 
-		v.schemas[block.id] = schema
-		v.inputsValidations = append(v.inputsValidations, validationResult)
+		v.schemas[comp.ID] = schema
+		results = append(results, comp)
 	}
 
-	// Parse Template blocks
-	templateRe := regexp.MustCompile(`<Template\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range templateRe.FindAllStringSubmatch(contentStr, -1) {
-		props := match[1]
-		id := extractPropValue(props, "id")
-		templatePath := extractPropValue(props, "path")
+	return results
+}
 
-		if id == "" || templatePath == "" {
+// parseAndValidateTemplateBlocks parses and validates Template blocks.
+// Returns parsed components and records any validation errors in configErrors.
+func (v *InputValidator) parseAndValidateTemplateBlocks(contentStr, runbookDir string) []api.ParsedComponent {
+	components := api.ParseComponents(contentStr, "Template")
+	var results []api.ParsedComponent
+
+	for _, comp := range components {
+		// Run structural validation
+		validationErrors := validateComponent(comp)
+		if len(validationErrors) > 0 {
+			v.configErrors = append(v.configErrors, validationErrors...)
+			if !comp.HasExplicitID {
+				comp.ID = "(missing)"
+			}
+			results = append(results, comp)
 			continue
 		}
 
-		boilerplatePath := filepath.Join(runbookDir, templatePath, "boilerplate.yml")
+		// File-based validation: template directory and boilerplate.yml exist
+		path := api.ExtractProp(comp.Props, "path")
+		templateDir, boilerplatePath := api.ResolveBoilerplatePath(runbookDir, path)
+		if _, err := os.Stat(templateDir); err != nil {
+			v.configErrors = append(v.configErrors, ConfigError{
+				ComponentType: "Template",
+				ComponentID:   comp.ID,
+				Message:       fmt.Sprintf("template directory not found: %s", path),
+			})
+			results = append(results, comp)
+			continue
+		}
 		config, err := loadBoilerplateConfig(boilerplatePath)
 		if err != nil {
-			continue // Skip if can't load - Template blocks will be validated separately
+			v.configErrors = append(v.configErrors, ConfigError{
+				ComponentType: "Template",
+				ComponentID:   comp.ID,
+				Message:       fmt.Sprintf("failed to load boilerplate config: %v", err),
+			})
+		} else {
+			// Load schema for input validation
+			schema := &InputsBlockSchema{
+				ID:        comp.ID,
+				Variables: make(map[string]BoilerplateVariable),
+			}
+			for _, variable := range config.Variables {
+				schema.Variables[variable.Name] = variable
+			}
+			v.schemas[comp.ID] = schema
 		}
 
-		schema := &InputsBlockSchema{
-			ID:        id,
-			Variables: make(map[string]BoilerplateVariable),
-		}
-
-		for _, variable := range config.Variables {
-			schema.Variables[variable.Name] = variable
-		}
-
-		v.schemas[id] = schema
+		results = append(results, comp)
 	}
 
-	return nil
+	return results
+}
+
+// parseAndValidateTemplateInlineBlocks parses and validates TemplateInline blocks.
+// Returns parsed components and records any validation errors in configErrors.
+func (v *InputValidator) parseAndValidateTemplateInlineBlocks(contentStr string) []api.ParsedComponent {
+	components := api.ParseComponents(contentStr, "TemplateInline")
+	var results []api.ParsedComponent
+
+	// TemplateInline uses custom ID generation based on outputPath
+	templateCount := 0
+	seen := make(map[string]bool)
+
+	for _, comp := range components {
+		outputPath := api.ExtractProp(comp.Props, "outputPath")
+
+		// Generate ID from outputPath
+		if id := generateTemplateInlineID(outputPath); id != "" {
+			comp.ID = id
+		} else {
+			templateCount++
+			comp.ID = fmt.Sprintf("template-inline-%d", templateCount)
+		}
+
+		// Skip duplicates (using our custom ID, not ParseComponents' auto-generated one)
+		if seen[comp.ID] {
+			continue
+		}
+		seen[comp.ID] = true
+
+		// Run structural validation (after setting custom ID)
+		validationErrors := validateComponent(comp)
+		v.configErrors = append(v.configErrors, validationErrors...)
+
+		results = append(results, comp)
+	}
+
+	return results
+}
+
+// findComponentPosition finds the position of a component in the document
+func findComponentPosition(content, componentType, id string) int {
+	// Try to find the component with the specific ID
+	if id != "" && id != "(missing)" {
+		pattern := fmt.Sprintf(`<%s[^>]*id=["']%s["']`, componentType, regexp.QuoteMeta(id))
+		re := regexp.MustCompile(pattern)
+		if loc := re.FindStringIndex(content); loc != nil {
+			return loc[0]
+		}
+	}
+
+	// Fallback: find any component of this type
+	pattern := fmt.Sprintf(`<%s\s+`, componentType)
+	re := regexp.MustCompile(pattern)
+	if loc := re.FindStringIndex(content); loc != nil {
+		return loc[0]
+	}
+
+	return 0
 }
 
 // Validate validates resolved inputs against the discovered schemas.
@@ -461,11 +593,31 @@ func (v *InputValidator) HasConfigErrors() bool {
 }
 
 // GetComponentValidations returns validation results for all components in document order.
-// Currently this includes Inputs blocks; Template validation will be added in the future.
-func (v *InputValidator) GetComponentValidations() []ComponentValidationResult {
-	// For now, only Inputs blocks are validated
-	// Future: append Template validations, etc.
-	return v.inputsValidations
+// This includes Inputs, Check, Command, Template, and TemplateInline blocks.
+// GetComponents returns all parsed components in document order.
+func (v *InputValidator) GetComponents() []api.ParsedComponent {
+	return v.components
+}
+
+// GetConfigError returns the config error for a specific component, if any.
+func (v *InputValidator) GetConfigError(componentType, componentID string) string {
+	for _, err := range v.configErrors {
+		if err.ComponentType == componentType && err.ComponentID == componentID {
+			return err.Message
+		}
+	}
+	return ""
+}
+
+// GetConfigErrorByID returns the config error for a component with the given ID.
+// This searches all component types and returns the first matching error.
+func (v *InputValidator) GetConfigErrorByID(componentID string) string {
+	for _, err := range v.configErrors {
+		if err.ComponentID == componentID {
+			return err.Message
+		}
+	}
+	return ""
 }
 
 // validateValue validates a single value against its variable definition.
@@ -611,26 +763,6 @@ func parseInlineYAML(content string) *BoilerplateConfig {
 	}
 
 	return &config
-}
-
-// extractPropValue extracts a prop value from a props string.
-func extractPropValue(props, propName string) string {
-	patterns := []string{
-		fmt.Sprintf(`%s="([^"]*)"`, propName),
-		fmt.Sprintf(`%s='([^']*)'`, propName),
-		fmt.Sprintf(`%s=\{`+"`([^`]*)`"+`\}`, propName),
-		fmt.Sprintf(`%s=\{"([^"]*)"\}`, propName),
-		fmt.Sprintf(`%s=\{'([^']*)'\}`, propName),
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		if match := re.FindStringSubmatch(props); len(match) > 1 {
-			return match[1]
-		}
-	}
-
-	return ""
 }
 
 // Helper functions

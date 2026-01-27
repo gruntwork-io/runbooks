@@ -80,13 +80,15 @@ tests:
         expect: success
 
       - block: template-missing-path
-        expect: skip  # Frontend validation error - Template without path isn't parsed
+        expect: config_error
+        error_contains: "path"
 
       - block: template-nonexistent
-        expect: skip  # Template path doesn't exist - demonstrates UI error state
+        expect: config_error
+        error_contains: "template directory not found"
 
       - block: duplicate-template-id
-        expect: skip  # Second template with duplicate ID isn't in the map
+        expect: config_error  # First one fails because templates/test doesn't exist
 
       - block: working-cmd
         expect: success
