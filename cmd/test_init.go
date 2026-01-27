@@ -532,6 +532,8 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 	sb.WriteString("settings:\n")
 	sb.WriteString("  # Generate files to a temp directory (cleaned up after test)\n")
 	sb.WriteString("  use_temp_output: true\n")
+	sb.WriteString("  # Working directory for script execution (default: temp directory)\n")
+	sb.WriteString("  # working_dir: \".\"  # Use \".\" for runbook directory, or specify a path\n")
 	sb.WriteString("  # Test timeout\n")
 	sb.WriteString("  timeout: 5m\n")
 	sb.WriteString("  # Can this runbook's tests run in parallel with others?\n")

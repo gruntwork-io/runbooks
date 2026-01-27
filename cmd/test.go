@@ -262,27 +262,37 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 	}
 
 	// Create output directory
-	tempOutput, err := os.MkdirTemp("", "runbook-test-*")
+	outputDir, cleanupOutput, err := createOutputDir()
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "setup",
 			Status:   runbooktesting.TestFailed,
-			Error:    fmt.Sprintf("failed to create temp dir: %v", err),
+			Error:    err.Error(),
 		})
 		suite.Failed = 1
 		suite.Duration = time.Since(start)
 		return suite
 	}
-	defer os.RemoveAll(tempOutput)
+	defer cleanupOutput()
+
+	// Determine working directory for script execution
+	workDir, cleanupWorkDir, err := resolveWorkDir(runbookPath, config.Settings.GetWorkingDir())
+	if err != nil {
+		suite.Results = append(suite.Results, runbooktesting.TestResult{
+			TestCase: "setup",
+			Status:   runbooktesting.TestFailed,
+			Error:    err.Error(),
+		})
+		suite.Failed = 1
+		suite.Duration = time.Since(start)
+		return suite
+	}
+	if cleanupWorkDir != nil {
+		defer cleanupWorkDir()
+	}
 
 	// Create executor
-	timeout := config.Settings.GetTimeout()
-	executor, err := runbooktesting.NewTestExecutor(
-		runbookPath,
-		tempOutput,
-		runbooktesting.WithTimeout(timeout),
-		runbooktesting.WithVerbose(testVerbose),
-	)
+	executor, err := createExecutor(runbookPath, outputDir, workDir, config.Settings.GetTimeout())
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "setup",
@@ -330,6 +340,55 @@ func loadTestConfig(runbookPath string) (*runbooktesting.TestConfig, error) {
 	dir := filepath.Dir(runbookPath)
 	configPath := filepath.Join(dir, "runbook_test.yml")
 	return runbooktesting.LoadConfig(configPath)
+}
+
+// createOutputDir creates a temporary directory for test output files.
+// Returns the directory path and a cleanup function.
+func createOutputDir() (string, func(), error) {
+	dir, err := os.MkdirTemp("", "runbook-test-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	cleanup := func() { os.RemoveAll(dir) }
+	return dir, cleanup, nil
+}
+
+// resolveWorkDir determines the working directory for script execution.
+// Returns the directory path (empty string means use executor default),
+// a cleanup function (nil if no cleanup needed), and an error.
+func resolveWorkDir(runbookPath string, configuredWorkDir string) (string, func(), error) {
+	switch configuredWorkDir {
+	case "":
+		// Default: use a temp directory
+		dir, err := os.MkdirTemp("", "runbook-workdir-*")
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to create temp workdir: %w", err)
+		}
+		cleanup := func() { os.RemoveAll(dir) }
+		return dir, cleanup, nil
+	case ".":
+		// Use runbook directory (let executor use its default)
+		return "", nil, nil
+	default:
+		// Use specified directory (resolve relative to runbook dir)
+		runbookDir := filepath.Dir(runbookPath)
+		if filepath.IsAbs(configuredWorkDir) {
+			return configuredWorkDir, nil, nil
+		}
+		return filepath.Join(runbookDir, configuredWorkDir), nil, nil
+	}
+}
+
+// createExecutor creates a test executor with the given configuration.
+func createExecutor(runbookPath, outputDir, workDir string, timeout time.Duration) (*runbooktesting.TestExecutor, error) {
+	opts := []runbooktesting.ExecutorOption{
+		runbooktesting.WithTimeout(timeout),
+		runbooktesting.WithVerbose(testVerbose),
+	}
+	if workDir != "" {
+		opts = append(opts, runbooktesting.WithWorkingDir(workDir))
+	}
+	return runbooktesting.NewTestExecutor(runbookPath, outputDir, opts...)
 }
 
 // reportResults prints test results to stdout or file.

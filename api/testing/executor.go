@@ -71,6 +71,20 @@ func WithVerbose(v bool) ExecutorOption {
 	}
 }
 
+// WithWorkingDir sets the initial working directory for script execution.
+// This overrides the default set during executor creation.
+func WithWorkingDir(dir string) ExecutorOption {
+	return func(e *TestExecutor) {
+		if dir != "" {
+			// Update the session's working directory
+			if session, ok := e.session.GetSession(); ok {
+				session.InitialWorkDir = dir
+				session.WorkingDir = dir
+			}
+		}
+	}
+}
+
 // NewTestExecutor creates a new test executor for a runbook.
 func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*TestExecutor, error) {
 	// Create executable registry to parse the runbook

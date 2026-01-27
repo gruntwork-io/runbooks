@@ -22,6 +22,9 @@ type TestConfig struct {
 type TestSettings struct {
 	// UseTempOutput generates files to a temporary directory (default: true)
 	UseTempOutput bool `yaml:"use_temp_output,omitempty"`
+	// WorkingDir sets the working directory for script execution.
+	// If empty (default), a temp directory is used. Use "." for the runbook directory.
+	WorkingDir string `yaml:"working_dir,omitempty"`
 	// Timeout for each test case (default: 5m)
 	Timeout string `yaml:"timeout,omitempty"`
 	// Parallelizable indicates if this runbook's tests can run in parallel with other runbooks
@@ -466,4 +469,9 @@ func (s *TestSettings) IsParallelizable() bool {
 		return true // Default to true
 	}
 	return *s.Parallelizable
+}
+
+// GetWorkingDir returns the configured working directory, or empty string if temp dir should be used.
+func (s *TestSettings) GetWorkingDir() string {
+	return s.WorkingDir
 }
