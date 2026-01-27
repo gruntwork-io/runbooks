@@ -278,7 +278,7 @@ func validateComponent(comp api.ParsedComponent) []ConfigError {
 		if !comp.HasExplicitID {
 			errors = append(errors, ConfigError{
 				ComponentType: comp.Type,
-				ComponentID:   "(missing)",
+				ComponentID:   comp.ID, // Use auto-generated ID so lookups work
 				Message:       "the 'id' prop is required",
 			})
 		}

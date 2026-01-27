@@ -271,6 +271,11 @@ func (e *TestExecutor) PrintTestHeader(testName string) {
 // This checks that Inputs, Templates, etc. have valid configurations before test execution.
 // Config errors are checked against test steps - if a step expects config_error for a block,
 // the error is deferred to step execution. Otherwise, unhandled errors fail upfront.
+//
+// For components that will be executed later (Check, Command, Template, TemplateInline),
+// we only add results here if there's a config error. This avoids duplicate entries in the
+// output (once for validation, once for execution).
+//
 // Returns: (stepResults, errorCount, firstErrorMessage)
 func (e *TestExecutor) validateComponentConfigurations(steps []TestStep) ([]StepResult, int, string) {
 	// Build a map of blocks that expect config_error
@@ -291,24 +296,39 @@ func (e *TestExecutor) validateComponentConfigurations(steps []TestStep) ([]Step
 	registryWarnings := e.registry.GetWarnings()
 
 	for _, comp := range components {
-		stepResult := StepResult{
-			Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
-			ExpectedStatus: StatusSuccess,
-			Duration:       0,
-		}
-
 		// Determine the validation error for this component
 		var validationError string
 		switch comp.Type {
 		case "Check", "Command":
-			// For Check/Command, get errors from ExecutableRegistry (source of truth)
+			// For Check/Command, check both registry warnings and validator config errors.
+			// Registry warnings cover file-not-found errors; validator covers structural errors like missing ID.
 			validationError = e.getRegistryWarningForBlock(registryWarnings, comp.ID)
+			if validationError == "" {
+				validationError = e.validator.GetConfigError(comp.Type, comp.ID)
+			}
 		case "Inputs", "Template", "TemplateInline":
 			// For Inputs/Template/TemplateInline, get errors from InputValidator
 			validationError = e.validator.GetConfigError(comp.Type, comp.ID)
 		default:
 			// Unknown component type - this indicates we need to update the test framework
 			panic(fmt.Sprintf("unsupported component type %q in test validation - update validateComponentConfigurations to handle this type", comp.Type))
+		}
+
+		// For executable components (Check, Command, Template, TemplateInline) that pass validation,
+		// don't add a result here - let the execution phase handle them to avoid duplicate entries.
+		// Only add results for:
+		// 1. Components with config errors (need to fail upfront or be tested)
+		// 2. Inputs blocks (validation-only, not executed)
+		isExecutable := comp.Type == "Check" || comp.Type == "Command" || comp.Type == "Template" || comp.Type == "TemplateInline"
+		if validationError == "" && isExecutable {
+			// Skip - execution phase will handle this component
+			continue
+		}
+
+		stepResult := StepResult{
+			Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
+			ExpectedStatus: StatusSuccess,
+			Duration:       0,
 		}
 
 		if validationError != "" {
@@ -343,7 +363,7 @@ func (e *TestExecutor) validateComponentConfigurations(steps []TestStep) ([]Step
 				}
 			}
 		} else {
-			// Validation passed
+			// Validation passed (this branch is only for Inputs blocks now)
 			stepResult.ActualStatus = "success"
 			stepResult.Passed = true
 
