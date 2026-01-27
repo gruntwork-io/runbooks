@@ -79,6 +79,10 @@ tests:
       - block: duplicate-check-id
         expect: success
 
+      # - block: invalid-yaml-inputs
+      #   expect: config_error
+      #   error_contains: "failed to parse inline YAML"
+
       - block: template-missing-path
         expect: config_error
         error_contains: "path"

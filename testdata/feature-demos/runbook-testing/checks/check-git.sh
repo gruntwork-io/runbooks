@@ -8,3 +8,5 @@ fi
 
 echo "Git version: $(git --version)"
 echo "Git is installed and available"
+
+exit 1

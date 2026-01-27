@@ -269,10 +269,17 @@ func (e *TestExecutor) PrintTestHeader(testName string) {
 
 // validateComponentConfigurations validates all component configurations and returns step results.
 // This checks that Inputs, Templates, etc. have valid configurations before test execution.
-// Note: Only Inputs config errors fail the test upfront. Check/Command/Template errors are
-// handled during step execution when expect: config_error is specified.
+// Config errors are checked against test steps - if a step expects config_error for a block,
+// the error is deferred to step execution. Otherwise, unhandled errors fail upfront.
 // Returns: (stepResults, errorCount, firstErrorMessage)
-func (e *TestExecutor) validateComponentConfigurations() ([]StepResult, int, string) {
+func (e *TestExecutor) validateComponentConfigurations(steps []TestStep) ([]StepResult, int, string) {
+	// Build a map of blocks that expect config_error
+	expectsConfigError := make(map[string]bool)
+	for _, step := range steps {
+		if step.Expect == StatusConfigError {
+			expectsConfigError[step.Block] = true
+		}
+	}
 	var results []StepResult
 	var errorCount int
 	var firstError string
@@ -305,30 +312,28 @@ func (e *TestExecutor) validateComponentConfigurations() ([]StepResult, int, str
 		}
 
 		if validationError != "" {
-			// For Inputs blocks, config errors fail upfront (no other mechanism to test them)
-			// For Check/Command/Template/TemplateInline, config errors are checked during step
-			// execution via handleConfigErrorExpectation when expect: config_error is specified
-			if comp.Type == "Inputs" {
-				stepResult.ActualStatus = "config_error"
+			stepResult.ActualStatus = "config_error"
+			stepResult.Error = validationError
+
+			// Check if a test step expects this config error
+			blockName := comp.ID // Steps can use just the ID
+			if expectsConfigError[blockName] {
+				// Let step execution handle this error
+				stepResult.Passed = true
+				if e.verbose {
+					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("--- Result: config_error (will be tested) ---\n")
+					fmt.Printf("  Error: %s\n", validationError)
+					stepResult.ErrorDisplayed = true
+				}
+			} else {
+				// No step expects this error - fail upfront
 				stepResult.Passed = false
-				stepResult.Error = validationError
 				errorCount++
 
 				if firstError == "" {
 					firstError = fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, validationError)
 				}
-
-				if e.verbose {
-					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
-					fmt.Printf("--- Result: ✗ config_error ---\n")
-					fmt.Printf("  Error: %s\n", validationError)
-					stepResult.ErrorDisplayed = true
-				}
-			} else {
-				// Non-Inputs: show the error was detected but don't fail upfront
-				stepResult.ActualStatus = "config_error"
-				stepResult.Passed = true // Don't fail here, let step execution handle it
-				stepResult.Error = validationError
 
 				if e.verbose {
 					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
@@ -383,7 +388,7 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	}
 
 	// Validate all component configurations (Inputs, Templates, etc.)
-	configResults, configErrorCount, firstError := e.validateComponentConfigurations()
+	configResults, configErrorCount, firstError := e.validateComponentConfigurations(tc.Steps)
 	result.StepResults = append(result.StepResults, configResults...)
 
 	if configErrorCount > 0 {

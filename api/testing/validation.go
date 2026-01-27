@@ -410,7 +410,14 @@ func (v *InputValidator) parseAndValidateInputsBlocks(contentStr, runbookDir str
 			}
 		} else {
 			configInline := strings.TrimSpace(comp.Content)
-			if cfg := parseInlineYAML(configInline); cfg != nil {
+			cfg, err := parseInlineYAML(configInline)
+			if err != nil {
+				v.configErrors = append(v.configErrors, ConfigError{
+					ComponentType: "Inputs",
+					ComponentID:   comp.ID,
+					Message:       fmt.Sprintf("failed to parse inline YAML: %v", err),
+				})
+			} else if cfg != nil {
 				for _, variable := range cfg.Variables {
 					schema.Variables[variable.Name] = variable
 				}
@@ -749,7 +756,7 @@ func loadBoilerplateConfig(path string) (*BoilerplateConfig, error) {
 }
 
 // parseInlineYAML parses YAML content from an inline Inputs block.
-func parseInlineYAML(content string) *BoilerplateConfig {
+func parseInlineYAML(content string) (*BoilerplateConfig, error) {
 	// Extract YAML from code fence if present
 	yamlContent := content
 	codeFenceRe := regexp.MustCompile("(?s)```(?:yaml|yml)?\\s*\\n(.+?)```")
@@ -759,10 +766,10 @@ func parseInlineYAML(content string) *BoilerplateConfig {
 
 	var config BoilerplateConfig
 	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		return nil
+		return nil, err
 	}
 
-	return &config
+	return &config, nil
 }
 
 // Helper functions
