@@ -233,7 +233,11 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 					}
 				} else {
 					// Parse inline YAML from content
-					if vars := parseInlineInputsYAML(innerContent); len(vars) > 0 {
+					vars, err := parseInlineInputsYAML(innerContent)
+					if err != nil {
+						return nil, fmt.Errorf("error in Inputs block %q: %w", id, err)
+					}
+					if len(vars) > 0 {
 						block.Variables = vars
 					}
 				}
@@ -396,7 +400,7 @@ func parseBoilerplateFile(path string) ([]variableInfo, error) {
 }
 
 // parseInlineInputsYAML extracts variables from inline YAML in an Inputs block
-func parseInlineInputsYAML(content string) []variableInfo {
+func parseInlineInputsYAML(content string) ([]variableInfo, error) {
 	// Extract YAML from code fence if present
 	yamlContent := content
 
@@ -408,7 +412,12 @@ func parseInlineInputsYAML(content string) []variableInfo {
 
 	var config boilerplateConfig
 	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		return nil
+		// Truncate content for error message if too long
+		displayContent := yamlContent
+		if len(displayContent) > 200 {
+			displayContent = displayContent[:200] + "..."
+		}
+		return nil, fmt.Errorf("failed to parse inline YAML in Inputs block: %w\nYAML content:\n%s", err, displayContent)
 	}
 
 	var vars []variableInfo
@@ -422,7 +431,7 @@ func parseInlineInputsYAML(content string) []variableInfo {
 		parseValidations(&vi, v.Validations)
 		vars = append(vars, vi)
 	}
-	return vars
+	return vars, nil
 }
 
 // parseValidations extracts validation constraints from the validations field
