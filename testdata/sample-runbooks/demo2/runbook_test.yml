@@ -48,11 +48,15 @@ tests:
           minLength: 5
           maxLength: 20
       # AWSAccounts: map
-      infra-live-elements-inputs.AWSAccounts:
-        fuzz:
-          type: string
-          minLength: 5
-          maxLength: 20
+        infra-live-elements-inputs.AWSAccounts:
+          fuzz:
+            type: map
+            minCount: 2
+            maxCount: 4
+            schema:
+              - email
+              - environment
+              - id
       # OrgNamePrefix: string
       infra-live-elements-inputs.OrgNamePrefix:
         fuzz:
@@ -67,15 +71,15 @@ tests:
       # DefaultTags: map
       infra-live-elements-inputs.DefaultTags:
         fuzz:
-          type: string
-          minLength: 5
-          maxLength: 20
+          type: map
+          minCount: 2
+          maxCount: 4
       # CatalogRepositories: list
       infra-live-elements-inputs.CatalogRepositories:
         fuzz:
-          type: string
-          minLength: 5
-          maxLength: 20
+          type: list
+          minCount: 2
+          maxCount: 4
       # RootTerragruntFileName: string
       infra-live-elements-inputs.RootTerragruntFileName:
         fuzz:
@@ -114,9 +118,8 @@ tests:
       # - block: check-infrastructure-live-root-repo
       #   expect: success
 
-      # Requires mise to be installed
       - block: lookup-latest-versions-of-opentofu-and-terragrunt
-        expect: skip
+        expect: success
 
       - block: test-command1
         expect: success

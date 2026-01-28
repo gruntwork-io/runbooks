@@ -9,7 +9,9 @@ fi
 echo "Verifying project: $PROJECT_NAME"
 
 # Check for expected files (would be created by template)
-if [[ -f "$RUNBOOK_FILES/README.md" ]]; then
+if [[ -z "$RUNBOOK_FILES" ]]; then
+    echo "INFO: RUNBOOK_FILES environment variable not set, skipping README.md check"
+elif [[ -f "$RUNBOOK_FILES/README.md" ]]; then
     echo "README.md exists"
 else
     echo "INFO: README.md not found (expected in $RUNBOOK_FILES)"
