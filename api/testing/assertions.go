@@ -426,7 +426,11 @@ func (e *TestExecutor) assertFilesGenerated(minCount int) AssertionResult {
 
 // assertScript runs a custom script command and checks for success.
 func (e *TestExecutor) assertScript(command string) AssertionResult {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	duration := e.timeout
+	if duration <= 0 {
+		duration = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)

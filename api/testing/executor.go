@@ -85,6 +85,8 @@ func WithVerbose(v bool) ExecutorOption {
 func WithWorkingDir(dir string) ExecutorOption {
 	return func(e *TestExecutor) {
 		if dir != "" {
+			// Update the executor's working directory
+			e.workingDir = dir
 			// Update the session's working directory
 			if session, ok := e.session.GetSession(); ok {
 				session.InitialWorkDir = dir
