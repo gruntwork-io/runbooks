@@ -44,7 +44,7 @@ Test different runbook features:
 # Test with different demo runbooks
 go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
 go run main.go serve testdata/sample-runbooks/demo2/runbook.mdx
-go run main.go serve testdata/test-fixtures/runbooks/with-boilerplate/runbook/runbook.mdx
+go run main.go serve testdata/sample-runbooks/lambda/runbook.mdx
 ```
 
 ### Building for Production

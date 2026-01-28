@@ -4,7 +4,7 @@ sidebar:
    order: 2
 ---
 
-On this page, we'll walk through the **Runbooks consumer** experience when a user opens the [lambda feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/lambda). Our user's goal is to launch an AWS Lambda function on AWS in a way that matches their organization's standards.
+On this page, we'll walk through the **Runbooks consumer** experience when a user opens the [lambda feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/lambda). Our user's goal is to launch an AWS Lambda function on AWS in a way that matches their organization's standards.
 
 You can see either a [written walkthrough](#written-walkthrough) or [video walkthrough](#video-walkthrough).
 
