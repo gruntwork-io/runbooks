@@ -958,7 +958,6 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 // Helper Functions
 // =============================================================================
 
-// defaultRegion returns the provided region, or "us-east-1" if empty.
 // formatSSOError provides user-friendly error messages for common SSO errors.
 func formatSSOError(err error, region, startURL string) string {
 	errStr := err.Error()
@@ -997,6 +996,7 @@ func formatSSOError(err error, region, startURL string) string {
 		err)
 }
 
+// defaultRegion returns the provided region, or "us-east-1" if empty.
 func defaultRegion(region string) string {
 	if region == "" {
 		return "us-east-1"
