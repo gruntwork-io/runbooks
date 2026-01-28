@@ -67,263 +67,303 @@ tests:
       - command: rm -rf /tmp/test-resources
 ```
 
-## Test Structure
+### Top-Level Structure
 
-### Settings
+```yaml
+version: 1              # Required. Must be 1.
+settings: { ... }       # Optional. Global settings for all tests.
+tests: [ ... ]          # Required. Array of test cases (minimum 1).
+```
 
-Global settings that apply to all tests in the file:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `version` | integer | Yes | Configuration version. Must be `1`. |
+| `settings` | object | No | Global settings that apply to all tests. |
+| `tests` | array | Yes | Array of runbok tests to run. At least one test case is required. |
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `use_temp_working_dir` | `true` | Use a temporary working directory (automatically cleaned up). Overrides `working_dir` if set. |
-| `working_dir` | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. |
-| `output_path` | `generated` | Directory where generated files are written, relative to the working directory. |
-| `timeout` | `5m` | Maximum time for each test case |
-| `parallelizable` | `true` | Whether this runbook's tests can run in parallel with others |
-
-#### Working Directory Behavior
-
-The working directory determines where scripts execute and where generated files are written:
-
-- **Default**: Uses a temporary directory (`use_temp_working_dir: true`) for isolated test runs
-- **Custom directory**: Set `working_dir` to a specific path and `use_temp_working_dir: false`
-- **Output path**: Generated files go to `{working_dir}/{output_path}` (e.g., `/tmp/runbook-xyz/generated`)
-
-Example with custom working directory:
+### Settings Object
 
 ```yaml
 settings:
-  use_temp_working_dir: false
-  working_dir: /tmp/my-test-output
-  output_path: generated
+  use_temp_working_dir: true    # boolean, default: true
+  working_dir: "."              # string, default: current directory
+  output_path: "generated"      # string, default: "generated"
+  timeout: "5m"                 # duration string, default: "5m"
+  parallelizable: true          # boolean, default: true
 ```
 
-### Test Cases
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `use_temp_working_dir` | boolean | `true` | Use an isolated temporary directory for test execution. Overrides `working_dir` when `true`. The temp directory is automatically cleaned up after the test. |
+| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. |
+| `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
+| `timeout` | string | `"5m"` | Maximum time for each test case. Uses Go duration format (e.g., `30s`, `5m`, `1h`). |
+| `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. |
 
-Each test case has:
-
-- **name** (required): Unique identifier for the test
-- **description**: Human-readable description
-- **env**: Environment variables to set for all blocks in this test
-- **inputs**: Variable values for the test
-- **steps**: Blocks to execute (in order)
-- **assertions**: Validations to run after all steps
-- **cleanup**: Actions to run after the test (even on failure)
-
-### Environment Variables
-
-Set environment variables for a test case using the `env` field:
+### Test Case Object
 
 ```yaml
 tests:
-  - name: dry-run-test
-    description: Test with dry-run mode enabled
-    
-    env:
-      RUNBOOK_DRY_RUN: "true"
-      MY_API_KEY: "test-key"
-    
-    steps:
-      - block: create-resource
-        expect: success
+  - name: "test-name"           # string, required
+    description: "..."          # string, optional
+    env: { ... }                # map[string]string, optional
+    inputs: { ... }             # map[string]InputValue, optional
+    steps: [ ... ]              # array of Step objects, optional
+    assertions: [ ... ]         # array of Assertion objects, optional
+    cleanup: [ ... ]            # array of CleanupAction objects, optional
 ```
 
-Environment variables are available to all blocks executed in the test case.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique identifier for the test case. |
+| `description` | string | No | Human-readable description of what the test validates. |
+| `env` | map | No | Environment variables to set for all blocks in this test. Keys and values are strings. |
+| `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
+| `steps` | array | No | Blocks to execute in order. If empty, all blocks run in document order. |
+| `assertions` | array | No | Validations to run after all steps complete. |
+| `cleanup` | array | No | Actions to run after the test completes (even on failure). |
 
-### Steps
-
-Each step specifies a block to execute and the expected result:
+### Step Object
 
 ```yaml
 steps:
-  - block: check-git
-    expect: success
-
-  - block: create-resources
-    expect: success
-    outputs: [resource_id, resource_name]
+  - block: "block-id"           # string, required
+    expect: success             # ExpectedStatus, default: "success"
+    outputs: ["output1"]        # array of strings, optional
+    missing_outputs: ["..."]    # array of strings, optional
+    error_contains: "..."       # string, optional
+    assertions: [ ... ]         # array of Assertion objects, optional
 ```
 
-If you don't specify any blocks, the test will run all blocks in the runbook in document order.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `block` | string | Yes | ID of the block to execute. |
+| `expect` | string | No | Expected execution status. Default: `success`. See Expected Status values below. |
+| `outputs` | array | No | Output names to capture from the block. |
+| `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). |
+| `error_contains` | string | No | Expected error message substring (used with `config_error` status). |
+| `assertions` | array | No | Assertions to run immediately after this step completes. |
 
-In your test configuration file, you can specify the expected status of a block:
+#### Expected Status Values
 
 | Status | Description |
 |--------|-------------|
-| `success` | Block completed successfully (exit code 0) |
-| `fail` | Block failed (exit code 1+) |
-| `warn` | Block completed with warning (exit code 2) |
-| `blocked` | Block should be blocked due to missing dependencies |
-| `skip` | Skip this block (useful for AwsAuth in non-AWS tests) |
+| `success` | Block completed successfully (exit code 0). |
+| `fail` | Block failed (exit code 1+). |
+| `warn` | Block completed with warning (exit code 2). |
+| `blocked` | Block should be blocked due to missing dependencies. |
+| `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). |
+| `config_error` | Block has a configuration error (missing props, invalid config, etc.). |
 
-### Per-Step Assertions
+### Assertion Object
 
-You can run assertions immediately after a step completes:
-
-```yaml
-steps:
-  - block: create-resource
-    expect: success
-    assertions:
-      - type: output_exists
-        output: resource_id
-```
-
-## Assertions
-
-Assertions validate the test results. They run after all steps complete (or immediately after a step if defined inline as we just saw above).
-
-### File Assertions
-
-The following file assertions are useful for validating the content of generated files:
+All assertions have a `type` field that determines which other fields are required.
 
 ```yaml
 assertions:
-  # Check file exists
-  - type: file_exists
-    path: generated/README.md
-
-  # Check file does not exist
-  - type: file_not_exists
-    path: generated/temp.txt
-
-  # Check file contains substring
-  - type: file_contains
-    path: generated/README.md
-    contains: "My Project"
-
-  # Check file does not contain substring
-  - type: file_not_contains
-    path: generated/README.md
-    contains: "TODO"
-
-  # Check file matches regex pattern
-  - type: file_matches
-    path: generated/config.json
-    pattern: '"version":\s*"\d+\.\d+\.\d+"'
-
-  # Check file equals exact content
-  - type: file_equals
-    path: generated/version.txt
-    value: "1.0.0"
-
-  # Check template generated files
-  - type: files_generated
-    block: my-template
-    min_count: 1
+  - type: "assertion_type"      # AssertionType, required
+    # Additional fields depend on the assertion type
 ```
 
-### Directory Assertions
+| Assertion Type | Required Fields | Optional Fields | Description |
+|----------------|-----------------|-----------------|-------------|
+| `file_exists` | `path` | — | Check that a file exists at the given path. |
+| `file_not_exists` | `path` | — | Check that a file does not exist. |
+| `file_contains` | `path`, `contains` | — | Check that a file contains a substring. |
+| `file_not_contains` | `path`, `contains` | — | Check that a file does not contain a substring. |
+| `file_matches` | `path`, `pattern` | — | Check that file content matches a regex pattern. |
+| `file_equals` | `path`, `value` | — | Check that file content exactly equals a value. |
+| `dir_exists` | `path` | — | Check that a directory exists. |
+| `dir_not_exists` | `path` | — | Check that a directory does not exist. |
+| `output_equals` | `block`, `output`, `value` | — | Check that a block output equals a value. |
+| `output_matches` | `block`, `output`, `pattern` | — | Check that a block output matches a regex pattern. |
+| `output_exists` | `block`, `output` | — | Check that a block output exists (is not empty). |
+| `files_generated` | `block` | `min_count` | Check that a Template block generated files. |
+| `script` | `command` | — | Run a custom script (exit 0 = pass). |
 
-The following folder assertions are useful for validating the status of generated folders:
+#### Assertion Field Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | The assertion type. Required for all assertions. |
+| `path` | string | File or directory path (relative to working directory). |
+| `contains` | string | Substring to search for in file content. |
+| `pattern` | string | Regular expression pattern. |
+| `value` | string | Expected exact value. |
+| `block` | string | Block ID for output assertions or `files_generated`. |
+| `output` | string | Output name to check. |
+| `min_count` | integer | Minimum number of files generated (for `files_generated`). Default: 1. |
+| `command` | string | Shell command to execute (for `script` assertions). |
+
+### Cleanup Action Object
 
 ```yaml
-assertions:
-  - type: dir_exists
-    path: generated/src
-
-  - type: dir_not_exists
-    path: generated/temp
+cleanup:
+  - command: "rm -rf /tmp/test" # string, optional (inline command)
+    path: "cleanup/teardown.sh" # string, optional (script file path)
 ```
 
-### Output Assertions
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Inline shell command to execute. |
+| `path` | string | Path to a script file to execute. |
 
-The following assertions are useful for validating outputs of blocks:
+Provide either `command` or `path`, not both.
 
-```yaml
-assertions:
-  # Check output equals value
-  - type: output_equals
-    block: create-resource
-    output: status
-    value: "created"
+### Input Value
 
-  # Check output matches pattern
-  - type: output_matches
-    block: create-resource
-    output: resource_id
-    pattern: "^[a-f0-9]{12}$"
+Input values can be specified as either literal values or fuzz configurations.
 
-  # Check output exists
-  - type: output_exists
-    block: create-resource
-    output: resource_id
-```
-
-### Script Assertions
-
-The following script assertions are useful to run any custom validation logic:
-
-```yaml
-assertions:
-  # Run custom script (exit 0 = pass)
-  - type: script
-    command: test -f generated/config.json && jq -e '.version' generated/config.json
-```
-
-## Inputs
-
-Inputs are used to set the values templates, which are used to generate files, commands, and checks. 
-
-Runbooks tests support both literal values and fuzz values for inputs.
-
-### Literal Values
-
-Literal values are used to set the values of inputs to specific values.
+#### Literal Values
 
 ```yaml
 inputs:
-  project.Name: "test-project"
-  project.Description: "A test project"
-  config.Port: 8080
-  config.Enabled: true
+  project.Name: "my-project"    # string literal
+  config.Port: 8080             # integer literal
+  config.Enabled: true          # boolean literal
 ```
 
-### Fuzz Values
+#### Fuzz Values
 
 Fuzz values are used to generate random values for testing. The test framework will generate a new random value that meets the given constraints for each test run.
 
 ```yaml
 inputs:
-  # Random alphanumeric string
   project.Name:
-    fuzz: { type: alphanumeric, length: 15 }
-  
-  # Random words
-  project.Description:
-    fuzz: { type: words, length: 5 }
-  
-  # Random from enum options
-  project.Language:
-    fuzz: { type: enum }
-  
-  # Random UUID
-  resource.ID:
-    fuzz: { type: uuid }
-  
-  # Random integer
-  config.Port:
-    fuzz: { type: int, min: 3000, max: 9000 }
-  
-  # Random boolean
-  config.Enabled:
-    fuzz: { type: bool }
-  
-  # Random email
-  user.Email:
-    fuzz: { type: email }
-  
-  # Random URL
-  config.Endpoint:
-    fuzz: { type: url }
-  
-  # Random date (YYYY-MM-DD)
-  project.StartDate:
-    fuzz: { type: date }
-  
-  # Random timestamp (RFC3339)
-  event.Timestamp:
-    fuzz: { type: timestamp }
+    fuzz:
+      type: string              # FuzzType, required
+      # Additional fields depend on the fuzz type
+```
+
+### Fuzz Configuration
+
+The `fuzz` object specifies how to generate random values.
+
+| Field | Type | Applies To | Description |
+|-------|------|------------|-------------|
+| `type` | string | All | Required. The fuzz type (see Fuzz Types below). |
+| `length` | integer | `string` | Exact length of the generated string. |
+| `minLength` | integer | `string`, `list` | Minimum length. Default: 8 for strings, 5 for list items. |
+| `maxLength` | integer | `string`, `list` | Maximum length. Default: `minLength + 10` for strings. |
+| `prefix` | string | `string` | Prefix to prepend to the generated string. |
+| `suffix` | string | `string` | Suffix to append to the generated string. |
+| `includeSpaces` | boolean | `string` | Include space characters. Default: `false`. |
+| `includeSpecialChars` | boolean | `string` | Include special characters. Default: `false`. |
+| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0. |
+| `max` | integer | `int`, `float` | Maximum numeric value. Default: 100. |
+| `options` | array | `enum` | Array of valid enum options. Required for `enum` type. |
+| `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
+| `minDate` | string | `date`, `timestamp` | Minimum date (supports RFC3339, YYYY-MM-DD). Default: 365 days ago. |
+| `maxDate` | string | `date`, `timestamp` | Maximum date. Default: now. |
+| `format` | string | `date`, `timestamp` | Output format. Default: `2006-01-02` for date, RFC3339 for timestamp. |
+| `wordCount` | integer | `words` | Exact number of words. |
+| `minWordCount` | integer | `words` | Minimum word count. Default: 2. |
+| `maxWordCount` | integer | `words` | Maximum word count. Default: `minWordCount + 3`. |
+| `count` | integer | `list`, `map` | Exact number of items/entries. |
+| `minCount` | integer | `list`, `map` | Minimum items/entries. Default: 2. |
+| `maxCount` | integer | `list`, `map` | Maximum items/entries. Default: `minCount + 3`. |
+| `schema` | array | `map` | Field names for nested map values (generates `map[string]map[string]string`). |
+
+### Fuzz Types
+
+| Type | Output | Description |
+|------|--------|-------------|
+| `string` | `string` | Alphanumeric string with optional spaces and special characters. |
+| `int` | `integer` | Random integer within min/max range. |
+| `float` | `float` | Random float within min/max range. |
+| `bool` | `boolean` | Random `true` or `false`. |
+| `enum` | `string` | Random selection from `options` array. |
+| `email` | `string` | Valid email address (e.g., `abc123@example.com`). |
+| `url` | `string` | Valid URL (e.g., `https://example.com/path`). |
+| `uuid` | `string` | UUID v4 (e.g., `550e8400-e29b-41d4-a716-446655440000`). |
+| `date` | `string` | Date string. Default format: `YYYY-MM-DD`. |
+| `timestamp` | `string` | Timestamp string. Default format: RFC3339. |
+| `words` | `string` | Space-separated random words. |
+| `list` | `string` | JSON array of strings (e.g., `["abc", "def"]`). |
+| `map` | `string` or `map` | JSON object or nested map depending on `schema`. |
+
+### Complete Example
+
+```yaml
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  output_path: generated
+  timeout: 10m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Standard successful execution with all features
+    
+    env:
+      LOG_LEVEL: debug
+      RUNBOOK_DRY_RUN: "false"
+    
+    inputs:
+      # Literal values
+      project.Name: "test-project"
+      config.Port: 8080
+      
+      # Fuzz values
+      project.Description:
+        fuzz: { type: words, minWordCount: 3, maxWordCount: 6 }
+      user.Email:
+        fuzz: { type: email, domain: "test.example.com" }
+      resource.ID:
+        fuzz: { type: uuid }
+      config.Region:
+        fuzz: { type: enum, options: ["us-east-1", "us-west-2", "eu-west-1"] }
+    
+    steps:
+      - block: validate-inputs
+        expect: success
+      
+      - block: create-resources
+        expect: success
+        outputs: [resource_id, resource_arn]
+        assertions:
+          - type: output_exists
+            output: resource_id
+      
+      - block: generate-config
+        expect: success
+    
+    assertions:
+      - type: file_exists
+        path: generated/config.json
+      
+      - type: file_contains
+        path: generated/config.json
+        contains: "test-project"
+      
+      - type: file_matches
+        path: generated/config.json
+        pattern: '"version":\s*"\d+\.\d+\.\d+"'
+      
+      - type: output_matches
+        block: create-resources
+        output: resource_id
+        pattern: "^[a-f0-9]{12}$"
+    
+    cleanup:
+      - command: rm -rf /tmp/test-resources
+
+  - name: missing-dependency
+    description: Test that blocks are properly blocked
+    
+    steps:
+      - block: create-resources
+        expect: blocked
+        missing_outputs:
+          - _blocks.validate_inputs.outputs.validated
+      
+      - block: validate-inputs
+        expect: success
+      
+      - block: create-resources
+        expect: success
 ```
 
 ## Cleanup
