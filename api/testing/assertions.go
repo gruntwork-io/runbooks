@@ -392,15 +392,23 @@ func (e *TestExecutor) assertOutputExists(blockID, outputName string) AssertionR
 func (e *TestExecutor) assertFilesGenerated(minCount int) AssertionResult {
 	resolvedOutputPath := e.resolveOutputPath()
 	count := 0
-	filepath.Walk(resolvedOutputPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(resolvedOutputPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if !info.IsDir() {
 			count++
 		}
 		return nil
 	})
+
+	if err != nil {
+		return AssertionResult{
+			Type:    AssertionFilesGenerated,
+			Passed:  false,
+			Message: fmt.Sprintf("failed to walk output directory %q: %s", resolvedOutputPath, err.Error()),
+		}
+	}
 
 	if count >= minCount {
 		return AssertionResult{
