@@ -268,6 +268,8 @@ func ReportToFile(reporter Reporter, suites []RunbookTestSuite, path string) err
 		r.Writer = f
 	case *JUnitReporter:
 		r.Writer = f
+	default:
+		return fmt.Errorf("unsupported reporter type: %T", reporter)
 	}
 
 	return reporter.Report(suites)

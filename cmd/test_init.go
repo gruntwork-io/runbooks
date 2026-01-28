@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -305,7 +307,10 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 				if idx := strings.LastIndex(baseName, "."); idx > 0 {
 					baseName = baseName[:idx]
 				}
-				id = "template-" + baseName
+				// Add a short hash of the full outputPath to disambiguate same filenames in different dirs
+				hash := sha256.Sum256([]byte(outputPath))
+				shortHash := hex.EncodeToString(hash[:])[:8]
+				id = fmt.Sprintf("template-%s-%s", baseName, shortHash)
 			} else {
 				templateInlineCount++
 				id = fmt.Sprintf("template-inline-%d", templateInlineCount)
