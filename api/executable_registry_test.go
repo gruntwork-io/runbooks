@@ -382,7 +382,7 @@ func TestExtractProp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractProp(tt.props, tt.propName)
+			result := ExtractProp(tt.props, tt.propName)
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}

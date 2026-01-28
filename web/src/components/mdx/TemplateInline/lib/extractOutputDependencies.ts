@@ -36,7 +36,7 @@ export function extractOutputDependenciesFromString(content: string): OutputDepe
   // IMPORTANT: Keep in sync with the Go implementation in:
   //   api/boilerplate_config.go (OutputDependencyRegex)
   // 
-  // Both implementations are validated against testdata/output-dependency-patterns.json
+  // Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
   // to ensure they produce identical results. Run tests in both languages after any changes.
   //
   // The pattern captures:

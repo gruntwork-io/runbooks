@@ -6,7 +6,7 @@ If you're developing the Runbooks tool itself (working on the Go backend or Reac
 
 **Terminal 1 - Backend Server:**
 ```bash
-go run main.go serve testdata/demo-runbook-1/runbook.mdx
+go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
 ```
 
 This starts the Go backend API server on port 7825.
@@ -42,9 +42,9 @@ Test different runbook features:
 
 ```bash
 # Test with different demo runbooks
-go run main.go serve testdata/demo-runbook-1/runbook.mdx
-go run main.go serve testdata/demo-runbook-2/runbook.mdx
-go run main.go serve testdata/runbook-with-boilerplate/runbook/runbook.mdx
+go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
+go run main.go serve testdata/sample-runbooks/demo2/runbook.mdx
+go run main.go serve testdata/sample-runbooks/lambda/runbook.mdx
 ```
 
 ### Building for Production

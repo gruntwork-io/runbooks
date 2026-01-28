@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"runbooks/api/telemetry"
@@ -27,6 +28,10 @@ var (
 	// Global flag for output path used by server commands
 	outputPath string
 
+	// Global flags for working directory
+	workingDir    string
+	workingDirTmp bool
+
 	// Global flag to disable telemetry
 	noTelemetry bool
 )
@@ -34,6 +39,34 @@ var (
 // getVersionString returns the full version information
 func getVersionString() string {
 	return fmt.Sprintf("%s (Commit: %s)", Version, GitCommit)
+}
+
+// resolveWorkingDir determines the final working directory based on CLI flags.
+// Precedence: workingDirTmp wins over configuredWorkDir.
+// Returns the directory path, a cleanup function (nil if no cleanup needed), and an error.
+func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(), error) {
+	// Precedence: useTempDir wins over configuredWorkDir
+	// This is intentional - if user explicitly requests a temp dir, honor that
+	if useTempDir {
+		dir, err := os.MkdirTemp("", "runbook-workdir-*")
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to create temp working directory: %w", err)
+		}
+		return dir, func() { os.RemoveAll(dir) }, nil
+	}
+	if configuredWorkDir != "" {
+		absPath, err := filepath.Abs(configuredWorkDir)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to resolve working directory: %w", err)
+		}
+		return absPath, nil, nil
+	}
+	// Default: current directory (where CLI was launched)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return cwd, nil, nil
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -281,7 +314,13 @@ func init() {
 
 	// Add persistent flags that are available to all subcommands
 	rootCmd.PersistentFlags().StringVar(&outputPath, "output-path", "generated",
-		"Path where generated files will be rendered (can be relative or absolute)")
+		"Path where generated files will be rendered (relative to working directory)")
+
+	rootCmd.PersistentFlags().StringVar(&workingDir, "working-dir", "",
+		"Working directory for script execution (default: current directory)")
+
+	rootCmd.PersistentFlags().BoolVar(&workingDirTmp, "working-dir-tmp", false,
+		"Use a temporary working directory (cleaned up on exit)")
 
 	// Add telemetry opt-out flag
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,

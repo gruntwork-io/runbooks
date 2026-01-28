@@ -1,0 +1,20 @@
+variables:
+  - name: Name
+    description: Project name
+    type: string
+    default: my-project
+  
+  - name: Description
+    description: Project description
+    type: string
+    default: A sample project
+  
+  - name: Language
+    description: Primary programming language
+    type: enum
+    options:
+      - python
+      - javascript
+      - go
+      - rust
+    default: python

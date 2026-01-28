@@ -230,7 +230,7 @@ The Runbooks repository includes demo runbooks that showcase these execution fea
 
 ### Persistent Environment Demo
 
-The [`demo-runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-execution-model) runbook demonstrates:
+The [`runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/runbook-execution-model) demo demonstrates:
 
 - Setting and reading environment variables across blocks
 - Working directory persistence
@@ -239,7 +239,7 @@ The [`demo-runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tr
 
 ### File Capture Demo
 
-The [`demo-runbook-capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-capture-files-from-scripts) runbook demonstrates:
+The [`capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/capture-files-from-scripts) demo demonstrates:
 
 - Using `$RUNBOOK_FILES` to capture generated files
 - Combining environment persistence with file generation

@@ -1,0 +1,687 @@
+---
+title: Testing Runbooks
+description: How to write and run automated tests for your runbooks.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Runbooks includes a built-in testing framework that lets you validate that your runbooks work correctly.
+
+To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks test /path/to/runbook` or `runbooks test ./...` to run the tests. Test are meant to run locally or in CI.
+
+## Quick Start
+
+1. Generate a test configuration for your runbook:
+
+```bash
+runbooks test init ./my-runbook
+```
+
+This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks. You can edit the file to customize the tests if needed.
+
+2. Run the tests:
+
+```bash
+runbooks test ./my-runbook
+```
+
+## Test Configuration
+
+Tests are defined in a `runbook_test.yml` file located in the same directory as your `runbook.mdx` file. Here's an example of a test configuration file:
+
+```yaml
+version: 1
+
+settings:
+  # use_temp_working_dir: true  # Default: use isolated temp directory
+  # working_dir: .              # Alternative: use runbook's directory
+  # output_path: generated      # Where to write generated files (relative to working_dir)
+  timeout: 5m            # Test timeout
+  parallelizable: true   # Can run in parallel with other runbooks
+
+tests:
+  - name: happy-path
+    description: Standard successful execution
+    
+    inputs:
+      project.Name: "test-project"
+      project.Language: "python"
+    
+    steps:
+      - block: check-requirements
+        expect: success
+      
+      - block: create-project
+        expect: success
+        outputs: [project_id]
+    
+    assertions:
+      - type: file_exists
+        path: generated/README.md
+      
+      - type: file_contains
+        path: generated/README.md
+        contains: "test-project"
+    
+    cleanup:
+      - command: rm -rf /tmp/test-resources
+```
+
+### Top-Level Structure
+
+```yaml
+version: 1              # Required. Must be 1.
+settings: { ... }       # Optional. Global settings for all tests.
+tests: [ ... ]          # Required. Array of test cases (minimum 1).
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `version` | integer | Yes | Configuration version. Must be `1`. |
+| `settings` | object | No | Global settings that apply to all tests. |
+| `tests` | array | Yes | Array of runbook tests to run. At least one test case is required. |
+
+### Settings Object
+
+```yaml
+settings:
+  use_temp_working_dir: true    # boolean, default: true
+  working_dir: "."              # string, default: current directory
+  output_path: "generated"      # string, default: "generated"
+  timeout: "5m"                 # duration string, default: "5m"
+  parallelizable: true          # boolean, default: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `use_temp_working_dir` | boolean | `true` | Use an isolated temporary directory for test execution. Overrides `working_dir` when `true`. The temp directory is automatically cleaned up after the test. |
+| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. |
+| `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
+| `timeout` | string | `"5m"` | Maximum time for each test case. Uses Go duration format (e.g., `30s`, `5m`, `1h`). |
+| `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. |
+
+### Test Case Object
+
+```yaml
+tests:
+  - name: "test-name"           # string, required
+    description: "..."          # string, optional
+    env: { ... }                # map[string]string, optional
+    inputs: { ... }             # map[string]InputValue, optional
+    steps: [ ... ]              # array of Step objects, optional
+    assertions: [ ... ]         # array of Assertion objects, optional
+    cleanup: [ ... ]            # array of CleanupAction objects, optional
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique identifier for the test case. |
+| `description` | string | No | Human-readable description of what the test validates. |
+| `env` | map | No | Environment variables to set for all blocks in this test. Keys and values are strings. |
+| `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
+| `steps` | array | No | Blocks to execute in order. If empty, all blocks run in document order. |
+| `assertions` | array | No | Validations to run after all steps complete. |
+| `cleanup` | array | No | Actions to run after the test completes (even on failure). |
+
+### Step Object
+
+```yaml
+steps:
+  - block: "block-id"           # string, required
+    expect: success             # ExpectedStatus, default: "success"
+    outputs: ["output1"]        # array of strings, optional
+    missing_outputs: ["..."]    # array of strings, optional
+    error_contains: "..."       # string, optional
+    assertions: [ ... ]         # array of Assertion objects, optional
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `block` | string | Yes | ID of the block to execute. |
+| `expect` | string | No | Expected execution status. Default: `success`. See Expected Status values below. |
+| `outputs` | array | No | Output names to capture from the block. |
+| `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). |
+| `error_contains` | string | No | Expected error message substring (used with `config_error` status). |
+| `assertions` | array | No | Assertions to run immediately after this step completes. |
+
+#### Expected Status Values
+
+| Status | Description |
+|--------|-------------|
+| `success` | Block completed successfully (exit code 0). |
+| `fail` | Block failed (exit code 1+). |
+| `warn` | Block completed with warning (exit code 2). |
+| `blocked` | Block should be blocked due to missing dependencies. |
+| `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). |
+| `config_error` | Block has a configuration error (missing props, invalid config, etc.). |
+
+### Assertion Object
+
+All assertions have a `type` field that determines which other fields are required.
+
+```yaml
+assertions:
+  - type: "assertion_type"      # AssertionType, required
+    # Additional fields depend on the assertion type
+```
+
+| Assertion Type | Required Fields | Optional Fields | Description |
+|----------------|-----------------|-----------------|-------------|
+| `file_exists` | `path` | — | Check that a file exists at the given path. |
+| `file_not_exists` | `path` | — | Check that a file does not exist. |
+| `file_contains` | `path`, `contains` | — | Check that a file contains a substring. |
+| `file_not_contains` | `path`, `contains` | — | Check that a file does not contain a substring. |
+| `file_matches` | `path`, `pattern` | — | Check that file content matches a regex pattern. |
+| `file_equals` | `path`, `value` | — | Check that file content exactly equals a value. |
+| `dir_exists` | `path` | — | Check that a directory exists. |
+| `dir_not_exists` | `path` | — | Check that a directory does not exist. |
+| `output_equals` | `block`, `output`, `value` | — | Check that a block output equals a value. |
+| `output_matches` | `block`, `output`, `pattern` | — | Check that a block output matches a regex pattern. |
+| `output_exists` | `block`, `output` | — | Check that a block output exists (is not empty). |
+| `files_generated` | `block` | `min_count` | Check that a Template block generated files. |
+| `script` | `command` | — | Run a custom script (exit 0 = pass). |
+
+#### Assertion Field Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | The assertion type. Required for all assertions. |
+| `path` | string | File or directory path (relative to working directory). |
+| `contains` | string | Substring to search for in file content. |
+| `pattern` | string | Regular expression pattern. |
+| `value` | string | Expected exact value. |
+| `block` | string | Block ID for output assertions or `files_generated`. |
+| `output` | string | Output name to check. |
+| `min_count` | integer | Minimum number of files generated (for `files_generated`). Default: 1. |
+| `command` | string | Shell command to execute (for `script` assertions). |
+
+### Cleanup Action Object
+
+```yaml
+cleanup:
+  - command: "rm -rf /tmp/test" # string, optional (inline command)
+    path: "cleanup/teardown.sh" # string, optional (script file path)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Inline shell command to execute. |
+| `path` | string | Path to a script file to execute. |
+
+Provide either `command` or `path`, not both.
+
+### Input Value
+
+Input values can be specified as either literal values or fuzz configurations.
+
+#### Literal Values
+
+```yaml
+inputs:
+  project.Name: "my-project"    # string literal
+  config.Port: 8080             # integer literal
+  config.Enabled: true          # boolean literal
+```
+
+#### Fuzz Values
+
+Fuzz values are used to generate random values for testing. The test framework will generate a new random value that meets the given constraints for each test run.
+
+```yaml
+inputs:
+  project.Name:
+    fuzz:
+      type: string              # FuzzType, required
+      # Additional fields depend on the fuzz type
+```
+
+### Fuzz Configuration
+
+The `fuzz` object specifies how to generate random values.
+
+| Field | Type | Applies To | Description |
+|-------|------|------------|-------------|
+| `type` | string | All | Required. The fuzz type (see Fuzz Types below). |
+| `length` | integer | `string` | Exact length of the generated string. |
+| `minLength` | integer | `string`, `list` | Minimum length. Default: 8 for strings, 5 for list items. |
+| `maxLength` | integer | `string`, `list` | Maximum length. Default: `minLength + 10` for strings. |
+| `prefix` | string | `string` | Prefix to prepend to the generated string. |
+| `suffix` | string | `string` | Suffix to append to the generated string. |
+| `includeSpaces` | boolean | `string` | Include space characters. Default: `false`. |
+| `includeSpecialChars` | boolean | `string` | Include special characters. Default: `false`. |
+| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0. |
+| `max` | integer | `int`, `float` | Maximum numeric value. Default: 100. |
+| `options` | array | `enum` | Array of valid enum options. Required for `enum` type. |
+| `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
+| `minDate` | string | `date`, `timestamp` | Minimum date (supports RFC3339, YYYY-MM-DD). Default: 365 days ago. |
+| `maxDate` | string | `date`, `timestamp` | Maximum date. Default: now. |
+| `format` | string | `date`, `timestamp` | Output format. Default: `2006-01-02` for date, RFC3339 for timestamp. |
+| `wordCount` | integer | `words` | Exact number of words. |
+| `minWordCount` | integer | `words` | Minimum word count. Default: 2. |
+| `maxWordCount` | integer | `words` | Maximum word count. Default: `minWordCount + 3`. |
+| `count` | integer | `list`, `map` | Exact number of items/entries. |
+| `minCount` | integer | `list`, `map` | Minimum items/entries. Default: 2. |
+| `maxCount` | integer | `list`, `map` | Maximum items/entries. Default: `minCount + 3`. |
+| `schema` | array | `map` | Field names for nested map values (generates `map[string]map[string]string`). |
+
+### Fuzz Types
+
+| Type | Output | Description |
+|------|--------|-------------|
+| `string` | `string` | Alphanumeric string with optional spaces and special characters. |
+| `int` | `integer` | Random integer within min/max range. |
+| `float` | `float` | Random float within min/max range. |
+| `bool` | `boolean` | Random `true` or `false`. |
+| `enum` | `string` | Random selection from `options` array. |
+| `email` | `string` | Valid email address (e.g., `abc123@example.com`). |
+| `url` | `string` | Valid URL (e.g., `https://example.com/path`). |
+| `uuid` | `string` | UUID v4 (e.g., `550e8400-e29b-41d4-a716-446655440000`). |
+| `date` | `string` | Date string. Default format: `YYYY-MM-DD`. |
+| `timestamp` | `string` | Timestamp string. Default format: RFC3339. |
+| `words` | `string` | Space-separated random words. |
+| `list` | `string` | JSON array of strings (e.g., `["abc", "def"]`). |
+| `map` | `string` or `map` | JSON object or nested map depending on `schema`. |
+
+### Complete Example
+
+```yaml
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  output_path: generated
+  timeout: 10m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Standard successful execution with all features
+    
+    env:
+      LOG_LEVEL: debug
+      RUNBOOK_DRY_RUN: "false"
+    
+    inputs:
+      # Literal values
+      project.Name: "test-project"
+      config.Port: 8080
+      
+      # Fuzz values
+      project.Description:
+        fuzz: { type: words, minWordCount: 3, maxWordCount: 6 }
+      user.Email:
+        fuzz: { type: email, domain: "test.example.com" }
+      resource.ID:
+        fuzz: { type: uuid }
+      config.Region:
+        fuzz: { type: enum, options: ["us-east-1", "us-west-2", "eu-west-1"] }
+    
+    steps:
+      - block: validate-inputs
+        expect: success
+      
+      - block: create-resources
+        expect: success
+        outputs: [resource_id, resource_arn]
+        assertions:
+          - type: output_exists
+            output: resource_id
+      
+      - block: generate-config
+        expect: success
+    
+    assertions:
+      - type: file_exists
+        path: generated/config.json
+      
+      - type: file_contains
+        path: generated/config.json
+        contains: "test-project"
+      
+      - type: file_matches
+        path: generated/config.json
+        pattern: '"version":\s*"\d+\.\d+\.\d+"'
+      
+      - type: output_matches
+        block: create-resources
+        output: resource_id
+        pattern: "^[a-f0-9]{12}$"
+    
+    cleanup:
+      - command: rm -rf /tmp/test-resources
+
+  - name: missing-dependency
+    description: Test that blocks are properly blocked
+    
+    steps:
+      - block: create-resources
+        expect: blocked
+        missing_outputs:
+          - _blocks.validate_inputs.outputs.validated
+      
+      - block: validate-inputs
+        expect: success
+      
+      - block: create-resources
+        expect: success
+```
+
+## Cleanup
+
+Cleanup actions run after the test completes, even if the test fails:
+
+```yaml
+cleanup:
+  # Inline command
+  - command: rm -rf /tmp/test-resources
+
+  # Script file
+  - path: cleanup/teardown.sh
+```
+
+## Testing AwsAuth Blocks
+
+For runbooks with `<AwsAuth>` blocks, use `prefilledCredentials={{ type: "env" }}` to enable headless testing:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  prefilledCredentials={{ type: "env" }}
+  allowOverridePrefilled={false}
+/>
+```
+This will look specifically for the following environment variables:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN`
+- `AWS_REGION`
+
+Consider using the prefix `RUNBOOKS_TEST_` for environment variables that are used for testing. This will help you avoid conflicts with other environment variables. 
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  prefilledCredentials={{ type: "env", prefix: "RUNBOOKS_TEST_" }}
+  allowOverridePrefilled={false}
+/>
+```
+This will look specifically for the following environment variables:
+
+- `RUNBOOKS_TEST_AWS_ACCESS_KEY_ID`
+- `RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
+- `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
+- `RUNBOOKS_TEST_AWS_REGION`
+
+In CI, be sure to set the environment variables before running tests. The following example shows one way to set the environment variables for a GitHub Actions workflow:
+
+```yaml
+# .github/workflows/test.ymlls
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
+    aws-region: us-west-2
+
+- name: Run runbook tests
+  run: runbooks test ./runbooks/...
+  env:
+    RUNBOOK_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+    RUNBOOK_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+    RUNBOOK_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+    RUNBOOK_TEST_AWS_REGION: ${{ env.AWS_REGION }}
+```
+
+## Running Tests
+
+When you run a runbook test, the test framework will:
+- Run the runbook in a temporary directory
+- Capture the output of any scripts or generated files
+- Validate the output of the runbook against the assertions in your test configuration file, if any
+- Return a status code of 0 if the test passed, 1 if the test failed, and 2 if the test was skipped
+
+If a runbook test fails, you will see additional details about which block failed and why.
+
+### Single Runbook
+
+You can run a test on a single runbook.
+
+```bash
+# Run all tests for a runbook
+runbooks test ./my-runbook
+
+# Run a specific test case
+runbooks test ./my-runbook --test happy-path
+
+# Verbose output
+runbooks test ./my-runbook -v
+```
+
+### Multiple Runbooks
+
+Use the `...` glob pattern to discover and test all runbooks:
+
+```bash
+# Test all runbooks in a directory tree
+runbooks test ./runbooks/...
+
+# Control parallel execution
+runbooks test ./runbooks/... --max-parallel 4
+```
+
+### CI Output
+
+Generate JUnit XML for CI integration:
+
+```bash
+runbooks test ./runbooks/... --output junit --output-file results.xml
+```
+
+## Out-of-Order Testing
+
+In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the runbook. You can do this by explicitly specifying the order of the blocks in the test configuration file.
+
+Keep in mind, though, that when new blocks are added to the runbook, they will not be included in the test unless you explicitly add them to the test configuration file.
+
+That's why we recommend leaving the `steps` section empty in your test configuration file if possible. This will ensure that all future blocks are included in the test.
+
+```yaml
+tests:
+  - name: out-of-order
+    description: Test dependency enforcement
+    
+    steps:
+      # This should be blocked because create-account hasn't run
+      - block: create-resources
+        expect: blocked
+        missing_outputs:
+          - _blocks.create_account.outputs.account_id
+
+      # Run the dependency
+      - block: create-account
+        expect: success
+
+      # Now this should succeed
+      - block: create-resources
+        expect: success
+```
+
+## Example Workflow
+
+<Tabs>
+  <TabItem label="GitHub Actions">
+```yaml
+# .github/workflows/test-runbooks.yml
+name: Test Runbooks
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up runbooks
+        run: |
+          curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
+          chmod +x runbooks
+      
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      
+      - name: Run runbook tests
+        run: ./runbooks test ./runbooks/... --output junit --output-file results.xml
+        env:
+          # Map OIDC credentials to RUNBOOKS_TEST_ prefix
+          RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+          RUNBOOKS_TEST_AWS_REGION: ${{ vars.AWS_REGION }}
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: results.xml
+```
+  </TabItem>
+  <TabItem label="GitLab CI">
+```yaml
+# .gitlab-ci.yml
+test-runbooks:
+  stage: test
+  variables:
+    RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+    RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+    RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
+  script:
+    - curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
+    - chmod +x runbooks
+    - ./runbooks test ./runbooks/... --output junit --output-file results.xml
+  artifacts:
+    reports:
+      junit: results.xml
+```
+  </TabItem>
+</Tabs>
+
+## Testing with External Dependencies
+
+Runbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach.
+
+As you ascend the tiers, you will gain more completeness at the expense of slower speed and more complexity. This builds on the concepts of the [traditional test pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
+
+### Tier 1: Template Validation
+
+Template validation tests that templates generate correct files without making any external calls.
+
+```yaml
+tests:
+  - name: template-validation
+    description: Validate template generation
+    
+    inputs:
+      config.ProjectName: "test-project"
+      config.Region: "us-east-1"
+    
+    steps:
+      - block: generate-config  # Template block
+        expect: success
+      - block: deploy-resources  # Skip external calls
+        expect: skip
+    
+    assertions:
+      - type: files_generated
+        block: generate-config
+        min_count: 1
+```
+
+### Tier 2: Dry-Run Mode
+
+Dry-run mode tests that script logic works correctly without making any external calls. They leverage the fact that the script was written to support a `RUNBOOK_DRY_RUN` environment variable.
+
+Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that the `RUNBOOK_DRY_RUN` environment variable is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
+
+**In your Command or Check script:**
+
+```bash
+#!/bin/bash
+set -e
+
+# Dry-run support
+DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "[DRY-RUN] Would create PR in $GITHUB_ORG/$REPO_NAME"
+    echo "[DRY-RUN] gh pr create --title '$TITLE'"
+    exit 0
+fi
+
+# Real execution
+gh pr create --title "$TITLE" --body "$BODY"
+```
+
+**In your test configuration file:**
+
+```yaml
+tests:
+  - name: dry-run-flow
+    description: Test full flow without real API calls
+    
+    env:
+      RUNBOOK_DRY_RUN: "true"
+    
+    steps:
+      - block: generate-config
+        expect: success
+      - block: create-pr
+        expect: success  # Succeeds in dry-run mode
+```
+
+### Tier 3: Integration Tests
+
+For full integration testing with real services, set environment variables for credentials in CI and run tests manually or on a schedule:
+
+```yaml
+tests:
+  - name: integration-test
+    description: Full integration (requires credentials)
+    
+    env:
+      # Credentials set in CI environment will automatically be available to the test.
+      # So no need to set them in the runbook_test.yml file.
+    
+    steps:
+      - block: deploy-resources
+        expect: success
+    
+    cleanup:
+      - command: ./scripts/cleanup-test-resources.sh
+```
+
+## Best Practices
+
+1. **Start with `test init`**: Generate your test configuration automatically, then customize it.
+
+2. **Test happy paths first**: Ensure your runbook works when everything goes right.
+
+3. **Test edge cases**: Add tests for expected failures, missing dependencies, and error handling.
+
+4. **Use fuzz values**: Generate random inputs to catch edge cases you might not think of.
+
+5. **Keep tests fast**: Use `use_temp_working_dir: true` and avoid slow external dependencies when possible.
+
+6. **Clean up resources**: Use the `cleanup` section to remove any resources created during testing.
+
+7. **Use CI**: Run tests on every pull request to catch issues early.
+
+8. **Use tiered testing**: For runbooks with external dependencies, use dry-run mode in CI and save integration tests for manual/scheduled runs.
+
+Finally, note that tests are not free to write or maintain. But it is generally worth the investment to know that your runbooks work as expected. Choose accordingly how much to invest in testing your runbooks.

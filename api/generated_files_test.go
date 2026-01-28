@@ -13,11 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// setupTestLaunchDir creates a temporary directory to simulate the "runbook launch directory"
+// setupTestWorkingDir creates a temporary directory to simulate the working directory
 // (the directory from which the user runs `runbooks open ...`). It changes to that directory
 // and registers cleanup to restore the original working directory and remove the temp dir.
-// Returns the absolute path to the launch directory (with symlinks resolved).
-func setupTestLaunchDir(t *testing.T) string {
+// Returns the absolute path to the working directory (with symlinks resolved).
+func setupTestWorkingDir(t *testing.T) string {
 	t.Helper()
 
 	// Save original working directory
@@ -27,31 +27,31 @@ func setupTestLaunchDir(t *testing.T) string {
 	}
 
 	// Create temp directory
-	launchDir, err := os.MkdirTemp("", "runbooks-test-launch-*")
+	workingDir, err := os.MkdirTemp("", "runbooks-test-workdir-*")
 	if err != nil {
-		t.Fatalf("Failed to create temp launch directory: %v", err)
+		t.Fatalf("Failed to create temp working directory: %v", err)
 	}
 
 	// Resolve symlinks (macOS has /var -> /private/var symlink)
-	launchDir, err = filepath.EvalSymlinks(launchDir)
+	workingDir, err = filepath.EvalSymlinks(workingDir)
 	if err != nil {
-		os.RemoveAll(launchDir)
-		t.Fatalf("Failed to resolve symlinks in launch directory: %v", err)
+		os.RemoveAll(workingDir)
+		t.Fatalf("Failed to resolve symlinks in working directory: %v", err)
 	}
 
-	// Change to launch directory
-	if err := os.Chdir(launchDir); err != nil {
-		os.RemoveAll(launchDir)
-		t.Fatalf("Failed to chdir to launch directory: %v", err)
+	// Change to working directory
+	if err := os.Chdir(workingDir); err != nil {
+		os.RemoveAll(workingDir)
+		t.Fatalf("Failed to chdir to working directory: %v", err)
 	}
 
 	// Register cleanup
 	t.Cleanup(func() {
 		os.Chdir(originalWd)
-		os.RemoveAll(launchDir)
+		os.RemoveAll(workingDir)
 	})
 
-	return launchDir
+	return workingDir
 }
 
 func TestValidatePathSafeToDelete(t *testing.T) {
@@ -319,7 +319,7 @@ func TestValidatePathSafeToDelete_CaseSensitivity(t *testing.T) {
 // configuredOutputPath values.
 func TestHandleGeneratedFilesCheck_OutputPaths(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	launchDir := setupTestLaunchDir(t)
+	workingDir := setupTestWorkingDir(t)
 
 	tests := []struct {
 		name                 string
@@ -331,44 +331,44 @@ func TestHandleGeneratedFilesCheck_OutputPaths(t *testing.T) {
 			name:                 "default generated path",
 			configuredOutputPath: "generated",
 			expectedRelative:     "generated",
-			expectedAbsolute:     filepath.Join(launchDir, "generated"),
+			expectedAbsolute:     filepath.Join(workingDir, "generated"),
 		},
 		{
 			name:                 "custom relative path",
 			configuredOutputPath: "my-output",
 			expectedRelative:     "my-output",
-			expectedAbsolute:     filepath.Join(launchDir, "my-output"),
+			expectedAbsolute:     filepath.Join(workingDir, "my-output"),
 		},
 		{
 			name:                 "nested relative path",
 			configuredOutputPath: "build/output/files",
 			expectedRelative:     "build/output/files",
-			expectedAbsolute:     filepath.Join(launchDir, "build/output/files"),
+			expectedAbsolute:     filepath.Join(workingDir, "build/output/files"),
 		},
 		{
 			name:                 "dot-prefixed relative path",
 			configuredOutputPath: "./my-output",
 			expectedRelative:     "./my-output",
-			expectedAbsolute:     filepath.Join(launchDir, "my-output"),
+			expectedAbsolute:     filepath.Join(workingDir, "my-output"),
 		},
 		{
 			name:                 "current directory as output",
 			configuredOutputPath: ".",
 			expectedRelative:     ".",
-			expectedAbsolute:     launchDir,
+			expectedAbsolute:     workingDir,
 		},
 		{
-			name:                 "absolute path within launch dir",
-			configuredOutputPath: filepath.Join(launchDir, "abs-output"),
-			expectedRelative:     filepath.Join(launchDir, "abs-output"),
-			expectedAbsolute:     filepath.Join(launchDir, "abs-output"),
+			name:                 "absolute path within working dir",
+			configuredOutputPath: filepath.Join(workingDir, "abs-output"),
+			expectedRelative:     filepath.Join(workingDir, "abs-output"),
+			expectedAbsolute:     filepath.Join(workingDir, "abs-output"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			router := gin.New()
-			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(tt.configuredOutputPath))
+			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(workingDir, tt.configuredOutputPath))
 
 			req, err := http.NewRequest("GET", "/api/generated-files/check", nil)
 			if err != nil {
@@ -405,8 +405,8 @@ func TestHandleGeneratedFilesCheck_OutputPaths(t *testing.T) {
 				t.Errorf("AbsoluteOutputPath %q is not an absolute path", response.AbsoluteOutputPath)
 			}
 
-			t.Logf("OK: launchDir=%q, configured=%q → relative=%q, absolute=%q",
-				launchDir, tt.configuredOutputPath, response.RelativeOutputPath, response.AbsoluteOutputPath)
+			t.Logf("OK: workingDir=%q, configured=%q → relative=%q, absolute=%q",
+				workingDir, tt.configuredOutputPath, response.RelativeOutputPath, response.AbsoluteOutputPath)
 		})
 	}
 }
@@ -417,13 +417,13 @@ func TestHandleGeneratedFilesCheck_OutputPaths(t *testing.T) {
 // This test verifies the handler correctly processes this default value.
 func TestHandleGeneratedFilesCheck_DefaultOutputPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	launchDir := setupTestLaunchDir(t)
+	workingDir := setupTestWorkingDir(t)
 
 	// "generated" is the CLI default value (see cmd/root.go)
 	const cliDefaultOutputPath = "generated"
 
 	router := gin.New()
-	router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(cliDefaultOutputPath))
+	router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(workingDir, cliDefaultOutputPath))
 
 	req, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
 	recorder := httptest.NewRecorder()
@@ -444,8 +444,8 @@ func TestHandleGeneratedFilesCheck_DefaultOutputPath(t *testing.T) {
 			cliDefaultOutputPath, response.RelativeOutputPath)
 	}
 
-	// Verify the absolute path is launchDir/generated
-	expectedAbsolute := filepath.Join(launchDir, cliDefaultOutputPath)
+	// Verify the absolute path is workingDir/generated
+	expectedAbsolute := filepath.Join(workingDir, cliDefaultOutputPath)
 	if response.AbsoluteOutputPath != expectedAbsolute {
 		t.Errorf("AbsoluteOutputPath mismatch:\n  got:      %q\n  expected: %q",
 			response.AbsoluteOutputPath, expectedAbsolute)
@@ -456,12 +456,12 @@ func TestHandleGeneratedFilesCheck_DefaultOutputPath(t *testing.T) {
 }
 
 // TestHandleGeneratedFilesCheck_InvalidAbsolutePaths tests that invalid absolute paths
-// (malformed, path traversal attacks, paths outside launch dir, etc.) return appropriate errors.
+// (malformed, path traversal attacks, paths outside working dir, etc.) return appropriate errors.
 func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	launchDir := setupTestLaunchDir(t)
+	workingDir := setupTestWorkingDir(t)
 
-	// Create another directory OUTSIDE the launch directory for testing
+	// Create another directory OUTSIDE the working directory for testing
 	outsideDir, err := os.MkdirTemp("", "runbooks-test-outside-*")
 	if err != nil {
 		t.Fatalf("Failed to create outside directory: %v", err)
@@ -486,7 +486,7 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 		},
 		{
 			name:        "path traversal via absolute then ..",
-			path:        filepath.Join(launchDir, "..", "escape-attempt"),
+			path:        filepath.Join(workingDir, "..", "escape-attempt"),
 			shouldError: true,
 		},
 		{
@@ -499,7 +499,7 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 			path:        "output/../../../tmp/evil",
 			shouldError: true,
 		},
-		// Absolute paths outside launch directory
+		// Absolute paths outside working directory
 		{
 			name:        "absolute path to root",
 			path:        "/",
@@ -522,7 +522,7 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 		},
 		{
 			name:        "absolute path to parent directory",
-			path:        filepath.Dir(launchDir),
+			path:        filepath.Dir(workingDir),
 			shouldError: true,
 		},
 		// Valid edge cases
@@ -536,7 +536,7 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 	for _, tt := range invalidPaths {
 		t.Run(tt.name, func(t *testing.T) {
 			router := gin.New()
-			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(tt.path))
+			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(workingDir, tt.path))
 
 			req, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
 			recorder := httptest.NewRecorder()
@@ -562,7 +562,7 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 // is exactly what was passed to the handler (the CLI --output-path value), not modified.
 func TestHandleGeneratedFilesCheck_RelativePathPreserved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	launchDir := setupTestLaunchDir(t)
+	workingDir := setupTestWorkingDir(t)
 
 	// These are various ways users might specify the output path via CLI
 	testCases := []string{
@@ -577,7 +577,7 @@ func TestHandleGeneratedFilesCheck_RelativePathPreserved(t *testing.T) {
 	for _, configuredPath := range testCases {
 		t.Run(configuredPath, func(t *testing.T) {
 			router := gin.New()
-			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(configuredPath))
+			router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(workingDir, configuredPath))
 
 			req, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
 			recorder := httptest.NewRecorder()
@@ -599,12 +599,12 @@ func TestHandleGeneratedFilesCheck_RelativePathPreserved(t *testing.T) {
 					configuredPath, response.RelativeOutputPath)
 			}
 
-			// The absolute path should be the launch dir + the relative path
-			expectedAbsolute := filepath.Join(launchDir, configuredPath)
+			// The absolute path should be the working dir + the relative path
+			expectedAbsolute := filepath.Join(workingDir, configuredPath)
 			if configuredPath == "." {
-				expectedAbsolute = launchDir
+				expectedAbsolute = workingDir
 			} else if strings.HasPrefix(configuredPath, "./") {
-				expectedAbsolute = filepath.Join(launchDir, configuredPath[2:])
+				expectedAbsolute = filepath.Join(workingDir, configuredPath[2:])
 			}
 
 			if response.AbsoluteOutputPath != expectedAbsolute {

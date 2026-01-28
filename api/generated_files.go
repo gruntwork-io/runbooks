@@ -23,23 +23,17 @@ type outputDirInfo struct {
 }
 
 // HandleGeneratedFilesCheck returns a handler that checks if files exist in the output directory
-func HandleGeneratedFilesCheck(rawOutputPath string) gin.HandlerFunc {
+func HandleGeneratedFilesCheck(workingDir string, rawOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		dirInfo, err := validateAndGetOutputDirectory(rawOutputPath)
+		dirInfo, err := validateAndGetOutputDirectory(workingDir, rawOutputPath)
 		if err != nil {
-			slog.Error("Failed to validate output directory", "error", err, "outputPath", rawOutputPath)
-
-			// Get the current working directory for the error message
-			cwd, cwdErr := os.Getwd()
-			if cwdErr != nil {
-				cwd = "(unknown)"
-			}
+			slog.Error("Failed to validate output directory", "error", err, "outputPath", rawOutputPath, "workingDir", workingDir)
 
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":              "Failed to validate output directory",
-				"details":            err.Error(),
-				"specifiedPath":      rawOutputPath,
-				"currentWorkingDir":  cwd,
+				"error":             "Failed to validate output directory",
+				"details":           err.Error(),
+				"specifiedPath":     rawOutputPath,
+				"workingDir":        workingDir,
 			})
 			return
 		}
@@ -54,9 +48,9 @@ func HandleGeneratedFilesCheck(rawOutputPath string) gin.HandlerFunc {
 }
 
 // HandleGeneratedFilesDelete returns a handler that deletes all files in the output directory
-func HandleGeneratedFilesDelete(rawOutputPath string) gin.HandlerFunc {
+func HandleGeneratedFilesDelete(workingDir string, rawOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		dirInfo, err := validateAndGetOutputDirectory(rawOutputPath)
+		dirInfo, err := validateAndGetOutputDirectory(workingDir, rawOutputPath)
 		if err != nil {
 			slog.Error("Failed to validate output directory", "error", err, "outputPath", rawOutputPath)
 			// Determine appropriate status code based on error type
@@ -102,9 +96,9 @@ func HandleGeneratedFilesDelete(rawOutputPath string) gin.HandlerFunc {
 
 // validateAndGetOutputDirectory validates the output path and retrieves its information.
 // Returns outputDirInfo and any error encountered.
-func validateAndGetOutputDirectory(rawOutputPath string) (*outputDirInfo, error) {
+func validateAndGetOutputDirectory(workingDir string, rawOutputPath string) (*outputDirInfo, error) {
 	// Resolve the output path to absolute
-	absoluteOutputPath, err := resolveToAbsolutePath(rawOutputPath)
+	absoluteOutputPath, err := resolveToAbsolutePath(workingDir, rawOutputPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve output path: %w", err)
 	}
@@ -146,10 +140,10 @@ func validateAndGetOutputDirectory(rawOutputPath string) (*outputDirInfo, error)
 }
 
 // resolveToAbsolutePath converts a file path to its absolute form.
-// Relative paths are resolved relative to the current working directory.
+// Relative paths are resolved relative to the provided working directory.
 // Absolute paths are returned unchanged. Returns an error if the path is empty.
-// On macOS, symlinks in the CWD are resolved (e.g., /tmp -> /private/tmp).
-func resolveToAbsolutePath(rawPath string) (string, error) {
+// On macOS, symlinks in the working directory are resolved (e.g., /tmp -> /private/tmp).
+func resolveToAbsolutePath(workingDir string, rawPath string) (string, error) {
 	if rawPath == "" {
 		return "", fmt.Errorf("path cannot be empty")
 	}
@@ -159,19 +153,13 @@ func resolveToAbsolutePath(rawPath string) (string, error) {
 		return rawPath, nil
 	}
 
-	// Otherwise, make it relative to the current working directory
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current working directory: %w", err)
-	}
-
-	// Resolve symlinks in the CWD (e.g., on macOS /tmp -> /private/tmp)
+	// Resolve symlinks in the working directory (e.g., on macOS /tmp -> /private/tmp)
 	// This ensures consistent paths even when the output directory doesn't exist yet
-	resolvedDir, err := filepath.EvalSymlinks(currentDir)
+	resolvedDir, err := filepath.EvalSymlinks(workingDir)
 	if err != nil {
-		// If we can't resolve symlinks on the CWD, it's a sign of a problem.
+		// If we can't resolve symlinks on the working directory, it's a sign of a problem.
 		// It's better to fail fast than to proceed with a potentially incorrect path.
-		return "", fmt.Errorf("failed to resolve symlinks for current working directory %q: %w", currentDir, err)
+		return "", fmt.Errorf("failed to resolve symlinks for working directory %q: %w", workingDir, err)
 	}
 
 	return filepath.Join(resolvedDir, rawPath), nil

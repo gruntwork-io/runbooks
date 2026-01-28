@@ -380,7 +380,7 @@ After a block runs, you can view its outputs by clicking **"View Outputs"** belo
 For more details on block outputs, see the [Command block documentation](/authoring/blocks/command/#block-outputs).
 
 :::tip[See It in Action]
-Check out the [demo-runbook-outputs](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-outputs) example for a complete working demonstration of block outputs, including a Check block that consumes outputs from upstream Command blocks.
+Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of block outputs, including a Check block that consumes outputs from upstream Command blocks.
 :::
 
 ## Common Use Cases

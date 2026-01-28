@@ -73,9 +73,7 @@ type execCommandConfig struct {
 
 // envCaptureConfig holds configuration for environment capture after script execution
 type envCaptureConfig struct {
-	envCapturePath string
-	pwdCapturePath string
-	isBashScript   bool
+	scriptSetup    *ScriptSetup
 	sessionManager *SessionManager
 	execCtx        *SessionExecContext
 }
@@ -86,7 +84,7 @@ type envCaptureConfig struct {
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE.
 // This handler must be used with SessionAuthMiddleware to ensure session context is available.
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -133,20 +131,13 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		}
 		defer os.Remove(outputFilePath)
 
-		// Create temp files for environment capture (used to capture env changes after script execution)
-		envCapturePath, err2 := createTempFile("runbook-env-capture-*.txt")
+		// Prepare script for execution (handles interpreter detection, env capture wrapping, temp files)
+		scriptSetup, err2 := PrepareScriptForExecution(scriptContent, executable.Language)
 		if err2 != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create env capture file: %v", err2)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err2.Error()})
 			return
 		}
-		defer os.Remove(envCapturePath)
-
-		pwdCapturePath, err2 := createTempFile("runbook-pwd-capture-*.txt")
-		if err2 != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create pwd capture file: %v", err2)})
-			return
-		}
-		defer os.Remove(pwdCapturePath)
+		defer scriptSetup.Cleanup()
 
 		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
@@ -154,38 +145,15 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		c.Header("Connection", "keep-alive")
 		c.Header("Transfer-Encoding", "chunked")
 
-		// Detect interpreter from shebang or use language from executable
-		// We need this BEFORE deciding whether to wrap, so we can skip wrapping for non-bash scripts
-		interpreter, args := detectInterpreter(scriptContent, executable.Language)
-
-		// Wrap script for environment capture if bash-compatible
-		// Non-bash scripts (Python, Ruby, etc.) cannot have their environment changes captured because:
-		// 1. The wrapper is bash code that wouldn't be valid in other interpreters
-		// 2. Even if we ran non-bash scripts separately, their os.environ changes only affect
-		//    their own subprocess and wouldn't propagate back to the session
-		scriptToWrite := scriptContent
-		isBashScript := isBashInterpreter(interpreter)
-		if isBashScript {
-			scriptToWrite = wrapScriptForEnvCapture(scriptContent, envCapturePath, pwdCapturePath)
-		}
-
-		// Create temporary executable script
-		scriptPath, err2 := createTempScript(scriptToWrite)
-		if err2 != nil {
-			sendSSEError(c, err2.Error())
-			return
-		}
-		defer os.Remove(scriptPath)
-
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
 		// Set up command configuration
 		cmdConfig := execCommandConfig{
-			scriptPath:  scriptPath,
-			interpreter: interpreter,
-			args:        args,
+			scriptPath:  scriptSetup.ScriptPath,
+			interpreter: scriptSetup.Interpreter,
+			args:        scriptSetup.Args,
 			execCtx:     execCtx,
 			envVars:     req.EnvVarsOverride,
 			outputFile:  outputFilePath,
@@ -234,15 +202,19 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
+		// Resolve output path relative to working directory
+		resolvedOutputPath := cliOutputPath
+		if !filepath.IsAbs(cliOutputPath) {
+			resolvedOutputPath = filepath.Join(workingDir, cliOutputPath)
+		}
+
 		// Stream logs and wait for completion
 		envCaptureConfig := &envCaptureConfig{
-			envCapturePath: envCapturePath,
-			pwdCapturePath: pwdCapturePath,
-			isBashScript:   isBashScript,
+			scriptSetup:    scriptSetup,
 			sessionManager: sessionManager,
 			execCtx:        execCtx,
 		}
-		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, cliOutputPath, envCaptureConfig)
+		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig)
 	}
 }
 
@@ -290,7 +262,7 @@ func prepareScriptContent(executable *Executable, templateVars map[string]any) (
 	// If template variable values are provided, render the template
 	// This handles both simple {{ .VarName }} patterns and nested paths like {{ ._blocks.xxx.outputs.yyy }}
 	if len(templateVars) > 0 {
-		rendered, err := renderBoilerplateContent(scriptContent, templateVars)
+		rendered, err := RenderBoilerplateContent(scriptContent, templateVars)
 		if err != nil {
 			return "", fmt.Errorf("failed to render template: %w", err)
 		}
@@ -458,24 +430,10 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 			}
 
 			// Capture environment changes from bash scripts and update session
-			// Non-bash scripts (Python, Ruby, etc.) don't get environment capture - their env changes
-			// only affect their own subprocess and can't propagate back to the session.
-			if envCapture != nil && envCapture.isBashScript && (status == "success" || status == "warn") {
-				capturedEnv, capturedPwd := parseEnvCapture(envCapture.envCapturePath, envCapture.pwdCapturePath)
-				if capturedEnv != nil {
-					// Filter out shell internals
-					filteredEnv := FilterCapturedEnv(capturedEnv)
-					// Determine new working directory (use captured pwd, or fall back to the original)
-					newWorkDir := envCapture.execCtx.WorkDir
-					if capturedPwd != "" {
-						newWorkDir = capturedPwd
-					}
-					// Update session (ignore errors, non-critical)
-					if err := envCapture.sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir); err != nil {
-						// If the session was deleted concurrently, we can't update it.
-						sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
-						flusher.Flush()
-					}
+			if envCapture != nil && (status == "success" || status == "warn") {
+				if err := envCapture.scriptSetup.CaptureEnvironmentChanges(envCapture.sessionManager, envCapture.execCtx.WorkDir); err != nil {
+					sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
+					flusher.Flush()
 				}
 			}
 
@@ -537,9 +495,9 @@ func detectInterpreter(script string, providedLang string) (string, []string) {
 	return "bash", []string{}
 }
 
-// isBashInterpreter returns true if the interpreter is a bash-compatible shell.
+// IsBashInterpreter returns true if the interpreter is a bash-compatible shell.
 // Used to determine if environment capture wrapping should be applied.
-func isBashInterpreter(interpreter string) bool {
+func IsBashInterpreter(interpreter string) bool {
 	switch interpreter {
 	case "bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh":
 		return true
@@ -560,7 +518,112 @@ func createTempFile(pattern string) (string, error) {
 	return path, nil
 }
 
-// wrapScriptForEnvCapture wraps a script to capture environment changes after execution.
+// ScriptSetup contains the prepared script and related resources for execution.
+// Use PrepareScriptForExecution to create this, and call Cleanup when done.
+type ScriptSetup struct {
+	ScriptPath     string   // Path to the temporary script file
+	Interpreter    string   // Interpreter to use (e.g., "bash", "python")
+	Args           []string // Additional interpreter arguments
+	IsBashScript   bool     // Whether environment capture is enabled
+	EnvCapturePath string   // Path to env capture file (only valid if IsBashScript)
+	PwdCapturePath string   // Path to pwd capture file (only valid if IsBashScript)
+}
+
+// Cleanup removes all temporary files created during script preparation.
+func (s *ScriptSetup) Cleanup() {
+	if s.ScriptPath != "" {
+		os.Remove(s.ScriptPath)
+	}
+	if s.EnvCapturePath != "" {
+		os.Remove(s.EnvCapturePath)
+	}
+	if s.PwdCapturePath != "" {
+		os.Remove(s.PwdCapturePath)
+	}
+}
+
+// CaptureEnvironmentChanges parses the captured environment after script execution
+// and updates the session with any changes. This should only be called after a
+// successful (or warning) script execution.
+//
+// Parameters:
+//   - sessionManager: the session manager to update
+//   - currentWorkDir: the current working directory (used as fallback if pwd capture fails)
+//
+// Returns an error only if the session update fails (non-critical, can be ignored).
+func (s *ScriptSetup) CaptureEnvironmentChanges(sessionManager *SessionManager, currentWorkDir string) error {
+	if !s.IsBashScript {
+		return nil // Non-bash scripts don't capture environment
+	}
+
+	capturedEnv, capturedPwd := ParseEnvCapture(s.EnvCapturePath, s.PwdCapturePath)
+	if capturedEnv == nil {
+		return nil // No environment to capture
+	}
+
+	// Filter out shell internals
+	filteredEnv := FilterCapturedEnv(capturedEnv)
+
+	// Determine new working directory (use captured pwd, or fall back to the original)
+	newWorkDir := currentWorkDir
+	if capturedPwd != "" {
+		newWorkDir = capturedPwd
+	}
+
+	// Update session
+	return sessionManager.UpdateSessionEnv(filteredEnv, newWorkDir)
+}
+
+// PrepareScriptForExecution prepares a script for execution with environment capture.
+// It handles:
+//   - Detecting the interpreter from shebang or provided language
+//   - Creating temp files for environment capture (for bash scripts)
+//   - Wrapping bash scripts to capture env changes
+//   - Creating the temporary executable script file
+//
+// Returns a ScriptSetup that must be cleaned up with Cleanup() when done.
+func PrepareScriptForExecution(scriptContent string, language string) (*ScriptSetup, error) {
+	setup := &ScriptSetup{}
+
+	// Detect interpreter from shebang or use language from executable
+	setup.Interpreter, setup.Args = detectInterpreter(scriptContent, language)
+
+	// Check if this is a bash-compatible script
+	setup.IsBashScript = IsBashInterpreter(setup.Interpreter)
+
+	// For bash scripts, set up environment capture
+	scriptToWrite := scriptContent
+	if setup.IsBashScript {
+		// Create temp files for environment capture
+		var err error
+		setup.EnvCapturePath, err = createTempFile("runbook-env-capture-*.txt")
+		if err != nil {
+			setup.Cleanup()
+			return nil, fmt.Errorf("failed to create env capture file: %w", err)
+		}
+
+		setup.PwdCapturePath, err = createTempFile("runbook-pwd-capture-*.txt")
+		if err != nil {
+			setup.Cleanup()
+			return nil, fmt.Errorf("failed to create pwd capture file: %w", err)
+		}
+
+		// Wrap script for environment capture
+		scriptToWrite = WrapScriptForEnvCapture(scriptContent, setup.EnvCapturePath, setup.PwdCapturePath)
+	}
+
+	// Create temporary executable script
+	var err error
+	setup.ScriptPath, err = createTempScript(scriptToWrite)
+	if err != nil {
+		setup.Cleanup()
+		return nil, err
+	}
+
+	return setup, nil
+}
+
+// WrapScriptForEnvCapture wraps a script to capture environment changes after execution.
 // The wrapper appends commands to dump the environment and working directory to temp files.
 //
 // ## How the wrapper works
@@ -582,7 +645,7 @@ func createTempFile(pattern string) (string, error) {
 //  3. Preserves the original exit code
 //
 // We use `builtin trap` to set our handler, which bypasses our override function.
-func wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) string {
+func WrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) string {
 	// We use `env -0` to output NUL-terminated entries instead of newline-terminated.
 	// This is critical because environment variable values can contain embedded newlines
 	// (e.g., RSA keys, JSON, multiline strings). Both GNU and BSD/macOS support `env -0`.
@@ -706,12 +769,12 @@ builtin trap __runbooks_combined_exit EXIT
 	return wrapper
 }
 
-// parseEnvCapture reads the captured environment and working directory from temp files.
+// ParseEnvCapture reads the captured environment and working directory from temp files.
 // The environment file is expected to be NUL-terminated (from `env -0`) to correctly
 // handle environment variable values that contain embedded newlines.
 // Falls back to newline-delimited parsing if no NUL characters are found (for compatibility
 // with systems where `env -0` might not be available).
-func parseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, string) {
+func ParseEnvCapture(envCapturePath, pwdCapturePath string) (map[string]string, string) {
 	env := make(map[string]string)
 
 	// Read environment capture

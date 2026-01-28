@@ -22,7 +22,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.1'
+          go-version: '1.25.6'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -110,15 +110,41 @@ jobs:
       - name: Run docs tests
         run: task test:docs
 
+  test-runbooks:
+    name: Test Demo Runbooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run runbook tests
+        run: task test:runbooks
+
   test-summary:
     name: Test Summary
-    needs: [test-go, test-web, test-docs]
+    needs: [test-go, test-web, test-docs, test-runbooks]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.test-go.result }}" != "success" ] || [ "${{ needs.test-web.result }}" != "success" ] || [ "${{ needs.test-docs.result }}" != "success" ]; then
+          if [ "${{ needs.test-go.result }}" != "success" ] || [ "${{ needs.test-web.result }}" != "success" ] || [ "${{ needs.test-docs.result }}" != "success" ] || [ "${{ needs.test-runbooks.result }}" != "success" ]; then
             echo "Tests failed!"
             exit 1
           fi

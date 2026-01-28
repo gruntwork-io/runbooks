@@ -229,12 +229,13 @@ const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent;
 ## Testing
 
 Test examples are available in:
-- `/testdata/runbook-with-parameterized-check/`
+- `/testdata/sample-runbooks/demo2/` - Shows Check with `inputsId` and templated command variables
+- `/testdata/sample-runbooks/lambda/` - Shows Check with `inputsId` referencing template inputs
 
-This includes:
-- Inline BoilerplateInputs example
-- External BoilerplateInputs reference example
-- Non-parameterized check example (backwards compatibility)
+These include:
+- External Inputs reference example (via `inputsId` prop)
+- Check with templated commands using `{{ .Variable }}` syntax
+- Non-parameterized check examples (backwards compatibility)
 
 ## Future Enhancements
 

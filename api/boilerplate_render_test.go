@@ -9,8 +9,8 @@ import (
 
 func TestRenderBoilerplateTemplate(t *testing.T) {
 	// Get the test data directory (relative to project root)
-	testDataDir := "../testdata/runbook-with-boilerplate/runbook"
-	expectedDir := "../testdata/runbook-with-boilerplate/expected-outputs/dev"
+	testDataDir := "../testdata/test-fixtures/runbooks/with-boilerplate/runbook"
+	expectedDir := "../testdata/test-fixtures/runbooks/with-boilerplate/expected-outputs/dev"
 
 	// Check if test data exists
 	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
@@ -41,9 +41,9 @@ func TestRenderBoilerplateTemplate(t *testing.T) {
 	}
 
 	// Test the render function
-	err = renderBoilerplateTemplate(testDataDir, tempDir, variables)
+	err = RenderBoilerplateTemplate(testDataDir, tempDir, variables)
 	if err != nil {
-		t.Fatalf("renderBoilerplateTemplate failed: %v", err)
+		t.Fatalf("RenderBoilerplateTemplate failed: %v", err)
 	}
 
 	// Compare generated files with expected files
@@ -52,8 +52,8 @@ func TestRenderBoilerplateTemplate(t *testing.T) {
 
 func TestRenderBoilerplateTemplateWithDifferentVariables(t *testing.T) {
 	// Get the test data directory (relative to project root)
-	testDataDir := "../testdata/runbook-with-boilerplate/runbook"
-	expectedDir := "../testdata/runbook-with-boilerplate/expected-outputs/prod"
+	testDataDir := "../testdata/test-fixtures/runbooks/with-boilerplate/runbook"
+	expectedDir := "../testdata/test-fixtures/runbooks/with-boilerplate/expected-outputs/prod"
 
 	// Check if test data exists
 	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
@@ -84,9 +84,9 @@ func TestRenderBoilerplateTemplateWithDifferentVariables(t *testing.T) {
 	}
 
 	// Test the render function
-	err = renderBoilerplateTemplate(testDataDir, tempDir, variables)
+	err = RenderBoilerplateTemplate(testDataDir, tempDir, variables)
 	if err != nil {
-		t.Fatalf("renderBoilerplateTemplate failed: %v", err)
+		t.Fatalf("RenderBoilerplateTemplate failed: %v", err)
 	}
 
 	// Compare generated files with expected files
@@ -271,15 +271,15 @@ func TestRenderBoilerplateContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := renderBoilerplateContent(tt.content, tt.variables)
+			result, err := RenderBoilerplateContent(tt.content, tt.variables)
 			
 			if (err != nil) != tt.wantErr {
-				t.Errorf("renderBoilerplateContent() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("RenderBoilerplateContent() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			
 			if !tt.wantErr && result != tt.expected {
-				t.Errorf("renderBoilerplateContent() = %q, want %q", result, tt.expected)
+				t.Errorf("RenderBoilerplateContent() = %q, want %q", result, tt.expected)
 			}
 		})
 	}

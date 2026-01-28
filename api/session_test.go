@@ -666,7 +666,7 @@ echo "Hello"
 export MY_VAR=value
 cd /tmp`
 
-	wrapped := wrapScriptForEnvCapture(script, "/tmp/env.txt", "/tmp/pwd.txt")
+	wrapped := WrapScriptForEnvCapture(script, "/tmp/env.txt", "/tmp/pwd.txt")
 
 	// Verify wrapper contains necessary components
 	if !strings.Contains(wrapped, "__RUNBOOKS_ENV_CAPTURE_PATH") {
@@ -723,7 +723,7 @@ trap "touch %q" EXIT
 echo "Script running"
 `, userTrapRanPath)
 
-	wrapped := wrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath)
+	wrapped := WrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath)
 
 	// Write wrapped script to temp file and execute it
 	tmpScript, err := os.CreateTemp("", "test-wrapped-*.sh")
@@ -749,7 +749,7 @@ echo "Script running"
 	// Note: t.TempDir() handles cleanup automatically
 
 	// Verify our env capture also ran
-	env, _ := parseEnvCapture(envCapturePath, pwdCapturePath)
+	env, _ := ParseEnvCapture(envCapturePath, pwdCapturePath)
 	if env == nil {
 		t.Fatal("Environment capture should have run")
 	}
@@ -773,7 +773,7 @@ func TestParseEnvCapture(t *testing.T) {
 	pwdFile.Close()
 	defer os.Remove(pwdFile.Name())
 
-	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+	env, pwd := ParseEnvCapture(envFile.Name(), pwdFile.Name())
 
 	if env["VAR1"] != "value1" {
 		t.Errorf("VAR1 should be value1, got: %s", env["VAR1"])
@@ -808,7 +808,7 @@ func TestParseEnvCaptureMultilineValues(t *testing.T) {
 	pwdFile.Close()
 	defer os.Remove(pwdFile.Name())
 
-	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+	env, pwd := ParseEnvCapture(envFile.Name(), pwdFile.Name())
 
 	if env["SIMPLE"] != "simple_value" {
 		t.Errorf("SIMPLE should be simple_value, got: %s", env["SIMPLE"])
@@ -840,7 +840,7 @@ func TestParseEnvCaptureLegacyNewlineFormat(t *testing.T) {
 	pwdFile.Close()
 	defer os.Remove(pwdFile.Name())
 
-	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+	env, pwd := ParseEnvCapture(envFile.Name(), pwdFile.Name())
 
 	if env["VAR1"] != "value1" {
 		t.Errorf("VAR1 should be value1, got: %s", env["VAR1"])
@@ -873,7 +873,7 @@ func TestParseEnvCaptureLegacyMultilineValues(t *testing.T) {
 	pwdFile.Close()
 	defer os.Remove(pwdFile.Name())
 
-	env, pwd := parseEnvCapture(envFile.Name(), pwdFile.Name())
+	env, pwd := ParseEnvCapture(envFile.Name(), pwdFile.Name())
 
 	if env["SIMPLE"] != "simple" {
 		t.Errorf("SIMPLE should be 'simple', got: %q", env["SIMPLE"])
@@ -899,7 +899,7 @@ func TestParseEnvCaptureLegacyMultilineValues(t *testing.T) {
 }
 
 func TestParseEnvCaptureNonExistentFiles(t *testing.T) {
-	env, pwd := parseEnvCapture("/non/existent/env.txt", "/non/existent/pwd.txt")
+	env, pwd := ParseEnvCapture("/non/existent/env.txt", "/non/existent/pwd.txt")
 
 	if env != nil {
 		t.Error("env should be nil for non-existent file")

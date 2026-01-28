@@ -125,7 +125,7 @@ func (r *ExecutableRegistry) parseAndRegister() error {
 	return nil
 }
 
-// getComponentRegex returns a compiled regex for matching MDX components
+// GetComponentRegex returns a compiled regex for matching MDX components.
 // Matches both self-closing and container components: <Type .../> or <Type ...>...</Type>
 // The props pattern handles characters inside quoted attribute values:
 // - Double quoted strings: "..."
@@ -133,7 +133,7 @@ func (r *ExecutableRegistry) parseAndRegister() error {
 // - JSX expressions with template literals: {`...`}
 // - JSX expressions with double quotes: {"..."}
 // - JSX expressions with single quotes: {'...'}
-func getComponentRegex(componentType string) *regexp.Regexp {
+func GetComponentRegex(componentType string) *regexp.Regexp {
 	// Pattern to match attribute values that may contain > characters
 	// This handles: attr="value with >" or attr='value with >' or attr={`template with >`} etc.
 	propsPattern := `(?:"[^"]*"|'[^']*'|\{` + "`[^`]*`" + `\}|\{"[^"]*"\}|\{'[^']*'\}|[^>])*?`
@@ -141,34 +141,81 @@ func getComponentRegex(componentType string) *regexp.Regexp {
 	return regexp.MustCompile(pattern)
 }
 
-// parseComponents extracts and registers all components of a given type
-func (r *ExecutableRegistry) parseComponents(content, runbookDir, componentType string) error {
-	re := getComponentRegex(componentType)
+// ParsedComponent represents a parsed MDX component with its properties.
+type ParsedComponent struct {
+	ID            string // Component ID (explicit or auto-generated)
+	Type          string // e.g., "Check", "Command"
+	Props         string // Raw props string; use ExtractProp to get specific values
+	Content       string // Content between tags (for container components)
+	Position      int    // Position in document (byte offset)
+	HasExplicitID bool   // True if ID was provided in props, false if auto-generated
+}
 
-	matches := re.FindAllStringSubmatch(content, -1)
+// ParseComponents finds all components of a given type in the content and returns their parsed info.
+// This is the shared parsing logic used by both ExecutableRegistry and InputValidator.
+func ParseComponents(content, componentType string) []ParsedComponent {
+	re := GetComponentRegex(componentType)
+	matches := re.FindAllStringSubmatchIndex(content, -1)
+
+	var components []ParsedComponent
+	seen := make(map[string]bool)
+
 	for _, match := range matches {
-		props := match[1] // Component props
-
-		// Extract component properties
-		componentID := extractProp(props, "id")
-		if componentID == "" {
-			// Compute ID from component properties if not provided
-			componentID = computeComponentID(componentType, props)
+		// FindAllStringSubmatchIndex returns pairs of indices:
+		// match[0:2] = full match, match[2:4] = props (group 1), match[4:6] = content (group 2, optional)
+		// We need at least 4 indices to have the props capture group
+		if len(match) < 4 {
+			continue
 		}
 
-		// Extract path or command prop
-		pathProp := extractProp(props, "path")
-		commandProp := extractProp(props, "command")
+		props := content[match[2]:match[3]]
+		explicitID := ExtractProp(props, "id")
+		id := explicitID
+		if id == "" {
+			id = ComputeComponentID(componentType, props)
+		}
 
-		// Determine executable type and register
-		if commandProp != "" {
+		// Skip duplicates
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+
+		// Extract content between tags (if present, for container components)
+		var componentContent string
+		if len(match) >= 6 && match[4] >= 0 && match[5] >= 0 {
+			componentContent = content[match[4]:match[5]]
+		}
+
+		components = append(components, ParsedComponent{
+			ID:            id,
+			Type:          componentType,
+			Props:         props,
+			Content:       componentContent,
+			Position:      match[0],
+			HasExplicitID: explicitID != "",
+		})
+	}
+
+	return components
+}
+
+// parseComponents extracts and registers all components of a given type
+func (r *ExecutableRegistry) parseComponents(content, runbookDir, componentType string) error {
+	components := ParseComponents(content, componentType)
+
+	for _, comp := range components {
+		command := ExtractProp(comp.Props, "command")
+		path := ExtractProp(comp.Props, "path")
+
+		if command != "" {
 			// Inline command
-			if err := r.registerInlineExecutable(componentID, componentType, commandProp); err != nil {
+			if err := r.registerInlineExecutable(comp.ID, componentType, command); err != nil {
 				return err
 			}
-		} else if pathProp != "" {
+		} else if path != "" {
 			// File-based command
-			if err := r.registerFileExecutable(componentID, componentType, pathProp, runbookDir); err != nil {
+			if err := r.registerFileExecutable(comp.ID, componentType, path, runbookDir); err != nil {
 				return err
 			}
 		}
@@ -285,7 +332,9 @@ func getDuplicateWarningMessage(componentType, componentID string) string {
 }
 
 // extractProp extracts a prop value from component props string
-func extractProp(props, propName string) string {
+// ExtractProp extracts a prop value from MDX component props string.
+// Handles formats: prop="value", prop='value', prop={`value`}, prop={"value"}, prop={'value'}
+func ExtractProp(props, propName string) string {
 	// Handle both formats: prop="value" and prop={value}
 	patterns := []string{
 		fmt.Sprintf(`%s="([^"]*)"`, propName),
@@ -343,7 +392,9 @@ func computeContentHash(content string) string {
 }
 
 // computeComponentID computes a deterministic component ID from its properties
-func computeComponentID(componentType, props string) string {
+// ComputeComponentID generates a deterministic ID for a component without an explicit id prop.
+// Uses a hash of the component type and props to ensure uniqueness.
+func ComputeComponentID(componentType, props string) string {
 	// Use hash of component type + props
 	hash := sha256.Sum256([]byte(componentType + props))
 	return componentType + "_" + hex.EncodeToString(hash[:])[:8]
@@ -386,7 +437,7 @@ func validateRunbook(filePath string) ([]string, error) {
 
 // validateComponentType checks for duplicate components of a specific type
 func validateComponentType(content, componentType string) []string {
-	re := getComponentRegex(componentType)
+	re := GetComponentRegex(componentType)
 	matches := re.FindAllStringSubmatch(content, -1)
 
 	seen := make(map[string]bool)
@@ -394,9 +445,9 @@ func validateComponentType(content, componentType string) []string {
 
 	for _, match := range matches {
 		props := match[1]
-		id := extractProp(props, "id")
+		id := ExtractProp(props, "id")
 		if id == "" {
-			id = computeComponentID(componentType, props)
+			id = ComputeComponentID(componentType, props)
 		}
 
 		if seen[id] {
@@ -439,15 +490,15 @@ func getExecutableByComponentID(runbookPath, componentID string) (*Executable, e
 
 // findComponentExecutable searches for a component and returns it as an Executable
 func findComponentExecutable(content, runbookDir, componentType, targetID string) (*Executable, error) {
-	re := getComponentRegex(componentType)
+	re := GetComponentRegex(componentType)
 
 	matches := re.FindAllStringSubmatch(content, -1)
 	for _, match := range matches {
 		props := match[1]
 
-		componentID := extractProp(props, "id")
+		componentID := ExtractProp(props, "id")
 		if componentID == "" {
-			componentID = computeComponentID(componentType, props)
+			componentID = ComputeComponentID(componentType, props)
 		}
 
 		if componentID != targetID {
@@ -455,8 +506,8 @@ func findComponentExecutable(content, runbookDir, componentType, targetID string
 		}
 
 		// Found! Extract and return executable
-		pathProp := extractProp(props, "path")
-		commandProp := extractProp(props, "command")
+		pathProp := ExtractProp(props, "path")
+		commandProp := ExtractProp(props, "command")
 
 		if commandProp != "" {
 			// Inline executable

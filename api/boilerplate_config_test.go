@@ -22,7 +22,7 @@ func TestParseBoilerplateConfig(t *testing.T) {
 	}{
 		{
 			name:                  "valid boilerplate with all types",
-			filename:              "../testdata/boilerplate-yaml/valid.yml",
+			filename:              "../testdata/test-fixtures/boilerplate-yaml/valid.yml",
 			wantErr:               false,
 			expectedVariableCount: 6,
 			expectedTypes:         []string{"string", "enum", "bool", "int", "map", "list"},
@@ -30,7 +30,7 @@ func TestParseBoilerplateConfig(t *testing.T) {
 		},
 		{
 			name:                  "boilerplate with validations",
-			filename:              "../testdata/boilerplate-yaml/valid-with-validations.yml",
+			filename:              "../testdata/test-fixtures/boilerplate-yaml/valid-with-validations.yml",
 			wantErr:               false,
 			expectedVariableCount: 9,
 			expectedTypes:         []string{"string", "enum", "bool", "int", "map", "list", "string", "string", "string"},
@@ -43,12 +43,12 @@ func TestParseBoilerplateConfig(t *testing.T) {
 		},
 		{
 			name:     "invalid variable types",
-			filename: "../testdata/boilerplate-yaml/invalid-variable-types.yml",
+			filename: "../testdata/test-fixtures/boilerplate-yaml/invalid-variable-types.yml",
 			wantErr:  true,
 		},
 		{
 			name:                  "invalid validations",
-			filename:              "../testdata/boilerplate-yaml/invalid-validations.yml",
+			filename:              "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
 			wantErr:               false, // Boilerplate library is permissive and parses these as custom validations
 			expectedVariableCount: 4,     // Should parse successfully with 4 variables
 			expectedTypes:         []string{"string", "string", "string", "string"},
@@ -56,7 +56,7 @@ func TestParseBoilerplateConfig(t *testing.T) {
 		},
 		{
 			name:     "invalid yaml syntax",
-			filename: "../testdata/boilerplate-yaml/invalid-yaml-2.yml",
+			filename: "../testdata/test-fixtures/boilerplate-yaml/invalid-yaml-2.yml",
 			wantErr:  true,
 		},
 	}
@@ -126,31 +126,31 @@ func TestParseBoilerplateConfig_ContentErrors(t *testing.T) {
 	}{
 		{
 			name:          "invalid yaml syntax - malformed yaml",
-			filePath:      "../testdata/boilerplate-yaml/invalid-yaml.yml",
+			filePath:      "../testdata/test-fixtures/boilerplate-yaml/invalid-yaml.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid yaml syntax - malformed yaml 2",
-			filePath:      "../testdata/boilerplate-yaml/invalid-yaml-2.yml",
+			filePath:      "../testdata/test-fixtures/boilerplate-yaml/invalid-yaml-2.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid yaml syntax - malformed yaml 3",
-			filePath:      "../testdata/boilerplate-yaml/invalid-yaml-3.yml",
+			filePath:      "../testdata/test-fixtures/boilerplate-yaml/invalid-yaml-3.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid variable types",
-			filePath:      "../testdata/boilerplate-yaml/invalid-variable-types.yml",
+			filePath:      "../testdata/test-fixtures/boilerplate-yaml/invalid-variable-types.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid type unsupported",
-			filePath:      "../testdata/boilerplate-yaml/invalid-type-unsupported.yml",
+			filePath:      "../testdata/test-fixtures/boilerplate-yaml/invalid-type-unsupported.yml",
 			expectError:   true,
 			errorContains: "failed to parse boilerplate config",
 		},
@@ -183,7 +183,7 @@ func TestParseBoilerplateConfig_ContentErrors(t *testing.T) {
 }
 
 func TestParseBoilerplateConfig_ValidationRules(t *testing.T) {
-	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-with-validations.yml")
+	absPath, err := filepath.Abs("../testdata/test-fixtures/boilerplate-yaml/valid-with-validations.yml")
 	require.NoError(t, err)
 
 	// Read the file content
@@ -225,7 +225,7 @@ func TestParseBoilerplateConfig_ValidationRules(t *testing.T) {
 }
 
 func TestParseBoilerplateConfig_RequiredFields(t *testing.T) {
-	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-with-validations.yml")
+	absPath, err := filepath.Abs("../testdata/test-fixtures/boilerplate-yaml/valid-with-validations.yml")
 	require.NoError(t, err)
 
 	// Read the file content
@@ -406,7 +406,7 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 
 // Additional test for enum variables
 func TestParseBoilerplateConfig_EnumVariables(t *testing.T) {
-	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-enum-only.yml")
+	absPath, err := filepath.Abs("../testdata/test-fixtures/boilerplate-yaml/valid-enum-only.yml")
 	require.NoError(t, err)
 
 	// Read the file content
@@ -434,7 +434,7 @@ func TestParseBoilerplateConfig_EnumVariables(t *testing.T) {
 
 // Test for complex default values
 func TestParseBoilerplateConfig_ComplexDefaults(t *testing.T) {
-	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-complex-defaults.yml")
+	absPath, err := filepath.Abs("../testdata/test-fixtures/boilerplate-yaml/valid-complex-defaults.yml")
 	require.NoError(t, err)
 
 	// Read the file content
@@ -470,17 +470,17 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 	}{
 		{
 			name:          "invalid variable types",
-			filename:      "../testdata/boilerplate-yaml/invalid-variable-types.yml",
+			filename:      "../testdata/test-fixtures/boilerplate-yaml/invalid-variable-types.yml",
 			expectedError: "failed to parse boilerplate config",
 		},
 		{
 			name:          "invalid validations",
-			filename:      "../testdata/boilerplate-yaml/invalid-validations.yml",
+			filename:      "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
 			expectedError: "", // This should actually succeed - boilerplate is permissive
 		},
 		{
 			name:          "invalid yaml syntax",
-			filename:      "../testdata/boilerplate-yaml/invalid-yaml-2.yml",
+			filename:      "../testdata/test-fixtures/boilerplate-yaml/invalid-yaml-2.yml",
 			expectedError: "failed to parse boilerplate config",
 		},
 	}
@@ -512,7 +512,7 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 
 // Test for x-section extraction (Runbooks extension)
 func TestParseBoilerplateConfig_Sections(t *testing.T) {
-	absPath, err := filepath.Abs("../testdata/boilerplate-yaml/valid-with-sections.yml")
+	absPath, err := filepath.Abs("../testdata/test-fixtures/boilerplate-yaml/valid-with-sections.yml")
 	require.NoError(t, err)
 
 	// Read the file content
@@ -944,11 +944,11 @@ func TestIsBinaryFile(t *testing.T) {
 // against shared test fixtures that are also used by the TypeScript implementation.
 // This ensures both implementations stay in sync.
 //
-// Shared fixtures: testdata/output-dependency-patterns.json
+// Shared fixtures: testdata/test-fixtures/output-dependencies/patterns.json
 // TypeScript implementation: web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
 func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
 	// Load shared test fixtures
-	fixturesPath := "../testdata/output-dependency-patterns.json"
+	fixturesPath := "../testdata/test-fixtures/output-dependencies/patterns.json"
 	fixturesData, err := os.ReadFile(fixturesPath)
 	require.NoError(t, err, "Failed to read shared fixtures file. This file is used by both Go and TypeScript tests.")
 
@@ -972,7 +972,7 @@ func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
 	for _, tc := range fixtures.Cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			// Extract dependencies using the Go implementation
-			deps := extractOutputDependenciesFromContent(tc.Input)
+			deps := ExtractOutputDependenciesFromContent(tc.Input)
 
 			// Verify the count matches
 			assert.Equal(t, len(tc.Expected), len(deps),

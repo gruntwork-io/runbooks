@@ -68,7 +68,19 @@ function extractYamlContent(children: ReactNode): string {
     }
     
     // Handle pre elements - these contain code fences
+    // MDX can use either native 'pre' elements or custom CodeBlock components
+    let isPreElement = false;
     if (element.type === 'pre') {
+      isPreElement = true;
+    } else if (typeof element.type === 'function') {
+      const funcType = element.type as { name?: string; displayName?: string };
+      isPreElement = funcType.name === 'CodeBlock' || funcType.displayName === 'CodeBlock';
+    } else if (typeof element.type === 'object' && element.type !== null) {
+      const objType = element.type as { name?: string; displayName?: string };
+      isPreElement = objType.name === 'CodeBlock' || objType.displayName === 'CodeBlock';
+    }
+    
+    if (isPreElement) {
       // Extract the code content from the code element inside pre
       const content = extractYamlContent(element.props.children)
       // Return the content directly - it's already properly formatted

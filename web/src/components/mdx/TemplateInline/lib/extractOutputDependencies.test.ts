@@ -9,7 +9,7 @@ import { normalizeBlockId } from '@/lib/utils'
  * against shared test fixtures that are also used by the Go implementation.
  * This ensures both implementations stay in sync.
  *
- * Shared fixtures: testdata/output-dependency-patterns.json
+ * Shared fixtures: testdata/test-fixtures/output-dependencies/patterns.json
  * Go implementation: api/boilerplate_config.go (OutputDependencyRegex)
  */
 
@@ -32,7 +32,7 @@ interface TestFixtures {
 
 describe('extractOutputDependenciesFromString - shared fixtures', () => {
   // Load the shared test fixtures
-  const fixturesPath = join(__dirname, '../../../../../../testdata/output-dependency-patterns.json')
+  const fixturesPath = join(__dirname, '../../../../../../testdata/test-fixtures/output-dependencies/patterns.json')
   const fixturesData = readFileSync(fixturesPath, 'utf-8')
   const fixtures: TestFixtures = JSON.parse(fixturesData)
 

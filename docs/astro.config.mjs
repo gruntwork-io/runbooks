@@ -63,6 +63,7 @@ export default defineConfig({
 					'authoring/markdown',
 					'authoring/variables',
 					'authoring/boilerplate',
+					'authoring/testing',
 					{
 						label: 'Blocks',
 						autogenerate: { directory: 'authoring/blocks' },

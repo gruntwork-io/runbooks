@@ -7,9 +7,17 @@ import (
 	"strings"
 )
 
-// This file centralizes all path validation logic for security.
-// All functions here are designed to prevent path traversal attacks
-// and ensure file operations stay within expected boundaries.
+// This file centralizes path validation logic for output paths.
+//
+// IMPORTANT: These validations offer LIMITED security value and are candidates
+// for future removal. Since runbooks execute arbitrary user scripts that have
+// full filesystem access, restricting output paths doesn't create a meaningful
+// security boundary - a user who wants to write outside the output directory
+// could simply do so in a script instead.
+//
+// The primary value these checks provide is catching accidental misconfiguration
+// (e.g., typos like "../oops") with clear error messages, rather than letting
+// boilerplate fail with cryptic errors or silently write to unexpected locations.
 
 // =============================================================================
 // Core Validation Functions

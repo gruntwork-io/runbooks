@@ -35,7 +35,19 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 		}
 		path := args[0]
 
-		if err := api.StartBackendServer(path, 7825, outputPath); err != nil {
+		// Resolve the working directory
+		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+		if err != nil {
+			slog.Error("Failed to resolve working directory", "error", err)
+			os.Exit(1)
+		}
+		if cleanup != nil {
+			defer cleanup()
+		}
+
+		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
+
+		if err := api.StartBackendServer(path, 7825, resolvedWorkDir, outputPath); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}

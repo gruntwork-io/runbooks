@@ -3,7 +3,7 @@ import { formatVariableLabel } from '../lib/formatVariableLabel'
 
 interface UnmetInputDependenciesWarningProps {
   /** The type of block (used in the message text) */
-  blockType: 'check' | 'command'
+  blockType: 'check' | 'command' | 'template'
   /** List of all input dependency variable names */
   inputDependencies: string[]
   /** Current input values to check which are missing */

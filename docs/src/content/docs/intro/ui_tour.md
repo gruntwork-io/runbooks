@@ -4,18 +4,18 @@ sidebar:
    order: 2
 ---
 
-On this page, we'll walk through the **Runbooks consumer** experience when a user opens the [demo-runbook-lambda runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/demo-runbook-lambda). Our user's goal is to launch an AWS Lambda function on AWS in a way that matches their organization's standards.
+On this page, we'll walk through the **Runbooks consumer** experience when a user opens the [lambda feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/lambda). Our user's goal is to launch an AWS Lambda function on AWS in a way that matches their organization's standards.
 
 You can see either a [written walkthrough](#written-walkthrough) or [video walkthrough](#video-walkthrough).
 
 ## Written walkthrough
 
-First, the user installs Runbooks and downloads the `demo-runbook-lambda` to their local file system.
+First, the user installs Runbooks and downloads the `lambda` feature demo to their local file system.
 
 Now, they open the runbook.
 
 ```bash
-runbooks open /path/to/demo-runbook-lambda
+runbooks open /path/to/lambda
 ```
 
 Runbooks launches a web browser to access `localhost:7825` and renders the runbook.

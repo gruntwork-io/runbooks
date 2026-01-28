@@ -37,7 +37,8 @@
     "parameterizing",
     "ints",
     "countrycode",
-    "templatize"
+    "templatize",
+    "parallelizable"
   ],
   "ignorePaths": [
     "node_modules",

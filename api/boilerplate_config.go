@@ -29,6 +29,29 @@ func normalizeBlockID(id string) string {
 	return strings.ReplaceAll(id, "-", "_")
 }
 
+// ResolveBoilerplatePath resolves a template path to the template directory and
+// the full boilerplate.yml path. The path prop in <Inputs> and <Template> can be
+// either a directory containing a boilerplate.yml file, or a direct path to the
+// boilerplate.yml file itself.
+//
+// Example with directory path: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc")
+// returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
+//
+// Example with file path: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc/boilerplate.yml")
+// returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
+func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boilerplatePath string) {
+	// Check if the path already points to a boilerplate config file
+	if strings.HasSuffix(templatePath, "boilerplate.yml") || strings.HasSuffix(templatePath, "boilerplate.yaml") {
+		boilerplatePath = filepath.Join(runbookDir, templatePath)
+		templateDir = filepath.Dir(boilerplatePath)
+		return
+	}
+	// Otherwise, treat as directory and append boilerplate.yml
+	templateDir = filepath.Join(runbookDir, templatePath)
+	boilerplatePath = filepath.Join(templateDir, "boilerplate.yml")
+	return
+}
+
 // This handler takes a path to a boilerplate.yml file and returns the variable declarations as JSON.
 //
 // There's a design decision here on how much of Boilerplate's native packages to use to parse the boilerplate.yml file,
@@ -79,9 +102,9 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 			// Extract the directory from the runbookPath (which we assume is a file path)
 			runbookDir := filepath.Dir(runbookPath)
 
-			// Construct the full path to boilerplate.yml and remember template dir
-			templateDir = filepath.Join(runbookDir, req.TemplatePath)
-			fullPath := filepath.Join(templateDir, "boilerplate.yml")
+			// Resolve the template directory and boilerplate.yml path
+			var fullPath string
+			templateDir, fullPath = ResolveBoilerplatePath(runbookDir, req.TemplatePath)
 			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
 
 			// Check if the file exists
@@ -547,13 +570,14 @@ func isBinaryFile(path string) (bool, error) {
 // IMPORTANT: Keep in sync with the TypeScript implementation in:
 //   web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
 //
-// Both implementations are validated against testdata/output-dependency-patterns.json
+// Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
 // to ensure they produce identical results. Run tests in both languages after any changes.
 var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
 
-// extractOutputDependenciesFromContent extracts output dependencies from string content.
+// ExtractOutputDependenciesFromContent extracts output dependencies from string content.
 // This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
-func extractOutputDependenciesFromContent(content string) []OutputDependency {
+// It finds all {{ ._blocks.blockId.outputs.outputName }} patterns in the content.
+func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 	var dependencies []OutputDependency
 	seen := make(map[string]bool)
 
@@ -618,7 +642,7 @@ func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDepen
 		}
 
 		// Extract dependencies from this file's content
-		fileDeps := extractOutputDependenciesFromContent(string(content))
+		fileDeps := ExtractOutputDependenciesFromContent(string(content))
 		for _, dep := range fileDeps {
 			// Deduplicate across all files
 			if !seen[dep.FullPath] {

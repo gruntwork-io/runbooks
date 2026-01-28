@@ -481,8 +481,9 @@ func HandleAwsSsoStart() gin.HandlerFunc {
 			StartUrl:     aws.String(req.StartURL),
 		})
 		if err != nil {
+			errorMsg := formatSSOError(err, region, req.StartURL)
 			c.JSON(http.StatusOK, SSOStartResponse{
-				Error: fmt.Sprintf("Failed to start device authorization: %v", err),
+				Error: errorMsg,
 			})
 			return
 		}
@@ -956,6 +957,44 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+// formatSSOError provides user-friendly error messages for common SSO errors.
+func formatSSOError(err error, region, startURL string) string {
+	errStr := err.Error()
+
+	// Check for InvalidRequestException - usually wrong region
+	if strings.Contains(errStr, "InvalidRequestException") {
+		return fmt.Sprintf("SSO region mismatch: The SSO Start URL '%s' does not exist in region '%s'. "+
+			"Check your IAM Identity Center settings in the AWS Console to find the correct region, "+
+			"then update the 'ssoRegion' prop in your AwsAuth block.",
+			startURL, region)
+	}
+
+	// Check for invalid start URL format
+	if strings.Contains(errStr, "InvalidClientException") {
+		return fmt.Sprintf("Invalid SSO configuration: The SSO client could not be registered. "+
+			"Verify that '%s' is a valid AWS IAM Identity Center start URL.",
+			startURL)
+	}
+
+	// Check for access denied
+	if strings.Contains(errStr, "AccessDeniedException") || strings.Contains(errStr, "UnauthorizedException") {
+		return "Access denied: You don't have permission to access this IAM Identity Center instance. " +
+			"Contact your AWS administrator."
+	}
+
+	// Check for network/connection errors
+	if strings.Contains(errStr, "connection refused") || strings.Contains(errStr, "no such host") {
+		return fmt.Sprintf("Connection failed: Could not reach the SSO endpoint for region '%s'. "+
+			"Check your network connection and verify the region is correct.",
+			region)
+	}
+
+	// Default: include original error but add context
+	return fmt.Sprintf("SSO authentication failed: %v. "+
+		"If you're seeing an InvalidRequestException, the most common cause is an incorrect 'ssoRegion' setting.",
+		err)
+}
 
 // defaultRegion returns the provided region, or "us-east-1" if empty.
 func defaultRegion(region string) string {

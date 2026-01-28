@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
 import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
+import { UnmetInputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetInputDependenciesWarning'
 import type { UnmetOutputDependency } from '@/components/mdx/_shared/hooks/useScriptExecution'
 import { useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
@@ -249,16 +250,28 @@ function TemplateInline({
     };
   }, []);
   
+  // Check if there are any unmet input dependencies
+  const hasUnmetInputDependencies = inputDependencies.length > 0 && !hasAllInputDependencies(inputValues);
+  
   // Render UI
   return (
     <div>
+      {/* Show warning for unmet input dependencies */}
+      {hasUnmetInputDependencies && (
+        <UnmetInputDependenciesWarning
+          blockType="template"
+          inputDependencies={inputDependencies}
+          inputValues={inputValues}
+        />
+      )}
+      
       {/* Show warning for unmet output dependencies */}
-      {!hasAllOutputDependencies && (
+      {!hasUnmetInputDependencies && !hasAllOutputDependencies && (
         <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
       )}
       
       {renderState === 'waiting' ? (
-        <LoadingDisplay message="Fill in the values above and click the Submit button to render this code snippet." />
+        <LoadingDisplay message="Waiting for template to render..." />
       ) : isRendering ? (
         <LoadingDisplay message="Rendering template..." />
       ) : error ? (

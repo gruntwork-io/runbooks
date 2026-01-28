@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -32,12 +31,9 @@ type SetEnvRequest struct {
 // HandleCreateSession creates a new session and returns the token.
 // POST /api/session
 // No authentication required.
-func HandleCreateSession(sm *SessionManager, runbookPath string) gin.HandlerFunc {
+func HandleCreateSession(sm *SessionManager, workingDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Use runbook directory as initial working directory
-		runbookDir := filepath.Dir(runbookPath)
-
-		response, err := sm.CreateSession(runbookDir)
+		response, err := sm.CreateSession(workingDir)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 			return
