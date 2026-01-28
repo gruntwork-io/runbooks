@@ -15,43 +15,35 @@ import (
 	bpVariables "github.com/gruntwork-io/boilerplate/variables"
 )
 
-// determineOutputDirectory determines the final output directory based on CLI config and API request.
-// CLI output path is the path set via the --output-path CLI flag and is trusted (specified by end user)
-// API request output path is the path specified in a component prop in the Runbook and is untrusted (specified by runbook author).
+// determineOutputDirectory determines the final output directory based on working directory, CLI config, and API request.
+// workingDir is the base directory for resolving relative paths (set via --working-dir CLI flag or defaults to cwd)
+// cliOutputPath is the path set via the --output-path CLI flag and is trusted (specified by end user)
+// apiRequestOutputPath is the path specified in a component prop in the Runbook and is untrusted (specified by runbook author).
 // If apiRequestOutputPath is provided, it's validated and treated as a subdirectory within the CLI path.
 // Returns the absolute output directory path or an error.
-func determineOutputDirectory(cliOutputPath string, apiRequestOutputPath *string) (string, error) {
+func determineOutputDirectory(workingDir string, cliOutputPath string, apiRequestOutputPath *string) (string, error) {
 	var outputDir string
-	
+
+	// Resolve CLI output path relative to working directory
+	var basePath string
+	if filepath.IsAbs(cliOutputPath) {
+		basePath = cliOutputPath
+	} else {
+		basePath = filepath.Join(workingDir, cliOutputPath)
+	}
+
 	if apiRequestOutputPath != nil && *apiRequestOutputPath != "" {
 		// Validate the API-provided output path for security
 		if err := ValidateRelativePath(*apiRequestOutputPath); err != nil {
 			return "", fmt.Errorf("invalid output path: %w", err)
 		}
-		
-		// Treat the validated path as a subdirectory within the CLI output path
-		if filepath.IsAbs(cliOutputPath) {
-			outputDir = filepath.Join(cliOutputPath, *apiRequestOutputPath)
-		} else {
-			currentDir, err := os.Getwd()
-			if err != nil {
-				return "", fmt.Errorf("failed to get current working directory: %w", err)
-			}
-			outputDir = filepath.Join(currentDir, cliOutputPath, *apiRequestOutputPath)
-		}
+
+		// Treat the validated path as a subdirectory within the base path
+		outputDir = filepath.Join(basePath, *apiRequestOutputPath)
 	} else {
-		// Use the CLI output path
-		if filepath.IsAbs(cliOutputPath) {
-			outputDir = cliOutputPath
-		} else {
-			currentDir, err := os.Getwd()
-			if err != nil {
-				return "", fmt.Errorf("failed to get current working directory: %w", err)
-			}
-			outputDir = filepath.Join(currentDir, cliOutputPath)
-		}
+		outputDir = basePath
 	}
-	
+
 	return outputDir, nil
 }
 
@@ -59,13 +51,14 @@ func determineOutputDirectory(cliOutputPath string, apiRequestOutputPath *string
 // This is shared logic used by both HandleBoilerplateRender and HandleBoilerplateRenderInline.
 //
 // Parameters:
+//   - workingDir: The base directory for resolving relative paths
 //   - cliOutputPath: The base output path from CLI flag
 //   - apiOutputPath: Optional subdirectory from API request (validated for security)
 //
 // Returns the absolute output directory path or an error.
-func prepareOutputDirectory(cliOutputPath string, apiOutputPath *string) (string, error) {
+func prepareOutputDirectory(workingDir string, cliOutputPath string, apiOutputPath *string) (string, error) {
 	// Determine the final output directory path
-	outputDir, err := determineOutputDirectory(cliOutputPath, apiOutputPath)
+	outputDir, err := determineOutputDirectory(workingDir, cliOutputPath, apiOutputPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to determine output directory: %w", err)
 	}
@@ -79,7 +72,7 @@ func prepareOutputDirectory(cliOutputPath string, apiOutputPath *string) (string
 }
 
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
-func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.HandlerFunc {
+func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -123,7 +116,7 @@ func HandleBoilerplateRender(runbookPath string, cliOutputPath string) gin.Handl
 		}
 
 		// Prepare the output directory (determine path and create it)
-		outputDir, err := prepareOutputDirectory(cliOutputPath, req.OutputPath)
+		outputDir, err := prepareOutputDirectory(workingDir, cliOutputPath, req.OutputPath)
 		if err != nil {
 			slog.Error("Failed to prepare output directory", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -338,7 +331,7 @@ func inputValuesToMap(inputs []InputValue) map[string]any {
 }
 
 // HandleBoilerplateRenderInline renders boilerplate templates provided directly in the request body
-func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
+func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderInlineRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -456,7 +449,7 @@ func HandleBoilerplateRenderInline(cliOutputPath string) gin.HandlerFunc {
 		// This merges with existing files instead of replacing them
 		var persistentOutputDir string
 		if req.GenerateFile {
-			persistentOutputDir, err = prepareOutputDirectory(cliOutputPath, nil)
+			persistentOutputDir, err = prepareOutputDirectory(workingDir, cliOutputPath, nil)
 			if err != nil {
 				slog.Error("Failed to prepare output directory", "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{

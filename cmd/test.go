@@ -261,22 +261,9 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 		return suite
 	}
 
-	// Create output directory
-	outputDir, cleanupOutput, err := createOutputDir()
-	if err != nil {
-		suite.Results = append(suite.Results, runbooktesting.TestResult{
-			TestCase: "setup",
-			Status:   runbooktesting.TestFailed,
-			Error:    err.Error(),
-		})
-		suite.Failed = 1
-		suite.Duration = time.Since(start)
-		return suite
-	}
-	defer cleanupOutput()
-
-	// Determine working directory for script execution
-	workDir, cleanupWorkDir, err := resolveWorkDir(runbookPath, config.Settings.GetWorkingDir())
+	// Determine working directory using the unified model
+	// Precedence: use_temp_working_dir > working_dir > current directory
+	workDir, cleanupWorkDir, err := resolveTestWorkDir(runbookPath, config)
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "setup",
@@ -291,8 +278,11 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 		defer cleanupWorkDir()
 	}
 
-	// Create executor
-	executor, err := createExecutor(runbookPath, outputDir, workDir, config.Settings.GetTimeout())
+	// Get output path from config (relative to working directory)
+	outputPath := config.Settings.GetOutputPath()
+
+	// Create executor with unified working directory model
+	executor, err := createExecutor(runbookPath, workDir, outputPath, config.Settings.GetTimeout())
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "setup",
@@ -342,53 +332,50 @@ func loadTestConfig(runbookPath string) (*runbooktesting.TestConfig, error) {
 	return runbooktesting.LoadConfig(configPath)
 }
 
-// createOutputDir creates a temporary directory for test output files.
-// Returns the directory path and a cleanup function.
-func createOutputDir() (string, func(), error) {
-	dir, err := os.MkdirTemp("", "runbook-test-*")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	cleanup := func() { os.RemoveAll(dir) }
-	return dir, cleanup, nil
-}
-
-// resolveWorkDir determines the working directory for script execution.
-// Returns the directory path (empty string means use executor default),
-// a cleanup function (nil if no cleanup needed), and an error.
-func resolveWorkDir(runbookPath string, configuredWorkDir string) (string, func(), error) {
-	switch configuredWorkDir {
-	case "":
-		// Default: use a temp directory
+// resolveTestWorkDir determines the working directory for test execution based on config settings.
+// Precedence: use_temp_working_dir > working_dir > current directory
+// Returns the absolute working directory path, a cleanup function (nil if no cleanup needed), and an error.
+func resolveTestWorkDir(runbookPath string, config *runbooktesting.TestConfig) (string, func(), error) {
+	// Check if temp working directory is requested (highest precedence)
+	if config.Settings.ShouldUseTempWorkingDir() {
 		dir, err := os.MkdirTemp("", "runbook-workdir-*")
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to create temp workdir: %w", err)
+			return "", nil, fmt.Errorf("failed to create temp working directory: %w", err)
 		}
-		cleanup := func() { os.RemoveAll(dir) }
-		return dir, cleanup, nil
-	case ".":
-		// Use runbook directory (let executor use its default)
-		return "", nil, nil
-	default:
-		// Use specified directory (resolve relative to runbook dir)
-		runbookDir := filepath.Dir(runbookPath)
+		return dir, func() { os.RemoveAll(dir) }, nil
+	}
+
+	// Check for configured working directory
+	configuredWorkDir := config.Settings.GetWorkingDir()
+	if configuredWorkDir != "" {
+		if configuredWorkDir == "." {
+			// "." means runbook directory
+			return filepath.Dir(runbookPath), nil, nil
+		}
 		if filepath.IsAbs(configuredWorkDir) {
 			return configuredWorkDir, nil, nil
 		}
-		return filepath.Join(runbookDir, configuredWorkDir), nil, nil
+		// Relative path - resolve relative to runbook directory
+		return filepath.Join(filepath.Dir(runbookPath), configuredWorkDir), nil, nil
 	}
+
+	// Default: current directory (where CLI was launched)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return cwd, nil, nil
 }
 
 // createExecutor creates a test executor with the given configuration.
-func createExecutor(runbookPath, outputDir, workDir string, timeout time.Duration) (*runbooktesting.TestExecutor, error) {
+// workDir is the base working directory for script execution.
+// outputPath is the output path relative to workDir (default: "generated").
+func createExecutor(runbookPath, workDir, outputPath string, timeout time.Duration) (*runbooktesting.TestExecutor, error) {
 	opts := []runbooktesting.ExecutorOption{
 		runbooktesting.WithTimeout(timeout),
 		runbooktesting.WithVerbose(testVerbose),
 	}
-	if workDir != "" {
-		opts = append(opts, runbooktesting.WithWorkingDir(workDir))
-	}
-	return runbooktesting.NewTestExecutor(runbookPath, outputDir, opts...)
+	return runbooktesting.NewTestExecutor(runbookPath, workDir, outputPath, opts...)
 }
 
 // reportResults prints test results to stdout or file.

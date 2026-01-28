@@ -42,7 +42,17 @@ func init() {
 
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(path string) {
-	slog.Info("Opening runbook", "path", path, "outputPath", outputPath)
+	// Resolve the working directory
+	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+	if err != nil {
+		slog.Error("Failed to resolve working directory", "error", err)
+		os.Exit(1)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	slog.Info("Opening runbook", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
 	// Resolve the runbook path before starting the server
 	// This is needed to verify we're connecting to the correct server instance
@@ -57,7 +67,7 @@ func openRunbook(path string) {
 
 	// Start the API server in a goroutine
 	go func() {
-		errCh <- api.StartServer(path, 7825, outputPath)
+		errCh <- api.StartServer(path, 7825, resolvedWorkDir, outputPath)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint

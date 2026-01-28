@@ -6,7 +6,7 @@ version: 1
 
 settings:
   # Generate files to a temp directory (cleaned up after test)
-  use_temp_output: true
+  use_temp_working_dir: true
   # Test timeout
   timeout: 5m
   # Can this runbook's tests run in parallel with others?

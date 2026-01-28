@@ -19,7 +19,8 @@ import (
 // TestExecutor runs runbook tests in headless mode.
 type TestExecutor struct {
 	runbookPath string
-	outputPath  string
+	workingDir  string // Working directory for script execution and template output base
+	outputPath  string // Output path relative to workingDir (default: "generated")
 	registry    *api.ExecutableRegistry
 	session     *api.SessionManager
 	timeout     time.Duration
@@ -37,6 +38,11 @@ type TestExecutor struct {
 
 	// Parsed Template blocks from the runbook
 	templates map[string]*TemplateBlock // blockID -> block info
+}
+
+// resolveOutputPath returns the absolute path to the output directory.
+func (e *TestExecutor) resolveOutputPath() string {
+	return filepath.Join(e.workingDir, e.outputPath)
 }
 
 // TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
@@ -86,7 +92,9 @@ func WithWorkingDir(dir string) ExecutorOption {
 }
 
 // NewTestExecutor creates a new test executor for a runbook.
-func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*TestExecutor, error) {
+// workingDir is the base directory for script execution and template output.
+// outputPath is the path relative to workingDir where generated files will be written (default: "generated").
+func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...ExecutorOption) (*TestExecutor, error) {
 	// Create executable registry to parse the runbook
 	registry, err := api.NewExecutableRegistry(runbookPath)
 	if err != nil {
@@ -96,9 +104,8 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 	// Create session manager
 	session := api.NewSessionManager()
 
-	// Initialize session with runbook directory as working directory
-	runbookDir := filepath.Dir(runbookPath)
-	if _, err := session.CreateSession(runbookDir); err != nil {
+	// Initialize session with the provided working directory
+	if _, err := session.CreateSession(workingDir); err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -120,8 +127,14 @@ func NewTestExecutor(runbookPath, outputPath string, opts ...ExecutorOption) (*T
 		return nil, fmt.Errorf("failed to parse Template blocks: %w", err)
 	}
 
+	// Default outputPath to "generated"
+	if outputPath == "" {
+		outputPath = "generated"
+	}
+
 	e := &TestExecutor{
 		runbookPath:     runbookPath,
+		workingDir:      workingDir,
 		outputPath:      outputPath,
 		registry:        registry,
 		session:         session,
@@ -776,9 +789,8 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 	// Build template variables from test inputs
 	vars := e.buildTemplateVars()
 
-	// Determine output directory - use "generated" subdirectory in the test output path
-	// This keeps test artifacts in the temp directory for automatic cleanup
-	outputDir := filepath.Join(e.outputPath, "generated")
+	// Determine output directory - resolve outputPath relative to workingDir
+	outputDir := e.resolveOutputPath()
 
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -1145,8 +1157,11 @@ func (e *TestExecutor) captureFiles(srcDir string) error {
 		return nil
 	}
 
+	// Resolve output directory relative to working directory
+	resolvedOutputPath := e.resolveOutputPath()
+
 	// Create output directory if needed
-	if err := os.MkdirAll(e.outputPath, 0755); err != nil {
+	if err := os.MkdirAll(resolvedOutputPath, 0755); err != nil {
 		return err
 	}
 
@@ -1162,7 +1177,7 @@ func (e *TestExecutor) captureFiles(srcDir string) error {
 		if err != nil {
 			return err
 		}
-		dstPath := filepath.Join(e.outputPath, relPath)
+		dstPath := filepath.Join(resolvedOutputPath, relPath)
 
 		if info.IsDir() {
 			return os.MkdirAll(dstPath, info.Mode())

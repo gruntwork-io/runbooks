@@ -6,7 +6,7 @@ version: 1
 
 settings:
   # Generate files to a temp directory (cleaned up after test)
-  use_temp_output: true
+  use_temp_working_dir: true
   # Working directory for script execution (default: temp directory)
   # working_dir: "."  # Use "." for runbook directory, or specify a path
   # Test timeout

@@ -84,7 +84,7 @@ type envCaptureConfig struct {
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE.
 // This handler must be used with SessionAuthMiddleware to ensure session context is available.
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -202,13 +202,19 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
+		// Resolve output path relative to working directory
+		resolvedOutputPath := cliOutputPath
+		if !filepath.IsAbs(cliOutputPath) {
+			resolvedOutputPath = filepath.Join(workingDir, cliOutputPath)
+		}
+
 		// Stream logs and wait for completion
 		envCaptureConfig := &envCaptureConfig{
 			scriptSetup:    scriptSetup,
 			sessionManager: sessionManager,
 			execCtx:        execCtx,
 		}
-		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, cliOutputPath, envCaptureConfig)
+		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig)
 	}
 }
 

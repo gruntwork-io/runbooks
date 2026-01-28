@@ -20,14 +20,20 @@ type TestConfig struct {
 
 // TestSettings contains global settings for all tests in this config.
 type TestSettings struct {
-	// UseTempOutput generates files to a temporary directory (default: true)
-	UseTempOutput bool `yaml:"use_temp_output,omitempty"`
-	// WorkingDir sets the working directory for script execution.
-	// If empty (default), a temp directory is used. Use "." for the runbook directory.
+	// WorkingDir sets the working directory for script execution and template output.
+	// If empty (default), uses the current directory. Use "." for the runbook directory.
 	WorkingDir string `yaml:"working_dir,omitempty"`
+	// OutputPath sets the output path for generated files, relative to WorkingDir.
+	// Defaults to "generated".
+	OutputPath string `yaml:"output_path,omitempty"`
+	// UseTempWorkingDir creates a temporary working directory (overrides WorkingDir if set).
+	// Defaults to true for isolated test runs. The temp directory is cleaned up after the test.
+	// Pointer allows distinguishing "not set" (nil, defaults to true) from "explicitly false".
+	UseTempWorkingDir *bool `yaml:"use_temp_working_dir,omitempty"`
 	// Timeout for each test case (default: 5m)
 	Timeout string `yaml:"timeout,omitempty"`
-	// Parallelizable indicates if this runbook's tests can run in parallel with other runbooks
+	// Parallelizable indicates if this runbook's tests can run in parallel with other runbooks.
+	// Defaults to true. Pointer allows distinguishing "not set" (nil, defaults to true) from "explicitly false".
 	Parallelizable *bool `yaml:"parallelizable,omitempty"`
 }
 
@@ -298,8 +304,11 @@ func applyDefaults(config *TestConfig) {
 		config.Settings.Timeout = "5m"
 	}
 
-	// UseTempOutput defaults to true (but we need to check if it was explicitly set)
-	// Since bool defaults to false, we use a sentinel approach in validation
+	// Default use_temp_working_dir to true
+	if config.Settings.UseTempWorkingDir == nil {
+		defaultTrue := true
+		config.Settings.UseTempWorkingDir = &defaultTrue
+	}
 
 	// Default parallelizable to true
 	if config.Settings.Parallelizable == nil {
@@ -471,7 +480,23 @@ func (s *TestSettings) IsParallelizable() bool {
 	return *s.Parallelizable
 }
 
-// GetWorkingDir returns the configured working directory, or empty string if temp dir should be used.
+// GetWorkingDir returns the configured working directory, or empty string for current directory.
 func (s *TestSettings) GetWorkingDir() string {
 	return s.WorkingDir
+}
+
+// GetOutputPath returns the configured output path, or "generated" if not set.
+func (s *TestSettings) GetOutputPath() string {
+	if s.OutputPath == "" {
+		return "generated"
+	}
+	return s.OutputPath
+}
+
+// ShouldUseTempWorkingDir returns true if a temp working directory should be used (default: true).
+func (s *TestSettings) ShouldUseTempWorkingDir() bool {
+	if s.UseTempWorkingDir == nil {
+		return true // default
+	}
+	return *s.UseTempWorkingDir
 }

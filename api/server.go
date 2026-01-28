@@ -13,7 +13,7 @@ import (
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
+func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
 	if err != nil {
@@ -43,10 +43,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, outputPath))
+	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, workingDir, outputPath))
 
 	// API endpoint to render boilerplate templates from inline template files
-	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(outputPath))
+	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
@@ -61,7 +61,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	// - Unauthenticated endpoints are lower-risk (read-only info, no command execution)
 	//
 	// These endpoints must be unauthenticated (chicken-and-egg: need to get a token first)
-	r.POST("/api/session", HandleCreateSession(sessionManager, runbookPath))
+	r.POST("/api/session", HandleCreateSession(sessionManager, workingDir))
 	r.POST("/api/session/join", HandleJoinSession(sessionManager))
 
 	// Session-scoped endpoints (require Bearer token for session context + CSRF protection)
@@ -78,7 +78,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	protectedAPI := r.Group("/api")
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
-		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, outputPath, sessionManager))
+		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, workingDir, outputPath, sessionManager))
 		// Environment credential prefill - requires session to register credentials
 		protectedAPI.POST("/aws/env-credentials", HandleAwsEnvCredentials(sessionManager))
 		// AWS auth endpoints that return credentials (token required: returns secrets)
@@ -88,8 +88,8 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 	}
 
 	// Generated files endpoints (no session context needed)
-	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(outputPath))
-	r.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(outputPath))
+	r.GET("/api/generated-files/check", HandleGeneratedFilesCheck(workingDir, outputPath))
+	r.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(workingDir, outputPath))
 
 	// AWS authentication endpoints (no credentials returned)
 	// No token required: these endpoints don't return secrets, and allowing them
@@ -124,7 +124,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, outputPath string, reg
 }
 
 // StartServer serves both the frontend files and also the backend API
-func StartServer(runbookPath string, port int, outputPath string) error {
+func StartServer(runbookPath string, port int, workingDir string, outputPath string) error {
 	// Resolve the runbook path to the actual file
 	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
@@ -154,14 +154,14 @@ func StartServer(runbookPath string, port int, outputPath string) error {
 	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes
-	setupCommonRoutes(r, resolvedPath, outputPath, registry, sessionManager, true)
+	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
 
 // StartBackendServer starts the API server for serving runbook files
-func StartBackendServer(runbookPath string, port int, outputPath string) error {
+func StartBackendServer(runbookPath string, port int, workingDir string, outputPath string) error {
 	// Resolve the runbook path to the actual file
 	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
@@ -197,14 +197,14 @@ func StartBackendServer(runbookPath string, port int, outputPath string) error {
 	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true))
 
 	// Set up common routes (includes all other endpoints)
-	setupCommonRoutes(r, resolvedPath, outputPath, registry, sessionManager, true)
+	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
 }
 
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
-func StartServerWithWatch(runbookPath string, port int, outputPath string, useExecutableRegistry bool) error {
+func StartServerWithWatch(runbookPath string, port int, workingDir string, outputPath string, useExecutableRegistry bool) error {
 	// Resolve the runbook path to the actual file
 	resolvedPath, err := ResolveRunbookPath(runbookPath)
 	if err != nil {
@@ -243,7 +243,7 @@ func StartServerWithWatch(runbookPath string, port int, outputPath string, useEx
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 
 	// Set up common routes
-	setupCommonRoutes(r, resolvedPath, outputPath, registry, sessionManager, useExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, useExecutableRegistry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
 	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))

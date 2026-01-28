@@ -33,7 +33,9 @@ Tests are defined in `runbook_test.yml` files located in the same directory as y
 version: 1
 
 settings:
-  use_temp_output: true  # Generate files to temp directory
+  # use_temp_working_dir: true  # Default: use isolated temp directory
+  # working_dir: .              # Alternative: use runbook's directory
+  # output_path: generated      # Where to write generated files (relative to working_dir)
   timeout: 5m            # Test timeout
   parallelizable: true   # Can run in parallel with other runbooks
 
@@ -73,9 +75,28 @@ Global settings that apply to all tests in the file:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `use_temp_output` | `true` | Generate files to a temporary directory (automatically cleaned up) |
+| `use_temp_working_dir` | `true` | Use a temporary working directory (automatically cleaned up). Overrides `working_dir` if set. |
+| `working_dir` | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. |
+| `output_path` | `generated` | Directory where generated files are written, relative to the working directory. |
 | `timeout` | `5m` | Maximum time for each test case |
 | `parallelizable` | `true` | Whether this runbook's tests can run in parallel with others |
+
+#### Working Directory Behavior
+
+The working directory determines where scripts execute and where generated files are written:
+
+- **Default**: Uses a temporary directory (`use_temp_working_dir: true`) for isolated test runs
+- **Custom directory**: Set `working_dir` to a specific path and `use_temp_working_dir: false`
+- **Output path**: Generated files go to `{working_dir}/{output_path}` (e.g., `/tmp/runbook-xyz/generated`)
+
+Example with custom working directory:
+
+```yaml
+settings:
+  use_temp_working_dir: false
+  working_dir: /tmp/my-test-output
+  output_path: generated
+```
 
 ### Test Cases
 
@@ -449,7 +470,7 @@ test-runbooks:
 
 4. **Use fuzz values**: Generate random inputs to catch edge cases you might not think of.
 
-5. **Keep tests fast**: Use `use_temp_output: true` and avoid slow external dependencies when possible.
+5. **Keep tests fast**: Use `use_temp_working_dir: true` and avoid slow external dependencies when possible.
 
 6. **Clean up resources**: Use the `cleanup` section to remove any resources created during testing.
 

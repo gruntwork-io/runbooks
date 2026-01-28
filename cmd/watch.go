@@ -49,10 +49,20 @@ func init() {
 
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(path string) {
+	// Resolve the working directory
+	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+	if err != nil {
+		slog.Error("Failed to resolve working directory", "error", err)
+		os.Exit(1)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
 	// By default, watch mode uses live-file-reload (no registry) for better UX
 	// If --disable-live-file-reload is true, use the executable registry for better security
 	useExecutableRegistry := disableLiveFileReload
-	slog.Info("Opening runbook with file watching", "path", path, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
+	slog.Info("Opening runbook with file watching", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
 	// Resolve the runbook path before starting the server
 	// This is needed to verify we're connecting to the correct server instance
@@ -67,7 +77,7 @@ func watchRunbook(path string) {
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		errCh <- api.StartServerWithWatch(path, 7825, outputPath, useExecutableRegistry)
+		errCh <- api.StartServerWithWatch(path, 7825, resolvedWorkDir, outputPath, useExecutableRegistry)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint
