@@ -227,39 +227,109 @@ func (g *FuzzGenerator) generateUUID() (string, error) {
 		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16]), nil
 }
 
-// generateDate generates a random date string (YYYY-MM-DD).
-func (g *FuzzGenerator) generateDate(config *FuzzConfig) (string, error) {
-	// TODO: Support minDate/maxDate constraints
-	now := time.Now()
-	daysBack, err := rand.Int(rand.Reader, big.NewInt(365))
-	if err != nil {
-		return "", fmt.Errorf("failed to generate random number: %w", err)
+// parseDateString attempts to parse a date string using common formats.
+// It tries RFC3339, ISO8601 date-only, and common date formats.
+func parseDateString(dateStr string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+		"01/02/2006",
+		"02-01-2006",
 	}
 
-	date := now.AddDate(0, 0, -int(daysBack.Int64()))
+	for _, format := range formats {
+		if t, err := time.Parse(format, dateStr); err == nil {
+			return t, nil
+		}
+	}
 
+	return time.Time{}, fmt.Errorf("unable to parse date string %q: tried formats RFC3339, ISO8601, YYYY-MM-DD, MM/DD/YYYY, DD-MM-YYYY", dateStr)
+}
+
+// generateRandomTimeInRange generates a random time within the specified range.
+// If minDate/maxDate are empty strings, defaults to the range [365 days ago, now].
+// The precision parameter controls the granularity: time.Second for timestamps, 24*time.Hour for dates.
+func generateRandomTimeInRange(minDate, maxDate string, precision time.Duration) (time.Time, error) {
+	var minTime, maxTime time.Time
+	now := time.Now()
+
+	// Parse MinDate if provided
+	if minDate != "" {
+		parsed, err := parseDateString(minDate)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid minDate %q: %w", minDate, err)
+		}
+		minTime = parsed
+	} else {
+		// Default: 365 days ago
+		minTime = now.AddDate(0, 0, -365)
+	}
+
+	// Parse MaxDate if provided
+	if maxDate != "" {
+		parsed, err := parseDateString(maxDate)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid maxDate %q: %w", maxDate, err)
+		}
+		maxTime = parsed
+	} else {
+		// Default: now
+		maxTime = now
+	}
+
+	// Validate that min <= max
+	if minTime.After(maxTime) {
+		return time.Time{}, fmt.Errorf("minDate (%s) is after maxDate (%s)", minDate, maxDate)
+	}
+
+	// Calculate the range in units of precision
+	rangeDiff := int64(maxTime.Sub(minTime) / precision)
+	if rangeDiff < 0 {
+		rangeDiff = 0
+	}
+
+	// Generate a random offset
+	var offset int64
+	if rangeDiff > 0 {
+		n, err := rand.Int(rand.Reader, big.NewInt(rangeDiff+1))
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to generate random number: %w", err)
+		}
+		offset = n.Int64()
+	}
+
+	return minTime.Add(time.Duration(offset) * precision), nil
+}
+
+// generateDate generates a random date string (YYYY-MM-DD).
+// If MinDate and/or MaxDate are provided, the generated date will be within that range.
+func (g *FuzzGenerator) generateDate(config *FuzzConfig) (string, error) {
 	format := config.Format
 	if format == "" {
 		format = "2006-01-02"
+	}
+
+	date, err := generateRandomTimeInRange(config.MinDate, config.MaxDate, 24*time.Hour)
+	if err != nil {
+		return "", err
 	}
 
 	return date.Format(format), nil
 }
 
 // generateTimestamp generates a random timestamp (RFC3339).
+// If MinDate and/or MaxDate are provided, the generated timestamp will be within that range.
 func (g *FuzzGenerator) generateTimestamp(config *FuzzConfig) (string, error) {
-	// TODO: Support minDate/maxDate constraints
-	now := time.Now()
-	secondsBack, err := rand.Int(rand.Reader, big.NewInt(365*24*60*60))
-	if err != nil {
-		return "", fmt.Errorf("failed to generate random number: %w", err)
-	}
-
-	ts := now.Add(-time.Duration(secondsBack.Int64()) * time.Second)
-
 	format := config.Format
 	if format == "" {
 		format = time.RFC3339
+	}
+
+	ts, err := generateRandomTimeInRange(config.MinDate, config.MaxDate, time.Second)
+	if err != nil {
+		return "", err
 	}
 
 	return ts.Format(format), nil
