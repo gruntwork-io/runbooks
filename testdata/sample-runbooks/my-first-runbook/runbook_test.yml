@@ -42,21 +42,22 @@ tests:
       # blocks that consume them via {{ ._blocks.x.outputs.y }}
       # If no blocks are listed, the test runs all blocks in document order.
 
-      # - block: check-git
-      #   expect: success
+      # Skip environment checks - these verify user's local machine, not runbook logic
+      - block: check-git
+        expect: skip
 
-      # - block: check-git-version
-      #   expect: success
+      - block: check-git-version
+        expect: skip
 
-      # - block: project
-      #   # Template: templates/project
-      #   expect: success
+      - block: project
+        # Template: templates/project
+        expect: success
 
-      # - block: run-setup
-      #   expect: success
+      - block: run-setup
+        expect: success
 
-      # - block: final-message
-      #   expect: success
+      - block: final-message
+        expect: success
 
     assertions:
       # TemplateInline blocks automatically validate their output dependencies.

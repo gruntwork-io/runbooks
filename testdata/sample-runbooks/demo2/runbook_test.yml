@@ -98,14 +98,15 @@ tests:
       # blocks that consume them via {{ ._blocks.x.outputs.y }}
       # If no blocks are listed, the test runs all blocks in document order.
 
+      # Skip environment checks - these verify user's local machine, not runbook logic
       - block: check-gh-install
-        expect: success
+        expect: skip
 
       - block: install-gh-latest-version
-        expect: success
+        expect: skip
 
       - block: check-mise-install
-        expect: success
+        expect: skip
 
       # - block: create-infrastructure-live-root-repo
       #   expect: success
@@ -113,8 +114,9 @@ tests:
       # - block: check-infrastructure-live-root-repo
       #   expect: success
 
+      # Requires mise to be installed
       - block: lookup-latest-versions-of-opentofu-and-terragrunt
-        expect: success
+        expect: skip
 
       - block: test-command1
         expect: success
