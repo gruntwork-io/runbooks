@@ -4,12 +4,6 @@
 set -e
 set -o pipefail
 
-# Validate RUNBOOK_OUTPUT is set and writable
-if [[ -z "$RUNBOOK_OUTPUT" ]]; then
-    echo "Error: RUNBOOK_OUTPUT is not set. Cannot write outputs." >&2
-    exit 1
-fi
-
 if ! touch "$RUNBOOK_OUTPUT" 2>/dev/null; then
     echo "Error: RUNBOOK_OUTPUT ('$RUNBOOK_OUTPUT') is not writable." >&2
     exit 1

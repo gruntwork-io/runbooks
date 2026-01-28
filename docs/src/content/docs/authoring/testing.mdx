@@ -5,7 +5,9 @@ description: How to write and run automated tests for your runbooks.
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Runbooks includes a built-in testing framework that lets you validate your runbooks work correctly. Tests are defined in YAML files alongside your runbooks and can be run locally or in CI.
+Runbooks includes a built-in testing framework that lets you validate that your runbooks work correctly.
+
+To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks test /path/to/runbook` or `runbooks test ./...` to run the tests. Test are meant to run locally or in CI.
 
 ## Quick Start
 
@@ -15,11 +17,9 @@ Runbooks includes a built-in testing framework that lets you validate your runbo
 runbooks test init ./my-runbook
 ```
 
-This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks.
+This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks. You can edit the file to customize the tests if needed.
 
-2. Edit the generated file to add your test values and assertions.
-
-3. Run the tests:
+2. Run the tests:
 
 ```bash
 runbooks test ./my-runbook
@@ -27,7 +27,7 @@ runbooks test ./my-runbook
 
 ## Test Configuration
 
-Tests are defined in `runbook_test.yml` files located in the same directory as your `runbook.mdx`.
+Tests are defined in a `runbook_test.yml` file located in the same directory as your `runbook.mdx` file. Here's an example of a test configuration file:
 
 ```yaml
 version: 1
@@ -144,7 +144,9 @@ steps:
     outputs: [resource_id, resource_name]
 ```
 
-**Expected statuses:**
+If you don't specify any blocks, the test will run all blocks in the runbook in document order.
+
+In your test configuration file, you can specify the expected status of a block:
 
 | Status | Description |
 |--------|-------------|
@@ -169,9 +171,11 @@ steps:
 
 ## Assertions
 
-Assertions validate the test results. They run after all steps complete (or immediately after a step if defined inline).
+Assertions validate the test results. They run after all steps complete (or immediately after a step if defined inline as we just saw above).
 
 ### File Assertions
+
+The following file assertions are useful for validating the content of generated files:
 
 ```yaml
 assertions:
@@ -202,9 +206,16 @@ assertions:
   - type: file_equals
     path: generated/version.txt
     value: "1.0.0"
+
+  # Check template generated files
+  - type: files_generated
+    block: my-template
+    min_count: 1
 ```
 
 ### Directory Assertions
+
+The following folder assertions are useful for validating the status of generated folders:
 
 ```yaml
 assertions:
@@ -216,6 +227,8 @@ assertions:
 ```
 
 ### Output Assertions
+
+The following assertions are useful for validating outputs of blocks:
 
 ```yaml
 assertions:
@@ -237,17 +250,9 @@ assertions:
     output: resource_id
 ```
 
-### Template Assertions
-
-```yaml
-assertions:
-  # Check template generated files
-  - type: files_generated
-    block: my-template
-    min_count: 1
-```
-
 ### Script Assertions
+
+The following script assertions are useful to run any custom validation logic:
 
 ```yaml
 assertions:
@@ -258,7 +263,13 @@ assertions:
 
 ## Inputs
 
+Inputs are used to set the values templates, which are used to generate files, commands, and checks. 
+
+Runbooks tests support both literal values and fuzz values for inputs.
+
 ### Literal Values
+
+Literal values are used to set the values of inputs to specific values.
 
 ```yaml
 inputs:
@@ -270,7 +281,7 @@ inputs:
 
 ### Fuzz Values
 
-Generate random values for testing:
+Fuzz values are used to generate random values for testing. The test framework will generate a new random value that meets the given constraints for each test run.
 
 ```yaml
 inputs:
@@ -339,12 +350,33 @@ For runbooks with `<AwsAuth>` blocks, use `prefilledCredentials={{ type: "env" }
   allowOverridePrefilled={false}
 />
 ```
+This will look specifically for the following environment variables:
 
-In CI, set the environment variables before running tests:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN`
+- `AWS_REGION`
+
+Consider using the prefix `RUNBOOKS_TEST_` for environment variables that are used for testing. This will help you avoid conflicts with other environment variables. 
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  prefilledCredentials={{ type: "env", prefix: "RUNBOOKS_TEST_" }}
+  allowOverridePrefilled={false}
+/>
+```
+This will look specifically for the following environment variables:
+
+- `RUNBOOKS_TEST_AWS_ACCESS_KEY_ID`
+- `RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
+- `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
+- `RUNBOOKS_TEST_AWS_REGION`
+
+In CI, be sure to set the environment variables before running tests. The following example shows one way to set the environment variables for a GitHub Actions workflow:
 
 ```yaml
-# .github/workflows/test.yml
-- name: Configure AWS credentials
+# .github/workflows/test.ymlls
   uses: aws-actions/configure-aws-credentials@v4
   with:
     role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
@@ -352,21 +384,26 @@ In CI, set the environment variables before running tests:
 
 - name: Run runbook tests
   run: runbooks test ./runbooks/...
-```
-
-For runbooks without `prefilledCredentials`, skip the AwsAuth block:
-
-```yaml
-steps:
-  - block: aws-auth
-    expect: skip
-  - block: other-block
-    expect: success
+  env:
+    RUNBOOK_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+    RUNBOOK_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+    RUNBOOK_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+    RUNBOOK_TEST_AWS_REGION: ${{ env.AWS_REGION }}
 ```
 
 ## Running Tests
 
+When you run a runbook test, the test framework will:
+- Run the runbook in a temporary directory
+- Capture the output of any scripts or generated files
+- Validate the output of the runbook against the assertions in your test configuration file, if any
+- Return a status code of 0 if the test passed, 1 if the test failed, and 2 if the test was skipped
+
+If a runbook test fails, you will see additional details about which block failed and why.
+
 ### Single Runbook
+
+You can run a test on a single runbook.
 
 ```bash
 # Run all tests for a runbook
@@ -401,7 +438,11 @@ runbooks test ./runbooks/... --output junit --output-file results.xml
 
 ## Out-of-Order Testing
 
-Test that blocks correctly enforce dependencies by checking for blocked status:
+In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the runbook. You can do this by explicitly specifying the order of the blocks in the test configuration file.
+
+Keep in mind, though, that when new blocks are added to the runbook, they will not be included in the test unless you explicitly add them to the test configuration file.
+
+That's why we recommend leaving the `steps` section empty in your test configuration file if possible. This will ensure that all future blocks are included in the test.
 
 ```yaml
 tests:
@@ -452,11 +493,17 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
-          aws-region: us-west-2
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
       
       - name: Run runbook tests
         run: ./runbooks test ./runbooks/... --output junit --output-file results.xml
+        env:
+          # Map OIDC credentials to RUNBOOKS_TEST_ prefix
+          RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+          RUNBOOKS_TEST_AWS_REGION: ${{ vars.AWS_REGION }}
       
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -470,6 +517,10 @@ jobs:
 # .gitlab-ci.yml
 test-runbooks:
   stage: test
+  variables:
+    RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+    RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+    RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
   script:
     - curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
     - chmod +x runbooks
@@ -483,11 +534,13 @@ test-runbooks:
 
 ## Testing with External Dependencies
 
-Runbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach:
+Runbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach.
+
+As you ascend the tiers, you will gain more completeness at the expense of slower speed and more complexity. This builds on the concepts of the [traditional test pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
 
 ### Tier 1: Template Validation
 
-Test that templates generate correct files without any external calls:
+Template validation tests that templates generate correct files without making any external calls.
 
 ```yaml
 tests:
@@ -512,9 +565,11 @@ tests:
 
 ### Tier 2: Dry-Run Mode
 
-Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that `RUNBOOK_DRY_RUN` is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
+Dry-run mode tests that script logic works correctly without making any external calls. They leverage the fact that the script was written to support a `RUNBOOK_DRY_RUN` environment variable.
 
-**In your script:**
+Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that the `RUNBOOK_DRY_RUN` environment variable is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
+
+**In your Command or Check script:**
 
 ```bash
 #!/bin/bash
@@ -533,7 +588,7 @@ fi
 gh pr create --title "$TITLE" --body "$BODY"
 ```
 
-**In your test:**
+**In your test configuration file:**
 
 ```yaml
 tests:
@@ -588,3 +643,5 @@ tests:
 7. **Use CI**: Run tests on every pull request to catch issues early.
 
 8. **Use tiered testing**: For runbooks with external dependencies, use dry-run mode in CI and save integration tests for manual/scheduled runs.
+
+Finally, note that tests are not free to write or maintain. But it is generally worth the investment to know that your runbooks work as expected. Choose accordingly how much to invest in testing your runbooks.
