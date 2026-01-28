@@ -33,6 +33,9 @@ type TestExecutor struct {
 	// Test inputs from the current test case
 	testInputs map[string]interface{} // inputsID.varName -> value
 
+	// Test environment variables from the current test case
+	testEnv map[string]string // envVarName -> value
+
 	// Parsed TemplateInline blocks from the runbook
 	templateInlines map[string]*TemplateInlineBlock // blockID -> block info
 
@@ -340,6 +343,9 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	}
 
 	e.testInputs = resolvedInputs
+
+	// Set test environment variables
+	e.testEnv = tc.Env
 
 	// Reset block outputs for this test
 	e.blockOutputs = make(map[string]map[string]string)
@@ -968,6 +974,11 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	cmd.Env = execCtx.Env
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFilePath))
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", filesDir))
+
+	// Add test-specific environment variables
+	for key, value := range e.testEnv {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
 
 	// Set working directory
 	if execCtx.WorkDir != "" {

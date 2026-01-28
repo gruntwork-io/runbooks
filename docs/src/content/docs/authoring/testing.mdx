@@ -104,10 +104,31 @@ Each test case has:
 
 - **name** (required): Unique identifier for the test
 - **description**: Human-readable description
+- **env**: Environment variables to set for all blocks in this test
 - **inputs**: Variable values for the test
 - **steps**: Blocks to execute (in order)
 - **assertions**: Validations to run after all steps
 - **cleanup**: Actions to run after the test (even on failure)
+
+### Environment Variables
+
+Set environment variables for a test case using the `env` field:
+
+```yaml
+tests:
+  - name: dry-run-test
+    description: Test with dry-run mode enabled
+    
+    env:
+      RUNBOOK_DRY_RUN: "true"
+      MY_API_KEY: "test-key"
+    
+    steps:
+      - block: create-resource
+        expect: success
+```
+
+Environment variables are available to all blocks executed in the test case.
 
 ### Steps
 
@@ -460,6 +481,96 @@ test-runbooks:
   </TabItem>
 </Tabs>
 
+## Testing with External Dependencies
+
+Runbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach:
+
+### Tier 1: Template Validation
+
+Test that templates generate correct files without any external calls:
+
+```yaml
+tests:
+  - name: template-validation
+    description: Validate template generation
+    
+    inputs:
+      config.ProjectName: "test-project"
+      config.Region: "us-east-1"
+    
+    steps:
+      - block: generate-config  # Template block
+        expect: success
+      - block: deploy-resources  # Skip external calls
+        expect: skip
+    
+    assertions:
+      - type: files_generated
+        block: generate-config
+        min_count: 1
+```
+
+### Tier 2: Dry-Run Mode
+
+Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that `RUNBOOK_DRY_RUN` is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
+
+**In your script:**
+
+```bash
+#!/bin/bash
+set -e
+
+# Dry-run support
+DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "[DRY-RUN] Would create PR in $GITHUB_ORG/$REPO_NAME"
+    echo "[DRY-RUN] gh pr create --title '$TITLE'"
+    exit 0
+fi
+
+# Real execution
+gh pr create --title "$TITLE" --body "$BODY"
+```
+
+**In your test:**
+
+```yaml
+tests:
+  - name: dry-run-flow
+    description: Test full flow without real API calls
+    
+    env:
+      RUNBOOK_DRY_RUN: "true"
+    
+    steps:
+      - block: generate-config
+        expect: success
+      - block: create-pr
+        expect: success  # Succeeds in dry-run mode
+```
+
+### Tier 3: Integration Tests
+
+For full integration testing with real services, set environment variables for credentials in CI and run tests manually or on a schedule:
+
+```yaml
+tests:
+  - name: integration-test
+    description: Full integration (requires credentials)
+    
+    env:
+      # Credentials set in CI environment will automatically be available to the test.
+      # So no need to set them in the runbook_test.yml file.
+    
+    steps:
+      - block: deploy-resources
+        expect: success
+    
+    cleanup:
+      - command: ./scripts/cleanup-test-resources.sh
+```
+
 ## Best Practices
 
 1. **Start with `test init`**: Generate your test configuration automatically, then customize it.
@@ -475,3 +586,5 @@ test-runbooks:
 6. **Clean up resources**: Use the `cleanup` section to remove any resources created during testing.
 
 7. **Use CI**: Run tests on every pull request to catch issues early.
+
+8. **Use tiered testing**: For runbooks with external dependencies, use dry-run mode in CI and save integration tests for manual/scheduled runs.

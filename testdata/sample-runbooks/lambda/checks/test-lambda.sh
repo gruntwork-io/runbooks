@@ -3,9 +3,30 @@ set -e
 
 # Test Lambda function by invoking it
 # Template variables: FunctionName, Environment, AwsRegion
+#
+# Environment variables:
+#   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
+
+# Dry-run support
+DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 FUNCTION_NAME="{{ .FunctionName }}-{{ .Environment }}"
 AWS_REGION="{{ .AwsRegion }}"
+
+# In dry-run mode, simulate the Lambda invocation
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "🧪 Dry-run mode: Simulating Lambda invocation..."
+    echo ""
+    echo "[DRY-RUN] aws sts get-caller-identity"
+    echo "[DRY-RUN] aws lambda invoke --function-name $FUNCTION_NAME --region $AWS_REGION /tmp/response.json"
+    echo ""
+    echo "📝 Would invoke:"
+    echo "   Function: ${FUNCTION_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    echo ""
+    echo "✅ Dry-run completed successfully!"
+    exit 0
+fi
 
 # First, check if the user is authenticated to AWS
 echo "🔐 Checking AWS authentication..."

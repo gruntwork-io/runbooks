@@ -12,8 +12,14 @@
 #   - Environment -> Target environment (non-prod, prod)
 #   - AwsRegion -> AWS region for deployment
 #   - FunctionName -> Lambda function name
+#
+# Environment variables:
+#   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
 
 set -e
+
+# Dry-run support: when enabled, prints what would happen instead of executing
+DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 # Save the original directory before any cd commands
 ORIGINAL_DIR=$(pwd)
@@ -61,6 +67,25 @@ if [ -z "$(ls -A ${ORIGINAL_DIR}/${GENERATED_DIR})" ]; then
     echo "❌ Error: Generated directory is empty"
     echo "   Please generate files before running this script."
     exit 1
+fi
+
+# Dry-run mode: show what would happen and exit
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "📝 Dry-run mode: Simulating repository operations..."
+    echo ""
+    echo "[DRY-RUN] gh repo clone ${GITHUB_ORG}/${REPO_NAME} repo"
+    echo "[DRY-RUN] git checkout -b $BRANCH_NAME"
+    echo "[DRY-RUN] cp -r ${GENERATED_DIR}/* ${TARGET_PATH}/"
+    echo "[DRY-RUN] git add ."
+    echo "[DRY-RUN] git commit -m 'Add Lambda function: ${FUNCTION_NAME} (${ENVIRONMENT}/${AWS_REGION})'"
+    echo "[DRY-RUN] git push origin $BRANCH_NAME"
+    echo "[DRY-RUN] gh pr create --title 'Add Lambda function: ${FUNCTION_NAME} (${ENVIRONMENT}/${AWS_REGION})'"
+    echo ""
+    echo "✅ Dry-run completed successfully!"
+    echo "   In real execution, this would create a PR at:"
+    echo "   https://github.com/${GITHUB_ORG}/${REPO_NAME}/pulls"
+    rm -rf "$TEMP_DIR"
+    exit 0
 fi
 
 echo "📦 Cloning repository..."

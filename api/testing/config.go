@@ -41,6 +41,7 @@ type TestSettings struct {
 type TestCase struct {
 	Name        string                 `yaml:"name"`
 	Description string                 `yaml:"description,omitempty"`
+	Env         map[string]string      `yaml:"env,omitempty"`
 	Inputs      map[string]InputValue  `yaml:"inputs,omitempty"`
 	Steps       []TestStep             `yaml:"steps,omitempty"`
 	Assertions  []TestAssertion        `yaml:"assertions,omitempty"`

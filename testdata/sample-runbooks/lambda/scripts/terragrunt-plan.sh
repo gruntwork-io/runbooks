@@ -8,6 +8,12 @@ set -e
 #   - FunctionName -> Lambda function name
 #   - Environment -> Target environment
 #   - AwsRegion -> AWS region
+#
+# Environment variables:
+#   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
+
+# Dry-run support
+DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 GITHUB_ORG="{{ .GithubOrgName }}"
 REPO_NAME="{{ .GithubRepoName }}"
@@ -17,6 +23,27 @@ AWS_REGION="{{ .AwsRegion }}"
 
 BRANCH_NAME="add-lambda-${FUNCTION_NAME}-${ENVIRONMENT}"
 TARGET_PATH="${ENVIRONMENT}/${AWS_REGION}/${FUNCTION_NAME}"
+
+# In dry-run mode, skip AWS auth check and simulate the rest
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "📋 Dry-run mode: Simulating terragrunt plan..."
+    echo ""
+    echo "[DRY-RUN] aws sts get-caller-identity"
+    echo "[DRY-RUN] gh repo clone ${GITHUB_ORG}/${REPO_NAME} repo"
+    echo "[DRY-RUN] git fetch origin $BRANCH_NAME"
+    echo "[DRY-RUN] git checkout $BRANCH_NAME"
+    echo "[DRY-RUN] cd ${TARGET_PATH}"
+    echo "[DRY-RUN] terragrunt run --backend-bootstrap --non-interactive -- plan"
+    echo ""
+    echo "📝 Plan would execute for:"
+    echo "   Repository: ${GITHUB_ORG}/${REPO_NAME}"
+    echo "   Branch: ${BRANCH_NAME}"
+    echo "   Path: ${TARGET_PATH}"
+    echo "   Region: ${AWS_REGION}"
+    echo ""
+    echo "✅ Dry-run completed successfully!"
+    exit 0
+fi
 
 # First, check if the user is authenticated to AWS
 echo "🔐 Checking AWS authentication..."
