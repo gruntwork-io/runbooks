@@ -33,6 +33,10 @@ tests:
       repo-config.GithubRepoName: "test-repo"
 
     steps:
+      # Skip AWS auth (interactive in browser, uses env vars in CI)
+      - block: aws-auth
+        expect: skip
+
       # Skip tool installation checks (require mise)
       - block: check-mise
         expect: skip
@@ -87,6 +91,10 @@ tests:
       repo-config.GithubRepoName: "infrastructure-live"
 
     steps:
+      # Skip AWS auth (env vars would be used in real CI)
+      - block: aws-auth
+        expect: skip
+
       # Skip tool installation checks (require mise)
       - block: check-mise
         expect: skip
@@ -175,10 +183,12 @@ tests:
           maxLength: 30
 
     steps:
+      - block: aws-auth
+        expect: skip
       - block: check-mise
-        expect: success
+        expect: skip
       - block: install-tools
-        expect: success
+        expect: skip
       - block: lambda-config
         expect: success
       - block: create-pr
