@@ -699,10 +699,26 @@ func (e *TestExecutor) formatBlockErrorFromResult(comp api.ParsedComponent, step
 		// Error was already shown in verbose mode
 		return fmt.Sprintf("%s block '%s' failed (see details above)", comp.Type, comp.ID)
 	}
+
+	var msg string
 	if stepResult.Error != "" {
-		return fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, stepResult.Error)
+		msg = fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, stepResult.Error)
+	} else {
+		msg = fmt.Sprintf("%s block '%s' failed with status: %s", comp.Type, comp.ID, stepResult.ActualStatus)
 	}
-	return fmt.Sprintf("%s block '%s' failed with status: %s", comp.Type, comp.ID, stepResult.ActualStatus)
+
+	// Include script output (stdout/stderr) if available - helpful for debugging
+	if stepResult.Logs != "" {
+		// Truncate to last N lines if output is long
+		lines := strings.Split(strings.TrimSpace(stepResult.Logs), "\n")
+		maxLines := 20
+		if len(lines) > maxLines {
+			lines = append([]string{fmt.Sprintf("... (%d lines truncated) ...", len(lines)-maxLines)}, lines[len(lines)-maxLines:]...)
+		}
+		msg += fmt.Sprintf("\n\n--- Script Output ---\n%s", strings.Join(lines, "\n"))
+	}
+
+	return msg
 }
 
 // executeTemplateInline renders a TemplateInline block and returns the result.
