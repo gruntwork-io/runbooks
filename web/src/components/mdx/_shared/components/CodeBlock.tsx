@@ -1,4 +1,4 @@
-import { useState, useRef, type ReactNode, type ReactElement } from 'react'
+import { useState, useRef, useEffect, type ReactNode, type ReactElement } from 'react'
 import { Copy, Check } from "lucide-react"
 import { copyTextToClipboard } from "@/lib/utils"
 
@@ -14,6 +14,16 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup timeout on unmount to prevent state updates after unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Extract text content from the code block
   const getCodeText = (): string => {
@@ -37,7 +47,11 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
       const ok = await copyTextToClipboard(text)
       if (ok) {
         setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        // Clear any existing timeout before setting a new one
+        if (copyTimeoutRef.current) {
+          clearTimeout(copyTimeoutRef.current)
+        }
+        copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
       }
     }
   }
