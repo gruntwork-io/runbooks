@@ -126,7 +126,14 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 			return
 		}
 
-		slog.Info("Rendering template to output directory", "outputDir", outputDir)
+		slog.Info("Rendering template to output directory", "outputDir", outputDir, "variables", req.Variables)
+
+		// Debug: log specific runtime variable if present
+		if runtime, ok := req.Variables["Runtime"]; ok {
+			slog.Info("Runtime variable detected", "runtime", runtime, "type", fmt.Sprintf("%T", runtime))
+		} else {
+			slog.Warn("Runtime variable NOT found in request variables")
+		}
 
 		// Render with manifest tracking for smart file cleanup
 		diff, err := RenderWithManifest(req.TemplateID, func() (string, error) {
@@ -237,6 +244,22 @@ func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[str
 	err = bpTemplates.ProcessTemplate(opts, opts, emptyDep)
 	if err != nil {
 		return fmt.Errorf("failed to process boilerplate template: %w", err)
+	}
+
+	// Debug: List files that were generated
+	slog.Info("Template processing complete, listing output files", "outputDir", outputDir)
+	err = filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+		if !info.IsDir() {
+			relPath, _ := filepath.Rel(outputDir, path)
+			slog.Info("Generated file", "path", relPath)
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Warn("Error walking output directory", "error", err)
 	}
 
 	return nil

@@ -6,8 +6,8 @@
  */
 
 import { useState, useMemo } from 'react'
-import { ChevronLeft } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ChevronLeft, Folder, Copy, Check } from 'lucide-react'
+import { cn, copyTextToClipboard } from '@/lib/utils'
 import { WorkspaceTabBar } from './WorkspaceTabBar'
 import { WorkspaceMetadataBar } from './WorkspaceMetadataBar'
 import { WorkspaceFileBrowser } from './WorkspaceFileBrowser'
@@ -97,7 +97,7 @@ export const FilesWorkspace = ({
       
       {/* Metadata Bar - outside bordered area */}
       {activeTab === 'changed' ? (
-        <div className="flex items-center gap-3 px-4 py-2 text-sm">
+        <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 text-sm">
           <span className="text-gray-600">
             <span className="font-medium">{changeStats.total}</span> changed {changeStats.total === 1 ? 'file' : 'files'}
           </span>
@@ -106,19 +106,17 @@ export const FilesWorkspace = ({
           <span className="text-red-600 font-medium">-{changeStats.totalDeletions}</span>
           <ChangeProportionBar additions={changeStats.totalAdditions} deletions={changeStats.totalDeletions} />
         </div>
+      ) : activeTab === 'generated' ? (
+        <GeneratedFilesInfoBar 
+          outputPath={absoluteOutputPath} 
+          fileCount={stats.generatedFiles} 
+        />
       ) : (
         <WorkspaceMetadataBar
           gitInfo={workspaceData.gitInfo}
           localPath={activeTab === 'all' ? workspaceData.localPath : undefined}
           className="px-2"
         />
-      )}
-      
-      {/* Generated Tab Info Bar */}
-      {activeTab === 'generated' && relativeOutputPath && (
-        <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 text-xs text-blue-700">
-          Output path: <code className="px-1 py-0.5 bg-blue-100 rounded font-mono">{relativeOutputPath}</code>
-        </div>
       )}
       
       {/* Bordered content area - file tree and viewers */}
@@ -148,6 +146,56 @@ export const FilesWorkspace = ({
           />
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Info bar for Generated files tab showing local folder path and file count
+ */
+function GeneratedFilesInfoBar({ outputPath, fileCount }: { outputPath?: string; fileCount: number }) {
+  const [didCopy, setDidCopy] = useState(false)
+  
+  const handleCopyPath = () => {
+    if (outputPath) {
+      setDidCopy(true)
+      copyTextToClipboard(outputPath)
+      setTimeout(() => setDidCopy(false), 1500)
+    }
+  }
+  
+  return (
+    <div className="flex items-center justify-between px-4 py-2 bg-gray-50 text-sm">
+      {/* Local folder path */}
+      {outputPath ? (
+        <div className="flex items-center gap-1.5 text-gray-700">
+          <Folder className="w-4 h-4 text-gray-500" />
+          <code className="font-mono text-xs text-gray-600">
+            {outputPath}
+          </code>
+          <button
+            onClick={handleCopyPath}
+            className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
+            title="Copy path"
+          >
+            {didCopy ? (
+              <Check className="w-3.5 h-3.5 text-green-600" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-gray-500">
+          <Folder className="w-4 h-4" />
+          <span className="italic text-xs">No output path specified</span>
+        </div>
+      )}
+      
+      {/* File count on the right */}
+      <span className="text-gray-500 text-xs">
+        <span className="font-medium text-gray-700">{fileCount}</span> {fileCount === 1 ? 'file' : 'files'} generated
+      </span>
     </div>
   )
 }

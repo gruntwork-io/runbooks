@@ -47,13 +47,21 @@ export function useApiBoilerplateRender(
   // Build the request body - both templatePath and templateId are required
   const requestBody = useMemo(() => {   
     if (!shouldFetch) {
+      console.log('[useApiBoilerplateRender] shouldFetch is false, returning null');
       return null; // Don't make request if shouldFetch is false
     }
     
     if (templatePath && templateId) {
+      console.log('[useApiBoilerplateRender] Building request body', { 
+        templatePath, 
+        templateId, 
+        variables,
+        runtimeValue: variables?.Runtime 
+      });
       return { templatePath, templateId, variables };
     }
     
+    console.log('[useApiBoilerplateRender] Missing required fields', { templatePath, templateId });
     return null; // Missing required fields
   }, [templatePath, templateId, variables, shouldFetch]);
 

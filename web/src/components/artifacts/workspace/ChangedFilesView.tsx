@@ -206,7 +206,7 @@ export const ChangedFilesView = ({
         {/* File Tree */}
         <div 
           ref={treeRef}
-          className="flex-shrink-0 overflow-y-auto bg-gray-50"
+          className="flex-shrink-0 overflow-y-auto"
           style={{ width: `${treeWidth}px` }}
         >
           <ChangedFileTree
@@ -226,7 +226,7 @@ export const ChangedFilesView = ({
         </div>
         
         {/* All Files Diff View */}
-        <div className="flex-1 overflow-y-auto p-3 bg-gray-100">
+        <div className="flex-1 overflow-y-auto p-3">
           <div className="flex flex-col gap-3">
             {changes.map(change => (
               <CollapsibleFileDiff
@@ -439,8 +439,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
     const Icon = getChangeTypeIcon(change.changeType)
     const iconColor = getIconColor(change.changeType)
     
-    const handleCopyPath = (e: React.MouseEvent) => {
-      e.stopPropagation()
+    const handleCopyPath = () => {
       setDidCopy(true)
       copyTextToClipboard(change.path)
       setTimeout(() => setDidCopy(false), 1500)
@@ -455,9 +454,12 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         )}
       >
         {/* File Header Bar */}
-        <button
+        <div
           onClick={onToggleCollapse}
           className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer border-b border-gray-200"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
         >
           {isCollapsed ? (
             <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
@@ -469,7 +471,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
             {change.path}
           </span>
           <button
-            onClick={handleCopyPath}
+            onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
             className="p-0.5 text-gray-400 hover:text-gray-600 rounded flex-shrink-0"
             title="Copy file path"
           >
@@ -489,7 +491,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
             )}
             <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
           </div>
-        </button>
+        </div>
         
         {/* Diff Content */}
         {!isCollapsed && (

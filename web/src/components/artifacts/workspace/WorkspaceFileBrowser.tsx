@@ -165,7 +165,7 @@ export const WorkspaceFileBrowser = ({
       {/* File Tree */}
       <div 
         ref={treeRef}
-        className="flex-shrink-0 overflow-auto bg-gray-50"
+        className="flex-shrink-0 overflow-auto"
         style={{ width: `${treeWidth}px` }}
       >
         <FileTree

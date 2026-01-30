@@ -406,6 +406,13 @@ function Template({
       _blocks: buildBlocksNamespace()
     };
     
+    console.log('[Template.handleGenerate] Called with:', {
+      localVarValues,
+      inputValues,
+      mergedData,
+      runtimeValue: mergedData.Runtime
+    });
+    
     // Register our variables in the block context (without _blocks)
     if (boilerplateConfig) {
       const registrationData = { ...inputValues, ...localVarValues };

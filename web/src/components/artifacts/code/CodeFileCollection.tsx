@@ -242,7 +242,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
           {/* File Tree */}
           <div 
             ref={treeRef}
-            className="flex-shrink-0 overflow-y-auto bg-gray-50"
+            className="flex-shrink-0 overflow-y-auto"
             style={{ width: `${treeWidth}px` }}
           >
             <FileTree 
@@ -263,7 +263,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
           {/* All Files View */}
           <div 
             ref={scrollContainerRef}
-            className="flex-1 overflow-y-auto p-3 bg-gray-100"
+            className="flex-1 overflow-y-auto p-3"
           >
             <div className="flex flex-col gap-3">
               {fileItems.map((fileItem) => (
@@ -304,8 +304,7 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
     const language = fileItem.file?.language || 'text';
     const lineCount = code.split('\n').length;
     
-    const handleCopyPath = (e: React.MouseEvent) => {
-      e.stopPropagation();
+    const handleCopyPath = () => {
       setDidCopy(true);
       copyTextToClipboard(filePath);
       setTimeout(() => setDidCopy(false), 1500);
@@ -320,9 +319,12 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
         )}
       >
         {/* File Header Bar */}
-        <button
+        <div
           onClick={onToggleCollapse}
           className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer border-b border-gray-200"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
         >
           {isCollapsed ? (
             <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
@@ -334,7 +336,7 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
             {filePath}
           </span>
           <button
-            onClick={handleCopyPath}
+            onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
             className="p-0.5 text-gray-400 hover:text-gray-600 rounded flex-shrink-0"
             title="Copy file path"
           >
@@ -348,7 +350,7 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
           <span className="text-xs text-gray-500 flex-shrink-0">
             {lineCount} {lineCount === 1 ? 'line' : 'lines'}
           </span>
-        </button>
+        </div>
         
         {/* File Content */}
         {!isCollapsed && (
