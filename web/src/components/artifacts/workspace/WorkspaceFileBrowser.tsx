@@ -5,7 +5,7 @@
  * and a single file viewer on the right. Supports editing files.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { FileTree } from '../code/FileTree'
 import { SingleFileViewer } from './SingleFileViewer'
 import { FolderOpen } from 'lucide-react'
@@ -25,9 +25,64 @@ export const WorkspaceFileBrowser = ({
   className = "",
 }: WorkspaceFileBrowserProps) => {
   const [selectedFile, setSelectedFile] = useState<WorkspaceFile | null>(null)
-  const [treeWidth, setTreeWidth] = useState(200)
+  const [treeWidth, setTreeWidth] = useState(225)
   const [editedContent, setEditedContent] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const widthRef = useRef(225) // Track width without causing re-renders
+  const rafRef = useRef<number | null>(null)
+  
+  // Handle resize drag - update DOM directly for performance
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    widthRef.current = treeWidth
+    setIsResizing(true)
+  }, [treeWidth])
+  
+  useEffect(() => {
+    if (!isResizing) return
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      // Cancel any pending animation frame
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+      }
+      
+      // Schedule update on next animation frame
+      rafRef.current = requestAnimationFrame(() => {
+        if (!containerRef.current || !treeRef.current) return
+        const containerRect = containerRef.current.getBoundingClientRect()
+        const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400)
+        // Update DOM directly - no React re-render
+        treeRef.current.style.width = `${newWidth}px`
+        widthRef.current = newWidth
+      })
+    }
+    
+    const handleMouseUp = () => {
+      // Cancel any pending animation frame
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+      // Only update React state when done dragging
+      setTreeWidth(widthRef.current)
+      setIsResizing(false)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+      }
+    }
+  }, [isResizing])
   
   // Convert WorkspaceTreeNode to FileTreeNode for the existing FileTree component
   const fileTreeData = useMemo(() => convertToFileTreeNodes(files), [files])
@@ -103,20 +158,29 @@ export const WorkspaceFileBrowser = ({
   }
 
   return (
-    <div className={cn("h-full flex overflow-hidden", className)}>
+    <div 
+      ref={containerRef}
+      className={cn("h-full flex overflow-hidden", isResizing && "select-none", className)}
+    >
       {/* File Tree */}
       <div 
-        className="flex-shrink-0 border-r border-gray-200 overflow-auto bg-gray-50"
+        ref={treeRef}
+        className="flex-shrink-0 overflow-auto bg-gray-50"
         style={{ width: `${treeWidth}px` }}
       >
         <FileTree
           items={fileTreeData}
           onItemClick={handleFileSelect}
-          onWidthChange={setTreeWidth}
           className="relative"
-          minWidth={150}
-          maxWidth={300}
         />
+      </div>
+      
+      {/* Resize Handle - 7px hit area with 1px visible line */}
+      <div
+        className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
+        onMouseDown={handleMouseDown}
+      >
+        <div className="w-px bg-gray-400 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
       </div>
       
       {/* File Viewer */}

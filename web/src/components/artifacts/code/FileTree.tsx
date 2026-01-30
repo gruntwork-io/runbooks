@@ -355,13 +355,18 @@ export const FileTree = ({
         <button
           role="treeitem"
           onClick={() => handleItemClick(item)}
-          className={cn(
-            "min-w-full w-max flex items-center gap-0.5 py-px pr-2 text-left text-sm transition-colors cursor-pointer",
-            isSelected 
-              ? "bg-blue-50 text-blue-700" 
-              : "hover:bg-gray-100 text-gray-700"
-          )}
-          style={{ paddingLeft: `${8 + level * indent}px` }}
+          className="min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer text-gray-700"
+          style={{ 
+            paddingLeft: `${8 + level * indent}px`,
+            backgroundColor: isSelected ? '#e5e7eb' : undefined,
+            fontWeight: isSelected ? 500 : undefined,
+          }}
+          onMouseEnter={(e) => {
+            if (!isSelected) e.currentTarget.style.backgroundColor = '#f3f4f6'
+          }}
+          onMouseLeave={(e) => {
+            if (!isSelected) e.currentTarget.style.backgroundColor = ''
+          }}
         >
           {isFolder ? (
             <>
@@ -403,7 +408,7 @@ export const FileTree = ({
   // Render the tree container with items or empty state
   return (
     <div 
-      className={cn("tree pt-1 pb-1 w-max min-w-full", className)}
+      className={cn("tree pt-1 pb-1 mt-[7px] w-max min-w-full", className)}
     >
       {items.length === 0 ? (
         <div className="p-4 text-gray-500 text-sm">No files to display</div>

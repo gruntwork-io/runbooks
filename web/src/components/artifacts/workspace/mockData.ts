@@ -110,7 +110,255 @@ function getMockFileTree(): WorkspaceTreeNode[] {
           name: 'api',
           type: 'folder',
           children: [
-            { id: 'api-main', name: 'main.go', type: 'file', file: { id: 'api-main', name: 'main.go', path: 'src/api/main.go', language: 'go', content: '// Go API' } },
+            { id: 'api-main', name: 'main.go', type: 'file', file: { id: 'api-main', name: 'main.go', path: 'src/api/main.go', language: 'go', content: `package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+)
+
+// Config holds application configuration
+type Config struct {
+	Port            int           \`json:"port"\`
+	ReadTimeout     time.Duration \`json:"read_timeout"\`
+	WriteTimeout    time.Duration \`json:"write_timeout"\`
+	ShutdownTimeout time.Duration \`json:"shutdown_timeout"\`
+	LogLevel        string        \`json:"log_level"\`
+}
+
+// Server wraps the HTTP server with graceful shutdown
+type Server struct {
+	config     *Config
+	httpServer *http.Server
+	router     *http.ServeMux
+	logger     *log.Logger
+	wg         sync.WaitGroup
+}
+
+// User represents a user in the system
+type User struct {
+	ID        string    \`json:"id"\`
+	Email     string    \`json:"email"\`
+	Name      string    \`json:"name"\`
+	CreatedAt time.Time \`json:"created_at"\`
+	UpdatedAt time.Time \`json:"updated_at"\`
+}
+
+// Response is a generic API response wrapper
+type Response struct {
+	Success bool        \`json:"success"\`
+	Data    interface{} \`json:"data,omitempty"\`
+	Error   string      \`json:"error,omitempty"\`
+}
+
+// NewServer creates a new server instance
+func NewServer(cfg *Config) *Server {
+	logger := log.New(os.Stdout, "[API] ", log.LstdFlags|log.Lshortfile)
+	router := http.NewServeMux()
+
+	s := &Server{
+		config: cfg,
+		router: router,
+		logger: logger,
+	}
+
+	s.registerRoutes()
+
+	s.httpServer = &http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.Port),
+		Handler:      s.loggingMiddleware(router),
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+	}
+
+	return s
+}
+
+// registerRoutes sets up all API routes
+func (s *Server) registerRoutes() {
+	s.router.HandleFunc("/health", s.handleHealth)
+	s.router.HandleFunc("/api/v1/users", s.handleUsers)
+	s.router.HandleFunc("/api/v1/users/", s.handleUserByID)
+	s.router.HandleFunc("/api/v1/status", s.handleStatus)
+}
+
+// loggingMiddleware logs all incoming requests
+func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		s.logger.Printf("Started %s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+		s.logger.Printf("Completed %s %s in %v", r.Method, r.URL.Path, time.Since(start))
+	})
+}
+
+// handleHealth returns server health status
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"status":    "healthy",
+			"timestamp": time.Now().UTC(),
+		},
+	})
+}
+
+// handleStatus returns detailed server status
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"version":   "1.0.0",
+			"uptime":    time.Now().Unix(),
+			"goroutines": 42,
+		},
+	})
+}
+
+// handleUsers handles user collection operations
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.listUsers(w, r)
+	case http.MethodPost:
+		s.createUser(w, r)
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleUserByID handles single user operations
+func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.getUser(w, r)
+	case http.MethodPut:
+		s.updateUser(w, r)
+	case http.MethodDelete:
+		s.deleteUser(w, r)
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// listUsers returns all users
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	users := []User{
+		{ID: "1", Email: "alice@example.com", Name: "Alice", CreatedAt: time.Now()},
+		{ID: "2", Email: "bob@example.com", Name: "Bob", CreatedAt: time.Now()},
+	}
+	s.writeJSON(w, http.StatusOK, Response{Success: true, Data: users})
+}
+
+// createUser creates a new user
+func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	user.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	user.CreatedAt = time.Now()
+	s.writeJSON(w, http.StatusCreated, Response{Success: true, Data: user})
+}
+
+// getUser returns a single user by ID
+func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
+	user := User{ID: "1", Email: "alice@example.com", Name: "Alice"}
+	s.writeJSON(w, http.StatusOK, Response{Success: true, Data: user})
+}
+
+// updateUser updates an existing user
+func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	user.UpdatedAt = time.Now()
+	s.writeJSON(w, http.StatusOK, Response{Success: true, Data: user})
+}
+
+// deleteUser deletes a user
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, http.StatusOK, Response{Success: true})
+}
+
+// writeJSON writes a JSON response
+func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+// writeError writes an error response
+func (s *Server) writeError(w http.ResponseWriter, status int, message string) {
+	s.writeJSON(w, status, Response{Success: false, Error: message})
+}
+
+// Start begins listening for requests
+func (s *Server) Start() error {
+	s.logger.Printf("Server starting on port %d", s.config.Port)
+	return s.httpServer.ListenAndServe()
+}
+
+// Shutdown gracefully shuts down the server
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.logger.Println("Server shutting down...")
+	return s.httpServer.Shutdown(ctx)
+}
+
+func main() {
+	cfg := &Config{
+		Port:            8080,
+		ReadTimeout:     15 * time.Second,
+		WriteTimeout:    15 * time.Second,
+		ShutdownTimeout: 30 * time.Second,
+		LogLevel:        "info",
+	}
+
+	server := NewServer(cfg)
+
+	// Start server in goroutine
+	go func() {
+		if err := server.Start(); err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	// Graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Shutdown error: %v", err)
+	}
+
+	log.Println("Server stopped")
+}` } },
             { id: 'api-handler', name: 'handler.go', type: 'file', file: { id: 'api-handler', name: 'handler.go', path: 'src/api/handler.go', language: 'go', content: '// Handler' } },
             { id: 'api-test', name: 'main_test.go', type: 'file', file: { id: 'api-test', name: 'main_test.go', path: 'src/api/main_test.go', language: 'go', content: '// Tests' } },
           ],
@@ -154,9 +402,10 @@ function getMockFileTree(): WorkspaceTreeNode[] {
       name: 'assets',
       type: 'folder',
       children: [
-        { id: 'assets-logo', name: 'logo.png', type: 'file', file: { id: 'assets-logo', name: 'logo.png', path: 'assets/logo.png', language: 'binary', content: '' } },
-        { id: 'assets-hero', name: 'hero.jpg', type: 'file', file: { id: 'assets-hero', name: 'hero.jpg', path: 'assets/hero.jpg', language: 'binary', content: '' } },
-        { id: 'assets-icon', name: 'icon.svg', type: 'file', file: { id: 'assets-icon', name: 'icon.svg', path: 'assets/icon.svg', language: 'svg', content: '<svg/>' } },
+        { id: 'assets-logo', name: 'logo.png', type: 'file', file: { id: 'assets-logo', name: 'logo.png', path: 'assets/logo.png', language: 'binary', content: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMTBiOTgxIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIiBmb250LXNpemU9IjI0IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiI+TG9nbzwvdGV4dD48L3N2Zz4=' } },
+        { id: 'assets-hero', name: 'hero.jpg', type: 'file', file: { id: 'assets-hero', name: 'hero.jpg', path: 'assets/hero.jpg', language: 'binary', content: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNDAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNjM2NmYxIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIiBmb250LXNpemU9IjQ4IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiI+SGVybyBJbWFnZTwvdGV4dD48L3N2Zz4=' } },
+        { id: 'assets-icon', name: 'icon.svg', type: 'file', file: { id: 'assets-icon', name: 'icon.svg', path: 'assets/icon.svg', language: 'svg', content: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzRGNDZFNSIvPjx0ZXh0IHg9IjUwIiB5PSI1NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiIGZvbnQtc2l6ZT0iMjAiPkljb248L3RleHQ+PC9zdmc+' } },
+        { id: 'assets-bundle', name: 'bundle.zip', type: 'file', file: { id: 'assets-bundle', name: 'bundle.zip', path: 'assets/bundle.zip', language: 'binary', content: '' } },
       ],
     },
     { id: 'root-readme', name: 'README.md', type: 'file', file: { id: 'root-readme', name: 'README.md', path: 'README.md', language: 'markdown', content: '# Project' } },

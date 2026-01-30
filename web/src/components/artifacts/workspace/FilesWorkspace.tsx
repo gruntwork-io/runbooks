@@ -85,14 +85,11 @@ export const FilesWorkspace = ({
         className="px-2"
       />
       
-      {/* Bordered content area */}
-      <div className="flex-1 flex flex-col border-x border-b border-gray-200 overflow-hidden">
-        {/* Metadata Bar */}
-        <WorkspaceMetadataBar
-          gitInfo={workspaceData.gitInfo}
-          stats={stats}
-          className="border-b border-gray-200"
-        />
+      {/* Metadata Bar - outside bordered area */}
+      <WorkspaceMetadataBar
+        gitInfo={workspaceData.gitInfo}
+        className="px-2"
+      />
       
       {/* Generated Tab Info Bar */}
       {activeTab === 'generated' && relativeOutputPath && (
@@ -101,8 +98,8 @@ export const FilesWorkspace = ({
         </div>
       )}
       
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden">
+      {/* Bordered content area - file tree and viewers */}
+      <div className="flex-1 flex flex-col border-y border-gray-400 overflow-hidden">
         {activeTab === 'generated' && (
           <CodeFileCollection
             data={generatedFiles}
@@ -127,7 +124,6 @@ export const FilesWorkspace = ({
             className="h-full"
           />
         )}
-      </div>
       </div>
     </div>
   )
