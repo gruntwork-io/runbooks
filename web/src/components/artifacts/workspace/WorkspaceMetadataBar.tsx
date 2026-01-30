@@ -4,9 +4,10 @@
  * Displays git repository info and workspace statistics.
  */
 
+import { useState } from 'react'
 import type { SVGProps } from 'react'
-import { GitBranch } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { GitBranch, Folder, Copy, Check } from 'lucide-react'
+import { cn, copyTextToClipboard } from '@/lib/utils'
 import type { GitRepoInfo } from '@/types/workspace'
 
 /**
@@ -27,14 +28,26 @@ const GitHubIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = (
 interface WorkspaceMetadataBarProps {
   /** Git repository information */
   gitInfo: GitRepoInfo | null;
+  /** Local path where files are downloaded */
+  localPath?: string;
   /** Additional CSS classes */
   className?: string;
 }
 
 export const WorkspaceMetadataBar = ({
   gitInfo,
+  localPath,
   className = "",
 }: WorkspaceMetadataBarProps) => {
+  const [didCopy, setDidCopy] = useState(false)
+  
+  const handleCopyPath = () => {
+    if (localPath) {
+      setDidCopy(true)
+      copyTextToClipboard(localPath)
+      setTimeout(() => setDidCopy(false), 1500)
+    }
+  }
   // If no git info, show a minimal state
   if (!gitInfo) {
     return (
@@ -76,6 +89,27 @@ export const WorkspaceMetadataBar = ({
             </span>
           )}
         </div>
+        
+        {/* Local Path */}
+        {localPath && (
+          <div className="flex items-center gap-1.5 text-gray-700">
+            <Folder className="w-4 h-4 text-gray-500" />
+            <code className="font-mono text-xs text-gray-600" title={localPath}>
+              .../{localPath.split('/').pop()}
+            </code>
+            <button
+              onClick={handleCopyPath}
+              className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
+              title={`Copy full path: ${localPath}`}
+            >
+              {didCopy ? (
+                <Check className="w-3.5 h-3.5 text-green-600" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

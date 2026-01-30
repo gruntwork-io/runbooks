@@ -113,6 +113,8 @@ export interface WorkspaceStats {
 export interface WorkspaceState {
   /** Git repository info (null if not connected to a repo) */
   gitInfo: GitRepoInfo | null;
+  /** Local path where files are cloned/downloaded */
+  localPath?: string;
   /** All files in the workspace */
   files: WorkspaceTreeNode[];
   /** File changes (for Changed tab) */

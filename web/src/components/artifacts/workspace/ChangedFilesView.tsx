@@ -5,7 +5,7 @@
  * Shows unified diff with +/- prefixes, line numbers, and collapsible context.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -15,7 +15,6 @@ import {
   FileDiff,
   FilePlus,
   FileMinus,
-  Check,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -53,8 +52,57 @@ export const ChangedFilesView = ({
   const [selectedFileId, setSelectedFileId] = useState<string | null>(
     changes.length > 0 ? changes[0].id : null
   )
-  const [treeWidth] = useState(280)
-  const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set())
+  const [treeWidth, setTreeWidth] = useState(225)
+  const [isResizing, setIsResizing] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const widthRef = useRef(225)
+  const rafRef = useRef<number | null>(null)
+  
+  // Handle resize drag - update DOM directly for performance
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    widthRef.current = treeWidth
+    setIsResizing(true)
+  }, [treeWidth])
+  
+  useEffect(() => {
+    if (!isResizing) return
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+      }
+      
+      rafRef.current = requestAnimationFrame(() => {
+        if (!containerRef.current || !treeRef.current) return
+        const containerRect = containerRef.current.getBoundingClientRect()
+        const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400)
+        treeRef.current.style.width = `${newWidth}px`
+        widthRef.current = newWidth
+      })
+    }
+    
+    const handleMouseUp = () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+      setTreeWidth(widthRef.current)
+      setIsResizing(false)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+      }
+    }
+  }, [isResizing])
   
   // Build file tree from changes
   const fileTree = useMemo(() => buildFileTree(changes), [changes])
@@ -65,14 +113,9 @@ export const ChangedFilesView = ({
     [changes, selectedFileId]
   )
   
-  // Calculate totals
-  const totalAdditions = changes.reduce((sum, c) => sum + c.additions, 0)
-  const totalDeletions = changes.reduce((sum, c) => sum + c.deletions, 0)
-  
   // Handle file selection
   const handleFileSelect = (fileId: string) => {
     setSelectedFileId(fileId)
-    setViewedFiles(prev => new Set([...prev, fileId]))
   }
   
   // Empty state
@@ -93,37 +136,32 @@ export const ChangedFilesView = ({
   }
 
   return (
-    <div className={cn("h-full flex flex-col", className)}>
-      {/* Summary Header */}
-      <div className="flex-shrink-0 px-4 py-2 bg-gray-50 border-b border-gray-200">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-600">
-            <span className="font-medium">{changes.length}</span> changed{' '}
-            {changes.length === 1 ? 'file' : 'files'}
-            <span className="mx-2 text-gray-300">|</span>
-            <span className="font-medium">{viewedFiles.size}</span> / {changes.length} viewed
-          </span>
-          <div className="flex items-center gap-3">
-            <span className="text-green-600 font-medium">+{totalAdditions}</span>
-            <span className="text-red-600 font-medium">-{totalDeletions}</span>
-          </div>
-        </div>
-      </div>
-      
+    <div 
+      ref={containerRef}
+      className={cn("h-full flex flex-col", isResizing && "select-none", className)}
+    >
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
         {/* File Tree */}
         <div 
-          className="flex-shrink-0 border-r border-gray-200 overflow-y-auto bg-gray-50"
+          ref={treeRef}
+          className="flex-shrink-0 overflow-y-auto bg-gray-50"
           style={{ width: `${treeWidth}px` }}
         >
           <ChangedFileTree
             tree={fileTree}
             changes={changes}
             selectedFileId={selectedFileId}
-            viewedFiles={viewedFiles}
             onFileSelect={handleFileSelect}
           />
+        </div>
+        
+        {/* Resize Handle - 7px hit area with 1px visible line */}
+        <div
+          className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
+          onMouseDown={handleMouseDown}
+        >
+          <div className="w-px bg-gray-400 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
         </div>
         
         {/* Diff View */}
@@ -205,7 +243,6 @@ interface ChangedFileTreeProps {
   tree: TreeNode[];
   changes: FileChange[];
   selectedFileId: string | null;
-  viewedFiles: Set<string>;
   onFileSelect: (fileId: string) => void;
 }
 
@@ -213,7 +250,6 @@ const ChangedFileTree = ({
   tree,
   changes,
   selectedFileId,
-  viewedFiles,
   onFileSelect,
 }: ChangedFileTreeProps) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
@@ -238,7 +274,6 @@ const ChangedFileTree = ({
   const renderNode = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path)
     const isSelected = node.change?.id === selectedFileId
-    const isViewed = node.change ? viewedFiles.has(node.change.id) : false
     
     if (node.type === 'folder') {
       return (
@@ -295,17 +330,6 @@ const ChangedFileTree = ({
         <span className="w-4 flex-shrink-0" />
         <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
         <span className="truncate flex-1 ml-1">{node.name}</span>
-        {isViewed && (
-          <Check className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-        )}
-        <div className="flex items-center gap-1 text-xs flex-shrink-0 ml-1">
-          {change.additions > 0 && (
-            <span className="text-green-600">+{change.additions}</span>
-          )}
-          {change.deletions > 0 && (
-            <span className="text-red-600">-{change.deletions}</span>
-          )}
-        </div>
       </button>
     )
   }

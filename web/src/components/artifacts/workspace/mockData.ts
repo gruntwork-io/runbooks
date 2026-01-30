@@ -19,14 +19,15 @@ export function getMockWorkspaceData(): WorkspaceState {
       branch: 'main',
       commitSha: 'a1b2c3d4e5f6789012345678901234567890abcd',
     },
+    localPath: '~/.runbooks/repos/gruntwork-io/terraform-aws-lambda',
     files: getMockFileTree(),
     changes: getMockChanges(),
     stats: {
       totalFiles: 32,
       generatedFiles: 0, // Will be updated by the component
       changedFiles: 3,
-      totalAdditions: 45,
-      totalDeletions: 12,
+      totalAdditions: 35,
+      totalDeletions: 16,
     },
     isLoading: false,
   }
@@ -420,153 +421,114 @@ func main() {
 }
 
 /**
- * Generate mock file changes
+ * Generate mock file changes - uses paths that exist in the file tree
  */
 function getMockChanges(): FileChange[] {
   return [
     {
       id: 'change-1',
-      path: 'api/aws_auth.go',
+      path: 'src/api/main.go',
       changeType: 'modified',
-      additions: 20,
-      deletions: 0,
+      additions: 15,
+      deletions: 5,
       language: 'go',
-      originalContent: `package api
+      originalContent: `package main
 
 import (
-	"context"
 	"fmt"
-	"os"
+	"net/http"
 )
 
-// CheckRegionResponse represents the response from a region check
-type CheckRegionResponse struct {
-	Valid   bool   \`json:"valid"\`
-	Region  string \`json:"region"\`
-	Error   string \`json:"error,omitempty"\`
+// Server wraps the HTTP server
+type Server struct {
+	router *http.ServeMux
 }
 
-// callerIdentity holds the result of an STS GetCallerIdentity call.
-type callerIdentity struct {
-	Account string
-	Arn     string
-	UserId  string
+func main() {
+	fmt.Println("Starting server...")
 }`,
-      newContent: `package api
+      newContent: `package main
 
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
+	"os/signal"
 )
 
-// CheckRegionResponse represents the response from a region check
-type CheckRegionResponse struct {
-	Valid   bool   \`json:"valid"\`
-	Region  string \`json:"region"\`
-	Error   string \`json:"error,omitempty"\`
+// Server wraps the HTTP server with graceful shutdown
+type Server struct {
+	httpServer *http.Server
+	router     *http.ServeMux
+	logger     *log.Logger
 }
 
-// EnvCredentialsRequest represents a request to read and validate AWS credentials from environment variables
-type EnvCredentialsRequest struct {
-	Prefix        string \`json:"prefix"\`
-	AwsAuthID     string \`json:"awsAuthId"\`
-	DefaultRegion string \`json:"defaultRegion"\`
-}
-
-// EnvCredentialsResponse represents the response from environment credential validation
-// Note: Raw credentials are NEVER returned to the frontend for security
-type EnvCredentialsResponse struct {
-	Found           bool   \`json:"found"\`
-	Valid           bool   \`json:"valid,omitempty"\`
-	AccountID       string \`json:"accountId,omitempty"\`
-	Arn             string \`json:"arn,omitempty"\`
-	Region          string \`json:"region,omitempty"\`
-	HasSessionToken bool   \`json:"hasSessionToken,omitempty"\`
-	Warning         string \`json:"warning,omitempty"\`
-	Error           string \`json:"error,omitempty"\`
-}
-
-// callerIdentity holds the result of an STS GetCallerIdentity call.
-type callerIdentity struct {
-	Account string
-	Arn     string
-	UserId  string
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	
+	fmt.Println("Starting server with graceful shutdown...")
+	<-ctx.Done()
 }`,
     },
     {
       id: 'change-2',
-      path: 'web/src/hooks/useScriptExecution.ts',
-      changeType: 'added',
-      additions: 45,
-      deletions: 0,
+      path: 'src/web/App.tsx',
+      changeType: 'modified',
+      additions: 20,
+      deletions: 3,
       language: 'typescript',
-      newContent: `import { useState, useCallback } from 'react'
-import { useApi } from './useApi'
+      originalContent: `// React App
+import React from 'react'
 
-interface ScriptExecutionState {
-  isRunning: boolean
-  output: string[]
-  exitCode: number | null
-  error: string | null
+export function App() {
+  return <div>Hello World</div>
+}`,
+      newContent: `// React App
+import React, { useState, useEffect } from 'react'
+
+interface AppState {
+  isLoading: boolean
+  data: string | null
 }
 
-export function useScriptExecution() {
-  const [state, setState] = useState<ScriptExecutionState>({
-    isRunning: false,
-    output: [],
-    exitCode: null,
-    error: null,
+export function App() {
+  const [state, setState] = useState<AppState>({
+    isLoading: true,
+    data: null,
   })
 
-  const { post } = useApi()
+  useEffect(() => {
+    // Fetch initial data
+    fetch('/api/data')
+      .then(res => res.json())
+      .then(data => setState({ isLoading: false, data }))
+  }, [])
 
-  const execute = useCallback(async (script: string) => {
-    setState(prev => ({
-      ...prev,
-      isRunning: true,
-      output: [],
-      exitCode: null,
-      error: null,
-    }))
-
-    try {
-      const response = await post('/api/exec', { script })
-      setState(prev => ({
-        ...prev,
-        isRunning: false,
-        output: response.output,
-        exitCode: response.exitCode,
-      }))
-    } catch (err) {
-      setState(prev => ({
-        ...prev,
-        isRunning: false,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      }))
-    }
-  }, [post])
-
-  return { ...state, execute }
+  if (state.isLoading) return <div>Loading...</div>
+  
+  return <div>{state.data}</div>
 }`,
     },
     {
       id: 'change-3',
-      path: 'testdata/deprecated/old-example.tf',
+      path: 'infra/modules/lambda/outputs.tf',
       changeType: 'deleted',
       additions: 0,
-      deletions: 12,
+      deletions: 8,
       language: 'hcl',
-      originalContent: `# This example is deprecated
-# Please use testdata/examples/simple instead
+      originalContent: `# Outputs for Lambda module
 
-terraform {
-  required_version = ">= 1.0"
+output "function_arn" {
+  description = "ARN of the Lambda function"
+  value       = aws_lambda_function.this.arn
 }
 
-module "lambda" {
-  source = "../../modules/lambda"
-  name   = "deprecated-example"
+output "function_name" {
+  description = "Name of the Lambda function"
+  value       = aws_lambda_function.this.function_name
 }`,
     },
   ]

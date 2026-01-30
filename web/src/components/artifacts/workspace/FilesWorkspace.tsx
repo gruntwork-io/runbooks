@@ -59,6 +59,16 @@ export const FilesWorkspace = ({
     generated: stats.totalFiles,
     changed: stats.changedFiles,
   }), [stats])
+  
+  // Calculate change type counts for the Changed tab
+  const changeStats = useMemo(() => {
+    const added = workspaceData.changes.filter(c => c.changeType === 'added').length
+    const modified = workspaceData.changes.filter(c => c.changeType === 'modified').length
+    const deleted = workspaceData.changes.filter(c => c.changeType === 'deleted').length
+    const totalAdditions = workspaceData.changes.reduce((sum, c) => sum + c.additions, 0)
+    const totalDeletions = workspaceData.changes.reduce((sum, c) => sum + c.deletions, 0)
+    return { added, modified, deleted, totalAdditions, totalDeletions, total: workspaceData.changes.length }
+  }, [workspaceData.changes])
 
   return (
     <div className={cn("w-full h-full flex flex-col", className)}>
@@ -86,10 +96,23 @@ export const FilesWorkspace = ({
       />
       
       {/* Metadata Bar - outside bordered area */}
-      <WorkspaceMetadataBar
-        gitInfo={workspaceData.gitInfo}
-        className="px-2"
-      />
+      {activeTab === 'changed' ? (
+        <div className="flex items-center gap-3 px-4 py-2 text-sm">
+          <span className="text-gray-600">
+            <span className="font-medium">{changeStats.total}</span> changed {changeStats.total === 1 ? 'file' : 'files'}
+          </span>
+          <span className="text-gray-300">|</span>
+          <span className="text-green-600 font-medium">+{changeStats.totalAdditions}</span>
+          <span className="text-red-600 font-medium">-{changeStats.totalDeletions}</span>
+          <ChangeProportionBar additions={changeStats.totalAdditions} deletions={changeStats.totalDeletions} />
+        </div>
+      ) : (
+        <WorkspaceMetadataBar
+          gitInfo={workspaceData.gitInfo}
+          localPath={activeTab === 'all' ? workspaceData.localPath : undefined}
+          className="px-2"
+        />
+      )}
       
       {/* Generated Tab Info Bar */}
       {activeTab === 'generated' && relativeOutputPath && (
@@ -143,4 +166,35 @@ function countFiles(nodes: FileTreeNode[]): number {
     }
   }
   return count
+}
+
+/**
+ * GitHub-style proportion bar showing additions vs deletions
+ * Renders 5 boxes colored green/red based on the proportion
+ */
+function ChangeProportionBar({ additions, deletions }: { additions: number; deletions: number }) {
+  const total = additions + deletions
+  const BOXES = 5
+  
+  // Calculate how many boxes should be green
+  let greenBoxes = 0
+  if (total > 0) {
+    greenBoxes = Math.round((additions / total) * BOXES)
+    // Ensure at least 1 green if there are additions, and at least 1 red if there are deletions
+    if (additions > 0 && greenBoxes === 0) greenBoxes = 1
+    if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
+  }
+  
+  const redBoxes = BOXES - greenBoxes
+  
+  return (
+    <div className="flex items-center gap-0.5">
+      {Array.from({ length: greenBoxes }).map((_, i) => (
+        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-green-500" />
+      ))}
+      {Array.from({ length: redBoxes }).map((_, i) => (
+        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-red-500" />
+      ))}
+    </div>
+  )
 }
