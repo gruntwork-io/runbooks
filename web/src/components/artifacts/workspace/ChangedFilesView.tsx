@@ -2,10 +2,11 @@
  * @fileoverview ChangedFilesView Component
  * 
  * Displays file changes in a GitHub pull request style view.
- * Shows unified diff with +/- prefixes, line numbers, and collapsible context.
+ * Shows all changed files in a vertical list with collapsible file bars.
  */
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import type React from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -15,9 +16,14 @@ import {
   FileDiff,
   FilePlus,
   FileMinus,
+  Copy,
+  Check,
+  UnfoldVertical,
+  ArrowUpToLine,
+  ArrowDownToLine,
   type LucideIcon,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, copyTextToClipboard } from '@/lib/utils'
 import type { FileChange, FileChangeType } from '@/types/workspace'
 
 /**
@@ -38,6 +44,34 @@ function getChangeTypeIcon(changeType: FileChangeType): LucideIcon {
   }
 }
 
+/**
+ * GitHub-style proportion bar showing additions vs deletions
+ */
+function ChangeProportionBar({ additions, deletions }: { additions: number; deletions: number }) {
+  const total = additions + deletions
+  const BOXES = 5
+  
+  let greenBoxes = 0
+  if (total > 0) {
+    greenBoxes = Math.round((additions / total) * BOXES)
+    if (additions > 0 && greenBoxes === 0) greenBoxes = 1
+    if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
+  }
+  
+  const redBoxes = BOXES - greenBoxes
+  
+  return (
+    <div className="flex items-center gap-0.5">
+      {Array.from({ length: greenBoxes }).map((_, i) => (
+        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-green-500" />
+      ))}
+      {Array.from({ length: redBoxes }).map((_, i) => (
+        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-red-500" />
+      ))}
+    </div>
+  )
+}
+
 interface ChangedFilesViewProps {
   /** List of file changes */
   changes: FileChange[];
@@ -49,15 +83,15 @@ export const ChangedFilesView = ({
   changes,
   className = "",
 }: ChangedFilesViewProps) => {
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(
-    changes.length > 0 ? changes[0].id : null
-  )
+  const [focusedFileId, setFocusedFileId] = useState<string | null>(null)
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
   const [treeWidth, setTreeWidth] = useState(225)
   const [isResizing, setIsResizing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
   const widthRef = useRef(225)
   const rafRef = useRef<number | null>(null)
+  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   
   // Handle resize drag - update DOM directly for performance
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -107,16 +141,43 @@ export const ChangedFilesView = ({
   // Build file tree from changes
   const fileTree = useMemo(() => buildFileTree(changes), [changes])
   
-  // Get selected file
-  const selectedFile = useMemo(
-    () => changes.find(c => c.id === selectedFileId) || null,
-    [changes, selectedFileId]
-  )
-  
-  // Handle file selection
+  // Handle file selection from tree - jump to file
   const handleFileSelect = (fileId: string) => {
-    setSelectedFileId(fileId)
+    setFocusedFileId(fileId)
+    // Expand the file if it's collapsed
+    setCollapsedFiles(prev => {
+      const next = new Set(prev)
+      next.delete(fileId)
+      return next
+    })
+    // Jump to the file
+    const fileEl = fileRefs.current.get(fileId)
+    if (fileEl) {
+      fileEl.scrollIntoView({ behavior: 'auto', block: 'start' })
+    }
   }
+  
+  // Toggle file collapse
+  const toggleFileCollapse = (fileId: string) => {
+    setCollapsedFiles(prev => {
+      const next = new Set(prev)
+      if (next.has(fileId)) {
+        next.delete(fileId)
+      } else {
+        next.add(fileId)
+      }
+      return next
+    })
+  }
+  
+  // Register file ref
+  const setFileRef = useCallback((fileId: string, el: HTMLDivElement | null) => {
+    if (el) {
+      fileRefs.current.set(fileId, el)
+    } else {
+      fileRefs.current.delete(fileId)
+    }
+  }, [])
   
   // Empty state
   if (changes.length === 0) {
@@ -151,7 +212,7 @@ export const ChangedFilesView = ({
           <ChangedFileTree
             tree={fileTree}
             changes={changes}
-            selectedFileId={selectedFileId}
+            focusedFileId={focusedFileId}
             onFileSelect={handleFileSelect}
           />
         </div>
@@ -164,15 +225,20 @@ export const ChangedFilesView = ({
           <div className="w-px bg-gray-400 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
         </div>
         
-        {/* Diff View */}
-        <div className="flex-1 overflow-y-auto">
-          {selectedFile ? (
-            <UnifiedDiffView change={selectedFile} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Select a file to view changes
-            </div>
-          )}
+        {/* All Files Diff View */}
+        <div className="flex-1 overflow-y-auto p-3 bg-gray-100">
+          <div className="flex flex-col gap-3">
+            {changes.map(change => (
+              <CollapsibleFileDiff
+                key={change.id}
+                change={change}
+                isCollapsed={collapsedFiles.has(change.id)}
+                isFocused={focusedFileId === change.id}
+                onToggleCollapse={() => toggleFileCollapse(change.id)}
+                ref={(el) => setFileRef(change.id, el)}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -242,14 +308,14 @@ function buildFileTree(changes: FileChange[]): TreeNode[] {
 interface ChangedFileTreeProps {
   tree: TreeNode[];
   changes: FileChange[];
-  selectedFileId: string | null;
+  focusedFileId: string | null;
   onFileSelect: (fileId: string) => void;
 }
 
 const ChangedFileTree = ({
   tree,
   changes,
-  selectedFileId,
+  focusedFileId,
   onFileSelect,
 }: ChangedFileTreeProps) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
@@ -273,7 +339,7 @@ const ChangedFileTree = ({
   
   const renderNode = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path)
-    const isSelected = node.change?.id === selectedFileId
+    const isSelected = node.change?.id === focusedFileId
     
     if (node.type === 'folder') {
       return (
@@ -356,10 +422,90 @@ function getAllFolderPaths(nodes: TreeNode[]): string[] {
 }
 
 // ============================================================================
-// Unified Diff View
+// Collapsible File Diff Component
 // ============================================================================
 
-interface UnifiedDiffViewProps {
+interface CollapsibleFileDiffProps {
+  change: FileChange;
+  isCollapsed: boolean;
+  isFocused: boolean;
+  onToggleCollapse: () => void;
+}
+
+const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
+  ({ change, isCollapsed, isFocused, onToggleCollapse }, ref) => {
+    const [didCopy, setDidCopy] = useState(false)
+    
+    const Icon = getChangeTypeIcon(change.changeType)
+    const iconColor = getIconColor(change.changeType)
+    
+    const handleCopyPath = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setDidCopy(true)
+      copyTextToClipboard(change.path)
+      setTimeout(() => setDidCopy(false), 1500)
+    }
+    
+    return (
+      <div 
+        ref={ref}
+        className={cn(
+          "border border-gray-300 rounded-md overflow-hidden bg-white",
+          isFocused && "ring-2 ring-blue-500"
+        )}
+      >
+        {/* File Header Bar */}
+        <button
+          onClick={onToggleCollapse}
+          className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer border-b border-gray-200"
+        >
+          {isCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          )}
+          <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
+          <span className="font-mono text-sm text-gray-700 truncate">
+            {change.path}
+          </span>
+          <button
+            onClick={handleCopyPath}
+            className="p-0.5 text-gray-400 hover:text-gray-600 rounded flex-shrink-0"
+            title="Copy file path"
+          >
+            {didCopy ? (
+              <Check className="w-3.5 h-3.5 text-green-600" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2 text-xs flex-shrink-0">
+            {change.additions > 0 && (
+              <span className="text-green-600 font-medium">+{change.additions}</span>
+            )}
+            {change.deletions > 0 && (
+              <span className="text-red-600 font-medium">-{change.deletions}</span>
+            )}
+            <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
+          </div>
+        </button>
+        
+        {/* Diff Content */}
+        {!isCollapsed && (
+          <DiffContent change={change} />
+        )}
+      </div>
+    )
+  }
+)
+CollapsibleFileDiff.displayName = 'CollapsibleFileDiff'
+
+// ============================================================================
+// Diff Content Component
+// ============================================================================
+
+interface DiffContentProps {
   change: FileChange;
 }
 
@@ -370,101 +516,185 @@ interface DiffLine {
   newLineNum?: number;
 }
 
-const UnifiedDiffView = ({ change }: UnifiedDiffViewProps) => {
-  const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set())
+interface DiffSection {
+  type: 'lines' | 'collapsed';
+  lines?: DiffLine[];
+  collapsedCount?: number;
+  startOldLine?: number;
+  startNewLine?: number;
+  position?: 'top' | 'middle' | 'bottom'; // For collapsed sections
+}
+
+const DiffContent = ({ change }: DiffContentProps) => {
+  const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set())
   
   // Generate unified diff lines
   const diffLines = useMemo(() => generateUnifiedDiff(change), [change])
   
-  // Find hunk boundaries for collapsing
-  const hunks = useMemo(() => findHunks(diffLines), [diffLines])
+  // Create sections with collapsed context
+  const sections = useMemo(() => {
+    const result: DiffSection[] = []
+    const contextSize = 3
+    
+    // Find all change indices
+    const changeIndices: number[] = []
+    diffLines.forEach((line, i) => {
+      if (line.type !== 'context') {
+        changeIndices.push(i)
+      }
+    })
+    
+    if (changeIndices.length === 0) {
+      // No changes - collapse entire file (reaches both beginning and end)
+      if (diffLines.length > 0) {
+        result.push({
+          type: 'collapsed',
+          collapsedCount: diffLines.length,
+          startOldLine: diffLines[0].oldLineNum,
+          startNewLine: diffLines[0].newLineNum,
+          position: 'top', // Starts at beginning, use ArrowUpToLine
+        })
+      }
+      return result
+    }
+    
+    let currentPos = 0
+    
+    for (let i = 0; i < changeIndices.length; i++) {
+      const changeStart = changeIndices[i]
+      
+      // Find the end of this change block (consecutive changes)
+      let changeEnd = changeStart
+      while (i + 1 < changeIndices.length && changeIndices[i + 1] <= changeEnd + contextSize * 2 + 1) {
+        i++
+        changeEnd = changeIndices[i]
+      }
+      
+      const contextStart = Math.max(currentPos, changeStart - contextSize)
+      const contextEnd = Math.min(diffLines.length - 1, changeEnd + contextSize)
+      
+      // Add collapsed section before this change (if there's a gap)
+      if (contextStart > currentPos) {
+        const collapsedLines = diffLines.slice(currentPos, contextStart)
+        if (collapsedLines.length > 0) {
+          // Determine position based on whether it reaches beginning of file
+          const startsAtBeginning = currentPos === 0
+          
+          result.push({
+            type: 'collapsed',
+            collapsedCount: collapsedLines.length,
+            startOldLine: collapsedLines[0].oldLineNum,
+            startNewLine: collapsedLines[0].newLineNum,
+            position: startsAtBeginning ? 'top' : 'middle',
+          })
+        }
+      }
+      
+      // Add the visible lines (context + changes)
+      result.push({
+        type: 'lines',
+        lines: diffLines.slice(contextStart, contextEnd + 1),
+      })
+      
+      currentPos = contextEnd + 1
+    }
+    
+    // Add trailing collapsed section if needed
+    if (currentPos < diffLines.length) {
+      const collapsedLines = diffLines.slice(currentPos)
+      // This section reaches the end of the file
+      result.push({
+        type: 'collapsed',
+        collapsedCount: collapsedLines.length,
+        startOldLine: collapsedLines[0].oldLineNum,
+        startNewLine: collapsedLines[0].newLineNum,
+        position: 'bottom',
+      })
+    }
+    
+    return result
+  }, [diffLines])
   
-  const toggleHunk = (hunkIndex: number) => {
-    setCollapsedHunks(prev => {
+  const toggleSection = (index: number) => {
+    setExpandedSections(prev => {
       const next = new Set(prev)
-      if (next.has(hunkIndex)) {
-        next.delete(hunkIndex)
+      if (next.has(index)) {
+        next.delete(index)
       } else {
-        next.add(hunkIndex)
+        next.add(index)
       }
       return next
     })
   }
   
-  // Use change type icon (FilePlus/FileDiff/FileMinus)
-  const Icon = getChangeTypeIcon(change.changeType)
-  const iconColor = getIconColor(change.changeType)
+  // Get the full lines for an expanded section
+  const getExpandedLines = (sectionIndex: number): DiffLine[] => {
+    // Find the section boundaries in diffLines
+    let lineStart = 0
+    for (let i = 0; i < sectionIndex; i++) {
+      const section = sections[i]
+      if (section.type === 'lines') {
+        lineStart += section.lines?.length || 0
+      } else {
+        lineStart += section.collapsedCount || 0
+      }
+    }
+    const section = sections[sectionIndex]
+    return diffLines.slice(lineStart, lineStart + (section.collapsedCount || 0))
+  }
   
   return (
-    <div className="min-h-full">
-      {/* File Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200">
-        <Icon className={cn("w-4 h-4", iconColor)} />
-        <span className="font-mono text-sm font-medium text-gray-700">
-          {change.path}
-        </span>
-        <span className={cn(
-          "px-2 py-0.5 text-xs rounded-full",
-          getChangeTypeBadgeStyle(change.changeType)
-        )}>
-          {getChangeTypeLabel(change.changeType)}
-        </span>
-        <div className="flex-1" />
-        <div className="flex items-center gap-2 text-xs">
-          {change.additions > 0 && (
-            <span className="text-green-600 font-medium">+{change.additions}</span>
-          )}
-          {change.deletions > 0 && (
-            <span className="text-red-600 font-medium">-{change.deletions}</span>
-          )}
-        </div>
-      </div>
-      
-      {/* Diff Content */}
-      <div className="font-mono text-xs">
-        {hunks.map((hunk, hunkIndex) => {
-          const isCollapsed = collapsedHunks.has(hunkIndex)
-          const isContextOnly = hunk.lines.every(l => l.type === 'context')
-          
-          return (
-            <div key={hunkIndex}>
-              {/* Hunk Header / Collapse Toggle */}
-              {hunk.header && (
-                <button
-                  onClick={() => toggleHunk(hunkIndex)}
-                  className="w-full flex items-center gap-2 px-4 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 text-left border-y border-blue-200"
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                  <span>{hunk.header}</span>
-                  {isContextOnly && (
-                    <span className="text-blue-500 text-xs">
-                      ({hunk.lines.length} unchanged lines)
-                    </span>
-                  )}
-                </button>
-              )}
+    <div className="font-mono text-xs">
+      <table className="w-full border-collapse">
+        <tbody>
+          {sections.map((section, sectionIndex) => {
+            if (section.type === 'collapsed') {
+              const isExpanded = expandedSections.has(sectionIndex)
               
-              {/* Hunk Lines */}
-              {!isCollapsed && (
-                <table className="w-full border-collapse">
-                  <tbody>
-                    {hunk.lines.map((line, lineIndex) => (
-                      <DiffLineRow key={`${hunkIndex}-${lineIndex}`} line={line} />
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )
-        })}
-      </div>
+              if (isExpanded) {
+                // Show the expanded lines
+                const expandedLines = getExpandedLines(sectionIndex)
+                return expandedLines.map((line, lineIndex) => (
+                  <DiffLineRow key={`${sectionIndex}-exp-${lineIndex}`} line={line} />
+                ))
+              }
+              
+              // Show the expand bar with position-aware icons
+              const position = section.position || 'middle'
+              const ExpandIcon = position === 'top' 
+                ? ArrowUpToLine 
+                : position === 'bottom' 
+                ? ArrowDownToLine 
+                : UnfoldVertical
+              
+              return (
+                <tr key={`collapsed-${sectionIndex}`} className="bg-blue-50">
+                  <td colSpan={4} className="py-0 px-0">
+                    <button
+                      onClick={() => toggleSection(sectionIndex)}
+                      className="w-full flex items-center gap-2 py-1.5 px-3 text-gray-400 hover:text-gray-500 hover:bg-blue-100 cursor-pointer transition-colors"
+                    >
+                      <ExpandIcon className="w-4 h-4" />
+                      <span className="text-xs font-medium">
+                        Expand {section.collapsedCount} hidden lines
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+              )
+            }
+            
+            // Regular lines section
+            return section.lines?.map((line, lineIndex) => (
+              <DiffLineRow key={`${sectionIndex}-${lineIndex}`} line={line} />
+            ))
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
+
 
 interface DiffLineRowProps {
   line: DiffLine;

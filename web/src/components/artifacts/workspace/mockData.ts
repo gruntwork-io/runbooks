@@ -25,9 +25,9 @@ export function getMockWorkspaceData(): WorkspaceState {
     stats: {
       totalFiles: 32,
       generatedFiles: 0, // Will be updated by the component
-      changedFiles: 3,
-      totalAdditions: 35,
-      totalDeletions: 16,
+      changedFiles: 4,
+      totalAdditions: 42,
+      totalDeletions: 14,
     },
     isLoading: false,
   }
@@ -429,87 +429,364 @@ function getMockChanges(): FileChange[] {
       id: 'change-1',
       path: 'src/api/main.go',
       changeType: 'modified',
-      additions: 15,
-      deletions: 5,
+      additions: 2,
+      deletions: 2,
       language: 'go',
+      // A larger file with a single change in the middle - demonstrates expand up/down
       originalContent: `package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"time"
 )
+
+// Config holds application configuration
+type Config struct {
+	Port         int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
+}
+
+// DefaultConfig returns sensible defaults
+func DefaultConfig() *Config {
+	return &Config{
+		Port:         8080,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
 
 // Server wraps the HTTP server
 type Server struct {
-	router *http.ServeMux
+	config     *Config
+	router     *http.ServeMux
+	httpServer *http.Server
+	logger     *log.Logger
+}
+
+// NewServer creates a new server instance
+func NewServer(cfg *Config, logger *log.Logger) *Server {
+	router := http.NewServeMux()
+	return &Server{
+		config: cfg,
+		router: router,
+		logger: logger,
+		httpServer: &http.Server{
+			Addr:         fmt.Sprintf(":%d", cfg.Port),
+			Handler:      router,
+			ReadTimeout:  cfg.ReadTimeout,
+			WriteTimeout: cfg.WriteTimeout,
+			IdleTimeout:  cfg.IdleTimeout,
+		},
+	}
+}
+
+// RegisterRoutes sets up all HTTP routes
+func (s *Server) RegisterRoutes() {
+	s.router.HandleFunc("/health", s.handleHealth)
+	s.router.HandleFunc("/api/users", s.handleUsers)
+	s.router.HandleFunc("/api/items", s.handleItems)
+}
+
+// handleHealth returns server health status
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// handleUsers manages user operations
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	// User handling logic
+	s.logger.Printf("Handling users request: %s", r.Method)
+}
+
+// handleItems manages item operations
+func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
+	// Item handling logic
+	s.logger.Printf("Handling items request: %s", r.Method)
+}
+
+// Start begins listening for requests
+func (s *Server) Start() error {
+	s.logger.Printf("Server starting on port %d", s.config.Port)
+	return s.httpServer.ListenAndServe()
+}
+
+// Stop gracefully shuts down the server
+func (s *Server) Stop() error {
+	s.logger.Println("Server shutting down")
+	return nil
 }
 
 func main() {
-	fmt.Println("Starting server...")
+	logger := log.Default()
+	cfg := DefaultConfig()
+	server := NewServer(cfg, logger)
+	server.RegisterRoutes()
+	
+	logger.Println("Starting server...")
+	if err := server.Start(); err != nil {
+		logger.Fatal(err)
+	}
 }`,
       newContent: `package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
+	"time"
 )
 
-// Server wraps the HTTP server with graceful shutdown
+// Config holds application configuration
+type Config struct {
+	Port         int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
+}
+
+// DefaultConfig returns sensible defaults
+func DefaultConfig() *Config {
+	return &Config{
+		Port:         8080,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
+
+// Server wraps the HTTP server
 type Server struct {
-	httpServer *http.Server
+	config     *Config
 	router     *http.ServeMux
+	httpServer *http.Server
 	logger     *log.Logger
 }
 
+// NewServer creates a new server instance
+func NewServer(cfg *Config, logger *log.Logger) *Server {
+	router := http.NewServeMux()
+	return &Server{
+		config: cfg,
+		router: router,
+		logger: logger,
+		httpServer: &http.Server{
+			Addr:         fmt.Sprintf(":%d", cfg.Port),
+			Handler:      router,
+			ReadTimeout:  cfg.ReadTimeout,
+			WriteTimeout: cfg.WriteTimeout,
+			IdleTimeout:  cfg.IdleTimeout,
+		},
+	}
+}
+
+// RegisterRoutes sets up all HTTP routes
+func (s *Server) RegisterRoutes() {
+	s.router.HandleFunc("/health", s.handleHealth)
+	s.router.HandleFunc("/api/users", s.handleUsers)
+	s.router.HandleFunc("/api/items", s.handleItems)
+}
+
+// handleHealth returns server health status
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// handleUsers manages user operations
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	// User handling logic with improved logging
+	s.logger.Printf("Users API: %s %s", r.Method, r.URL.Path)
+}
+
+// handleItems manages item operations
+func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
+	// Item handling logic with improved logging
+	s.logger.Printf("Items API: %s %s", r.Method, r.URL.Path)
+}
+
+// Start begins listening for requests
+func (s *Server) Start() error {
+	s.logger.Printf("Server starting on port %d", s.config.Port)
+	return s.httpServer.ListenAndServe()
+}
+
+// Stop gracefully shuts down the server
+func (s *Server) Stop() error {
+	s.logger.Println("Server shutting down")
+	return nil
+}
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
+	logger := log.Default()
+	cfg := DefaultConfig()
+	server := NewServer(cfg, logger)
+	server.RegisterRoutes()
 	
-	fmt.Println("Starting server with graceful shutdown...")
-	<-ctx.Done()
+	logger.Println("Starting server...")
+	if err := server.Start(); err != nil {
+		logger.Fatal(err)
+	}
 }`,
     },
     {
       id: 'change-2',
       path: 'src/web/App.tsx',
       changeType: 'modified',
-      additions: 20,
-      deletions: 3,
+      additions: 4,
+      deletions: 4,
       language: 'typescript',
-      originalContent: `// React App
+      // File with changes at TOP and BOTTOM - creates a middle collapsed section
+      originalContent: `// React Application Entry Point
 import React from 'react'
+import { BrowserRouter } from 'react-router-dom'
 
-export function App() {
-  return <div>Hello World</div>
-}`,
-      newContent: `// React App
-import React, { useState, useEffect } from 'react'
+// Types
+interface AppProps {
+  theme?: 'light' | 'dark'
+}
 
 interface AppState {
   isLoading: boolean
   data: string | null
+  error: Error | null
 }
 
-export function App() {
+// Constants
+const API_BASE_URL = '/api/v1'
+const DEFAULT_THEME = 'light'
+
+// Helper functions
+function getStoredTheme(): string {
+  return localStorage.getItem('theme') || DEFAULT_THEME
+}
+
+function setStoredTheme(theme: string): void {
+  localStorage.setItem('theme', theme)
+}
+
+// Loading component
+function LoadingSpinner() {
+  return (
+    <div className="spinner">
+      <div className="spinner-inner" />
+    </div>
+  )
+}
+
+// Error boundary component  
+function ErrorDisplay({ error }: { error: Error }) {
+  return (
+    <div className="error-container">
+      <h2>Something went wrong</h2>
+      <p>{error.message}</p>
+    </div>
+  )
+}
+
+// Main App component
+export function App({ theme = DEFAULT_THEME }: AppProps) {
+  const [state, setState] = React.useState<AppState>({
+    isLoading: true,
+    data: null,
+    error: null,
+  })
+
+  React.useEffect(() => {
+    fetch(API_BASE_URL + '/data')
+      .then(res => res.json())
+      .then(data => setState({ isLoading: false, data, error: null }))
+      .catch(error => setState({ isLoading: false, data: null, error }))
+  }, [])
+
+  if (state.isLoading) return <LoadingSpinner />
+  if (state.error) return <ErrorDisplay error={state.error} />
+  
+  return (
+    <BrowserRouter>
+      <div className="app" data-theme={theme}>
+        {state.data}
+      </div>
+    </BrowserRouter>
+  )
+}`,
+      newContent: `// React Application Entry Point v2
+import React, { useState, useEffect } from 'react'
+import { BrowserRouter } from 'react-router-dom'
+
+// Types
+interface AppProps {
+  theme?: 'light' | 'dark'
+}
+
+interface AppState {
+  isLoading: boolean
+  data: string | null
+  error: Error | null
+}
+
+// Constants
+const API_BASE_URL = '/api/v1'
+const DEFAULT_THEME = 'light'
+
+// Helper functions
+function getStoredTheme(): string {
+  return localStorage.getItem('theme') || DEFAULT_THEME
+}
+
+function setStoredTheme(theme: string): void {
+  localStorage.setItem('theme', theme)
+}
+
+// Loading component
+function LoadingSpinner() {
+  return (
+    <div className="spinner">
+      <div className="spinner-inner" />
+    </div>
+  )
+}
+
+// Error boundary component  
+function ErrorDisplay({ error }: { error: Error }) {
+  return (
+    <div className="error-container">
+      <h2>Something went wrong</h2>
+      <p>{error.message}</p>
+    </div>
+  )
+}
+
+// Main App component
+export function App({ theme = DEFAULT_THEME }: AppProps) {
   const [state, setState] = useState<AppState>({
     isLoading: true,
     data: null,
+    error: null,
   })
 
   useEffect(() => {
-    // Fetch initial data
-    fetch('/api/data')
+    fetch(API_BASE_URL + '/data')
       .then(res => res.json())
-      .then(data => setState({ isLoading: false, data }))
+      .then(data => setState({ isLoading: false, data, error: null }))
+      .catch(error => setState({ isLoading: false, data: null, error }))
   }, [])
 
-  if (state.isLoading) return <div>Loading...</div>
+  if (state.isLoading) return <LoadingSpinner />
+  if (state.error) return <ErrorDisplay error={state.error} />
   
-  return <div>{state.data}</div>
+  return (
+    <BrowserRouter>
+      <main className="app" data-theme={theme}>
+        {state.data}
+      </main>
+    </BrowserRouter>
+  )
 }`,
     },
     {
@@ -529,6 +806,52 @@ output "function_arn" {
 output "function_name" {
   description = "Name of the Lambda function"
   value       = aws_lambda_function.this.function_name
+}`,
+    },
+    {
+      id: 'change-4',
+      path: 'src/api/middleware.go',
+      changeType: 'added',
+      additions: 28,
+      deletions: 0,
+      language: 'go',
+      originalContent: '',
+      newContent: `package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+)
+
+// LoggingMiddleware logs incoming requests
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		
+		// Call the next handler
+		next.ServeHTTP(w, r)
+		
+		// Log the request
+		log.Printf(
+			"%s %s %s",
+			r.Method,
+			r.RequestURI,
+			time.Since(start),
+		)
+	})
+}
+
+// AuthMiddleware checks for valid authentication
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }`,
     },
   ]

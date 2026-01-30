@@ -1,8 +1,9 @@
-import { useState, useRef, useMemo, useEffect } from 'react'
+import { useState, useRef, useMemo, useEffect, useCallback, forwardRef } from 'react'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
-import { CodeFile } from './CodeFile'
-import { FolderOpen, ChevronLeft, Info, Copy, Check } from 'lucide-react'
-import { copyTextToClipboard } from '@/lib/utils'
+import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode } from 'lucide-react'
+import { cn, copyTextToClipboard } from '@/lib/utils'
 
 
 interface CodeFileCollectionProps {
@@ -17,15 +18,18 @@ interface CodeFileCollectionProps {
 }
 
 export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false }: CodeFileCollectionProps) => {
-  const [treeWidth, setTreeWidth] = useState(200);
-  const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [treeWidth, setTreeWidth] = useState(225);
+  const [isResizing, setIsResizing] = useState(false);
+  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isPathVisible, setIsPathVisible] = useState(false);
   const [didCopyPath, setDidCopyPath] = useState(false);
-  
-  // Track if the user manually selected a file (vs automatic data updates)
-  const userSelectedFileRef = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const widthRef = useRef(225);
+  const rafRef = useRef<number | null>(null);
 
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
@@ -46,45 +50,90 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     return files;
   }, [data]);
 
-  // Effect to handle scrolling only when user explicitly clicks a file
-  // We use userSelectedFileRef to distinguish user clicks from data updates
+  // Handle resize drag - update DOM directly for performance
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    widthRef.current = treeWidth;
+    setIsResizing(true);
+  }, [treeWidth]);
+  
   useEffect(() => {
-    // Only scroll if the user explicitly selected this file (not on data updates)
-    if (!userSelectedFileRef.current) return;
+    if (!isResizing) return;
     
-    const fileIdToScrollTo = userSelectedFileRef.current;
-    // Clear the ref so we don't scroll again on subsequent renders
-    userSelectedFileRef.current = null;
-    
-    // Use double requestAnimationFrame to ensure both layout AND paint are complete
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const fileRef = fileRefs.current[fileIdToScrollTo];
-        
-        if (fileRef) {
-          fileRef.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-            inline: 'nearest'
-          });
-        }
+    const handleMouseMove = (e: MouseEvent) => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      
+      rafRef.current = requestAnimationFrame(() => {
+        if (!containerRef.current || !treeRef.current) return;
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400);
+        treeRef.current.style.width = `${newWidth}px`;
+        widthRef.current = newWidth;
       });
-    });
-  }, [selectedFileId]);
+    };
+    
+    const handleMouseUp = () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      setTreeWidth(widthRef.current);
+      setIsResizing(false);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, [isResizing]);
 
-  // Handle file tree item clicks
+  // Handle file tree item clicks - jump to file
   const handleFileTreeClick = (item: FileTreeNode) => {
     if (item.type === 'file' && item.file) {
-      // Mark this as a user-initiated selection so we scroll to it
-      userSelectedFileRef.current = item.id;
-      setSelectedFileId(item.id);
+      setFocusedFileId(item.id);
+      // Expand the file if collapsed
+      setCollapsedFiles(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      // Jump to the file (no smooth scroll)
+      const fileEl = fileRefs.current.get(item.id);
+      if (fileEl) {
+        fileEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
     }
   };
 
-  // Handle file tree width changes
-  const handleTreeWidthChange = (width: number) => {
-    setTreeWidth(width);
+  // Toggle file collapse
+  const toggleFileCollapse = (fileId: string) => {
+    setCollapsedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
+      }
+      return next;
+    });
   };
+
+  // Register file ref
+  const setFileRef = useCallback((fileId: string, el: HTMLDivElement | null) => {
+    if (el) {
+      fileRefs.current.set(fileId, el);
+    } else {
+      fileRefs.current.delete(fileId);
+    }
+  }, []);
 
   // Reset the "copied" state after a brief delay
   useEffect(() => {
@@ -95,11 +144,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
 
   const generatedFilesAbsolutePath = absoluteOutputPath;
   const generatedFilesRelativePath = useMemo(() => {
-    // This reflects the CLI `--output-path` value (relative to where runbooks was launched).
-    // The backend always provides this value.
     const raw = (relativeOutputPath || '').trim();
-
-    // Normalize windows separators for display, but otherwise show the path as the user provided it.
     return raw.replaceAll('\\', '/');
   }, [relativeOutputPath])
 
@@ -190,37 +235,46 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
           </div>
         </div>
       ) : (
-        <div className="flex-1 relative overflow-hidden">
-          <div className="absolute inset-0 p-1">
+        <div 
+          ref={containerRef}
+          className={cn("flex-1 flex overflow-hidden", isResizing && "select-none")}
+        >
+          {/* File Tree */}
+          <div 
+            ref={treeRef}
+            className="flex-shrink-0 overflow-y-auto bg-gray-50"
+            style={{ width: `${treeWidth}px` }}
+          >
             <FileTree 
               items={data}
               onItemClick={handleFileTreeClick}
-              onWidthChange={handleTreeWidthChange}
-              className="absolute"
-              minWidth={150}
-              maxWidth={300}
+              className="relative"
             />
+          </div>
 
-            <div 
-              ref={scrollContainerRef}
-              className="overflow-y-auto h-full"
-              style={{ marginLeft: `${treeWidth}px` }}
-            >
+          {/* Resize Handle - 7px hit area with 1px visible line */}
+          <div
+            className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
+            onMouseDown={handleMouseDown}
+          >
+            <div className="w-px bg-gray-400 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
+          </div>
+
+          {/* All Files View */}
+          <div 
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto p-3 bg-gray-100"
+          >
+            <div className="flex flex-col gap-3">
               {fileItems.map((fileItem) => (
-                <div 
+                <CollapsibleCodeFile
                   key={fileItem.id}
-                  ref={(el) => {
-                    fileRefs.current[fileItem.id] = el;
-                  }}
-                >
-                  <CodeFile
-                    fileName={fileItem.file?.name || fileItem.name}
-                    filePath={fileItem.file?.path || fileItem.name}
-                    code={fileItem.file?.content || ''}
-                    language={fileItem.file?.language || 'text'}
-                    showLineNumbers={true}
-                  />
-                </div>
+                  fileItem={fileItem}
+                  isCollapsed={collapsedFiles.has(fileItem.id)}
+                  isFocused={focusedFileId === fileItem.id}
+                  onToggleCollapse={() => toggleFileCollapse(fileItem.id)}
+                  ref={(el) => setFileRef(fileItem.id, el)}
+                />
               ))}
             </div>
           </div>
@@ -229,3 +283,99 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     </div>
   )
 }
+
+// ============================================================================
+// Collapsible Code File Component
+// ============================================================================
+
+interface CollapsibleCodeFileProps {
+  fileItem: FileTreeNode;
+  isCollapsed: boolean;
+  isFocused: boolean;
+  onToggleCollapse: () => void;
+}
+
+const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
+  ({ fileItem, isCollapsed, isFocused, onToggleCollapse }, ref) => {
+    const [didCopy, setDidCopy] = useState(false);
+    
+    const filePath = fileItem.file?.path || fileItem.name;
+    const code = fileItem.file?.content || '';
+    const language = fileItem.file?.language || 'text';
+    const lineCount = code.split('\n').length;
+    
+    const handleCopyPath = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setDidCopy(true);
+      copyTextToClipboard(filePath);
+      setTimeout(() => setDidCopy(false), 1500);
+    };
+    
+    return (
+      <div 
+        ref={ref}
+        className={cn(
+          "border border-gray-300 rounded-md overflow-hidden bg-white",
+          isFocused && "ring-2 ring-blue-500"
+        )}
+      >
+        {/* File Header Bar */}
+        <button
+          onClick={onToggleCollapse}
+          className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer border-b border-gray-200"
+        >
+          {isCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          )}
+          <FileCode className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          <span className="font-mono text-sm text-gray-700 truncate">
+            {filePath}
+          </span>
+          <button
+            onClick={handleCopyPath}
+            className="p-0.5 text-gray-400 hover:text-gray-600 rounded flex-shrink-0"
+            title="Copy file path"
+          >
+            {didCopy ? (
+              <Check className="w-3.5 h-3.5 text-green-600" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <div className="flex-1" />
+          <span className="text-xs text-gray-500 flex-shrink-0">
+            {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+          </span>
+        </button>
+        
+        {/* File Content */}
+        {!isCollapsed && (
+          <SyntaxHighlighter 
+            language={language}
+            style={coy}
+            showLineNumbers={true}
+            customStyle={{
+              fontSize: '12px',
+              margin: 0,
+              borderRadius: 0,
+              border: 'none',
+              padding: '14px 0px'
+            }}
+            lineNumberStyle={{
+              color: '#999',
+              fontSize: '11px',
+              paddingRight: '12px',
+              borderRight: '1px solid #eee',
+              marginRight: '8px'
+            }}
+          >
+            {code}
+          </SyntaxHighlighter>
+        )}
+      </div>
+    );
+  }
+);
+CollapsibleCodeFile.displayName = 'CollapsibleCodeFile';
