@@ -2,13 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 
+/** Debounce delay for auto-render in milliseconds */
+const AUTO_RENDER_DEBOUNCE_MS = 300
+
 /**
  * Custom hook for managing form state and data flow
  * 
  * @param boilerplateConfig - The boilerplate configuration containing variable definitions
  * @param initialData - Initial form data values (only used on first mount)
  * @param onFormChange - Optional callback when form data changes
- * @param onAutoRender - Optional callback to trigger re-rendering when form data changes
+ * @param onAutoRender - Optional callback to trigger re-rendering when form data changes (debounced)
  * @param enableAutoRender - Whether auto-rendering should be enabled (default: true)
  * @returns Object containing form state and update methods
  */
@@ -30,6 +33,9 @@ export const useFormState = (
   
   // Store initialData at mount time (for initial setup only)
   const initialDataRef = useRef(initialData)
+  
+  // Ref for debounce timer
+  const autoRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Update refs when callbacks change
   useEffect(() => {
@@ -39,6 +45,15 @@ export const useFormState = (
   useEffect(() => {
     onAutoRenderRef.current = onAutoRender
   }, [onAutoRender])
+  
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoRenderTimerRef.current) {
+        clearTimeout(autoRenderTimerRef.current)
+      }
+    }
+  }, [])
 
   // Initialize form data ONCE with defaults and initial values
   // This only runs when boilerplateConfig first becomes available
@@ -65,7 +80,7 @@ export const useFormState = (
   // Track if this is the initial load for auto-render purposes
   const [isInitialLoad, setIsInitialLoad] = useState(true)
 
-  // Trigger auto-rendering when form data changes (but not on initial load)
+  // Trigger auto-rendering when form data changes (debounced, not on initial load)
   useEffect(() => {
     // Mark that initial load is complete after first form data is set
     if (Object.keys(formData).length > 0 && isInitialLoad) {
@@ -75,7 +90,17 @@ export const useFormState = (
     
     // Only trigger auto-render if auto-rendering is enabled, we have form data, and it's not the initial load
     if (enableAutoRender && onAutoRenderRef.current && Object.keys(formData).length > 0 && !isInitialLoad) {
-      onAutoRenderRef.current(formData)
+      // Clear any pending debounce timer
+      if (autoRenderTimerRef.current) {
+        clearTimeout(autoRenderTimerRef.current)
+      }
+      
+      // Debounce the auto-render callback to avoid sluggish typing
+      autoRenderTimerRef.current = setTimeout(() => {
+        if (onAutoRenderRef.current) {
+          onAutoRenderRef.current(formData)
+        }
+      }, AUTO_RENDER_DEBOUNCE_MS)
     }
   }, [formData, isInitialLoad, enableAutoRender])
 
