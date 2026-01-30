@@ -1,4 +1,4 @@
-import { CodeFileCollection } from '../artifacts/code/CodeFileCollection'
+import { FilesWorkspace } from '../artifacts/workspace'
 import { useFileTree } from '../../hooks/useFileTree'
 
 
@@ -14,11 +14,11 @@ export const ArtifactsContainer = ({ className = "", onHide, hideContent = false
   const { fileTree } = useFileTree()
   
   // Use real filetree data if available, otherwise show empty state
-  const codeFileData = fileTree && fileTree.length > 0 ? fileTree : []
+  const generatedFiles = fileTree && fileTree.length > 0 ? fileTree : []
   
   return (
-    <CodeFileCollection
-      data={codeFileData}
+    <FilesWorkspace
+      generatedFiles={generatedFiles}
       className={className}
       onHide={onHide}
       hideContent={hideContent}

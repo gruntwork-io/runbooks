@@ -12,9 +12,11 @@ interface CodeFileCollectionProps {
   hideContent?: boolean;
   absoluteOutputPath?: string;
   relativeOutputPath?: string;
+  /** When true, hides the header (used when embedded in FilesWorkspace) */
+  hideHeader?: boolean;
 }
 
-export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath }: CodeFileCollectionProps) => {
+export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false }: CodeFileCollectionProps) => {
   const [treeWidth, setTreeWidth] = useState(200);
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
@@ -108,69 +110,71 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
 
   return (
     <div className={`w-full h-full flex flex-col ${className}`}>
-      {/* Header */}
-      <div className="flex items-start justify-between py-2 mb-3 border-b border-gray-200 bg-transparent">
-        <div className="min-w-0 pl-4 lg:pl-0">
-          <h2 className="text-lg font-semibold text-gray-700">Generated Files</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 italic">
-            <span>
-              The files below are located in <code className="px-1 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-500 not-italic">{generatedFilesRelativePath}</code> relative to where you ran the runbook
-            </span>
+      {/* Header - only shown when not embedded in FilesWorkspace */}
+      {!hideHeader && (
+        <div className="flex items-start justify-between py-2 mb-3 border-b border-gray-200 bg-transparent">
+          <div className="min-w-0 pl-4 lg:pl-0">
+            <h2 className="text-lg font-semibold text-gray-700">Generated Files</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 italic">
+              <span>
+                The files below are located in <code className="px-1 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-500 not-italic">{generatedFilesRelativePath}</code> relative to where you ran the runbook
+              </span>
 
-            <button
-              type="button"
-              className={`inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 ${
-                !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-              }`}
-              aria-label="Show generated files absolute path"
-              title={generatedFilesAbsolutePath ? 'Show absolute path' : 'Absolute path unavailable'}
-              disabled={!generatedFilesAbsolutePath}
-              onClick={() => setIsPathVisible((prev) => !prev)}
-            >
-              <Info className="h-3.5 w-3.5 text-gray-600" />
-            </button>
+              <button
+                type="button"
+                className={`inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 ${
+                  !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                }`}
+                aria-label="Show generated files absolute path"
+                title={generatedFilesAbsolutePath ? 'Show absolute path' : 'Absolute path unavailable'}
+                disabled={!generatedFilesAbsolutePath}
+                onClick={() => setIsPathVisible((prev) => !prev)}
+              >
+                <Info className="h-3.5 w-3.5 text-gray-600" />
+              </button>
 
-            <button
-              type="button"
-              className={`inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 ${
-                !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-              }`}
-              aria-label="Copy generated files absolute path"
-              title={generatedFilesAbsolutePath ? 'Copy absolute path' : 'Absolute path unavailable'}
-              disabled={!generatedFilesAbsolutePath}
-              onClick={() => {
-                if (!generatedFilesAbsolutePath) return;
-                void copyToClipboard(generatedFilesAbsolutePath);
-              }}
-            >
-              {didCopyPath ? (
-                <Check className="h-3.5 w-3.5 text-green-600" />
-              ) : (
-                <Copy className="h-3.5 w-3.5 text-gray-600" />
-              )}
-            </button>
+              <button
+                type="button"
+                className={`inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-2 py-1 hover:bg-gray-50 ${
+                  !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                }`}
+                aria-label="Copy generated files absolute path"
+                title={generatedFilesAbsolutePath ? 'Copy absolute path' : 'Absolute path unavailable'}
+                disabled={!generatedFilesAbsolutePath}
+                onClick={() => {
+                  if (!generatedFilesAbsolutePath) return;
+                  void copyToClipboard(generatedFilesAbsolutePath);
+                }}
+              >
+                {didCopyPath ? (
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-gray-600" />
+                )}
+              </button>
+            </div>
+
+            {isPathVisible && generatedFilesAbsolutePath && (
+              <div className="mt-1 mb-1 text-xs text-gray-600">
+                <span className="mr-1 text-gray-500 italic">Absolute path:</span>
+                <code className="break-all rounded bg-gray-50 px-1 py-0.5 text-[11px] text-gray-500 border border-gray-200">
+                  {generatedFilesAbsolutePath}
+                </code>
+              </div>
+            )}
           </div>
 
-          {isPathVisible && generatedFilesAbsolutePath && (
-            <div className="mt-1 mb-1 text-xs text-gray-600">
-              <span className="mr-1 text-gray-500 italic">Absolute path:</span>
-              <code className="break-all rounded bg-gray-50 px-1 py-0.5 text-[11px] text-gray-500 border border-gray-200">
-                {generatedFilesAbsolutePath}
-              </code>
-            </div>
+          {onHide && (
+            <button
+              onClick={onHide}
+              className="hidden lg:block p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+              title="Hide generated files"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
           )}
         </div>
-
-        {onHide && (
-          <button
-            onClick={onHide}
-            className="hidden lg:block p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 cursor-pointer"
-            title="Hide generated files"
-          >
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Content - shows empty state or file tree with files */}
       {data.length === 0 ? (
