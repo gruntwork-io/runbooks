@@ -127,7 +127,7 @@ export function ViewLogs({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Download className="size-3.5" />
-                  <span className="text-xs">Download</span>
+                  <span className="text-xs">Download Logs</span>
                   <ChevronDown className="size-3" />
                 </Button>
               </DropdownMenuTrigger>
