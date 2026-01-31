@@ -1000,7 +1000,7 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- outputLine) {
 //
 // This function handles carriage returns by tracking the "current line" and
 // setting the Replace flag when a carriage return triggers an update.
-// ANSI codes are stripped.
+// ANSI codes are preserved for frontend rendering.
 func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
 	defer ptmx.Close()
 
@@ -1015,7 +1015,7 @@ func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
 		if err != nil {
 			// Emit any remaining content in the buffer
 			if currentLine.Len() > 0 {
-				line := stripANSI(currentLine.String())
+				line := currentLine.String()
 				if line != "" {
 					outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
 				}
@@ -1026,7 +1026,7 @@ func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
 		switch b {
 		case '\n':
 			// Newline: emit the current line and reset
-			line := stripANSI(currentLine.String())
+			line := currentLine.String()
 			if line != "" {
 				outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
 			}
@@ -1040,7 +1040,7 @@ func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
 			if err == nil && nextByte[0] == '\n' {
 				// \r\n sequence - treat as newline
 				reader.ReadByte() // consume the \n
-				line := stripANSI(currentLine.String())
+				line := currentLine.String()
 				if line != "" {
 					outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
 				}
@@ -1049,7 +1049,7 @@ func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
 			} else {
 				// Progress bar style update - emit current line with replace flag
 				// This allows progress updates to replace the previous line
-				line := stripANSI(currentLine.String())
+				line := currentLine.String()
 				if line != "" {
 					outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
 					hadProgressUpdate = true // Next update should replace this one

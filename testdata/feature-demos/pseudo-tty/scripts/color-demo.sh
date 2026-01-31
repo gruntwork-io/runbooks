@@ -19,4 +19,3 @@ fi
 
 echo ""
 echo "=== Color test complete ==="
-echo "Note: Colors are stripped in Runbooks output for clean logs"

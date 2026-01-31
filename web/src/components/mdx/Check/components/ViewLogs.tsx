@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, SquareTerminal } from "lucide-react"
 import { useState, useEffect } from "react"
-import { LinkifiedText } from "@/components/shared/LinkifiedText"
+import { AnsiText } from "@/components/shared/AnsiText"
 import type { LogEntry } from "@/hooks/useApiExec"
 
 interface ViewLogsProps {
@@ -54,7 +54,7 @@ export function ViewLogs({
                   <span className="text-gray-500 mr-2">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <LinkifiedText text={log.line} />
+                  <AnsiText text={log.line} />
                 </div>
               ))}
               {checkStatus === 'running' && (
