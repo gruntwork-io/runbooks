@@ -100,28 +100,43 @@ Testing `ls --color=auto` which typically disables colors when not in a terminal
 
 ## Test 6: PTY vs Pipes Comparison
 
-This test demonstrates the `usePty` prop. When set to `false`, scripts run using pipes instead of PTY.
-This is useful when PTY causes issues with certain scripts.
+This demonstrates the `usePty` prop. Run both commands below to see how the **same script** behaves differently depending on the execution mode.
 
-### With PTY (default)
+**Key differences to observe:**
+- **TTY detection**: The script detects whether it's running in a terminal
+- **Progress bar**: In PTY mode, updates in-place; in pipes mode, each update is a new line
+- **Conditional output**: The script shows different information based on mode
+
+### PTY Mode (default)
+
+Run this first - you'll see the progress bar update in-place, and the script will detect it's running in a terminal.
 
 <Command 
-  id="color-demo-pty" 
-  title="Color Output (PTY mode)"
-  path="scripts/color-demo.sh"
-  usePty={true}
-  description="Colors are processed through PTY"
+  id="pty-demo" 
+  title="Run with PTY (default)"
+  path="scripts/pty-vs-pipes-demo.sh"
+  description="Script runs in a pseudo-terminal - progress bar updates in place"
 />
 
-### Without PTY (pipes mode)
+### Pipes Mode (usePty=false)
+
+Now run this - the **exact same script** runs differently because it's using pipes instead of PTY.
 
 <Command 
-  id="color-demo-pipes" 
-  title="Color Output (Pipes mode)"
-  path="scripts/color-demo.sh"
+  id="pipes-demo" 
+  title="Run with Pipes (usePty=false)"
+  path="scripts/pty-vs-pipes-demo.sh"
   usePty={false}
-  description="Same script, but running with pipes instead of PTY"
+  description="Script runs with pipes - each progress update is a separate line"
 />
+
+### When to use Pipes mode
+
+Set `usePty={false}` when:
+- A script's output appears garbled or corrupted
+- A script hangs unexpectedly in PTY mode
+- You need the script to detect it's NOT in a terminal (some tools change behavior)
+- You want raw, unprocessed output
 
 ---
 
