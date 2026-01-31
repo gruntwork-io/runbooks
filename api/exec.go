@@ -67,10 +67,11 @@ type outputLine struct {
 
 // ExecRequest represents the request to execute a script
 type ExecRequest struct {
-	ExecutableID      string            `json:"executable_id,omitempty"` // Used when useExecutableRegistry=true
-	ComponentID       string            `json:"component_id,omitempty"`  // Used when useExecutableRegistry=false
-	TemplateVarValues map[string]any    `json:"template_var_values"`     // Values for template variables (can include nested _blocks)
+	ExecutableID      string            `json:"executable_id,omitempty"`     // Used when useExecutableRegistry=true
+	ComponentID       string            `json:"component_id,omitempty"`      // Used when useExecutableRegistry=false
+	TemplateVarValues map[string]any    `json:"template_var_values"`         // Values for template variables (can include nested _blocks)
 	EnvVarsOverride   map[string]string `json:"env_vars_override,omitempty"` // Environment variables to set for this execution only (overrides session env)
+	UsePTY            *bool             `json:"use_pty,omitempty"`           // Whether to use PTY for execution (default: true). Set to false to use pipes instead.
 }
 
 // ExecLogEvent represents a log line event sent via SSE
@@ -208,11 +209,15 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		outputChan := make(chan outputLine, 100)
 		doneChan := make(chan error, 1)
 
+		// Determine if PTY should be used (defaults to true if not specified)
+		usePTY := req.UsePTY == nil || *req.UsePTY
+
 		// Try PTY on Unix systems for better terminal emulation
 		// This enables progress bars, colors, and full output from tools like git, npm, docker
 		// Falls back to pipes if PTY fails or on Windows
+		// Can be disabled via usePty=false in the request for scripts that don't work well with PTY
 		usedPTY := false
-		if ptySupported() {
+		if usePTY && ptySupported() {
 			// Create command for PTY attempt
 			cmd := setupExecCommand(ctx, cmdConfig)
 

@@ -98,9 +98,36 @@ Testing `ls --color=auto` which typically disables colors when not in a terminal
 
 ---
 
+## Test 6: PTY vs Pipes Comparison
+
+This test demonstrates the `usePty` prop. When set to `false`, scripts run using pipes instead of PTY.
+This is useful when PTY causes issues with certain scripts.
+
+### With PTY (default)
+
+<Command 
+  id="color-demo-pty" 
+  title="Color Output (PTY mode)"
+  path="scripts/color-demo.sh"
+  usePty={true}
+  description="Colors are processed through PTY"
+/>
+
+### Without PTY (pipes mode)
+
+<Command 
+  id="color-demo-pipes" 
+  title="Color Output (Pipes mode)"
+  path="scripts/color-demo.sh"
+  usePty={false}
+  description="Same script, but running with pipes instead of PTY"
+/>
+
+---
+
 ## How It Works
 
-Runbooks now uses pseudo-TTY (PTY) to execute commands on Unix-like systems:
+Runbooks uses pseudo-TTY (PTY) by default to execute commands on Unix-like systems:
 
 1. **PTY Creation**: Commands run in a pseudo-terminal instead of pipes
 2. **Terminal Detection**: CLI tools detect TTY and enable full output
@@ -115,3 +142,18 @@ Runbooks now uses pseudo-TTY (PTY) to execute commands on Unix-like systems:
 | macOS    | PTY (full support) |
 | Linux    | PTY (full support) |
 | Windows  | Pipes (fallback) |
+
+### Controlling PTY Mode
+
+You can control whether a script uses PTY with the `usePty` prop:
+
+```mdx
+{/* Default: uses PTY for full terminal emulation */}
+<Command id="with-pty" path="scripts/my-script.sh" />
+
+{/* Explicit PTY mode */}
+<Command id="explicit-pty" path="scripts/my-script.sh" usePty={true} />
+
+{/* Pipes mode: useful when PTY causes issues */}
+<Command id="pipes-mode" path="scripts/my-script.sh" usePty={false} />
+```
