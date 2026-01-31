@@ -12,11 +12,54 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/gin-gonic/gin"
 )
+
+// =============================================================================
+// ANSI Code Handling
+// =============================================================================
+
+// ansiRegex matches ANSI escape sequences for colors, cursor movement, etc.
+// This includes:
+// - CSI sequences: ESC [ ... letter (colors, cursor, etc.)
+// - OSC sequences: ESC ] ... ST (titles, hyperlinks, etc.)
+// - Character set designation: ESC ( X, ESC ) X, etc. (e.g., from tput sgr0)
+// - Simple escapes: ESC followed by single char
+var ansiRegex = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|\][^\x1b]*|[()*/+\-].|[a-zA-Z])`)
+
+// stripANSI removes ANSI escape sequences from a string
+func stripANSI(s string) string {
+	return ansiRegex.ReplaceAllString(s, "")
+}
+
+// =============================================================================
+// PTY Support
+// =============================================================================
+
+// ptySupported returns true if PTY is supported on the current platform
+func ptySupported() bool {
+	// PTY is supported on Unix-like systems (Linux, macOS, BSDs)
+	// Not supported on Windows
+	return runtime.GOOS != "windows"
+}
+
+// defaultPTYSize is the default terminal size for PTY sessions
+var defaultPTYSize = &pty.Winsize{
+	Rows: 40,
+	Cols: 120,
+}
+
+// outputLine represents a line of output with metadata for display
+type outputLine struct {
+	Line    string
+	Replace bool // If true, this line should replace the previous line (progress update)
+}
 
 // =============================================================================
 // Types
@@ -34,6 +77,7 @@ type ExecRequest struct {
 type ExecLogEvent struct {
 	Line      string `json:"line"`
 	Timestamp string `json:"timestamp"`
+	Replace   bool   `json:"replace,omitempty"` // If true, replace the previous line (for progress updates)
 }
 
 // ExecStatusEvent represents the final status event sent via SSE
@@ -160,40 +204,68 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			filesDir:    filesDir,
 		}
 
-		// Create and configure the command
-		cmd := setupExecCommand(ctx, cmdConfig)
-
-		// Get stdout and stderr pipes
-		stdoutPipe, err2 := cmd.StdoutPipe()
-		if err2 != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to create stdout pipe: %v", err2))
-			return
-		}
-
-		stderrPipe, err2 := cmd.StderrPipe()
-		if err2 != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to create stderr pipe: %v", err2))
-			return
-		}
-
-		// Start the command
-		if err2 := cmd.Start(); err2 != nil {
-			sendSSEError(c, fmt.Sprintf("Failed to start script: %v", err2))
-			return
-		}
-
 		// Create channels for streaming output
-		outputChan := make(chan string, 100)
+		outputChan := make(chan outputLine, 100)
 		doneChan := make(chan error, 1)
 
-		// Stream stdout and stderr
-		go streamOutput(stdoutPipe, outputChan)
-		go streamOutput(stderrPipe, outputChan)
+		// Try PTY on Unix systems for better terminal emulation
+		// This enables progress bars, colors, and full output from tools like git, npm, docker
+		// Falls back to pipes if PTY fails or on Windows
+		usedPTY := false
+		if ptySupported() {
+			// Create command for PTY attempt
+			cmd := setupExecCommand(ctx, cmdConfig)
 
-		// Wait for command to complete
-		go func() {
-			doneChan <- cmd.Wait()
-		}()
+			// Start command with PTY
+			ptmx, err2 := startCommandWithPTY(cmd)
+			if err2 == nil {
+				usedPTY = true
+
+				// Stream PTY output (combined stdout/stderr)
+				go streamPTYOutput(ptmx, outputChan)
+
+				// Wait for command to complete
+				go func() {
+					doneChan <- cmd.Wait()
+				}()
+			} else {
+				// Log PTY failure but continue with fallback
+				slog.Warn("PTY execution failed, falling back to pipes", "error", err2)
+			}
+		}
+
+		// Fallback to pipe-based execution if PTY not supported or failed
+		if !usedPTY {
+			// Create a fresh command for pipe-based execution
+			cmd := setupExecCommand(ctx, cmdConfig)
+
+			stdoutPipe, err2 := cmd.StdoutPipe()
+			if err2 != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to create stdout pipe: %v", err2))
+				return
+			}
+
+			stderrPipe, err2 := cmd.StderrPipe()
+			if err2 != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to create stderr pipe: %v", err2))
+				return
+			}
+
+			// Start the command
+			if err2 := cmd.Start(); err2 != nil {
+				sendSSEError(c, fmt.Sprintf("Failed to start script: %v", err2))
+				return
+			}
+
+			// Stream stdout and stderr
+			go streamOutput(stdoutPipe, outputChan)
+			go streamOutput(stderrPipe, outputChan)
+
+			// Wait for command to complete
+			go func() {
+				doneChan <- cmd.Wait()
+			}()
+		}
 
 		// Flush writer for SSE
 		flusher, ok := c.Writer.(http.Flusher)
@@ -309,10 +381,22 @@ func createTempScript(content string) (string, error) {
 // setupExecCommand creates and configures an exec.Cmd with the given configuration
 func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	cmdArgs := append(cfg.args, cfg.scriptPath)
-	cmd := exec.CommandContext(ctx, cfg.interpreter, cmdArgs...)
+
+	// Resolve interpreter to absolute path if it's a well-known shell
+	// This is needed for PTY execution which may not have PATH available
+	interpreter := resolveInterpreterPath(cfg.interpreter)
+	cmd := exec.CommandContext(ctx, interpreter, cmdArgs...)
 
 	// Set environment variables from the session
 	cmd.Env = cfg.execCtx.Env
+
+	// Ensure PATH is always available (needed for PTY and for scripts to find tools)
+	if !hasEnvVar(cmd.Env, "PATH") {
+		// Inherit PATH from the current process
+		if path := os.Getenv("PATH"); path != "" {
+			cmd.Env = append(cmd.Env, "PATH="+path)
+		}
+	}
 
 	// Apply per-request env var overrides (e.g., AWS credentials for specific auth block)
 	// These override any session env vars with the same key
@@ -333,6 +417,34 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	}
 
 	return cmd
+}
+
+// resolveInterpreterPath attempts to resolve a shell interpreter to its absolute path
+// This helps PTY execution which may not have PATH available
+func resolveInterpreterPath(interpreter string) string {
+	// If already an absolute path, use it directly
+	if filepath.IsAbs(interpreter) {
+		return interpreter
+	}
+
+	// Try to find the interpreter in PATH
+	if path, err := exec.LookPath(interpreter); err == nil {
+		return path
+	}
+
+	// Fall back to the original (let exec handle the error)
+	return interpreter
+}
+
+// hasEnvVar checks if an environment variable is set in the given env slice
+func hasEnvVar(env []string, key string) bool {
+	prefix := key + "="
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeEnvVars merges override env vars into a base env slice.
@@ -390,18 +502,18 @@ func determineExitStatus(err error, ctx context.Context) (int, string) {
 }
 
 // streamExecutionOutput handles the main loop of streaming output and handling completion
-func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan string, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
+func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
 	for {
 		select {
-		case line := <-outputChan:
-			sendSSELog(c, line)
+		case out := <-outputChan:
+			sendSSELogWithReplace(c, out.Line, out.Replace)
 			flusher.Flush()
 
 		case err := <-doneChan:
 			// Send any remaining logs
 			for len(outputChan) > 0 {
-				line := <-outputChan
-				sendSSELog(c, line)
+				out := <-outputChan
+				sendSSELogWithReplace(c, out.Line, out.Replace)
 				flusher.Flush()
 			}
 
@@ -873,11 +985,96 @@ func isValidEnvVarName(name string) bool {
 }
 
 // streamOutput reads from a pipe and sends lines to the output channel
-func streamOutput(pipe io.ReadCloser, outputChan chan<- string) {
+func streamOutput(pipe io.ReadCloser, outputChan chan<- outputLine) {
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
-		outputChan <- scanner.Text()
+		outputChan <- outputLine{Line: scanner.Text(), Replace: false}
 	}
+}
+
+// streamPTYOutput reads from a PTY and sends lines to the output channel.
+// PTY output has special characteristics:
+// - stdout and stderr are combined into a single stream
+// - Progress bars use carriage returns (\r) to overwrite lines
+// - Output may contain ANSI escape sequences for colors/formatting
+//
+// This function handles carriage returns by tracking the "current line" and
+// setting the Replace flag when a carriage return triggers an update.
+// ANSI codes are stripped.
+func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
+	defer ptmx.Close()
+
+	// Use a buffered reader for efficient reading
+	reader := bufio.NewReader(ptmx)
+	var currentLine strings.Builder
+	hadProgressUpdate := false // Track if we've sent a progress update that can be replaced
+
+	for {
+		// Read one byte at a time to handle \r properly
+		b, err := reader.ReadByte()
+		if err != nil {
+			// Emit any remaining content in the buffer
+			if currentLine.Len() > 0 {
+				line := stripANSI(currentLine.String())
+				if line != "" {
+					outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
+				}
+			}
+			return
+		}
+
+		switch b {
+		case '\n':
+			// Newline: emit the current line and reset
+			line := stripANSI(currentLine.String())
+			if line != "" {
+				outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
+			}
+			currentLine.Reset()
+			hadProgressUpdate = false // Next line starts fresh
+
+		case '\r':
+			// Carriage return: could be \r\n (Windows-style) or progress bar update
+			// Peek at the next byte to check for \r\n
+			nextByte, err := reader.Peek(1)
+			if err == nil && nextByte[0] == '\n' {
+				// \r\n sequence - treat as newline
+				reader.ReadByte() // consume the \n
+				line := stripANSI(currentLine.String())
+				if line != "" {
+					outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
+				}
+				currentLine.Reset()
+				hadProgressUpdate = false // Next line starts fresh
+			} else {
+				// Progress bar style update - emit current line with replace flag
+				// This allows progress updates to replace the previous line
+				line := stripANSI(currentLine.String())
+				if line != "" {
+					outputChan <- outputLine{Line: line, Replace: hadProgressUpdate}
+					hadProgressUpdate = true // Next update should replace this one
+				}
+				currentLine.Reset()
+			}
+
+		default:
+			// Regular character - append to current line
+			currentLine.WriteByte(b)
+		}
+	}
+}
+
+// startCommandWithPTY starts a command in a pseudo-terminal.
+// Returns the PTY master file descriptor which should be used for both
+// reading output and cleanup (close when done).
+// The command will be started as a child process.
+func startCommandWithPTY(cmd *exec.Cmd) (*os.File, error) {
+	// Start command with PTY
+	ptmx, err := pty.StartWithSize(cmd, defaultPTYSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start command with PTY: %w", err)
+	}
+	return ptmx, nil
 }
 
 // captureFilesFromDir copies all files from the source directory (RUNBOOK_FILES) to the output directory.
@@ -1056,9 +1253,16 @@ func isValidOutputKey(key string) bool {
 
 // sendSSELog sends a log event via SSE
 func sendSSELog(c *gin.Context, line string) {
+	sendSSELogWithReplace(c, line, false)
+}
+
+// sendSSELogWithReplace sends a log event via SSE with optional replace flag
+// When replace is true, the frontend should replace the previous line instead of appending
+func sendSSELogWithReplace(c *gin.Context, line string, replace bool) {
 	event := ExecLogEvent{
 		Line:      line,
 		Timestamp: time.Now().Format(time.RFC3339),
+		Replace:   replace,
 	}
 	c.SSEvent("log", event)
 }

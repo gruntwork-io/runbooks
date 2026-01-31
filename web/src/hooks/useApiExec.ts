@@ -8,6 +8,7 @@ import { useSession } from '@/contexts/useSession'
 const ExecLogEventSchema = z.object({
   line: z.string(),
   timestamp: z.string(),
+  replace: z.boolean().optional(), // If true, replace the previous line (for progress updates)
 })
 
 const ExecStatusEventSchema = z.object({
@@ -185,10 +186,17 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           if (eventType === 'log') {
             const parsed = ExecLogEventSchema.safeParse(data)
             if (parsed.success) {
-              setState((prev) => ({
-                ...prev,
-                logs: [...prev.logs, createLogEntry(parsed.data.line, parsed.data.timestamp)],
-              }))
+              const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+              setState((prev) => {
+                // If replace flag is set and we have previous logs, replace the last one
+                if (parsed.data.replace && prev.logs.length > 0) {
+                  const updatedLogs = [...prev.logs]
+                  updatedLogs[updatedLogs.length - 1] = newEntry
+                  return { ...prev, logs: updatedLogs }
+                }
+                // Otherwise append as normal
+                return { ...prev, logs: [...prev.logs, newEntry] }
+              })
             } else {
               // Non-critical: show placeholder so user knows output was received
               console.error('Invalid log event:', parsed.error)
