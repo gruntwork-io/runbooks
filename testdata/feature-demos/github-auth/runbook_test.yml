@@ -1,0 +1,21 @@
+name: GitHub Auth Feature Demo
+description: Tests for GitHubAuth block functionality
+
+# Note: OAuth flow cannot be tested automatically (requires browser interaction)
+# These tests use environment variable authentication
+
+env:
+  # CI should set GITHUB_TOKEN
+  GITHUB_TOKEN: ${GITHUB_TOKEN}
+
+tests:
+  - name: verify-auth-with-env
+    description: Verify authentication using environment variable
+    block_id: verify-auth
+    # Skip OAuth, use env-prefilled credentials
+    preconditions:
+      - env: GITHUB_TOKEN
+    expected:
+      exit_code: 0
+      output_contains:
+        - "SUCCESS: Authenticated as"

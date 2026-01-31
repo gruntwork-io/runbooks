@@ -14,6 +14,7 @@ import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
+import { GitHubAuth } from '@/components/mdx/GitHubAuth'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
 
@@ -223,6 +224,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       Command,
       // Authentication components
       AwsAuth,
+      GitHubAuth,
       // Utility components
       Admonition,
       a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)

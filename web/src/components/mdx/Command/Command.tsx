@@ -18,6 +18,8 @@ interface CommandProps {
   inputsId?: string | string[]
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
   awsAuthId?: string
+  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
+  githubAuthId?: string
   successMessage?: string
   failMessage?: string
   runningMessage?: string
@@ -32,6 +34,7 @@ function Command({
   command,
   inputsId,
   awsAuthId,
+  githubAuthId,
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
@@ -74,6 +77,7 @@ function Command({
     command,
     inputsId,
     awsAuthId,
+    githubAuthId,
     children,
     componentType: 'command',
   })

@@ -5,7 +5,7 @@ import { normalizeBlockId } from '../lib/utils'
 interface ComponentRegistration {
   id: string
   normalizedId: string // ID with hyphens converted to underscores
-  componentType: 'Command' | 'Check' | 'Inputs' | 'Template' | 'AwsAuth'
+  componentType: 'Command' | 'Check' | 'Inputs' | 'Template' | 'AwsAuth' | 'GitHubAuth'
   instanceId: string // Unique per-render instance to track unmounts
 }
 
