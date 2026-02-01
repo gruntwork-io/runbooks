@@ -204,6 +204,83 @@ No components here!
 			expectedTypes: []ExecutableType{ExecutableTypeInline},
 			expectError:   false,
 		},
+		{
+			name: "skip components inside fenced code blocks",
+			content: `
+# Documentation
+
+Here's a real command:
+
+<Command id="real-cmd" command="echo real" />
+
+Here's an example in a code block:
+
+` + "```mdx" + `
+<Command id="example-cmd" path="scripts/example.sh" />
+` + "```" + `
+
+And another real command:
+
+<Command id="another-real" command="echo another" />
+`,
+			componentType: "Command",
+			expectedCount: 2,
+			expectedIDs:   []string{"real-cmd", "another-real"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline, ExecutableTypeInline},
+			expectError:   false,
+		},
+		{
+			name: "skip multiple components in fenced code blocks",
+			content: `
+<Command id="before" command="echo before" />
+
+` + "```" + `
+{/* Example 1 */}
+<Command id="example-1" path="scripts/a.sh" />
+
+{/* Example 2 */}
+<Command id="example-2" path="scripts/b.sh" usePty={true} />
+
+{/* Example 3 */}
+<Command id="example-3" path="scripts/c.sh" usePty={false} />
+` + "```" + `
+
+<Command id="after" command="echo after" />
+`,
+			componentType: "Command",
+			expectedCount: 2,
+			expectedIDs:   []string{"before", "after"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline, ExecutableTypeInline},
+			expectError:   false,
+		},
+		{
+			name: "handle multiple code blocks",
+			content: `
+<Check id="real-1" command="echo 1" />
+
+` + "```bash" + `
+# Not a component
+echo hello
+` + "```" + `
+
+` + "```mdx" + `
+<Check id="fake-1" command="ignored" />
+` + "```" + `
+
+<Check id="real-2" command="echo 2" />
+
+` + "```" + `
+<Check id="fake-2" command="also ignored" />
+` + "```" + `
+
+<Check id="real-3" command="echo 3" />
+`,
+			componentType: "Check",
+			expectedCount: 3,
+			expectedIDs:   []string{"real-1", "real-2", "real-3"},
+			expectedTypes: []ExecutableType{ExecutableTypeInline, ExecutableTypeInline, ExecutableTypeInline},
+			expectError:   false,
+		},
 	}
 
 	for _, tt := range tests {
