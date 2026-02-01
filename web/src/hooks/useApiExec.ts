@@ -8,6 +8,7 @@ import { useSession } from '@/contexts/useSession'
 const ExecLogEventSchema = z.object({
   line: z.string(),
   timestamp: z.string(),
+  replace: z.boolean().optional(), // If true, replace the previous line (for progress updates)
 })
 
 const ExecStatusEventSchema = z.object({
@@ -73,8 +74,8 @@ export interface UseApiExecOptions {
 
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>) => void
+  execute: (executableId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean) => void
+  executeByComponentId: (componentId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean) => void
   cancel: () => void
   reset: () => void
 }
@@ -185,10 +186,17 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           if (eventType === 'log') {
             const parsed = ExecLogEventSchema.safeParse(data)
             if (parsed.success) {
-              setState((prev) => ({
-                ...prev,
-                logs: [...prev.logs, createLogEntry(parsed.data.line, parsed.data.timestamp)],
-              }))
+              const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+              setState((prev) => {
+                // If replace flag is set and we have previous logs, replace the last one
+                if (parsed.data.replace && prev.logs.length > 0) {
+                  const updatedLogs = [...prev.logs]
+                  updatedLogs[updatedLogs.length - 1] = newEntry
+                  return { ...prev, logs: updatedLogs }
+                }
+                // Otherwise append as normal
+                return { ...prev, logs: [...prev.logs, newEntry] }
+              })
             } else {
               // Non-critical: show placeholder so user knows output was received
               console.error('Invalid log event:', parsed.error)
@@ -291,6 +299,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       component_id?: string; 
       template_var_values: Record<string, unknown>;
       env_vars_override?: Record<string, string>;
+      use_pty?: boolean;
     }
   ) => {
     // Cancel any existing execution
@@ -363,11 +372,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>) => {
+    (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean) => {
       executeScript({ 
         executable_id: executableId, 
         template_var_values: templateVarValues,
         env_vars_override: envVarsOverride,
+        use_pty: usePty,
       })
     },
     [executeScript]
@@ -380,11 +390,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>) => {
+    (componentId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean) => {
       executeScript({ 
         component_id: componentId, 
         template_var_values: templateVarValues,
         env_vars_override: envVarsOverride,
+        use_pty: usePty,
       })
     },
     [executeScript]

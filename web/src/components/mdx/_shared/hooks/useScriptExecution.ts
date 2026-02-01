@@ -27,6 +27,8 @@ interface UseScriptExecutionProps {
   awsAuthId?: string
   children?: ReactNode
   componentType: ComponentType
+  /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
+  usePty?: boolean
 }
 
 /** Information about an unmet output dependency */
@@ -93,6 +95,7 @@ export function useScriptExecution({
   awsAuthId,
   children,
   componentType,
+  usePty,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -515,12 +518,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, awsAuthEnvVars)
+      executeScript(executable.id, processedVariables as Record<string, string>, awsAuthEnvVars, usePty)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, awsAuthEnvVars)
+      executeByComponentId(componentId, processedVariables as Record<string, string>, awsAuthEnvVars, usePty)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, usePty])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

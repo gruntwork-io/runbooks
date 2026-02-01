@@ -23,6 +23,8 @@ interface CheckProps {
   failMessage?: string
   runningMessage?: string
   children?: ReactNode // For inline Inputs component
+  /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
+  usePty?: boolean
 }
 
 function Check({
@@ -38,6 +40,7 @@ function Check({
   failMessage = "Failed",
   runningMessage = "Checking...",
   children,
+  usePty,
 }: CheckProps) {
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
@@ -77,7 +80,8 @@ function Check({
     inputsId,
     awsAuthId,
     children,
-    componentType: 'check'
+    componentType: 'check',
+    usePty,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component

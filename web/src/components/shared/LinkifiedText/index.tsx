@@ -77,4 +77,3 @@ export function LinkifiedText({
   
   return <>{parts}</>
 }
-

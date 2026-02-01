@@ -15,6 +15,7 @@ runbooks
 # Ignore generated files
 generated/*
 coverage.out
+*.test
 
 # Keep TODOs local for now
 TODO/
