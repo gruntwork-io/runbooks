@@ -1,8 +1,8 @@
 import Ansi from 'ansi-to-react'
 import { LinkifiedText } from '../LinkifiedText'
-import './AnsiText.css'
+import './TerminalText.css'
 
-interface AnsiTextProps {
+interface TerminalTextProps {
   text: string
   /** If true, also linkify URLs in the text */
   linkify?: boolean
@@ -20,13 +20,16 @@ function stripNonColorAnsi(text: string): string {
 }
 
 /**
- * Renders text with ANSI escape codes as colored HTML.
- * Supports standard terminal colors (16-color, 256-color, and 24-bit RGB).
+ * Renders terminal output text, handling both plain text and ANSI escape codes.
+ * 
+ * - Plain text (no ANSI codes): Uses LinkifiedText for clickable URLs
+ * - ANSI text (has escape codes): Uses ansi-to-react for colored output
  * 
  * Usage:
- *   <AnsiText text="\x1b[32mGreen text\x1b[0m" />
+ *   <TerminalText text="Plain text with https://example.com" />
+ *   <TerminalText text="\x1b[32mGreen text\x1b[0m" />
  */
-export function AnsiText({ text, linkify = true }: AnsiTextProps) {
+export function TerminalText({ text, linkify = true }: TerminalTextProps) {
   // Strip non-color ANSI sequences that ansi-to-react can't handle
   const cleanedText = stripNonColorAnsi(text)
   
@@ -44,7 +47,7 @@ export function AnsiText({ text, linkify = true }: AnsiTextProps) {
   // This is a trade-off for supporting colors
   // Use useClasses to output CSS class names instead of inline styles (easier to customize)
   return (
-    <span className="ansi-text">
+    <span className="terminal-text">
       <Ansi useClasses>{cleanedText}</Ansi>
     </span>
   )

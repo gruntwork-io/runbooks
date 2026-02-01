@@ -4,7 +4,7 @@
  * ansi-to-react with useClasses outputs these class names.
  */
 
-.ansi-text {
+.terminal-text {
   /* Override ansi-to-react default code styling */
   & code {
     font-family: inherit;
@@ -14,7 +14,7 @@
     white-space: pre-wrap;
   }
 
-  /* Foreground colors */
+  /* Foreground colors (class names from ansi-to-react) */
   & .ansi-red-fg,
   & .ansi-bright-red-fg {
     color: #e06c75; /* Soft coral red */

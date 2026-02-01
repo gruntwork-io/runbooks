@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, SquareTerminal } from "lucide-react"
 import { useState, useEffect } from "react"
-import { AnsiText } from "@/components/shared/AnsiText"
+import { TerminalText } from "@/components/shared/TerminalText"
 import type { LogEntry } from "@/hooks/useApiExec"
 
 interface ViewLogsProps {
@@ -54,7 +54,7 @@ export function ViewLogs({
                   <span className="text-gray-500 mr-2">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <AnsiText text={log.line} />
+                  <TerminalText text={log.line} />
                 </div>
               ))}
               {checkStatus === 'running' && (
