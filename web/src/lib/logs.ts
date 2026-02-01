@@ -13,9 +13,11 @@
  * - OSC sequences: ESC ] ... ST (titles, hyperlinks, etc.)
  * - Character set designation: ESC ( X, ESC ) X, etc. (e.g., from tput sgr0)
  * - Simple escapes: ESC followed by single char
+ * 
+ * NOTE: This regex is duplicated in api/exec_pty.go - keep in sync
  */
 // eslint-disable-next-line no-control-regex
-const ANSI_REGEX = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|\][^\x1b]*|[()*/+\-].|[a-zA-Z])/g
+const ANSI_REGEX = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|\][^\x1b]*|[()*/+-].|[a-zA-Z])/g
 
 /**
  * Strips ANSI escape codes from text.

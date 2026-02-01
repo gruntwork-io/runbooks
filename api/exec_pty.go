@@ -21,6 +21,7 @@ import (
 // - OSC sequences: ESC ] ... ST (titles, hyperlinks, etc.)
 // - Character set designation: ESC ( X, ESC ) X, etc. (e.g., from tput sgr0)
 // - Simple escapes: ESC followed by single char
+// NOTE: This regex is duplicated in web/src/lib/logs.ts - keep in sync
 var ansiRegex = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|\][^\x1b]*|[()*/+\-].|[a-zA-Z])`)
 
 // stripANSI removes ANSI escape sequences from a string
