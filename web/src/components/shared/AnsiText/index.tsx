@@ -1,5 +1,5 @@
 import Ansi from 'ansi-to-react'
-import { LinkifiedText } from './LinkifiedText'
+import { LinkifiedText } from '../LinkifiedText'
 import './AnsiText.css'
 
 interface AnsiTextProps {
