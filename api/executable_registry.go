@@ -552,12 +552,28 @@ func getExecutableByComponentID(runbookPath, componentID string) (*Executable, e
 }
 
 // findComponentExecutable searches for a component and returns it as an Executable
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
 func findComponentExecutable(content, runbookDir, componentType, targetID string) (*Executable, error) {
 	re := GetComponentRegex(componentType)
 
-	matches := re.FindAllStringSubmatch(content, -1)
+	matches := re.FindAllStringSubmatchIndex(content, -1)
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := findFencedCodeBlockRanges(content)
+
 	for _, match := range matches {
-		props := match[1]
+		// Skip components inside fenced code blocks (documentation examples)
+		if isInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			continue
+		}
+
+		// FindAllStringSubmatchIndex returns pairs of indices:
+		// match[0:2] = full match, match[2:4] = props (group 1)
+		if len(match) < 4 {
+			continue
+		}
+
+		props := content[match[2]:match[3]]
 
 		componentID := ExtractProp(props, "id")
 		if componentID == "" {
