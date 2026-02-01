@@ -484,15 +484,30 @@ func validateRunbook(filePath string) ([]string, error) {
 }
 
 // validateComponentType checks for duplicate components of a specific type
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
 func validateComponentType(content, componentType string) []string {
 	re := GetComponentRegex(componentType)
-	matches := re.FindAllStringSubmatch(content, -1)
+	matches := re.FindAllStringSubmatchIndex(content, -1)
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := findFencedCodeBlockRanges(content)
 
 	seen := make(map[string]bool)
 	var warnings []string
 
 	for _, match := range matches {
-		props := match[1]
+		// Skip components inside fenced code blocks (documentation examples)
+		if isInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			continue
+		}
+
+		// FindAllStringSubmatchIndex returns pairs of indices:
+		// match[0:2] = full match, match[2:4] = props (group 1)
+		if len(match) < 4 {
+			continue
+		}
+
+		props := content[match[2]:match[3]]
 		id := ExtractProp(props, "id")
 		if id == "" {
 			id = ComputeComponentID(componentType, props)
