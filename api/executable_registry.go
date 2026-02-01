@@ -167,12 +167,9 @@ func findFencedCodeBlockRanges(content string) [][2]int {
 		openStart := matches[i][0]
 		closeStart := matches[i+1][0]
 		// Find end of closing fence line
-		closeEnd := closeStart + 3 // At least ```
-		for closeEnd < len(content) && content[closeEnd] != '\n' {
-			closeEnd++
-		}
-		if closeEnd < len(content) {
-			closeEnd++ // Include the newline
+		closeEnd := len(content)
+		if nl := strings.IndexByte(content[closeStart:], '\n'); nl != -1 {
+			closeEnd = closeStart + nl + 1
 		}
 		ranges = append(ranges, [2]int{openStart, closeEnd})
 	}
