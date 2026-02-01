@@ -16,3 +16,7 @@ Blocks are special React components that you can use in your `runbook.mdx` files
 - [Template](/authoring/blocks/template)
 - [TemplateInline](/authoring/blocks/templateinline)
 
+## Advanced Topics
+
+- [Advanced](/authoring/blocks/advanced) - PTY support and other advanced configuration options
+

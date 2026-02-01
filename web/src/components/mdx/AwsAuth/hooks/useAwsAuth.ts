@@ -320,7 +320,7 @@ export function useAwsAuth({
     }
 
     attemptPrefill()
-  }, [prefilledCredentials, id, defaultRegion, getAuthHeader, registerCredentials, prefillRetryCount])
+  }, [prefilledCredentials, id, defaultRegion, getAuthHeader, registerCredentials, registerOutputs, prefillRetryCount])
 
   // Handle block-based credential prefill - watches for block outputs to become available
   useEffect(() => {

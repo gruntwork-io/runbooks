@@ -39,6 +39,7 @@ Command blocks and [Check](/authoring/blocks/check/) blocks share many features 
 - `successMessage` (string) - Message shown when command succeeds (default: "Success"). Supports inline markdown.
 - `failMessage` (string) - Message shown when command fails (default: "Failed"). Supports inline markdown.
 - `runningMessage` (string) - Message shown while running (default: "Running..."). Supports inline markdown.
+- `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
 
 ### Inline content
 

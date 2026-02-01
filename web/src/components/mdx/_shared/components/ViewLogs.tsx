@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download } from "lucide-react"
 import { useState, useEffect } from "react"
 import type { ExecutionStatus } from "../types"
-import { LinkifiedText } from "@/components/shared/LinkifiedText"
+import { TerminalText } from "@/components/shared/TerminalText"
 import type { LogEntry } from "@/hooks/useApiExec"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -158,7 +158,7 @@ export function ViewLogs({
                   <span className="text-gray-400 mr-2">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <LinkifiedText text={log.line} />
+                  <TerminalText text={log.line} />
                 </div>
               ))}
               {status === 'running' && (

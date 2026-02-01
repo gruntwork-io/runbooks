@@ -29,6 +29,8 @@ interface UseScriptExecutionProps {
   githubAuthId?: string
   children?: ReactNode
   componentType: ComponentType
+  /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
+  usePty?: boolean
 }
 
 /** Information about an unmet output dependency */
@@ -105,6 +107,7 @@ export function useScriptExecution({
   githubAuthId,
   children,
   componentType,
+  usePty,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -581,12 +584,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, mergedAuthEnvVars)
+      executeScript(executable.id, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, mergedAuthEnvVars)
+      executeByComponentId(componentId, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, githubAuthEnvVars])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, githubAuthEnvVars, usePty])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

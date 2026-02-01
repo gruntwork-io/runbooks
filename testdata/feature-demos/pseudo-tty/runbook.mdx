@@ -1,0 +1,174 @@
+# Pseudo-TTY Support Demo
+
+This runbook demonstrates the pseudo-TTY (PTY) support feature in Runbooks.
+
+## Background
+
+Many CLI tools (git, npm, docker, terraform, etc.) detect when they're not running in a terminal and change their behavior:
+- Suppress progress bars
+- Disable colors
+- Hide some output entirely
+
+With PTY support, Runbooks executes commands in a pseudo-terminal, so tools behave as if running in a real terminal.
+
+---
+
+## Test 1: Git Clone
+
+Without PTY support, `git clone` only shows:
+```
+Cloning into '/tmp/demo'...
+```
+
+With PTY support, you should see the full output including:
+- `remote: Enumerating objects...`
+- `remote: Counting objects...`
+- `Receiving objects: XX%...`
+- `Resolving deltas: XX%...`
+
+<Inputs id="clone-config">
+```yaml
+variables:
+  - name: repo_url
+    type: string
+    description: Git repository URL to clone
+    default: https://github.com/gruntwork-io/runbooks.git
+  - name: clone_dir
+    type: string
+    description: Directory name for the clone (will be created in /tmp)
+    default: runbooks-pty-demo
+```
+</Inputs>
+
+<Command 
+  id="git-clone" 
+  title="Clone Repository"
+  path="scripts/git-clone.sh"
+  inputsId="clone-config"
+  args={["{{ .repo_url }}", "{{ .clone_dir }}"]}
+/>
+
+---
+
+## Test 2: npm/Node Package Manager
+
+If you have npm installed, this shows package installation progress.
+
+<Command 
+  id="npm-demo" 
+  title="npm Install Demo"
+  path="scripts/npm-demo.sh"
+/>
+
+---
+
+## Test 3: Colored Output
+
+This test verifies that ANSI color codes are properly handled (stripped for clean logs).
+
+<Command 
+  id="color-demo" 
+  title="Color Output Demo"
+  path="scripts/color-demo.sh"
+/>
+
+---
+
+## Test 4: Progress Bar Simulation
+
+This tests that progress updates (using carriage returns) are handled correctly.
+
+<Command 
+  id="progress-demo" 
+  title="Progress Bar Demo"
+  path="scripts/progress-demo.sh"
+/>
+
+---
+
+## Test 5: ls with colors
+
+Testing `ls --color=auto` which typically disables colors when not in a terminal.
+
+<Command 
+  id="ls-color-demo" 
+  title="ls Color Demo"
+  path="scripts/ls-color-demo.sh"
+/>
+
+---
+
+## Test 6: PTY vs Pipes Comparison
+
+This demonstrates the `usePty` prop. Run both commands below to see how the **same script** behaves differently depending on the execution mode.
+
+**Key differences to observe:**
+- **TTY detection**: The script detects whether it's running in a terminal
+- **Progress bar**: In PTY mode, updates in-place; in pipes mode, each update is a new line
+- **Conditional output**: The script shows different information based on mode
+
+### PTY Mode (default)
+
+Run this first - you'll see the progress bar update in-place, and the script will detect it's running in a terminal.
+
+<Command 
+  id="pty-demo" 
+  title="Run with PTY (default)"
+  path="scripts/pty-vs-pipes-demo.sh"
+  description="Script runs in a pseudo-terminal - progress bar updates in place"
+/>
+
+### Pipes Mode (usePty=false)
+
+Now run this - the **exact same script** runs differently because it's using pipes instead of PTY.
+
+<Command 
+  id="pipes-demo" 
+  title="Run with Pipes (usePty=false)"
+  path="scripts/pty-vs-pipes-demo.sh"
+  usePty={false}
+  description="Script runs with pipes - each progress update is a separate line"
+/>
+
+### When to use Pipes mode
+
+Set `usePty={false}` when:
+- A script's output appears garbled or corrupted
+- A script hangs unexpectedly in PTY mode
+- You need the script to detect it's NOT in a terminal (some tools change behavior)
+- You want raw, unprocessed output
+
+---
+
+## How It Works
+
+Runbooks uses pseudo-TTY (PTY) by default to execute commands on Unix-like systems:
+
+1. **PTY Creation**: Commands run in a pseudo-terminal instead of pipes
+2. **Terminal Detection**: CLI tools detect TTY and enable full output
+3. **Output Streaming**: Combined stdout/stderr streams through the PTY
+4. **ANSI Handling**: Color codes and escape sequences are stripped for clean logs
+5. **Carriage Returns**: Progress bar updates (\r) are handled gracefully
+
+### Platform Support
+
+| Platform | Execution Method |
+|----------|-----------------|
+| macOS    | PTY (full support) |
+| Linux    | PTY (full support) |
+| Windows  | Pipes (fallback) |
+
+### Controlling PTY Mode
+
+You can control whether a script uses PTY with the `usePty` prop:
+
+```mdx
+{/* Default: uses PTY for full terminal emulation */}
+<Command id="with-pty" path="scripts/my-script.sh" />
+
+{/* Explicit PTY mode */}
+<Command id="explicit-pty" path="scripts/my-script.sh" usePty={true} />
+
+{/* Pipes mode: useful when PTY causes issues */}
+<Command id="pipes-mode" path="scripts/my-script.sh" usePty={false} />
+```
