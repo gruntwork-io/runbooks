@@ -16,7 +16,7 @@ function stripNonColorAnsi(text: string): string {
   // Strip character set designation: ESC ( X, ESC ) X, ESC * X, ESC + X
   // These are used by tput sgr0 and similar commands
   // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b[()*/+\-].?/g, '')
+  return text.replace(/\x1b[()*/+-].?/g, '')
 }
 
 /**

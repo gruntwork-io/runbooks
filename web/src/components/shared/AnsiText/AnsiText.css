@@ -4,68 +4,70 @@
  * ansi-to-react with useClasses outputs these class names.
  */
 
-/* Override ansi-to-react default code styling */
-.ansi-text code {
-  font-family: inherit;
-  font-size: inherit;
-  background: transparent;
-  padding: 0;
-  white-space: pre-wrap;
-}
+.ansi-text {
+  /* Override ansi-to-react default code styling */
+  & code {
+    font-family: inherit;
+    font-size: inherit;
+    background: transparent;
+    padding: 0;
+    white-space: pre-wrap;
+  }
 
-/* Foreground colors */
-.ansi-text .ansi-red-fg,
-.ansi-text .ansi-bright-red-fg {
-  color: #e06c75; /* Soft coral red */
-}
+  /* Foreground colors */
+  & .ansi-red-fg,
+  & .ansi-bright-red-fg {
+    color: #e06c75; /* Soft coral red */
+  }
 
-.ansi-text .ansi-green-fg,
-.ansi-text .ansi-bright-green-fg {
-  color: #98c379; /* Soft sage green */
-}
+  & .ansi-green-fg,
+  & .ansi-bright-green-fg {
+    color: #98c379; /* Soft sage green */
+  }
 
-.ansi-text .ansi-blue-fg,
-.ansi-text .ansi-bright-blue-fg {
-  color: #61afef; /* Bright sky blue */
-}
+  & .ansi-blue-fg,
+  & .ansi-bright-blue-fg {
+    color: #61afef; /* Bright sky blue */
+  }
 
-.ansi-text .ansi-yellow-fg,
-.ansi-text .ansi-bright-yellow-fg {
-  color: #e5c07b; /* Warm gold */
-}
+  & .ansi-yellow-fg,
+  & .ansi-bright-yellow-fg {
+    color: #e5c07b; /* Warm gold */
+  }
 
-.ansi-text .ansi-magenta-fg,
-.ansi-text .ansi-bright-magenta-fg {
-  color: #c678dd; /* Soft purple */
-}
+  & .ansi-magenta-fg,
+  & .ansi-bright-magenta-fg {
+    color: #c678dd; /* Soft purple */
+  }
 
-.ansi-text .ansi-cyan-fg,
-.ansi-text .ansi-bright-cyan-fg {
-  color: #56b6c2; /* Teal */
-}
+  & .ansi-cyan-fg,
+  & .ansi-bright-cyan-fg {
+    color: #56b6c2; /* Teal */
+  }
 
-.ansi-text .ansi-white-fg,
-.ansi-text .ansi-bright-white-fg {
-  color: #abb2bf; /* Light gray */
-}
+  & .ansi-white-fg,
+  & .ansi-bright-white-fg {
+    color: #abb2bf; /* Light gray */
+  }
 
-.ansi-text .ansi-black-fg {
-  color: #5c6370; /* Dark gray (visible on dark bg) */
-}
+  & .ansi-black-fg {
+    color: #5c6370; /* Dark gray (visible on dark bg) */
+  }
 
-.ansi-text .ansi-bright-black-fg {
-  color: #7f848e; /* Medium gray */
-}
+  & .ansi-bright-black-fg {
+    color: #7f848e; /* Medium gray */
+  }
 
-/* Text styles */
-.ansi-text .ansi-bold {
-  font-weight: 700;
-}
+  /* Text styles */
+  & .ansi-bold {
+    font-weight: 700;
+  }
 
-.ansi-text .ansi-italic {
-  font-style: italic;
-}
+  & .ansi-italic {
+    font-style: italic;
+  }
 
-.ansi-text .ansi-underline {
-  text-decoration: underline;
+  & .ansi-underline {
+    text-decoration: underline;
+  }
 }
