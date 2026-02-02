@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -47,11 +49,40 @@ type GitHubValidateRequest struct {
 	Token string `json:"token"`
 }
 
+// GitHubTokenType indicates the type of GitHub token
+type GitHubTokenType string
+
+const (
+	GitHubTokenTypeClassicPAT     GitHubTokenType = "classic_pat"
+	GitHubTokenTypeFineGrainedPAT GitHubTokenType = "fine_grained_pat"
+	GitHubTokenTypeOAuth          GitHubTokenType = "oauth"
+	GitHubTokenTypeGitHubApp      GitHubTokenType = "github_app"
+	GitHubTokenTypeUnknown        GitHubTokenType = "unknown"
+)
+
+// detectGitHubTokenType determines the type of GitHub token by its prefix
+func detectGitHubTokenType(token string) GitHubTokenType {
+	switch {
+	case strings.HasPrefix(token, "github_pat_"):
+		return GitHubTokenTypeFineGrainedPAT
+	case strings.HasPrefix(token, "ghp_"):
+		return GitHubTokenTypeClassicPAT
+	case strings.HasPrefix(token, "gho_"):
+		return GitHubTokenTypeOAuth
+	case strings.HasPrefix(token, "ghs_"), strings.HasPrefix(token, "ghu_"):
+		return GitHubTokenTypeGitHubApp
+	default:
+		return GitHubTokenTypeUnknown
+	}
+}
+
 // GitHubValidateResponse represents the response from token validation
 type GitHubValidateResponse struct {
-	Valid bool            `json:"valid"`
-	User  *GitHubUserInfo `json:"user,omitempty"`
-	Error string          `json:"error,omitempty"`
+	Valid     bool            `json:"valid"`
+	User      *GitHubUserInfo `json:"user,omitempty"`
+	Scopes    []string        `json:"scopes,omitempty"`
+	TokenType GitHubTokenType `json:"tokenType,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // GitHubOAuthStartRequest represents the request to start OAuth device flow
@@ -104,10 +135,34 @@ type GitHubEnvCredentialsRequest struct {
 
 // GitHubEnvCredentialsResponse represents the response from environment credential validation
 type GitHubEnvCredentialsResponse struct {
-	Found bool            `json:"found"`
-	Valid bool            `json:"valid,omitempty"`
-	User  *GitHubUserInfo `json:"user,omitempty"`
-	Error string          `json:"error,omitempty"`
+	Found     bool            `json:"found"`
+	Valid     bool            `json:"valid,omitempty"`
+	User      *GitHubUserInfo `json:"user,omitempty"`
+	Scopes    []string        `json:"scopes,omitempty"`
+	TokenType GitHubTokenType `json:"tokenType,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}
+
+// GitHubCliCredentialsResponse represents the response from GitHub CLI credential detection
+type GitHubCliCredentialsResponse struct {
+	User   *GitHubUserInfo `json:"user,omitempty"`
+	Scopes []string        `json:"scopes,omitempty"`
+	Error  string          `json:"error,omitempty"`
+}
+
+// Found returns true if GitHub CLI credentials were successfully detected
+func (r *GitHubCliCredentialsResponse) Found() bool {
+	return r.User != nil && r.Error == ""
+}
+
+// HasRepoScope returns true if the detected credentials include the "repo" scope
+func (r *GitHubCliCredentialsResponse) HasRepoScope() bool {
+	for _, scope := range r.Scopes {
+		if scope == "repo" {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================
@@ -137,7 +192,7 @@ func HandleGitHubValidate() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		user, err := validateGitHubToken(ctx, req.Token)
+		user, scopes, err := validateGitHubToken(ctx, req.Token)
 		if err != nil {
 			c.JSON(http.StatusOK, GitHubValidateResponse{
 				Valid: false,
@@ -147,8 +202,10 @@ func HandleGitHubValidate() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, GitHubValidateResponse{
-			Valid: true,
-			User:  user,
+			Valid:     true,
+			User:      user,
+			Scopes:    scopes,
+			TokenType: detectGitHubTokenType(req.Token),
 		})
 	}
 }
@@ -276,7 +333,7 @@ func HandleGitHubEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		user, err := validateGitHubToken(ctx, token)
+		user, scopes, err := validateGitHubToken(ctx, token)
 		if err != nil {
 			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
 				Found: true,
@@ -303,9 +360,82 @@ func HandleGitHubEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 
 		// Return only safe metadata - NEVER return raw token
 		c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
-			Found: true,
-			Valid: true,
-			User:  user,
+			Found:     true,
+			Valid:     true,
+			User:      user,
+			Scopes:    scopes,
+			TokenType: detectGitHubTokenType(token),
+		})
+	}
+}
+
+// HandleGitHubCliCredentials detects GitHub credentials from the gh CLI,
+// validates them, and registers them to the session.
+// Returns user metadata and scopes - never returns raw credentials to the browser.
+func HandleGitHubCliCredentials(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 1. Check if gh is installed
+		ghPath, err := exec.LookPath("gh")
+		if err != nil {
+			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
+				Error: "GitHub CLI (gh) is not installed",
+			})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// 2. Get token from gh auth token
+		tokenCmd := exec.CommandContext(ctx, ghPath, "auth", "token")
+		tokenOutput, err := tokenCmd.Output()
+		if err != nil {
+			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
+				Error: "Not authenticated to GitHub CLI. Run 'gh auth login' to authenticate.",
+			})
+			return
+		}
+		token := strings.TrimSpace(string(tokenOutput))
+
+		if token == "" {
+			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
+				Error: "GitHub CLI returned empty token",
+			})
+			return
+		}
+
+		// 3. Validate token and get user info via GitHub API
+		// (We can't use `gh api user` because it requires GH_TOKEN or interactive terminal)
+		user, _, err := validateGitHubToken(ctx, token)
+		if err != nil {
+			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
+				Error: fmt.Sprintf("GitHub CLI token is invalid: %v", err),
+			})
+			return
+		}
+
+		// 4. Get scopes from gh auth status (more reliable than X-OAuth-Scopes header for CLI)
+		statusCmd := exec.CommandContext(ctx, ghPath, "auth", "status")
+		statusOutput, _ := statusCmd.CombinedOutput() // Ignore error, parse what we can
+		scopes := parseGitHubCliScopes(string(statusOutput))
+
+		// 5. Register credentials to session (server-side only, never return token)
+		envVars := map[string]string{
+			"GITHUB_TOKEN": token,
+			"GITHUB_USER":  user.Login,
+		}
+
+		if err := sm.AppendToEnv(envVars); err != nil {
+			c.JSON(http.StatusInternalServerError, GitHubCliCredentialsResponse{
+				Error: "Failed to register credentials to session",
+			})
+			return
+		}
+
+		// Return only safe metadata - NEVER return raw token
+		c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
+			User:   user,
+			Scopes: scopes,
 		})
 	}
 }
@@ -315,10 +445,11 @@ func HandleGitHubEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 // =============================================================================
 
 // validateGitHubToken validates a GitHub token by calling the /user endpoint
-func validateGitHubToken(ctx context.Context, token string) (*GitHubUserInfo, error) {
+// Returns user info, scopes (from X-OAuth-Scopes header), and any error
+func validateGitHubToken(ctx context.Context, token string) (*GitHubUserInfo, []string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", GitHubAPIBaseURL+"/user", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -327,17 +458,29 @@ func validateGitHubToken(ctx context.Context, token string) (*GitHubUserInfo, er
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
+		return nil, nil, fmt.Errorf("failed to call GitHub API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("invalid or expired token")
+		return nil, nil, fmt.Errorf("invalid or expired token")
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Extract scopes from X-OAuth-Scopes header
+	// Format: "repo, gist, read:org" (comma-separated)
+	var scopes []string
+	if scopeHeader := resp.Header.Get("X-OAuth-Scopes"); scopeHeader != "" {
+		for _, s := range strings.Split(scopeHeader, ",") {
+			scope := strings.TrimSpace(s)
+			if scope != "" {
+				scopes = append(scopes, scope)
+			}
+		}
 	}
 
 	var ghUser struct {
@@ -348,7 +491,7 @@ func validateGitHubToken(ctx context.Context, token string) (*GitHubUserInfo, er
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&ghUser); err != nil {
-		return nil, fmt.Errorf("failed to parse GitHub response: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse GitHub response: %w", err)
 	}
 
 	return &GitHubUserInfo{
@@ -356,7 +499,7 @@ func validateGitHubToken(ctx context.Context, token string) (*GitHubUserInfo, er
 		Name:      ghUser.Name,
 		AvatarURL: ghUser.AvatarURL,
 		Email:     ghUser.Email,
-	}, nil
+	}, scopes, nil
 }
 
 // startGitHubDeviceFlow initiates the OAuth device authorization flow
@@ -448,7 +591,7 @@ func pollGitHubDeviceFlow(ctx context.Context, clientID, deviceCode string) (*Gi
 	switch result.Error {
 	case "":
 		// Success! We have a token. Now validate it to get user info.
-		user, err := validateGitHubToken(ctx, result.AccessToken)
+		user, _, err := validateGitHubToken(ctx, result.AccessToken)
 		if err != nil {
 			return &GitHubOAuthPollResponse{
 				Status:      GitHubOAuthPollStatusComplete,
@@ -501,4 +644,27 @@ func pollGitHubDeviceFlow(ctx context.Context, clientID, deviceCode string) (*Gi
 // IsDefaultGitHubOAuthClientID checks if the given client ID is the default Gruntwork app
 func IsDefaultGitHubOAuthClientID(clientID string) bool {
 	return clientID == "" || clientID == DefaultGitHubOAuthClientID
+}
+
+// parseGitHubCliScopes parses OAuth scopes from gh auth status output
+// Example output line: "  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'"
+func parseGitHubCliScopes(statusOutput string) []string {
+	// Look for "Token scopes:" line and capture everything after it to end of line
+	scopeRegex := regexp.MustCompile(`Token scopes?:\s*(.+)`)
+	matches := scopeRegex.FindStringSubmatch(statusOutput)
+	if len(matches) < 2 {
+		return nil
+	}
+
+	// Parse comma-separated scopes, removing quotes
+	scopeStr := matches[1]
+	var scopes []string
+	for _, s := range strings.Split(scopeStr, ",") {
+		scope := strings.TrimSpace(s)
+		scope = strings.Trim(scope, "'\"")
+		if scope != "" {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
 }

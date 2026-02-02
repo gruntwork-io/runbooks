@@ -1,31 +1,24 @@
-export type GitHubAuthMethod = 'pat' | 'oauth' | 'env'
+export type GitHubAuthMethod = 'pat' | 'oauth' | 'env' | 'cli'
 export type GitHubAuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed'
-export type GitHubPrefillStatus = 'pending' | 'success' | 'failed' | 'not-configured'
+export type GitHubDetectionStatus = 'pending' | 'done'
 
-// Credential pre-filling types
-export interface EnvPrefilledGitHubCredentials {
-  type: 'env'
-  /** Optional prefix for env var names (e.g., "PROD_" → PROD_GITHUB_TOKEN) */
-  prefix?: string
-  /** Override: use specific env var name instead of GITHUB_TOKEN/GH_TOKEN */
-  envVar?: string
-}
+// Token type as detected by prefix
+export type GitHubTokenType = 
+  | 'classic_pat'
+  | 'fine_grained_pat'
+  | 'oauth'
+  | 'github_app'
+  | 'unknown'
 
-export interface OutputsPrefilledGitHubCredentials {
-  type: 'outputs'
-  /** ID of a Command block that outputs GITHUB_TOKEN */
-  blockId: string
-}
+// Credential detection source types
+export type GitHubCredentialSource =
+  | 'env'              // Check GITHUB_TOKEN, GH_TOKEN
+  | 'cli'              // Check gh auth token
+  | { env: string }    // Specific env var name
+  | { block: string }  // From block output (expects GITHUB_TOKEN)
 
-export interface StaticPrefilledGitHubCredentials {
-  type: 'static'
-  token: string
-}
-
-export type PrefilledGitHubCredentials =
-  | EnvPrefilledGitHubCredentials
-  | OutputsPrefilledGitHubCredentials
-  | StaticPrefilledGitHubCredentials
+// Detection source for UI badges
+export type GitHubDetectionSource = 'env' | 'cli' | 'block' | null
 
 export interface GitHubAuthProps {
   id: string
@@ -35,10 +28,8 @@ export interface GitHubAuthProps {
   oauthClientId?: string
   /** OAuth scopes to request (default: ['repo']) */
   oauthScopes?: string[]
-  /** Pre-fill credentials from environment, block output, or static values */
-  prefilledCredentials?: PrefilledGitHubCredentials
-  /** Allow user to override prefilled credentials (default: true) */
-  allowOverridePrefilled?: boolean
+  /** Credential detection configuration (default: ['env', 'cli']) */
+  detectCredentials?: false | GitHubCredentialSource[]
 }
 
 export interface GitHubUserInfo {
@@ -72,6 +63,8 @@ export interface OAuthPollResponse {
 export interface GitHubValidateResponse {
   valid: boolean
   user?: GitHubUserInfo
+  scopes?: string[]
+  tokenType?: GitHubTokenType
   error?: string
 }
 
@@ -79,5 +72,20 @@ export interface GitHubEnvCredentialsResponse {
   found: boolean
   valid?: boolean
   user?: GitHubUserInfo
+  scopes?: string[]
+  tokenType?: GitHubTokenType
   error?: string
 }
+
+export interface GitHubCliCredentialsResponse {
+  user?: GitHubUserInfo
+  scopes?: string[]
+  error?: string
+}
+
+// Helper functions for CLI credentials response
+export const isCliAuthFound = (r: GitHubCliCredentialsResponse): boolean =>
+  r.user != null && !r.error
+
+export const hasRepoScope = (r: GitHubCliCredentialsResponse): boolean =>
+  r.scopes?.includes('repo') ?? false

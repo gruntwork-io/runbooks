@@ -22,6 +22,7 @@ export function OAuthFlow({
 }: OAuthFlowProps) {
   const [copied, setCopied] = useState(false)
   const [showPermissionsInfo, setShowPermissionsInfo] = useState(false)
+  const [showAutoAuthInfo, setShowAutoAuthInfo] = useState(false)
   const isAuthenticating = authStatus === 'authenticating'
   const isWaitingForAuth = isAuthenticating && userCode && verificationUri
 
@@ -130,34 +131,69 @@ export function OAuthFlow({
         )}
       </div>
 
-      {/* Permissions info */}
-      <div className="text-xs">
-        <button
-          type="button"
-          onClick={() => setShowPermissionsInfo(!showPermissionsInfo)}
-          className="flex items-center gap-1 text-gray-500 hover:text-gray-700 cursor-pointer"
-        >
-          <HelpCircle className="size-3" />
-          <span>What permissions does this grant?</span>
-          {showPermissionsInfo ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-        </button>
-        
-        {showPermissionsInfo && (
-          <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-gray-600 space-y-2">
-            <p>
-              OAuth authentication works without any separate Gruntwork infrastructure. However, GitHub's OAuth 
-              permissions are coarse-grained, and the smallest scope that grants private repository access 
-              is <code className="bg-gray-200 px-1 rounded text-xs">repo</code>, which grants "full control of private repositories."
-            </p>
-            <p>
-              <strong>Your token stays local.</strong> Gruntwork never sees your token and will not have any access to your GitHub resources.
-            </p>
-            <p>
-              If you prefer finer-grained permissions, use a <strong>Personal Access Token</strong> instead (see the other tab). 
-              In the future, we may set up a GitHub App, which would allow more granular permissions with OAuth.
-            </p>
-          </div>
-        )}
+      {/* FAQ section */}
+      <div className="text-xs space-y-2">
+        {/* Permissions info */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowPermissionsInfo(!showPermissionsInfo)}
+            className="flex items-center gap-1 text-gray-500 hover:text-gray-700 cursor-pointer"
+          >
+            <HelpCircle className="size-3" />
+            <span>What permissions does this grant?</span>
+            {showPermissionsInfo ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+          </button>
+          
+          {showPermissionsInfo && (
+            <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-gray-600 space-y-2">
+              <p>
+                OAuth authentication works without any separate Gruntwork infrastructure. However, GitHub's OAuth 
+                permissions are coarse-grained, and the smallest scope that grants private repository access 
+                is <code className="bg-gray-200 px-1 rounded text-xs">repo</code>, which grants "full control of private repositories."
+              </p>
+              <p>
+                <strong>Your token stays local.</strong> Gruntwork never sees your token and will not have any access to your GitHub resources.
+              </p>
+              <p>
+                If you prefer finer-grained permissions, use a <strong>Personal Access Token</strong> instead (see the other tab). 
+                In the future, we may set up a GitHub App, which would allow more granular permissions with OAuth.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Auto-auth info */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowAutoAuthInfo(!showAutoAuthInfo)}
+            className="flex items-center gap-1 text-gray-500 hover:text-gray-700 cursor-pointer"
+          >
+            <HelpCircle className="size-3" />
+            <span>How can I authenticate to GitHub automatically?</span>
+            {showAutoAuthInfo ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+          </button>
+          
+          {showAutoAuthInfo && (
+            <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-gray-600 space-y-2">
+              <p>
+                Runbooks can automatically detect your GitHub credentials so you don't have to sign in manually each time.
+              </p>
+              <p>
+                <strong>Option 1: GitHub CLI</strong> — Run <code className="bg-gray-200 px-1 rounded text-xs">gh auth login</code> in 
+                your terminal.
+              </p>
+              <p>
+                <strong>Option 2: Environment variable</strong> — Set <code className="bg-gray-200 px-1 rounded text-xs">GITHUB_TOKEN</code> to 
+                your GitHub Personal Access Token.
+              </p>
+              <p className="text-gray-500">
+                After setting up either option, reload the runbook and Runbooks will detect your credentials automatically.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

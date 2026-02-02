@@ -7,11 +7,13 @@ export type {
   GitHubAuthProps,
   GitHubAuthMethod,
   GitHubAuthStatus,
-  GitHubPrefillStatus,
-  PrefilledGitHubCredentials,
-  EnvPrefilledGitHubCredentials,
-  OutputsPrefilledGitHubCredentials,
-  StaticPrefilledGitHubCredentials,
+  GitHubDetectionStatus,
+  GitHubCredentialSource,
+  GitHubDetectionSource,
+  GitHubTokenType,
   GitHubUserInfo,
   GitHubCredentials,
+  GitHubCliCredentialsResponse,
 } from './types'
+
+export { isCliAuthFound, hasRepoScope } from './types'

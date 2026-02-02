@@ -187,3 +187,165 @@ func TestIsDefaultGitHubOAuthClientID(t *testing.T) {
 		})
 	}
 }
+
+// TestParseGitHubCliScopes verifies the scope parsing regex works correctly
+// with various gh auth status output formats.
+func TestParseGitHubCliScopes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name: "standard output with multiple scopes",
+			input: `github.com
+  ✓ Logged in to github.com account josh-padnick (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'`,
+			expected: []string{"gist", "read:org", "repo", "workflow"},
+		},
+		{
+			name: "single scope",
+			input: `github.com
+  ✓ Logged in to github.com account user (keyring)
+  - Token scopes: 'repo'`,
+			expected: []string{"repo"},
+		},
+		{
+			name: "scopes without quotes",
+			input: `github.com
+  - Token scopes: repo, gist, read:org`,
+			expected: []string{"repo", "gist", "read:org"},
+		},
+		{
+			name: "singular Token scope (no s)",
+			input: `github.com
+  - Token scope: 'repo'`,
+			expected: []string{"repo"},
+		},
+		{
+			name: "no scopes line returns nil",
+			input: `github.com
+  ✓ Logged in to github.com account user (keyring)
+  - Active account: true`,
+			expected: nil,
+		},
+		{
+			name:     "empty input returns nil",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name: "scopes with double quotes",
+			input: `github.com
+  - Token scopes: "repo", "gist"`,
+			expected: []string{"repo", "gist"},
+		},
+		{
+			name: "mixed quotes",
+			input: `github.com
+  - Token scopes: 'repo', "gist", read:org`,
+			expected: []string{"repo", "gist", "read:org"},
+		},
+		{
+			name: "scopes with extra whitespace",
+			input: `github.com
+  - Token scopes:   'repo'  ,  'gist'  ,  'workflow'  `,
+			expected: []string{"repo", "gist", "workflow"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := parseGitHubCliScopes(tc.input)
+
+			// Handle nil vs empty slice comparison
+			if tc.expected == nil {
+				if result != nil {
+					t.Errorf("parseGitHubCliScopes() = %v, want nil", result)
+				}
+				return
+			}
+
+			if len(result) != len(tc.expected) {
+				t.Errorf("parseGitHubCliScopes() returned %d scopes, want %d. Got: %v, want: %v",
+					len(result), len(tc.expected), result, tc.expected)
+				return
+			}
+
+			for i, scope := range result {
+				if scope != tc.expected[i] {
+					t.Errorf("parseGitHubCliScopes()[%d] = %q, want %q", i, scope, tc.expected[i])
+				}
+			}
+		})
+	}
+}
+
+// TestGitHubCliCredentialsResponseMethods verifies the Found() and HasRepoScope() methods.
+func TestGitHubCliCredentialsResponseMethods(t *testing.T) {
+	t.Run("Found returns true when user is set and no error", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{
+			User:   &GitHubUserInfo{Login: "testuser"},
+			Scopes: []string{"repo"},
+		}
+		if !resp.Found() {
+			t.Error("Found() should return true when user is set and no error")
+		}
+	})
+
+	t.Run("Found returns false when user is nil", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{
+			Scopes: []string{"repo"},
+		}
+		if resp.Found() {
+			t.Error("Found() should return false when user is nil")
+		}
+	})
+
+	t.Run("Found returns false when error is set", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{
+			User:  &GitHubUserInfo{Login: "testuser"},
+			Error: "some error",
+		}
+		if resp.Found() {
+			t.Error("Found() should return false when error is set")
+		}
+	})
+
+	t.Run("HasRepoScope returns true when repo scope present", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{
+			Scopes: []string{"gist", "repo", "workflow"},
+		}
+		if !resp.HasRepoScope() {
+			t.Error("HasRepoScope() should return true when repo scope is present")
+		}
+	})
+
+	t.Run("HasRepoScope returns false when repo scope missing", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{
+			Scopes: []string{"gist", "read:org"},
+		}
+		if resp.HasRepoScope() {
+			t.Error("HasRepoScope() should return false when repo scope is missing")
+		}
+	})
+
+	t.Run("HasRepoScope returns false when scopes is nil", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{}
+		if resp.HasRepoScope() {
+			t.Error("HasRepoScope() should return false when scopes is nil")
+		}
+	})
+
+	t.Run("HasRepoScope returns false when scopes is empty", func(t *testing.T) {
+		resp := GitHubCliCredentialsResponse{
+			Scopes: []string{},
+		}
+		if resp.HasRepoScope() {
+			t.Error("HasRepoScope() should return false when scopes is empty")
+		}
+	})
+}

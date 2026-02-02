@@ -5,7 +5,6 @@ import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
-import { Button } from "@/components/ui/button"
 
 import type { GitHubAuthProps } from "./types"
 import { useGitHubAuth } from "./hooks/useGitHubAuth"
@@ -23,8 +22,7 @@ export function GitHubAuth({
   description,
   oauthClientId,
   oauthScopes = ['repo'],
-  prefilledCredentials,
-  allowOverridePrefilled = true,
+  detectCredentials,
 }: GitHubAuthProps) {
   
   // Check for duplicate component IDs
@@ -45,8 +43,7 @@ export function GitHubAuth({
     id,
     oauthClientId: useDefaultOAuth ? undefined : oauthClientId,
     oauthScopes,
-    prefilledCredentials,
-    allowOverridePrefilled,
+    detectCredentials,
   })
 
   // Track block render on mount
@@ -130,14 +127,14 @@ export function GitHubAuth({
             </div>
           )}
 
-          {/* Prefill pending state - waiting for block or checking credentials */}
-          {auth.prefillStatus === 'pending' && (
+          {/* Detection pending state - waiting for block or checking credentials */}
+          {auth.detectionStatus === 'pending' && (
             <div className="mb-4 text-violet-600 text-sm flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
               <span>
                 {auth.waitingForBlockId 
                   ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                  : 'Checking for credentials...'}
+                  : 'Checking for existing authentication...'}
               </span>
             </div>
           )}
@@ -146,32 +143,12 @@ export function GitHubAuth({
           {auth.authStatus === 'authenticated' && auth.userInfo && (
             <AuthSuccess
               userInfo={auth.userInfo}
-              prefillSource={auth.prefillSource}
-              onReAuthenticate={allowOverridePrefilled ? auth.resetAuth : undefined}
-              onManualAuth={allowOverridePrefilled && auth.prefillSource ? auth.switchToManualAuth : undefined}
+              detectionSource={auth.detectionSource}
+              detectedScopes={auth.detectedScopes}
+              detectedTokenType={auth.detectedTokenType}
+              scopeWarning={auth.scopeWarning}
+              onReAuthenticate={auth.resetAuth}
             />
-          )}
-
-          {/* Prefill failed state */}
-          {auth.prefillStatus === 'failed' && auth.prefillError && allowOverridePrefilled && (
-            <div className="mb-4 bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <strong>Could not load prefilled credentials:</strong> {auth.prefillError}
-                <br />
-                <span className="text-amber-700">Please authenticate manually below.</span>
-              </div>
-            </div>
-          )}
-
-          {/* Prefill failed without override - just show error */}
-          {auth.prefillStatus === 'failed' && auth.prefillError && !allowOverridePrefilled && (
-            <div className="mb-4 text-red-600 text-sm flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <strong>Credential prefill failed:</strong> {auth.prefillError}
-              </div>
-            </div>
           )}
 
           {/* Error state (for manual auth failures) */}
@@ -184,8 +161,20 @@ export function GitHubAuth({
             </div>
           )}
 
-          {/* Authentication form (only show when not authenticated and not pending prefill) */}
-          {auth.authStatus !== 'authenticated' && auth.prefillStatus !== 'pending' && (auth.prefillStatus !== 'failed' || allowOverridePrefilled) && (
+          {/* Detection warning (found credentials but they're invalid) */}
+          {auth.detectionWarning && auth.authStatus !== 'authenticated' && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex items-start gap-2">
+              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
+                <br />
+                <span className="text-amber-700">Please authenticate manually below, or fix the credentials and reload.</span>
+              </div>
+            </div>
+          )}
+
+          {/* Authentication form (only show when not authenticated and detection is done) */}
+          {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
               {/* Custom OAuth Warning */}
               {showCustomOAuthWarning && (
@@ -224,22 +213,6 @@ export function GitHubAuth({
                   setShowPatToken={auth.setShowPatToken}
                   onSubmit={auth.handlePatSubmit}
                 />
-              )}
-
-              {/* Option to use prefilled credentials when in manual auth mode */}
-              {prefilledCredentials && auth.prefillStatus === 'not-configured' && (
-                <div className="mt-4 text-sm text-gray-600">
-                  {prefilledCredentials.type === 'env' && 'Environment'}
-                  {prefilledCredentials.type === 'outputs' && 'Command output'}
-                  {prefilledCredentials.type === 'static' && 'Prefilled'} credentials are available.{' '}
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={auth.retryPrefill}
-                  >
-                    Use {prefilledCredentials.type === 'env' ? 'environment' : prefilledCredentials.type === 'outputs' ? 'command output' : 'prefilled'} credentials
-                  </Button>
-                </div>
               )}
             </>
           )}

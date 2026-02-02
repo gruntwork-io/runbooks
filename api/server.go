@@ -88,6 +88,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		// GitHub auth endpoints that return credentials (token required: returns secrets)
 		protectedAPI.POST("/github/oauth/poll", HandleGitHubOAuthPoll())
 		protectedAPI.POST("/github/env-credentials", HandleGitHubEnvCredentials(sessionManager))
+		protectedAPI.POST("/github/cli-credentials", HandleGitHubCliCredentials(sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)

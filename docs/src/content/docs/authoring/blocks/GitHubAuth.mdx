@@ -4,7 +4,7 @@ title: <GitHubAuth>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitHubAuth>` block provides a streamlined interface for authenticating to GitHub. It supports three authentication methods: OAuth device flow (recommended), Personal Access Tokens (PAT), and environment variables. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+The `<GitHubAuth>` block provides a streamlined interface for authenticating to GitHub. It automatically detects existing authentication from environment variables or GitHub CLI, and provides OAuth or PAT authentication as fallback. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
 
 ## Basic Usage
 
@@ -16,28 +16,33 @@ The `<GitHubAuth>` block provides a streamlined interface for authenticating to 
 />
 ```
 
+By default, Runbooks will automatically detect and use credentials from:
+1. Environment variables (`GITHUB_TOKEN` or `GH_TOKEN`)
+2. GitHub CLI (`gh auth token`)
+
+If no credentials are detected, users can authenticate manually via OAuth or PAT.
+
 ## Authentication Methods
 
-The GitHubAuth block provides three ways to authenticate:
+The GitHubAuth block supports multiple authentication sources:
 
 | Method | Description | 
 |--------|-------------|
+| **Environment Variable** | Auto-detected from `GITHUB_TOKEN` or `GH_TOKEN` |
+| **GitHub CLI** | Auto-detected from `gh auth token` |
 | **OAuth** | Sign in via GitHub's device authorization flow (recommended) |
 | **Personal Access Token** | Enter a PAT (classic or fine-grained) directly | 
-| **Environment Variable** | Use `GITHUB_TOKEN` or `GH_TOKEN` from environment | 
 
 ## Props
 
-### Required Props
-
-- `id` (string) - Unique identifier for this component. See [Using With Commands And Checks](#using-with-commands-and-checks) for how this prop is used.
-
-### Optional Props
-
-- `title` (string) - Display title shown in the UI (default: "GitHub Authentication"). Supports inline markdown (bold, italic, links, code).
-- `description` (string) - Longer description of the authentication purpose. Supports inline markdown.
-- `oauthClientId` (string) - Custom OAuth App client ID. Uses Gruntwork's app by default.
-- `oauthScopes` (string[]) - OAuth scopes to request (default: `["repo"]`).
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | string | required | Unique identifier for this component |
+| `title` | string | "GitHub Authentication" | Display title shown in the UI |
+| `description` | string | - | Description of the authentication purpose |
+| `detectCredentials` | `false` or `CredentialSource[]` | `['env', 'cli']` | Credential detection configuration |
+| `oauthClientId` | string | Gruntwork default | Custom OAuth App client ID |
+| `oauthScopes` | string[] | `["repo"]` | OAuth scopes to request |
 
 ## Environment Variables
 
@@ -112,45 +117,61 @@ For a complete list, see [GitHub's OAuth scopes documentation](https://docs.gith
 
 **GitHub Enterprise Server** (self-hosted at your own URL like github.yourcompany.com): OAuth is not supported for security reasons. Use PAT authentication or contact Gruntwork for enterprise support options.
 
-## Credential Pre-filling
+## Credential Detection
 
-The GitHubAuth block supports pre-filling credentials from environment variables, command outputs, or static values. This is useful for CI/CD pipelines and automated testing.
+By default, GitHubAuth automatically detects existing credentials from environment variables and GitHub CLI. You can customize this behavior with the `detectCredentials` prop.
 
-### From Environment Variables
+### Default Behavior
 
-Read token from the environment (e.g., set by CI or a previous script):
+With no configuration, GitHubAuth tries these sources in order:
+
+```mdx
+{/* Default - same as detectCredentials={['env', 'cli']} */}
+<GitHubAuth id="gh-auth" />
+```
+
+1. **Environment variables** - `GITHUB_TOKEN` or `GH_TOKEN`
+2. **GitHub CLI** - `gh auth token`
+
+If either source provides valid credentials, authentication succeeds immediately. If neither is found, users see the manual OAuth/PAT interface.
+
+### Detection Sources
+
+| Source | Description |
+|--------|-------------|
+| `'env'` | Check standard env vars (`GITHUB_TOKEN`, `GH_TOKEN`) |
+| `'cli'` | Check GitHub CLI (`gh auth token`) |
+| `{ env: 'VAR_NAME' }` | Check a specific env var |
+| `{ block: 'block-id' }` | Use token from a Command block's output |
+
+### Custom Detection Order
+
+Check only environment variables:
 
 ```mdx
 <GitHubAuth
-  id="ci-auth"
-  title="GitHub Access (from environment)"
-  prefilledCredentials={{ type: "env" }}
+  id="gh-auth"
+  detectCredentials={['env']}
 />
 ```
 
-This looks for these environment variables (in order):
-- `GITHUB_TOKEN`
-- `GH_TOKEN`
-
-You can also specify a prefix:
+Check a specific env var first, then standard locations:
 
 ```mdx
 <GitHubAuth
-  id="prod-auth"
-  title="Production GitHub Access"
-  prefilledCredentials={{ type: "env", prefix: "PROD_" }}
+  id="gh-auth"
+  detectCredentials={[{ env: 'MY_GITHUB_TOKEN' }, 'env', 'cli']}
 />
 ```
 
-This would look for `PROD_GITHUB_TOKEN`, then `PROD_GH_TOKEN`.
+### Disable Auto-Detection
 
-Or specify a specific env var name:
+Force manual authentication only:
 
 ```mdx
 <GitHubAuth
-  id="custom-auth"
-  title="Custom Token"
-  prefilledCredentials={{ type: "env", envVar: "MY_GITHUB_PAT" }}
+  id="gh-auth"
+  detectCredentials={false}
 />
 ```
 
@@ -168,7 +189,7 @@ Use a token generated by a previous Command block:
 <GitHubAuth
   id="dynamic-auth"
   title="GitHub Access"
-  prefilledCredentials={{ type: "outputs", blockId: "fetch-token" }}
+  detectCredentials={[{ block: 'fetch-token' }]}
 />
 ```
 
@@ -181,45 +202,9 @@ TOKEN=$(vault read -field=token secret/github)
 echo "GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-### From Static Values
+### Scope Validation
 
-<Aside type="caution">
-Do not hardcode tokens in runbook files. Credential pre-filling is for chaining blocks together using outputs from other blocks or environment variables, not for storing credentials in the runbook file.
-</Aside>
-
-```mdx
-<GitHubAuth
-  id="test-auth"
-  prefilledCredentials={{ 
-    type: "static",
-    token: "{{ .GITHUB_TOKEN }}"
-  }}
-/>
-```
-
-### Allowing Manual Override
-
-By default, users can click "Re-authenticate" to override prefilled credentials. Set `allowOverridePrefilled={false}` to prevent this:
-
-```mdx
-<GitHubAuth
-  id="ci-auth"
-  prefilledCredentials={{ type: "env" }}
-  allowOverridePrefilled={false}
-/>
-```
-
-### Pre-fill Props Reference
-
-| Prop | Type | Description |
-|------|------|-------------|
-| `prefilledCredentials` | object | Source for credential pre-population |
-| `prefilledCredentials.type` | `"env"` \| `"outputs"` \| `"static"` | Pre-fill method |
-| `prefilledCredentials.prefix` | string | For `type: "env"`: prefix for env var names |
-| `prefilledCredentials.envVar` | string | For `type: "env"`: specific env var name |
-| `prefilledCredentials.blockId` | string | For `type: "outputs"`: ID of Command block |
-| `prefilledCredentials.token` | string | For `type: "static"`: GitHub token |
-| `allowOverridePrefilled` | boolean | Allow manual auth when pre-fill fails (default: true) |
+When detecting credentials from GitHub CLI, Runbooks also checks the token's scopes. If the `repo` scope is missing, a warning is displayed since some operations (private repos, issues, PRs) may fail.
 
 ## Security
 

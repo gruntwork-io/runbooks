@@ -5,10 +5,14 @@ import { normalizeBlockId } from "@/lib/utils"
 import type {
   GitHubAuthMethod,
   GitHubAuthStatus,
-  GitHubPrefillStatus,
+  GitHubDetectionStatus,
+  GitHubDetectionSource,
   GitHubUserInfo,
-  PrefilledGitHubCredentials,
+  GitHubCredentialSource,
+  GitHubCliCredentialsResponse,
+  GitHubTokenType,
 } from "../types"
+import { isCliAuthFound, hasRepoScope } from "../types"
 
 // Default GitHub OAuth client ID (Gruntwork's registered app)
 // This is a public identifier, not a secret
@@ -18,18 +22,17 @@ interface UseGitHubAuthOptions {
   id: string
   oauthClientId?: string
   oauthScopes?: string[]
-  prefilledCredentials?: PrefilledGitHubCredentials
-  allowOverridePrefilled?: boolean
+  detectCredentials?: false | GitHubCredentialSource[]
 }
 
 export function useGitHubAuth({
   id,
   oauthClientId,
   oauthScopes = ['repo'],
-  prefilledCredentials,
+  detectCredentials = ['env', 'cli'],
 }: UseGitHubAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
-  const { getAuthHeader } = useSession()
+  const { getAuthHeader, isReady: sessionReady } = useSession()
 
   // Core auth state
   const [authMethod, setAuthMethod] = useState<GitHubAuthMethod>('oauth')
@@ -37,17 +40,19 @@ export function useGitHubAuth({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [userInfo, setUserInfo] = useState<GitHubUserInfo | null>(null)
 
-  // Prefill state
-  const [prefillStatus, setPrefillStatus] = useState<GitHubPrefillStatus>(
-    prefilledCredentials ? 'pending' : 'not-configured'
+  // Detection state
+  const [detectionStatus, setDetectionStatus] = useState<GitHubDetectionStatus>(
+    detectCredentials === false ? 'done' : 'pending'
   )
-  const [prefillError, setPrefillError] = useState<string | null>(null)
-  const [prefillSource, setPrefillSource] = useState<'env' | 'outputs' | 'static' | null>(null)
-  const prefillAttemptedRef = useRef(false)
-  const [prefillRetryCount, setPrefillRetryCount] = useState(0)
-  const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(
-    prefilledCredentials?.type === 'outputs' ? prefilledCredentials.blockId : null
-  )
+  const [detectionSource, setDetectionSource] = useState<GitHubDetectionSource>(null)
+  const [detectedScopes, setDetectedScopes] = useState<string[] | null>(null)
+  const [detectedTokenType, setDetectedTokenType] = useState<GitHubTokenType | null>(null)
+  const [scopeWarning, setScopeWarning] = useState<string | null>(null)
+  const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
+  const detectionAttemptedRef = useRef(false)
+  
+  // For block-based detection, track which block we're waiting for
+  const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
 
   // PAT form state
   const [patToken, setPatToken] = useState('')
@@ -104,7 +109,7 @@ export function useGitHubAuth({
   }, [id, registerOutputs, getAuthHeader])
 
   // Validate a token via the GitHub API
-  const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitHubUserInfo; error?: string }> => {
+  const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string }> => {
     try {
       const response = await fetch('/api/github/validate', {
         method: 'POST',
@@ -116,6 +121,8 @@ export function useGitHubAuth({
       return {
         valid: data.valid,
         user: data.user,
+        scopes: data.scopes,
+        tokenType: data.tokenType,
         error: data.error
       }
     } catch (error) {
@@ -126,8 +133,66 @@ export function useGitHubAuth({
     }
   }, [])
 
-  // Attempt to prefill credentials from block outputs
-  const attemptBlockPrefill = useCallback(async (blockId: string) => {
+  // Try to detect credentials from environment variables
+  const tryEnvCredentials = useCallback(async (options?: { envVar?: string }): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string; foundButInvalid?: boolean }> => {
+    try {
+      const response = await fetch('/api/github/env-credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+        body: JSON.stringify({
+          envVar: options?.envVar || '',
+          githubAuthId: id,
+        })
+      })
+
+      const data = await response.json()
+
+      if (!data.found) {
+        return { success: false, error: data.error }
+      }
+
+      if (!data.valid) {
+        // Token was found but is invalid
+        return { success: false, error: data.error, foundButInvalid: true }
+      }
+
+      return { success: true, user: data.user, scopes: data.scopes, tokenType: data.tokenType }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
+    }
+  }, [getAuthHeader, id])
+
+  // Try to detect credentials from GitHub CLI
+  const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean }> => {
+    try {
+      const response = await fetch('/api/github/cli-credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+      })
+
+      const data: GitHubCliCredentialsResponse = await response.json()
+
+      if (!isCliAuthFound(data)) {
+        // Check if token was found but invalid (error contains "invalid")
+        const foundButInvalid = data.error?.toLowerCase().includes('invalid') || 
+                                data.error?.toLowerCase().includes('expired')
+        return { success: false, error: data.error, foundButInvalid }
+      }
+
+      return { success: true, user: data.user, scopes: data.scopes }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
+    }
+  }, [getAuthHeader])
+
+  // Try to detect credentials from block outputs
+  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitHubUserInfo; error?: string }> => {
     const result = getBlockCredentials(blockId)
 
     if (!result.found || !result.token) {
@@ -146,146 +211,154 @@ export function useGitHubAuth({
     return { success: true, user: validation.user }
   }, [getBlockCredentials, validateToken, registerCredentials])
 
-  // Handle prefilled credentials on mount (for env and static types)
+  // Run credential detection when session is ready
   useEffect(() => {
-    // Skip if not configured or if it's outputs type (handled separately)
-    if (!prefilledCredentials || prefilledCredentials.type === 'outputs') {
+    // Skip if detection is disabled or already attempted
+    if (detectCredentials === false || detectionAttemptedRef.current) {
       return
     }
 
-    // Only attempt prefill once per retry cycle
-    if (prefillAttemptedRef.current) {
+    // Wait for session to be ready before making API calls
+    if (!sessionReady) {
       return
     }
 
-    prefillAttemptedRef.current = true
+    detectionAttemptedRef.current = true
 
-    const attemptPrefill = async () => {
-      setPrefillStatus('pending')
-      setPrefillError(null)
-
-      try {
-        if (prefilledCredentials.type === 'env') {
-          // Call backend to read and validate credentials from environment
-          const response = await fetch('/api/github/env-credentials', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...getAuthHeader(),
-            },
-            body: JSON.stringify({
-              prefix: prefilledCredentials.prefix || '',
-              envVar: prefilledCredentials.envVar || '',
-              githubAuthId: id,
-            })
-          })
-
-          const data = await response.json()
-
-          if (!data.found) {
-            setPrefillStatus('failed')
-            setPrefillError(data.error || 'No GitHub token found in environment')
+    const runDetection = async () => {
+      const warnings: string[] = []
+      
+      for (const source of detectCredentials) {
+        // Check for 'env' - standard env vars
+        if (source === 'env') {
+          const result = await tryEnvCredentials()
+          if (result.success && result.user) {
+            setDetectionSource('env')
+            setAuthStatus('authenticated')
+            setUserInfo(result.user)
+            if (result.tokenType) {
+              setDetectedTokenType(result.tokenType)
+            }
+            if (result.scopes && result.scopes.length > 0) {
+              setDetectedScopes(result.scopes)
+              if (!result.scopes.includes('repo')) {
+                setScopeWarning('Missing "repo" scope - some operations may fail')
+              }
+            }
+            setDetectionStatus('done')
+            registerOutputs(id, { __AUTHENTICATED: 'true' })
             return
           }
-
-          if (!data.valid) {
-            setPrefillStatus('failed')
-            setPrefillError(data.error || 'Environment token is invalid')
-            return
+          if (result.foundButInvalid) {
+            warnings.push('GITHUB_TOKEN is invalid or expired')
           }
-
-          // Credentials validated and registered on the server side
-          setPrefillStatus('success')
-          setPrefillSource('env')
-          setAuthStatus('authenticated')
-          setUserInfo(data.user)
-
-          // Register marker for dependency checking
-          registerOutputs(id, { __AUTHENTICATED: 'true' })
-        } else if (prefilledCredentials.type === 'static') {
-          if (!prefilledCredentials.token) {
-            setPrefillStatus('failed')
-            setPrefillError('Static credentials missing token')
-            return
-          }
-
-          // Validate the token
-          const validation = await validateToken(prefilledCredentials.token)
-
-          if (!validation.valid || !validation.user) {
-            setPrefillStatus('failed')
-            setPrefillError(validation.error || 'Static token is invalid')
-            return
-          }
-
-          // Register credentials
-          await registerCredentials(prefilledCredentials.token, validation.user)
-
-          setPrefillStatus('success')
-          setPrefillSource('static')
-          setAuthStatus('authenticated')
-          setUserInfo(validation.user)
         }
-      } catch (error) {
-        setPrefillStatus('failed')
-        setPrefillError(error instanceof Error ? error.message : 'Failed to prefill credentials')
+        // Check for 'cli' - GitHub CLI
+        else if (source === 'cli') {
+          const result = await tryCliCredentials()
+          if (result.success && result.user) {
+            setDetectionSource('cli')
+            setAuthStatus('authenticated')
+            setUserInfo(result.user)
+            setDetectedScopes(result.scopes ?? null)
+            if (!hasRepoScope({ user: result.user, scopes: result.scopes })) {
+              setScopeWarning('Missing "repo" scope - some operations may fail')
+            }
+            setDetectionStatus('done')
+            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            return
+          }
+          if (result.foundButInvalid) {
+            warnings.push('GitHub CLI token is invalid or expired')
+          }
+        }
+        // Check for { block: 'id' } - block outputs
+        else if ('block' in source) {
+          const result = await tryBlockCredentials(source.block)
+          if (result.success && result.user) {
+            setDetectionSource('block')
+            setAuthStatus('authenticated')
+            setUserInfo(result.user)
+            setDetectionStatus('done')
+            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            return
+          }
+          // If block hasn't run yet, we need to wait for it
+          const blockResult = getBlockCredentials(source.block)
+          if (!blockResult.found) {
+            setWaitingForBlockId(source.block)
+            // Don't set detectionStatus to 'done' yet - wait for block
+            return
+          }
+        }
+        // Check for { env: 'VAR_NAME' } - specific env var
+        else if ('env' in source) {
+          const result = await tryEnvCredentials({ envVar: source.env })
+          if (result.success && result.user) {
+            setDetectionSource('env')
+            setAuthStatus('authenticated')
+            setUserInfo(result.user)
+            if (result.tokenType) {
+              setDetectedTokenType(result.tokenType)
+            }
+            if (result.scopes && result.scopes.length > 0) {
+              setDetectedScopes(result.scopes)
+              if (!result.scopes.includes('repo')) {
+                setScopeWarning('Missing "repo" scope - some operations may fail')
+              }
+            }
+            setDetectionStatus('done')
+            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            return
+          }
+          if (result.foundButInvalid) {
+            warnings.push(`${source.env} is invalid or expired`)
+          }
+        }
       }
+      
+      // Set any warnings from invalid credentials we found
+      if (warnings.length > 0) {
+        setDetectionWarning(warnings.join('; '))
+      }
+      
+      // Nothing found
+      setDetectionStatus('done')
     }
 
-    attemptPrefill()
-  }, [prefilledCredentials, id, getAuthHeader, registerCredentials, validateToken, prefillRetryCount, registerOutputs])
+    runDetection()
+  }, [detectCredentials, id, sessionReady, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, registerOutputs])
 
-  // Handle outputs-based credential prefill - watches for block outputs
+  // Watch for block outputs when waiting for a block
   useEffect(() => {
-    if (prefilledCredentials?.type !== 'outputs') {
+    if (!waitingForBlockId || authStatus === 'authenticated') {
       return
     }
 
-    if (authStatus === 'authenticated') {
-      return
-    }
-
-    if (prefillStatus === 'not-configured' || prefillStatus === 'failed') {
-      return
-    }
-
-    const result = getBlockCredentials(prefilledCredentials.blockId)
-
+    const result = getBlockCredentials(waitingForBlockId)
     if (!result.found) {
-      setWaitingForBlockId(prefilledCredentials.blockId)
-      if (prefillStatus !== 'pending') {
-        setPrefillStatus('pending')
-        setPrefillError(null)
-      }
-      return
+      return // Still waiting
     }
 
-    setWaitingForBlockId(null)
-
+    // Block has outputs now, try to authenticate
     const doAuth = async () => {
-      setPrefillStatus('pending')
-      setPrefillError(null)
-
-      try {
-        const authResult = await attemptBlockPrefill(prefilledCredentials.blockId)
-
-        if (authResult.success && authResult.user) {
-          setPrefillStatus('success')
-          setPrefillSource('outputs')
-          setAuthStatus('authenticated')
-          setUserInfo(authResult.user)
-        } else {
-          setPrefillStatus('failed')
-          setPrefillError(authResult.error || 'Failed to authenticate with block credentials')
-        }
-      } catch (error) {
-        setPrefillStatus('failed')
-        setPrefillError(error instanceof Error ? error.message : 'Failed to prefill credentials')
+      const authResult = await tryBlockCredentials(waitingForBlockId)
+      if (authResult.success && authResult.user) {
+        setDetectionSource('block')
+        setAuthStatus('authenticated')
+        setUserInfo(authResult.user)
+        setDetectionStatus('done')
+        setWaitingForBlockId(null)
+        registerOutputs(id, { __AUTHENTICATED: 'true' })
+      } else {
+        // Block auth failed, continue to manual auth
+        setDetectionStatus('done')
+        setWaitingForBlockId(null)
       }
     }
 
     doAuth()
-  }, [prefilledCredentials, authStatus, blockOutputs, getBlockCredentials, attemptBlockPrefill, prefillStatus])
+  }, [waitingForBlockId, authStatus, blockOutputs, getBlockCredentials, tryBlockCredentials, id, registerOutputs])
 
   // Handle PAT submission
   const handlePatSubmit = useCallback(async () => {
@@ -308,6 +381,20 @@ export function useGitHubAuth({
     await registerCredentials(patToken, validation.user)
     setAuthStatus('authenticated')
     setUserInfo(validation.user)
+    
+    // Set token type if available
+    if (validation.tokenType) {
+      setDetectedTokenType(validation.tokenType)
+    }
+    
+    // Set scopes if available (classic PATs return scopes from X-OAuth-Scopes header)
+    // Fine-grained PATs don't return scopes via the header
+    if (validation.scopes && validation.scopes.length > 0) {
+      setDetectedScopes(validation.scopes)
+      if (!validation.scopes.includes('repo')) {
+        setScopeWarning('Missing "repo" scope - some operations may fail')
+      }
+    }
   }, [patToken, validateToken, registerCredentials])
 
   // Poll for OAuth completion
@@ -432,22 +519,11 @@ export function useGitHubAuth({
     setPatToken('')
     setOauthUserCode(null)
     setOauthVerificationUri(null)
+    setDetectionSource(null)
+    setDetectedScopes(null)
+    setDetectedTokenType(null)
+    setScopeWarning(null)
     oauthPollingCancelledRef.current = false
-  }, [])
-
-  // Retry prefill
-  const retryPrefill = useCallback(() => {
-    prefillAttemptedRef.current = false
-    setPrefillStatus('pending')
-    setPrefillError(null)
-    setPrefillRetryCount(c => c + 1)
-  }, [])
-
-  // Switch to manual authentication (bypass prefill)
-  const switchToManualAuth = useCallback(() => {
-    setPrefillStatus('not-configured')
-    setPrefillError(null)
-    setWaitingForBlockId(null)
   }, [])
 
   return {
@@ -458,10 +534,13 @@ export function useGitHubAuth({
     errorMessage,
     userInfo,
     
-    // Prefill state
-    prefillStatus,
-    prefillError,
-    prefillSource,
+    // Detection state
+    detectionStatus,
+    detectionSource,
+    detectedScopes,
+    detectedTokenType,
+    scopeWarning,
+    detectionWarning,
     waitingForBlockId,
     
     // PAT form
@@ -481,7 +560,5 @@ export function useGitHubAuth({
     
     // Actions
     resetAuth,
-    retryPrefill,
-    switchToManualAuth,
   }
 }
