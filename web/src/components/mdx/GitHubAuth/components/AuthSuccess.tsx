@@ -1,4 +1,5 @@
-import { AlertTriangle, ExternalLink, Shield } from "lucide-react"
+import { useState } from "react"
+import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { GitHubUserInfo, GitHubDetectionSource, GitHubTokenType } from "../types"
 
@@ -75,6 +76,7 @@ export function AuthSuccess({
   scopeWarning,
   onReAuthenticate,
 }: AuthSuccessProps) {
+  const [showPermissions, setShowPermissions] = useState(false)
   const isFineGrainedPat = detectedTokenType === 'fine_grained_pat'
   
   return (
@@ -116,35 +118,47 @@ export function AuthSuccess({
           </div>
         </div>
         
-        {/* Show scopes as a detailed section */}
+        {/* Show scopes as a collapsible section */}
         {detectedScopes && detectedScopes.length > 0 && (
           <div className="mt-3 pt-3 border-t border-green-200">
-            <div className="text-xs text-gray-500 font-medium mb-2">
-              Token Permissions
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {detectedScopes.map((scope) => (
-                <span
-                  key={scope}
-                  className="inline-flex items-center gap-1 bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs"
-                  title={SCOPE_DESCRIPTIONS[scope] || scope}
-                >
-                  <code className="text-[10px] font-mono">{scope}</code>
-                  {SCOPE_DESCRIPTIONS[scope] && (
-                    <span className="text-gray-400">— {SCOPE_DESCRIPTIONS[scope]}</span>
-                  )}
-                </span>
-              ))}
-            </div>
-            <a
-              href={GITHUB_SCOPES_DOCS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 hover:underline mt-2"
+            <button
+              onClick={() => setShowPermissions(!showPermissions)}
+              className="flex items-center gap-1 text-xs text-gray-500 font-medium hover:text-gray-700 transition-colors cursor-pointer"
             >
-              Learn more about these permissions
-              <ExternalLink className="size-3" />
-            </a>
+              {showPermissions ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+              Token Permissions ({detectedScopes.length})
+            </button>
+            {showPermissions && (
+              <div className="mt-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {detectedScopes.map((scope) => (
+                    <span
+                      key={scope}
+                      className="inline-flex items-center gap-1 bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs"
+                      title={SCOPE_DESCRIPTIONS[scope] || scope}
+                    >
+                      <code className="text-[10px] font-mono">{scope}</code>
+                      {SCOPE_DESCRIPTIONS[scope] && (
+                        <span className="text-gray-400">— {SCOPE_DESCRIPTIONS[scope]}</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                <a
+                  href={GITHUB_SCOPES_DOCS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 hover:underline mt-2"
+                >
+                  Learn more about these permissions
+                  <ExternalLink className="size-3" />
+                </a>
+              </div>
+            )}
           </div>
         )}
         
