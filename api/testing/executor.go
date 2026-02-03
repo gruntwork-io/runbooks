@@ -17,17 +17,107 @@ import (
 	"runbooks/api"
 )
 
-// AuthBlockState represents the state of an authentication block after execution.
+// =============================================================================
+// Block Types
+// =============================================================================
 //
-// "Auth block" is a collective term for authentication-related MDX components such as
-// they can either succeed (credentials available) or be skipped (no credentials),
-// and other blocks may depend on them via githubAuthId or awsAuthId props.
-type AuthBlockState string
+// Runbooks uses "blocks" to describe the building blocks of a runbook.
+// Each block type has specific behavior during test execution.
+
+// BlockType identifies a type of MDX block.
+type BlockType string
+
+// Known block types supported by runbooks test.
+const (
+	BlockTypeCheck          BlockType = "Check"
+	BlockTypeCommand        BlockType = "Command"
+	BlockTypeInputs         BlockType = "Inputs"
+	BlockTypeTemplate       BlockType = "Template"
+	BlockTypeTemplateInline BlockType = "TemplateInline"
+	BlockTypeAwsAuth        BlockType = "AwsAuth"
+	BlockTypeGitHubAuth     BlockType = "GitHubAuth"
+	BlockTypeAdmonition     BlockType = "Admonition"
+)
+
+// =============================================================================
+// Auth Blocks
+// =============================================================================
+//
+// Auth blocks are a subset of block types that provide credentials to dependent blocks.
+// When an auth block is skipped (no credentials available), dependent blocks are also skipped.
+
+// AuthBlockType identifies a type of authentication block.
+type AuthBlockType BlockType
+
+// Auth block types.
+const (
+	AuthBlockAWS    AuthBlockType = AuthBlockType(BlockTypeAwsAuth)
+	AuthBlockGitHub AuthBlockType = AuthBlockType(BlockTypeGitHubAuth)
+)
+
+// AuthBlock describes an authentication block type and how other blocks reference it.
+type AuthBlock struct {
+	Type              AuthBlockType // The block type (e.g., AuthBlockGitHub)
+	ReferencePropName string        // Prop name used by dependent blocks (e.g., "githubAuthId")
+}
+
+// authBlocks defines all auth block types and their metadata.
+// Add new auth types here - the rest of the system uses this as the source of truth.
+var authBlocks = []AuthBlock{
+	{AuthBlockAWS, "awsAuthId"},
+	{AuthBlockGitHub, "githubAuthId"},
+}
+
+// isAuthBlock returns true if the block type is an authentication block.
+func isAuthBlock(blockType string) bool {
+	for _, ab := range authBlocks {
+		if string(ab.Type) == blockType {
+			return true
+		}
+	}
+	return false
+}
+
+// getAuthBlock returns the AuthBlock for a block type, or nil if not an auth block.
+func getAuthBlock(blockType string) *AuthBlock {
+	for i := range authBlocks {
+		if string(authBlocks[i].Type) == blockType {
+			return &authBlocks[i]
+		}
+	}
+	return nil
+}
+
+// =============================================================================
+// Block State
+// =============================================================================
+
+// BlockState represents the execution state of a block.
+// Currently tracked for auth blocks to propagate skip state to dependent blocks.
+type BlockState string
 
 const (
-	AuthBlockStateSuccess AuthBlockState = "success" // Auth succeeded, credentials available
-	AuthBlockStateSkipped AuthBlockState = "skipped" // Auth skipped (no credentials, user requested skip)
+	BlockStateSuccess BlockState = "success" // Block executed successfully
+	BlockStateSkipped BlockState = "skipped" // Block was skipped (e.g., no credentials)
 )
+
+// =============================================================================
+// Dependencies
+// =============================================================================
+//
+// Blocks can depend on other blocks in two ways:
+// 1. Auth dependencies: Command/Check blocks reference auth blocks via props like
+//    githubAuthId="auth-block-id". When the auth block is skipped, dependent blocks
+//    are also skipped.
+// 2. Output dependencies: Template blocks reference outputs from Command/Check blocks
+//    via {{ ._blocks.blockId.outputs.outputName }}. These are checked at render time.
+
+// AuthDependency represents a block's dependency on an auth block for credentials.
+type AuthDependency struct {
+	BlockID       string        // The block that has the dependency (e.g., "run-script")
+	AuthBlockID   string        // The auth block it depends on (e.g., "github-auth")
+	AuthBlockType AuthBlockType // The type of auth block (for error messages)
+}
 
 // TestExecutor runs runbook tests in headless mode.
 type TestExecutor struct {
@@ -55,11 +145,11 @@ type TestExecutor struct {
 	// Parsed Template blocks from the runbook
 	templates map[string]*TemplateBlock // blockID -> block info
 
-	// Track auth block (GitHubAuth, AwsAuth) states for dependency checking
-	authBlockStates map[string]AuthBlockState // authBlockID -> state
+	// Track block states for dependency checking (currently auth blocks only)
+	blockStates map[string]BlockState // blockID -> state
 
-	// Map of blocks that depend on auth blocks (extracted from githubAuthId/awsAuthId props)
-	authDependencies map[string]string // blockID -> authBlockID it depends on
+	// Auth dependencies: which blocks depend on which auth blocks
+	authDeps map[string]AuthDependency // blockID -> auth dependency
 }
 
 // resolveOutputPath returns the absolute path to the output directory.
@@ -151,8 +241,8 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 		return nil, fmt.Errorf("failed to parse Template blocks: %w", err)
 	}
 
-	// Parse auth dependencies (blocks with githubAuthId/awsAuthId props)
-	authDependencies, err := parseAuthDependencies(runbookPath)
+	// Parse auth dependencies (blocks that reference auth blocks)
+	authDeps, err := parseAuthDependencies(runbookPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse auth dependencies: %w", err)
 	}
@@ -163,19 +253,19 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 	}
 
 	e := &TestExecutor{
-		runbookPath:      runbookPath,
-		workingDir:       workingDir,
-		outputPath:       outputPath,
-		registry:         registry,
-		session:          session,
-		timeout:          5 * time.Minute,
-		verbose:          false,
-		validator:        validator,
-		blockOutputs:     make(map[string]map[string]string),
-		templateInlines:  templateInlines,
-		templates:        templates,
-		authBlockStates:  make(map[string]AuthBlockState),
-		authDependencies: authDependencies,
+		runbookPath:     runbookPath,
+		workingDir:      workingDir,
+		outputPath:      outputPath,
+		registry:        registry,
+		session:         session,
+		timeout:         5 * time.Minute,
+		verbose:         false,
+		validator:       validator,
+		blockOutputs:    make(map[string]map[string]string),
+		templateInlines: templateInlines,
+		templates:       templates,
+		blockStates:     make(map[string]BlockState),
+		authDeps:        authDeps,
 	}
 
 	for _, opt := range opts {
@@ -268,21 +358,20 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 	return blocks, nil
 }
 
-// parseAuthDependencies extracts auth dependencies from blocks that have githubAuthId or awsAuthId props.
-// Returns a map of blockID -> authBlockID.
-func parseAuthDependencies(runbookPath string) (map[string]string, error) {
+// parseAuthDependencies extracts auth dependencies from blocks that reference auth blocks.
+// Returns a map of blockID -> AuthDependency.
+func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error) {
 	content, err := os.ReadFile(runbookPath)
 	if err != nil {
 		return nil, err
 	}
 
-	deps := make(map[string]string)
+	deps := make(map[string]AuthDependency)
 	contentStr := string(content)
 
-	// Find all components with githubAuthId or awsAuthId props
-	// Match Check and Command blocks
-	for _, componentType := range []string{"Check", "Command"} {
-		re := api.GetComponentRegex(componentType)
+	// Find blocks with auth dependency props (Check and Command blocks)
+	for _, blockType := range []string{"Check", "Command"} {
+		re := api.GetComponentRegex(blockType)
 		matches := re.FindAllStringSubmatch(contentStr, -1)
 
 		for _, match := range matches {
@@ -297,11 +386,16 @@ func parseAuthDependencies(runbookPath string) (map[string]string, error) {
 				continue
 			}
 
-			// Check for auth dependencies
-			if githubAuthID := extractMDXPropValue(props, "githubAuthId"); githubAuthID != "" {
-				deps[blockID] = githubAuthID
-			} else if awsAuthID := extractMDXPropValue(props, "awsAuthId"); awsAuthID != "" {
-				deps[blockID] = awsAuthID
+			// Check each auth block type's reference prop name
+			for _, ab := range authBlocks {
+				if authID := extractMDXPropValue(props, ab.ReferencePropName); authID != "" {
+					deps[blockID] = AuthDependency{
+						BlockID:       blockID,
+						AuthBlockID:   authID,
+						AuthBlockType: ab.Type,
+					}
+					break
+				}
 			}
 		}
 	}
@@ -450,8 +544,8 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	// Reset block outputs for this test
 	e.blockOutputs = make(map[string]map[string]string)
 
-	// 3. Get all components in document order
-	allComponents := e.validator.GetComponents()
+	// 3. Get all blocks in document order
+	allBlocks := e.validator.GetComponents()
 
 	// 4. Build maps for step handling
 	expectsConfigError := make(map[string]bool)
@@ -469,18 +563,18 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	registryWarnings := e.registry.GetWarnings()
 
 	// 5. Process each block in document order
-	for _, comp := range allComponents {
-		stepResult := e.processBlock(comp, stepsToExecute, expectsConfigError, registryWarnings, hasExplicitSteps)
+	for _, block := range allBlocks {
+		stepResult := e.processBlock(block, stepsToExecute, expectsConfigError, registryWarnings, hasExplicitSteps)
 		result.StepResults = append(result.StepResults, stepResult)
 
 		// Check if we should stop execution
 		if !stepResult.Passed {
 			// Determine if this block was requested (in steps list or no explicit steps)
-			_, isRequested := stepsToExecute[comp.ID]
+			_, isRequested := stepsToExecute[block.ID]
 			if !hasExplicitSteps || isRequested {
 				// Unexpected error in a requested block - stop execution
 				result.Status = TestFailed
-				result.Error = e.formatBlockErrorFromResult(comp, stepResult)
+				result.Error = e.formatBlockErrorFromResult(block, stepResult)
 				break
 			}
 			// Error in non-requested block - continue but mark as failed
@@ -488,13 +582,13 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 		}
 
 		// Run per-step assertions if this was an executed step
-		if step, ok := stepsToExecute[comp.ID]; ok && stepResult.Passed {
+		if step, ok := stepsToExecute[block.ID]; ok && stepResult.Passed {
 			for _, assertion := range step.Assertions {
 				ar := e.runAssertion(assertion)
 				stepResult.AssertionResults = append(stepResult.AssertionResults, ar)
 				if !ar.Passed {
 					result.Status = TestFailed
-					result.Error = fmt.Sprintf("%s block %q assertion failed: %s", comp.Type, comp.ID, ar.Message)
+					result.Error = fmt.Sprintf("%s block %q assertion failed: %s", block.Type, block.ID, ar.Message)
 					break
 				}
 			}
@@ -532,7 +626,7 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 // processBlock handles validation and execution for a single block.
 // It validates configuration, and for executable blocks, executes them if they're in the steps list.
 func (e *TestExecutor) processBlock(
-	comp api.ParsedComponent,
+	block api.ParsedComponent,
 	stepsToExecute map[string]TestStep,
 	expectsConfigError map[string]bool,
 	registryWarnings []string,
@@ -541,21 +635,21 @@ func (e *TestExecutor) processBlock(
 	start := time.Now()
 
 	// Determine if this block should be executed
-	step, shouldExecute := stepsToExecute[comp.ID]
+	step, shouldExecute := stepsToExecute[block.ID]
 	if !hasExplicitSteps {
 		// No explicit steps - execute all executable blocks
-		shouldExecute = comp.Type != "Inputs" // Inputs blocks are validation-only
-		step = TestStep{Block: comp.ID, Expect: StatusSuccess}
+		shouldExecute = block.Type != string(BlockTypeInputs) // Inputs blocks are validation-only
+		step = TestStep{Block: block.ID, Expect: StatusSuccess}
 	}
 
 	result := StepResult{
-		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(block.Type), block.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
 
 	// 1. Check for configuration errors
-	configError := e.getConfigErrorForComponent(comp, registryWarnings)
+	configError := e.getConfigErrorForBlock(block, registryWarnings)
 
 	// 2. Handle config errors
 	if configError != "" {
@@ -563,16 +657,16 @@ func (e *TestExecutor) processBlock(
 		result.Error = configError
 
 		// Determine if this block was requested
-		_, isRequested := stepsToExecute[comp.ID]
+		_, isRequested := stepsToExecute[block.ID]
 		isRequested = isRequested || !hasExplicitSteps // All blocks are "requested" when no explicit steps
 
-		if expectsConfigError[comp.ID] {
+		if expectsConfigError[block.ID] {
 			// Check error_contains if specified
 			if step.ErrorContains != "" && !strings.Contains(strings.ToLower(configError), strings.ToLower(step.ErrorContains)) {
 				// Error doesn't contain expected text
 				result.Passed = false
 				if e.verbose {
-					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 					fmt.Printf("--- Result: ✗ config_error (wrong message) ---\n")
 					fmt.Printf("  Expected error containing: %s\n", step.ErrorContains)
 					fmt.Printf("  Actual error: %s\n", configError)
@@ -582,7 +676,7 @@ func (e *TestExecutor) processBlock(
 				// Expected config error - pass
 				result.Passed = true
 				if e.verbose {
-					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 					fmt.Printf("--- Result: ✓ config_error (expected) ---\n")
 					fmt.Printf("  Error: %s\n", configError)
 					result.ErrorDisplayed = true
@@ -592,7 +686,7 @@ func (e *TestExecutor) processBlock(
 			// Config error in non-requested block - show as warning but don't fail
 			result.Passed = true // Don't fail the test for non-requested blocks
 			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 				fmt.Printf("--- Config: ⚠ error (not in steps) ---\n")
 				fmt.Printf("  Error: %s\n", configError)
 				result.ErrorDisplayed = true
@@ -601,7 +695,7 @@ func (e *TestExecutor) processBlock(
 			// Unexpected config error in requested block - fail
 			result.Passed = false
 			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 				fmt.Printf("--- Result: ✗ config_error ---\n")
 				fmt.Printf("  Error: %s\n", configError)
 				result.ErrorDisplayed = true
@@ -612,11 +706,11 @@ func (e *TestExecutor) processBlock(
 	}
 
 	// 3. For Inputs blocks: validation-only, show "Config: valid"
-	if comp.Type == "Inputs" {
+	if block.Type == string(BlockTypeInputs) {
 		result.ActualStatus = "valid"
 		result.Passed = true
 		if e.verbose {
-			fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+			fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 			fmt.Printf("--- Config: ✓ valid ---\n")
 		}
 		result.Duration = time.Since(start)
@@ -634,30 +728,30 @@ func (e *TestExecutor) processBlock(
 	}
 
 	// 5. Check auth dependencies before executing
-	if authBlockID, hasAuthDep := e.authDependencies[comp.ID]; hasAuthDep {
-		authState, authExecuted := e.authBlockStates[authBlockID]
+	if authDep, hasAuthDep := e.authDeps[block.ID]; hasAuthDep {
+		authState, authExecuted := e.blockStates[authDep.AuthBlockID]
 		if !authExecuted {
 			// Auth block hasn't been executed yet
 			result.Passed = false
 			result.ActualStatus = "blocked"
-			result.Error = fmt.Sprintf("block depends on %q which hasn't been executed yet", authBlockID)
+			result.Error = fmt.Sprintf("block depends on %q which hasn't been executed yet", authDep.AuthBlockID)
 			result.Duration = time.Since(start)
 			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 				fmt.Printf("--- Result: ✗ blocked ---\n")
 				fmt.Printf("  Error: %s\n", result.Error)
 			}
 			return result
 		}
 
-		if authState == AuthBlockStateSkipped {
+		if authState == BlockStateSkipped {
 			// Auth block was skipped - this block can't run unless explicitly skipped
 			if step.Expect == StatusSkip {
 				result.Passed = true
 				result.ActualStatus = "skipped"
 				result.Duration = time.Since(start)
 				if e.verbose {
-					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 					fmt.Println("  (skipped - auth dependency not available)")
 				}
 				return result
@@ -667,10 +761,10 @@ func (e *TestExecutor) processBlock(
 			result.Passed = false
 			result.ActualStatus = "blocked"
 			result.Error = fmt.Sprintf("block depends on %q which was skipped (no credentials available). "+
-				"Either provide credentials or set 'expect: skip' for this block", authBlockID)
+				"Either provide credentials or set 'expect: skip' for this block", authDep.AuthBlockID)
 			result.Duration = time.Since(start)
 			if e.verbose {
-				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 				fmt.Printf("--- Result: ✗ blocked ---\n")
 				fmt.Printf("  Error: %s\n", result.Error)
 			}
@@ -679,39 +773,42 @@ func (e *TestExecutor) processBlock(
 	}
 
 	// 6. Execute the block
-	return e.executeBlockForComponent(comp, step, start)
+	return e.dispatchBlock(block, step, start)
 }
 
-// getConfigErrorForComponent returns any configuration error for the component.
-func (e *TestExecutor) getConfigErrorForComponent(comp api.ParsedComponent, registryWarnings []string) string {
-	switch comp.Type {
-	case "Check", "Command":
+// getConfigErrorForBlock returns any configuration error for the block.
+func (e *TestExecutor) getConfigErrorForBlock(block api.ParsedComponent, registryWarnings []string) string {
+	switch block.Type {
+	case string(BlockTypeCheck), string(BlockTypeCommand):
 		// For Check/Command, check both registry warnings and validator config errors.
 		// Registry warnings cover file-not-found errors; validator covers structural errors like missing ID.
-		if warning := e.getRegistryWarningForBlock(registryWarnings, comp.ID); warning != "" {
+		if warning := e.getRegistryWarningForBlock(registryWarnings, block.ID); warning != "" {
 			return warning
 		}
-		return e.validator.GetConfigError(comp.Type, comp.ID)
-	case "Inputs", "Template", "TemplateInline", "AwsAuth", "GitHubAuth", "Admonition":
-		// For these types, get errors from InputValidator
-		return e.validator.GetConfigError(comp.Type, comp.ID)
+		return e.validator.GetConfigError(block.Type, block.ID)
+	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition):
+		return e.validator.GetConfigError(block.Type, block.ID)
 	default:
+		// Check if it's an auth block
+		if isAuthBlock(block.Type) {
+			return e.validator.GetConfigError(block.Type, block.ID)
+		}
 		// Unknown block type - this is a configuration error
-		return fmt.Sprintf("unknown block type %q is not supported by runbooks test", comp.Type)
+		return fmt.Sprintf("unknown block type %q is not supported by runbooks test", block.Type)
 	}
 }
 
-// executeBlockForComponent executes a single block and returns the result.
-func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step TestStep, start time.Time) StepResult {
+// dispatchBlock dispatches a block to the appropriate execution handler and returns the result.
+func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
-		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(comp.Type), comp.ID),
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(block.Type), block.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
 
 	// Print block header if verbose
 	if e.verbose {
-		fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+		fmt.Printf("\n=== %s: %s ===\n", block.Type, block.ID)
 	}
 
 	// Handle skip expectation
@@ -723,8 +820,8 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 			fmt.Println("  (skipped)")
 		}
 		// For auth blocks, record the skipped state so dependent blocks know
-		if comp.Type == "GitHubAuth" || comp.Type == "AwsAuth" {
-			e.authBlockStates[comp.ID] = AuthBlockStateSkipped
+		if isAuthBlock(block.Type) {
+			e.blockStates[block.ID] = BlockStateSkipped
 		}
 		return result
 	}
@@ -734,7 +831,7 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 	if step.Expect == StatusConfigError {
 		result.Passed = false
 		result.ActualStatus = "no_config_error"
-		result.Error = "expected config_error but component configuration is valid"
+		result.Error = "expected config_error but block configuration is valid"
 		result.Duration = time.Since(start)
 		if e.verbose {
 			fmt.Printf("--- Result: ✗ no_config_error ---\n")
@@ -743,33 +840,33 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 		return result
 	}
 
-	// Execute based on component type
-	switch comp.Type {
-	case "TemplateInline":
-		if templateInline, ok := e.templateInlines[comp.ID]; ok {
+	// Execute based on block type
+	switch block.Type {
+	case string(BlockTypeTemplateInline):
+		if templateInline, ok := e.templateInlines[block.ID]; ok {
 			return e.executeTemplateInline(step, templateInline, start)
 		}
 		result.Passed = false
 		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("TemplateInline block %q not found", comp.ID)
+		result.Error = fmt.Sprintf("TemplateInline block %q not found", block.ID)
 		result.Duration = time.Since(start)
 		return result
 
-	case "Template":
-		if template, ok := e.templates[comp.ID]; ok {
+	case string(BlockTypeTemplate):
+		if template, ok := e.templates[block.ID]; ok {
 			return e.executeTemplate(step, template, start)
 		}
 		result.Passed = false
 		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("Template block %q not found", comp.ID)
+		result.Error = fmt.Sprintf("Template block %q not found", block.ID)
 		result.Duration = time.Since(start)
 		return result
 
-	case "Check", "Command":
+	case string(BlockTypeCheck), string(BlockTypeCommand):
 		// Find the executable for this block
 		var executable *api.Executable
 		for _, exec := range e.registry.GetAllExecutables() {
-			if exec.ComponentID == comp.ID {
+			if exec.ComponentID == block.ID {
 				fullExec, ok := e.registry.GetExecutable(exec.ID)
 				if ok {
 					executable = fullExec
@@ -781,7 +878,7 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 		if executable == nil {
 			result.Passed = false
 			result.ActualStatus = "error"
-			result.Error = fmt.Sprintf("block %q not found in runbook", comp.ID)
+			result.Error = fmt.Sprintf("block %q not found in runbook", block.ID)
 			result.Duration = time.Since(start)
 			if e.verbose {
 				fmt.Printf("  Error: %s\n", result.Error)
@@ -816,12 +913,12 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 		result.Logs = logs
 
 		if e.verbose {
-			e.printBlockOutput(comp.ID, logs, outputs, status, err)
+			e.printBlockOutput(block.ID, logs, outputs, status, err)
 		}
 
 		// Store outputs for later assertions
 		if len(outputs) > 0 {
-			e.blockOutputs[comp.ID] = outputs
+			e.blockOutputs[block.ID] = outputs
 		}
 
 		if err != nil {
@@ -833,13 +930,13 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 		result.Duration = time.Since(start)
 		return result
 
-	case "GitHubAuth":
-		return e.executeGitHubAuth(comp, step, start)
+	case string(AuthBlockGitHub):
+		return e.executeGitHubAuth(block, step, start)
 
-	case "AwsAuth":
-		return e.executeAwsAuth(comp, step, start)
+	case string(AuthBlockAWS):
+		return e.executeAwsAuth(block, step, start)
 
-	case "Admonition":
+	case string(BlockTypeAdmonition):
 		// Decorative block - just pass validation, no execution needed
 		result.Passed = true
 		result.ActualStatus = "success"
@@ -852,24 +949,24 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 	default:
 		result.Passed = false
 		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("unsupported block type %q for execution", comp.Type)
+		result.Error = fmt.Sprintf("unsupported block type %q for execution", block.Type)
 		result.Duration = time.Since(start)
 		return result
 	}
 }
 
 // formatBlockErrorFromResult formats an error message for a failed block.
-func (e *TestExecutor) formatBlockErrorFromResult(comp api.ParsedComponent, stepResult StepResult) string {
+func (e *TestExecutor) formatBlockErrorFromResult(block api.ParsedComponent, stepResult StepResult) string {
 	if stepResult.ErrorDisplayed {
 		// Error was already shown in verbose mode
-		return fmt.Sprintf("%s block '%s' failed (see details above)", comp.Type, comp.ID)
+		return fmt.Sprintf("%s block '%s' failed (see details above)", block.Type, block.ID)
 	}
 
 	var msg string
 	if stepResult.Error != "" {
-		msg = fmt.Sprintf("%s block '%s': %s", comp.Type, comp.ID, stepResult.Error)
+		msg = fmt.Sprintf("%s block '%s': %s", block.Type, block.ID, stepResult.Error)
 	} else {
-		msg = fmt.Sprintf("%s block '%s' failed with status: %s", comp.Type, comp.ID, stepResult.ActualStatus)
+		msg = fmt.Sprintf("%s block '%s' failed with status: %s", block.Type, block.ID, stepResult.ActualStatus)
 	}
 
 	// Include script output (stdout/stderr) if available - helpful for debugging
@@ -1049,15 +1146,15 @@ const DefaultGitHubAuthEnvVar = "RUNBOOKS_GITHUB_TOKEN"
 // executeGitHubAuth handles GitHubAuth block execution in test mode.
 // It looks for RUNBOOKS_GITHUB_TOKEN (or custom env var) and injects it into the session.
 // If no token is found, the block is marked as skipped.
-func (e *TestExecutor) executeGitHubAuth(comp api.ParsedComponent, step TestStep, start time.Time) StepResult {
+func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
-		Block:          fmt.Sprintf("gitHubAuth:%s", comp.ID),
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(AuthBlockGitHub)), block.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
 
-	// Check for custom env var from component props, otherwise use default
-	envVarName := api.ExtractProp(comp.Props, "testEnvVar")
+	// Check for custom env var from block props, otherwise use default
+	envVarName := api.ExtractProp(block.Props, "testEnvVar")
 	if envVarName == "" {
 		envVarName = DefaultGitHubAuthEnvVar
 	}
@@ -1065,7 +1162,7 @@ func (e *TestExecutor) executeGitHubAuth(comp api.ParsedComponent, step TestStep
 	token := os.Getenv(envVarName)
 
 	if e.verbose {
-		fmt.Printf("\n=== GitHubAuth: %s ===\n", comp.ID)
+		fmt.Printf("\n=== GitHubAuth: %s ===\n", block.ID)
 	}
 
 	if token == "" {
@@ -1076,7 +1173,7 @@ func (e *TestExecutor) executeGitHubAuth(comp api.ParsedComponent, step TestStep
 			fmt.Printf("--- Result: skipped (no credentials) ---\n")
 		}
 
-		e.authBlockStates[comp.ID] = AuthBlockStateSkipped
+		e.blockStates[block.ID] = BlockStateSkipped
 		result.ActualStatus = "skipped"
 
 		// If user explicitly expects skip, that's a pass
@@ -1108,7 +1205,7 @@ func (e *TestExecutor) executeGitHubAuth(comp api.ParsedComponent, step TestStep
 	}
 
 	// Success
-	e.authBlockStates[comp.ID] = AuthBlockStateSuccess
+	e.blockStates[block.ID] = BlockStateSuccess
 	result.ActualStatus = "success"
 	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
 	result.Duration = time.Since(start)
@@ -1125,15 +1222,15 @@ func (e *TestExecutor) executeGitHubAuth(comp api.ParsedComponent, step TestStep
 // executeAwsAuth handles AwsAuth block execution in test mode.
 // It looks for standard AWS credential environment variables and validates they exist.
 // If no credentials are found, the block is marked as skipped.
-func (e *TestExecutor) executeAwsAuth(comp api.ParsedComponent, step TestStep, start time.Time) StepResult {
+func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
-		Block:          fmt.Sprintf("awsAuth:%s", comp.ID),
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(AuthBlockAWS)), block.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
 
 	if e.verbose {
-		fmt.Printf("\n=== AwsAuth: %s ===\n", comp.ID)
+		fmt.Printf("\n=== AwsAuth: %s ===\n", block.ID)
 	}
 
 	// Check for AWS credentials
@@ -1156,7 +1253,7 @@ func (e *TestExecutor) executeAwsAuth(comp api.ParsedComponent, step TestStep, s
 			fmt.Printf("--- Result: skipped (no credentials) ---\n")
 		}
 
-		e.authBlockStates[comp.ID] = AuthBlockStateSkipped
+		e.blockStates[block.ID] = BlockStateSkipped
 		result.ActualStatus = "skipped"
 		result.Passed = true // Skip is always a pass for auth blocks
 		result.Duration = time.Since(start)
@@ -1164,7 +1261,7 @@ func (e *TestExecutor) executeAwsAuth(comp api.ParsedComponent, step TestStep, s
 	}
 
 	// Credentials found - they're already in the environment, just mark success
-	e.authBlockStates[comp.ID] = AuthBlockStateSuccess
+	e.blockStates[block.ID] = BlockStateSuccess
 	result.ActualStatus = "success"
 	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
 	result.Duration = time.Since(start)
