@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -415,6 +416,26 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 		result.Error = validationErrors.Error()
 		result.Duration = time.Since(start)
 		return result
+	}
+
+	// Print resolved inputs in verbose mode
+	if e.verbose && len(resolvedInputs) > 0 {
+		fmt.Println("\n--- Test Inputs ---")
+		// Sort keys for consistent output
+		keys := make([]string, 0, len(resolvedInputs))
+		for k := range resolvedInputs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			v := resolvedInputs[k]
+			// Truncate long values for readability
+			displayValue := fmt.Sprintf("%v", v)
+			if len(displayValue) > 80 {
+				displayValue = displayValue[:77] + "..."
+			}
+			fmt.Printf("  %s = %s\n", k, displayValue)
+		}
 	}
 
 	e.testInputs = resolvedInputs
