@@ -131,6 +131,68 @@ type boilerplateConfig struct {
 	} `yaml:"variables"`
 }
 
+// blockTagRegex generates a regex pattern to match an MDX block tag with its props.
+// It handles quoted strings (double, single, and backtick) within props and matches
+// both self-closing tags (</>) and opening tags (>).
+// The returned regex has one capture group containing the props string.
+// Note: For self-closing tags, the captured props may include a trailing "/".
+// Use trimPropsSlash() to clean the captured props if needed.
+func blockTagRegex(blockName string) *regexp.Regexp {
+	// Pattern explanation:
+	// - <BlockName\s+ - matches opening tag with required whitespace
+	// - ([^>]*(?:"[^"]*"|'[^']*'|`[^`]*`|[^>])*) - captures props, handling quoted strings
+	// - (?:/>|>) - matches either self-closing or opening tag end
+	pattern := `<` + blockName + `\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`
+	return regexp.MustCompile(pattern)
+}
+
+// trimPropsSlash removes a trailing "/" and surrounding whitespace from props captured from self-closing tags.
+func trimPropsSlash(props string) string {
+	props = strings.TrimRight(props, " \t\n")
+	props = strings.TrimSuffix(props, "/")
+	props = strings.TrimRight(props, " \t\n")
+	return props
+}
+
+// blockTagSelfClosingRegex generates a regex pattern to match only self-closing MDX block tags.
+// The returned regex has one capture group containing the props string.
+// Note: The captured props may include a trailing "/". Use trimPropsSlash() to clean it.
+func blockTagSelfClosingRegex(blockName string) *regexp.Regexp {
+	pattern := `<` + blockName + `\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)/>`
+	return regexp.MustCompile(pattern)
+}
+
+// blockTagContainerRegex generates a regex pattern to match container-style MDX block tags
+// (opening tag with content and closing tag).
+// The returned regex has two capture groups: (1) props string, (2) inner content.
+func blockTagContainerRegex(blockName string) *regexp.Regexp {
+	// Container tags end with > (not />), so we can use a simpler pattern for props
+	pattern := `<` + blockName + `\s+([^>]*)>([\s\S]*?)</` + blockName + `>`
+	return regexp.MustCompile(pattern)
+}
+
+// parseSimpleBlocks finds all occurrences of a block type and extracts basic info.
+// Used for blocks that only need id extraction (Check, Command, AwsAuth, GitHubAuth).
+func parseSimpleBlocks(contentStr, blockType string, seen map[string]bool) []blockInfo {
+	var blocks []blockInfo
+	re := blockTagRegex(blockType)
+	for _, match := range re.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			if id != "" && !seen[id] {
+				seen[id] = true
+				blocks = append(blocks, blockInfo{
+					ID:       id,
+					Type:     blockType,
+					Position: match[0],
+				})
+			}
+		}
+	}
+	return blocks
+}
+
 // parseRunbookBlocks parses the runbook MDX file to find blocks
 func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	content, err := os.ReadFile(path)
@@ -143,42 +205,13 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	var blocks []blockInfo
 	seen := make(map[string]bool)
 
-	// Parse Check blocks with positions
-	checkRe := regexp.MustCompile(`<Check\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range checkRe.FindAllStringSubmatchIndex(contentStr, -1) {
-		if len(match) >= 4 {
-			props := contentStr[match[2]:match[3]]
-			id := extractPropValue(props, "id")
-			if id != "" && !seen[id] {
-				seen[id] = true
-				blocks = append(blocks, blockInfo{
-					ID:       id,
-					Type:     "Check",
-					Position: match[0],
-				})
-			}
-		}
-	}
-
-	// Parse Command blocks with positions
-	cmdRe := regexp.MustCompile(`<Command\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range cmdRe.FindAllStringSubmatchIndex(contentStr, -1) {
-		if len(match) >= 4 {
-			props := contentStr[match[2]:match[3]]
-			id := extractPropValue(props, "id")
-			if id != "" && !seen[id] {
-				seen[id] = true
-				blocks = append(blocks, blockInfo{
-					ID:       id,
-					Type:     "Command",
-					Position: match[0],
-				})
-			}
-		}
+	// Parse simple blocks (only need id extraction)
+	for _, blockType := range []string{"Check", "Command", "AwsAuth", "GitHubAuth"} {
+		blocks = append(blocks, parseSimpleBlocks(contentStr, blockType, seen)...)
 	}
 
 	// Parse Template blocks and read their boilerplate.yml
-	templateRe := regexp.MustCompile(`<Template\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
+	templateRe := blockTagRegex("Template")
 	for _, match := range templateRe.FindAllStringSubmatchIndex(contentStr, -1) {
 		if len(match) >= 4 {
 			props := contentStr[match[2]:match[3]]
@@ -207,7 +240,7 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 
 	// Parse Inputs blocks - both with path attribute and inline YAML
 	// First, match Inputs with content (container form)
-	inputsContainerRe := regexp.MustCompile(`<Inputs\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)>([\s\S]*?)</Inputs>`)
+	inputsContainerRe := blockTagContainerRegex("Inputs")
 	for _, match := range inputsContainerRe.FindAllStringSubmatchIndex(contentStr, -1) {
 		if len(match) >= 6 {
 			props := contentStr[match[2]:match[3]]
@@ -247,7 +280,7 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	}
 
 	// Parse self-closing Inputs with path
-	inputsSelfClosingRe := regexp.MustCompile(`<Inputs\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*?)/>`)
+	inputsSelfClosingRe := blockTagSelfClosingRegex("Inputs")
 	for _, match := range inputsSelfClosingRe.FindAllStringSubmatchIndex(contentStr, -1) {
 		if len(match) >= 4 {
 			props := contentStr[match[2]:match[3]]
@@ -274,43 +307,9 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 		}
 	}
 
-	// Parse AwsAuth blocks with positions
-	awsAuthRe := regexp.MustCompile(`<AwsAuth\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range awsAuthRe.FindAllStringSubmatchIndex(contentStr, -1) {
-		if len(match) >= 4 {
-			props := contentStr[match[2]:match[3]]
-			id := extractPropValue(props, "id")
-			if id != "" && !seen[id] {
-				seen[id] = true
-				blocks = append(blocks, blockInfo{
-					ID:       id,
-					Type:     "AwsAuth",
-					Position: match[0],
-				})
-			}
-		}
-	}
-
-	// Parse GitHubAuth blocks with positions
-	githubAuthRe := regexp.MustCompile(`<GitHubAuth\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
-	for _, match := range githubAuthRe.FindAllStringSubmatchIndex(contentStr, -1) {
-		if len(match) >= 4 {
-			props := contentStr[match[2]:match[3]]
-			id := extractPropValue(props, "id")
-			if id != "" && !seen[id] {
-				seen[id] = true
-				blocks = append(blocks, blockInfo{
-					ID:       id,
-					Type:     "GitHubAuth",
-					Position: match[0],
-				})
-			}
-		}
-	}
-
 	// Parse TemplateInline blocks with their content
 	// TemplateInline blocks don't have an id prop - we generate one from outputPath
-	templateInlineWithContentRe := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>([\s\S]*?)</TemplateInline>`)
+	templateInlineWithContentRe := blockTagContainerRegex("TemplateInline")
 	templateInlineCount := 0
 	for _, match := range templateInlineWithContentRe.FindAllStringSubmatchIndex(contentStr, -1) {
 		if len(match) >= 6 {

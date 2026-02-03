@@ -439,6 +439,10 @@ When you run a runbook test, the test framework will:
 - Validate the output of the runbook against the assertions in your test configuration file, if any
 - Return a status code of 0 if the test passed, 1 if the test failed, and 2 if the test was skipped
 
+:::note[Script output differences]
+When scripts run in tests, they execute without a PTY (pseudo-terminal), so you may see less output than when running the runbook interactively. For example, `git clone` shows progress messages ("Receiving objects: 47%...") only when connected to a terminal. In runbook tests, you'll see just the essential output. If you do need verbose output for debugging, many commands have flags to force it (e.g., `git clone --progress`), or just open the runbook and manually run the script.
+:::
+
 If a runbook test fails, you will see additional details about which block failed and why.
 
 ### Single Runbook
