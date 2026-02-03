@@ -4,15 +4,26 @@ title: <GitHubAuth>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitHubAuth>` block provides a streamlined interface for authenticating to GitHub. It automatically detects existing authentication from environment variables or GitHub CLI, and provides OAuth or PAT authentication as fallback. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+The `<GitHubAuth>` block provides a streamlined interface for authenticating to GitHub. 
 
-## Basic Usage
+It automatically detects if the user is already authenticated to GitHub by checking their local environment variables or the GitHub CLI status. It also enables users to authenticate manually via OAuth or by entering a Personal Access Token (PAT). Once authenticated, GitHub credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+
+You can still authenticate to GitHub without this block by using Runbooks' support for environment variables, however this is the recommended way to authenticate to GitHub in Runbooks.
+
+### Basic Usage
 
 ```mdx
 <GitHubAuth
   id="gh-auth"
   title="Authenticate to GitHub"
   description="Sign in to access private repositories"
+/>
+
+<Command
+  id="clone-repo"
+  githubAuthId="gh-auth"
+  title="Clone Repository"
+  command="git clone https://github.com/gruntwork-io/runbooks.git"
 />
 ```
 
@@ -22,16 +33,20 @@ By default, Runbooks will automatically detect and use credentials from:
 
 If no credentials are detected, users can authenticate manually via OAuth or PAT.
 
-## Authentication Methods
+### Authentication Methods
 
 The GitHubAuth block supports multiple authentication sources:
 
 | Method | Description | 
 |--------|-------------|
-| **Environment Variable** | Auto-detected from `GITHUB_TOKEN` or `GH_TOKEN` |
+| **Environment Variable** | Auto-detected from `GITHUB_TOKEN`, `GH_TOKEN`, or a user-specified value |
 | **GitHub CLI** | Auto-detected from `gh auth token` |
 | **OAuth** | Sign in via GitHub's device authorization flow (recommended) |
-| **Personal Access Token** | Enter a PAT (classic or fine-grained) directly | 
+| **Personal Access Token** | Enter a PAT (classic or fine-grained) directly in the UI | 
+
+### GitHub Enterprise Support
+
+The GitHubAuth block supports GitHub.com, GitHub Enterprise Cloud and GitHub Enterprise Server. However, OAuth is only supported for GitHub.com and GitHub Enterprise Cloud. For GitHub Enterprise Server, you can use PAT authentication or contact Gruntwork for enterprise support options.
 
 ## Props
 
@@ -40,28 +55,26 @@ The GitHubAuth block supports multiple authentication sources:
 | `id` | string | required | Unique identifier for this component |
 | `title` | string | "GitHub Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
-| `detectCredentials` | `false` or `CredentialSource[]` | `['env', 'cli']` | Credential detection configuration |
+| `detectCredentials` | `false` or `CredentialSource[]` | `['env', 'cli']` | Whether and how the block should automatically detect credentials in the user's environment |
 | `oauthClientId` | string | Gruntwork default | Custom OAuth App client ID |
 | `oauthScopes` | string[] | `["repo"]` | OAuth scopes to request |
 
-## Environment Variables
+## Usage
 
-When authentication succeeds, the following environment variables are automatically set for subsequent Command and Check blocks:
+When authentication succeeds, the following environment variables are set in the session:
 
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | The GitHub access token |
 | `GITHUB_USER` | The authenticated user's login name |
 
-These variables are set in the session environment, so all subsequent blocks have access without needing to explicitly reference `githubAuthId`.
+All subsequent Command and Check blocks automatically have access to these credentials. If you authenticate multiple times, the most recent credentials become the default.
 
-## Using with Commands and Checks
+### Explicit References
 
-When you authenticate to GitHub using the GitHubAuth block, the [environment variables above](#environment-variables) are automatically made available to all subsequent Command and Check blocks. This means that Command and Check blocks will use the most recently authenticated GitHubAuth block (if any) to get GitHub authentication credentials.
-
-Any subsequent GitHub authentication will update the environment variables and then become the default GitHub authentication credentials.
-
-However, in some cases, you may want to use a specific GitHub authentication with a block, not just the most recent GitHub authentication. To do that, you can reference a specific GitHubAuth block from Command or Check blocks using the `githubAuthId` prop. For example:
+You can explicitly reference a GitHubAuth block using the `githubAuthId` prop. This is useful when:
+- You have multiple GitHubAuth blocks and need to use a specific one
+- You want to document the dependency clearly
 
 ```mdx
 <GitHubAuth
@@ -87,41 +100,14 @@ However, in some cases, you may want to use a specific GitHub authentication wit
 ```
 
 <Aside type="tip">
-While you can use `githubAuthId` to explicitly reference the GitHubAuth block, the credentials are also set as session environment variables. This means subsequent blocks will have GitHub access even without `githubAuthId`, though using it makes the dependency explicit.
+Using `githubAuthId` is optional when you only have one GitHubAuth block, but it makes the dependency explicit and helps with automated testing.
 </Aside>
 
-## OAuth Scopes
-
-The default scope is `["repo"]` which provides full repository access (read/write to public and private repos). Common scope combinations:
-
-| Scope | Description |
-|-------|-------------|
-| `repo` | Full access to private and public repositories |
-| `public_repo` | Access to public repositories only |
-| `repo:status` | Read/write commit status (useful for CI) |
-| `read:org` | Read organization membership |
-
-For a complete list, see [GitHub's OAuth scopes documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
-
-```mdx
-<GitHubAuth
-  id="gh-auth"
-  title="Limited GitHub Access"
-  oauthScopes={["public_repo", "read:org"]}
-/>
-```
-
-## GitHub Enterprise
-
-**GitHub Enterprise Cloud** (hosted by GitHub at github.com): OAuth works normally. Enterprise Cloud organizations use the same github.com domain.
-
-**GitHub Enterprise Server** (self-hosted at your own URL like github.yourcompany.com): OAuth is not supported for security reasons. Use PAT authentication or contact Gruntwork for enterprise support options.
-
-## Credential Detection
+### Credential Detection
 
 By default, GitHubAuth automatically detects existing credentials from environment variables and GitHub CLI. You can customize this behavior with the `detectCredentials` prop.
 
-### Default Behavior
+#### Default Behavior
 
 With no configuration, GitHubAuth tries these sources in order:
 
@@ -135,7 +121,7 @@ With no configuration, GitHubAuth tries these sources in order:
 
 If either source provides valid credentials, authentication succeeds immediately. If neither is found, users see the manual OAuth/PAT interface.
 
-### Detection Sources
+#### Detection Sources
 
 | Source | Description |
 |--------|-------------|
@@ -144,7 +130,7 @@ If either source provides valid credentials, authentication succeeds immediately
 | `{ env: 'VAR_NAME' }` | Check a specific env var |
 | `{ block: 'block-id' }` | Use token from a Command block's output |
 
-### Custom Detection Order
+#### Custom Detection Order
 
 Check only environment variables:
 
@@ -164,7 +150,7 @@ Check a specific env var first, then standard locations:
 />
 ```
 
-### Disable Auto-Detection
+#### Disable Auto-Detection
 
 Force manual authentication only:
 
@@ -175,7 +161,7 @@ Force manual authentication only:
 />
 ```
 
-### From Command Output
+#### From Command Output
 
 Use a token generated by a previous Command block:
 
@@ -202,9 +188,60 @@ TOKEN=$(vault read -field=token secret/github)
 echo "GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-### Scope Validation
+## Permissions
 
-When detecting credentials from GitHub CLI, Runbooks also checks the token's scopes. If the `repo` scope is missing, a warning is displayed since some operations (private repos, issues, PRs) may fail.
+Once authenticated to GitHub, Runbooks will update the environment variables `GITHUB_TOKEN` and `GITHUB_USER` with the authenticated user's token and username. GitHub tokens have permissions that control what actions they can perform. The way permissions are configured depends on the authentication method:
+
+| Method | How Permissions Are Set |
+|--------|------------------------|
+| **Environment Variable** | Permissions are inherited from however the token was originally created |
+| **GitHub CLI** | Permissions are inherited from `gh auth login`; Runbooks warns if `repo` scope is missing |
+| **OAuth** | Runbook author specifies OAuth scopes via `oauthScopes` prop; user approves on GitHub |
+| **Personal Access Token (PAT)** | User configures permissions when creating the token on GitHub |
+
+### OAuth Scopes
+
+When users authenticate via OAuth, the `oauthScopes` prop controls what permissions are requested. Users see these scopes on GitHub's authorization page and must approve them.
+
+The default is `["repo"]`, which grants full read/write access to repositories. Consider requesting fewer permissions if your runbook has limited needs:
+
+| Scope | Description |
+|-------|-------------|
+| `repo` | Full access to private and public repositories (default) |
+| `public_repo` | Access to public repositories only |
+| `repo:status` | Read/write commit status (useful for CI) |
+| `read:org` | Read organization membership |
+
+For a complete list, see [GitHub's OAuth scopes documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Limited GitHub Access"
+  oauthScopes={["public_repo", "read:org"]}
+/>
+```
+
+<Aside type="caution">
+OAuth permissions are coarse-grained, and the minimum viable OAuth scope that Runbooks can use is `repo`, which grants full read/write access to all repositories and is still quite permissive. If you want to narrow down the permissions, consider defining a fine-grained token and using it as an environment variable, or manually entering it into the UI.
+</Aside>
+
+### Personal Access Tokens
+
+When users authenticate with a PAT, the token's permissions are determined by how the user created it on GitHub. Runbook authors cannot control PAT permissions.
+
+- **Classic PATs** use the same scope system as OAuth (e.g., `repo`, `read:org`)
+- **Fine-grained PATs** offer more granular control per-repository
+
+If your runbook requires specific permissions, document them clearly so users know what to configure when creating their PAT.
+
+### Auto-detected credentials
+
+When GitHubAuth detects credentials from environment variables or GitHub CLI, those tokens retain whatever permissions they were originally created with. If a detected token lacks required permissions, operations may fail at runtime.
+
+<Aside type="note">
+When detecting credentials from GitHub CLI, Runbooks checks if the token has the `repo` scope and displays a warning if it's missing, since many common operations require it.
+</Aside>
 
 ## Security
 
@@ -266,27 +303,3 @@ After authenticating, you can verify and manage the authorization at:
 - https://github.com/settings/tokens - See active tokens (for PAT auth)
 
 You can revoke access at any time from these pages.
-
-## Example: Clone and Work with Repository
-
-~~~mdx
-<GitHubAuth id="gh-auth" />
-
-<Inputs id="repo-config">
-```yaml
-repo_url:
-  name: Repository URL
-  type: string
-  description: HTTPS URL of the repository to clone
-  default: https://github.com/gruntwork-io/runbooks.git
-```
-</Inputs>
-
-<Command
-  id="clone-repo"
-  githubAuthId="gh-auth"
-  inputsId="repo-config"
-  title="Clone Repository"
-  command="git clone {{ .repo_url }}"
-/>
-~~~
