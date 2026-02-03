@@ -46,6 +46,6 @@ If the test has integration tests because it has third-party dependencies, skip 
 
 # Creating new blocks
 
-Whenever you're defining a new block, be sure to add not only the frontend/backedn code for the block itself, but also docs, automated tests, and support in the runbooks testing framework.
+Whenever you're defining a new block, be sure to add not only the frontend/backend code for the block itself, but also docs, automated tests, and support in the runbooks testing framework.
 
 For the Runbooks testing framework, `runbooks init` should detect the new block, and `runbooks test` should take thoughtful steps when the block is executed.

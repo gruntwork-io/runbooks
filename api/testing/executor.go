@@ -63,9 +63,20 @@ func isAuthBlock(blockType string) bool {
 	return false
 }
 
+// authBlockRefPropNameOverrides maps block types to their prop name prefixes
+// for cases where the standard lowercaseFirst convention doesn't apply.
+// For example, "GitHubAuth" uses "githubAuthId" (not "gitHubAuthId").
+var authBlockRefPropNameOverrides = map[BlockType]string{
+	BlockTypeGitHubAuth: "githubAuthId",
+}
+
 // authBlockRefPropName returns the prop name used to reference an auth block.
 // Convention: lowercaseFirst(blockType) + "Id" (e.g., "AwsAuth" -> "awsAuthId")
+// Some block types have special-cased names (e.g., "GitHubAuth" -> "githubAuthId").
 func authBlockRefPropName(blockType BlockType) string {
+	if override, ok := authBlockRefPropNameOverrides[blockType]; ok {
+		return override
+	}
 	return lowercaseFirst(string(blockType)) + "Id"
 }
 
