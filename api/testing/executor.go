@@ -346,8 +346,15 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 	return blocks, nil
 }
 
-// parseAuthDependencies extracts auth dependencies from blocks that reference auth blocks.
-// Returns a map of blockID -> AuthDependency.
+// parseAuthDependencies scans a runbook for blocks that depend on auth blocks.
+//
+// It looks for Check/Command blocks with props like:
+//
+//	<Command id="deploy" awsAuthId="aws-creds" ... />
+//	<Check id="verify" githubAuthId="gh-auth" ... />
+//
+// Returns a map of blockID -> AuthDependency for use during test execution.
+// When an auth block is skipped, its dependent blocks are also skipped.
 func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error) {
 	content, err := os.ReadFile(runbookPath)
 	if err != nil {
@@ -357,7 +364,7 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 	deps := make(map[string]AuthDependency)
 	contentStr := string(content)
 
-	// Find blocks with auth dependency props
+	// Scan block types that can have auth dependencies (Check, Command)
 	for _, blockType := range authBlockDependentTypes {
 		re := api.GetComponentRegex(string(blockType))
 		matches := re.FindAllStringSubmatch(contentStr, -1)
@@ -368,22 +375,23 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 			}
 			props := match[1]
 
-			// Extract block ID
 			blockID := extractMDXPropValue(props, "id")
 			if blockID == "" {
 				continue
 			}
 
-			// Check each auth block type's reference prop name
+			// Check if this block references any auth block via props like:
+			//   awsAuthId="my-aws-auth"
+			//   githubAuthId="my-github-auth"
 			for _, authType := range authBlockTypes {
-				propName := authBlockRefPropName(authType)
+				propName := authBlockRefPropName(authType) // e.g., "awsAuthId"
 				if authID := extractMDXPropValue(props, propName); authID != "" {
 					deps[blockID] = AuthDependency{
 						BlockID:       blockID,
 						AuthBlockID:   authID,
 						AuthBlockType: authType,
 					}
-					break
+					break // A block can only depend on one auth block
 				}
 			}
 		}
