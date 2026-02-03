@@ -21,7 +21,7 @@ var testInitCmd = &cobra.Command{
 	Long: `Generate a runbook_test.yml file for a runbook based on its structure.
 
 This command analyzes the runbook's MDX file to discover Check, Command, Template,
-TemplateInline, Inputs, and AwsAuth blocks, then generates a test configuration
+TemplateInline, Inputs, AwsAuth, and GitHubAuth blocks, then generates a test configuration
 file with reasonable defaults.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestInit,
@@ -285,6 +285,23 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 				blocks = append(blocks, blockInfo{
 					ID:       id,
 					Type:     "AwsAuth",
+					Position: match[0],
+				})
+			}
+		}
+	}
+
+	// Parse GitHubAuth blocks with positions
+	githubAuthRe := regexp.MustCompile(`<GitHubAuth\s+([^>]*(?:"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[^>])*)(?:/>|>)`)
+	for _, match := range githubAuthRe.FindAllStringSubmatchIndex(contentStr, -1) {
+		if len(match) >= 4 {
+			props := contentStr[match[2]:match[3]]
+			id := extractPropValue(props, "id")
+			if id != "" && !seen[id] {
+				seen[id] = true
+				blocks = append(blocks, blockInfo{
+					ID:       id,
+					Type:     "GitHubAuth",
 					Position: match[0],
 				})
 			}
@@ -631,6 +648,11 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
 			sb.WriteString("      #   # Set expect: skip if not testing AWS auth\n")
 			sb.WriteString("      #   # Or ensure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set\n")
+			sb.WriteString("      #   expect: skip\n\n")
+		case "GitHubAuth":
+			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
+			sb.WriteString("      #   # Set expect: skip if not testing GitHub auth\n")
+			sb.WriteString("      #   # Or set RUNBOOKS_GITHUB_TOKEN env var\n")
 			sb.WriteString("      #   expect: skip\n\n")
 		// Inputs blocks are not executable, so don't add them to steps
 		}

@@ -16,6 +16,14 @@ import (
 	"runbooks/api"
 )
 
+// AuthBlockState represents the state of an auth block after execution.
+type AuthBlockState string
+
+const (
+	AuthBlockStateSuccess AuthBlockState = "success" // Auth succeeded, credentials available
+	AuthBlockStateSkipped AuthBlockState = "skipped" // Auth skipped (no credentials, user requested skip)
+)
+
 // TestExecutor runs runbook tests in headless mode.
 type TestExecutor struct {
 	runbookPath string
@@ -41,6 +49,12 @@ type TestExecutor struct {
 
 	// Parsed Template blocks from the runbook
 	templates map[string]*TemplateBlock // blockID -> block info
+
+	// Track auth block states for dependency checking
+	authBlockStates map[string]AuthBlockState // authBlockID -> state
+
+	// Map of blocks that depend on auth blocks (extracted from githubAuthId/awsAuthId props)
+	authDependencies map[string]string // blockID -> authBlockID
 }
 
 // resolveOutputPath returns the absolute path to the output directory.
@@ -132,23 +146,31 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 		return nil, fmt.Errorf("failed to parse Template blocks: %w", err)
 	}
 
+	// Parse auth dependencies (blocks with githubAuthId/awsAuthId props)
+	authDependencies, err := parseAuthDependencies(runbookPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse auth dependencies: %w", err)
+	}
+
 	// Default outputPath to "generated"
 	if outputPath == "" {
 		outputPath = "generated"
 	}
 
 	e := &TestExecutor{
-		runbookPath:     runbookPath,
-		workingDir:      workingDir,
-		outputPath:      outputPath,
-		registry:        registry,
-		session:         session,
-		timeout:         5 * time.Minute,
-		verbose:         false,
-		validator:       validator,
-		blockOutputs:    make(map[string]map[string]string),
-		templateInlines: templateInlines,
-		templates:       templates,
+		runbookPath:      runbookPath,
+		workingDir:       workingDir,
+		outputPath:       outputPath,
+		registry:         registry,
+		session:          session,
+		timeout:          5 * time.Minute,
+		verbose:          false,
+		validator:        validator,
+		blockOutputs:     make(map[string]map[string]string),
+		templateInlines:  templateInlines,
+		templates:        templates,
+		authBlockStates:  make(map[string]AuthBlockState),
+		authDependencies: authDependencies,
 	}
 
 	for _, opt := range opts {
@@ -241,6 +263,47 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 	return blocks, nil
 }
 
+// parseAuthDependencies extracts auth dependencies from blocks that have githubAuthId or awsAuthId props.
+// Returns a map of blockID -> authBlockID.
+func parseAuthDependencies(runbookPath string) (map[string]string, error) {
+	content, err := os.ReadFile(runbookPath)
+	if err != nil {
+		return nil, err
+	}
+
+	deps := make(map[string]string)
+	contentStr := string(content)
+
+	// Find all components with githubAuthId or awsAuthId props
+	// Match Check and Command blocks
+	for _, componentType := range []string{"Check", "Command"} {
+		re := api.GetComponentRegex(componentType)
+		matches := re.FindAllStringSubmatch(contentStr, -1)
+
+		for _, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			props := match[1]
+
+			// Extract block ID
+			blockID := extractMDXPropValue(props, "id")
+			if blockID == "" {
+				continue
+			}
+
+			// Check for auth dependencies
+			if githubAuthID := extractMDXPropValue(props, "githubAuthId"); githubAuthID != "" {
+				deps[blockID] = githubAuthID
+			} else if awsAuthID := extractMDXPropValue(props, "awsAuthId"); awsAuthID != "" {
+				deps[blockID] = awsAuthID
+			}
+		}
+	}
+
+	return deps, nil
+}
+
 // extractMDXPropValue extracts a prop value from an MDX props string
 func extractMDXPropValue(props, propName string) string {
 	patterns := []string{
@@ -325,6 +388,16 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	result := TestResult{
 		TestCase: tc.Name,
 		Status:   TestPassed,
+	}
+
+	// 0. Check for unknown component errors (before doing anything else)
+	for _, err := range e.validator.GetConfigErrors() {
+		if err.ComponentID == "(unknown)" {
+			result.Status = TestFailed
+			result.Error = fmt.Sprintf("<%s>: %s", err.ComponentType, err.Message)
+			result.Duration = time.Since(start)
+			return result
+		}
 	}
 
 	// 1. Generate test values from fuzz specs/literals (upfront, before any block processing)
@@ -535,7 +608,52 @@ func (e *TestExecutor) processBlock(
 		return result
 	}
 
-	// 5. Execute the block
+	// 5. Check auth dependencies before executing
+	if authBlockID, hasAuthDep := e.authDependencies[comp.ID]; hasAuthDep {
+		authState, authExecuted := e.authBlockStates[authBlockID]
+		if !authExecuted {
+			// Auth block hasn't been executed yet
+			result.Passed = false
+			result.ActualStatus = "blocked"
+			result.Error = fmt.Sprintf("block depends on %q which hasn't been executed yet", authBlockID)
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("--- Result: ✗ blocked ---\n")
+				fmt.Printf("  Error: %s\n", result.Error)
+			}
+			return result
+		}
+
+		if authState == AuthBlockStateSkipped {
+			// Auth block was skipped - this block can't run unless explicitly skipped
+			if step.Expect == StatusSkip {
+				result.Passed = true
+				result.ActualStatus = "skipped"
+				result.Duration = time.Since(start)
+				if e.verbose {
+					fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+					fmt.Println("  (skipped - auth dependency not available)")
+				}
+				return result
+			}
+
+			// User didn't explicitly skip, so this is an error
+			result.Passed = false
+			result.ActualStatus = "blocked"
+			result.Error = fmt.Sprintf("block depends on %q which was skipped (no credentials available). "+
+				"Either provide credentials or set 'expect: skip' for this block", authBlockID)
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("\n=== %s: %s ===\n", comp.Type, comp.ID)
+				fmt.Printf("--- Result: ✗ blocked ---\n")
+				fmt.Printf("  Error: %s\n", result.Error)
+			}
+			return result
+		}
+	}
+
+	// 6. Execute the block
 	return e.executeBlockForComponent(comp, step, start)
 }
 
@@ -549,12 +667,12 @@ func (e *TestExecutor) getConfigErrorForComponent(comp api.ParsedComponent, regi
 			return warning
 		}
 		return e.validator.GetConfigError(comp.Type, comp.ID)
-	case "Inputs", "Template", "TemplateInline":
-		// For Inputs/Template/TemplateInline, get errors from InputValidator
+	case "Inputs", "Template", "TemplateInline", "AwsAuth", "GitHubAuth":
+		// For these types, get errors from InputValidator
 		return e.validator.GetConfigError(comp.Type, comp.ID)
 	default:
-		// Unknown component type
-		return fmt.Sprintf("unsupported component type %q", comp.Type)
+		// Unknown block type - this is a configuration error
+		return fmt.Sprintf("unknown block type %q is not supported by runbooks test", comp.Type)
 	}
 }
 
@@ -578,6 +696,10 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 		result.Duration = time.Since(start)
 		if e.verbose {
 			fmt.Println("  (skipped)")
+		}
+		// For auth blocks, record the skipped state so dependent blocks know
+		if comp.Type == "GitHubAuth" || comp.Type == "AwsAuth" {
+			e.authBlockStates[comp.ID] = AuthBlockStateSkipped
 		}
 		return result
 	}
@@ -686,10 +808,16 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 		result.Duration = time.Since(start)
 		return result
 
+	case "GitHubAuth":
+		return e.executeGitHubAuth(comp, step, start)
+
+	case "AwsAuth":
+		return e.executeAwsAuth(comp, step, start)
+
 	default:
 		result.Passed = false
 		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("unsupported component type %q for execution", comp.Type)
+		result.Error = fmt.Sprintf("unsupported block type %q for execution", comp.Type)
 		result.Duration = time.Since(start)
 		return result
 	}
@@ -871,6 +999,151 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 			for _, f := range generatedFiles {
 				fmt.Printf("  %s\n", f)
 			}
+		}
+		fmt.Printf("--- Result: ✓ success ---\n")
+	}
+
+	return result
+}
+
+// DefaultGitHubAuthEnvVar is the default environment variable for GitHub tokens in tests.
+// Using RUNBOOKS_GITHUB_TOKEN instead of GITHUB_TOKEN prevents accidentally using
+// credentials from an authenticated session when running tests.
+const DefaultGitHubAuthEnvVar = "RUNBOOKS_GITHUB_TOKEN"
+
+// executeGitHubAuth handles GitHubAuth block execution in test mode.
+// It looks for RUNBOOKS_GITHUB_TOKEN (or custom env var) and injects it into the session.
+// If no token is found, the block is marked as skipped.
+func (e *TestExecutor) executeGitHubAuth(comp api.ParsedComponent, step TestStep, start time.Time) StepResult {
+	result := StepResult{
+		Block:          fmt.Sprintf("gitHubAuth:%s", comp.ID),
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// Check for custom env var from component props, otherwise use default
+	envVarName := api.ExtractProp(comp.Props, "testEnvVar")
+	if envVarName == "" {
+		envVarName = DefaultGitHubAuthEnvVar
+	}
+
+	token := os.Getenv(envVarName)
+
+	if e.verbose {
+		fmt.Printf("\n=== GitHubAuth: %s ===\n", comp.ID)
+	}
+
+	if token == "" {
+		// No token found - skip this block
+		if e.verbose {
+			fmt.Printf("--- No credentials found ---\n")
+			fmt.Printf("  Checked: %s\n", envVarName)
+			fmt.Printf("--- Result: skipped (no credentials) ---\n")
+		}
+
+		e.authBlockStates[comp.ID] = AuthBlockStateSkipped
+		result.ActualStatus = "skipped"
+
+		// If user explicitly expects skip, that's a pass
+		if step.Expect == StatusSkip {
+			result.Passed = true
+		} else {
+			// Otherwise, it's also a pass but we'll mark as skipped
+			// Downstream blocks will fail if they depend on this
+			result.Passed = true
+		}
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Token found - inject into session
+	envVars := map[string]string{
+		"GITHUB_TOKEN": token,
+	}
+	if err := e.session.AppendToEnv(envVars); err != nil {
+		result.Passed = false
+		result.ActualStatus = "error"
+		result.Error = fmt.Sprintf("failed to inject GitHub credentials: %v", err)
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Printf("--- Result: ✗ error ---\n")
+			fmt.Printf("  Error: %s\n", result.Error)
+		}
+		return result
+	}
+
+	// Success
+	e.authBlockStates[comp.ID] = AuthBlockStateSuccess
+	result.ActualStatus = "success"
+	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
+	result.Duration = time.Since(start)
+
+	if e.verbose {
+		fmt.Printf("--- Credentials found: %s ---\n", envVarName)
+		fmt.Printf("  Injected GITHUB_TOKEN into session\n")
+		fmt.Printf("--- Result: ✓ success ---\n")
+	}
+
+	return result
+}
+
+// executeAwsAuth handles AwsAuth block execution in test mode.
+// It looks for standard AWS credential environment variables and validates they exist.
+// If no credentials are found, the block is marked as skipped.
+func (e *TestExecutor) executeAwsAuth(comp api.ParsedComponent, step TestStep, start time.Time) StepResult {
+	result := StepResult{
+		Block:          fmt.Sprintf("awsAuth:%s", comp.ID),
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	if e.verbose {
+		fmt.Printf("\n=== AwsAuth: %s ===\n", comp.ID)
+	}
+
+	// Check for AWS credentials
+	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+
+	// Also check for AWS_PROFILE or AWS_ROLE_ARN as alternative auth methods
+	awsProfile := os.Getenv("AWS_PROFILE")
+	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
+
+	hasCredentials := (accessKeyID != "" && secretAccessKey != "") || awsProfile != "" || awsRoleArn != ""
+
+	if !hasCredentials {
+		// No credentials found - skip this block
+		if e.verbose {
+			fmt.Printf("--- No credentials found ---\n")
+			fmt.Printf("  Checked: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n")
+			fmt.Printf("  Checked: AWS_PROFILE\n")
+			fmt.Printf("  Checked: AWS_ROLE_ARN\n")
+			fmt.Printf("--- Result: skipped (no credentials) ---\n")
+		}
+
+		e.authBlockStates[comp.ID] = AuthBlockStateSkipped
+		result.ActualStatus = "skipped"
+		result.Passed = true // Skip is always a pass for auth blocks
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Credentials found - they're already in the environment, just mark success
+	e.authBlockStates[comp.ID] = AuthBlockStateSuccess
+	result.ActualStatus = "success"
+	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
+	result.Duration = time.Since(start)
+
+	if e.verbose {
+		fmt.Printf("--- AWS credentials found ---\n")
+		if accessKeyID != "" {
+			fmt.Printf("  AWS_ACCESS_KEY_ID: %s...%s\n", accessKeyID[:4], accessKeyID[len(accessKeyID)-4:])
+		}
+		if awsProfile != "" {
+			fmt.Printf("  AWS_PROFILE: %s\n", awsProfile)
+		}
+		if awsRoleArn != "" {
+			fmt.Printf("  AWS_ROLE_ARN: %s\n", awsRoleArn)
 		}
 		fmt.Printf("--- Result: ✓ success ---\n")
 	}

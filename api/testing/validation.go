@@ -304,6 +304,18 @@ func NewInputValidator(runbookPath string) (*InputValidator, error) {
 	return v, nil
 }
 
+// KnownBlockTypes is the set of block types recognized by runbooks test.
+// Any block not in this set will be reported as an error.
+var KnownBlockTypes = map[string]bool{
+	"Check":          true,
+	"Command":        true,
+	"Inputs":         true,
+	"Template":       true,
+	"TemplateInline": true,
+	"AwsAuth":        true,
+	"GitHubAuth":     true,
+}
+
 // parseAndValidateComponents discovers and parses all component blocks in the runbook.
 func (v *InputValidator) parseAndValidateComponents() error {
 	content, err := os.ReadFile(v.runbookPath)
@@ -313,6 +325,9 @@ func (v *InputValidator) parseAndValidateComponents() error {
 
 	runbookDir := filepath.Dir(v.runbookPath)
 	contentStr := string(content)
+
+	// First, detect any unknown block types
+	v.detectUnknownBlocks(contentStr)
 
 	// Collect all components
 	var allComponents []api.ParsedComponent
@@ -332,11 +347,103 @@ func (v *InputValidator) parseAndValidateComponents() error {
 	// Parse and validate TemplateInline blocks
 	allComponents = append(allComponents, v.parseAndValidateTemplateInlineBlocks(contentStr)...)
 
+	// Parse and validate AwsAuth blocks
+	allComponents = append(allComponents, v.parseAndValidateAuthBlocks(contentStr, "AwsAuth")...)
+
+	// Parse and validate GitHubAuth blocks
+	allComponents = append(allComponents, v.parseAndValidateAuthBlocks(contentStr, "GitHubAuth")...)
+
 	// Sort by document position
 	sortComponentsByPosition(allComponents)
 
 	v.components = allComponents
 	return nil
+}
+
+// detectUnknownBlocks scans the content for block-like tags and reports
+// any that are not in the KnownBlockTypes set.
+func (v *InputValidator) detectUnknownBlocks(contentStr string) {
+	// Find fenced code block ranges to skip (same as ParseComponents does)
+	codeBlockRanges := findFencedCodeBlockRanges(contentStr)
+
+	// Regex to find PascalCase block tags: <BlockName followed by whitespace or />
+	// This matches the MDX convention (PascalCase = custom block, lowercase = HTML)
+	blockRe := regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)(?:\s|/>|>)`)
+	matches := blockRe.FindAllStringSubmatchIndex(contentStr, -1)
+
+	seen := make(map[string]bool)
+	for _, match := range matches {
+		// Skip if inside a fenced code block
+		if isInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			continue
+		}
+
+		blockType := contentStr[match[2]:match[3]]
+
+		// Skip if already seen or known
+		if seen[blockType] || KnownBlockTypes[blockType] {
+			continue
+		}
+		seen[blockType] = true
+
+		// Report unknown block type
+		v.configErrors = append(v.configErrors, ConfigError{
+			ComponentType: blockType,
+			ComponentID:   "(unknown)",
+			Message:       fmt.Sprintf("unknown block type %q is not supported by runbooks test", blockType),
+		})
+	}
+}
+
+// findFencedCodeBlockRanges finds all fenced code block ranges in the content.
+// Returns a slice of [start, end] pairs representing positions inside code blocks.
+func findFencedCodeBlockRanges(content string) [][2]int {
+	var ranges [][2]int
+	fenceRe := regexp.MustCompile("(?m)^```")
+	matches := fenceRe.FindAllStringIndex(content, -1)
+
+	for i := 0; i+1 < len(matches); i += 2 {
+		openStart := matches[i][0]
+		closeStart := matches[i+1][0]
+		closeEnd := len(content)
+		if nl := strings.IndexByte(content[closeStart:], '\n'); nl != -1 {
+			closeEnd = closeStart + nl + 1
+		}
+		ranges = append(ranges, [2]int{openStart, closeEnd})
+	}
+	return ranges
+}
+
+// isInsideFencedCodeBlock checks if a position is inside any fenced code block.
+func isInsideFencedCodeBlock(position int, codeBlockRanges [][2]int) bool {
+	for _, r := range codeBlockRanges {
+		if position >= r[0] && position < r[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// parseAndValidateAuthBlocks parses and validates AwsAuth or GitHubAuth blocks.
+func (v *InputValidator) parseAndValidateAuthBlocks(contentStr, componentType string) []api.ParsedComponent {
+	components := api.ParseComponents(contentStr, componentType)
+	var results []api.ParsedComponent
+
+	for _, comp := range components {
+		// Validate: id is required
+		if !comp.HasExplicitID {
+			v.configErrors = append(v.configErrors, ConfigError{
+				ComponentType: componentType,
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+			comp.ID = "(missing)"
+		}
+
+		results = append(results, comp)
+	}
+
+	return results
 }
 
 // parseAndValidateExecutableBlocks parses and validates Check or Command blocks.
