@@ -3,7 +3,7 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -67,6 +67,8 @@ function Check({
     hasAllOutputDependencies,
     unmetAwsAuthDependency,
     hasAwsAuthDependency,
+    unmetGitHubAuthDependency,
+    hasGitHubAuthDependency,
     isRendering,
     renderError,
     status: checkStatus,
@@ -317,7 +319,8 @@ function Check({
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies ||
-    !hasAwsAuthDependency;
+    !hasAwsAuthDependency ||
+    !hasGitHubAuthDependency;
 
   // Main render - form with success indicator overlay if needed
   return (
@@ -406,6 +409,11 @@ function Check({
           {/* Show unmet AWS auth dependency */}
           {hasAllInputDependencies && hasAllOutputDependencies && (
             <UnmetAwsAuthDependencyWarning unmetAwsAuthDependency={unmetAwsAuthDependency} />
+          )}
+          
+          {/* Show unmet GitHub auth dependency */}
+          {hasAllInputDependencies && hasAllOutputDependencies && (
+            <UnmetGitHubAuthDependencyWarning unmetGitHubAuthDependency={unmetGitHubAuthDependency} />
           )}
           
           {renderError && hasAllOutputDependencies && (

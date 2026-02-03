@@ -72,9 +72,11 @@ All subsequent Command and Check blocks automatically have access to these crede
 
 ### Explicit Block References
 
-You can explicitly reference a GitHubAuth block using the `githubAuthId` prop. This is useful when:
-- You have multiple GitHubAuth blocks and need to use a specific one
-- You want to document the dependency clearly
+You can explicitly reference a GitHubAuth block using the `githubAuthId` prop. This provides several benefits:
+
+- **Prevents premature execution**: The Run/Check button is disabled until the referenced GitHubAuth block has valid credentials, preventing accidental execution without authentication
+- **Clear dependency**: Documents which authentication is required for each command
+- **Deterministic credentials**: When multiple GitHubAuth blocks exist, ensures the command uses the exact credentials you specify
 
 ```mdx
 <GitHubAuth
@@ -114,7 +116,7 @@ When you use `githubAuthId` to reference a GitHubAuth block, the credentials fro
 Without `githubAuthId`, blocks use whatever `GITHUB_TOKEN` is currently in the session environment (set by the most recent authentication).
 
 <Aside type="tip">
-Using `githubAuthId` is optional when you only have one GitHubAuth block, but it makes the dependency explicit and helps with automated testing. Therefore, we consider it a best practice.
+Using `githubAuthId` is recommended even when you only have one GitHubAuth block. It prevents users from accidentally running commands before authenticating, makes the dependency explicit in your runbook, and helps with automated testing.
 </Aside>
 
 ### Credential Detection
