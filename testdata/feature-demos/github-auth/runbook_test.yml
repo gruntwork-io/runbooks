@@ -19,12 +19,10 @@ tests:
     description: Standard successful execution
 
     inputs:
-      # repo_url: string
-      repo-config.repo_url:
-        fuzz:
-          type: string
-          minLength: 5
-          maxLength: 20
+      # repo_url: string - the repository to clone
+      repo-config.repo_url: "https://github.com/gruntwork-io/runbooks-test.git"
+      # clone_path: string - relative path within temp working directory
+      repo-config.clone_path: "./cloned-repo"
 
     steps:
       # Note: Order matters! Blocks that produce outputs must run before

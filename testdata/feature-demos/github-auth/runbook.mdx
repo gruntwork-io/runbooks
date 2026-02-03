@@ -32,6 +32,10 @@ variables:
     type: string
     description: HTTPS URL of the repository to clone
     default: https://github.com/gruntwork-io/runbooks.git
+  - name: clone_path
+    type: string
+    description: Local path to clone the repository into
+    default: ./cloned-repo
 ```
 </Inputs>
 
@@ -40,5 +44,5 @@ variables:
   githubAuthId="gh-auth"
   inputsId="repo-config"
   title="Clone Repository"
-  command="rm -rf /tmp/runbooks-demo && git clone {{ .repo_url }} /tmp/runbooks-demo"
+  command="rm -rf {{ .clone_path }} && git clone {{ .repo_url }} {{ .clone_path }}"
 />
