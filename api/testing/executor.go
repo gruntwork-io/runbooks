@@ -17,7 +17,11 @@ import (
 	"runbooks/api"
 )
 
-// AuthBlockState represents the state of an auth block after execution.
+// AuthBlockState represents the state of an authentication block after execution.
+//
+// "Auth block" is a collective term for authentication-related MDX components such as
+// they can either succeed (credentials available) or be skipped (no credentials),
+// and other blocks may depend on them via githubAuthId or awsAuthId props.
 type AuthBlockState string
 
 const (
@@ -51,11 +55,11 @@ type TestExecutor struct {
 	// Parsed Template blocks from the runbook
 	templates map[string]*TemplateBlock // blockID -> block info
 
-	// Track auth block states for dependency checking
+	// Track auth block (GitHubAuth, AwsAuth) states for dependency checking
 	authBlockStates map[string]AuthBlockState // authBlockID -> state
 
 	// Map of blocks that depend on auth blocks (extracted from githubAuthId/awsAuthId props)
-	authDependencies map[string]string // blockID -> authBlockID
+	authDependencies map[string]string // blockID -> authBlockID it depends on
 }
 
 // resolveOutputPath returns the absolute path to the output directory.
