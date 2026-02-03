@@ -70,7 +70,7 @@ When authentication succeeds, the following environment variables are set in the
 
 All subsequent Command and Check blocks automatically have access to these credentials. If you authenticate multiple times, the most recent credentials become the default.
 
-### Explicit References
+### Explicit Block References
 
 You can explicitly reference a GitHubAuth block using the `githubAuthId` prop. This is useful when:
 - You have multiple GitHubAuth blocks and need to use a specific one
@@ -245,61 +245,80 @@ When detecting credentials from GitHub CLI, Runbooks checks if the token has the
 
 ## Security
 
-### How OAuth Authentication Works
+### Principles
 
-When you authenticate via OAuth, GitHubAuth uses the [Device Authorization Grant](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow):
+The GitHubAuth block is designed with a local-first security model:
 
-1. Runbooks (on your machine) requests a device code from GitHub
+1. **Gruntwork never sees your credentials.** All authentication happens between your machine and GitHub. Tokens are never transmitted to Gruntwork servers.
+2. **Credentials stay in memory.** Tokens are stored only in your local Runbooks session and are never persisted to disk.
+
+### How Credentials Stay Local
+
+Each authentication method keeps your credentials on your machine:
+
+| Method | How It Works |
+|--------|-------------|
+| **Environment Variable** | Runbooks reads `GITHUB_TOKEN` from your local environment. The token never leaves your machine. |
+| **GitHub CLI** | Runbooks calls `gh auth token` locally. The token is retrieved from your CLI's secure storage and stays local. |
+| **OAuth** | Uses GitHub's [Device Authorization Grant](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow). GitHub sends the token directly to your local Runbooks instance—Gruntwork's servers are never involved. |
+| **Personal Access Token** | You paste the token into the local UI. It's sent directly to your local Runbooks server (localhost), never to any external server. |
+
+### OAuth Flow Details
+
+When you authenticate via OAuth:
+
+1. Runbooks (running on your machine) requests a device code from GitHub
 2. You open github.com/login/device and enter the code
 3. You see "Gruntwork Runbooks wants to access your account" and approve
-4. Your local Runbooks instance receives the token directly from GitHub
+4. GitHub sends the token directly to your local Runbooks instance
 
-Importantly, your token never passes through any Gruntwork server. It goes directly from GitHub to your local machine.
+The token goes from GitHub to your machine. Gruntwork has no server in this flow and cannot intercept your token.
 
-### Attack Vector Analysis
+### Threat Analysis
 
-#### 1. Malicious Runbook with Custom `oauthClientId`
+As part of our internal security practices, we've analyzed the potential risks of using the GitHubAuth block.
 
-**Scenario**: A malicious runbook author publishes a runbook with `oauthClientId="attacker-app-id"`.
+#### Malicious Runbook with Custom `oauthClientId`
+
+**Scenario**: An attacker publishes a runbook with `oauthClientId="attacker-app-id"`.
 
 **What happens**:
 - You see "Attacker's App" (not "Gruntwork Runbooks") on GitHub's authorization page
 - If you approve, the token still goes to YOUR local machine, not the attacker
 - The attacker registered an OAuth app but has no server receiving tokens
 
-**Risk**: Low. The attacker cannot intercept your token.
+**Risk**: None. The attacker cannot intercept your token because it goes directly from GitHub to your machine. The only effect is that "Attacker's App" appears in your GitHub authorized apps list, which you can revoke.
 
-**Impact**: Minimal. You authorized a differently-named app, but the attacker has no way to access your token.
+**Mitigation**: Despite no risk, this is still a potential indicator of suspicious activity, so Runbooks displays a warning when `oauthClientId` differs from the default. Always verify the app name on GitHub's authorization page before approving.
 
-**Mitigation**: Runbooks shows a warning when `oauthClientId` differs from the default. Always verify the app name on GitHub's authorization page matches what you expect.
+#### Malicious Runbook with Custom Base URL
 
-#### 2. Malicious Runbook with Custom Base URL
+**Scenario**: An attacker publishes a runbook that attempts to redirect OAuth to a fake GitHub login page (e.g., `oauthBaseUrl="https://github-login.attacker.com"`).
 
-**Risk**: None - this attack is blocked.
+**What happens**: Nothing. Runbooks does not allow `oauthBaseUrl` as a prop. GitHubAuth only communicates with github.com, so the attack fails before it starts.
 
-We do NOT allow `oauthBaseUrl` as a runbook prop. GitHubAuth only communicates with github.com. This prevents phishing attacks where a malicious runbook could redirect OAuth to a fake GitHub login page.
+**Risk**: None. This attack vector is blocked by design.
 
-#### 3. Scope Escalation via Runbook
+#### Scope Escalation
 
-**Scenario**: A runbook author sets `oauthScopes={["repo", "admin:org", "delete_repo"]}` requesting excessive permissions.
+**Scenario**: A runbook requests excessive permissions with `oauthScopes={["repo", "admin:org", "delete_repo"]}`.
 
-**What happens**: GitHub's authorization page shows all requested scopes. If you approve without reading carefully, you grant broader access than needed.
+**What happens**: Runbooks displays the requested scopes in the UI before you authenticate. GitHub's authorization page also displays all requested scopes. If you approve without reviewing either, you grant broader access than needed.
 
-**Risk**: Medium. Depends on user vigilance.
+**Risk**: Low. Both Runbooks and GitHub clearly display requested scopes, giving you two opportunities to review before granting access.
 
-**Mitigation**: Always review the scope list on GitHub's authorization page before approving. Default is `["repo"]` which is sufficient for most operations. Be suspicious of runbooks requesting `admin:*`, `delete_repo`, or `write:*` scopes.
+**Mitigation**: Review the scopes shown in Runbooks before clicking "Sign in with GitHub", and verify them again on GitHub's authorization page. Be suspicious of runbooks requesting `admin:*`, `delete_repo`, or `write:*` scopes beyond the default `repo`.
 
-### Security Best Practices
+### Managing Your Authorizations
 
-1. **Review the authorization page** - Verify it says "Gruntwork Runbooks" and shows expected scopes
-2. **Check runbook source** - Before running unfamiliar runbooks, review the GitHubAuth props
-3. **Use OAuth over PAT** - OAuth tokens can be scoped and are easier to revoke
-4. **Revoke unused authorizations** - Manage at github.com/settings/applications
+Since Gruntwork never has your tokens, revoking access doesn't "take back" anything from Gruntwork as there's nothing to take back. However, revoking at GitHub invalidates the token itself, which is useful if:
 
-### Verifying Your Authorization
+- You want to ensure the token in your local Runbooks session stops working
+- You're done with a runbook and want to clean up
+- You suspect a token may have been exposed
 
-After authenticating, you can verify and manage the authorization at:
-- https://github.com/settings/applications - See authorized OAuth apps
-- https://github.com/settings/tokens - See active tokens (for PAT auth)
+You can manage authorizations at:
+- [github.com/settings/applications](https://github.com/settings/applications) - Revoke OAuth authorizations
+- [github.com/settings/tokens](https://github.com/settings/tokens) - Revoke personal access tokens
 
-You can revoke access at any time from these pages.
+Alternatively, simply closing your Runbooks session discards any tokens stored locally.
