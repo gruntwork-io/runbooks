@@ -46,46 +46,34 @@ const (
 // Auth blocks are a subset of block types that provide credentials to dependent blocks.
 // When an auth block is skipped (no credentials available), dependent blocks are also skipped.
 
-// AuthBlockType identifies a type of authentication block.
-type AuthBlockType BlockType
-
-// Auth block types.
-const (
-	AuthBlockAWS    AuthBlockType = AuthBlockType(BlockTypeAwsAuth)
-	AuthBlockGitHub AuthBlockType = AuthBlockType(BlockTypeGitHubAuth)
-)
-
-// AuthBlock describes an authentication block type and how other blocks reference it.
-type AuthBlock struct {
-	Type              AuthBlockType // The block type (e.g., AuthBlockGitHub)
-	ReferencePropName string        // Prop name used by dependent blocks (e.g., "githubAuthId")
-}
-
-// authBlocks defines all auth block types and their metadata.
+// authBlockTypes lists block types that are authentication blocks.
 // Add new auth types here - the rest of the system uses this as the source of truth.
-var authBlocks = []AuthBlock{
-	{AuthBlockAWS, "awsAuthId"},
-	{AuthBlockGitHub, "githubAuthId"},
+var authBlockTypes = []BlockType{
+	BlockTypeAwsAuth,
+	BlockTypeGitHubAuth,
 }
 
 // isAuthBlock returns true if the block type is an authentication block.
 func isAuthBlock(blockType string) bool {
-	for _, ab := range authBlocks {
-		if string(ab.Type) == blockType {
+	for _, ab := range authBlockTypes {
+		if string(ab) == blockType {
 			return true
 		}
 	}
 	return false
 }
 
-// getAuthBlock returns the AuthBlock for a block type, or nil if not an auth block.
-func getAuthBlock(blockType string) *AuthBlock {
-	for i := range authBlocks {
-		if string(authBlocks[i].Type) == blockType {
-			return &authBlocks[i]
-		}
-	}
-	return nil
+// authBlockRefPropName returns the prop name used to reference an auth block.
+// Convention: lowercaseFirst(blockType) + "Id" (e.g., "AwsAuth" -> "awsAuthId")
+func authBlockRefPropName(blockType BlockType) string {
+	return lowercaseFirst(string(blockType)) + "Id"
+}
+
+// authBlockDependentTypes lists block types that can depend on auth blocks.
+// These are the block types that can have awsAuthId/githubAuthId props.
+var authBlockDependentTypes = []BlockType{
+	BlockTypeCheck,
+	BlockTypeCommand,
 }
 
 // =============================================================================
@@ -114,9 +102,9 @@ const (
 
 // AuthDependency represents a block's dependency on an auth block for credentials.
 type AuthDependency struct {
-	BlockID       string        // The block that has the dependency (e.g., "run-script")
-	AuthBlockID   string        // The auth block it depends on (e.g., "github-auth")
-	AuthBlockType AuthBlockType // The type of auth block (for error messages)
+	BlockID       string    // The block that has the dependency (e.g., "run-script")
+	AuthBlockID   string    // The auth block it depends on (e.g., "github-auth")
+	AuthBlockType BlockType // The type of auth block (for error messages)
 }
 
 // TestExecutor runs runbook tests in headless mode.
@@ -369,9 +357,9 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 	deps := make(map[string]AuthDependency)
 	contentStr := string(content)
 
-	// Find blocks with auth dependency props (Check and Command blocks)
-	for _, blockType := range []string{"Check", "Command"} {
-		re := api.GetComponentRegex(blockType)
+	// Find blocks with auth dependency props
+	for _, blockType := range authBlockDependentTypes {
+		re := api.GetComponentRegex(string(blockType))
 		matches := re.FindAllStringSubmatch(contentStr, -1)
 
 		for _, match := range matches {
@@ -387,12 +375,13 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 			}
 
 			// Check each auth block type's reference prop name
-			for _, ab := range authBlocks {
-				if authID := extractMDXPropValue(props, ab.ReferencePropName); authID != "" {
+			for _, authType := range authBlockTypes {
+				propName := authBlockRefPropName(authType)
+				if authID := extractMDXPropValue(props, propName); authID != "" {
 					deps[blockID] = AuthDependency{
 						BlockID:       blockID,
 						AuthBlockID:   authID,
-						AuthBlockType: ab.Type,
+						AuthBlockType: authType,
 					}
 					break
 				}
@@ -930,10 +919,10 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 		result.Duration = time.Since(start)
 		return result
 
-	case string(AuthBlockGitHub):
+	case string(BlockTypeGitHubAuth):
 		return e.executeGitHubAuth(block, step, start)
 
-	case string(AuthBlockAWS):
+	case string(BlockTypeAwsAuth):
 		return e.executeAwsAuth(block, step, start)
 
 	case string(BlockTypeAdmonition):
@@ -1148,7 +1137,7 @@ const DefaultGitHubAuthEnvVar = "RUNBOOKS_GITHUB_TOKEN"
 // If no token is found, the block is marked as skipped.
 func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
-		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(AuthBlockGitHub)), block.ID),
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(BlockTypeGitHubAuth)), block.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
@@ -1224,7 +1213,7 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 // If no credentials are found, the block is marked as skipped.
 func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
-		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(AuthBlockAWS)), block.ID),
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(BlockTypeAwsAuth)), block.ID),
 		ExpectedStatus: step.Expect,
 		Outputs:        make(map[string]string),
 	}
