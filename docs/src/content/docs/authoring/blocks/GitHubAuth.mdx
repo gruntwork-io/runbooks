@@ -99,8 +99,22 @@ You can explicitly reference a GitHubAuth block using the `githubAuthId` prop. T
 />
 ```
 
+#### How Environment Variables Work with References
+
+When a GitHubAuth block authenticates, it does two things:
+
+1. **Sets session-level environment variables** (`GITHUB_TOKEN`, `GITHUB_USER`) that are available to all subsequent blocks
+2. **Stores credentials** that can be passed to specific blocks via `githubAuthId`
+
+When you use `githubAuthId` to reference a GitHubAuth block, the credentials from that specific GitHubAuthblock are passed as environment variables that override any session-level values _for that block only_. This ensures the command uses the exact credentials from the referenced block, even if:
+- Multiple GitHubAuth blocks exist with different credentials
+- Session-level `GITHUB_TOKEN` was set by a different auth block
+- The user re-authenticated with different credentials later
+
+Without `githubAuthId`, blocks use whatever `GITHUB_TOKEN` is currently in the session environment (set by the most recent authentication).
+
 <Aside type="tip">
-Using `githubAuthId` is optional when you only have one GitHubAuth block, but it makes the dependency explicit and helps with automated testing.
+Using `githubAuthId` is optional when you only have one GitHubAuth block, but it makes the dependency explicit and helps with automated testing. Therefore, we consider it a best practice.
 </Aside>
 
 ### Credential Detection
