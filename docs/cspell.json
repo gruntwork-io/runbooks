@@ -38,7 +38,8 @@
     "ints",
     "countrycode",
     "templatize",
-    "parallelizable"
+    "parallelizable",
+    "yourcompany"
   ],
   "ignorePaths": [
     "node_modules",

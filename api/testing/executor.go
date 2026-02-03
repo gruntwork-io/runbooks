@@ -688,7 +688,7 @@ func (e *TestExecutor) getConfigErrorForComponent(comp api.ParsedComponent, regi
 			return warning
 		}
 		return e.validator.GetConfigError(comp.Type, comp.ID)
-	case "Inputs", "Template", "TemplateInline", "AwsAuth", "GitHubAuth":
+	case "Inputs", "Template", "TemplateInline", "AwsAuth", "GitHubAuth", "Admonition":
 		// For these types, get errors from InputValidator
 		return e.validator.GetConfigError(comp.Type, comp.ID)
 	default:
@@ -834,6 +834,16 @@ func (e *TestExecutor) executeBlockForComponent(comp api.ParsedComponent, step T
 
 	case "AwsAuth":
 		return e.executeAwsAuth(comp, step, start)
+
+	case "Admonition":
+		// Decorative block - just pass validation, no execution needed
+		result.Passed = true
+		result.ActualStatus = "success"
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Println("  (decorative block - no execution)")
+		}
+		return result
 
 	default:
 		result.Passed = false

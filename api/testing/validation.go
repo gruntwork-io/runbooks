@@ -314,6 +314,7 @@ var KnownBlockTypes = map[string]bool{
 	"TemplateInline": true,
 	"AwsAuth":        true,
 	"GitHubAuth":     true,
+	"Admonition":     true, // Decorative block - validated but not executed
 }
 
 // parseAndValidateComponents discovers and parses all component blocks in the runbook.
