@@ -134,7 +134,7 @@ export function useGitHubAuth({
   }, [])
 
   // Try to detect credentials from environment variables
-  const tryEnvCredentials = useCallback(async (options?: { envVar?: string }): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string; foundButInvalid?: boolean }> => {
+  const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string; foundButInvalid?: boolean }> => {
     try {
       const response = await fetch('/api/github/env-credentials', {
         method: 'POST',
@@ -143,7 +143,8 @@ export function useGitHubAuth({
           ...getAuthHeader(),
         },
         body: JSON.stringify({
-          envVar: options?.envVar || '',
+          envVar: '',
+          prefix: options?.prefix || '',
           githubAuthId: id,
         })
       })
@@ -253,6 +254,31 @@ export function useGitHubAuth({
             warnings.push('GITHUB_TOKEN is invalid or expired')
           }
         }
+        // Check for { env: { prefix: 'PREFIX_' } } - prefixed env vars
+        else if (typeof source === 'object' && 'env' in source && typeof source.env === 'object' && 'prefix' in source.env) {
+          const prefix = source.env.prefix
+          const result = await tryEnvCredentials({ prefix })
+          if (result.success && result.user) {
+            setDetectionSource('env')
+            setAuthStatus('authenticated')
+            setUserInfo(result.user)
+            if (result.tokenType) {
+              setDetectedTokenType(result.tokenType)
+            }
+            if (result.scopes && result.scopes.length > 0) {
+              setDetectedScopes(result.scopes)
+              if (!result.scopes.includes('repo')) {
+                setScopeWarning('Missing "repo" scope - some operations may fail')
+              }
+            }
+            setDetectionStatus('done')
+            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            return
+          }
+          if (result.foundButInvalid) {
+            warnings.push(`${prefix}GITHUB_TOKEN is invalid or expired`)
+          }
+        }
         // Check for 'cli' - GitHub CLI
         else if (source === 'cli') {
           const result = await tryCliCredentials()
@@ -289,30 +315,6 @@ export function useGitHubAuth({
             setWaitingForBlockId(source.block)
             // Don't set detectionStatus to 'done' yet - wait for block
             return
-          }
-        }
-        // Check for { env: 'VAR_NAME' } - specific env var
-        else if ('env' in source) {
-          const result = await tryEnvCredentials({ envVar: source.env })
-          if (result.success && result.user) {
-            setDetectionSource('env')
-            setAuthStatus('authenticated')
-            setUserInfo(result.user)
-            if (result.tokenType) {
-              setDetectedTokenType(result.tokenType)
-            }
-            if (result.scopes && result.scopes.length > 0) {
-              setDetectedScopes(result.scopes)
-              if (!result.scopes.includes('repo')) {
-                setScopeWarning('Missing "repo" scope - some operations may fail')
-              }
-            }
-            setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
-            return
-          }
-          if (result.foundButInvalid) {
-            warnings.push(`${source.env} is invalid or expired`)
           }
         }
       }

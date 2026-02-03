@@ -39,7 +39,7 @@ The GitHubAuth block supports multiple authentication sources:
 
 | Method | Description | 
 |--------|-------------|
-| **Environment Variable** | Auto-detected from `GITHUB_TOKEN`, `GH_TOKEN`, or a user-specified value |
+| **Environment Variable** | Auto-detected from `GITHUB_TOKEN` or `GH_TOKEN` |
 | **GitHub CLI** | Auto-detected from `gh auth token` |
 | **OAuth** | Sign in via GitHub's device authorization flow (recommended) |
 | **Personal Access Token** | Enter a PAT (classic or fine-grained) directly in the UI | 
@@ -140,8 +140,8 @@ If either source provides valid credentials, authentication succeeds immediately
 | Source | Description |
 |--------|-------------|
 | `'env'` | Check standard env vars (`GITHUB_TOKEN`, `GH_TOKEN`) |
+| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_GITHUB_TOKEN`, `PREFIX_GH_TOKEN`) |
 | `'cli'` | Check GitHub CLI (`gh auth token`) |
-| `{ env: 'VAR_NAME' }` | Check a specific env var |
 | `{ block: 'block-id' }` | Use token from a Command block's output |
 
 #### Custom Detection Order
@@ -155,14 +155,20 @@ Check only environment variables:
 />
 ```
 
-Check a specific env var first, then standard locations:
+Check prefixed environment variables (e.g., `PROD_GITHUB_TOKEN`):
 
 ```mdx
 <GitHubAuth
   id="gh-auth"
-  detectCredentials={[{ env: 'MY_GITHUB_TOKEN' }, 'env', 'cli']}
+  detectCredentials={[{ env: { prefix: 'PROD_' } }, 'cli']}
 />
 ```
+
+**Prefix rules (security):**
+- Uppercase letters, numbers, and underscores only
+- Must start with a letter
+- Optional trailing underscore (recommended for readability)
+- Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN`
 
 #### Disable Auto-Detection
 

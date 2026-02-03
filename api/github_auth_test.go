@@ -349,3 +349,91 @@ func TestGitHubCliCredentialsResponseMethods(t *testing.T) {
 		}
 	})
 }
+
+// TestIsAllowedGitHubEnvVar verifies the env var name validation.
+func TestIsAllowedGitHubEnvVar(t *testing.T) {
+	tests := []struct {
+		name     string
+		envVar   string
+		expected bool
+	}{
+		// Valid cases
+		{"GITHUB_TOKEN is allowed", "GITHUB_TOKEN", true},
+		{"GH_TOKEN is allowed", "GH_TOKEN", true},
+		{"prefixed GITHUB_TOKEN is allowed", "MY_GITHUB_TOKEN", true},
+		{"prefixed GH_TOKEN is allowed", "MY_GH_TOKEN", true},
+		{"multiple prefix parts allowed", "MY_APP_GITHUB_TOKEN", true},
+		{"numeric prefix allowed", "APP2_GITHUB_TOKEN", true},
+		{"underscore in prefix allowed", "MY_APP_2_GITHUB_TOKEN", true},
+
+		// Invalid cases - arbitrary env vars
+		{"empty string rejected", "", false},
+		{"PATH rejected", "PATH", false},
+		{"HOME rejected", "HOME", false},
+		{"AWS_SECRET_ACCESS_KEY rejected", "AWS_SECRET_ACCESS_KEY", false},
+		{"DATABASE_PASSWORD rejected", "DATABASE_PASSWORD", false},
+		{"API_KEY rejected", "API_KEY", false},
+
+		// Invalid cases - similar but not matching pattern
+		{"lowercase github_token rejected", "github_token", false},
+		{"lowercase gh_token rejected", "gh_token", false},
+		{"GITHUB_TOKEN with suffix rejected", "GITHUB_TOKEN_OLD", false},
+		{"GH_TOKEN with suffix rejected", "GH_TOKEN_BACKUP", false},
+		{"partial match rejected", "MY_GITHUB", false},
+		{"TOKEN alone rejected", "TOKEN", false},
+		{"GITHUB alone rejected", "GITHUB", false},
+
+		// Edge cases
+		{"lowercase prefix rejected", "my_GITHUB_TOKEN", false},
+		{"mixed case prefix rejected", "My_GITHUB_TOKEN", false},
+		{"leading underscore rejected", "_GITHUB_TOKEN", false},
+		{"double underscore allowed", "MY__GITHUB_TOKEN", true}, // Unusual but valid naming, still secure
+		{"space in name rejected", "MY GITHUB_TOKEN", false},
+		{"special chars rejected", "MY-GITHUB_TOKEN", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isAllowedGitHubEnvVar(tc.envVar)
+			if result != tc.expected {
+				t.Errorf("isAllowedGitHubEnvVar(%q) = %v, want %v", tc.envVar, result, tc.expected)
+			}
+		})
+	}
+}
+
+// TestIsValidEnvVarPrefix verifies the prefix validation.
+func TestIsValidEnvVarPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		prefix   string
+		expected bool
+	}{
+		// Valid cases
+		{"empty prefix is valid", "", true},
+		{"simple prefix with underscore", "MY_", true},
+		{"prefix without trailing underscore", "MY", true},
+		{"multi-part prefix", "MY_APP_", true},
+		{"prefix with numbers", "APP2_", true},
+		{"all caps no underscore", "MYAPP", true},
+		{"single letter", "M", true},
+
+		// Invalid cases
+		{"lowercase rejected", "my_", false},
+		{"mixed case rejected", "My_", false},
+		{"leading underscore rejected", "_MY", false},
+		{"starts with number rejected", "2APP_", false},
+		{"special chars rejected", "MY-APP_", false},
+		{"space rejected", "MY APP_", false},
+		{"dot rejected", "MY.APP_", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isValidEnvVarPrefix(tc.prefix)
+			if result != tc.expected {
+				t.Errorf("isValidEnvVarPrefix(%q) = %v, want %v", tc.prefix, result, tc.expected)
+			}
+		})
+	}
+}

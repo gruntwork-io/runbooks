@@ -294,6 +294,42 @@ func HandleGitHubOAuthPoll() gin.HandlerFunc {
 	}
 }
 
+// isAllowedGitHubEnvVar validates that an environment variable name is a permitted
+// GitHub token variable for the default detection path. This prevents arbitrary
+// env var probing when no specific envVar is requested.
+// Allowed patterns:
+//   - Exactly "GITHUB_TOKEN" or "GH_TOKEN"
+//   - Prefixed variants like "PREFIX_GITHUB_TOKEN" or "MY_GH_TOKEN"
+//
+// The prefix must be uppercase letters, digits, or underscores, and the full name
+// must end with either "GITHUB_TOKEN" or "GH_TOKEN".
+func isAllowedGitHubEnvVar(name string) bool {
+	if name == "" {
+		return false
+	}
+	// Exact matches for standard names
+	if name == "GITHUB_TOKEN" || name == "GH_TOKEN" {
+		return true
+	}
+	// Check for prefixed variants - must end with _GITHUB_TOKEN or _GH_TOKEN
+	// and prefix must be valid (uppercase alphanumeric + underscore)
+	validPrefixPattern := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(GITHUB_TOKEN|GH_TOKEN)$`)
+	return validPrefixPattern.MatchString(name)
+}
+
+// isValidEnvVarPrefix validates that a prefix is safe to use when constructing
+// environment variable names. Must be empty or contain only uppercase letters,
+// digits, and underscores, optionally ending with underscore.
+func isValidEnvVarPrefix(prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	// Prefix must be uppercase alphanumeric with underscores
+	// If non-empty, should typically end with underscore for clean naming
+	validPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
+	return validPrefix.MatchString(prefix)
+}
+
 // HandleGitHubEnvCredentials reads GitHub credentials from the process environment,
 // validates them, and registers them to the session.
 // Returns only user metadata - never returns raw credentials to the browser.
@@ -310,15 +346,31 @@ func HandleGitHubEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 
 		// Determine which env var to read
 		var token string
-		if req.EnvVar != "" {
-			// Use specific env var name
-			token = os.Getenv(req.EnvVar)
-		} else {
-			// Try standard env var names with optional prefix
-			token = os.Getenv(req.Prefix + "GITHUB_TOKEN")
-			if token == "" {
-				token = os.Getenv(req.Prefix + "GH_TOKEN")
-			}
+		// Validate the prefix before using it
+		if !isValidEnvVarPrefix(req.Prefix) {
+			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+			})
+			return
+		}
+		// Construct the env var names and validate them
+		githubTokenName := req.Prefix + "GITHUB_TOKEN"
+		ghTokenName := req.Prefix + "GH_TOKEN"
+
+		// Double-check that constructed names are valid (defense in depth)
+		if !isAllowedGitHubEnvVar(githubTokenName) || !isAllowedGitHubEnvVar(ghTokenName) {
+			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix results in disallowed environment variable name",
+			})
+			return
+		}
+
+		// Try standard env var names with optional prefix
+		token = os.Getenv(githubTokenName)
+		if token == "" {
+			token = os.Getenv(ghTokenName)
 		}
 
 		if token == "" {
