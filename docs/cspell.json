@@ -39,7 +39,8 @@
     "countrycode",
     "templatize",
     "parallelizable",
-    "yourcompany"
+    "yourcompany",
+    "prek"
   ],
   "ignorePaths": [
     "node_modules",

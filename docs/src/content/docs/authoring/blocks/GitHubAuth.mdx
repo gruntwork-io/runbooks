@@ -106,7 +106,7 @@ When a GitHubAuth block authenticates, it does two things:
 1. **Sets session-level environment variables** (`GITHUB_TOKEN`, `GITHUB_USER`) that are available to all subsequent blocks
 2. **Stores credentials** that can be passed to specific blocks via `githubAuthId`
 
-When you use `githubAuthId` to reference a GitHubAuth block, the credentials from that specific GitHubAuthblock are passed as environment variables that override any session-level values _for that block only_. This ensures the command uses the exact credentials from the referenced block, even if:
+When you use `githubAuthId` to reference a GitHubAuth block, the credentials from that specific GitHubAuth block are passed as environment variables that override any session-level values _for that block only_. This ensures the command uses the exact credentials from the referenced block, even if:
 - Multiple GitHubAuth blocks exist with different credentials
 - Session-level `GITHUB_TOKEN` was set by a different auth block
 - The user re-authenticated with different credentials later
