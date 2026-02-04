@@ -1,7 +1,6 @@
 package api
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -456,7 +455,7 @@ func HandleAwsSsoStart() gin.HandlerFunc {
 			return
 		}
 
-		region := defaultRegion(req.Region)
+		region := resolveRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -527,7 +526,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 			return
 		}
 
-		region := defaultRegion(req.Region)
+		region := resolveRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -683,7 +682,7 @@ func HandleAwsSsoListRoles() gin.HandlerFunc {
 			return
 		}
 
-		region := defaultRegion(req.Region)
+		region := resolveRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -739,7 +738,7 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 			return
 		}
 
-		region := defaultRegion(req.Region)
+		region := resolveRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -891,45 +890,28 @@ func HandleAwsEnvCredentials() gin.HandlerFunc {
 		prefix := c.Query("prefix")
 		defaultRegion := c.Query("defaultRegion")
 
-		// Validate the prefix before using it (security: prevent arbitrary env var probing)
-		if !isValidAwsEnvVarPrefix(prefix) {
+		// Read credentials from environment using shared function
+		creds, found, err := ReadAwsEnvCredentials(prefix)
+		if err != nil {
 			c.JSON(http.StatusOK, EnvCredentialsResponse{
 				Found: false,
-				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+				Error: err.Error(),
 			})
 			return
 		}
 
-		// Construct env var names and validate them (defense in depth)
-		accessKeyIDName := prefix + "AWS_ACCESS_KEY_ID"
-		secretAccessKeyName := prefix + "AWS_SECRET_ACCESS_KEY"
-		sessionTokenName := prefix + "AWS_SESSION_TOKEN"
-		regionName := prefix + "AWS_REGION"
-
-		if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+		if !found {
 			c.JSON(http.StatusOK, EnvCredentialsResponse{
 				Found: false,
-				Error: "Invalid prefix results in disallowed environment variable name",
+				Error: fmt.Sprintf("%sAWS_ACCESS_KEY_ID or %sAWS_SECRET_ACCESS_KEY not found in environment", prefix, prefix),
 			})
 			return
 		}
-
-		// Read credentials from environment (values are NEVER logged)
-		accessKeyID := os.Getenv(accessKeyIDName)
-		secretAccessKey := os.Getenv(secretAccessKeyName)
-		sessionToken := os.Getenv(sessionTokenName)
-		region := os.Getenv(regionName)
-
-		// Default to us-east-1 if no region or default region is found
-		region = cmp.Or(region, defaultRegion, "us-east-1")
-
-		if accessKeyID == "" || secretAccessKey == "" {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
-				Found: false,
-				Error: "AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment",
-			})
-			return
-		}
+		
+		accessKeyID := creds.AccessKeyID
+		secretAccessKey := creds.SecretAccessKey
+		sessionToken := creds.SessionToken
+		region := resolveRegion(creds.Region, defaultRegion)
 
 		// Validate the credentials via STS
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -989,48 +971,29 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		// Validate the prefix before using it (security: prevent arbitrary env var probing)
-		if !isValidAwsEnvVarPrefix(req.Prefix) {
+		// Read credentials from environment using shared function
+		creds, found, err := ReadAwsEnvCredentials(req.Prefix)
+		if err != nil {
 			c.JSON(http.StatusOK, EnvCredentialsResponse{
 				Found: false,
-				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+				Error: err.Error(),
 			})
 			return
 		}
 
-		// Construct env var names and validate them (defense in depth)
-		accessKeyIDName := req.Prefix + "AWS_ACCESS_KEY_ID"
-		secretAccessKeyName := req.Prefix + "AWS_SECRET_ACCESS_KEY"
-		sessionTokenName := req.Prefix + "AWS_SESSION_TOKEN"
-		regionName := req.Prefix + "AWS_REGION"
-
-		if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+		if !found {
 			c.JSON(http.StatusOK, EnvCredentialsResponse{
 				Found: false,
-				Error: "Invalid prefix results in disallowed environment variable name",
+				Error: fmt.Sprintf("%sAWS_ACCESS_KEY_ID or %sAWS_SECRET_ACCESS_KEY not found in environment", req.Prefix, req.Prefix),
 			})
 			return
 		}
 
-		// Read credentials from environment (values are NEVER logged)
-		accessKeyID := os.Getenv(accessKeyIDName)
-		secretAccessKey := os.Getenv(secretAccessKeyName)
-		sessionToken := os.Getenv(sessionTokenName)
-		region := os.Getenv(regionName)
-		if region == "" {
-			region = req.DefaultRegion
-		}
-		if region == "" {
-			region = "us-east-1"
-		}
-
-		if accessKeyID == "" || secretAccessKey == "" {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
-				Found: false,
-				Error: "AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment",
-			})
-			return
-		}
+		// Determine region with fallbacks
+		region := resolveRegion(creds.Region, req.DefaultRegion)
+		accessKeyID := creds.AccessKeyID
+		secretAccessKey := creds.SecretAccessKey
+		sessionToken := creds.SessionToken
 
 		// Validate the credentials via STS
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1168,12 +1131,17 @@ func formatSSOError(err error, region, startURL string) string {
 		err)
 }
 
-// defaultRegion returns the provided region, or "us-east-1" if empty.
-func defaultRegion(region string) string {
-	if region == "" {
-		return "us-east-1"
+// resolveRegion returns the fiurst provided non-empty region, or "us-east-1".
+func resolveRegion(region string, fallbackRegions ...string) string {
+	if region != "" {
+		return region
 	}
-	return region
+	for _, f := range fallbackRegions {
+		if f != "" {
+			return f
+		}
+	}
+	return "us-east-1"
 }
 
 // getCallerIdentity calls STS GetCallerIdentity using the provided config.
@@ -1396,4 +1364,43 @@ func isValidAwsEnvVarPrefix(prefix string) bool {
 	// If non-empty, should typically end with underscore for clean naming
 	validPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
 	return validPrefix.MatchString(prefix)
+}
+
+// AwsEnvCredentials holds AWS credentials read from environment variables.
+type AwsEnvCredentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+	Region          string
+}
+
+// ReadAwsEnvCredentials reads AWS credentials from environment variables with an optional prefix.
+// Returns the credentials and whether required credentials (access key + secret) were found.
+// Does NOT validate credentials against AWS - just reads from environment.
+// Returns an error if the prefix is invalid.
+func ReadAwsEnvCredentials(prefix string) (creds AwsEnvCredentials, found bool, err error) {
+	// Validate the prefix before using it (security: prevent arbitrary env var probing)
+	if !isValidAwsEnvVarPrefix(prefix) {
+		return creds, false, fmt.Errorf("invalid prefix: must be uppercase alphanumeric with underscores")
+	}
+
+	// Construct env var names
+	accessKeyIDName := prefix + "AWS_ACCESS_KEY_ID"
+	secretAccessKeyName := prefix + "AWS_SECRET_ACCESS_KEY"
+	sessionTokenName := prefix + "AWS_SESSION_TOKEN"
+	regionName := prefix + "AWS_REGION"
+
+	// Validate constructed names (defense in depth)
+	if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+		return creds, false, fmt.Errorf("invalid prefix results in disallowed environment variable name")
+	}
+
+	// Read credentials from environment
+	creds.AccessKeyID = os.Getenv(accessKeyIDName)
+	creds.SecretAccessKey = os.Getenv(secretAccessKeyName)
+	creds.SessionToken = os.Getenv(sessionTokenName)
+	creds.Region = os.Getenv(regionName)
+
+	found = creds.AccessKeyID != "" && creds.SecretAccessKey != ""
+	return creds, found, nil
 }

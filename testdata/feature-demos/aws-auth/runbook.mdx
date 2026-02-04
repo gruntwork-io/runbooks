@@ -19,6 +19,7 @@ By default, AwsAuth automatically checks for existing credentials in your enviro
   defaultRegion="us-west-2"
   ssoRegion="us-west-2"
   ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+  detectCredentials={[{ env: { testPrefix: 'RUNBOOKS_TEST_' } }]}
 />
 
 ## Verify Your Identity
@@ -32,6 +33,7 @@ Once authenticated, let's verify which AWS account and identity you're using. No
   command="aws sts get-caller-identity"
   successMessage="Successfully authenticated to AWS!"
   failMessage="Failed to authenticate. Please check your credentials above."
+  usePty={false}
 />
 
 ## List S3 Buckets

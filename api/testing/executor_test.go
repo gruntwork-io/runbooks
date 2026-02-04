@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"runbooks/api"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -315,4 +317,159 @@ Here's an example with nested code:
 func TestParseAuthDependencies_FileNotFound(t *testing.T) {
 	_, err := parseAuthDependencies("/nonexistent/path/runbook.mdx")
 	require.Error(t, err)
+}
+
+func TestGetTestEnvPrefix(t *testing.T) {
+	tests := []struct {
+		name           string
+		props          string
+		expectedPrefix string
+	}{
+		{
+			name:           "no detectCredentials prop",
+			props:          `id="aws-auth"`,
+			expectedPrefix: "",
+		},
+		{
+			name:           "detectCredentials with testPrefix single quotes",
+			props:          `id="aws-auth" detectCredentials={[{ env: { testPrefix: 'CI_' } }]}`,
+			expectedPrefix: "CI_",
+		},
+		{
+			name:           "detectCredentials with testPrefix double quotes",
+			props:          `id="aws-auth" detectCredentials={[{ env: { testPrefix: "CI_" } }]}`,
+			expectedPrefix: "CI_",
+		},
+		{
+			name:           "detectCredentials with prefix only (fallback)",
+			props:          `id="aws-auth" detectCredentials={[{ env: { prefix: 'PROD_' } }]}`,
+			expectedPrefix: "PROD_",
+		},
+		{
+			name:           "detectCredentials with both prefix and testPrefix (testPrefix wins)",
+			props:          `id="aws-auth" detectCredentials={[{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }]}`,
+			expectedPrefix: "CI_",
+		},
+		{
+			name:           "detectCredentials with testPrefix first, prefix second",
+			props:          `id="aws-auth" detectCredentials={[{ env: { testPrefix: 'TEST_', prefix: 'PROD_' } }]}`,
+			expectedPrefix: "TEST_",
+		},
+		{
+			name:           "detectCredentials as false",
+			props:          `id="aws-auth" detectCredentials={false}`,
+			expectedPrefix: "",
+		},
+		{
+			name:           "detectCredentials as env string",
+			props:          `id="aws-auth" detectCredentials={['env']}`,
+			expectedPrefix: "",
+		},
+		{
+			name:           "detectCredentials with block source (no prefix)",
+			props:          `id="aws-auth" detectCredentials={[{ block: 'assume-role' }]}`,
+			expectedPrefix: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			block := api.ParsedComponent{
+				Props: tc.props,
+			}
+			prefix := getTestEnvPrefix(block)
+			assert.Equal(t, tc.expectedPrefix, prefix)
+		})
+	}
+}
+
+func TestReadAwsEnvCredentials(t *testing.T) {
+	tests := []struct {
+		name          string
+		prefix        string
+		envVars       map[string]string
+		expectedFound bool
+		expectedCreds api.AwsEnvCredentials
+		expectError   bool
+	}{
+		{
+			name:   "standard env vars found",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "AKIAIOSFODNN7EXAMPLE",
+				"AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				"AWS_REGION":            "us-west-2",
+			},
+			expectedFound: true,
+			expectedCreds: api.AwsEnvCredentials{
+				AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+				SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				Region:          "us-west-2",
+			},
+		},
+		{
+			name:   "prefixed env vars found",
+			prefix: "CI_",
+			envVars: map[string]string{
+				"CI_AWS_ACCESS_KEY_ID":     "AKIAIOSFODNN7EXAMPLE",
+				"CI_AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				"CI_AWS_SESSION_TOKEN":     "session-token",
+				"CI_AWS_REGION":            "eu-west-1",
+			},
+			expectedFound: true,
+			expectedCreds: api.AwsEnvCredentials{
+				AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+				SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				SessionToken:    "session-token",
+				Region:          "eu-west-1",
+			},
+		},
+		{
+			name:          "no credentials found",
+			prefix:        "",
+			envVars:       map[string]string{},
+			expectedFound: false,
+			expectedCreds: api.AwsEnvCredentials{},
+		},
+		{
+			name:   "only access key found (incomplete)",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+			},
+			expectedFound: false,
+			expectedCreds: api.AwsEnvCredentials{
+				AccessKeyID: "AKIAIOSFODNN7EXAMPLE",
+			},
+		},
+		{
+			name:        "invalid prefix",
+			prefix:      "invalid-prefix",
+			envVars:     map[string]string{},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set up environment
+			for k, v := range tc.envVars {
+				t.Setenv(k, v)
+			}
+
+			creds, found, err := api.ReadAwsEnvCredentials(tc.prefix)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedFound, found)
+			assert.Equal(t, tc.expectedCreds.AccessKeyID, creds.AccessKeyID)
+			assert.Equal(t, tc.expectedCreds.SecretAccessKey, creds.SecretAccessKey)
+			assert.Equal(t, tc.expectedCreds.SessionToken, creds.SessionToken)
+			assert.Equal(t, tc.expectedCreds.Region, creds.Region)
+		})
+	}
 }

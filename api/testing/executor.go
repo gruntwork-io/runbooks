@@ -87,6 +87,40 @@ var authBlockDependentTypes = []BlockType{
 	BlockTypeCommand,
 }
 
+// getTestEnvPrefix extracts the testPrefix (or prefix as fallback) from a block's
+// detectCredentials prop. Works for both AwsAuth and GitHubAuth blocks.
+//
+// Supported formats:
+//   - detectCredentials={[{ env: { testPrefix: 'CI_' } }]}
+//   - detectCredentials={[{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }]}
+//   - detectCredentials={[{ env: { prefix: 'PROD_' } }]}
+//
+// Returns empty string if no prefix is configured.
+func getTestEnvPrefix(block api.ParsedComponent) string {
+	// Extract the detectCredentials prop value directly from props string
+	// ExtractProp doesn't work well for complex JS objects, so we parse it manually
+	detectCredsPattern := regexp.MustCompile(`detectCredentials=\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
+	matches := detectCredsPattern.FindStringSubmatch(block.Props)
+	if len(matches) < 2 {
+		return ""
+	}
+	detectCreds := matches[1]
+
+	// Look for testPrefix first (takes precedence)
+	testPrefixPattern := regexp.MustCompile(`testPrefix:\s*['"]([^'"]*)['"]\s*`)
+	if matches := testPrefixPattern.FindStringSubmatch(detectCreds); len(matches) > 1 {
+		return matches[1]
+	}
+
+	// Fall back to prefix if no testPrefix
+	prefixPattern := regexp.MustCompile(`prefix:\s*['"]([^'"]*)['"]\s*`)
+	if matches := prefixPattern.FindStringSubmatch(detectCreds); len(matches) > 1 {
+		return matches[1]
+	}
+
+	return ""
+}
+
 // =============================================================================
 // Block State
 // =============================================================================
@@ -1163,7 +1197,9 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 const DefaultGitHubAuthEnvVar = "RUNBOOKS_GITHUB_TOKEN"
 
 // executeGitHubAuth handles GitHubAuth block execution in test mode.
-// It looks for RUNBOOKS_GITHUB_TOKEN (or custom env var) and injects it into the session.
+// It looks for GitHub tokens in environment variables and injects them into the session.
+// If detectCredentials has testPrefix set, it checks {prefix}GITHUB_TOKEN and {prefix}GH_TOKEN.
+// Otherwise it falls back to RUNBOOKS_GITHUB_TOKEN, then GITHUB_TOKEN, then GH_TOKEN.
 // If no token is found, the block is marked as skipped.
 func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
@@ -1172,19 +1208,50 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 		Outputs:        make(map[string]string),
 	}
 
-	// Check for custom env var from block props, otherwise use default
-	envVarName := api.ExtractProp(block.Props, "testEnvVar")
-	if envVarName == "" {
-		envVarName = DefaultGitHubAuthEnvVar
-	}
+	// Get prefix from detectCredentials prop (testPrefix takes precedence over prefix)
+	prefix := getTestEnvPrefix(block)
 
-	token := os.Getenv(envVarName)
+	var token string
+	var tokenSource string
+
+	if prefix != "" {
+		// If testPrefix specified, check prefixed vars
+		token = os.Getenv(prefix + "GITHUB_TOKEN")
+		if token != "" {
+			tokenSource = prefix + "GITHUB_TOKEN"
+		} else {
+			token = os.Getenv(prefix + "GH_TOKEN")
+			if token != "" {
+				tokenSource = prefix + "GH_TOKEN"
+			}
+		}
+	} else {
+		// Default behavior: check RUNBOOKS_GITHUB_TOKEN first, then standard vars
+		token = os.Getenv(DefaultGitHubAuthEnvVar)
+		if token != "" {
+			tokenSource = DefaultGitHubAuthEnvVar
+		} else {
+			token = os.Getenv("GITHUB_TOKEN")
+			if token != "" {
+				tokenSource = "GITHUB_TOKEN"
+			} else {
+				token = os.Getenv("GH_TOKEN")
+				if token != "" {
+					tokenSource = "GH_TOKEN"
+				}
+			}
+		}
+	}
 
 	if token == "" {
 		// No token found - skip this block
 		if e.verbose {
 			fmt.Printf("--- No credentials found ---\n")
-			fmt.Printf("  Checked: %s\n", envVarName)
+			if prefix != "" {
+				fmt.Printf("  Checked: %sGITHUB_TOKEN, %sGH_TOKEN\n", prefix, prefix)
+			} else {
+				fmt.Printf("  Checked: %s, GITHUB_TOKEN, GH_TOKEN\n", DefaultGitHubAuthEnvVar)
+			}
 			fmt.Printf("--- Result: skipped (no credentials) ---\n")
 		}
 
@@ -1218,7 +1285,7 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 	result.Duration = time.Since(start)
 
 	if e.verbose {
-		fmt.Printf("--- Credentials found: %s ---\n", envVarName)
+		fmt.Printf("--- Credentials found: %s ---\n", tokenSource)
 		fmt.Printf("  Injected GITHUB_TOKEN into session\n")
 		fmt.Printf("--- Result: ✓ success ---\n")
 	}
@@ -1227,7 +1294,8 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 }
 
 // executeAwsAuth handles AwsAuth block execution in test mode.
-// It looks for standard AWS credential environment variables and validates they exist.
+// It looks for AWS credential environment variables (with optional prefix from detectCredentials)
+// and injects them into the session for dependent blocks to use.
 // If no credentials are found, the block is marked as skipped.
 func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
@@ -1236,21 +1304,34 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 		Outputs:        make(map[string]string),
 	}
 
-	// Check for AWS credentials
-	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	// Get prefix from detectCredentials prop (testPrefix takes precedence over prefix)
+	prefix := getTestEnvPrefix(block)
+
+	// Use shared function to read credentials with the configured prefix
+	creds, found, err := api.ReadAwsEnvCredentials(prefix)
+	if err != nil {
+		// Invalid prefix - log warning and fall back to standard vars
+		if e.verbose {
+			fmt.Printf("  Warning: %v, falling back to standard vars\n", err)
+		}
+		creds, found, _ = api.ReadAwsEnvCredentials("")
+	}
 
 	// Also check for AWS_PROFILE or AWS_ROLE_ARN as alternative auth methods
 	awsProfile := os.Getenv("AWS_PROFILE")
 	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
 
-	hasCredentials := (accessKeyID != "" && secretAccessKey != "") || awsProfile != "" || awsRoleArn != ""
+	hasCredentials := found || awsProfile != "" || awsRoleArn != ""
 
 	if !hasCredentials {
 		// No credentials found - skip this block
 		if e.verbose {
 			fmt.Printf("--- No credentials found ---\n")
-			fmt.Printf("  Checked: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n")
+			if prefix != "" {
+				fmt.Printf("  Checked: %sAWS_ACCESS_KEY_ID + %sAWS_SECRET_ACCESS_KEY\n", prefix, prefix)
+			} else {
+				fmt.Printf("  Checked: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n")
+			}
 			fmt.Printf("  Checked: AWS_PROFILE\n")
 			fmt.Printf("  Checked: AWS_ROLE_ARN\n")
 			fmt.Printf("--- Result: skipped (no credentials) ---\n")
@@ -1263,7 +1344,38 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 		return result
 	}
 
-	// Credentials found - they're already in the environment, just mark success
+	// Inject credentials into session (using standard names) for dependent blocks
+	if found {
+		envVars := map[string]string{}
+		if creds.AccessKeyID != "" {
+			envVars["AWS_ACCESS_KEY_ID"] = creds.AccessKeyID
+		}
+		if creds.SecretAccessKey != "" {
+			envVars["AWS_SECRET_ACCESS_KEY"] = creds.SecretAccessKey
+		}
+		if creds.SessionToken != "" {
+			envVars["AWS_SESSION_TOKEN"] = creds.SessionToken
+		}
+		if creds.Region != "" {
+			envVars["AWS_REGION"] = creds.Region
+		}
+
+		if len(envVars) > 0 {
+			if err := e.session.AppendToEnv(envVars); err != nil {
+				result.Passed = false
+				result.ActualStatus = "error"
+				result.Error = fmt.Sprintf("failed to inject AWS credentials: %v", err)
+				result.Duration = time.Since(start)
+				if e.verbose {
+					fmt.Printf("--- Result: ✗ error ---\n")
+					fmt.Printf("  Error: %s\n", result.Error)
+				}
+				return result
+			}
+		}
+	}
+
+	// Credentials found - mark success
 	e.blockStates[block.ID] = BlockStateSuccess
 	result.ActualStatus = "success"
 	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
@@ -1271,14 +1383,20 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 
 	if e.verbose {
 		fmt.Printf("--- AWS credentials found ---\n")
-		if accessKeyID != "" {
-			fmt.Printf("  AWS_ACCESS_KEY_ID: %s\n", maskAccessKeyID(accessKeyID))
+		if creds.AccessKeyID != "" {
+			fmt.Printf("  AWS_ACCESS_KEY_ID: %s\n", maskAccessKeyID(creds.AccessKeyID))
+			if prefix != "" {
+				fmt.Printf("  (from %sAWS_ACCESS_KEY_ID)\n", prefix)
+			}
 		}
 		if awsProfile != "" {
 			fmt.Printf("  AWS_PROFILE: %s\n", awsProfile)
 		}
 		if awsRoleArn != "" {
 			fmt.Printf("  AWS_ROLE_ARN: %s\n", awsRoleArn)
+		}
+		if found {
+			fmt.Printf("  Injected credentials into session\n")
 		}
 		fmt.Printf("--- Result: ✓ success ---\n")
 	}

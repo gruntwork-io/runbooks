@@ -20,9 +20,9 @@ export type AwsDetectionSource = 'env' | 'block' | null
  * (which involves multiple files and config precedence rules).
  */
 export type AwsCredentialSource =
-  | 'env'                              // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
-  | { env: { prefix: string } }        // Check PREFIX_AWS_ACCESS_KEY_ID, etc.
-  | { block: string }                  // From Command block output
+  | 'env'                                                   // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
+  | { env: { prefix?: string; testPrefix?: string } }       // Check PREFIX_AWS_ACCESS_KEY_ID, etc. testPrefix is for tests only
+  | { block: string }                                       // From Command block output
 
 /**
  * Detected credentials awaiting user confirmation.

@@ -194,6 +194,8 @@ The user can then choose to "Use These Credentials" or "Use Different Credential
 |--------|-------------|
 | `'env'` | Check standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.) |
 | `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_AWS_ACCESS_KEY_ID`, etc.) |
+| `{ env: { testPrefix: 'CI_' } }` | In tests only, check `CI_AWS_ACCESS_KEY_ID`, etc. |
+| `{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }` | Runtime uses `PROD_`, tests use `CI_` |
 | `{ block: 'block-id' }` | Use credentials from a Command block's output |
 
 ### Disable Auto-Detection
@@ -228,6 +230,34 @@ Prefixes must follow these rules:
 - Uppercase letters, numbers, and underscores only
 - Must start with a letter
 - Optional trailing underscore (recommended for readability)
+
+### Test-Only Prefix
+
+Use `testPrefix` to specify a different prefix for automated tests, while keeping a different prefix (or standard vars) for the end-user-facing runtime:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  detectCredentials={[{ env: { testPrefix: 'CI_' } }]}
+/>
+```
+
+- **Runtime**: Checks standard `AWS_ACCESS_KEY_ID`, etc.
+- **Tests**: Checks `CI_AWS_ACCESS_KEY_ID`, etc.
+
+You can also combine both prefixes:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  detectCredentials={[{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }]}
+/>
+```
+
+- **Runtime**: Checks `PROD_AWS_ACCESS_KEY_ID`, etc.
+- **Tests**: Checks `CI_AWS_ACCESS_KEY_ID`, etc.
+
+This is useful when you want to test with CI credentials while the interactive runbook uses production-prefixed credentials.
 
 ### From Command Output
 
