@@ -15,8 +15,6 @@ function getSourceLabel(source: AwsDetectionSource): string {
       return 'Environment Variables'
     case 'block':
       return 'Command Output'
-    case 'default-profile':
-      return 'Default AWS Profile'
     default:
       return 'Auto-detected'
   }

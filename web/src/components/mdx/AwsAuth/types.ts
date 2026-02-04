@@ -9,17 +9,20 @@ export type AuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'faile
 export type AwsDetectionStatus = 'pending' | 'detected' | 'done'
 
 /** Source where credentials were detected from */
-export type AwsDetectionSource = 'env' | 'block' | 'default-profile' | null
+export type AwsDetectionSource = 'env' | 'block' | null
 
 /**
  * Credential source configuration for auto-detection.
  * Sources are tried in order until one succeeds.
+ * 
+ * Note: Profile-based authentication is available via the Profile tab in manual auth,
+ * but is not included in auto-detection due to the complexity of AWS profile resolution
+ * (which involves multiple files and config precedence rules).
  */
 export type AwsCredentialSource =
   | 'env'                              // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
   | { env: { prefix: string } }        // Check PREFIX_AWS_ACCESS_KEY_ID, etc.
   | { block: string }                  // From Command block output
-  | 'default-profile'                  // Check ~/.aws/credentials default profile
 
 /**
  * Detected credentials awaiting user confirmation.

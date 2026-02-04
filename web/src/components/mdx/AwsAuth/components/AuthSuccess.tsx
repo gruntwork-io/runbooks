@@ -15,8 +15,6 @@ function getSourceLabel(source: AwsDetectionSource): string | null {
       return 'From Environment'
     case 'block':
       return 'From Command Output'
-    case 'default-profile':
-      return 'From Default Profile'
     default:
       return null
   }

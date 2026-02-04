@@ -345,7 +345,9 @@ export function useAwsAuth({
             return
           }
         }
-        // TODO: Add 'default-profile' detection if needed
+        // Note: 'default-profile' detection was intentionally not implemented.
+        // Profile-based auth is available via the Profile tab in manual authentication.
+        // Auto-detecting the default profile is complex due to AWS config precedence rules.
       }
 
       // Set any warnings from invalid credentials we found
