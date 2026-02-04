@@ -130,9 +130,6 @@ func copyEnvMap(src map[string]string) map[string]string {
 // CreateSession creates a new session with the current process environment.
 // If a session already exists, it is replaced (all existing tokens invalidated).
 // The initialWorkingDir should be the runbook's directory.
-// CreateSession creates a new session with the current process environment.
-// If a session already exists, it is replaced (all existing tokens invalidated).
-// The initialWorkingDir should be the runbook's directory.
 // If protectedEnvVars were configured via SetProtectedEnvVars(), those vars
 // will be stripped from the session environment (requiring explicit auth to use).
 func (sm *SessionManager) CreateSession(initialWorkingDir string) (*SessionTokenResponse, error) {
