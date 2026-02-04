@@ -75,14 +75,25 @@ type SessionTokenResponse struct {
 // = one environment" (like having multiple terminal windows to the same shell).
 // Each tab gets its own token, but they all operate on the same environment.
 type SessionManager struct {
-	session *Session     // The single session, nil until created
-	mu      sync.RWMutex // Protects concurrent access to session
+	session          *Session     // The single session, nil until created
+	mu               sync.RWMutex // Protects concurrent access to session
+	protectedEnvVars []string     // Env vars to strip from session at creation (require explicit auth)
 }
 
 // NewSessionManager creates a new session manager with no active session.
 // Call CreateSession() to initialize the session when the first client connects.
 func NewSessionManager() *SessionManager {
 	return &SessionManager{}
+}
+
+// SetProtectedEnvVars configures environment variables that should be stripped
+// from the session at creation time. This is used when the runbook contains
+// auth blocks (like AwsAuth) that require explicit user confirmation before
+// credentials can be used. Must be called before CreateSession().
+func (sm *SessionManager) SetProtectedEnvVars(vars []string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.protectedEnvVars = vars
 }
 
 // generateSecretToken generates a cryptographically secure random token.
@@ -119,6 +130,11 @@ func copyEnvMap(src map[string]string) map[string]string {
 // CreateSession creates a new session with the current process environment.
 // If a session already exists, it is replaced (all existing tokens invalidated).
 // The initialWorkingDir should be the runbook's directory.
+// CreateSession creates a new session with the current process environment.
+// If a session already exists, it is replaced (all existing tokens invalidated).
+// The initialWorkingDir should be the runbook's directory.
+// If protectedEnvVars were configured via SetProtectedEnvVars(), those vars
+// will be stripped from the session environment (requiring explicit auth to use).
 func (sm *SessionManager) CreateSession(initialWorkingDir string) (*SessionTokenResponse, error) {
 	token, err := generateSecretToken()
 	if err != nil {
@@ -134,10 +150,21 @@ func (sm *SessionManager) CreateSession(initialWorkingDir string) (*SessionToken
 	env := captureEnvironment()
 	now := time.Now()
 
+	// Strip protected env vars from the session environment.
+	// These vars remain available in the process environment (os.Getenv) for detection,
+	// but scripts won't have access to them until the user explicitly confirms.
+	sm.mu.RLock()
+	protectedVars := sm.protectedEnvVars
+	sm.mu.RUnlock()
+
+	for _, key := range protectedVars {
+		delete(env, key)
+	}
+
 	session := &Session{
 		ValidTokens:    map[string]time.Time{token: now},
 		Env:            env,
-		InitialEnv:     copyEnvMap(env),
+		InitialEnv:     copyEnvMap(env), // InitialEnv also has them stripped (for reset)
 		InitialWorkDir: absWorkingDir,
 		WorkingDir:     absWorkingDir,
 		ExecutionCount: 0,
@@ -301,6 +328,25 @@ func (sm *SessionManager) AppendToEnv(env map[string]string) error {
 
 	for key, value := range env {
 		sm.session.Env[key] = value
+	}
+	sm.session.LastActivity = time.Now()
+
+	return nil
+}
+
+// RemoveFromEnv removes the specified environment variables from the session.
+// This is used when a user rejects auto-detected credentials to prevent them
+// from being accidentally used by subsequent commands.
+func (sm *SessionManager) RemoveFromEnv(keys []string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.session == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	for _, key := range keys {
+		delete(sm.session.Env, key)
 	}
 	sm.session.LastActivity = time.Now()
 

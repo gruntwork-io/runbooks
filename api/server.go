@@ -14,6 +14,17 @@ import (
 
 // setupCommonRoutes sets up the common routes for both server modes
 func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
+	// If the runbook contains AwsAuth blocks, strip AWS credentials from session
+	// at creation time. This ensures users must explicitly confirm which AWS account
+	// they want to use before any scripts can access the credentials.
+	if registry != nil && registry.HasComponent("AwsAuth") {
+		sessionManager.SetProtectedEnvVars([]string{
+			"AWS_ACCESS_KEY_ID",
+			"AWS_SECRET_ACCESS_KEY",
+			"AWS_SESSION_TOKEN",
+		})
+	}
+
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
 	if err != nil {
