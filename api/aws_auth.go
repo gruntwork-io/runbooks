@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/account"
 	"github.com/aws/aws-sdk-go-v2/service/account/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	sso_types "github.com/aws/aws-sdk-go-v2/service/sso/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
@@ -49,11 +50,12 @@ type ValidateCredentialsRequest struct {
 
 // ValidateCredentialsResponse represents the response from credential validation
 type ValidateCredentialsResponse struct {
-	Valid     bool   `json:"valid"`
-	AccountID string `json:"accountId,omitempty"`
-	Arn       string `json:"arn,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Warning   string `json:"warning,omitempty"`
+	Valid       bool   `json:"valid"`
+	AccountID   string `json:"accountId,omitempty"`
+	AccountName string `json:"accountName,omitempty"` // Account alias, if available
+	Arn         string `json:"arn,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Warning     string `json:"warning,omitempty"`
 }
 
 // ProfileAuthRequest represents the request to authenticate using a profile
@@ -65,6 +67,7 @@ type ProfileAuthRequest struct {
 type ProfileAuthResponse struct {
 	Valid           bool   `json:"valid"`
 	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"` // Account alias, if available
 	Arn             string `json:"arn,omitempty"`
 	AccessKeyID     string `json:"accessKeyId,omitempty"`
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
@@ -120,12 +123,13 @@ const (
 // SSOPollResponse represents the response from SSO polling
 type SSOPollResponse struct {
 	Status          SSOPollStatus `json:"status"`
-	AccessKeyID     string `json:"accessKeyId,omitempty"`
-	SecretAccessKey string `json:"secretAccessKey,omitempty"`
-	SessionToken    string `json:"sessionToken,omitempty"`
-	AccountID       string `json:"accountId,omitempty"`
-	Arn             string `json:"arn,omitempty"`
-	Error           string `json:"error,omitempty"`
+	AccessKeyID     string        `json:"accessKeyId,omitempty"`
+	SecretAccessKey string        `json:"secretAccessKey,omitempty"`
+	SessionToken    string        `json:"sessionToken,omitempty"`
+	AccountID       string        `json:"accountId,omitempty"`
+	AccountName     string        `json:"accountName,omitempty"` // Account alias, if available
+	Arn             string        `json:"arn,omitempty"`
+	Error           string        `json:"error,omitempty"`
 	// For account selection flow
 	AccessToken string       `json:"accessToken,omitempty"`
 	Accounts    []SSOAccount `json:"accounts,omitempty"`
@@ -170,6 +174,7 @@ type SSOCompleteResponse struct {
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
 	SessionToken    string `json:"sessionToken,omitempty"`
 	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"` // Account alias, if available
 	Arn             string `json:"arn,omitempty"`
 	Error           string `json:"error,omitempty"`
 }
@@ -203,6 +208,7 @@ type EnvCredentialsResponse struct {
 	Found           bool   `json:"found"`
 	Valid           bool   `json:"valid,omitempty"`
 	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"` // Account alias, if available
 	Arn             string `json:"arn,omitempty"`
 	Region          string `json:"region,omitempty"`
 	HasSessionToken bool   `json:"hasSessionToken,omitempty"`
@@ -212,8 +218,9 @@ type EnvCredentialsResponse struct {
 
 // callerIdentity holds the result of an STS GetCallerIdentity call.
 type callerIdentity struct {
-	AccountID string
-	Arn       string
+	AccountID   string
+	AccountName string // Account alias, if available (best-effort)
+	Arn         string
 }
 
 // ssoTokenStatus represents the status of an SSO token creation attempt.
@@ -273,10 +280,11 @@ func HandleAwsValidate() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, ValidateCredentialsResponse{
-			Valid:     true,
-			AccountID: identity.AccountID,
-			Arn:       identity.Arn,
-			Warning:   warning,
+			Valid:       true,
+			AccountID:   identity.AccountID,
+			AccountName: identity.AccountName,
+			Arn:         identity.Arn,
+			Warning:     warning,
 		})
 	}
 }
@@ -418,6 +426,7 @@ func HandleAwsProfileAuth() gin.HandlerFunc {
 		c.JSON(http.StatusOK, ProfileAuthResponse{
 			Valid:           true,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 			AccessKeyID:     creds.AccessKeyID,
 			SecretAccessKey: creds.SecretAccessKey,
@@ -648,6 +657,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 			SecretAccessKey: secretAccessKey,
 			SessionToken:    sessionToken,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 		})
 	}
@@ -772,6 +782,7 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 			SecretAccessKey: secretAccessKey,
 			SessionToken:    sessionToken,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 		})
 	}
@@ -946,6 +957,7 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			Found:           true,
 			Valid:           true,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 			Region:          region,
 			HasSessionToken: sessionToken != "",
@@ -1005,16 +1017,47 @@ func defaultRegion(region string) string {
 }
 
 // getCallerIdentity calls STS GetCallerIdentity using the provided config.
+// It also attempts to fetch the account alias (best-effort, won't fail if unavailable).
 func getCallerIdentity(ctx context.Context, cfg aws.Config) (*callerIdentity, error) {
 	stsClient := sts.NewFromConfig(cfg)
 	result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return nil, err
 	}
-	return &callerIdentity{
+
+	identity := &callerIdentity{
 		AccountID: aws.ToString(result.Account),
 		Arn:       aws.ToString(result.Arn),
-	}, nil
+	}
+
+	// Best-effort: try to get account alias (won't fail if permission denied)
+	identity.AccountName = getAccountAlias(ctx, cfg)
+
+	return identity, nil
+}
+
+// getAccountAlias attempts to fetch the AWS account alias using IAM ListAccountAliases.
+// Returns empty string if the alias cannot be fetched (no permission, no alias set, etc.).
+// This is best-effort and should never cause authentication to fail.
+func getAccountAlias(ctx context.Context, cfg aws.Config) string {
+	// IAM is a global service, but we need to use us-east-1 for the API call
+	iamCfg := cfg.Copy()
+	iamCfg.Region = "us-east-1"
+
+	iamClient := iam.NewFromConfig(iamCfg)
+	result, err := iamClient.ListAccountAliases(ctx, &iam.ListAccountAliasesInput{
+		MaxItems: aws.Int32(1), // We only need the first (and typically only) alias
+	})
+	if err != nil {
+		// Silently ignore errors - user may not have iam:ListAccountAliases permission
+		return ""
+	}
+
+	if len(result.AccountAliases) > 0 {
+		return result.AccountAliases[0]
+	}
+
+	return ""
 }
 
 // validateStaticCredentials creates an AWS config with static credentials and validates them via STS.
