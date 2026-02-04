@@ -1169,10 +1169,6 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 
 	token := os.Getenv(envVarName)
 
-	if e.verbose {
-		fmt.Printf("\n=== GitHubAuth: %s ===\n", block.ID)
-	}
-
 	if token == "" {
 		// No token found - skip this block
 		if e.verbose {
@@ -1229,10 +1225,6 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 		Outputs:        make(map[string]string),
 	}
 
-	if e.verbose {
-		fmt.Printf("\n=== AwsAuth: %s ===\n", block.ID)
-	}
-
 	// Check for AWS credentials
 	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
 	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
@@ -1269,7 +1261,7 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 	if e.verbose {
 		fmt.Printf("--- AWS credentials found ---\n")
 		if accessKeyID != "" {
-			fmt.Printf("  AWS_ACCESS_KEY_ID: %s...%s\n", accessKeyID[:4], accessKeyID[len(accessKeyID)-4:])
+			fmt.Printf("  AWS_ACCESS_KEY_ID: %s\n", maskAccessKeyID(accessKeyID))
 		}
 		if awsProfile != "" {
 			fmt.Printf("  AWS_PROFILE: %s\n", awsProfile)
@@ -1281,6 +1273,25 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 	}
 
 	return result
+}
+
+// maskAccessKeyID returns a masked version of an AWS access key ID for safe logging.
+// For keys with 8+ characters, it shows the first 4 and last 4 characters.
+// For shorter keys, it safely truncates to avoid slice index panics.
+func maskAccessKeyID(key string) string {
+	n := len(key)
+	switch {
+	case n >= 8:
+		return fmt.Sprintf("%s...%s", key[:4], key[n-4:])
+	case n >= 4:
+		// Show first 2 and last 2 for medium-length keys
+		return fmt.Sprintf("%s...%s", key[:2], key[n-2:])
+	case n > 0:
+		// Very short key - just show it's present but masked
+		return fmt.Sprintf("%s...", key[:1])
+	default:
+		return ""
+	}
 }
 
 // printBlockOutput prints organized output for a block execution.
