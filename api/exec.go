@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -317,6 +318,10 @@ func startCommandExecution(ctx context.Context, cmdConfig execCommandConfig, use
 			// PTY started successfully - stream output and wait for completion
 			go streamPTYOutput(ptmx, outputChan)
 			go func() {
+				if runtime.GOOS == "darwin" {
+					doneChan <- waitForPTYProcess(cmd, ptmx)
+					return
+				}
 				doneChan <- cmd.Wait()
 			}()
 			return nil

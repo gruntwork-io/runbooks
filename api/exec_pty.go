@@ -128,6 +128,20 @@ func streamPTYOutput(ptmx *os.File, outputChan chan<- outputLine) {
 	}
 }
 
+// waitForPTYProcess waits for the PTY child process to exit and returns a Cmd-style error.
+// On macOS, closing the PTY master after the process exits is required to unblock readers.
+func waitForPTYProcess(cmd *exec.Cmd, ptmx *os.File) error {
+	state, err := cmd.Process.Wait()
+	_ = ptmx.Close()
+	if err != nil {
+		return err
+	}
+	if state.Success() {
+		return nil
+	}
+	return &exec.ExitError{ProcessState: state}
+}
+
 // startCommandWithPTY starts a command in a pseudo-terminal.
 // Returns the PTY master file descriptor which should be used for both
 // reading output and cleanup (close when done).
