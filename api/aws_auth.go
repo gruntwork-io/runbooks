@@ -1156,7 +1156,7 @@ func formatSSOError(err error, region, startURL string) string {
 		err)
 }
 
-// resolveRegion returns the fiurst provided non-empty region, or "us-east-1".
+// resolveRegion returns the first provided non-empty region, or "us-east-1".
 func resolveRegion(region string, fallbackRegions ...string) string {
 	if region != "" {
 		return region

@@ -321,6 +321,7 @@ export function useAwsAuth({
               region: result.region || defaultRegion,
               source: 'env',
               hasSessionToken: result.hasSessionToken || false,
+              envPrefix: prefix,
             })
             if (result.warning) {
               setDetectionWarning(result.warning)
@@ -427,7 +428,7 @@ export function useAwsAuth({
             ...getAuthHeader(),
           },
           body: JSON.stringify({
-            prefix: '', // Standard env vars (AWS_ACCESS_KEY_ID, etc.)
+            prefix: detectedCredentials.envPrefix || '',
             defaultRegion: defaultRegion || '',
           })
         })

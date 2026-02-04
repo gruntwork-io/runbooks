@@ -37,6 +37,8 @@ export interface DetectedAwsCredentials {
   source: AwsDetectionSource
   /** Whether the credentials include a session token (temporary credentials) */
   hasSessionToken: boolean
+  /** For env source: the prefix used to detect credentials (e.g., 'PROD_' for PROD_AWS_ACCESS_KEY_ID) */
+  envPrefix?: string
 }
 
 // SSO account and role types
