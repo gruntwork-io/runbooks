@@ -878,13 +878,111 @@ func HandleAwsCheckRegion() gin.HandlerFunc {
 	}
 }
 
-// HandleAwsEnvCredentials reads AWS credentials from the process environment,
-// validates them, and registers them to the session.
+// HandleAwsEnvCredentials reads AWS credentials from the process environment and
+// validates them, but does NOT register them to the session. This is a read-only
+// detection endpoint used to show the user what credentials are available.
 // Returns only metadata (accountId, arn) - never returns raw credentials.
-// This is a security measure to prevent credentials from being transmitted to the browser.
-func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
+// Call HandleAwsConfirmEnvCredentials to actually register the credentials after
+// the user confirms they want to use them.
+func HandleAwsEnvCredentials() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req EnvCredentialsRequest
+		// Parse query parameters for GET request
+		prefix := c.Query("prefix")
+		defaultRegion := c.Query("defaultRegion")
+
+		// Validate the prefix before using it (security: prevent arbitrary env var probing)
+		if !isValidAwsEnvVarPrefix(prefix) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+			})
+			return
+		}
+
+		// Construct env var names and validate them (defense in depth)
+		accessKeyIDName := prefix + "AWS_ACCESS_KEY_ID"
+		secretAccessKeyName := prefix + "AWS_SECRET_ACCESS_KEY"
+		sessionTokenName := prefix + "AWS_SESSION_TOKEN"
+		regionName := prefix + "AWS_REGION"
+
+		if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix results in disallowed environment variable name",
+			})
+			return
+		}
+
+		// Read credentials from environment (values are NEVER logged)
+		accessKeyID := os.Getenv(accessKeyIDName)
+		secretAccessKey := os.Getenv(secretAccessKeyName)
+		sessionToken := os.Getenv(sessionTokenName)
+		region := os.Getenv(regionName)
+		if region == "" {
+			region = defaultRegion
+		}
+		if region == "" {
+			region = "us-east-1"
+		}
+
+		if accessKeyID == "" || secretAccessKey == "" {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment",
+			})
+			return
+		}
+
+		// Validate the credentials via STS
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cfg, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
+		if err != nil {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: true,
+				Valid: false,
+				Error: fmt.Sprintf("Credentials found but invalid: %v", err),
+			})
+			return
+		}
+
+		// Check if the user's selected region is enabled
+		var warning string
+		if region != "us-east-1" {
+			warning = checkRegionOptInStatus(ctx, cfg, region)
+		}
+
+		// Return only safe metadata - NEVER return raw credentials
+		// Note: credentials are NOT registered to session here - that happens
+		// via HandleAwsConfirmEnvCredentials after user confirmation
+		c.JSON(http.StatusOK, EnvCredentialsResponse{
+			Found:           true,
+			Valid:           true,
+			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
+			Arn:             identity.Arn,
+			Region:          region,
+			HasSessionToken: sessionToken != "",
+			Warning:         warning,
+		})
+	}
+}
+
+// ConfirmEnvCredentialsRequest represents a request to confirm and register
+// detected environment credentials to the session.
+type ConfirmEnvCredentialsRequest struct {
+	Prefix        string `json:"prefix"`
+	DefaultRegion string `json:"defaultRegion"`
+}
+
+// HandleAwsConfirmEnvCredentials reads AWS credentials from the process environment
+// and registers them to the session. This is called after the user confirms they
+// want to use the detected credentials.
+// Returns only metadata (accountId, arn) - never returns raw credentials.
+func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ConfirmEnvCredentialsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, EnvCredentialsResponse{
 				Found: false,
@@ -893,11 +991,34 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
+		// Validate the prefix before using it (security: prevent arbitrary env var probing)
+		if !isValidAwsEnvVarPrefix(req.Prefix) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+			})
+			return
+		}
+
+		// Construct env var names and validate them (defense in depth)
+		accessKeyIDName := req.Prefix + "AWS_ACCESS_KEY_ID"
+		secretAccessKeyName := req.Prefix + "AWS_SECRET_ACCESS_KEY"
+		sessionTokenName := req.Prefix + "AWS_SESSION_TOKEN"
+		regionName := req.Prefix + "AWS_REGION"
+
+		if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix results in disallowed environment variable name",
+			})
+			return
+		}
+
 		// Read credentials from environment (values are NEVER logged)
-		accessKeyID := os.Getenv(req.Prefix + "AWS_ACCESS_KEY_ID")
-		secretAccessKey := os.Getenv(req.Prefix + "AWS_SECRET_ACCESS_KEY")
-		sessionToken := os.Getenv(req.Prefix + "AWS_SESSION_TOKEN")
-		region := os.Getenv(req.Prefix + "AWS_REGION")
+		accessKeyID := os.Getenv(accessKeyIDName)
+		secretAccessKey := os.Getenv(secretAccessKeyName)
+		sessionToken := os.Getenv(sessionTokenName)
+		region := os.Getenv(regionName)
 		if region == "" {
 			region = req.DefaultRegion
 		}
@@ -928,7 +1049,6 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 		}
 
 		// Register credentials to session environment (server-side only)
-		// This is the same as what happens after manual authentication
 		envVars := map[string]string{
 			"AWS_ACCESS_KEY_ID":     accessKeyID,
 			"AWS_SECRET_ACCESS_KEY": secretAccessKey,

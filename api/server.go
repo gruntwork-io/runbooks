@@ -90,8 +90,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
 		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, workingDir, outputPath, sessionManager))
-		// Environment credential prefill - requires session to register credentials
-		protectedAPI.POST("/aws/env-credentials", HandleAwsEnvCredentials(sessionManager))
+		// Environment credential detection (read-only, does not register to session)
+		protectedAPI.GET("/aws/env-credentials", HandleAwsEnvCredentials())
+		// Confirm and register detected credentials to session (after user confirmation)
+		protectedAPI.POST("/aws/env-credentials/confirm", HandleAwsConfirmEnvCredentials(sessionManager))
 		// AWS auth endpoints that return credentials (token required: returns secrets)
 		protectedAPI.POST("/aws/profile", HandleAwsProfileAuth())
 		protectedAPI.POST("/aws/sso/poll", HandleAwsSsoPoll())
