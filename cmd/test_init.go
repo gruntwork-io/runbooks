@@ -1,14 +1,14 @@
 package cmd
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"runbooks/api/testing"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -319,19 +319,8 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 			inputsID := extractPropValue(props, "inputsId")
 
 			// Generate ID from outputPath or use a counter
-			var id string
-			if outputPath != "" {
-				// Convert path to a valid ID: "account-summary.txt" -> "template-account-summary"
-				baseName := filepath.Base(outputPath)
-				// Remove extension
-				if idx := strings.LastIndex(baseName, "."); idx > 0 {
-					baseName = baseName[:idx]
-				}
-				// Add a short hash of the full outputPath to disambiguate same filenames in different dirs
-				hash := sha256.Sum256([]byte(outputPath))
-				shortHash := hex.EncodeToString(hash[:])[:8]
-				id = fmt.Sprintf("template-%s-%s", baseName, shortHash)
-			} else {
+			id := testing.GenerateTemplateInlineID(outputPath)
+			if id == "" {
 				templateInlineCount++
 				id = fmt.Sprintf("template-inline-%d", templateInlineCount)
 			}

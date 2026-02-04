@@ -299,7 +299,7 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 		inputsID := extractMDXPropValue(props, "inputsId")
 
 		// Generate ID from outputPath
-		id := generateTemplateInlineID(outputPath)
+		id := GenerateTemplateInlineID(outputPath)
 		if id == "" {
 			templateCount++
 			id = fmt.Sprintf("template-inline-%d", templateCount)

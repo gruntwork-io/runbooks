@@ -1,6 +1,8 @@
 package testing
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/mail"
 	"net/url"
@@ -14,10 +16,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// generateTemplateInlineID generates an ID for a TemplateInline block based on its outputPath.
-// If outputPath is provided, generates "template-{basename}" (without extension).
+// GenerateTemplateInlineID generates an ID for a TemplateInline block based on its outputPath.
+// If outputPath is provided, generates "template-{basename}-{hash}" where hash is an 8-character
+// SHA256 hash of the full outputPath to disambiguate same filenames in different directories.
 // If outputPath is empty, returns empty string (caller should handle fallback).
-func generateTemplateInlineID(outputPath string) string {
+func GenerateTemplateInlineID(outputPath string) string {
 	if outputPath == "" {
 		return ""
 	}
@@ -25,7 +28,10 @@ func generateTemplateInlineID(outputPath string) string {
 	if idx := strings.LastIndex(baseName, "."); idx > 0 {
 		baseName = baseName[:idx]
 	}
-	return "template-" + baseName
+	// Add a short hash of the full outputPath to disambiguate same filenames in different dirs
+	hash := sha256.Sum256([]byte(outputPath))
+	shortHash := hex.EncodeToString(hash[:])[:8]
+	return fmt.Sprintf("template-%s-%s", baseName, shortHash)
 }
 
 // ValidationError represents a single validation error.
@@ -608,7 +614,7 @@ func (v *InputValidator) parseAndValidateTemplateInlineBlocks(contentStr string)
 		outputPath := api.ExtractProp(comp.Props, "outputPath")
 
 		// Generate ID from outputPath
-		if id := generateTemplateInlineID(outputPath); id != "" {
+		if id := GenerateTemplateInlineID(outputPath); id != "" {
 			comp.ID = id
 		} else {
 			templateCount++

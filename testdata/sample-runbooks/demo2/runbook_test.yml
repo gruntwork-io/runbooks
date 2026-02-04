@@ -7,6 +7,8 @@ version: 1
 settings:
   # Generate files to a temp directory (cleaned up after test)
   use_temp_working_dir: true
+  # Working directory for script execution (default: temp directory)
+  # working_dir: "."  # Use "." for runbook directory, or specify a path
   # Test timeout
   timeout: 5m
   # Can this runbook's tests run in parallel with others?
@@ -48,15 +50,15 @@ tests:
           minLength: 5
           maxLength: 20
       # AWSAccounts: map
-        infra-live-elements-inputs.AWSAccounts:
-          fuzz:
-            type: map
-            minCount: 2
-            maxCount: 4
-            schema:
-              - email
-              - environment
-              - id
+      infra-live-elements-inputs.AWSAccounts:
+        fuzz:
+          type: map
+          minCount: 2
+          maxCount: 4
+          schema:
+            - email
+            - environment
+            - id
       # OrgNamePrefix: string
       infra-live-elements-inputs.OrgNamePrefix:
         fuzz:
@@ -100,23 +102,23 @@ tests:
     steps:
       # Note: Order matters! Blocks that produce outputs must run before
       # blocks that consume them via {{ ._blocks.x.outputs.y }}
-      # If no blocks are listed, the test runs all blocks in document order.
+      # All blocks below are commented out, so this test runs all blocks
+      # in document order. Uncomment specific blocks to run only those.
 
-      # Skip environment checks - these verify user's local machine, not runbook logic
       - block: check-gh-install
-        expect: skip
+        expect: success
 
       - block: install-gh-latest-version
-        expect: skip
+        expect: success
 
       - block: check-mise-install
+        expect: success
+
+      - block: create-infrastructure-live-root-repo
         expect: skip
 
-      # - block: create-infrastructure-live-root-repo
-      #   expect: success
-
-      # - block: check-infrastructure-live-root-repo
-      #   expect: success
+      - block: check-infrastructure-live-root-repo
+        expect: skip
 
       - block: lookup-latest-versions-of-opentofu-and-terragrunt
         expect: success
@@ -124,13 +126,21 @@ tests:
       - block: test-command1
         expect: success
 
-      - block: template-ci
+      - block: mise-config-inputs
+        # Template: templates/mise-config
+        expect: success
+
+      - block: template-ci-f9af7f64
         # Renders: ci.yml
         # Uses inputs from: infrastructure-live-root-repo-inputs
         expect: success
 
-      # - block: create-pull-request-with-changes
-      #   expect: success
+      - block: infra-live-elements-inputs
+        # Template: templates/infra-live-elements
+        expect: success
+
+      - block: create-pull-request-with-changes
+        expect: skip
 
     assertions:
       # TemplateInline blocks automatically validate their output dependencies.

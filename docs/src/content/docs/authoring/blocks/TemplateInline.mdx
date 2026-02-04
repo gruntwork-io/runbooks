@@ -314,6 +314,12 @@ Welcome to {{ .ProjectName }}!
 Use `generateFile={true}` when you want users to both see the output inline _and_ have the file saved to their workspace.
 </Aside>
 
+## Block IDs for Testing
+
+Unlike `<Check>` and `<Command>` blocks, `<TemplateInline>` blocks don't have an explicit `id` prop. Instead, IDs are **auto-generated** based on the `outputPath` prop. The auto-generated ID is used in the test framework to reference the block.
+
+Learn more about how to use block IDs in the [testing documentation](/authoring/testing/#block-ids).
+
 ## Complete Example
 
 Here's a complete example showing `<Inputs>` with multiple `<TemplateInline>` blocks:
