@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -918,12 +919,9 @@ func HandleAwsEnvCredentials() gin.HandlerFunc {
 		secretAccessKey := os.Getenv(secretAccessKeyName)
 		sessionToken := os.Getenv(sessionTokenName)
 		region := os.Getenv(regionName)
-		if region == "" {
-			region = defaultRegion
-		}
-		if region == "" {
-			region = "us-east-1"
-		}
+
+		// Default to us-east-1 if no region or default region is found
+		region = cmp.Or(region, defaultRegion, "us-east-1")
 
 		if accessKeyID == "" || secretAccessKey == "" {
 			c.JSON(http.StatusOK, EnvCredentialsResponse{
@@ -1098,6 +1096,12 @@ type ClearCredentialsResponse struct {
 // The handler removes AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, and AWS_REGION
 // from the session, ensuring that subsequent commands don't accidentally use credentials
 // the user didn't approve.
+//
+// Note: This only clears the standard AWS_* env vars, not prefixed variants (e.g.,
+// STAGING_AWS_ACCESS_KEY_ID). Prefixed credentials exist in the user's shell environment
+// and are only used as a source during detection. Most scripts won't blindly look for prefixed 
+// credentials. When confirmed via HandleAwsConfirmEnvCredentials, credentials are always
+// stored in the session using the standard names, so clearing the standard names is sufficient.
 func HandleAwsClearCredentials(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Remove AWS credential env vars from session
