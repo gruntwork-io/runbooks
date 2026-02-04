@@ -371,7 +371,7 @@ func (v *InputValidator) parseAndValidateComponents() error {
 // any that are not in the KnownBlockTypes set.
 func (v *InputValidator) detectUnknownBlocks(contentStr string) {
 	// Find fenced code block ranges to skip (same as ParseComponents does)
-	codeBlockRanges := findFencedCodeBlockRanges(contentStr)
+	codeBlockRanges := api.FindFencedCodeBlockRanges(contentStr)
 
 	// Regex to find PascalCase block tags: <BlockName followed by whitespace or />
 	// This matches the MDX convention (PascalCase = custom block, lowercase = HTML)
@@ -381,7 +381,7 @@ func (v *InputValidator) detectUnknownBlocks(contentStr string) {
 	seen := make(map[string]bool)
 	for _, match := range matches {
 		// Skip if inside a fenced code block
-		if isInsideFencedCodeBlock(match[0], codeBlockRanges) {
+		if api.IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
 			continue
 		}
 
@@ -400,35 +400,6 @@ func (v *InputValidator) detectUnknownBlocks(contentStr string) {
 			Message:       fmt.Sprintf("unknown block type %q is not supported by runbooks test", blockType),
 		})
 	}
-}
-
-// findFencedCodeBlockRanges finds all fenced code block ranges in the content.
-// Returns a slice of [start, end] pairs representing positions inside code blocks.
-func findFencedCodeBlockRanges(content string) [][2]int {
-	var ranges [][2]int
-	fenceRe := regexp.MustCompile("(?m)^```")
-	matches := fenceRe.FindAllStringIndex(content, -1)
-
-	for i := 0; i+1 < len(matches); i += 2 {
-		openStart := matches[i][0]
-		closeStart := matches[i+1][0]
-		closeEnd := len(content)
-		if nl := strings.IndexByte(content[closeStart:], '\n'); nl != -1 {
-			closeEnd = closeStart + nl + 1
-		}
-		ranges = append(ranges, [2]int{openStart, closeEnd})
-	}
-	return ranges
-}
-
-// isInsideFencedCodeBlock checks if a position is inside any fenced code block.
-func isInsideFencedCodeBlock(position int, codeBlockRanges [][2]int) bool {
-	for _, r := range codeBlockRanges {
-		if position >= r[0] && position < r[1] {
-			return true
-		}
-	}
-	return false
 }
 
 // parseAndValidateAuthBlocks parses and validates AwsAuth or GitHubAuth blocks.

@@ -376,7 +376,7 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 	contentStr := string(content)
 
 	// Find fenced code block ranges to skip (documentation examples)
-	codeBlockRanges := findFencedCodeBlockRanges(contentStr)
+	codeBlockRanges := api.FindFencedCodeBlockRanges(contentStr)
 
 	// Scan block types that can have auth dependencies (Check, Command)
 	for _, blockType := range authBlockDependentTypes {
@@ -391,7 +391,7 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 			}
 
 			// Skip components inside fenced code blocks (documentation examples)
-			if isInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			if api.IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
 				continue
 			}
 

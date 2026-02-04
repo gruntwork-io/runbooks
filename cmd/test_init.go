@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"runbooks/api"
 	"runbooks/api/testing"
 
 	"github.com/spf13/cobra"
@@ -202,6 +203,10 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 
 	runbookDir := filepath.Dir(path)
 	contentStr := string(content)
+
+	// Strip fenced code blocks to avoid false positives from documentation examples
+	contentStr = api.StripFencedCodeBlocks(contentStr)
+
 	var blocks []blockInfo
 	seen := make(map[string]bool)
 
