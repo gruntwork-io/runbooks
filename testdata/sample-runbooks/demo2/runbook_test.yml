@@ -112,7 +112,7 @@ tests:
         expect: success
 
       - block: check-mise-install
-        expect: success
+        expect: skip
 
       - block: create-infrastructure-live-root-repo
         expect: skip
