@@ -11,6 +11,9 @@
 # Or use AWS profile:
 #   export AWS_PROFILE=your-profile
 #   go run main.go test testdata/feature-demos/aws-auth -v
+#
+# In CI, credentials are provided via OIDC and exported to both AWS_* and
+# RUNBOOKS_TEST_* environment variables.
 
 version: 1
 
@@ -52,7 +55,7 @@ tests:
       - block: aws-auth
         expect: skip
 
-  # Test 3: AWS auth secondary test (single auth block)
+  # Test 3: AWS auth secondary test (single auth block with standard env vars)
   - name: test-aws-auth-secondary
     description: Test that AwsAuth secondary passes its credentials to the Command block
 
@@ -63,25 +66,27 @@ tests:
       - block: list-buckets-secondary
         expect: success
 
-  # Test 4: Multi-account credential isolation
-  # This test authenticates BOTH auth blocks with different credentials,
-  # then verifies that each Check uses the correct credentials via awsAuthId.
-  - name: test-multi-account-isolation
-    description: Test that credentials are properly isolated when multiple auth blocks are used
+  # Test 4: Multiple auth blocks with awsAuthId targeting
+  # This test authenticates both auth blocks and verifies that commands
+  # can target specific auth contexts via awsAuthId.
+  # Note: In CI with a single account, both auth blocks use the same credentials.
+  # This still validates that awsAuthId routing works correctly.
+  - name: test-aws-auth-id-targeting
+    description: Test that awsAuthId correctly routes commands to specific auth contexts
 
     steps:
-      # First, authenticate the primary account (uses RUNBOOKS_TEST_* prefix)
+      # Authenticate the primary auth block (uses RUNBOOKS_TEST_* prefix)
       - block: aws-auth
         expect: success
 
-      # Then, authenticate the secondary account (uses standard AWS_* vars)
+      # Authenticate the secondary auth block (uses standard AWS_* vars)
       - block: aws-auth-secondary
         expect: success
 
-      # This Check has awsAuthId="aws-auth" - should use PRIMARY credentials
+      # This Check has awsAuthId="aws-auth" - should use PRIMARY auth context
       - block: list-buckets-primary
         expect: success
 
-      # This Check has awsAuthId="aws-auth-secondary" - should use SECONDARY credentials
+      # This Check has awsAuthId="aws-auth-secondary" - should use SECONDARY auth context
       - block: list-buckets-secondary
         expect: success
