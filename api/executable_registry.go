@@ -583,3 +583,30 @@ func findComponentExecutable(content, runbookDir, componentType, targetID string
 	return nil, fmt.Errorf("component not found")
 }
 
+// HasComponent checks if the runbook contains any components of the given type.
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
+func (r *ExecutableRegistry) HasComponent(componentType string) bool {
+	content, err := os.ReadFile(r.runbookPath)
+	if err != nil {
+		return false
+	}
+
+	re := GetComponentRegex(componentType)
+	matches := re.FindAllStringSubmatchIndex(string(content), -1)
+	if len(matches) == 0 {
+		return false
+	}
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := FindFencedCodeBlockRanges(string(content))
+
+	for _, match := range matches {
+		// Skip components inside fenced code blocks (documentation examples)
+		if !IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			return true
+		}
+	}
+
+	return false
+}
+

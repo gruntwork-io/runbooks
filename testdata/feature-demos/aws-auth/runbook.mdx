@@ -10,6 +10,8 @@ Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block
 2. **AWS SSO** - Use your organization's AWS Single Sign-On portal
 3. **Local Profile** - Use a profile configured in your `~/.aws/credentials` file
 
+By default, AwsAuth automatically checks for existing credentials in your environment. If found, you'll be prompted to confirm before they're used.
+
 <AwsAuth
   id="aws-auth"
   title="Authenticate to AWS"
@@ -90,17 +92,17 @@ Now that both accounts are authenticated, we can run commands against each one b
 
 ---
 
-## Pre-filled Credentials
+## Credential Detection
 
-### From Environment Variables (CI/CD Mode)
+### Auto-Detection from Environment Variables
 
-When running in CI/CD environments where AWS credentials are already available (e.g., via OIDC, IAM roles, or aws-vault), you can pre-fill the AwsAuth block from environment variables:
+By default, AwsAuth auto-detects credentials from environment variables. This example explicitly shows the default behavior:
 
 <AwsAuth
   id="aws-auth-from-env"
   title="AWS Access (from environment)"
-  description="Credentials are automatically loaded from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc."
-  prefilledCredentials={{ type: "env" }}
+  description="Credentials are auto-detected from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc. You'll be prompted to confirm before they're used."
+  detectCredentials={['env']}
   defaultRegion="us-west-2"
 />
 
@@ -112,6 +114,18 @@ When running in CI/CD environments where AWS credentials are already available (
   awsAuthId="aws-auth-from-env"
   successMessage="Environment credentials are valid!"
   failMessage="No valid credentials found in environment."
+/>
+
+### Disable Auto-Detection
+
+If you want users to always authenticate manually (no auto-detection), set `detectCredentials={false}`:
+
+<AwsAuth
+  id="manual-only"
+  title="Manual Authentication Only"
+  description="This block won't auto-detect credentials - you must authenticate manually."
+  detectCredentials={false}
+  defaultRegion="us-west-2"
 />
 
 ### Dynamic Credential Generation
@@ -128,8 +142,8 @@ In cross-account scenarios, you might need to assume a role and use those creden
 <AwsAuth
   id="cross-account-auth"
   title="Cross-Account Access"
-  description="Uses credentials from the assume-role script above"
-  prefilledCredentials={{ type: "block", blockId: "assume-cross-account-role" }}
+  description="Uses credentials from the assume-role script above. You'll be prompted to confirm before they're used."
+  detectCredentials={[{ block: 'assume-cross-account-role' }]}
   defaultRegion="us-east-1"
 />
 
@@ -162,6 +176,8 @@ When you specify `awsAuthId` on a Command or Check, those credentials are passed
 
 ### Security Considerations
 
+- **Confirmation Required**: When credentials are auto-detected, you must confirm before they're used. This prevents accidental operations against the wrong account.
+- **Rejection Clears Credentials**: If you click "Use Different Credentials", the detected credentials are cleared from the session to prevent accidental use.
 - **Static Credentials**: Avoid using long-term credentials when possible. Consider using SSO or IAM roles instead.
 - **SSO**: The most secure option for organizations. Credentials automatically expire.
 - **Local Profiles**: Good for development, but be careful not to expose credential files.

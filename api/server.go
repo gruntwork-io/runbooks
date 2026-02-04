@@ -14,6 +14,17 @@ import (
 
 // setupCommonRoutes sets up the common routes for both server modes
 func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
+	// If the runbook contains AwsAuth blocks, strip AWS credentials from session
+	// at creation time. This ensures users must explicitly confirm which AWS account
+	// they want to use before any scripts can access the credentials.
+	if registry != nil && registry.HasComponent("AwsAuth") {
+		sessionManager.SetProtectedEnvVars([]string{
+			"AWS_ACCESS_KEY_ID",
+			"AWS_SECRET_ACCESS_KEY",
+			"AWS_SESSION_TOKEN",
+		})
+	}
+
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
 	if err != nil {
@@ -79,8 +90,12 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
 		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, workingDir, outputPath, sessionManager))
-		// Environment credential prefill - requires session to register credentials
-		protectedAPI.POST("/aws/env-credentials", HandleAwsEnvCredentials(sessionManager))
+		// Environment credential detection (read-only, does not register to session)
+		protectedAPI.GET("/aws/env-credentials", HandleAwsEnvCredentials())
+		// Confirm and register detected credentials to session (after user confirmation)
+		protectedAPI.POST("/aws/env-credentials/confirm", HandleAwsConfirmEnvCredentials(sessionManager))
+		// Clear credentials when user rejects auto-detected creds
+		protectedAPI.DELETE("/aws/session-credentials", HandleAwsClearCredentials(sessionManager))
 		// AWS auth endpoints that return credentials (token required: returns secrets)
 		protectedAPI.POST("/aws/profile", HandleAwsProfileAuth())
 		protectedAPI.POST("/aws/sso/poll", HandleAwsSsoPoll())

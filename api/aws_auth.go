@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/account"
 	"github.com/aws/aws-sdk-go-v2/service/account/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	sso_types "github.com/aws/aws-sdk-go-v2/service/sso/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
@@ -49,11 +51,12 @@ type ValidateCredentialsRequest struct {
 
 // ValidateCredentialsResponse represents the response from credential validation
 type ValidateCredentialsResponse struct {
-	Valid     bool   `json:"valid"`
-	AccountID string `json:"accountId,omitempty"`
-	Arn       string `json:"arn,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Warning   string `json:"warning,omitempty"`
+	Valid       bool   `json:"valid"`
+	AccountID   string `json:"accountId,omitempty"`
+	AccountName string `json:"accountName,omitempty"` // Account alias, if available
+	Arn         string `json:"arn,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Warning     string `json:"warning,omitempty"`
 }
 
 // ProfileAuthRequest represents the request to authenticate using a profile
@@ -65,6 +68,7 @@ type ProfileAuthRequest struct {
 type ProfileAuthResponse struct {
 	Valid           bool   `json:"valid"`
 	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"` // Account alias, if available
 	Arn             string `json:"arn,omitempty"`
 	AccessKeyID     string `json:"accessKeyId,omitempty"`
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
@@ -120,12 +124,13 @@ const (
 // SSOPollResponse represents the response from SSO polling
 type SSOPollResponse struct {
 	Status          SSOPollStatus `json:"status"`
-	AccessKeyID     string `json:"accessKeyId,omitempty"`
-	SecretAccessKey string `json:"secretAccessKey,omitempty"`
-	SessionToken    string `json:"sessionToken,omitempty"`
-	AccountID       string `json:"accountId,omitempty"`
-	Arn             string `json:"arn,omitempty"`
-	Error           string `json:"error,omitempty"`
+	AccessKeyID     string        `json:"accessKeyId,omitempty"`
+	SecretAccessKey string        `json:"secretAccessKey,omitempty"`
+	SessionToken    string        `json:"sessionToken,omitempty"`
+	AccountID       string        `json:"accountId,omitempty"`
+	AccountName     string        `json:"accountName,omitempty"` // Account alias, if available
+	Arn             string        `json:"arn,omitempty"`
+	Error           string        `json:"error,omitempty"`
 	// For account selection flow
 	AccessToken string       `json:"accessToken,omitempty"`
 	Accounts    []SSOAccount `json:"accounts,omitempty"`
@@ -170,6 +175,7 @@ type SSOCompleteResponse struct {
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
 	SessionToken    string `json:"sessionToken,omitempty"`
 	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"` // Account alias, if available
 	Arn             string `json:"arn,omitempty"`
 	Error           string `json:"error,omitempty"`
 }
@@ -203,6 +209,7 @@ type EnvCredentialsResponse struct {
 	Found           bool   `json:"found"`
 	Valid           bool   `json:"valid,omitempty"`
 	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"` // Account alias, if available
 	Arn             string `json:"arn,omitempty"`
 	Region          string `json:"region,omitempty"`
 	HasSessionToken bool   `json:"hasSessionToken,omitempty"`
@@ -212,8 +219,9 @@ type EnvCredentialsResponse struct {
 
 // callerIdentity holds the result of an STS GetCallerIdentity call.
 type callerIdentity struct {
-	AccountID string
-	Arn       string
+	AccountID   string
+	AccountName string // Account alias, if available (best-effort)
+	Arn         string
 }
 
 // ssoTokenStatus represents the status of an SSO token creation attempt.
@@ -273,10 +281,11 @@ func HandleAwsValidate() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, ValidateCredentialsResponse{
-			Valid:     true,
-			AccountID: identity.AccountID,
-			Arn:       identity.Arn,
-			Warning:   warning,
+			Valid:       true,
+			AccountID:   identity.AccountID,
+			AccountName: identity.AccountName,
+			Arn:         identity.Arn,
+			Warning:     warning,
 		})
 	}
 }
@@ -418,6 +427,7 @@ func HandleAwsProfileAuth() gin.HandlerFunc {
 		c.JSON(http.StatusOK, ProfileAuthResponse{
 			Valid:           true,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 			AccessKeyID:     creds.AccessKeyID,
 			SecretAccessKey: creds.SecretAccessKey,
@@ -648,6 +658,7 @@ func HandleAwsSsoPoll() gin.HandlerFunc {
 			SecretAccessKey: secretAccessKey,
 			SessionToken:    sessionToken,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 		})
 	}
@@ -772,6 +783,7 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 			SecretAccessKey: secretAccessKey,
 			SessionToken:    sessionToken,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 		})
 	}
@@ -866,13 +878,111 @@ func HandleAwsCheckRegion() gin.HandlerFunc {
 	}
 }
 
-// HandleAwsEnvCredentials reads AWS credentials from the process environment,
-// validates them, and registers them to the session.
+// HandleAwsEnvCredentials reads AWS credentials from the process environment and
+// validates them, but does NOT register them to the session. This is a read-only
+// detection endpoint used to show the user what credentials are available.
 // Returns only metadata (accountId, arn) - never returns raw credentials.
-// This is a security measure to prevent credentials from being transmitted to the browser.
-func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
+// Call HandleAwsConfirmEnvCredentials to actually register the credentials after
+// the user confirms they want to use them.
+func HandleAwsEnvCredentials() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req EnvCredentialsRequest
+		// Parse query parameters for GET request
+		prefix := c.Query("prefix")
+		defaultRegion := c.Query("defaultRegion")
+
+		// Validate the prefix before using it (security: prevent arbitrary env var probing)
+		if !isValidAwsEnvVarPrefix(prefix) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+			})
+			return
+		}
+
+		// Construct env var names and validate them (defense in depth)
+		accessKeyIDName := prefix + "AWS_ACCESS_KEY_ID"
+		secretAccessKeyName := prefix + "AWS_SECRET_ACCESS_KEY"
+		sessionTokenName := prefix + "AWS_SESSION_TOKEN"
+		regionName := prefix + "AWS_REGION"
+
+		if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix results in disallowed environment variable name",
+			})
+			return
+		}
+
+		// Read credentials from environment (values are NEVER logged)
+		accessKeyID := os.Getenv(accessKeyIDName)
+		secretAccessKey := os.Getenv(secretAccessKeyName)
+		sessionToken := os.Getenv(sessionTokenName)
+		region := os.Getenv(regionName)
+		if region == "" {
+			region = defaultRegion
+		}
+		if region == "" {
+			region = "us-east-1"
+		}
+
+		if accessKeyID == "" || secretAccessKey == "" {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment",
+			})
+			return
+		}
+
+		// Validate the credentials via STS
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cfg, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
+		if err != nil {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: true,
+				Valid: false,
+				Error: fmt.Sprintf("Credentials found but invalid: %v", err),
+			})
+			return
+		}
+
+		// Check if the user's selected region is enabled
+		var warning string
+		if region != "us-east-1" {
+			warning = checkRegionOptInStatus(ctx, cfg, region)
+		}
+
+		// Return only safe metadata - NEVER return raw credentials
+		// Note: credentials are NOT registered to session here - that happens
+		// via HandleAwsConfirmEnvCredentials after user confirmation
+		c.JSON(http.StatusOK, EnvCredentialsResponse{
+			Found:           true,
+			Valid:           true,
+			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
+			Arn:             identity.Arn,
+			Region:          region,
+			HasSessionToken: sessionToken != "",
+			Warning:         warning,
+		})
+	}
+}
+
+// ConfirmEnvCredentialsRequest represents a request to confirm and register
+// detected environment credentials to the session.
+type ConfirmEnvCredentialsRequest struct {
+	Prefix        string `json:"prefix"`
+	DefaultRegion string `json:"defaultRegion"`
+}
+
+// HandleAwsConfirmEnvCredentials reads AWS credentials from the process environment
+// and registers them to the session. This is called after the user confirms they
+// want to use the detected credentials.
+// Returns only metadata (accountId, arn) - never returns raw credentials.
+func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ConfirmEnvCredentialsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, EnvCredentialsResponse{
 				Found: false,
@@ -881,11 +991,34 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
+		// Validate the prefix before using it (security: prevent arbitrary env var probing)
+		if !isValidAwsEnvVarPrefix(req.Prefix) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
+			})
+			return
+		}
+
+		// Construct env var names and validate them (defense in depth)
+		accessKeyIDName := req.Prefix + "AWS_ACCESS_KEY_ID"
+		secretAccessKeyName := req.Prefix + "AWS_SECRET_ACCESS_KEY"
+		sessionTokenName := req.Prefix + "AWS_SESSION_TOKEN"
+		regionName := req.Prefix + "AWS_REGION"
+
+		if !isAllowedAwsEnvVar(accessKeyIDName) || !isAllowedAwsEnvVar(secretAccessKeyName) {
+			c.JSON(http.StatusOK, EnvCredentialsResponse{
+				Found: false,
+				Error: "Invalid prefix results in disallowed environment variable name",
+			})
+			return
+		}
+
 		// Read credentials from environment (values are NEVER logged)
-		accessKeyID := os.Getenv(req.Prefix + "AWS_ACCESS_KEY_ID")
-		secretAccessKey := os.Getenv(req.Prefix + "AWS_SECRET_ACCESS_KEY")
-		sessionToken := os.Getenv(req.Prefix + "AWS_SESSION_TOKEN")
-		region := os.Getenv(req.Prefix + "AWS_REGION")
+		accessKeyID := os.Getenv(accessKeyIDName)
+		secretAccessKey := os.Getenv(secretAccessKeyName)
+		sessionToken := os.Getenv(sessionTokenName)
+		region := os.Getenv(regionName)
 		if region == "" {
 			region = req.DefaultRegion
 		}
@@ -916,7 +1049,6 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 		}
 
 		// Register credentials to session environment (server-side only)
-		// This is the same as what happens after manual authentication
 		envVars := map[string]string{
 			"AWS_ACCESS_KEY_ID":     accessKeyID,
 			"AWS_SECRET_ACCESS_KEY": secretAccessKey,
@@ -946,10 +1078,46 @@ func HandleAwsEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			Found:           true,
 			Valid:           true,
 			AccountID:       identity.AccountID,
+			AccountName:     identity.AccountName,
 			Arn:             identity.Arn,
 			Region:          region,
 			HasSessionToken: sessionToken != "",
 			Warning:         warning,
+		})
+	}
+}
+
+// ClearCredentialsResponse represents the response from clearing session credentials
+type ClearCredentialsResponse struct {
+	Cleared bool   `json:"cleared"`
+	Error   string `json:"error,omitempty"`
+}
+
+// HandleAwsClearCredentials removes AWS credentials from the session environment.
+// This is called when a user rejects auto-detected credentials to prevent accidental use.
+// The handler removes AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, and AWS_REGION
+// from the session, ensuring that subsequent commands don't accidentally use credentials
+// the user didn't approve.
+func HandleAwsClearCredentials(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Remove AWS credential env vars from session
+		varsToRemove := []string{
+			"AWS_ACCESS_KEY_ID",
+			"AWS_SECRET_ACCESS_KEY",
+			"AWS_SESSION_TOKEN",
+			"AWS_REGION",
+		}
+
+		if err := sm.RemoveFromEnv(varsToRemove); err != nil {
+			c.JSON(http.StatusInternalServerError, ClearCredentialsResponse{
+				Cleared: false,
+				Error:   "Failed to clear credentials from session",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ClearCredentialsResponse{
+			Cleared: true,
 		})
 	}
 }
@@ -1005,16 +1173,47 @@ func defaultRegion(region string) string {
 }
 
 // getCallerIdentity calls STS GetCallerIdentity using the provided config.
+// It also attempts to fetch the account alias (best-effort, won't fail if unavailable).
 func getCallerIdentity(ctx context.Context, cfg aws.Config) (*callerIdentity, error) {
 	stsClient := sts.NewFromConfig(cfg)
 	result, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return nil, err
 	}
-	return &callerIdentity{
+
+	identity := &callerIdentity{
 		AccountID: aws.ToString(result.Account),
 		Arn:       aws.ToString(result.Arn),
-	}, nil
+	}
+
+	// Best-effort: try to get account alias (won't fail if permission denied)
+	identity.AccountName = getAccountAlias(ctx, cfg)
+
+	return identity, nil
+}
+
+// getAccountAlias attempts to fetch the AWS account alias using IAM ListAccountAliases.
+// Returns empty string if the alias cannot be fetched (no permission, no alias set, etc.).
+// This is best-effort and should never cause authentication to fail.
+func getAccountAlias(ctx context.Context, cfg aws.Config) string {
+	// IAM is a global service, but we need to use us-east-1 for the API call
+	iamCfg := cfg.Copy()
+	iamCfg.Region = "us-east-1"
+
+	iamClient := iam.NewFromConfig(iamCfg)
+	result, err := iamClient.ListAccountAliases(ctx, &iam.ListAccountAliasesInput{
+		MaxItems: aws.Int32(1), // We only need the first (and typically only) alias
+	})
+	if err != nil {
+		// Silently ignore errors - user may not have iam:ListAccountAliases permission
+		return ""
+	}
+
+	if len(result.AccountAliases) > 0 {
+		return result.AccountAliases[0]
+	}
+
+	return ""
 }
 
 // validateStaticCredentials creates an AWS config with static credentials and validates them via STS.
@@ -1144,4 +1343,53 @@ func determineProfileAuthType(section *ini.Section) AuthType {
 
 	// Unknown/default - might be inheriting from default or environment
 	return AuthTypeUnsupported
+}
+
+// =============================================================================
+// Environment Variable Validation (Security)
+// =============================================================================
+
+// isAllowedAwsEnvVar validates that an environment variable name is a permitted
+// AWS credential variable for the detection path. This prevents arbitrary
+// env var probing when no specific envVar is requested.
+// Allowed patterns:
+//   - Exactly "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", or "AWS_REGION"
+//   - Prefixed variants like "PREFIX_AWS_ACCESS_KEY_ID" or "PROD_AWS_SECRET_ACCESS_KEY"
+//
+// The prefix must be uppercase letters, digits, or underscores, and the full name
+// must end with one of the standard AWS credential variable names.
+func isAllowedAwsEnvVar(name string) bool {
+	if name == "" {
+		return false
+	}
+
+	// Exact matches for standard names
+	standardVars := []string{
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_SESSION_TOKEN",
+		"AWS_REGION",
+	}
+	for _, v := range standardVars {
+		if name == v {
+			return true
+		}
+	}
+
+	// Check for prefixed variants - must end with _AWS_... and prefix must be valid
+	validPrefixPattern := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_REGION)$`)
+	return validPrefixPattern.MatchString(name)
+}
+
+// isValidAwsEnvVarPrefix validates that a prefix is safe to use when constructing
+// environment variable names. Must be empty or contain only uppercase letters,
+// digits, and underscores, optionally ending with underscore.
+func isValidAwsEnvVarPrefix(prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	// Prefix must be uppercase alphanumeric with underscores
+	// If non-empty, should typically end with underscore for clean naming
+	validPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
+	return validPrefix.MatchString(prefix)
 }
