@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -1187,4 +1188,53 @@ func determineProfileAuthType(section *ini.Section) AuthType {
 
 	// Unknown/default - might be inheriting from default or environment
 	return AuthTypeUnsupported
+}
+
+// =============================================================================
+// Environment Variable Validation (Security)
+// =============================================================================
+
+// isAllowedAwsEnvVar validates that an environment variable name is a permitted
+// AWS credential variable for the detection path. This prevents arbitrary
+// env var probing when no specific envVar is requested.
+// Allowed patterns:
+//   - Exactly "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", or "AWS_REGION"
+//   - Prefixed variants like "PREFIX_AWS_ACCESS_KEY_ID" or "PROD_AWS_SECRET_ACCESS_KEY"
+//
+// The prefix must be uppercase letters, digits, or underscores, and the full name
+// must end with one of the standard AWS credential variable names.
+func isAllowedAwsEnvVar(name string) bool {
+	if name == "" {
+		return false
+	}
+
+	// Exact matches for standard names
+	standardVars := []string{
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_SESSION_TOKEN",
+		"AWS_REGION",
+	}
+	for _, v := range standardVars {
+		if name == v {
+			return true
+		}
+	}
+
+	// Check for prefixed variants - must end with _AWS_... and prefix must be valid
+	validPrefixPattern := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_REGION)$`)
+	return validPrefixPattern.MatchString(name)
+}
+
+// isValidAwsEnvVarPrefix validates that a prefix is safe to use when constructing
+// environment variable names. Must be empty or contain only uppercase letters,
+// digits, and underscores, optionally ending with underscore.
+func isValidAwsEnvVarPrefix(prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	// Prefix must be uppercase alphanumeric with underscores
+	// If non-empty, should typically end with underscore for clean naming
+	validPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
+	return validPrefix.MatchString(prefix)
 }
