@@ -74,20 +74,21 @@ export function OAuthFlow({
               <strong>Step 2:</strong> Open GitHub and enter the code:
             </p>
             <div className="mb-3">
-              <a
-                href={verificationUri}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="border-violet-300 text-violet-700 hover:bg-violet-50"
               >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                <a
+                  href={verificationUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
                 >
-                  <ExternalLink className="size-4 mr-2" />
                   Open GitHub
-                </Button>
-              </a>
+                  <ExternalLink className="size-4" />
+                </a>
+              </Button>
             </div>
             <p className="text-gray-500 text-xs">
               We check for authorization every 5 seconds. If you cancelled on GitHub, click Cancel below.
@@ -108,12 +109,12 @@ export function OAuthFlow({
         >
           {isAuthenticating ? (
             <>
-              <Loader2 className="size-4 animate-spin mr-2" />
+              <Loader2 className="size-4 animate-spin" />
               Waiting for authorization...
             </>
           ) : (
             <>
-              <ExternalLink className="size-4 mr-2" />
+              <ExternalLink className="size-4" />
               Sign in with GitHub
             </>
           )}
@@ -125,7 +126,7 @@ export function OAuthFlow({
             variant="outline"
             className="border-gray-300 text-gray-700 hover:bg-gray-100"
           >
-            <XCircle className="size-4 mr-2" />
+            <XCircle className="size-4" />
             Cancel
           </Button>
         )}

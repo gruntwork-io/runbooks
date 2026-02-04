@@ -10,6 +10,7 @@ export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
   return (
     <div className="flex gap-1 mb-4 border-b border-violet-200">
       <button
+        type="button"
         onClick={() => setAuthMethod('oauth')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'oauth'
@@ -21,6 +22,7 @@ export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
         Sign in with GitHub
       </button>
       <button
+        type="button"
         onClick={() => setAuthMethod('pat')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'pat'
