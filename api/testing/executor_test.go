@@ -473,3 +473,128 @@ func TestReadAwsEnvCredentials(t *testing.T) {
 		})
 	}
 }
+
+// TestAuthBlockCredentialIsolation verifies that when a Check/Command block specifies
+// awsAuthId or githubAuthId, it receives credentials from that specific auth block,
+// not from the session (which may have been overwritten by another auth block).
+func TestAuthBlockCredentialIsolation(t *testing.T) {
+	// Create temporary directory for test files
+	tmpDir, err := os.MkdirTemp("", "credential-isolation-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create runbook with two AwsAuth blocks using different prefixes
+	// Each Check block specifies which auth block's credentials to use via awsAuthId
+	runbookContent := `# Multi-Account Credential Isolation Test
+
+<AwsAuth
+  id="aws-auth-primary"
+  detectCredentials={[{ env: { testPrefix: 'PRIMARY_' } }]}
+/>
+
+<AwsAuth
+  id="aws-auth-secondary"
+  detectCredentials={[{ env: { testPrefix: 'SECONDARY_' } }]}
+/>
+
+## Check blocks referencing specific auth blocks
+
+<Check
+  id="check-primary"
+  awsAuthId="aws-auth-primary"
+  command="echo ACCESS_KEY=$AWS_ACCESS_KEY_ID"
+/>
+
+<Check
+  id="check-secondary"
+  awsAuthId="aws-auth-secondary"
+  command="echo ACCESS_KEY=$AWS_ACCESS_KEY_ID"
+/>
+
+## Check block without awsAuthId (uses session credentials)
+
+<Check
+  id="check-session"
+  command="echo ACCESS_KEY=$AWS_ACCESS_KEY_ID"
+/>
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	err = os.WriteFile(runbookPath, []byte(runbookContent), 0644)
+	require.NoError(t, err)
+
+	// Create test config that runs both auth blocks and both check blocks
+	testConfig := `version: 1
+tests:
+  - name: credential-isolation
+    steps:
+      - block: aws-auth-primary
+        expect: success
+      - block: aws-auth-secondary
+        expect: success
+      - block: check-primary
+        expect: success
+      - block: check-secondary
+        expect: success
+      - block: check-session
+        expect: success
+`
+	configPath := filepath.Join(tmpDir, "runbook_test.yml")
+	err = os.WriteFile(configPath, []byte(testConfig), 0644)
+	require.NoError(t, err)
+
+	// Set up credentials for each auth block
+	// PRIMARY_ credentials
+	t.Setenv("PRIMARY_AWS_ACCESS_KEY_ID", "AKIAPRIMARY123456789")
+	t.Setenv("PRIMARY_AWS_SECRET_ACCESS_KEY", "primary-secret-key")
+	t.Setenv("PRIMARY_AWS_REGION", "us-west-2")
+
+	// SECONDARY_ credentials (different from PRIMARY)
+	t.Setenv("SECONDARY_AWS_ACCESS_KEY_ID", "AKIASECONDARY987654")
+	t.Setenv("SECONDARY_AWS_SECRET_ACCESS_KEY", "secondary-secret-key")
+	t.Setenv("SECONDARY_AWS_REGION", "eu-west-1")
+
+	// Create executor
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated", WithVerbose(true))
+	require.NoError(t, err)
+
+	// Parse config
+	config, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	// Run the test
+	testResult := executor.RunTest(config.Tests[0])
+
+	// Verify all steps passed
+	for _, step := range testResult.StepResults {
+		assert.True(t, step.Passed, "Step %s should pass: %s", step.Block, step.Error)
+	}
+
+	// Find and verify check-primary got PRIMARY credentials
+	var checkPrimaryLogs string
+	var checkSecondaryLogs string
+	var checkSessionLogs string
+
+	for _, step := range testResult.StepResults {
+		switch step.Block {
+		case "check:check-primary":
+			checkPrimaryLogs = step.Logs
+		case "check:check-secondary":
+			checkSecondaryLogs = step.Logs
+		case "check:check-session":
+			checkSessionLogs = step.Logs
+		}
+	}
+
+	// check-primary should have received PRIMARY credentials (via awsAuthId)
+	assert.Contains(t, checkPrimaryLogs, "ACCESS_KEY=AKIAPRIMARY123456789",
+		"check-primary should receive credentials from aws-auth-primary")
+
+	// check-secondary should have received SECONDARY credentials (via awsAuthId)
+	assert.Contains(t, checkSecondaryLogs, "ACCESS_KEY=AKIASECONDARY987654",
+		"check-secondary should receive credentials from aws-auth-secondary")
+
+	// check-session (without awsAuthId) should have SECONDARY credentials
+	// because aws-auth-secondary was the last to run and overwrote the session
+	assert.Contains(t, checkSessionLogs, "ACCESS_KEY=AKIASECONDARY987654",
+		"check-session should receive session credentials (last auth block executed)")
+}

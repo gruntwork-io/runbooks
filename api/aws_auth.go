@@ -956,15 +956,37 @@ type ConfirmEnvCredentialsRequest struct {
 	DefaultRegion string `json:"defaultRegion"`
 }
 
+// ConfirmEnvCredentialsResponse represents the response from confirming environment credentials.
+// Unlike the detection endpoint, this DOES return credentials so the frontend can store them
+// per-block for the awsAuthId feature. This is a calculated security trade-off:
+// - Credentials are already in the user's shell environment
+// - Request is localhost-only
+// - Request requires a session token
+type ConfirmEnvCredentialsResponse struct {
+	Found           bool   `json:"found"`
+	Valid           bool   `json:"valid,omitempty"`
+	AccountID       string `json:"accountId,omitempty"`
+	AccountName     string `json:"accountName,omitempty"`
+	Arn             string `json:"arn,omitempty"`
+	Region          string `json:"region,omitempty"`
+	HasSessionToken bool   `json:"hasSessionToken,omitempty"`
+	Warning         string `json:"warning,omitempty"`
+	Error           string `json:"error,omitempty"`
+	// Credentials are returned so frontend can store them per-block for awsAuthId support
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+}
+
 // HandleAwsConfirmEnvCredentials reads AWS credentials from the process environment
 // and registers them to the session. This is called after the user confirms they
 // want to use the detected credentials.
-// Returns only metadata (accountId, arn) - never returns raw credentials.
+// Returns credentials so frontend can store them per-block for awsAuthId support.
 func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ConfirmEnvCredentialsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, EnvCredentialsResponse{
+			c.JSON(http.StatusBadRequest, ConfirmEnvCredentialsResponse{
 				Found: false,
 				Error: "Invalid request format",
 			})
@@ -974,7 +996,7 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 		// Read credentials from environment using shared function
 		creds, found, err := ReadAwsEnvCredentials(req.Prefix)
 		if err != nil {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
+			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
 				Found: false,
 				Error: err.Error(),
 			})
@@ -982,7 +1004,7 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 		}
 
 		if !found {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
+			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
 				Found: false,
 				Error: fmt.Sprintf("%sAWS_ACCESS_KEY_ID or %sAWS_SECRET_ACCESS_KEY not found in environment", req.Prefix, req.Prefix),
 			})
@@ -1001,7 +1023,7 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 
 		cfg, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
 		if err != nil {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
+			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
 				Found: true,
 				Valid: false,
 				Error: fmt.Sprintf("Credentials found but invalid: %v", err),
@@ -1020,7 +1042,7 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 		}
 
 		if err := sm.AppendToEnv(envVars); err != nil {
-			c.JSON(http.StatusInternalServerError, EnvCredentialsResponse{
+			c.JSON(http.StatusInternalServerError, ConfirmEnvCredentialsResponse{
 				Found: true,
 				Valid: true,
 				Error: "Failed to register credentials to session",
@@ -1034,8 +1056,8 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			warning = checkRegionOptInStatus(ctx, cfg, region)
 		}
 
-		// Return only safe metadata - NEVER return raw credentials
-		c.JSON(http.StatusOK, EnvCredentialsResponse{
+		// Return credentials so frontend can store them per-block for awsAuthId support
+		c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
 			Found:           true,
 			Valid:           true,
 			AccountID:       identity.AccountID,
@@ -1044,6 +1066,9 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			Region:          region,
 			HasSessionToken: sessionToken != "",
 			Warning:         warning,
+			AccessKeyID:     accessKeyID,
+			SecretAccessKey: secretAccessKey,
+			SessionToken:    sessionToken,
 		})
 	}
 }

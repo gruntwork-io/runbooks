@@ -183,6 +183,11 @@ type TestExecutor struct {
 
 	// Auth dependencies: which blocks depend on which auth blocks
 	authDeps map[string]AuthDependency // blockID -> auth dependency
+
+	// Auth block credentials: stores credentials per-auth-block for awsAuthId/githubAuthId support
+	// When a Check/Command specifies awsAuthId="my-auth", we look up credentials from this map
+	// instead of just using the session environment
+	authBlockCredentials map[string]map[string]string // authBlockID -> envVarName -> value
 }
 
 // resolveOutputPath returns the absolute path to the output directory.
@@ -286,19 +291,20 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 	}
 
 	e := &TestExecutor{
-		runbookPath:     runbookPath,
-		workingDir:      workingDir,
-		outputPath:      outputPath,
-		registry:        registry,
-		session:         session,
-		timeout:         5 * time.Minute,
-		verbose:         false,
-		validator:       validator,
-		blockOutputs:    make(map[string]map[string]string),
-		templateInlines: templateInlines,
-		templates:       templates,
-		blockStates:     make(map[string]BlockState),
-		authDeps:        authDeps,
+		runbookPath:          runbookPath,
+		workingDir:           workingDir,
+		outputPath:           outputPath,
+		registry:             registry,
+		session:              session,
+		timeout:              5 * time.Minute,
+		verbose:              false,
+		validator:            validator,
+		blockOutputs:         make(map[string]map[string]string),
+		templateInlines:      templateInlines,
+		templates:            templates,
+		blockStates:          make(map[string]BlockState),
+		authDeps:             authDeps,
+		authBlockCredentials: make(map[string]map[string]string),
 	}
 
 	for _, opt := range opts {
@@ -1278,6 +1284,9 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 		return result
 	}
 
+	// Store per-block credentials for githubAuthId lookups
+	e.authBlockCredentials[block.ID] = envVars
+
 	// Success
 	e.blockStates[block.ID] = BlockStateSuccess
 	result.ActualStatus = "success"
@@ -1291,6 +1300,137 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 	}
 
 	return result
+}
+
+// AwsCredentialSource describes how AWS credentials were obtained.
+type AwsCredentialSource string
+
+const (
+	AwsCredSourceEnvVars        AwsCredentialSource = "environment_variables"
+	AwsCredSourceProfile        AwsCredentialSource = "aws_profile"
+	AwsCredSourceOIDC           AwsCredentialSource = "oidc_web_identity"
+	AwsCredSourceContainerCreds AwsCredentialSource = "container_credentials"
+	AwsCredSourceIMDS           AwsCredentialSource = "instance_metadata"
+)
+
+// AwsCredentialInfo holds detailed information about detected AWS credentials.
+type AwsCredentialInfo struct {
+	Source          AwsCredentialSource
+	EnvVars         []string // Which env vars contained the credentials (for env var source)
+	ProfileName     string   // Profile name if using AWS_PROFILE
+	RoleArn         string   // Role ARN if using OIDC
+	TokenFile       string   // Token file path if using OIDC
+	HasSessionToken bool     // Whether credentials include a session token
+	Region          string   // Region if set
+}
+
+// detectAwsCredentials checks all possible sources of AWS credentials and returns
+// detailed information about what was found.
+func detectAwsCredentials(prefix string) (creds api.AwsEnvCredentials, info AwsCredentialInfo, found bool) {
+	// 1. Check for explicit static credentials via environment variables
+	envCreds, envFound, err := api.ReadAwsEnvCredentials(prefix)
+	if err == nil && envFound {
+		info.Source = AwsCredSourceEnvVars
+		info.HasSessionToken = envCreds.SessionToken != ""
+		info.Region = envCreds.Region
+
+		// Build list of env vars that contained credentials
+		if prefix != "" {
+			info.EnvVars = []string{
+				prefix + "AWS_ACCESS_KEY_ID",
+				prefix + "AWS_SECRET_ACCESS_KEY",
+			}
+			if envCreds.SessionToken != "" {
+				info.EnvVars = append(info.EnvVars, prefix+"AWS_SESSION_TOKEN")
+			}
+			if envCreds.Region != "" {
+				info.EnvVars = append(info.EnvVars, prefix+"AWS_REGION")
+			}
+		} else {
+			info.EnvVars = []string{
+				"AWS_ACCESS_KEY_ID",
+				"AWS_SECRET_ACCESS_KEY",
+			}
+			if envCreds.SessionToken != "" {
+				info.EnvVars = append(info.EnvVars, "AWS_SESSION_TOKEN")
+			}
+			if envCreds.Region != "" {
+				info.EnvVars = append(info.EnvVars, "AWS_REGION")
+			}
+		}
+		return envCreds, info, true
+	}
+
+	// 2. Check for AWS_PROFILE (named profile auth)
+	if awsProfile := os.Getenv("AWS_PROFILE"); awsProfile != "" {
+		info.Source = AwsCredSourceProfile
+		info.ProfileName = awsProfile
+		info.Region = os.Getenv("AWS_REGION")
+		info.EnvVars = []string{"AWS_PROFILE"}
+		if info.Region != "" {
+			info.EnvVars = append(info.EnvVars, "AWS_REGION")
+		}
+		return api.AwsEnvCredentials{Region: info.Region}, info, true
+	}
+
+	// 3. Check for OIDC / Web Identity Token (common in CI/CD like GitHub Actions)
+	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
+	webIdentityTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+	if awsRoleArn != "" && webIdentityTokenFile != "" {
+		info.Source = AwsCredSourceOIDC
+		info.RoleArn = awsRoleArn
+		info.TokenFile = webIdentityTokenFile
+		info.Region = os.Getenv("AWS_REGION")
+		info.EnvVars = []string{"AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"}
+		if info.Region != "" {
+			info.EnvVars = append(info.EnvVars, "AWS_REGION")
+		}
+		return api.AwsEnvCredentials{Region: info.Region}, info, true
+	}
+
+	// 4. Check for container credentials (ECS, CodeBuild, etc.)
+	if containerCredsUri := os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"); containerCredsUri != "" {
+		info.Source = AwsCredSourceContainerCreds
+		info.Region = os.Getenv("AWS_REGION")
+		info.EnvVars = []string{"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"}
+		if info.Region != "" {
+			info.EnvVars = append(info.EnvVars, "AWS_REGION")
+		}
+		return api.AwsEnvCredentials{Region: info.Region}, info, true
+	}
+	if containerCredsFullUri := os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"); containerCredsFullUri != "" {
+		info.Source = AwsCredSourceContainerCreds
+		info.Region = os.Getenv("AWS_REGION")
+		info.EnvVars = []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI"}
+		if info.Region != "" {
+			info.EnvVars = append(info.EnvVars, "AWS_REGION")
+		}
+		return api.AwsEnvCredentials{Region: info.Region}, info, true
+	}
+
+	// Note: We don't check for IMDS (EC2 instance metadata) because that requires
+	// making HTTP requests, which is slow and not suitable for test initialization.
+	// The AWS SDK will automatically use IMDS as a fallback when running on EC2.
+
+	return api.AwsEnvCredentials{}, AwsCredentialInfo{}, false
+}
+
+// formatCredentialSource returns a human-readable description of the credential source.
+func formatCredentialSource(info AwsCredentialInfo) string {
+	switch info.Source {
+	case AwsCredSourceEnvVars:
+		return "environment variables"
+	case AwsCredSourceProfile:
+		return fmt.Sprintf("AWS profile %q", info.ProfileName)
+	case AwsCredSourceOIDC:
+		return "OIDC web identity"
+	case AwsCredSourceContainerCreds:
+		return "container credentials"
+	case AwsCredSourceIMDS:
+		return "EC2 instance metadata"
+	default:
+		return "unknown source"
+	}
 }
 
 // executeAwsAuth handles AwsAuth block execution in test mode.
@@ -1307,33 +1447,31 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 	// Get prefix from detectCredentials prop (testPrefix takes precedence over prefix)
 	prefix := getTestEnvPrefix(block)
 
-	// Use shared function to read credentials with the configured prefix
-	creds, found, err := api.ReadAwsEnvCredentials(prefix)
-	if err != nil {
-		// Invalid prefix - log warning and fall back to standard vars
+	// Detect credentials from all possible sources
+	creds, credInfo, found := detectAwsCredentials(prefix)
+
+	// If prefix was specified but no prefixed credentials found, try without prefix
+	if !found && prefix != "" {
 		if e.verbose {
-			fmt.Printf("  Warning: %v, falling back to standard vars\n", err)
+			fmt.Printf("  No credentials found with prefix %q, trying standard vars...\n", prefix)
 		}
-		creds, found, _ = api.ReadAwsEnvCredentials("")
+		creds, credInfo, found = detectAwsCredentials("")
 	}
 
-	// Also check for AWS_PROFILE or AWS_ROLE_ARN as alternative auth methods
-	awsProfile := os.Getenv("AWS_PROFILE")
-	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
-
-	hasCredentials := found || awsProfile != "" || awsRoleArn != ""
-
-	if !hasCredentials {
+	if !found {
 		// No credentials found - skip this block
 		if e.verbose {
-			fmt.Printf("--- No credentials found ---\n")
+			fmt.Printf("--- No AWS credentials found ---\n")
+			fmt.Printf("  Checked sources:\n")
 			if prefix != "" {
-				fmt.Printf("  Checked: %sAWS_ACCESS_KEY_ID + %sAWS_SECRET_ACCESS_KEY\n", prefix, prefix)
+				fmt.Printf("    - Environment variables: %sAWS_ACCESS_KEY_ID + %sAWS_SECRET_ACCESS_KEY\n", prefix, prefix)
+				fmt.Printf("    - Environment variables: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n")
 			} else {
-				fmt.Printf("  Checked: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n")
+				fmt.Printf("    - Environment variables: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n")
 			}
-			fmt.Printf("  Checked: AWS_PROFILE\n")
-			fmt.Printf("  Checked: AWS_ROLE_ARN\n")
+			fmt.Printf("    - AWS profile: AWS_PROFILE\n")
+			fmt.Printf("    - OIDC: AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE\n")
+			fmt.Printf("    - Container credentials: AWS_CONTAINER_CREDENTIALS_*_URI\n")
 			fmt.Printf("--- Result: skipped (no credentials) ---\n")
 		}
 
@@ -1344,36 +1482,70 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 		return result
 	}
 
+	// Build per-block credentials map for awsAuthId support
+	// This allows Check/Command blocks to reference specific auth block credentials
+	blockCreds := make(map[string]string)
+
 	// Inject credentials into session (using standard names) for dependent blocks
-	if found {
-		envVars := map[string]string{}
-		if creds.AccessKeyID != "" {
-			envVars["AWS_ACCESS_KEY_ID"] = creds.AccessKeyID
-		}
-		if creds.SecretAccessKey != "" {
-			envVars["AWS_SECRET_ACCESS_KEY"] = creds.SecretAccessKey
-		}
-		if creds.SessionToken != "" {
-			envVars["AWS_SESSION_TOKEN"] = creds.SessionToken
+	// Only inject explicit credentials from env vars; profile/OIDC are resolved by the AWS SDK
+	if credInfo.Source == AwsCredSourceEnvVars && creds.AccessKeyID != "" {
+		envVars := map[string]string{
+			"AWS_ACCESS_KEY_ID":     creds.AccessKeyID,
+			"AWS_SECRET_ACCESS_KEY": creds.SecretAccessKey,
+			// IMPORTANT: Always include AWS_SESSION_TOKEN even if empty to ensure proper
+			// credential isolation. When switching from credentials that have a session token
+			// (e.g., SSO, AssumeRole) to credentials that don't (e.g., IAM user), we must
+			// explicitly clear the session token. Without this, the old session token would
+			// be used with the new access key, causing InvalidToken errors.
+			"AWS_SESSION_TOKEN": creds.SessionToken,
 		}
 		if creds.Region != "" {
 			envVars["AWS_REGION"] = creds.Region
 		}
 
-		if len(envVars) > 0 {
-			if err := e.session.AppendToEnv(envVars); err != nil {
-				result.Passed = false
-				result.ActualStatus = "error"
-				result.Error = fmt.Sprintf("failed to inject AWS credentials: %v", err)
-				result.Duration = time.Since(start)
-				if e.verbose {
-					fmt.Printf("--- Result: ✗ error ---\n")
-					fmt.Printf("  Error: %s\n", result.Error)
-				}
-				return result
+		// Store per-block credentials for awsAuthId lookups
+		for k, v := range envVars {
+			blockCreds[k] = v
+		}
+
+		if err := e.session.AppendToEnv(envVars); err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to inject AWS credentials: %v", err)
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("--- Result: ✗ error ---\n")
+				fmt.Printf("  Error: %s\n", result.Error)
+			}
+			return result
+		}
+	} else if credInfo.Source == AwsCredSourceProfile {
+		// For profile auth, store the profile name so commands use it
+		blockCreds["AWS_PROFILE"] = credInfo.ProfileName
+		if credInfo.Region != "" {
+			blockCreds["AWS_REGION"] = credInfo.Region
+		}
+	} else if credInfo.Source == AwsCredSourceOIDC {
+		// For OIDC, store the role ARN and token file
+		blockCreds["AWS_ROLE_ARN"] = credInfo.RoleArn
+		blockCreds["AWS_WEB_IDENTITY_TOKEN_FILE"] = credInfo.TokenFile
+		if credInfo.Region != "" {
+			blockCreds["AWS_REGION"] = credInfo.Region
+		}
+	} else if credInfo.Source == AwsCredSourceContainerCreds {
+		// For container creds, store the URI env vars
+		for _, envVar := range credInfo.EnvVars {
+			if val := os.Getenv(envVar); val != "" {
+				blockCreds[envVar] = val
 			}
 		}
+		if credInfo.Region != "" {
+			blockCreds["AWS_REGION"] = credInfo.Region
+		}
 	}
+
+	// Store credentials for this auth block
+	e.authBlockCredentials[block.ID] = blockCreds
 
 	// Credentials found - mark success
 	e.blockStates[block.ID] = BlockStateSuccess
@@ -1383,21 +1555,63 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 
 	if e.verbose {
 		fmt.Printf("--- AWS credentials found ---\n")
-		if creds.AccessKeyID != "" {
-			fmt.Printf("  AWS_ACCESS_KEY_ID: %s\n", maskAccessKeyID(creds.AccessKeyID))
-			if prefix != "" {
-				fmt.Printf("  (from %sAWS_ACCESS_KEY_ID)\n", prefix)
+		fmt.Printf("  Source: %s\n", formatCredentialSource(credInfo))
+
+		switch credInfo.Source {
+		case AwsCredSourceEnvVars:
+			fmt.Printf("  Environment variables:\n")
+			for _, envVar := range credInfo.EnvVars {
+				if strings.Contains(envVar, "ACCESS_KEY_ID") && creds.AccessKeyID != "" {
+					fmt.Printf("    %s = %s\n", envVar, maskAccessKeyID(creds.AccessKeyID))
+				} else if strings.Contains(envVar, "SECRET") {
+					fmt.Printf("    %s = (set)\n", envVar)
+				} else if strings.Contains(envVar, "SESSION_TOKEN") {
+					fmt.Printf("    %s = (set)\n", envVar)
+				} else if strings.Contains(envVar, "REGION") {
+					fmt.Printf("    %s = %s\n", envVar, credInfo.Region)
+				} else {
+					fmt.Printf("    %s\n", envVar)
+				}
 			}
+			if credInfo.HasSessionToken {
+				fmt.Printf("  Credential type: temporary (has session token)\n")
+			} else {
+				fmt.Printf("  Credential type: long-term (no session token)\n")
+			}
+			fmt.Printf("  Injected into session: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY")
+			if credInfo.HasSessionToken {
+				fmt.Printf(", AWS_SESSION_TOKEN")
+			}
+			if credInfo.Region != "" {
+				fmt.Printf(", AWS_REGION")
+			}
+			fmt.Printf("\n")
+
+		case AwsCredSourceProfile:
+			fmt.Printf("  Profile: %s\n", credInfo.ProfileName)
+			fmt.Printf("  Environment variable: AWS_PROFILE\n")
+			if credInfo.Region != "" {
+				fmt.Printf("  Region: %s (from AWS_REGION)\n", credInfo.Region)
+			}
+			fmt.Printf("  Note: AWS SDK will resolve credentials from profile\n")
+
+		case AwsCredSourceOIDC:
+			fmt.Printf("  Role ARN: %s\n", credInfo.RoleArn)
+			fmt.Printf("  Token file: %s\n", credInfo.TokenFile)
+			fmt.Printf("  Environment variables: AWS_ROLE_ARN, AWS_WEB_IDENTITY_TOKEN_FILE\n")
+			if credInfo.Region != "" {
+				fmt.Printf("  Region: %s (from AWS_REGION)\n", credInfo.Region)
+			}
+			fmt.Printf("  Note: AWS SDK will assume role using web identity token\n")
+
+		case AwsCredSourceContainerCreds:
+			fmt.Printf("  Environment variables: %s\n", strings.Join(credInfo.EnvVars, ", "))
+			if credInfo.Region != "" {
+				fmt.Printf("  Region: %s (from AWS_REGION)\n", credInfo.Region)
+			}
+			fmt.Printf("  Note: AWS SDK will retrieve credentials from container metadata\n")
 		}
-		if awsProfile != "" {
-			fmt.Printf("  AWS_PROFILE: %s\n", awsProfile)
-		}
-		if awsRoleArn != "" {
-			fmt.Printf("  AWS_ROLE_ARN: %s\n", awsRoleArn)
-		}
-		if found {
-			fmt.Printf("  Injected credentials into session\n")
-		}
+
 		fmt.Printf("--- Result: ✓ success ---\n")
 	}
 
@@ -1541,6 +1755,18 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	// Add test-specific environment variables
 	for key, value := range e.testEnv {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	// Inject auth block credentials if this block has an auth dependency (awsAuthId/githubAuthId)
+	// This ensures the block uses credentials from the specific auth block, not just the session
+	// We use mergeEnvVars to properly REPLACE existing env vars rather than append duplicates.
+	// This is critical for proper credential isolation - when switching between auth blocks,
+	// we need to fully replace the old credentials including clearing AWS_SESSION_TOKEN if
+	// the new credentials don't have one.
+	if authDep, hasAuthDep := e.authDeps[executable.ComponentID]; hasAuthDep {
+		if authCreds, hasCreds := e.authBlockCredentials[authDep.AuthBlockID]; hasCreds {
+			cmd.Env = mergeEnvVars(cmd.Env, authCreds)
+		}
 	}
 
 	// Set working directory
@@ -1954,4 +2180,37 @@ func (e *TestExecutor) formatBlockError(blockID string, stepResult StepResult) s
 	}
 
 	return fmt.Sprintf("%s block %q failed", blockType, blockID)
+}
+
+// mergeEnvVars merges override env vars into a base env slice.
+// Override values replace any existing keys in the base slice.
+// This is important for proper credential isolation - when using awsAuthId to reference
+// an auth block with different credentials, we need to fully replace the old credentials,
+// including explicitly setting AWS_SESSION_TOKEN="" if the new credentials don't have one.
+func mergeEnvVars(base []string, overrides map[string]string) []string {
+	// Build a map from existing env for efficient lookup
+	envMap := make(map[string]int, len(base)) // key -> index in result
+	result := make([]string, 0, len(base)+len(overrides))
+
+	for _, entry := range base {
+		if idx := strings.Index(entry, "="); idx != -1 {
+			key := entry[:idx]
+			envMap[key] = len(result)
+			result = append(result, entry)
+		}
+	}
+
+	// Apply overrides
+	for key, value := range overrides {
+		entry := key + "=" + value
+		if idx, exists := envMap[key]; exists {
+			// Replace existing entry
+			result[idx] = entry
+		} else {
+			// Add new entry
+			result = append(result, entry)
+		}
+	}
+
+	return result
 }

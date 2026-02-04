@@ -246,15 +246,23 @@ export function useScriptExecution({
     
     if (!blockOutputs?.values) return undefined
     
-    // Return the outputs as env vars (only include non-empty values)
-    const envVars: Record<string, string> = {}
-    for (const [key, value] of Object.entries(blockOutputs.values)) {
-      if (value !== '') {
-        envVars[key] = value
-      }
+    // Check if we have the minimum required credentials (access key + secret)
+    const hasCredentials = blockOutputs.values.AWS_ACCESS_KEY_ID && blockOutputs.values.AWS_SECRET_ACCESS_KEY
+    if (!hasCredentials) return undefined
+    
+    // Return credentials as env vars
+    // IMPORTANT: We include AWS_SESSION_TOKEN even if empty to explicitly clear any
+    // session token that might be in the session environment from a different auth block.
+    // Without this, using IAM user credentials (no session token) after SSO credentials
+    // (which have a session token) would result in InvalidToken errors.
+    const envVars: Record<string, string> = {
+      AWS_ACCESS_KEY_ID: blockOutputs.values.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: blockOutputs.values.AWS_SECRET_ACCESS_KEY,
+      AWS_REGION: blockOutputs.values.AWS_REGION || '',
+      AWS_SESSION_TOKEN: blockOutputs.values.AWS_SESSION_TOKEN || '',
     }
     
-    return Object.keys(envVars).length > 0 ? envVars : undefined
+    return envVars
   }, [awsAuthId, allOutputs])
   
   // Check if AWS auth dependency is met (when awsAuthId is specified)

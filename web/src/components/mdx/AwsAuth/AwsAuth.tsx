@@ -198,7 +198,10 @@ function AwsAuth({
               {showTabs && (
                 <AuthTabs
                   authMethod={auth.authMethod}
-                  setAuthMethod={auth.setAuthMethod}
+                  setAuthMethod={(method) => {
+                    auth.clearRetryMessage()
+                    auth.setAuthMethod(method)
+                  }}
                 />
               )}
 
@@ -280,7 +283,7 @@ function AwsAuth({
 
               {/* Option to retry detection when in manual auth mode */}
               {detectCredentials !== false && showTabs && (
-                <div className="mt-3 text-sm text-gray-600">
+                <div className="mt-3 text-sm text-gray-600 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={auth.handleRetryDetection}
@@ -288,6 +291,9 @@ function AwsAuth({
                   >
                     ← Try auto-detection again
                   </button>
+                  {auth.retryFoundNothing && (
+                    <span className="text-gray-500 italic">No credentials found</span>
+                  )}
                 </div>
               )}
             </>

@@ -51,6 +51,17 @@ export function useAwsAuth({
   const [detectedCredentials, setDetectedCredentials] = useState<DetectedAwsCredentials | null>(null)
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const detectionAttemptedRef = useRef(false)
+  // Counter to trigger detection re-run when user clicks "Try auto-detection again"
+  const [detectionAttempt, setDetectionAttempt] = useState(0)
+  // Track if the last retry found nothing (for showing feedback message)
+  const [retryFoundNothing, setRetryFoundNothing] = useState(false)
+
+  // Auto-hide the "no credentials found" message after a few seconds
+  useEffect(() => {
+    if (!retryFoundNothing) return
+    const timer = setTimeout(() => setRetryFoundNothing(false), 3000)
+    return () => clearTimeout(timer)
+  }, [retryFoundNothing])
   
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
@@ -260,7 +271,7 @@ export function useAwsAuth({
 
   // Run credential detection when session is ready
   useEffect(() => {
-    // Skip if detection is disabled or already attempted
+    // Skip if detection is disabled or already attempted (for this attempt)
     if (detectCredentials === false || detectionAttemptedRef.current) {
       return
     }
@@ -354,12 +365,16 @@ export function useAwsAuth({
         setDetectionWarning(warnings.join('; '))
       }
 
-      // Nothing found
+      // Nothing found - show feedback if this was a retry attempt
+      if (detectionAttempt > 0) {
+        setRetryFoundNothing(true)
+      }
       setDetectionStatus('done')
     }
 
     runDetection()
-  }, [detectCredentials, sessionReady, tryEnvCredentials, tryBlockCredentials, getBlockCredentials, defaultRegion])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- detectionAttempt triggers re-run on retry
+  }, [detectCredentials, sessionReady, tryEnvCredentials, tryBlockCredentials, getBlockCredentials, defaultRegion, detectionAttempt])
 
   // Watch for block outputs when waiting for a block
   useEffect(() => {
@@ -431,8 +446,22 @@ export function useAwsAuth({
           accountName: detectedCredentials.accountName,
           arn: detectedCredentials.arn,
         })
-        // Register a marker to indicate this AwsAuth block is authenticated
-        registerOutputs(id, { __AUTHENTICATED: 'true' })
+        
+        // Register credentials per-block for awsAuthId support
+        // The confirm endpoint now returns credentials so we can store them
+        if (data.accessKeyId && data.secretAccessKey) {
+          const outputs: Record<string, string> = {
+            AWS_ACCESS_KEY_ID: data.accessKeyId,
+            AWS_SECRET_ACCESS_KEY: data.secretAccessKey,
+            AWS_REGION: data.region || defaultRegion,
+            AWS_SESSION_TOKEN: data.sessionToken || '',
+          }
+          registerOutputs(id, outputs)
+        } else {
+          // Fallback: register marker if credentials weren't returned (shouldn't happen)
+          registerOutputs(id, { __AUTHENTICATED: 'true' })
+        }
+        
         if (detectionWarning) {
           setWarningMessage(detectionWarning)
         }
@@ -498,8 +527,11 @@ export function useAwsAuth({
     setAuthStatus('pending')
     setErrorMessage(null)
     setWarningMessage(null)
+    setRetryFoundNothing(false)
     // Reset the ref so detection effect will run again
     detectionAttemptedRef.current = false
+    // Increment the attempt counter to trigger the effect to re-run
+    setDetectionAttempt(prev => prev + 1)
   }, [])
 
   // Load AWS profiles from local machine
@@ -862,6 +894,8 @@ export function useAwsAuth({
     detectedCredentials,
     detectionWarning,
     waitingForBlockId,
+    retryFoundNothing,
+    clearRetryMessage: () => setRetryFoundNothing(false),
 
     // Credentials form
     accessKeyId,
