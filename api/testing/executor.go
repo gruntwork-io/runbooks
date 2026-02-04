@@ -375,16 +375,27 @@ func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error
 	deps := make(map[string]AuthDependency)
 	contentStr := string(content)
 
+	// Find fenced code block ranges to skip (documentation examples)
+	codeBlockRanges := findFencedCodeBlockRanges(contentStr)
+
 	// Scan block types that can have auth dependencies (Check, Command)
 	for _, blockType := range authBlockDependentTypes {
 		re := api.GetComponentRegex(string(blockType))
-		matches := re.FindAllStringSubmatch(contentStr, -1)
+		matches := re.FindAllStringSubmatchIndex(contentStr, -1)
 
 		for _, match := range matches {
-			if len(match) < 2 {
+			// match[0], match[1] = full match start/end
+			// match[2], match[3] = first capture group (props) start/end
+			if len(match) < 4 {
 				continue
 			}
-			props := match[1]
+
+			// Skip components inside fenced code blocks (documentation examples)
+			if isInsideFencedCodeBlock(match[0], codeBlockRanges) {
+				continue
+			}
+
+			props := contentStr[match[2]:match[3]]
 
 			blockID := extractMDXPropValue(props, "id")
 			if blockID == "" {

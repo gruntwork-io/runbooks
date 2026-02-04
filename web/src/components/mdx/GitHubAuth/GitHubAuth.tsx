@@ -147,6 +147,7 @@ export function GitHubAuth({
               detectedScopes={auth.detectedScopes}
               detectedTokenType={auth.detectedTokenType}
               scopeWarning={auth.scopeWarning}
+              sessionEnvWarning={auth.sessionEnvWarning}
               onReAuthenticate={auth.resetAuth}
             />
           )}

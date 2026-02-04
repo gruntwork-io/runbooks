@@ -29,6 +29,11 @@ func TestProtectedGitHubEndpointsRequireAuth(t *testing.T) {
 			path: "/api/github/env-credentials",
 			body: GitHubEnvCredentialsRequest{GitHubAuthID: "test"},
 		},
+		{
+			name: "/api/github/cli-credentials",
+			path: "/api/github/cli-credentials",
+			body: struct{ GitHubAuthID string }{GitHubAuthID: "test"},
+		},
 	}
 
 	for _, ep := range endpoints {
@@ -99,6 +104,11 @@ func TestProtectedGitHubEndpointsAcceptValidToken(t *testing.T) {
 			name: "/api/github/env-credentials",
 			path: "/api/github/env-credentials",
 			body: GitHubEnvCredentialsRequest{GitHubAuthID: "test"},
+		},
+		{
+			name: "/api/github/cli-credentials",
+			path: "/api/github/cli-credentials",
+			body: struct{ GitHubAuthID string }{GitHubAuthID: "test"},
 		},
 	}
 

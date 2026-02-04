@@ -8,7 +8,7 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
 fi
 
 # Call GitHub API to verify token
-response=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user)
+response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)
 
 username=$(echo "$response" | jq -r '.login')
 if [ "$username" = "null" ]; then

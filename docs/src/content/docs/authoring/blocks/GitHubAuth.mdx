@@ -259,7 +259,7 @@ If your runbook requires specific permissions, document them clearly so users kn
 
 ### Auto-detected credentials
 
-When GitHubAuth detects credentials from environment variables or GitHub CLI, those tokens retain whatever permissions they were originally created with. If a detected token lacks required permissions, operations may fail at runtime.
+When GitHubAuth detects credentials from environment variables or GitHub CLI, those tokens retain whatever permissions they were created with. If a detected token lacks required permissions, operations may fail at runtime.
 
 <Aside type="note">
 When detecting credentials from GitHub CLI, Runbooks checks if the token has the `repo` scope and displays a warning if it's missing, since many common operations require it.
@@ -317,7 +317,7 @@ As part of our internal security practices, we've analyzed the potential risks o
 
 **Scenario**: An attacker publishes a runbook that attempts to redirect OAuth to a fake GitHub login page (e.g., `oauthBaseUrl="https://github-login.attacker.com"`).
 
-**What happens**: Nothing. Runbooks does not allow `oauthBaseUrl` as a prop. GitHubAuth only communicates with github.com, so the attack fails before it starts.
+**What happens**: Nothing. Runbooks does not allow `oauthBaseUrl` as a prop. GitHubAuth only communicates with Github.com, so the attack fails before it starts.
 
 **Risk**: None. This attack vector is blocked by design.
 

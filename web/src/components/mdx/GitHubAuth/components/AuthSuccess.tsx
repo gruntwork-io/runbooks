@@ -9,6 +9,7 @@ interface AuthSuccessProps {
   detectedScopes?: string[] | null
   detectedTokenType?: GitHubTokenType | null
   scopeWarning?: string | null
+  sessionEnvWarning?: string | null
   onReAuthenticate?: () => void
 }
 
@@ -74,6 +75,7 @@ export function AuthSuccess({
   detectedScopes,
   detectedTokenType,
   scopeWarning,
+  sessionEnvWarning,
   onReAuthenticate,
 }: AuthSuccessProps) {
   const [showPermissions, setShowPermissions] = useState(false)
@@ -186,6 +188,12 @@ export function AuthSuccess({
               <br />
               Operations on private repos, issues, and PRs may fail.
             </div>
+          </div>
+        )}
+        {sessionEnvWarning && (
+          <div className="mt-3 pt-3 border-t border-green-200 flex items-start gap-2 text-amber-600 text-xs">
+            <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
+            <div>{sessionEnvWarning}</div>
           </div>
         )}
       </div>

@@ -49,6 +49,7 @@ export function useGitHubAuth({
   const [detectedTokenType, setDetectedTokenType] = useState<GitHubTokenType | null>(null)
   const [scopeWarning, setScopeWarning] = useState<string | null>(null)
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
+  const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const detectionAttemptedRef = useRef(false)
   
   // For block-based detection, track which block we're waiting for
@@ -62,6 +63,7 @@ export function useGitHubAuth({
   const [oauthUserCode, setOauthUserCode] = useState<string | null>(null)
   const [oauthVerificationUri, setOauthVerificationUri] = useState<string | null>(null)
   const oauthPollingCancelledRef = useRef(false)
+  const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Determine the effective client ID
   const effectiveClientId = oauthClientId || DEFAULT_GITHUB_OAUTH_CLIENT_ID
@@ -85,7 +87,9 @@ export function useGitHubAuth({
   }, [blockOutputs])
 
   // Register credentials as outputs and set session environment
-  const registerCredentials = useCallback(async (token: string, user: GitHubUserInfo) => {
+  // Returns { authenticated: true, sessionEnvSynced: boolean } to indicate partial success
+  // Sets sessionEnvWarning if the session env sync fails
+  const registerCredentials = useCallback(async (token: string, user: GitHubUserInfo): Promise<{ authenticated: true; sessionEnvSynced: boolean }> => {
     const outputs: Record<string, string> = {
       GITHUB_TOKEN: token,
       GITHUB_USER: user.login,
@@ -95,7 +99,7 @@ export function useGitHubAuth({
 
     // Also set in session environment for blocks that don't specify githubAuthId
     try {
-      await fetch('/api/session/env', {
+      const response = await fetch('/api/session/env', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -103,8 +107,19 @@ export function useGitHubAuth({
         },
         body: JSON.stringify({ env: outputs }),
       })
+      if (!response.ok) {
+        const message = 'Credentials saved, but session sync failed. Blocks without githubAuthId may not receive credentials.'
+        console.warn('Failed to set session environment variables:', response.status, response.statusText)
+        setSessionEnvWarning(message)
+        return { authenticated: true, sessionEnvSynced: false }
+      }
+      setSessionEnvWarning(null)
+      return { authenticated: true, sessionEnvSynced: true }
     } catch (error) {
-      console.error('Failed to set session environment variables:', error)
+      const message = 'Credentials saved, but session sync failed. Blocks without githubAuthId may not receive credentials.'
+      console.warn('Failed to set session environment variables:', error)
+      setSessionEnvWarning(message)
+      return { authenticated: true, sessionEnvSynced: false }
     }
   }, [id, registerOutputs, getAuthHeader])
 
@@ -438,17 +453,20 @@ export function useGitHubAuth({
           if (data.slowDown) {
             currentInterval += 5000
           }
-          setTimeout(poll, currentInterval)
+          oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
         } else if (data.status === 'complete') {
           // Success!
           await registerCredentials(data.accessToken, data.user)
+          if (oauthPollingCancelledRef.current) return
           setAuthStatus('authenticated')
           setUserInfo(data.user)
         } else if (data.status === 'expired') {
+          if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
           setErrorMessage('Authorization request expired. Please try again.')
         } else {
           // Error or max attempts reached
+          if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
           setErrorMessage(data.error || 'Authorization failed')
         }
@@ -508,13 +526,33 @@ export function useGitHubAuth({
   // Cancel OAuth polling
   const cancelOAuth = useCallback(() => {
     oauthPollingCancelledRef.current = true
+    if (oauthPollTimeoutRef.current) {
+      clearTimeout(oauthPollTimeoutRef.current)
+      oauthPollTimeoutRef.current = null
+    }
     setAuthStatus('pending')
     setOauthUserCode(null)
     setOauthVerificationUri(null)
   }, [])
 
+  // Cleanup on unmount: cancel any pending OAuth polling
+  useEffect(() => {
+    return () => {
+      oauthPollingCancelledRef.current = true
+      if (oauthPollTimeoutRef.current) {
+        clearTimeout(oauthPollTimeoutRef.current)
+        oauthPollTimeoutRef.current = null
+      }
+    }
+  }, [])
+
   // Reset to allow re-authentication
   const resetAuth = useCallback(() => {
+    // Clear any pending polling before resetting
+    if (oauthPollTimeoutRef.current) {
+      clearTimeout(oauthPollTimeoutRef.current)
+      oauthPollTimeoutRef.current = null
+    }
     setAuthStatus('pending')
     setErrorMessage(null)
     setUserInfo(null)
@@ -525,6 +563,7 @@ export function useGitHubAuth({
     setDetectedScopes(null)
     setDetectedTokenType(null)
     setScopeWarning(null)
+    setSessionEnvWarning(null)
     oauthPollingCancelledRef.current = false
   }, [])
 
@@ -543,6 +582,7 @@ export function useGitHubAuth({
     detectedTokenType,
     scopeWarning,
     detectionWarning,
+    sessionEnvWarning,
     waitingForBlockId,
     
     // PAT form
