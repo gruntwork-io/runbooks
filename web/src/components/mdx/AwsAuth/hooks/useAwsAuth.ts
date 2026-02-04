@@ -11,7 +11,6 @@ import type {
   SSORole,
   ProfileInfo,
   AwsDetectionStatus,
-  AwsDetectionSource,
   AwsCredentialSource,
   DetectedAwsCredentials,
 } from "../types"
