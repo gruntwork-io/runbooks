@@ -1183,15 +1183,7 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 
 		e.blockStates[block.ID] = BlockStateSkipped
 		result.ActualStatus = "skipped"
-
-		// If user explicitly expects skip, that's a pass
-		if step.Expect == StatusSkip {
-			result.Passed = true
-		} else {
-			// Otherwise, it's also a pass but we'll mark as skipped
-			// Downstream blocks will fail if they depend on this
-			result.Passed = true
-		}
+		result.Passed = e.matchesExpectedStatus(step.Expect, "skipped", 0)
 		result.Duration = time.Since(start)
 		return result
 	}
@@ -1263,7 +1255,7 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 
 		e.blockStates[block.ID] = BlockStateSkipped
 		result.ActualStatus = "skipped"
-		result.Passed = true // Skip is always a pass for auth blocks
+		result.Passed = e.matchesExpectedStatus(step.Expect, "skipped", 0)
 		result.Duration = time.Since(start)
 		return result
 	}
