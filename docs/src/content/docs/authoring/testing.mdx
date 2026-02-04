@@ -155,6 +155,41 @@ steps:
 | `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). |
 | `config_error` | Block has a configuration error (missing props, invalid config, etc.). |
 
+#### Block IDs
+
+Each step references a block by its ID. How a block gets its ID depends on the block type:
+
+| Block Type | ID Source | Example |
+|------------|-----------|---------|
+| `<Check>` | Explicit `id` prop | `<Check id="verify-install" ...>` → `verify-install` |
+| `<Command>` | Explicit `id` prop | `<Command id="create-account" ...>` → `create-account` |
+| `<Template>` | Explicit `id` prop | `<Template id="generate-config" ...>` → `generate-config` |
+| `<TemplateInline>` | Auto-generated from `outputPath` | `outputPath="config/settings.json"` → `template-settings-980db14c` |
+| `<AwsAuth>` | Explicit `id` prop | `<AwsAuth id="aws-auth" ...>` → `aws-auth` |
+| `<GitHubAuth>` | Explicit `id` prop | `<GitHubAuth id="github-auth" ...>` → `github-auth` |
+
+**TemplateInline ID Format:**
+
+Since `<TemplateInline>` blocks don't have an explicit `id` prop, IDs are auto-generated using the format:
+
+```
+template-{basename}-{hash}
+```
+
+Where `{basename}` is the filename without extension (e.g., `settings` from `config/settings.json`), and `{hash}` is an 8-character SHA256 hash of the full `outputPath`. The hash ensures unique IDs when multiple blocks have the same filename in different directories—without it, both `config/settings.json` and `other/settings.json` would generate `template-settings`, causing ID conflicts.
+
+| `outputPath` | Generated ID |
+|--------------|--------------|
+| `config.yaml` | `template-config-a1b2c3d4` |
+| `config/settings.json` | `template-settings-980db14c` |
+| `other/settings.json` | `template-settings-7f3e2a1b` |
+
+If no `outputPath` is specified, IDs are generated sequentially using the format `template-inline-1`, `template-inline-2`, etc., based on the order the blocks appear in the runbook.
+
+:::tip
+Run `runbooks test init` to automatically discover all block IDs. The generated test config includes comments showing which `outputPath` each TemplateInline ID corresponds to.
+:::
+
 ### Assertion Object
 
 All assertions have a `type` field that determines which other fields are required.
@@ -438,6 +473,10 @@ When you run a runbook test, the test framework will:
 - Capture the output of any scripts or generated files
 - Validate the output of the runbook against the assertions in your test configuration file, if any
 - Return a status code of 0 if the test passed, 1 if the test failed, and 2 if the test was skipped
+
+:::note[Script output differences]
+When scripts run in tests, they execute without a PTY (pseudo-terminal), so you may see less output than when running the runbook interactively. For example, `git clone` shows progress messages ("Receiving objects: 47%...") only when connected to a terminal. In runbook tests, you'll see just the essential output. If you do need verbose output for debugging, many commands have flags to force it (e.g., `git clone --progress`), or just open the runbook and manually run the script.
+:::
 
 If a runbook test fails, you will see additional details about which block failed and why.
 

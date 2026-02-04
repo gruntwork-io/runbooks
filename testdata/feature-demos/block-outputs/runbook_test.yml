@@ -64,28 +64,28 @@ tests:
     #     expect: success
 
     #   # Then: TemplateInline blocks that depend on those outputs
-    #   - block: template-account-summary
+    #   - block: template-account-summary-3a8f65b6
     #     # Renders: account-summary.txt
     #     # Depends on: create_account.account_id, create_account.region
     #     expect: success
 
-    #   - block: template-resource-tags
+    #   - block: template-resource-tags-5661ee33
     #     # Renders: resource-tags.json
     #     # Uses inputs from: tagging-inputs
     #     # Depends on: create_account.account_id, create_account.region
     #     expect: success
 
-    #   - block: template-users
+    #   - block: template-users-7eeeb7ce
     #     # Renders: users.txt
     #     # Depends on: list_users.users
     #     expect: success
 
-    #   - block: template-teams
+    #   - block: template-teams-09eb68ff
     #     # Renders: teams.yaml
     #     # Depends on: list_users.teams
     #     expect: success
 
-    #   - block: template-team-report
+    #   - block: template-team-report-dbb89b17
     #     # Renders: team-report.md
     #     # Uses inputs from: team-filter
     #     expect: success

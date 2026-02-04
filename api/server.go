@@ -85,6 +85,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.POST("/aws/profile", HandleAwsProfileAuth())
 		protectedAPI.POST("/aws/sso/poll", HandleAwsSsoPoll())
 		protectedAPI.POST("/aws/sso/complete", HandleAwsSsoComplete())
+		// GitHub auth endpoints that return credentials (token required: returns secrets)
+		protectedAPI.POST("/github/oauth/poll", HandleGitHubOAuthPoll())
+		protectedAPI.POST("/github/env-credentials", HandleGitHubEnvCredentials(sessionManager))
+		protectedAPI.POST("/github/cli-credentials", HandleGitHubCliCredentials(sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)
@@ -99,6 +103,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	r.POST("/api/aws/sso/start", HandleAwsSsoStart())         // Returns device code for user to authorize
 	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())     // Returns role names, not credentials
 	r.POST("/api/aws/check-region", HandleAwsCheckRegion())
+
+	// GitHub authentication endpoints (no credentials returned)
+	// No token required: these endpoints don't return secrets
+	r.POST("/api/github/validate", HandleGitHubValidate())     // Validates token, returns user info
+	r.POST("/api/github/oauth/start", HandleGitHubOAuthStart()) // Device flow: returns device code
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))

@@ -25,6 +25,8 @@ interface UseScriptExecutionProps {
   inputsId?: string | string[]
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables for this execution only. */
   awsAuthId?: string
+  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables for this execution only. */
+  githubAuthId?: string
   children?: ReactNode
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
@@ -39,6 +41,11 @@ export interface UnmetOutputDependency {
 
 /** Information about an unmet AWS auth dependency */
 export interface UnmetAwsAuthDependency {
+  blockId: string
+}
+
+/** Information about an unmet GitHub auth dependency */
+export interface UnmetGitHubAuthDependency {
   blockId: string
 }
 
@@ -64,6 +71,10 @@ interface UseScriptExecutionReturn {
   // AWS Auth dependency
   unmetAwsAuthDependency: UnmetAwsAuthDependency | null
   hasAwsAuthDependency: boolean
+  
+  // GitHub Auth dependency
+  unmetGitHubAuthDependency: UnmetGitHubAuthDependency | null
+  hasGitHubAuthDependency: boolean
   
   // Rendering
   isRendering: boolean
@@ -93,6 +104,7 @@ export function useScriptExecution({
   command,
   inputsId,
   awsAuthId,
+  githubAuthId,
   children,
   componentType,
   usePty,
@@ -266,6 +278,53 @@ export function useScriptExecution({
   
   // Boolean flag for easier checks
   const hasAwsAuthDependency = unmetAwsAuthDependency === null
+  
+  // Get GitHub auth credentials from outputs if githubAuthId is specified
+  // These will be passed as per-execution env vars (overriding session env)
+  const githubAuthEnvVars = useMemo((): Record<string, string> | undefined => {
+    if (!githubAuthId) return undefined
+    
+    const normalizedId = normalizeBlockId(githubAuthId)
+    const blockOutputs = allOutputs[normalizedId]
+    
+    if (!blockOutputs?.values) return undefined
+    
+    // Return GITHUB_TOKEN and GITHUB_USER as env vars
+    const envVars: Record<string, string> = {}
+    const token = blockOutputs.values.GITHUB_TOKEN
+    const user = blockOutputs.values.GITHUB_USER
+    
+    if (token && token !== '') {
+      envVars.GITHUB_TOKEN = token
+    }
+    if (user && user !== '') {
+      envVars.GITHUB_USER = user
+    }
+    
+    return Object.keys(envVars).length > 0 ? envVars : undefined
+  }, [githubAuthId, allOutputs])
+  
+  // Check if GitHub auth dependency is met (when githubAuthId is specified)
+  // The dependency is met when the referenced GitHubAuth block has registered credentials
+  // OR has registered the __AUTHENTICATED marker (for env-prefilled credentials where
+  // actual credentials are stored server-side in the session environment)
+  const unmetGitHubAuthDependency = useMemo((): UnmetGitHubAuthDependency | null => {
+    if (!githubAuthId) return null // No dependency specified
+    
+    // If we have credentials to pass, the dependency is met
+    if (githubAuthEnvVars && Object.keys(githubAuthEnvVars).length > 0) return null
+    
+    // Check for the __AUTHENTICATED marker (used by env-prefilled credentials)
+    const normalizedId = normalizeBlockId(githubAuthId)
+    const blockOutputs = allOutputs[normalizedId]
+    if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
+    
+    // Dependency not met - return the original block ID for display
+    return { blockId: githubAuthId }
+  }, [githubAuthId, githubAuthEnvVars, allOutputs])
+  
+  // Boolean flag for easier checks
+  const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
   
   // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
   const outputDependencies = useMemo(() => {
@@ -503,6 +562,13 @@ export function useScriptExecution({
       }
     }
     
+    // Merge AWS and GitHub auth env vars
+    const authEnvVars = {
+      ...awsAuthEnvVars,
+      ...githubAuthEnvVars,
+    }
+    const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
+    
     if (execRegistryEnabled) {
       // Registry mode: Look up executable in registry and use executable ID
       const executable = getExecutableByComponentId(componentId)
@@ -518,12 +584,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, awsAuthEnvVars, usePty)
+      executeScript(executable.id, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, awsAuthEnvVars, usePty)
+      executeByComponentId(componentId, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, usePty])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, githubAuthEnvVars, usePty])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
@@ -567,6 +633,10 @@ export function useScriptExecution({
     // AWS Auth dependency
     unmetAwsAuthDependency,
     hasAwsAuthDependency,
+    
+    // GitHub Auth dependency
+    unmetGitHubAuthDependency,
+    hasGitHubAuthDependency,
     
     // Rendering
     isRendering,

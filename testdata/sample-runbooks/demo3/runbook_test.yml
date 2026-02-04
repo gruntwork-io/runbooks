@@ -112,12 +112,12 @@ tests:
       #   # Template: templates/infra-live-elements
       #   expect: success
 
-      # - block: template-test3-output
+      # - block: template-test3-output-c0a27ff5
       #   # Renders: test3-output.yml
       #   # Uses inputs from: test2
       #   expect: success
 
-      # - block: template-test4-output
+      # - block: template-test4-output-9ec553cd
       #   # Renders: test4-output.yml
       #   expect: success
 
@@ -128,7 +128,7 @@ tests:
       # - block: test6-command
       #   expect: success
 
-      # - block: template-test7-output
+      # - block: template-test7-output-e3ce5b78
       #   # Renders: test7-output.txt
       #   # Uses inputs from: test6-inputs
       #   expect: success

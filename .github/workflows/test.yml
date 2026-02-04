@@ -134,6 +134,8 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run runbook tests
+        env:
+          RUNBOOKS_GITHUB_TOKEN: ${{ secrets.RUNBOOKS_GITHUB_TOKEN }}
         run: task test:runbooks
 
   test-summary:

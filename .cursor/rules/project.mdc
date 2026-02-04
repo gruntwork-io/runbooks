@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 The Go server runs on port 7825 by default.
 
 We use bun, so prefer that to npm.
@@ -39,3 +43,9 @@ When you encounter a test failure, assume that the problem is with the runbooks 
 Whenever you create a new runbook, create an automated test to validate that the runbook works. Following the testing guidelines at docs/src/content/docs/authoring/testing.mdx. Start by creating a test configuration file with `runbooks test init /path/to/runbook`, and then run the automated test with `runbooks test /path/to/runbook`.
 
 If the test has integration tests because it has third-party dependencies, skip testing those. But if it has locally run scripts, do test those. If the test fails, resolve the issue, and re-run the test to see if you've fixed the issue.
+
+# Creating new blocks
+
+Whenever you're defining a new block, be sure to add not only the frontend/backend code for the block itself, but also docs, automated tests, and support in the runbooks testing framework.
+
+For the Runbooks testing framework, `runbooks init` should detect the new block, and `runbooks test` should take thoughtful steps when the block is executed.

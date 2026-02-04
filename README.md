@@ -68,8 +68,28 @@ task clean      # Remove build artifacts
    - [Bun](https://bun.sh/docs/installation) - JavaScript runtime and package manager
    - [Go](https://go.dev/doc/install) - Go compiler
    - [Task](https://taskfile.dev/installation/) - Task runner
+   - [prek](https://prek.j178.dev/) - Pre-commit hook manager (optional, for contributors)
 
 1. Git clone this repo and `cd` to the repo dir.
+
+1. Set up pre-commit hooks (recommended):
+
+   ```bash
+   prek install
+   ```
+
+   This installs git hooks that automatically run spellcheck on documentation before each commit. If you don't have prek installed, you can install it via:
+
+   ```bash
+   # macOS/Linux
+   brew install prek
+
+   # Or via the standalone installer
+   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/j178/prek/releases/latest/download/prek-installer.sh | sh
+
+   # Or via bun/npm
+   bun install -g @j178/prek
+   ```
 
 1. Start the backend and frontend dev servers in separate terminals:
 
