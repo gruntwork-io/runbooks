@@ -1087,6 +1087,41 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
+// ClearCredentialsResponse represents the response from clearing session credentials
+type ClearCredentialsResponse struct {
+	Cleared bool   `json:"cleared"`
+	Error   string `json:"error,omitempty"`
+}
+
+// HandleAwsClearCredentials removes AWS credentials from the session environment.
+// This is called when a user rejects auto-detected credentials to prevent accidental use.
+// The handler removes AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, and AWS_REGION
+// from the session, ensuring that subsequent commands don't accidentally use credentials
+// the user didn't approve.
+func HandleAwsClearCredentials(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Remove AWS credential env vars from session
+		varsToRemove := []string{
+			"AWS_ACCESS_KEY_ID",
+			"AWS_SECRET_ACCESS_KEY",
+			"AWS_SESSION_TOKEN",
+			"AWS_REGION",
+		}
+
+		if err := sm.RemoveFromEnv(varsToRemove); err != nil {
+			c.JSON(http.StatusInternalServerError, ClearCredentialsResponse{
+				Cleared: false,
+				Error:   "Failed to clear credentials from session",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ClearCredentialsResponse{
+			Cleared: true,
+		})
+	}
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
