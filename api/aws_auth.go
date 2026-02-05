@@ -1036,9 +1036,8 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			"AWS_ACCESS_KEY_ID":     accessKeyID,
 			"AWS_SECRET_ACCESS_KEY": secretAccessKey,
 			"AWS_REGION":            region,
-		}
-		if sessionToken != "" {
-			envVars["AWS_SESSION_TOKEN"] = sessionToken
+			// Always set to clear any stale session token from previous auth
+			"AWS_SESSION_TOKEN": sessionToken,
 		}
 
 		if err := sm.AppendToEnv(envVars); err != nil {
