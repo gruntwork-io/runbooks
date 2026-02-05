@@ -442,10 +442,12 @@ export function useAwsAuth({
         }
 
         setAuthStatus('authenticated')
+        // Use the confirmed response payload (not detectedCredentials) to avoid
+        // TOCTOU: credentials may have changed between detection and confirmation.
         setAccountInfo({
-          accountId: detectedCredentials.accountId,
-          accountName: detectedCredentials.accountName,
-          arn: detectedCredentials.arn,
+          accountId: data.accountId,
+          accountName: data.accountName,
+          arn: data.arn,
         })
         
         // Register credentials per-block for awsAuthId support
