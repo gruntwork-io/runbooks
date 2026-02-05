@@ -31,6 +31,12 @@ function AwsAuth({
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'AwsAuth')
   
+  // Validate detectCredentials configuration: only one { block: string } source allowed
+  const blockSources = Array.isArray(detectCredentials) 
+    ? detectCredentials.filter(s => typeof s === 'object' && 'block' in s) 
+    : []
+  const hasMultipleBlockSources = blockSources.length > 1
+  
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
   
@@ -70,10 +76,17 @@ function AwsAuth({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
+    } else if (hasMultipleBlockSources) {
+      reportError({
+        componentId: id,
+        componentType: 'AwsAuth',
+        severity: 'error',
+        message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, reportError, clearError])
+  }, [id, isDuplicate, hasMultipleBlockSources, reportError, clearError])
 
   // Early return for duplicate ID
   if (isDuplicate) {
@@ -95,6 +108,22 @@ function AwsAuth({
                 Another <code className="bg-red-100 px-1 rounded">{"<AwsAuth>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
               </>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Early return for multiple block sources in detectCredentials
+  if (hasMultipleBlockSources) {
+    return (
+      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+        <div className="flex items-center text-red-600">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>Invalid Configuration:</strong><br />
+            The <code className="bg-red-100 px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-red-100 px-1 rounded">{`{ block: "..." }`}</code> entries.
+            Only one block source is allowed.
           </div>
         </div>
       </div>

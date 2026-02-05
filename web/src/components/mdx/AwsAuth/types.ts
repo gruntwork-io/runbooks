@@ -18,11 +18,15 @@ export type AwsDetectionSource = 'env' | 'block' | null
  * Note: Profile-based authentication is available via the Profile tab in manual auth,
  * but is not included in auto-detection due to the complexity of AWS profile resolution
  * (which involves multiple files and config precedence rules).
+ * 
+ * IMPORTANT: Only one { block: string } source is allowed in the array. If you need
+ * credentials from a Command block, specify it once. Multiple block sources will
+ * result in a configuration error.
  */
 export type AwsCredentialSource =
   | 'env'                                                   // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
   | { env: { prefix?: string; testPrefix?: string } }       // Check PREFIX_AWS_ACCESS_KEY_ID, etc. testPrefix is for tests only
-  | { block: string }                                       // From Command block output
+  | { block: string }                                       // From Command block output (only one allowed)
 
 /**
  * Detected credentials awaiting user confirmation.
