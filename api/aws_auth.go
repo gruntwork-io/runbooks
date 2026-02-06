@@ -890,47 +890,15 @@ func HandleAwsEnvCredentials() gin.HandlerFunc {
 		prefix := c.Query("prefix")
 		defaultRegion := c.Query("defaultRegion")
 
-		// Read credentials from environment using shared function
-		creds, found, err := ReadAwsEnvCredentials(prefix)
-		if err != nil {
+		result := readAndValidateAwsEnvCredentials(prefix, defaultRegion)
+
+		if result.Error != "" {
 			c.JSON(http.StatusOK, EnvCredentialsResponse{
-				Found: false,
-				Error: err.Error(),
+				Found: result.Found,
+				Valid: result.Valid,
+				Error: result.Error,
 			})
 			return
-		}
-
-		if !found {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
-				Found: false,
-				Error: fmt.Sprintf("%sAWS_ACCESS_KEY_ID or %sAWS_SECRET_ACCESS_KEY not found in environment", prefix, prefix),
-			})
-			return
-		}
-		
-		accessKeyID := creds.AccessKeyID
-		secretAccessKey := creds.SecretAccessKey
-		sessionToken := creds.SessionToken
-		region := resolveRegion(creds.Region, defaultRegion)
-
-		// Validate the credentials via STS
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		cfg, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
-		if err != nil {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
-				Found: true,
-				Valid: false,
-				Error: fmt.Sprintf("Credentials found but invalid: %v", err),
-			})
-			return
-		}
-
-		// Check if the user's selected region is enabled
-		var warning string
-		if region != "us-east-1" {
-			warning = checkRegionOptInStatus(ctx, cfg, region)
 		}
 
 		// Return only safe metadata - NEVER return raw credentials
@@ -939,12 +907,12 @@ func HandleAwsEnvCredentials() gin.HandlerFunc {
 		c.JSON(http.StatusOK, EnvCredentialsResponse{
 			Found:           true,
 			Valid:           true,
-			AccountID:       identity.AccountID,
-			AccountName:     identity.AccountName,
-			Arn:             identity.Arn,
-			Region:          region,
-			HasSessionToken: sessionToken != "",
-			Warning:         warning,
+			AccountID:       result.Identity.AccountID,
+			AccountName:     result.Identity.AccountName,
+			Arn:             result.Identity.Arn,
+			Region:          result.Region,
+			HasSessionToken: result.SessionToken != "",
+			Warning:         result.Warning,
 		})
 	}
 }
@@ -993,51 +961,24 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		// Read credentials from environment using shared function
-		creds, found, err := ReadAwsEnvCredentials(req.Prefix)
-		if err != nil {
+		result := readAndValidateAwsEnvCredentials(req.Prefix, req.DefaultRegion)
+
+		if result.Error != "" {
 			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
-				Found: false,
-				Error: err.Error(),
-			})
-			return
-		}
-
-		if !found {
-			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
-				Found: false,
-				Error: fmt.Sprintf("%sAWS_ACCESS_KEY_ID or %sAWS_SECRET_ACCESS_KEY not found in environment", req.Prefix, req.Prefix),
-			})
-			return
-		}
-
-		// Determine region with fallbacks
-		region := resolveRegion(creds.Region, req.DefaultRegion)
-		accessKeyID := creds.AccessKeyID
-		secretAccessKey := creds.SecretAccessKey
-		sessionToken := creds.SessionToken
-
-		// Validate the credentials via STS
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		cfg, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
-		if err != nil {
-			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
-				Found: true,
-				Valid: false,
-				Error: fmt.Sprintf("Credentials found but invalid: %v", err),
+				Found: result.Found,
+				Valid: result.Valid,
+				Error: result.Error,
 			})
 			return
 		}
 
 		// Register credentials to session environment (server-side only)
 		envVars := map[string]string{
-			"AWS_ACCESS_KEY_ID":     accessKeyID,
-			"AWS_SECRET_ACCESS_KEY": secretAccessKey,
-			"AWS_REGION":            region,
+			"AWS_ACCESS_KEY_ID":     result.AccessKeyID,
+			"AWS_SECRET_ACCESS_KEY": result.SecretAccessKey,
+			"AWS_REGION":            result.Region,
 			// Always set to clear any stale session token from previous auth
-			"AWS_SESSION_TOKEN": sessionToken,
+			"AWS_SESSION_TOKEN": result.SessionToken,
 		}
 
 		if err := sm.AppendToEnv(envVars); err != nil {
@@ -1049,25 +990,19 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		// Check if the user's selected region is enabled
-		var warning string
-		if region != "us-east-1" {
-			warning = checkRegionOptInStatus(ctx, cfg, region)
-		}
-
 		// Return credentials so frontend can store them per-block for awsAuthId support
 		c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
 			Found:           true,
 			Valid:           true,
-			AccountID:       identity.AccountID,
-			AccountName:     identity.AccountName,
-			Arn:             identity.Arn,
-			Region:          region,
-			HasSessionToken: sessionToken != "",
-			Warning:         warning,
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretAccessKey,
-			SessionToken:    sessionToken,
+			AccountID:       result.Identity.AccountID,
+			AccountName:     result.Identity.AccountName,
+			Arn:             result.Identity.Arn,
+			Region:          result.Region,
+			HasSessionToken: result.SessionToken != "",
+			Warning:         result.Warning,
+			AccessKeyID:     result.AccessKeyID,
+			SecretAccessKey: result.SecretAccessKey,
+			SessionToken:    result.SessionToken,
 		})
 	}
 }
@@ -1116,6 +1051,71 @@ func HandleAwsClearCredentials(sm *SessionManager) gin.HandlerFunc {
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+// validatedEnvCredentials holds the result of reading and validating AWS
+// environment credentials. Used by both the detection and confirmation handlers.
+type validatedEnvCredentials struct {
+	Found           bool
+	Valid           bool
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+	Region          string
+	Identity        *callerIdentity
+	Warning         string
+	Error           string
+}
+
+// readAndValidateAwsEnvCredentials reads AWS credentials from environment variables,
+// validates them via STS, and checks region opt-in status. This is the shared logic
+// between HandleAwsEnvCredentials (detection) and HandleAwsConfirmEnvCredentials
+// (confirmation).
+func readAndValidateAwsEnvCredentials(prefix, defaultRegion string) *validatedEnvCredentials {
+	creds, found, err := ReadAwsEnvCredentials(prefix)
+	if err != nil {
+		return &validatedEnvCredentials{
+			Found: false,
+			Error: err.Error(),
+		}
+	}
+
+	if !found {
+		return &validatedEnvCredentials{
+			Found: false,
+			Error: fmt.Sprintf("%sAWS_ACCESS_KEY_ID or %sAWS_SECRET_ACCESS_KEY not found in environment", prefix, prefix),
+		}
+	}
+
+	region := resolveRegion(creds.Region, defaultRegion)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cfg, identity, err := validateStaticCredentials(ctx, creds.AccessKeyID, creds.SecretAccessKey, creds.SessionToken, "us-east-1")
+	if err != nil {
+		return &validatedEnvCredentials{
+			Found: true,
+			Valid: false,
+			Error: fmt.Sprintf("Credentials found but invalid: %v", err),
+		}
+	}
+
+	var warning string
+	if region != "us-east-1" {
+		warning = checkRegionOptInStatus(ctx, cfg, region)
+	}
+
+	return &validatedEnvCredentials{
+		Found:           true,
+		Valid:           true,
+		AccessKeyID:     creds.AccessKeyID,
+		SecretAccessKey: creds.SecretAccessKey,
+		SessionToken:    creds.SessionToken,
+		Region:          region,
+		Identity:        identity,
+		Warning:         warning,
+	}
+}
 
 // formatSSOError provides user-friendly error messages for common SSO errors.
 func formatSSOError(err error, region, startURL string) string {
