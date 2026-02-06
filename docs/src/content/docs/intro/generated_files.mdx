@@ -22,19 +22,19 @@ The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/bloc
 
 Template blocks automatically re-render when you change input values, so your generated files stay in sync with the form.
 
-### 2. Command blocks with $RUNBOOK_FILES
+### 2. Command blocks with $GENERATED_FILES
 
-[Command](/authoring/blocks/command/) blocks can write files to the `$RUNBOOK_FILES` environment variable to capture them:
+[Command](/authoring/blocks/command/) blocks can write files to the `$GENERATED_FILES` environment variable to capture them:
 
 ```mdx
 <Command 
   id="export-terraform"
-  command={`tofu output -json > "$RUNBOOK_FILES/tf-outputs.json"`}
+  command={`tofu output -json > "$GENERATED_FILES/tf-outputs.json"`}
   title="Export Terraform outputs"
 />
 ```
 
-Any files written to `$RUNBOOK_FILES` automatically appear in your generated files after the command completes successfully.
+Any files written to `$GENERATED_FILES` automatically appear in your generated files after the command completes successfully.
 
 ## Where files are stored
 
@@ -93,12 +93,12 @@ Within a runbook, you can organize generated files into subdirectories:
 
 - **Template blocks**: The directory structure of your template folder is preserved in the output.
 - **TemplateInline blocks**: Use the `outputPath` prop to specify a path like `config/app.yaml`.
-- **Command/Check blocks**: Create subdirectories within `$RUNBOOK_FILES`.
+- **Command/Check blocks**: Create subdirectories within `$GENERATED_FILES`.
 
 ```bash
 # In your command script
-mkdir -p "$RUNBOOK_FILES/config"
-echo '{}' > "$RUNBOOK_FILES/config/app.json"
+mkdir -p "$GENERATED_FILES/config"
+echo '{}' > "$GENERATED_FILES/config/app.json"
 ```
 
 ## Viewing generated files

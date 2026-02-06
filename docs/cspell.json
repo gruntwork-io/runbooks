@@ -40,7 +40,9 @@
     "templatize",
     "parallelizable",
     "yourcompany",
-    "prek"
+    "prek",
+    "worktree",
+    "WORKTREE"
   ],
   "ignorePaths": [
     "node_modules",

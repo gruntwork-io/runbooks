@@ -63,6 +63,17 @@ You can pre-populate the URL, sparse checkout path, and local path fields. Users
 | `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path. When set, only the specified subdirectory of the repository will be cloned (e.g., `modules/vpc`). |
 | `prefilledLocalPath` | `string` | No | Pre-fills the local path (relative to the current working directory) where files will be cloned. Defaults to the repository name if empty. |
 | `usePty` | `boolean` | No | Whether to use a pseudo-terminal (PTY) for the git clone process. Defaults to `true`. PTY enables rich output like progress bars and colors. Set to `false` if your environment doesn't support PTY. |
+| `showFileTree` | `boolean` | No | Whether to show the cloned repository's file tree in the workspace panel after cloning. Defaults to `true`. When enabled, the "All files" and "Changed" tabs display the cloned files and any subsequent modifications. |
+
+### File Workspace Integration
+
+When `showFileTree` is `true` (the default), the GitClone block registers the cloned repository with the workspace panel. After a successful clone:
+
+- The **All files** tab shows the full file tree of the cloned repository. Click any file to view its contents.
+- The **Changed** tab shows a GitHub PR-style diff view of any files modified after cloning (e.g., by Command or Template blocks).
+- If multiple `<GitClone>` blocks are used in a single runbook, a dropdown in the workspace header lets the user switch between repositories.
+
+Set `showFileTree={false}` if you don't want the cloned repository to appear in the workspace panel (e.g., for helper repositories that the user doesn't need to browse).
 
 ### Accepted Git URL Formats
 
@@ -104,6 +115,29 @@ This uses `git sparse-checkout` under the hood, which is efficient even for larg
 ### Custom Local Path
 
 The `prefilledLocalPath` prop (or the "Local Path" input field) controls where files are cloned, relative to the current working directory. If not set, the repository name is used.
+
+### Environment Variables
+
+When a `<GitClone>` block successfully clones a repository, it sets the `$WORKTREE_FILES` environment variable for all subsequent Command and Check blocks. This variable points to the local path of the most recently cloned repository.
+
+```bash
+#!/bin/bash
+# In a Command or Check script after GitClone
+echo "Cloned repo is at: $WORKTREE_FILES"
+
+# Modify files directly in the cloned repo
+echo "new_setting = true" >> "$WORKTREE_FILES/config.hcl"
+```
+
+<Aside type="note">
+`$WORKTREE_FILES` always points to the **most recently** cloned repository. If you have multiple `<GitClone>` blocks, the variable reflects whichever one ran last.
+</Aside>
+
+Template and TemplateInline blocks can also write directly into the cloned repository by setting `target="worktree"`:
+
+```mdx
+<Template id="new-module" path="templates/module" target="worktree" />
+```
 
 ### Block Outputs
 

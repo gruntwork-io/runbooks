@@ -37,6 +37,11 @@ Use `<Template>` when you have a full Boilerplate template directory with multip
 ### Optional Props
 
 - `inputsId` (string | string[]) - ID of Inputs or Template block(s) to import variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones).
+- `target` (`"generated"` | `"worktree"`) - Where template output is written. Defaults to `"generated"`, which writes to the standard generated files directory (`$GENERATED_FILES`). Set to `"worktree"` to write directly into the active git worktree (the most recently cloned repo via `<GitClone>`). Requires a `<GitClone>` block to have run first.
+
+<Aside type="tip">
+Use `target="worktree"` when you want to generate files directly into a cloned repository. For example, to scaffold new modules or configuration files in an existing repo.
+</Aside>
 
 ## Directory Structure
 
