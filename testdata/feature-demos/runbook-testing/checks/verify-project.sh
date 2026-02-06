@@ -9,8 +9,7 @@ fi
 echo "Verifying project: $PROJECT_NAME"
 
 # Check for expected files (would be created by template)
-# Support both new and legacy env var names
-FILES_DIR="${GENERATED_FILES:-${RUNBOOK_FILES:-}}"
+FILES_DIR="${GENERATED_FILES:-}"
 if [[ -z "$FILES_DIR" ]]; then
     echo "INFO: GENERATED_FILES environment variable not set, skipping README.md check"
 elif [[ -f "$FILES_DIR/README.md" ]]; then

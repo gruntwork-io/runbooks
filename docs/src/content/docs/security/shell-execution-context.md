@@ -112,7 +112,6 @@ Runbooks exposes the following environment variables to all scripts:
 |----------|-------------|
 | `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
 | `WORKTREE_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
-| `RUNBOOK_FILES` | Backward-compatible alias for `GENERATED_FILES`. Prefer `GENERATED_FILES` in new scripts. |
 
 ### Capturing Output Files
 

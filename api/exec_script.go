@@ -472,10 +472,11 @@ func isValidEnvVarName(name string) bool {
 // File Capture
 // =============================================================================
 
-// captureFilesFromDir copies all files from the source directory (GENERATED_FILES) to the output directory.
+// CaptureFilesFromDir copies all files from the source directory (GENERATED_FILES) to the output directory.
 // Returns a list of captured files with their relative paths and sizes.
 // If the source directory is empty, returns nil with no error.
-func captureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
+// This function is exported for use by the testing package.
+func CaptureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
 	// Check if source directory has any files
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
@@ -522,7 +523,7 @@ func captureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
 		}
 
 		// Copy the file
-		if err := copyFile(srcPath, dstPath); err != nil {
+		if err := CopyFile(srcPath, dstPath); err != nil {
 			return fmt.Errorf("failed to copy file %s: %w", relPath, err)
 		}
 
@@ -541,8 +542,9 @@ func captureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
 	return capturedFiles, nil
 }
 
-// copyFile copies a single file from src to dst
-func copyFile(src, dst string) error {
+// CopyFile copies a single file from src to dst, preserving permissions.
+// This function is exported for use by the testing package.
+func CopyFile(src, dst string) error {
 	// Create parent directories if needed
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
@@ -577,10 +579,11 @@ func copyFile(src, dst string) error {
 // Block Output Parsing
 // =============================================================================
 
-// parseBlockOutputs reads the RUNBOOK_OUTPUT file and parses key=value pairs
+// ParseBlockOutputs reads the RUNBOOK_OUTPUT file and parses key=value pairs.
 // Format: one key=value per line, keys must match ^[a-zA-Z_][a-zA-Z0-9_]*$
-// Returns a map of outputs, or empty map if file is empty/missing
-func parseBlockOutputs(filePath string) (map[string]string, error) {
+// Returns a map of outputs, or empty map if file is empty/missing.
+// This function is exported for use by the testing package.
+func ParseBlockOutputs(filePath string) (map[string]string, error) {
 	outputs := make(map[string]string)
 
 	// Read the file

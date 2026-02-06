@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -1439,12 +1438,15 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 		fmt.Printf("  Destination: %s\n", absolutePath)
 	}
 
-	// Perform the clone
+	// Perform the clone using the same core functions as the runtime server
+	cloneCtx, cloneCancel := context.WithTimeout(context.Background(), e.timeout)
+	defer cloneCancel()
+
 	var cloneErr error
 	if repoPath != "" {
-		cloneErr = e.performSparseClone(effectiveURL, absolutePath, repoPath)
+		_, cloneErr = api.GitSparseCloneSimple(cloneCtx, effectiveURL, absolutePath, repoPath)
 	} else {
-		cloneErr = e.performStandardClone(effectiveURL, absolutePath)
+		_, cloneErr = api.GitCloneSimple(cloneCtx, effectiveURL, absolutePath)
 	}
 
 	if cloneErr != nil {
@@ -1486,40 +1488,7 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 	return result
 }
 
-// performStandardClone runs a simple git clone.
-func (e *TestExecutor) performStandardClone(url, dest string) error {
-	cmd := exec.Command("git", "clone", "--progress", url, dest)
-	cmd.Dir = e.workingDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %s", err, string(output))
-	}
-	return nil
-}
 
-// performSparseClone runs a sparse checkout clone.
-func (e *TestExecutor) performSparseClone(url, dest, repoPath string) error {
-	// Step 1: Clone with blob filter and no checkout
-	cmd := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", "--progress", url, dest)
-	cmd.Dir = e.workingDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("sparse clone failed: %s: %s", err, string(output))
-	}
-
-	// Step 2: Set sparse-checkout
-	sparseCmd := exec.Command("git", "-C", dest, "sparse-checkout", "set", repoPath)
-	if output, err := sparseCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("sparse-checkout set failed: %s: %s", err, string(output))
-	}
-
-	// Step 3: Checkout
-	checkoutCmd := exec.Command("git", "-C", dest, "checkout")
-	if output, err := checkoutCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("checkout failed: %s: %s", err, string(output))
-	}
-
-	return nil
-}
 
 // getSessionEnvVar reads an env var from the session.
 func (e *TestExecutor) getSessionEnvVar(key string) string {
@@ -1974,16 +1943,9 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	cmdArgs := append(scriptSetup.Args, scriptSetup.ScriptPath)
 	cmd := exec.CommandContext(ctx, scriptSetup.Interpreter, cmdArgs...)
 
-	// Set environment
+	// Set environment using the same helper as the runtime server
 	cmd.Env = execCtx.Env
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFilePath))
-	cmd.Env = append(cmd.Env, fmt.Sprintf("GENERATED_FILES=%s", filesDir))
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", filesDir)) // backward-compat alias
-
-	// Inject WORKTREE_FILES if a git worktree has been cloned
-	if e.activeWorkTreePath != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("WORKTREE_FILES=%s", e.activeWorkTreePath))
-	}
+	cmd.Env = api.SetupExecEnvVars(cmd.Env, outputFilePath, filesDir, e.activeWorkTreePath)
 
 	// Add test-specific environment variables
 	for key, value := range e.testEnv {
@@ -2021,31 +1983,16 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	waitErr := cmd.Wait()
 	logs := combinedOutput.String()
 
-	// Determine status
-	exitCode := 0
-	status := "success"
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() == context.DeadlineExceeded {
-			return "timeout", -1, nil, logs, fmt.Errorf("script execution timed out")
-		} else {
-			exitCode = 1
-		}
-		switch exitCode {
-		case 0:
-			status = "success"
-		case 2:
-			status = "warn"
-		default:
-			status = "fail"
-		}
+	// Determine status using the same logic as the runtime server
+	exitCode, status := api.DetermineExitStatus(waitErr, ctx)
+	if status == "fail" && ctx.Err() == context.DeadlineExceeded {
+		return "timeout", -1, nil, logs, fmt.Errorf("script execution timed out")
 	}
 
-	// Parse outputs
+	// Parse outputs using the same parser as the runtime server
 	outputs := make(map[string]string)
 	if status == "success" || status == "warn" {
-		outputs, _ = parseBlockOutputs(outputFilePath)
+		outputs, _ = api.ParseBlockOutputs(outputFilePath)
 	}
 
 	// Capture environment changes from bash scripts and update session
@@ -2055,10 +2002,11 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 		}
 	}
 
-	// Copy captured files to output directory
+	// Copy captured files to output directory using the same function as the runtime server
 	if status == "success" || status == "warn" {
-		if err := e.captureFiles(filesDir); err != nil {
-			slog.Warn("Failed to capture files", "error", err)
+		resolvedOutputPath := e.resolveOutputPath()
+		if _, captureErr := api.CaptureFilesFromDir(filesDir, resolvedOutputPath); captureErr != nil {
+			slog.Warn("Failed to capture files", "error", captureErr)
 		}
 	}
 
@@ -2178,103 +2126,6 @@ func (e *TestExecutor) buildTemplateVars() map[string]interface{} {
 	}
 
 	return vars
-}
-
-// captureFiles copies files from the capture directory to the output path.
-func (e *TestExecutor) captureFiles(srcDir string) error {
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return err
-	}
-	if len(entries) == 0 {
-		return nil
-	}
-
-	// Resolve output directory relative to working directory
-	resolvedOutputPath := e.resolveOutputPath()
-
-	// Create output directory if needed
-	if err := os.MkdirAll(resolvedOutputPath, 0755); err != nil {
-		return err
-	}
-
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if path == srcDir {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return err
-		}
-		dstPath := filepath.Join(resolvedOutputPath, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		return copyFile(path, dstPath)
-	})
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
-}
-
-// parseBlockOutputs reads the output file and parses key=value pairs.
-func parseBlockOutputs(filePath string) (map[string]string, error) {
-	outputs := make(map[string]string)
-
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return outputs, nil
-		}
-		return nil, err
-	}
-
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		idx := strings.Index(line, "=")
-		if idx == -1 {
-			continue
-		}
-		key := strings.TrimSpace(line[:idx])
-		value := line[idx+1:]
-		outputs[key] = value
-	}
-
-	return outputs, nil
 }
 
 // runCleanup runs a single cleanup action.

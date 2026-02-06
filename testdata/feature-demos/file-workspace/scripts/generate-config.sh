@@ -4,8 +4,7 @@
 
 set -euo pipefail
 
-# Support both new and legacy env var names
-FILES_DIR="${GENERATED_FILES:-${RUNBOOK_FILES:-}}"
+FILES_DIR="${GENERATED_FILES:-}"
 
 if [ -z "$FILES_DIR" ]; then
     echo "Error: GENERATED_FILES is not set."

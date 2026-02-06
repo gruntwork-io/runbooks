@@ -459,7 +459,6 @@ var excludedEnvVars = map[string]bool{
 	"_":                     true, // Last command
 	"SHLVL":                 true, // Shell level
 	"RUNBOOK_OUTPUT":        true, // Temp file for block outputs, deleted after each execution
-	"RUNBOOK_FILES":         true, // Backward-compat alias for GENERATED_FILES, deleted after each execution
 	"GENERATED_FILES":       true, // Temp directory for file capture, deleted after each execution
 	"WORKTREE_FILES":        true, // Active git worktree path, set per execution
 	"OLDPWD":                true, // Previous directory (we track workdir separately)

@@ -286,6 +286,29 @@ func createOutputFile() (string, error) {
 // Command Setup and Execution
 // =============================================================================
 
+// SetupExecEnvVars appends the standard runbook-managed environment variables to the
+// given environment slice. This is the single source of truth for which env vars are
+// injected into script execution, used by both the runtime server and the testing
+// framework. It sets:
+//   - RUNBOOK_OUTPUT: path to the block outputs file (key-value pairs)
+//   - GENERATED_FILES: path to the file capture directory
+//   - WORKTREE_FILES: path to the active git worktree (if one is registered)
+func SetupExecEnvVars(env []string, outputFile, filesDir, workTreePath string) []string {
+	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
+	env = append(env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFile))
+
+	// Add GENERATED_FILES environment variable for file capture
+	// Scripts can write files to this directory to have them saved to the output directory
+	env = append(env, fmt.Sprintf("GENERATED_FILES=%s", filesDir))
+
+	// Add WORKTREE_FILES environment variable if a git worktree has been registered
+	if workTreePath != "" {
+		env = append(env, fmt.Sprintf("WORKTREE_FILES=%s", workTreePath))
+	}
+
+	return env
+}
+
 // setupExecCommand creates and configures an exec.Cmd with the given configuration
 func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	cmdArgs := append(cfg.args, cfg.scriptPath)
@@ -312,20 +335,8 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 		cmd.Env = MergeEnvVars(cmd.Env, cfg.envVars)
 	}
 
-	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
-
-	// Add GENERATED_FILES environment variable for file capture
-	// Scripts can write files to this directory to have them saved to the output directory
-	cmd.Env = append(cmd.Env, fmt.Sprintf("GENERATED_FILES=%s", cfg.filesDir))
-
-	// Add backward-compatible alias
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", cfg.filesDir))
-
-	// Add WORKTREE_FILES environment variable if a git worktree has been registered
-	if cfg.workTreePath != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("WORKTREE_FILES=%s", cfg.workTreePath))
-	}
+	// Use shared helper for standard execution env vars
+	cmd.Env = SetupExecEnvVars(cmd.Env, cfg.outputFile, cfg.filesDir, cfg.workTreePath)
 
 	// Set working directory from session
 	if cfg.execCtx.WorkDir != "" {

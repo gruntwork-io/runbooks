@@ -305,13 +305,52 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 // Clone Operations
 // =============================================================================
 
-// performStandardClone does a regular git clone and streams output.
+// GitCloneSimple performs a standard git clone without SSE streaming.
+// It returns combined stdout/stderr output and any error.
+// This is the core clone logic used by both the runtime (via the SSE wrapper) and the
+// testing framework. Exported for use by the testing package.
+func GitCloneSimple(ctx context.Context, cloneURL, destPath string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", cloneURL, destPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("%w: %s", err, string(output))
+	}
+	return output, nil
+}
+
+// GitSparseCloneSimple performs a sparse checkout clone without SSE streaming.
+// It clones only the specified repoPath subdirectory.
+// This is the core sparse clone logic used by both the runtime (via the SSE wrapper) and the
+// testing framework. Exported for use by the testing package.
+func GitSparseCloneSimple(ctx context.Context, cloneURL, destPath, repoPath string) ([]byte, error) {
+	// Step 1: Clone with blob filter and no checkout
+	cmd := exec.CommandContext(ctx, "git", "clone", "--filter=blob:none", "--no-checkout", "--progress", cloneURL, destPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return output, fmt.Errorf("sparse clone failed: %w: %s", err, string(output))
+	}
+
+	// Step 2: Set sparse-checkout
+	sparseCmd := exec.CommandContext(ctx, "git", "-C", destPath, "sparse-checkout", "set", repoPath)
+	if output, err := sparseCmd.CombinedOutput(); err != nil {
+		return output, fmt.Errorf("sparse-checkout set failed: %w: %s", err, string(output))
+	}
+
+	// Step 3: Checkout
+	checkoutCmd := exec.CommandContext(ctx, "git", "-C", destPath, "checkout")
+	if output, err := checkoutCmd.CombinedOutput(); err != nil {
+		return output, fmt.Errorf("checkout failed: %w: %s", err, string(output))
+	}
+
+	return nil, nil
+}
+
+// performStandardClone does a regular git clone and streams output via SSE.
 func performStandardClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath string, usePTY bool) error {
 	args := []string{"clone", "--progress", cloneURL, destPath}
 	return streamGitCommand(ctx, c, flusher, args, "", usePTY)
 }
 
-// performSparseClone does a sparse checkout to clone only a specific subdirectory.
+// performSparseClone does a sparse checkout to clone only a specific subdirectory, streaming output via SSE.
 func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, repoPath string, usePTY bool) error {
 	// Step 1: Clone with blob filter and no checkout
 	sendSSELog(c, "Setting up sparse checkout...")
