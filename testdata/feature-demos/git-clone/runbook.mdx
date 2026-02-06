@@ -1,0 +1,52 @@
+---
+title: Git Clone Demo
+---
+
+# Git Clone
+
+This runbook demonstrates the GitClone block, which provides a streamlined way to clone git repositories with optional GitHub integration.
+
+## Step 1: Authenticate to GitHub
+
+Authenticate to GitHub to enable the repository browser and private repo access.
+
+<GitHubAuth
+  id="gh-auth"
+  title="Connect to GitHub"
+  description="Authenticate to access private repositories and enable the GitHub browser"
+/>
+
+## Step 2: Clone a GitHub Repository
+
+Clone any repository. If you authenticated above, you'll see a "Browse GitHub repositories" option to discover repos by org/name. You can also just paste any git URL.
+
+<GitClone
+  id="clone-github"
+  gitHubAuthId="gh-auth"
+  title="Clone a GitHub Repo"
+  description="Enter a git URL or browse GitHub to select a repository"
+/>
+
+## Step 3: Clone a Subdirectory (pre-filled URL)
+
+This example pre-fills the URL and clones only the `docs` subdirectory using sparse checkout.
+
+<GitClone
+  id="clone-subdir"
+  gitHubAuthId="gh-auth"
+  title="Clone a Subdirectory"
+  description="Clone only the docs directory from the runbooks repo"
+  prefilledUrl="https://github.com/gruntwork-io/runbooks"
+  prefilledRepoPath="docs"
+  prefilledLocalPath="./runbooks-docs"
+/>
+
+## Step 4: Clone without GitHub (Generic Git)
+
+This example works without any GitHub authentication — just enter a git URL for any public repository.
+
+<GitClone
+  id="clone-generic"
+  title="Clone Any Git Repo"
+  description="Clone a repository using a plain git URL — no GitHub token needed for public repos"
+/>

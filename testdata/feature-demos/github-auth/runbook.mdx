@@ -1,0 +1,48 @@
+---
+title: GitHub Authentication Demo
+---
+
+# GitHub Authentication
+
+This runbook demonstrates the GitHubAuth block capabilities.
+
+## Step 1: Authenticate to GitHub
+
+<GitHubAuth 
+  id="gh-auth"
+  title="Connect to GitHub"
+  description="Authenticate to access private repositories"
+/>
+
+## Step 2: Verify Authentication
+
+<Command
+  id="verify-auth"
+  githubAuthId="gh-auth"
+  title="Verify GitHub Access"
+  path="./scripts/verify-auth.sh"
+/>
+
+## Step 3: Clone a Repository
+
+<Inputs id="repo-config">
+```yaml
+variables:
+  - name: repo_url
+    type: string
+    description: HTTPS URL of the repository to clone
+    default: https://github.com/gruntwork-io/runbooks.git
+  - name: clone_path
+    type: string
+    description: Local path to clone the repository into
+    default: ./cloned-repo
+```
+</Inputs>
+
+<Command
+  id="clone-repo"
+  githubAuthId="gh-auth"
+  inputsId="repo-config"
+  title="Clone Repository"
+  command="rm -rf {{ .clone_path }} && git clone {{ .repo_url }} {{ .clone_path }}"
+/>

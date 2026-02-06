@@ -291,6 +291,275 @@ func TestParseRunbookBlocks_RealWorldDemo2(t *testing.T) {
 	t.Logf("Block order: %v", blockIDs)
 }
 
+func TestBlockTagRegex(t *testing.T) {
+	tests := []struct {
+		name      string
+		blockName string
+		input     string
+		wantMatch bool
+		wantProps string
+	}{
+		{
+			name:      "self-closing tag with double quotes",
+			blockName: "Check",
+			input:     `<Check id="my-check" path="check.sh" />`,
+			wantMatch: true,
+			wantProps: `id="my-check" path="check.sh"`,
+		},
+		{
+			name:      "self-closing tag with single quotes",
+			blockName: "Command",
+			input:     `<Command id='my-cmd' command='echo hello' />`,
+			wantMatch: true,
+			wantProps: `id='my-cmd' command='echo hello'`,
+		},
+		{
+			name:      "self-closing tag with backtick quotes",
+			blockName: "Command",
+			input:     "<Command id=\"test\" command={`echo hello`} />",
+			wantMatch: true,
+			wantProps: "id=\"test\" command={`echo hello`}",
+		},
+		{
+			name:      "opening tag (not self-closing)",
+			blockName: "Inputs",
+			input:     `<Inputs id="my-inputs">content here</Inputs>`,
+			wantMatch: true,
+			wantProps: `id="my-inputs"`,
+		},
+		{
+			name:      "verbose empty container form",
+			blockName: "Command",
+			input:     `<Command id="verbose-cmd" command="echo test"></Command>`,
+			wantMatch: true,
+			wantProps: `id="verbose-cmd" command="echo test"`,
+		},
+		{
+			name:      "multiline props",
+			blockName: "Command",
+			input: `<Command
+    id="multi-line"
+    command="echo test"
+    title="Test"
+/>`,
+			wantMatch: true,
+			wantProps: `id="multi-line"
+    command="echo test"
+    title="Test"`,
+		},
+		{
+			name:      "no match for different block name",
+			blockName: "Check",
+			input:     `<Command id="my-cmd" />`,
+			wantMatch: false,
+		},
+		{
+			name:      "no match without whitespace after tag name",
+			blockName: "Check",
+			input:     `<Checkbox id="test" />`,
+			wantMatch: false,
+		},
+		{
+			name:      "AwsAuth block",
+			blockName: "AwsAuth",
+			input:     `<AwsAuth id="aws-creds" region="us-east-1" />`,
+			wantMatch: true,
+			wantProps: `id="aws-creds" region="us-east-1"`,
+		},
+		{
+			name:      "GitHubAuth block",
+			blockName: "GitHubAuth",
+			input:     `<GitHubAuth id="gh-auth" scopes={["repo", "read:org"]} />`,
+			wantMatch: true,
+			wantProps: `id="gh-auth" scopes={["repo", "read:org"]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := blockTagRegex(tt.blockName)
+			matches := re.FindStringSubmatch(tt.input)
+
+			if tt.wantMatch {
+				if matches == nil {
+					t.Errorf("expected match but got none")
+					return
+				}
+				if len(matches) < 2 {
+					t.Errorf("expected capture group but got %d groups", len(matches))
+					return
+				}
+				// Use trimPropsSlash to clean the captured props (removes trailing / from self-closing tags)
+				gotProps := trimPropsSlash(matches[1])
+				if gotProps != tt.wantProps {
+					t.Errorf("props mismatch:\n  got:  %q\n  want: %q", gotProps, tt.wantProps)
+				}
+			} else {
+				if matches != nil {
+					t.Errorf("expected no match but got: %v", matches)
+				}
+			}
+		})
+	}
+}
+
+func TestTrimPropsSlash(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{`id="test" /`, `id="test"`},
+		{`id="test"`, `id="test"`},
+		{`id="test" `, `id="test"`},
+		{`id="test" 
+/`, `id="test"`},
+		{`path="/some/path" /`, `path="/some/path"`}, // slash in value should be preserved
+	}
+
+	for _, tt := range tests {
+		got := trimPropsSlash(tt.input)
+		if got != tt.want {
+			t.Errorf("trimPropsSlash(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestBlockTagSelfClosingRegex(t *testing.T) {
+	tests := []struct {
+		name      string
+		blockName string
+		input     string
+		wantMatch bool
+		wantProps string
+	}{
+		{
+			name:      "matches self-closing tag",
+			blockName: "Inputs",
+			input:     `<Inputs id="test" path="inputs.yml" />`,
+			wantMatch: true,
+			wantProps: `id="test" path="inputs.yml"`,
+		},
+		{
+			name:      "does not match opening tag",
+			blockName: "Inputs",
+			input:     `<Inputs id="test">content</Inputs>`,
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := blockTagSelfClosingRegex(tt.blockName)
+			matches := re.FindStringSubmatch(tt.input)
+
+			if tt.wantMatch {
+				if matches == nil {
+					t.Errorf("expected match but got none")
+					return
+				}
+				if len(matches) < 2 {
+					t.Errorf("expected capture group but got %d groups", len(matches))
+					return
+				}
+				// Use trimPropsSlash to clean the captured props
+				gotProps := trimPropsSlash(matches[1])
+				if gotProps != tt.wantProps {
+					t.Errorf("props mismatch:\n  got:  %q\n  want: %q", gotProps, tt.wantProps)
+				}
+			} else {
+				if matches != nil {
+					t.Errorf("expected no match but got: %v", matches)
+				}
+			}
+		})
+	}
+}
+
+func TestBlockTagContainerRegex(t *testing.T) {
+	tests := []struct {
+		name        string
+		blockName   string
+		input       string
+		wantMatch   bool
+		wantProps   string
+		wantContent string
+	}{
+		{
+			name:        "matches container tag with content",
+			blockName:   "Inputs",
+			input:       "<Inputs id=\"test\">\n```yaml\nvariables:\n- name: Foo\n```\n</Inputs>",
+			wantMatch:   true,
+			wantProps:   `id="test"`,
+			wantContent: "\n```yaml\nvariables:\n- name: Foo\n```\n",
+		},
+		{
+			name:        "matches TemplateInline with template content",
+			blockName:   "TemplateInline",
+			input:       `<TemplateInline outputPath="output.txt" inputsId="my-inputs">Hello {{ .Name }}</TemplateInline>`,
+			wantMatch:   true,
+			wantProps:   `outputPath="output.txt" inputsId="my-inputs"`,
+			wantContent: `Hello {{ .Name }}`,
+		},
+		{
+			name:      "does not match self-closing tag",
+			blockName: "Inputs",
+			input:     `<Inputs id="test" />`,
+			wantMatch: false,
+		},
+		{
+			name:      "does not match mismatched closing tag",
+			blockName: "Inputs",
+			input:     `<Inputs id="test">content</Command>`,
+			wantMatch: false,
+		},
+		{
+			name:        "multiline content",
+			blockName:   "TemplateInline",
+			input: `<TemplateInline outputPath="readme.md">
+# README
+
+This is a {{ .ProjectName }} project.
+
+## Features
+{{ range .Features }}
+- {{ . }}
+{{ end }}
+</TemplateInline>`,
+			wantMatch:   true,
+			wantProps:   `outputPath="readme.md"`,
+			wantContent: "\n# README\n\nThis is a {{ .ProjectName }} project.\n\n## Features\n{{ range .Features }}\n- {{ . }}\n{{ end }}\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := blockTagContainerRegex(tt.blockName)
+			matches := re.FindStringSubmatch(tt.input)
+
+			if tt.wantMatch {
+				if matches == nil {
+					t.Errorf("expected match but got none")
+					return
+				}
+				if len(matches) < 3 {
+					t.Errorf("expected 2 capture groups but got %d groups", len(matches)-1)
+					return
+				}
+				if matches[1] != tt.wantProps {
+					t.Errorf("props mismatch:\n  got:  %q\n  want: %q", matches[1], tt.wantProps)
+				}
+				if matches[2] != tt.wantContent {
+					t.Errorf("content mismatch:\n  got:  %q\n  want: %q", matches[2], tt.wantContent)
+				}
+			} else {
+				if matches != nil {
+					t.Errorf("expected no match but got: %v", matches)
+				}
+			}
+		})
+	}
+}
+
 // Helper functions
 
 func getBlockIDs(blocks []blockInfo) []string {

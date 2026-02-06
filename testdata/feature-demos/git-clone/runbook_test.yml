@@ -1,0 +1,41 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: "5m"
+
+tests:
+  - name: github-clone-with-auth
+    description: Clone a GitHub repo using authenticated GitHubAuth block
+    steps:
+      - block: gh-auth
+        expect: success  # Requires RUNBOOKS_GITHUB_TOKEN or GITHUB_TOKEN
+      - block: clone-subdir
+        expect: success
+    assertions:
+      - type: output_exists
+        block: clone-subdir
+        output: FILE_COUNT
+      - type: output_exists
+        block: clone-subdir
+        output: CLONE_PATH
+      - type: dir_exists
+        path: "./runbooks-docs"
+
+  - name: skip-without-credentials
+    description: Auth block skips when no credentials; dependent clone blocks also skip
+    env:
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+      RUNBOOKS_GITHUB_TOKEN: ""
+    steps:
+      - block: gh-auth
+        expect: skip
+      - block: clone-github
+        expect: skip  # Skipped because gitHubAuthId dependency was skipped
+
+  - name: generic-clone-public-repo
+    description: Clone a public repo without any GitHub authentication
+    steps:
+      - block: clone-generic
+        expect: skip  # No prefilledUrl set, so block is skipped in test mode

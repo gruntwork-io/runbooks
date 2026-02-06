@@ -6,6 +6,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 The `<AwsAuth>` block provides a streamlined interface for authenticating to AWS. It supports three authentication methods: static credentials, AWS SSO (IAM Identity Center), and local AWS profiles. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
 
+By default, AwsAuth automatically detects credentials from environment variables. When credentials are detected, the user is prompted to confirm before proceeding, preventing accidental operations against the wrong AWS account.
+
 ## Basic Usage
 
 ```mdx
@@ -16,6 +18,8 @@ The `<AwsAuth>` block provides a streamlined interface for authenticating to AWS
   defaultRegion="us-west-2"
 />
 ```
+
+By default, AwsAuth checks for existing credentials in environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.). If found, it validates them and prompts the user to confirm before using them.
 
 ## Authentication Methods
 
@@ -29,29 +33,17 @@ The AwsAuth block provides three ways to authenticate:
 
 ## Props
 
-### Required Props
-
-- `id` (string) - Unique identifier for this component. See [Using With Commands And Checks](#using-with-commands-and-checks) for how this prop is used.
-
-### Optional Props
-
-- `title` (string) - Display title shown in the UI (default: "AWS Authentication"). Supports inline markdown (bold, italic, links, code).
-- `description` (string) - Longer description of the authentication purpose. Supports inline markdown.
-- `defaultRegion` (string) - Default AWS region for CLI commands (default: "us-east-1"). Sets `AWS_REGION` environment variable.
-
-### SSO-Specific Props
-
-These props configure AWS SSO (IAM Identity Center) authentication:
-
-#### Required
-
-- `ssoStartUrl` (string) - Your organization's AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`)
-
-#### Optional
-
-- `ssoRegion` (string) - The AWS region where your IAM Identity Center is configured (default: "us-east-1")
-- `ssoAccountId` (string) - Pre-select a specific AWS account after SSO authentication
-- `ssoRoleName` (string) - Pre-select a specific IAM role to assume
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | string | required | Unique identifier for this component |
+| `title` | string | "AWS Authentication" | Display title shown in the UI |
+| `description` | string | - | Description of the authentication purpose |
+| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable |
+| `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
+| `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
+| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured |
+| `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication |
+| `ssoRoleName` | string | - | Pre-select a specific IAM role to assume |
 
 ## Environment Variables
 
@@ -170,39 +162,86 @@ The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/
 SSO profiles configured in `~/.aws/config` are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
 </Aside>
 
-## Credential Pre-filling
+## Auto-Detection of Credentials
 
-The AwsAuth block supports pre-filling credentials from environment variables, command outputs, or static values. This can be useful for dynamic credential generation (e.g., assuming a role that was just created) and automated testing.
+By default, AwsAuth automatically detects existing credentials from environment variables. When credentials are detected, the user is shown the AWS account ID, account name (if available), and identity (e.g. IAM role), and must confirm before the credentials are used.
 
-### From Environment Variables
+<Aside type="note">
+Unlike GitHubAuth which auto-authenticates silently, AwsAuth requires explicit user confirmation. Until a user explicitly confirms which AWS account to use, no credentials are available to subsequent blocks. This prevents accidental operations against the wrong AWS account, which could have serious consequences in production environments. See [Credential Protection](#credential-protection) for details.
+</Aside>
 
-Read credentials from the environment (e.g., set by aws-vault, granted, or CI):
+### Default Behavior
+
+With no configuration, AwsAuth checks for credentials in standard AWS environment variables:
+
+```mdx
+{/* Default - same as detectCredentials={['env']} */}
+<AwsAuth id="aws-auth" />
+```
+
+If credentials are found and valid, the user sees a confirmation prompt showing:
+- AWS Account ID
+- AWS Account Name (if available)
+- IAM ARN (identity)
+- Default Region
+- Whether credentials are temporary or static
+
+The user can then choose to "Use These Credentials" or "Use Different Credentials".
+
+### Credential Sources
+
+| Source | Description |
+|--------|-------------|
+| `'env'` | Check standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.) |
+| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_AWS_ACCESS_KEY_ID`, etc.) |
+| `{ block: 'block-id' }` | Use credentials from a Command block's output |
+
+### Disable Auto-Detection
+
+Force manual authentication only (no credential detection):
 
 ```mdx
 <AwsAuth
-  id="ci-auth"
-  title="AWS Access (from environment)"
-  prefilledCredentials={{ type: "env" }}
+  id="aws-auth"
+  detectCredentials={false}
 />
 ```
 
-This looks for the standard AWS environment variables:
-- `AWS_ACCESS_KEY_ID` (required)
-- `AWS_SECRET_ACCESS_KEY` (required)
-- `AWS_SESSION_TOKEN` (optional)
-- `AWS_REGION` (optional, falls back to `defaultRegion` prop)
+### Custom Detection with Prefix
 
-You can also specify a prefix for the environment variable names:
+Check for the standard AWS environment variables, but with a custom prefix. For example, the following configuration will check for these environment variables: 
+
+- `PROD_AWS_ACCESS_KEY_ID`
+- `PROD_AWS_SECRET_ACCESS_KEY`
+- `PROD_AWS_SESSION_TOKEN`
+- `PROD_AWS_REGION`
 
 ```mdx
 <AwsAuth
   id="prod-auth"
-  title="Production AWS Access"
-  prefilledCredentials={{ type: "env", prefix: "PROD_" }}
+  detectCredentials={[{ env: { prefix: 'PROD_' } }]}
 />
 ```
 
-This would look for `PROD_AWS_ACCESS_KEY_ID`, `PROD_AWS_SECRET_ACCESS_KEY`, etc.
+Prefixes must follow these rules:
+
+- Uppercase letters, numbers, and underscores only
+- Must start with a letter
+- Must end with a trailing underscore (e.g., `PROD_`, `MY_APP_`)
+
+### Test Prefix
+
+To use a different prefix for automated tests (e.g., to avoid conflicts with local credentials), configure `env_prefix` in your test config file (`runbook_test.yml`) rather than in the MDX:
+
+```yaml
+# runbook_test.yml
+steps:
+  - block: aws-auth
+    env_prefix: CI_  # Checks CI_AWS_ACCESS_KEY_ID, CI_AWS_SECRET_ACCESS_KEY, etc.
+    expect: success
+```
+
+This keeps test configuration separate from runtime behavior. See [Testing AwsAuth Blocks](/authoring/testing/#testing-awsauth-blocks) for details.
 
 ### From Command Output
 
@@ -218,7 +257,7 @@ Use credentials generated by a previous Command block:
 <AwsAuth
   id="cross-account-auth"
   title="Cross-Account Access"
-  prefilledCredentials={{ type: "block", blockId: "assume-cross-account" }}
+  detectCredentials={[{ block: 'assume-cross-account' }]}
 />
 
 <Command
@@ -236,52 +275,58 @@ CREDS=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name runbook)
 echo "AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.Credentials.AccessKeyId')" >> "$RUNBOOK_OUTPUT"
 echo "AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.Credentials.SecretAccessKey')" >> "$RUNBOOK_OUTPUT"
 echo "AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.Credentials.SessionToken')" >> "$RUNBOOK_OUTPUT"
+echo "AWS_REGION=us-west-2" >> "$RUNBOOK_OUTPUT"  # Optional: override region
 ```
 
-### From Static Values
+The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defaultRegion` prop is used.
 
-<Aside type="caution">
-Do not hardcode credentials in runbook files. Credential pre-filling is for chaining blocks together using outputs from other blocks or environment variables, not for storing credentials in the runbook file.
+### When Users Reject Auto-Detected Credentials
+
+Auto-detected credentials are **never available to scripts until the user confirms them**. Auto-detection is read-only. It validates the credentials and shows the user which account they belong to, but does not register them to the session.
+
+When a user clicks "Use Different Credentials" to reject auto-detected credentials:
+
+1. The manual authentication UI is shown (Static Credentials, SSO, or Local Profile tabs)
+2. The user must authenticate manually before any commands can access AWS
+
+This ensures that if a user sees credentials for the wrong account (e.g., production when they expected development), those credentials are never used—they were never registered in the first place.
+
+Note that this behavior only applies to the AwsAuth block. If standard AWS environment variables are available and the runbook does not contain any AwsAuth blocks, environment credentials work normally and these AWS credentials will automatically be available to all scripts.
+
+This is one key benefit of the AwsAuth block. It ensures that users are always aware of which AWS account they're about to operate in before any credentials are registered to the session.
+
+## Security
+
+### Credential Protection
+
+When a runbook contains any `<AwsAuth>` blocks, Runbooks automatically **strips AWS credentials from the session** at startup. This means:
+
+1. **Before confirmation**: Even if you have `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` set in your terminal, scripts in the runbook cannot access them until you explicitly confirm which account to use
+2. **Detection is read-only**: When AwsAuth checks for credentials, it reads from your environment but does NOT register them to the session
+3. **Confirmation registers credentials**: Only after you click "Use These Credentials" are the credentials added to the session and available to subsequent scripts
+
+This design prevents a common and dangerous scenario: you have production credentials set in your terminal, open a runbook intending to work in development, and accidentally run scripts against production.
+
+<Aside type="tip">
+If your runbook does NOT contain any AwsAuth blocks, environment credentials work normally - they're available to all scripts. The protection only activates when AwsAuth is present, since that signals the runbook author wants explicit credential management.
 </Aside>
 
-```mdx
-<AwsAuth
-  id="test-auth"
-  prefilledCredentials={{ 
-    type: "static",
-    accessKeyId: "{{ .AWS_ACCESS_KEY_ID }}",
-    secretAccessKey: "{{ .AWS_SECRET_ACCESS_KEY }}",
-    sessionToken: "{{ .AWS_SESSION_TOKEN }}",
-    region: "us-west-2"
-  }}
-/>
-```
+### Why Confirmation is Required
 
-### Allowing Manual Override
+AWS operations can have significant consequences - creating resources that cost money, modifying production data, or deleting critical infrastructure. Unlike GitHub where most operations are reversible (you can revert commits), AWS operations are often immediate and irreversible.
 
-By default, users can click "Re-authenticate" to override prefilled credentials. Set `allowOverridePrefilled={false}` to prevent this:
+The confirmation flow ensures users are aware of which AWS account they're about to operate in before any credentials are registered to the session. This is especially important in environments where:
 
-```mdx
-<AwsAuth
-  id="ci-auth"
-  prefilledCredentials={{ type: "env" }}
-  allowOverridePrefilled={false}
-/>
-```
+- Users have access to multiple AWS accounts (dev, staging, production)
+- Environment variables might be set by tools like aws-vault or granted
+- CI/CD pipelines set credentials that persist across sessions
 
-### Pre-fill Props Reference
+### Credential Handling
 
-| Prop | Type | Description |
-|------|------|-------------|
-| `prefilledCredentials` | object | Source for credential pre-population |
-| `prefilledCredentials.type` | `"env"` \| `"block"` \| `"static"` | Pre-fill method |
-| `prefilledCredentials.prefix` | string | For `type: "env"`: prefix for env var names |
-| `prefilledCredentials.blockId` | string | For `type: "block"`: ID of Command block |
-| `prefilledCredentials.accessKeyId` | string | For `type: "static"`: AWS access key ID |
-| `prefilledCredentials.secretAccessKey` | string | For `type: "static"`: AWS secret access key |
-| `prefilledCredentials.sessionToken` | string | For `type: "static"`: AWS session token (optional) |
-| `prefilledCredentials.region` | string | For `type: "static"`: AWS region (optional) |
-| `allowOverridePrefilled` | boolean | Allow manual auth when pre-fill fails (default: true) |
+- **Credentials stay local**: All authentication happens between your machine and AWS. Credentials are never transmitted to external servers or to Gruntwork (unless your runbook includes scripts that explicitly do this).
+- **Session storage**: Credentials are stored only in your local Runbooks session and are never persisted to disk.
+- **Validation before use**: Credentials are validated via STS GetCallerIdentity before being registered to the session.
+- **Protected until confirmed**: AWS credentials are stripped from the session at startup when AwsAuth blocks are present, and only added back after explicit user confirmation.
 
 ## Detailed Example
 

@@ -122,16 +122,16 @@ func TestDetectInterpreter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotInterp, gotArgs := detectInterpreter(tt.script, tt.providedLang)
-			
+
 			if gotInterp != tt.wantInterp {
 				t.Errorf("detectInterpreter() interpreter = %v, want %v", gotInterp, tt.wantInterp)
 			}
-			
+
 			if len(gotArgs) != len(tt.wantArgs) {
 				t.Errorf("detectInterpreter() args length = %v, want %v", len(gotArgs), len(tt.wantArgs))
 				return
 			}
-			
+
 			for i := range gotArgs {
 				if gotArgs[i] != tt.wantArgs[i] {
 					t.Errorf("detectInterpreter() args[%d] = %v, want %v", i, gotArgs[i], tt.wantArgs[i])
@@ -140,4 +140,3 @@ func TestDetectInterpreter(t *testing.T) {
 		})
 	}
 }
-

@@ -12,6 +12,7 @@ export { InlineMarkdown } from './components/InlineMarkdown'
 export { UnmetOutputDependenciesWarning } from './components/UnmetOutputDependenciesWarning'
 export { UnmetInputDependenciesWarning } from './components/UnmetInputDependenciesWarning'
 export { UnmetAwsAuthDependencyWarning } from './components/UnmetAwsAuthDependencyWarning'
+export { UnmetGitHubAuthDependencyWarning } from './components/UnmetGitHubAuthDependencyWarning'
 export { BlockIdLabel } from './components/BlockIdLabel'
 
 // Export shared utilities

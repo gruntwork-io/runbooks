@@ -33,11 +33,13 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 - `command` (string) - Inline command to execute (alternative to `path`)
 - `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
 - `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
-- `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`).
+- `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
+- `githubAuthId` (string) - ID of a [GitHubAuth](/authoring/blocks/githubauth/) block for GitHub credentials. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes.
 - `successMessage` (string) - Message shown when check succeeds (default: "Success"). Supports inline markdown.
 - `warnMessage` (string) - Message shown on warning (default: "Warning"). Supports inline markdown.
 - `failMessage` (string) - Message shown when check fails (default: "Failed"). Supports inline markdown.
 - `runningMessage` (string) - Message shown while running (default: "Checking..."). Supports inline markdown.
+- `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
 
 ### Inline content
 

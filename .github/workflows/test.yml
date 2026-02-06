@@ -113,6 +113,9 @@ jobs:
   test-runbooks:
     name: Test Demo Runbooks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -133,7 +136,23 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.RUNBOOKS_TEST_AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Export AWS credentials with test prefix
+        run: |
+          # Export credentials with RUNBOOKS_TEST_ prefix for aws-auth tests
+          echo "RUNBOOKS_TEST_AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $GITHUB_ENV
+          echo "RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $GITHUB_ENV
+          echo "RUNBOOKS_TEST_AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN" >> $GITHUB_ENV
+          echo "RUNBOOKS_TEST_AWS_REGION=$AWS_REGION" >> $GITHUB_ENV
+
       - name: Run runbook tests
+        env:
+          RUNBOOKS_GITHUB_TOKEN: ${{ secrets.RUNBOOKS_GITHUB_TOKEN }}
         run: task test:runbooks
 
   test-summary:

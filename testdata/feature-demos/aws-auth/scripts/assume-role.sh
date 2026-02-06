@@ -1,8 +1,10 @@
 #!/bin/bash
 # Example script that assumes a role and outputs credentials
-# In a real scenario, you'd replace ROLE_ARN with your actual role
+# The target account ID and role name can be customized via inputs
 
-ROLE_ARN="${ROLE_ARN:-arn:aws:iam::317006682533:role/RunbooksDemoAssumeRole}"
+TARGET_ACCOUNT_ID="{{ .TargetAccountId }}"
+ROLE_NAME="{{ .RoleName }}"
+ROLE_ARN="arn:aws:iam::${TARGET_ACCOUNT_ID}:role/${ROLE_NAME}"
 SESSION_NAME="runbook-session"
 
 echo "Attempting to assume role: $ROLE_ARN"

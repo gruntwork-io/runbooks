@@ -80,6 +80,13 @@ tasks:
     cmds:
       - ./runbooks test ./testdata/...
 
+  docs:spellcheck:
+    desc: Run spellcheck on documentation
+    dir: docs
+    cmds:
+      - bun install
+      - bun run spellcheck
+
   docs:linkcheck:
     desc: Check for broken links in documentation (builds first)
     dir: docs

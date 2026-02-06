@@ -10,9 +10,9 @@ import type {
   SSOAccount,
   SSORole,
   ProfileInfo,
-  PrefillStatus,
-  PrefilledCredentials,
-  PrefilledCredentialsType,
+  AwsDetectionStatus,
+  AwsCredentialSource,
+  DetectedAwsCredentials,
 } from "../types"
 
 interface UseAwsAuthOptions {
@@ -22,8 +22,7 @@ interface UseAwsAuthOptions {
   ssoAccountId?: string
   ssoRoleName?: string
   defaultRegion: string
-  prefilledCredentials?: PrefilledCredentials
-  allowOverridePrefilled?: boolean
+  detectCredentials?: false | AwsCredentialSource[]
 }
 
 export function useAwsAuth({
@@ -33,10 +32,10 @@ export function useAwsAuth({
   ssoAccountId,
   ssoRoleName,
   defaultRegion,
-  prefilledCredentials,
+  detectCredentials = ['env'],  // Default: auto-detect from env vars
 }: UseAwsAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
-  const { getAuthHeader } = useSession()
+  const { getAuthHeader, isReady: sessionReady } = useSession()
 
   // Core auth state
   const [authMethod, setAuthMethod] = useState<AuthMethod>('credentials')
@@ -45,18 +44,31 @@ export function useAwsAuth({
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   
-  // Prefill state
-  const [prefillStatus, setPrefillStatus] = useState<PrefillStatus>(
-    prefilledCredentials ? 'pending' : 'not-configured'
+  // Detection state (new pattern matching GitHubAuth)
+  const [detectionStatus, setDetectionStatus] = useState<AwsDetectionStatus>(
+    detectCredentials === false ? 'done' : 'pending'
   )
-  const [prefillError, setPrefillError] = useState<string | null>(null)
-  const [prefillSource, setPrefillSource] = useState<PrefilledCredentialsType | null>(null)
-  const prefillAttemptedRef = useRef(false)
-  const [prefillRetryCount, setPrefillRetryCount] = useState(0)
-  // Track if we're waiting for a block to produce outputs (vs actively checking)
-  const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(
-    prefilledCredentials?.type === 'block' ? prefilledCredentials.blockId : null
-  )
+  const [detectedCredentials, setDetectedCredentials] = useState<DetectedAwsCredentials | null>(null)
+  const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
+  const detectionAttemptedRef = useRef(false)
+  // Counter to trigger detection re-run when user clicks "Try auto-detection again"
+  const [detectionAttempt, setDetectionAttempt] = useState(0)
+  // Track if the last retry found nothing (for showing feedback message)
+  const [retryFoundNothing, setRetryFoundNothing] = useState(false)
+
+  // Auto-hide the "no credentials found" message after a few seconds
+  useEffect(() => {
+    if (!retryFoundNothing) return
+    const timer = setTimeout(() => setRetryFoundNothing(false), 3000)
+    return () => clearTimeout(timer)
+  }, [retryFoundNothing])
+  
+  // For block-based detection, track which block we're waiting for
+  const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
+  // Remaining credential sources to try if a higher-priority block source fails.
+  // When detection pauses to wait for a block, the sources that come after it in
+  // the priority list are stashed here so they can be tried if the block fails.
+  const remainingSourcesRef = useRef<AwsCredentialSource[]>([])
 
   // Credentials form state
   const [accessKeyId, setAccessKeyId] = useState('')
@@ -85,9 +97,8 @@ export function useAwsAuth({
   // SSO polling cancellation
   const ssoPollingCancelledRef = useRef(false)
 
-  // Helper to check for prefilled credentials from block outputs
+  // Helper to check for credentials from block outputs
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: Partial<AwsCredentials>; error?: string } => {
-    // Normalize block ID (hyphens to underscores) to match how they're stored
     const normalizedId = normalizeBlockId(blockId)
     const outputs = blockOutputs[normalizedId]?.values
     
@@ -137,7 +148,6 @@ export function useAwsAuth({
 
   // Register credentials as outputs and set session environment
   const registerCredentials = useCallback(async (creds: AwsCredentials) => {
-    // Register as outputs so other blocks can reference them via awsAuthId
     const outputs: Record<string, string> = {
       AWS_ACCESS_KEY_ID: creds.accessKeyId,
       AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
@@ -164,229 +174,399 @@ export function useAwsAuth({
     await checkRegionStatus(creds)
   }, [id, registerOutputs, getAuthHeader, checkRegionStatus])
 
-  // Attempt to prefill credentials from block outputs
-  const attemptBlockPrefill = useCallback(async (blockId: string) => {
+  // Try to detect credentials from environment variables
+  // Returns metadata only - does NOT register credentials (user must confirm first)
+  const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{
+    success: boolean
+    accountId?: string
+    accountName?: string
+    arn?: string
+    region?: string
+    hasSessionToken?: boolean
+    warning?: string
+    error?: string
+    foundButInvalid?: boolean
+  }> => {
+    try {
+      // Use GET with query params - this is read-only detection, credentials are NOT
+      // registered to session until user confirms via handleConfirmDetected
+      const params = new URLSearchParams({
+        prefix: options?.prefix || '',
+        defaultRegion: defaultRegion || '',
+      })
+      const response = await fetch(`/api/aws/env-credentials?${params}`, {
+        method: 'GET',
+        headers: {
+          ...getAuthHeader(),
+        },
+      })
+
+      const data = await response.json()
+
+      if (!data.found) {
+        return { success: false, error: data.error }
+      }
+
+      if (!data.valid) {
+        return { success: false, error: data.error, foundButInvalid: true }
+      }
+
+      return {
+        success: true,
+        accountId: data.accountId,
+        accountName: data.accountName,
+        arn: data.arn,
+        region: data.region,
+        hasSessionToken: data.hasSessionToken,
+        warning: data.warning,
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
+    }
+  }, [getAuthHeader, defaultRegion])
+
+  // Try to detect credentials from block outputs
+  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{
+    success: boolean
+    accountId?: string
+    accountName?: string
+    arn?: string
+    region?: string
+    hasSessionToken?: boolean
+    error?: string
+  }> => {
     const result = getBlockCredentials(blockId)
-    
+
     if (!result.found || !result.creds) {
       return { success: false, error: result.error || 'Could not read credentials from block' }
     }
 
-    // Validate and register the credentials
-    const creds: AwsCredentials = {
-      accessKeyId: result.creds.accessKeyId!,
-      secretAccessKey: result.creds.secretAccessKey!,
-      sessionToken: result.creds.sessionToken,
-      region: result.creds.region || defaultRegion,
+    // Validate the credentials via backend (but don't register them yet)
+    try {
+      const response = await fetch('/api/aws/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessKeyId: result.creds.accessKeyId,
+          secretAccessKey: result.creds.secretAccessKey,
+          sessionToken: result.creds.sessionToken,
+          region: result.creds.region || defaultRegion,
+        })
+      })
+
+      const data = await response.json()
+
+      if (!data.valid) {
+        return { success: false, error: data.error || 'Block credentials are invalid' }
+      }
+
+      return {
+        success: true,
+        accountId: data.accountId,
+        accountName: data.accountName,
+        arn: data.arn,
+        region: result.creds.region || defaultRegion,
+        hasSessionToken: !!result.creds.sessionToken,
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to validate credentials' }
     }
+  }, [getBlockCredentials, defaultRegion])
 
-    // Validate via backend
-    const response = await fetch('/api/aws/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(creds)
-    })
+  // Try credential sources in priority order. Stops at the first success or
+  // at an unexecuted block source (waiting for it before trying lower-priority
+  // sources). Extracted as a callback so both the initial detection effect and
+  // the block-watcher can reuse the same logic.
+  const trySourcesInOrder = useCallback(async (
+    sources: AwsCredentialSource[],
+    isRetry: boolean
+  ) => {
+    const warnings: string[] = []
 
-    const data = await response.json()
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i]
 
-    if (!data.valid) {
-      return { success: false, error: data.error || 'Block credentials are invalid' }
-    }
-
-    // Register credentials
-    await registerCredentials(creds)
-    
-    return { 
-      success: true, 
-      accountId: data.accountId, 
-      arn: data.arn,
-      warning: data.warning 
-    }
-  }, [getBlockCredentials, defaultRegion, registerCredentials])
-
-  // Handle prefilled credentials on mount (for env and static types)
-  useEffect(() => {
-    // Skip if not configured or if it's block type (handled separately)
-    if (!prefilledCredentials || prefilledCredentials.type === 'block') {
-      return
-    }
-    
-    // Only attempt prefill once per retry cycle
-    if (prefillAttemptedRef.current) {
-      return
-    }
-    
-    prefillAttemptedRef.current = true
-
-    const attemptPrefill = async () => {
-      setPrefillStatus('pending')
-      setPrefillError(null)
-
-      try {
-        if (prefilledCredentials.type === 'env') {
-          // Call backend to read and validate credentials from environment
-          const response = await fetch('/api/aws/env-credentials', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...getAuthHeader(),
-            },
-            body: JSON.stringify({
-              prefix: prefilledCredentials.prefix || '',
-              awsAuthId: id,
-              defaultRegion,
-            })
+      // Check for 'env' - standard env vars
+      if (source === 'env') {
+        const result = await tryEnvCredentials()
+        if (result.success) {
+          setDetectedCredentials({
+            accountId: result.accountId!,
+            accountName: result.accountName,
+            arn: result.arn!,
+            region: result.region || defaultRegion,
+            source: 'env',
+            hasSessionToken: result.hasSessionToken || false,
           })
-
-          const data = await response.json()
-
-          if (!data.found) {
-            setPrefillStatus('failed')
-            setPrefillError(data.error || 'No credentials found in environment')
-            return
+          if (result.warning) {
+            setDetectionWarning(result.warning)
           }
-
-          if (!data.valid) {
-            setPrefillStatus('failed')
-            setPrefillError(data.error || 'Environment credentials are invalid')
-            return
-          }
-
-          // Credentials validated and registered on the server side
-          setPrefillStatus('success')
-          setPrefillSource('env')
-          setAuthStatus('authenticated')
-          setAccountInfo({ accountId: data.accountId, arn: data.arn })
-
-          // Note: We do NOT register actual credential outputs to RunbookContext for env-prefilled credentials.
-          // The actual credentials are stored in the server session environment, and commands
-          // will access them from there. Registering placeholder values would break awsAuthId
-          // lookups since they'd pass the placeholders instead of real credentials.
-          // 
-          // However, we DO register a marker to indicate that this AwsAuth block has been
-          // authenticated. This allows dependent blocks (Command/Check with awsAuthId) to
-          // know that credentials are available, even though they're stored server-side.
-          registerOutputs(id, { __AUTHENTICATED: 'true' })
-
-          if (data.warning) {
-            setWarningMessage(data.warning)
-          }
-        } else if (prefilledCredentials.type === 'static') {
-          // Use static values directly
-          if (!prefilledCredentials.accessKeyId || !prefilledCredentials.secretAccessKey) {
-            setPrefillStatus('failed')
-            setPrefillError('Static credentials missing accessKeyId or secretAccessKey')
-            return
-          }
-
-          const creds: AwsCredentials = {
-            accessKeyId: prefilledCredentials.accessKeyId,
-            secretAccessKey: prefilledCredentials.secretAccessKey,
-            sessionToken: prefilledCredentials.sessionToken,
-            region: prefilledCredentials.region || defaultRegion,
-          }
-
-          // Validate via backend
-          const response = await fetch('/api/aws/validate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(creds)
-          })
-
-          const data = await response.json()
-
-          if (!data.valid) {
-            setPrefillStatus('failed')
-            setPrefillError(data.error || 'Static credentials are invalid')
-            return
-          }
-
-          // Register credentials
-          await registerCredentials(creds)
-          
-          setPrefillStatus('success')
-          setPrefillSource('static')
-          setAuthStatus('authenticated')
-          setAccountInfo({ accountId: data.accountId, arn: data.arn })
-
-          if (data.warning) {
-            setWarningMessage(data.warning)
-          }
+          setDetectionStatus('detected')
+          return
         }
-      } catch (error) {
-        setPrefillStatus('failed')
-        setPrefillError(error instanceof Error ? error.message : 'Failed to prefill credentials')
+        if (result.foundButInvalid) {
+          warnings.push('AWS credentials in environment are invalid or expired')
+        }
       }
-    }
-
-    attemptPrefill()
-  }, [prefilledCredentials, id, defaultRegion, getAuthHeader, registerCredentials, prefillRetryCount])
-
-  // Handle block-based credential prefill - watches for block outputs to become available
-  useEffect(() => {
-    // Only handle block type prefill
-    if (prefilledCredentials?.type !== 'block') {
-      return
-    }
-    
-    // Don't retry if already authenticated
-    if (authStatus === 'authenticated') {
-      return
-    }
-    
-    // Don't auto-prefill if user opted for manual auth
-    if (prefillStatus === 'not-configured') {
-      return
-    }
-
-    // Don't auto-retry on failure - user must explicitly retry
-    if (prefillStatus === 'failed') {
-      return
-    }
-
-    // Check if the source block has outputs
-    const result = getBlockCredentials(prefilledCredentials.blockId)
-    
-    if (!result.found) {
-      // Block hasn't produced outputs yet - show waiting state
-      setWaitingForBlockId(prefilledCredentials.blockId)
-      if (prefillStatus !== 'pending') {
-        setPrefillStatus('pending')
-        setPrefillError(null)
-      }
-      return
-    }
-
-    // Block has outputs - clear waiting state and attempt to authenticate
-    setWaitingForBlockId(null)
-    
-    const doAuth = async () => {
-      setPrefillStatus('pending')
-      setPrefillError(null)
-      
-      try {
-        const authResult = await attemptBlockPrefill(prefilledCredentials.blockId)
-        
-        if (authResult.success) {
-          setPrefillStatus('success')
-          setPrefillSource('block')
-          setAuthStatus('authenticated')
-          setAccountInfo({ accountId: authResult.accountId, arn: authResult.arn })
-          if (authResult.warning) {
-            setWarningMessage(authResult.warning)
+      // Check for { env: { prefix: 'PREFIX_' } } - prefixed env vars
+      else if (typeof source === 'object' && 'env' in source) {
+        const prefix = (source.env as { prefix?: string })?.prefix
+        const result = await tryEnvCredentials({ prefix })
+        if (result.success) {
+          setDetectedCredentials({
+            accountId: result.accountId!,
+            accountName: result.accountName,
+            arn: result.arn!,
+            region: result.region || defaultRegion,
+            source: 'env',
+            hasSessionToken: result.hasSessionToken || false,
+            envPrefix: prefix,
+          })
+          if (result.warning) {
+            setDetectionWarning(result.warning)
           }
+          setDetectionStatus('detected')
+          return
+        }
+        if (result.foundButInvalid) {
+          warnings.push(`${prefix}AWS credentials are invalid or expired`)
+        }
+      }
+      // Check for { block: 'id' } - block outputs
+      else if (typeof source === 'object' && 'block' in source) {
+        const result = await tryBlockCredentials(source.block)
+        if (result.success) {
+          setDetectedCredentials({
+            accountId: result.accountId!,
+            accountName: result.accountName,
+            arn: result.arn!,
+            region: result.region || defaultRegion,
+            source: 'block',
+            hasSessionToken: result.hasSessionToken || false,
+          })
+          setDetectionStatus('detected')
+          return
+        }
+        // Check if block has actually executed (has any outputs at all, even
+        // if they don't contain AWS credentials)
+        const normalizedBlockId = normalizeBlockId(source.block)
+        const blockHasExecuted = blockOutputs[normalizedBlockId]?.values !== undefined
+        if (!blockHasExecuted) {
+          // Block hasn't executed yet - wait for it before trying lower-priority
+          // sources. This respects the author's intended priority ordering:
+          // if a block source is listed before env, the block takes precedence.
+          remainingSourcesRef.current = sources.slice(i + 1)
+          setWaitingForBlockId(source.block)
+          return
+        }
+        // Block executed but credentials invalid/missing - continue to next source
+      }
+      // Note: 'default-profile' detection was intentionally not implemented.
+      // Profile-based auth is available via the Profile tab in manual authentication.
+      // Auto-detecting the default profile is complex due to AWS config precedence rules.
+    }
+
+    // No source succeeded
+    if (warnings.length > 0) {
+      setDetectionWarning(warnings.join('; '))
+    }
+
+    // Nothing found - show feedback if this was a user-initiated retry
+    if (isRetry) {
+      setRetryFoundNothing(true)
+    }
+    setDetectionStatus('done')
+  }, [tryEnvCredentials, tryBlockCredentials, blockOutputs, defaultRegion])
+
+  // Run credential detection when session is ready
+  useEffect(() => {
+    // Skip if detection is disabled or already attempted (for this attempt)
+    if (detectCredentials === false || detectionAttemptedRef.current) {
+      return
+    }
+
+    // Wait for session to be ready before making API calls
+    if (!sessionReady) {
+      return
+    }
+
+    detectionAttemptedRef.current = true
+
+    trySourcesInOrder(detectCredentials, detectionAttempt > 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- detectionAttempt triggers re-run on retry
+  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt])
+
+  // Watch for block outputs when waiting for a block
+  useEffect(() => {
+    if (!waitingForBlockId || detectionStatus === 'detected' || authStatus === 'authenticated') {
+      return
+    }
+
+    // Check if the block has executed (has any outputs at all, even if they
+    // don't contain AWS credentials). This is more precise than getBlockCredentials
+    // which returns found:false for both "not executed" and "no AWS keys".
+    const normalizedId = normalizeBlockId(waitingForBlockId)
+    const hasExecuted = blockOutputs[normalizedId]?.values !== undefined
+    if (!hasExecuted) {
+      return // Block hasn't executed yet, still waiting
+    }
+
+    // Block has outputs now, try to validate credentials
+    const doDetection = async () => {
+      const authResult = await tryBlockCredentials(waitingForBlockId)
+      if (authResult.success) {
+        setDetectedCredentials({
+          accountId: authResult.accountId!,
+          accountName: authResult.accountName,
+          arn: authResult.arn!,
+          region: authResult.region || defaultRegion,
+          source: 'block',
+          hasSessionToken: authResult.hasSessionToken || false,
+        })
+        setDetectionStatus('detected')
+        setWaitingForBlockId(null)
+      } else {
+        // Block executed but credentials invalid/missing.
+        // Try remaining lower-priority sources before falling back to manual auth.
+        setWaitingForBlockId(null)
+        const remaining = remainingSourcesRef.current
+        remainingSourcesRef.current = []
+        if (remaining.length > 0) {
+          await trySourcesInOrder(remaining, false)
         } else {
-          setPrefillStatus('failed')
-          setPrefillError(authResult.error || 'Failed to authenticate with block credentials')
+          setDetectionStatus('done')
         }
-      } catch (error) {
-        setPrefillStatus('failed')
-        setPrefillError(error instanceof Error ? error.message : 'Failed to prefill credentials')
       }
     }
 
-    doAuth()
-  }, [prefilledCredentials, authStatus, blockOutputs, getBlockCredentials, attemptBlockPrefill, prefillStatus])
+    doDetection()
+  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, tryBlockCredentials, trySourcesInOrder, defaultRegion])
+
+  // User confirms detected credentials - register them to session and authenticate
+  const handleConfirmDetected = useCallback(async () => {
+    if (!detectedCredentials) return
+
+    setAuthStatus('authenticating')
+
+    // For env-detected credentials, call the confirm endpoint to register them to session
+    if (detectedCredentials.source === 'env') {
+      try {
+        const response = await fetch('/api/aws/env-credentials/confirm', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+          },
+          body: JSON.stringify({
+            prefix: detectedCredentials.envPrefix || '',
+            defaultRegion: defaultRegion || '',
+          })
+        })
+
+        const data = await response.json()
+
+        if (!data.valid) {
+          setAuthStatus('failed')
+          setErrorMessage(data.error || 'Failed to register credentials')
+          return
+        }
+
+        setAuthStatus('authenticated')
+        // Use the confirmed response payload (not detectedCredentials) to avoid
+        // TOCTOU: credentials may have changed between detection and confirmation.
+        setAccountInfo({
+          accountId: data.accountId,
+          accountName: data.accountName,
+          arn: data.arn,
+        })
+        
+        // Register credentials per-block for awsAuthId support
+        // The confirm endpoint now returns credentials so we can store them
+        if (data.accessKeyId && data.secretAccessKey) {
+          const outputs: Record<string, string> = {
+            AWS_ACCESS_KEY_ID: data.accessKeyId,
+            AWS_SECRET_ACCESS_KEY: data.secretAccessKey,
+            AWS_REGION: data.region || defaultRegion,
+            AWS_SESSION_TOKEN: data.sessionToken || '',
+          }
+          registerOutputs(id, outputs)
+        } else {
+          // Fallback: register marker if credentials weren't returned (shouldn't happen)
+          registerOutputs(id, { __AUTHENTICATED: 'true' })
+        }
+        
+        if (detectionWarning) {
+          setWarningMessage(detectionWarning)
+        }
+        setDetectionStatus('done')
+        return
+      } catch (error) {
+        setAuthStatus('failed')
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to register credentials')
+        return
+      }
+    }
+
+    // For block-detected credentials, we need to register them
+    if (detectedCredentials.source === 'block') {
+      // Find the block source in detectCredentials
+      const blockSource = Array.isArray(detectCredentials) 
+        ? detectCredentials.find(s => typeof s === 'object' && 'block' in s) as { block: string } | undefined
+        : undefined
+      
+      if (blockSource) {
+        const blockResult = getBlockCredentials(blockSource.block)
+        if (blockResult.found && blockResult.creds) {
+          const creds: AwsCredentials = {
+            accessKeyId: blockResult.creds.accessKeyId!,
+            secretAccessKey: blockResult.creds.secretAccessKey!,
+            sessionToken: blockResult.creds.sessionToken,
+            region: blockResult.creds.region || defaultRegion,
+          }
+          await registerCredentials(creds)
+          setAuthStatus('authenticated')
+          setAccountInfo({
+            accountId: detectedCredentials.accountId,
+            accountName: detectedCredentials.accountName,
+            arn: detectedCredentials.arn,
+          })
+          setDetectionStatus('done')
+          return
+        }
+      }
+    }
+
+    // Fallback - shouldn't reach here normally
+    setAuthStatus('failed')
+    setErrorMessage('Failed to confirm detected credentials')
+  }, [detectedCredentials, detectionWarning, detectCredentials, getBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id, getAuthHeader])
+
+  // User rejects detected credentials - show manual auth
+  // Note: credentials are not in session until confirmed, so no need to clear them
+  const handleRejectDetected = useCallback(() => {
+    // Reset to manual auth state
+    setDetectedCredentials(null)
+    setDetectionWarning(null)
+    setDetectionStatus('done')
+    setAuthStatus('pending')
+  }, [])
+
+  // Retry credential detection (after user rejected and wants to go back)
+  const handleRetryDetection = useCallback(() => {
+    // Reset detection state so the effect will re-run
+    setDetectedCredentials(null)
+    setDetectionWarning(null)
+    setDetectionStatus('pending')
+    setAuthStatus('pending')
+    setErrorMessage(null)
+    setWarningMessage(null)
+    setRetryFoundNothing(false)
+    remainingSourcesRef.current = []
+    // Reset the ref so detection effect will run again
+    detectionAttemptedRef.current = false
+    // Increment the attempt counter to trigger the effect to re-run
+    setDetectionAttempt(prev => prev + 1)
+  }, [])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = useCallback(async () => {
@@ -429,7 +609,7 @@ export function useAwsAuth({
       
       if (response.ok && data.valid) {
         setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, arn: data.arn })
+        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         registerCredentials(creds)
       } else {
         setAuthStatus('failed')
@@ -500,7 +680,7 @@ export function useAwsAuth({
           setAuthStatus('select_account')
         } else if (data.status === 'success') {
           setAuthStatus('authenticated')
-          setAccountInfo({ accountId: data.accountId, arn: data.arn })
+          setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
           registerCredentials({
             accessKeyId: data.accessKeyId,
             secretAccessKey: data.secretAccessKey,
@@ -631,7 +811,7 @@ export function useAwsAuth({
 
       if (data.accessKeyId) {
         setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, arn: data.arn })
+        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         registerCredentials({
           accessKeyId: data.accessKeyId,
           secretAccessKey: data.secretAccessKey,
@@ -692,7 +872,7 @@ export function useAwsAuth({
       
       if (response.ok && data.valid) {
         setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, arn: data.arn })
+        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         registerCredentials({
           accessKeyId: data.accessKeyId,
           secretAccessKey: data.secretAccessKey,
@@ -709,19 +889,6 @@ export function useAwsAuth({
     }
   }, [selectedProfile, selectedDefaultRegion, registerCredentials, getAuthHeader])
 
-  // Retry prefilled credentials (re-read from env, re-check block outputs, etc.)
-  const handleRetryPrefill = useCallback(() => {
-    setAuthStatus('pending')
-    setErrorMessage(null)
-    setWarningMessage(null)
-    setAccountInfo(null)
-    setPrefillStatus('pending')
-    setPrefillError(null)
-    // Reset the attempt flag and increment retry count to trigger the effect
-    prefillAttemptedRef.current = false
-    setPrefillRetryCount(c => c + 1)
-  }, [])
-
   // Reset to manual authentication (show auth tabs)
   const handleManualAuth = useCallback(() => {
     setAuthStatus('pending')
@@ -735,12 +902,12 @@ export function useAwsAuth({
     setSelectedSsoRole('')
     setSsoAccountSearch('')
     setSsoRoleSearch('')
-    // Clear prefill state so manual auth UI shows
-    setPrefillStatus('not-configured')
-    setPrefillSource(null)
-    setPrefillError(null)
+    setDetectedCredentials(null)
+    setDetectionWarning(null)
+    setDetectionStatus('done')
+    setWaitingForBlockId(null)
+    remainingSourcesRef.current = []
   }, [])
-
 
   // Cancel SSO authentication
   const handleCancelSsoAuth = useCallback(() => {
@@ -758,11 +925,13 @@ export function useAwsAuth({
     warningMessage,
     accountInfo,
 
-    // Prefill state
-    prefillStatus,
-    prefillError,
-    prefillSource,
+    // Detection state (new pattern)
+    detectionStatus,
+    detectedCredentials,
+    detectionWarning,
     waitingForBlockId,
+    retryFoundNothing,
+    clearRetryMessage: () => setRetryFoundNothing(false),
 
     // Credentials form
     accessKeyId,
@@ -807,7 +976,10 @@ export function useAwsAuth({
     handleBackToAccountSelection,
     handleProfileAuth,
     
-    handleRetryPrefill,
+    // Detection handlers (new)
+    handleConfirmDetected,
+    handleRejectDetected,
+    handleRetryDetection,
     handleManualAuth,
     handleCancelSsoAuth,
   }

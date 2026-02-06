@@ -54,7 +54,7 @@ export function Header({ pathName }: HeaderProps) {
 
   return (
     <>
-      <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default">
+      <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
         <div className="hidden md:block md:absolute md:left-5 md:top-1/2 md:transform md:-translate-y-1/2">
           <img src="/runbooks-logo-dark-alpha.svg" alt="Gruntwork Runbooks" className="h-8" />
         </div>

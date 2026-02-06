@@ -153,9 +153,13 @@ type ParsedComponent struct {
 
 // ParseComponents finds all components of a given type in the content and returns their parsed info.
 // This is the shared parsing logic used by both ExecutableRegistry and InputValidator.
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
 func ParseComponents(content, componentType string) []ParsedComponent {
 	re := GetComponentRegex(componentType)
 	matches := re.FindAllStringSubmatchIndex(content, -1)
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := FindFencedCodeBlockRanges(content)
 
 	var components []ParsedComponent
 	seen := make(map[string]bool)
@@ -165,6 +169,11 @@ func ParseComponents(content, componentType string) []ParsedComponent {
 		// match[0:2] = full match, match[2:4] = props (group 1), match[4:6] = content (group 2, optional)
 		// We need at least 4 indices to have the props capture group
 		if len(match) < 4 {
+			continue
+		}
+
+		// Skip components inside fenced code blocks (documentation examples)
+		if IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
 			continue
 		}
 
@@ -424,6 +433,7 @@ func validateRunbook(filePath string) ([]string, error) {
 	componentTypes := []string{
 		"Check",
 		"Command",
+		"GitClone",
 		"BoilerplateInputs",
 		"BoilerplateTemplate",
 	}
@@ -436,15 +446,30 @@ func validateRunbook(filePath string) ([]string, error) {
 }
 
 // validateComponentType checks for duplicate components of a specific type
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
 func validateComponentType(content, componentType string) []string {
 	re := GetComponentRegex(componentType)
-	matches := re.FindAllStringSubmatch(content, -1)
+	matches := re.FindAllStringSubmatchIndex(content, -1)
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := FindFencedCodeBlockRanges(content)
 
 	seen := make(map[string]bool)
 	var warnings []string
 
 	for _, match := range matches {
-		props := match[1]
+		// Skip components inside fenced code blocks (documentation examples)
+		if IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			continue
+		}
+
+		// FindAllStringSubmatchIndex returns pairs of indices:
+		// match[0:2] = full match, match[2:4] = props (group 1)
+		if len(match) < 4 {
+			continue
+		}
+
+		props := content[match[2]:match[3]]
 		id := ExtractProp(props, "id")
 		if id == "" {
 			id = ComputeComponentID(componentType, props)
@@ -489,12 +514,28 @@ func getExecutableByComponentID(runbookPath, componentID string) (*Executable, e
 }
 
 // findComponentExecutable searches for a component and returns it as an Executable
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
 func findComponentExecutable(content, runbookDir, componentType, targetID string) (*Executable, error) {
 	re := GetComponentRegex(componentType)
 
-	matches := re.FindAllStringSubmatch(content, -1)
+	matches := re.FindAllStringSubmatchIndex(content, -1)
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := FindFencedCodeBlockRanges(content)
+
 	for _, match := range matches {
-		props := match[1]
+		// Skip components inside fenced code blocks (documentation examples)
+		if IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			continue
+		}
+
+		// FindAllStringSubmatchIndex returns pairs of indices:
+		// match[0:2] = full match, match[2:4] = props (group 1)
+		if len(match) < 4 {
+			continue
+		}
+
+		props := content[match[2]:match[3]]
 
 		componentID := ExtractProp(props, "id")
 		if componentID == "" {
@@ -541,5 +582,32 @@ func findComponentExecutable(content, runbookDir, componentType, targetID string
 	}
 
 	return nil, fmt.Errorf("component not found")
+}
+
+// HasComponent checks if the runbook contains any components of the given type.
+// Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
+func (r *ExecutableRegistry) HasComponent(componentType string) bool {
+	content, err := os.ReadFile(r.runbookPath)
+	if err != nil {
+		return false
+	}
+
+	re := GetComponentRegex(componentType)
+	matches := re.FindAllStringSubmatchIndex(string(content), -1)
+	if len(matches) == 0 {
+		return false
+	}
+
+	// Find all fenced code block ranges to skip components inside them
+	codeBlockRanges := FindFencedCodeBlockRanges(string(content))
+
+	for _, match := range matches {
+		// Skip components inside fenced code blocks (documentation examples)
+		if !IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			return true
+		}
+	}
+
+	return false
 }
 

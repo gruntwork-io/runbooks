@@ -14,6 +14,8 @@ import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
+import { GitHubAuth } from '@/components/mdx/GitHubAuth'
+import { GitClone } from '@/components/mdx/GitClone'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
 
@@ -201,10 +203,33 @@ function rehypeTransformAssetPaths() {
   }
 }
 
+// Strips YAML front matter from MDX content.
+// Front matter is YAML metadata between --- delimiters at the start of the file.
+// Example:
+//   ---
+//   title: My Runbook
+//   ---
+//   # Content here
+const stripFrontMatter = (content: string): string => {
+  // Front matter must start at the beginning of the file with ---
+  if (!content.startsWith('---')) {
+    return content
+  }
+  
+  // Find the closing --- delimiter (must be on its own line)
+  const endMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  if (!endMatch) {
+    return content
+  }
+  
+  // Remove the front matter block
+  return content.slice(endMatch[0].length)
+}
+
 // Compiles MDX content into a custom React component that can render the MDX content.
 const compileMDX = async (content: string): Promise<React.ComponentType> => {
-  // Create the MDX content without imports - we'll provide components directly
-  const mdxContent = content
+  // Strip front matter before MDX compilation (front matter is metadata, not content)
+  const mdxContent = stripFrontMatter(content)
 
   // Compile and evaluate the MDX content
   const compiledMDX = await evaluate(mdxContent, {
@@ -223,6 +248,9 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       Command,
       // Authentication components
       AwsAuth,
+      GitHubAuth,
+      // Git operations
+      GitClone,
       // Utility components
       Admonition,
       a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)

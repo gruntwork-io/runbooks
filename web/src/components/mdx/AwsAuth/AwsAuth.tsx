@@ -14,7 +14,7 @@ import { AuthSuccess } from "./components/AuthSuccess"
 import { CredentialsForm } from "./components/CredentialsForm"
 import { SsoForm, SsoAccountSelector, SsoRoleSelector } from "./components/SsoFlow"
 import { ProfileSelector } from "./components/ProfileSelector"
-import { Button } from "@/components/ui/button"
+import { DetectedCredentialsPrompt } from "./components/DetectedCredentialsPrompt"
 
 function AwsAuth({
   id,
@@ -25,12 +25,17 @@ function AwsAuth({
   ssoAccountId,
   ssoRoleName,
   defaultRegion = "us-east-1",
-  prefilledCredentials,
-  allowOverridePrefilled = true,
+  detectCredentials = ['env'],  // Default: auto-detect from env vars
 }: AwsAuthProps) {
   
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'AwsAuth')
+  
+  // Validate detectCredentials configuration: only one { block: string } source allowed
+  const blockSources = Array.isArray(detectCredentials) 
+    ? detectCredentials.filter(s => typeof s === 'object' && 'block' in s) 
+    : []
+  const hasMultipleBlockSources = blockSources.length > 1
   
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
@@ -46,8 +51,7 @@ function AwsAuth({
     ssoAccountId,
     ssoRoleName,
     defaultRegion,
-    prefilledCredentials,
-    allowOverridePrefilled,
+    detectCredentials,
   })
 
   // Track block render on mount
@@ -72,10 +76,17 @@ function AwsAuth({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
+    } else if (hasMultipleBlockSources) {
+      reportError({
+        componentId: id,
+        componentType: 'AwsAuth',
+        severity: 'error',
+        message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, reportError, clearError])
+  }, [id, isDuplicate, hasMultipleBlockSources, reportError, clearError])
 
   // Early return for duplicate ID
   if (isDuplicate) {
@@ -97,6 +108,22 @@ function AwsAuth({
                 Another <code className="bg-red-100 px-1 rounded">{"<AwsAuth>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
               </>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Early return for multiple block sources in detectCredentials
+  if (hasMultipleBlockSources) {
+    return (
+      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+        <div className="flex items-center text-red-600">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>Invalid Configuration:</strong><br />
+            The <code className="bg-red-100 px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-red-100 px-1 rounded">{`{ block: "..." }`}</code> entries.
+            Only one block source is allowed.
           </div>
         </div>
       </div>
@@ -139,16 +166,27 @@ function AwsAuth({
             </div>
           )}
 
-          {/* Prefill pending state - waiting for block or checking credentials */}
-          {auth.prefillStatus === 'pending' && (
+          {/* Detection pending state - waiting for block or checking credentials */}
+          {auth.detectionStatus === 'pending' && (
             <div className="mb-4 text-blue-600 text-sm flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
               <span>
                 {auth.waitingForBlockId 
                   ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                  : 'Checking for credentials...'}
+                  : 'Checking for existing credentials...'}
               </span>
             </div>
+          )}
+
+          {/* Detected credentials confirmation prompt */}
+          {auth.detectionStatus === 'detected' && auth.detectedCredentials && (
+            <DetectedCredentialsPrompt
+              credentials={auth.detectedCredentials}
+              warning={auth.detectionWarning}
+              confirming={auth.authStatus === 'authenticating'}
+              onConfirm={auth.handleConfirmDetected}
+              onReject={auth.handleRejectDetected}
+            />
           )}
 
           {/* Success state */}
@@ -156,32 +194,19 @@ function AwsAuth({
             <AuthSuccess
               accountInfo={auth.accountInfo}
               warningMessage={auth.warningMessage}
-              prefillSource={auth.prefillSource}
-              // If prefill was used and override is allowed, show both retry and manual options
-              // If no prefill (manual auth), just show retry (which acts as re-authenticate)
-              onRetryPrefill={allowOverridePrefilled ? (auth.prefillSource ? auth.handleRetryPrefill : auth.handleManualAuth) : undefined}
-              onManualAuth={allowOverridePrefilled && auth.prefillSource ? auth.handleManualAuth : undefined}
+              detectionSource={auth.detectedCredentials?.source}
+              onReAuthenticate={auth.handleManualAuth}
             />
           )}
 
-          {/* Prefill failed state */}
-          {auth.prefillStatus === 'failed' && auth.prefillError && allowOverridePrefilled && (
+          {/* Detection warning (found credentials but they're invalid) */}
+          {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
-                <strong>Could not load prefilled credentials:</strong> {auth.prefillError}
+                <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
                 <span className="text-amber-700">Please authenticate manually below.</span>
-              </div>
-            </div>
-          )}
-
-          {/* Prefill failed without override - just show error */}
-          {auth.prefillStatus === 'failed' && auth.prefillError && !allowOverridePrefilled && (
-            <div className="mb-4 text-red-600 text-sm flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <strong>Credential prefill failed:</strong> {auth.prefillError}
               </div>
             </div>
           )}
@@ -196,14 +221,17 @@ function AwsAuth({
             </div>
           )}
 
-          {/* Authentication form (only show when not authenticated and not pending prefill, and allow override) */}
-          {auth.authStatus !== 'authenticated' && auth.prefillStatus !== 'pending' && (auth.prefillStatus !== 'failed' || allowOverridePrefilled) && (
+          {/* Authentication form (only show when not authenticated and detection is done) */}
+          {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
               {/* Method tabs (hide during account/role selection) */}
               {showTabs && (
                 <AuthTabs
                   authMethod={auth.authMethod}
-                  setAuthMethod={auth.setAuthMethod}
+                  setAuthMethod={(method) => {
+                    auth.clearRetryMessage()
+                    auth.setAuthMethod(method)
+                  }}
                 />
               )}
 
@@ -283,19 +311,19 @@ function AwsAuth({
                 />
               )}
 
-              {/* Option to use prefilled credentials when in manual auth mode */}
-              {prefilledCredentials && auth.prefillStatus === 'not-configured' && showTabs && (
-                <div className="mt-4 text-sm text-gray-600">
-                  {prefilledCredentials.type === 'env' && 'Environment'}
-                  {prefilledCredentials.type === 'block' && 'Command output'}
-                  {prefilledCredentials.type === 'static' && 'Prefilled'} credentials are available.{' '}
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={auth.handleRetryPrefill}
+              {/* Option to retry detection when in manual auth mode */}
+              {detectCredentials !== false && showTabs && (
+                <div className="mt-3 text-sm text-gray-600 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={auth.handleRetryDetection}
+                    className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                   >
-                    Use {prefilledCredentials.type === 'env' ? 'environment' : prefilledCredentials.type === 'block' ? 'command output' : 'prefilled'} credentials
-                  </Button>
+                    ← Try auto-detection again
+                  </button>
+                  {auth.retryFoundNothing && (
+                    <span className="text-gray-500 italic">No credentials found</span>
+                  )}
                 </div>
               )}
             </>

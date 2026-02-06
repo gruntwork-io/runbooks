@@ -1,6 +1,8 @@
 package testing
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/mail"
 	"net/url"
@@ -14,10 +16,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// generateTemplateInlineID generates an ID for a TemplateInline block based on its outputPath.
-// If outputPath is provided, generates "template-{basename}" (without extension).
+// GenerateTemplateInlineID generates an ID for a TemplateInline block based on its outputPath.
+// If outputPath is provided, generates "template-{basename}-{hash}" where hash is an 8-character
+// SHA256 hash of the full outputPath to disambiguate same filenames in different directories.
 // If outputPath is empty, returns empty string (caller should handle fallback).
-func generateTemplateInlineID(outputPath string) string {
+func GenerateTemplateInlineID(outputPath string) string {
 	if outputPath == "" {
 		return ""
 	}
@@ -25,7 +28,10 @@ func generateTemplateInlineID(outputPath string) string {
 	if idx := strings.LastIndex(baseName, "."); idx > 0 {
 		baseName = baseName[:idx]
 	}
-	return "template-" + baseName
+	// Add a short hash of the full outputPath to disambiguate same filenames in different dirs
+	hash := sha256.Sum256([]byte(outputPath))
+	shortHash := hex.EncodeToString(hash[:])[:8]
+	return fmt.Sprintf("template-%s-%s", baseName, shortHash)
 }
 
 // ValidationError represents a single validation error.
@@ -304,6 +310,19 @@ func NewInputValidator(runbookPath string) (*InputValidator, error) {
 	return v, nil
 }
 
+// KnownBlockTypes is the set of block types recognized by runbooks test.
+// Any block not in this set will be reported as an error.
+var KnownBlockTypes = map[string]bool{
+	"Check":          true,
+	"Command":        true,
+	"Inputs":         true,
+	"Template":       true,
+	"TemplateInline": true,
+	"AwsAuth":        true,
+	"GitHubAuth":     true,
+	"Admonition":     true, // Decorative block - validated but not executed
+}
+
 // parseAndValidateComponents discovers and parses all component blocks in the runbook.
 func (v *InputValidator) parseAndValidateComponents() error {
 	content, err := os.ReadFile(v.runbookPath)
@@ -313,6 +332,9 @@ func (v *InputValidator) parseAndValidateComponents() error {
 
 	runbookDir := filepath.Dir(v.runbookPath)
 	contentStr := string(content)
+
+	// First, detect any unknown block types
+	v.detectUnknownBlocks(contentStr)
 
 	// Collect all components
 	var allComponents []api.ParsedComponent
@@ -332,11 +354,74 @@ func (v *InputValidator) parseAndValidateComponents() error {
 	// Parse and validate TemplateInline blocks
 	allComponents = append(allComponents, v.parseAndValidateTemplateInlineBlocks(contentStr)...)
 
+	// Parse and validate AwsAuth blocks
+	allComponents = append(allComponents, v.parseAndValidateAuthBlocks(contentStr, "AwsAuth")...)
+
+	// Parse and validate GitHubAuth blocks
+	allComponents = append(allComponents, v.parseAndValidateAuthBlocks(contentStr, "GitHubAuth")...)
+
 	// Sort by document position
 	sortComponentsByPosition(allComponents)
 
 	v.components = allComponents
 	return nil
+}
+
+// detectUnknownBlocks scans the content for block-like tags and reports
+// any that are not in the KnownBlockTypes set.
+func (v *InputValidator) detectUnknownBlocks(contentStr string) {
+	// Find fenced code block ranges to skip (same as ParseComponents does)
+	codeBlockRanges := api.FindFencedCodeBlockRanges(contentStr)
+
+	// Regex to find PascalCase block tags: <BlockName followed by whitespace or />
+	// This matches the MDX convention (PascalCase = custom block, lowercase = HTML)
+	blockRe := regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)(?:\s|/>|>)`)
+	matches := blockRe.FindAllStringSubmatchIndex(contentStr, -1)
+
+	seen := make(map[string]bool)
+	for _, match := range matches {
+		// Skip if inside a fenced code block
+		if api.IsInsideFencedCodeBlock(match[0], codeBlockRanges) {
+			continue
+		}
+
+		blockType := contentStr[match[2]:match[3]]
+
+		// Skip if already seen or known
+		if seen[blockType] || KnownBlockTypes[blockType] {
+			continue
+		}
+		seen[blockType] = true
+
+		// Report unknown block type
+		v.configErrors = append(v.configErrors, ConfigError{
+			ComponentType: blockType,
+			ComponentID:   "(unknown)",
+			Message:       fmt.Sprintf("unknown block type %q is not supported by runbooks test", blockType),
+		})
+	}
+}
+
+// parseAndValidateAuthBlocks parses and validates AwsAuth or GitHubAuth blocks.
+func (v *InputValidator) parseAndValidateAuthBlocks(contentStr, componentType string) []api.ParsedComponent {
+	components := api.ParseComponents(contentStr, componentType)
+	var results []api.ParsedComponent
+
+	for _, comp := range components {
+		// Validate: id is required
+		if !comp.HasExplicitID {
+			v.configErrors = append(v.configErrors, ConfigError{
+				ComponentType: componentType,
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+			comp.ID = "(missing)"
+		}
+
+		results = append(results, comp)
+	}
+
+	return results
 }
 
 // parseAndValidateExecutableBlocks parses and validates Check or Command blocks.
@@ -500,7 +585,7 @@ func (v *InputValidator) parseAndValidateTemplateInlineBlocks(contentStr string)
 		outputPath := api.ExtractProp(comp.Props, "outputPath")
 
 		// Generate ID from outputPath
-		if id := generateTemplateInlineID(outputPath); id != "" {
+		if id := GenerateTemplateInlineID(outputPath); id != "" {
 			comp.ID = id
 		} else {
 			templateCount++

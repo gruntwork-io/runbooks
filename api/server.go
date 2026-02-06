@@ -14,6 +14,17 @@ import (
 
 // setupCommonRoutes sets up the common routes for both server modes
 func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
+	// If the runbook contains AwsAuth blocks, strip AWS credentials from session
+	// at creation time. This ensures users must explicitly confirm which AWS account
+	// they want to use before any scripts can access the credentials.
+	if registry != nil && registry.HasComponent("AwsAuth") {
+		sessionManager.SetProtectedEnvVars([]string{
+			"AWS_ACCESS_KEY_ID",
+			"AWS_SECRET_ACCESS_KEY",
+			"AWS_SESSION_TOKEN",
+		})
+	}
+
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
 	if err != nil {
@@ -79,12 +90,23 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
 		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, workingDir, outputPath, sessionManager))
-		// Environment credential prefill - requires session to register credentials
-		protectedAPI.POST("/aws/env-credentials", HandleAwsEnvCredentials(sessionManager))
+		// Environment credential detection (read-only, does not register to session)
+		protectedAPI.GET("/aws/env-credentials", HandleAwsEnvCredentials())
+		// Confirm and register detected credentials to session (after user confirmation)
+		protectedAPI.POST("/aws/env-credentials/confirm", HandleAwsConfirmEnvCredentials(sessionManager))
 		// AWS auth endpoints that return credentials (token required: returns secrets)
 		protectedAPI.POST("/aws/profile", HandleAwsProfileAuth())
 		protectedAPI.POST("/aws/sso/poll", HandleAwsSsoPoll())
 		protectedAPI.POST("/aws/sso/complete", HandleAwsSsoComplete())
+		// GitHub auth endpoints that return credentials (token required: returns secrets)
+		protectedAPI.POST("/github/oauth/poll", HandleGitHubOAuthPoll())
+		protectedAPI.POST("/github/env-credentials", HandleGitHubEnvCredentials(sessionManager))
+		protectedAPI.POST("/github/cli-credentials", HandleGitHubCliCredentials(sessionManager))
+		// GitHub browsing endpoints for GitClone block (read-only, requires session for token)
+		protectedAPI.GET("/github/orgs", HandleGitHubListOrgs(sessionManager))
+		protectedAPI.GET("/github/repos", HandleGitHubListRepos(sessionManager))
+		// Git clone endpoint (SSE streaming)
+		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir))
 	}
 
 	// Generated files endpoints (no session context needed)
@@ -99,6 +121,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	r.POST("/api/aws/sso/start", HandleAwsSsoStart())         // Returns device code for user to authorize
 	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())     // Returns role names, not credentials
 	r.POST("/api/aws/check-region", HandleAwsCheckRegion())
+
+	// GitHub authentication endpoints (no credentials returned)
+	// No token required: these endpoints don't return secrets
+	r.POST("/api/github/validate", HandleGitHubValidate())     // Validates token, returns user info
+	r.POST("/api/github/oauth/start", HandleGitHubOAuthStart()) // Device flow: returns device code
 
 	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
 	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))

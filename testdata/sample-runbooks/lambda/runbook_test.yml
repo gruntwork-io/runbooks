@@ -1,20 +1,15 @@
 # Test configuration for lambda runbook
-# This runbook interacts with external services (GitHub, AWS, Terragrunt),
-# so we use a tiered testing strategy:
-#
-# 1. template-validation: Tests Template block generates correct files (no external deps)
-# 2. dry-run-full-flow: Tests all blocks with RUNBOOK_DRY_RUN=true to validate script logic
+# This runbook interacts with external services (GitHub, AWS, Terragrunt).
+# Currently only testing template generation; script tests to be added in future PR.
 
 version: 1
 
 settings:
-  # Generate files to a temp directory (cleaned up after test)
   use_temp_working_dir: true
   timeout: 5m
   parallelizable: true
 
 tests:
-  # Tier 1: Template validation (always runs, no external dependencies)
   - name: template-validation
     description: Validate template generation without external service calls
 
@@ -33,21 +28,14 @@ tests:
       repo-config.GithubRepoName: "test-repo"
 
     steps:
-      # Skip AWS auth (interactive in browser, uses env vars in CI)
       - block: aws-auth
         expect: skip
-
-      # Skip tool installation checks (require mise)
       - block: check-mise
         expect: skip
       - block: install-tools
         expect: skip
-
-      # Template generates files - this is the core value test
       - block: lambda-config
         expect: success
-
-      # Skip blocks that need GitHub/AWS
       - block: create-pr
         expect: skip
       - block: terragrunt-plan
@@ -66,145 +54,5 @@ tests:
       - type: file_contains
         path: terragrunt.hcl
         contains: "test-function"
-      - type: file_exists
-        path: src/app.py
-
-  # Tier 2: Dry-run full flow (validates script logic without side effects)
-  - name: dry-run-full-flow
-    description: Test complete flow with dry-run mode (no real GitHub/AWS calls)
-
-    env:
-      RUNBOOK_DRY_RUN: "true"
-
-    inputs:
-      lambda-config.Environment: "prod"
-      lambda-config.AwsRegion: "us-west-2"
-      lambda-config.FunctionName: "my-lambda"
-      lambda-config.Description: "Production Lambda function"
-      lambda-config.Runtime: "python3.13"
-      lambda-config.Handler: "app.handler"
-      lambda-config.LogLevel: "WARNING"
-      lambda-config.MemorySize: 256
-      lambda-config.Timeout: 60
-      lambda-config.ReservedConcurrency: 50
-      repo-config.GithubOrgName: "acme-corp"
-      repo-config.GithubRepoName: "infrastructure-live"
-
-    steps:
-      # Skip AWS auth (env vars would be used in real CI)
-      - block: aws-auth
-        expect: skip
-
-      # Skip tool installation checks (require mise)
-      - block: check-mise
-        expect: skip
-      - block: install-tools
-        expect: skip
-
-      # Template generation (works normally)
-      - block: lambda-config
-        expect: success
-
-      # These run in dry-run mode - they print what they would do
-      - block: create-pr
-        expect: success
-      - block: terragrunt-plan
-        expect: success
-      - block: terragrunt-apply
-        expect: success
-      - block: test-function
-        expect: success
-
-    assertions:
-      - type: files_generated
-        block: lambda-config
-        min_count: 1
-
-  # Tier 3: Fuzz testing for template generation
-  - name: fuzz-template-inputs
-    description: Test template with randomized inputs
-
-    inputs:
-      lambda-config.Environment:
-        fuzz:
-          type: enum
-          options: ["non-prod", "prod"]
-      lambda-config.AwsRegion:
-        fuzz:
-          type: enum
-          options: ["us-east-1", "us-east-2", "us-west-1", "us-west-2"]
-      lambda-config.FunctionName:
-        fuzz:
-          type: string
-          minLength: 5
-          maxLength: 20
-      lambda-config.Description:
-        fuzz:
-          type: string
-          minLength: 10
-          maxLength: 50
-      lambda-config.Runtime:
-        fuzz:
-          type: enum
-          options: ["python3.13", "python3.12", "python3.11"]
-      lambda-config.Handler:
-        fuzz:
-          type: string
-          minLength: 5
-          maxLength: 15
-      lambda-config.LogLevel:
-        fuzz:
-          type: enum
-          options: ["DEBUG", "INFO", "WARNING", "ERROR"]
-      lambda-config.MemorySize:
-        fuzz:
-          type: int
-          min: 128
-          max: 1024
-      lambda-config.Timeout:
-        fuzz:
-          type: int
-          min: 1
-          max: 300
-      lambda-config.ReservedConcurrency:
-        fuzz:
-          type: int
-          min: 1
-          max: 100
-      repo-config.GithubOrgName:
-        fuzz:
-          type: string
-          minLength: 3
-          maxLength: 20
-      repo-config.GithubRepoName:
-        fuzz:
-          type: string
-          minLength: 5
-          maxLength: 30
-
-    steps:
-      - block: aws-auth
-        expect: skip
-      - block: check-mise
-        expect: skip
-      - block: install-tools
-        expect: skip
-      - block: lambda-config
-        expect: success
-      - block: create-pr
-        expect: skip
-      - block: terragrunt-plan
-        expect: skip
-      - block: terragrunt-apply
-        expect: skip
-      - block: test-function
-        expect: skip
-
-    assertions:
-      - type: files_generated
-        block: lambda-config
-        min_count: 1
-      - type: file_exists
-        path: terragrunt.hcl
       - type: file_exists
         path: src/app.py

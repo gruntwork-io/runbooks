@@ -3,7 +3,7 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -18,10 +18,14 @@ interface CommandProps {
   inputsId?: string | string[]
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
   awsAuthId?: string
+  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
+  githubAuthId?: string
   successMessage?: string
   failMessage?: string
   runningMessage?: string
   children?: ReactNode // For inline Inputs component
+  /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
+  usePty?: boolean
 }
 
 function Command({
@@ -32,10 +36,12 @@ function Command({
   command,
   inputsId,
   awsAuthId,
+  githubAuthId,
   successMessage = "Success",
   failMessage = "Failed",
   runningMessage = "Running...",
   children,
+  usePty,
 }: CommandProps) {
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Command')
@@ -59,6 +65,8 @@ function Command({
     hasAllOutputDependencies,
     unmetAwsAuthDependency,
     hasAwsAuthDependency,
+    unmetGitHubAuthDependency,
+    hasGitHubAuthDependency,
     isRendering,
     renderError,
     status: commandStatus,
@@ -74,8 +82,10 @@ function Command({
     command,
     inputsId,
     awsAuthId,
+    githubAuthId,
     children,
     componentType: 'command',
+    usePty,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -276,7 +286,8 @@ function Command({
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies ||
-    !hasAwsAuthDependency;
+    !hasAwsAuthDependency ||
+    !hasGitHubAuthDependency;
 
   // Main render
   return (
@@ -407,6 +418,11 @@ function Command({
           {/* Show unmet AWS auth dependency */}
           {hasAllInputDependencies && hasAllOutputDependencies && (
             <UnmetAwsAuthDependencyWarning unmetAwsAuthDependency={unmetAwsAuthDependency} />
+          )}
+          
+          {/* Show unmet GitHub auth dependency */}
+          {hasAllInputDependencies && hasAllOutputDependencies && (
+            <UnmetGitHubAuthDependencyWarning unmetGitHubAuthDependency={unmetGitHubAuthDependency} />
           )}
           
           {renderError && hasAllOutputDependencies && (

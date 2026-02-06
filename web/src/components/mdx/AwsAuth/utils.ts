@@ -1,5 +1,5 @@
 import { CheckCircle, XCircle, Loader2, KeyRound, User } from "lucide-react"
-import type { AuthStatus } from "./types"
+import type { AuthStatus, AwsDetectionSource } from "./types"
 
 // Get status-based styling for the container
 export const getStatusClasses = (authStatus: AuthStatus): string => {
@@ -38,4 +38,17 @@ export const getStatusIconClasses = (authStatus: AuthStatus): string => {
     select_role: 'text-blue-600',
   }
   return colorMap[authStatus]
+}
+
+// Get a human-readable label for an AWS credential detection source.
+// Returns null for unknown/null sources so callers can conditionally hide the label.
+export function getSourceLabel(source: AwsDetectionSource): string | null {
+  switch (source) {
+    case 'env':
+      return 'Environment Variables'
+    case 'block':
+      return 'Command Output'
+    default:
+      return null
+  }
 }

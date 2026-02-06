@@ -3,7 +3,7 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -18,11 +18,15 @@ interface CheckProps {
   inputsId?: string | string[]
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
   awsAuthId?: string
+  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
+  githubAuthId?: string
   successMessage?: string
   warnMessage?: string
   failMessage?: string
   runningMessage?: string
   children?: ReactNode // For inline Inputs component
+  /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
+  usePty?: boolean
 }
 
 function Check({
@@ -33,11 +37,13 @@ function Check({
   command,
   inputsId,
   awsAuthId,
+  githubAuthId,
   successMessage = "Success",
   warnMessage = "Warning",
   failMessage = "Failed",
   runningMessage = "Checking...",
   children,
+  usePty,
 }: CheckProps) {
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
@@ -61,6 +67,8 @@ function Check({
     hasAllOutputDependencies,
     unmetAwsAuthDependency,
     hasAwsAuthDependency,
+    unmetGitHubAuthDependency,
+    hasGitHubAuthDependency,
     isRendering,
     renderError,
     status: checkStatus,
@@ -76,8 +84,10 @@ function Check({
     command,
     inputsId,
     awsAuthId,
+    githubAuthId,
     children,
-    componentType: 'check'
+    componentType: 'check',
+    usePty,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -309,7 +319,8 @@ function Check({
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies ||
-    !hasAwsAuthDependency;
+    !hasAwsAuthDependency ||
+    !hasGitHubAuthDependency;
 
   // Main render - form with success indicator overlay if needed
   return (
@@ -398,6 +409,11 @@ function Check({
           {/* Show unmet AWS auth dependency */}
           {hasAllInputDependencies && hasAllOutputDependencies && (
             <UnmetAwsAuthDependencyWarning unmetAwsAuthDependency={unmetAwsAuthDependency} />
+          )}
+          
+          {/* Show unmet GitHub auth dependency */}
+          {hasAllInputDependencies && hasAllOutputDependencies && (
+            <UnmetGitHubAuthDependencyWarning unmetGitHubAuthDependency={unmetGitHubAuthDependency} />
           )}
           
           {renderError && hasAllOutputDependencies && (

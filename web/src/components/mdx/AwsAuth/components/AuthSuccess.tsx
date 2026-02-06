@@ -1,31 +1,34 @@
 import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { AccountInfo, PrefilledCredentialsType } from "../types"
+import type { AccountInfo, AwsDetectionSource } from "../types"
+import { getSourceLabel } from "../utils"
 
 interface AuthSuccessProps {
   accountInfo: AccountInfo
   warningMessage: string | null
-  onRetryPrefill?: () => void
-  onManualAuth?: () => void
-  prefillSource?: PrefilledCredentialsType | null
+  onReAuthenticate?: () => void
+  detectionSource?: AwsDetectionSource
 }
 
-export function AuthSuccess({ accountInfo, warningMessage, onRetryPrefill, onManualAuth, prefillSource }: AuthSuccessProps) {
+export function AuthSuccess({ accountInfo, warningMessage, onReAuthenticate, detectionSource }: AuthSuccessProps) {
+  const sourceLabel = detectionSource ? getSourceLabel(detectionSource) : null
+  
   return (
     <div className="mb-4">
       <div className="text-green-700 font-semibold text-sm mb-2 flex items-center gap-2">
         <span>✓ Authenticated to AWS</span>
-        {prefillSource && (
+        {sourceLabel && (
           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-normal">
-            {prefillSource === 'env' && 'From Environment'}
-            {prefillSource === 'block' && 'From Command Output'}
-            {prefillSource === 'static' && 'Pre-configured'}
+            {sourceLabel}
           </span>
         )}
       </div>
       <div className="bg-green-100/50 rounded p-3 text-sm">
         <div className="text-gray-700">
           <span className="font-medium">Account:</span> {accountInfo.accountId}
+          {accountInfo.accountName && (
+            <span className="text-gray-600 ml-1">({accountInfo.accountName})</span>
+          )}
         </div>
         {accountInfo.arn && (
           <div className="text-gray-600 text-xs mt-1 font-mono truncate" title={accountInfo.arn}>
@@ -40,27 +43,16 @@ export function AuthSuccess({ accountInfo, warningMessage, onRetryPrefill, onMan
           <div>{warningMessage}</div>
         </div>
       )}
-      {/* Action buttons */}
-      {(onRetryPrefill || onManualAuth) && (
-        <div className="mt-3 flex items-center gap-3">
-          {onRetryPrefill && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={onRetryPrefill}
-            >
-              Re-authenticate
-            </Button>
-          )}
-          {onManualAuth && (
-            <Button 
-              variant="link" 
-              size="sm" 
-              onClick={onManualAuth}
-            >
-              Authenticate manually
-            </Button>
-          )}
+      {/* Action button */}
+      {onReAuthenticate && (
+        <div className="mt-3">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={onReAuthenticate}
+          >
+            Re-authenticate
+          </Button>
         </div>
       )}
     </div>
