@@ -154,19 +154,43 @@ function GitClone({
     setShowOverwriteConfirm(false)
   }, [reset])
 
-  // Status icon for title
-  const statusIcon = useMemo(() => {
-    switch (cloneStatus) {
-      case 'success':
-        return <CheckCircle className="size-5 text-green-600" />
-      case 'fail':
-        return <XCircle className="size-5 text-red-500" />
-      case 'running':
-        return <Loader2 className="size-5 text-blue-500 animate-spin" />
-      default:
-        return null
+  // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
+  const getStatusClasses = () => {
+    const statusMap: Record<string, string> = {
+      success: 'bg-green-50 border-green-200',
+      fail: 'bg-red-50 border-red-200',
+      running: 'bg-blue-50 border-blue-200',
+      pending: 'bg-gray-100 border-gray-200',
+      ready: 'bg-gray-100 border-gray-200',
     }
-  }, [cloneStatus])
+    return statusMap[cloneStatus] ?? statusMap.pending
+  }
+
+  const getStatusIcon = () => {
+    const iconMap: Record<string, typeof GitBranch> = {
+      success: CheckCircle,
+      fail: XCircle,
+      running: Loader2,
+      pending: GitBranch,
+      ready: GitBranch,
+    }
+    return iconMap[cloneStatus] ?? GitBranch
+  }
+
+  const getStatusIconClasses = () => {
+    const colorMap: Record<string, string> = {
+      success: 'text-green-600',
+      fail: 'text-red-600',
+      running: 'text-blue-600',
+      pending: 'text-gray-500',
+      ready: 'text-gray-500',
+    }
+    return colorMap[cloneStatus] ?? colorMap.pending
+  }
+
+  const statusClasses = getStatusClasses()
+  const IconComponent = getStatusIcon()
+  const iconClasses = getStatusIconClasses()
 
   const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
@@ -177,231 +201,236 @@ function GitClone({
   }
 
   return (
-    <div className="border border-gray-300 rounded-lg shadow-sm overflow-hidden my-6">
-      {/* Header */}
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <GitBranch className="size-5 text-gray-500" />
-          <div className="flex items-center gap-2 flex-1">
-            <h3 className="text-base font-semibold text-gray-900 m-0">
-              <InlineMarkdown>{title}</InlineMarkdown>
-            </h3>
-            {statusIcon}
-          </div>
-          <BlockIdLabel id={id} size="large" />
-        </div>
-        <p className="text-sm text-gray-600 mt-1 mb-0">
-          <InlineMarkdown>{description}</InlineMarkdown>
-        </p>
+    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+      {/* ID label - positioned at top right */}
+      <div className="absolute top-3 right-3 z-20">
+        <BlockIdLabel id={id} size="large" />
       </div>
 
-      {/* Body */}
-      <div className="px-4 py-4">
-        {/* Blocked state: waiting for GitHubAuth */}
-        {!gitHubAuthMet && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-            <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-amber-800 m-0">Waiting for GitHub authentication</p>
-              <p className="text-xs text-amber-600 m-0 mt-0.5">
-                Complete the &apos;{gitHubAuthId}&apos; GitHubAuth block above before cloning.
-              </p>
-            </div>
+      {/* Main container with left icon column */}
+      <div className="flex @container">
+        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+          <IconComponent className={`size-6 ${iconClasses} ${cloneStatus === 'running' ? 'animate-spin' : ''}`} />
+        </div>
+
+        <div className="flex-1 space-y-2">
+          {/* Title and description */}
+          <div className="text-md font-bold text-gray-700">
+            <InlineMarkdown>{title}</InlineMarkdown>
           </div>
-        )}
+          <div className="text-md text-gray-600 mb-3">
+            <InlineMarkdown>{description}</InlineMarkdown>
+          </div>
 
-        {/* Success state */}
-        {cloneStatus === 'success' && cloneResult ? (
-          <CloneResultDisplay result={cloneResult} onCloneAgain={handleCloneAgain} />
-        ) : (
-          /* Form state (ready, running, fail) */
-          <div className="space-y-3">
-            {/* Git URL input */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">
-                Git URL
-              </label>
-              <input
-                type="text"
-                value={gitUrl}
-                onChange={(e) => setGitUrl(e.target.value)}
-                placeholder="https://github.com/org/repo.git"
-                disabled={isFormDisabled}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
-              />
+          {/* Blocked state: waiting for GitHubAuth */}
+          {!gitHubAuthMet && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
+              <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 m-0">Waiting for GitHub authentication</p>
+                <p className="text-xs text-amber-600 m-0 mt-0.5">
+                  Complete the &apos;{gitHubAuthId}&apos; GitHubAuth block above before cloning.
+                </p>
+              </div>
             </div>
+          )}
 
-            {/* GitHub Browser (only if token available) */}
-            {tokenChecked && hasGitHubToken && (
-              <GitHubBrowser
-                onRepoSelected={handleRepoSelected}
-                fetchOrgs={fetchOrgs}
-                fetchRepos={fetchRepos}
-                disabled={isFormDisabled}
-                initialOrg={prefilledGitHub?.org}
-                initialRepo={prefilledGitHub?.repo}
-                defaultOpen={!!prefilledGitHub}
-              />
-            )}
+          {/* Success state */}
+          {cloneStatus === 'success' && cloneResult ? (
+            <CloneResultDisplay result={cloneResult} onCloneAgain={handleCloneAgain} />
+          ) : (
+            /* Form state (ready, running, fail) */
+            <div className="space-y-3">
+              {/* Separator */}
+              <div className="border-b border-gray-300"></div>
 
-            {/* Repo Path (sparse checkout) */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                Repo Path <span className="font-normal text-gray-400">(optional)</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
-                      <Info className="size-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[280px]">
-                    Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
-                  </TooltipContent>
-                </Tooltip>
-              </label>
-              <input
-                type="text"
-                value={repoPath}
-                onChange={(e) => setRepoPath(e.target.value)}
-                placeholder="e.g., modules/vpc"
-                disabled={isFormDisabled}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
-              />
-            </div>
+              {/* Git URL input */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Git URL
+                </label>
+                <input
+                  type="text"
+                  value={gitUrl}
+                  onChange={(e) => setGitUrl(e.target.value)}
+                  placeholder="https://github.com/org/repo.git"
+                  disabled={isFormDisabled}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                />
+              </div>
 
-            {/* Local Path (destination) */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                Local Path <span className="font-normal text-gray-400">(optional)</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
-                      <Info className="size-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[280px]">
-                    The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
-                  </TooltipContent>
-                </Tooltip>
-              </label>
-              <input
-                type="text"
-                value={localPath}
-                onChange={(e) => setLocalPath(e.target.value)}
-                placeholder="Defaults to repo name"
-                disabled={isFormDisabled}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
-              />
-              {pathPreview && (
-                <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-gray-400">Relative:</span>
-                    <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.relative}</code>
-                    <button
-                      onClick={() => handleCopyPath('relative', pathPreview.relative)}
-                      className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                    >
-                      {copiedPathKey === 'relative' ? (
-                        <Check className="size-3 text-green-600" />
-                      ) : (
-                        <Copy className="size-3" />
-                      )}
-                    </button>
+              {/* GitHub Browser (only if token available) */}
+              {tokenChecked && hasGitHubToken && (
+                <GitHubBrowser
+                  onRepoSelected={handleRepoSelected}
+                  fetchOrgs={fetchOrgs}
+                  fetchRepos={fetchRepos}
+                  disabled={isFormDisabled}
+                  initialOrg={prefilledGitHub?.org}
+                  initialRepo={prefilledGitHub?.repo}
+                  defaultOpen={!!prefilledGitHub}
+                />
+              )}
+
+              {/* Repo Path (sparse checkout) */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                  Repo Path <span className="font-normal text-gray-400">(optional)</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                        <Info className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[280px]">
+                      Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                    </TooltipContent>
+                  </Tooltip>
+                </label>
+                <input
+                  type="text"
+                  value={repoPath}
+                  onChange={(e) => setRepoPath(e.target.value)}
+                  placeholder="e.g., modules/vpc"
+                  disabled={isFormDisabled}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                />
+              </div>
+
+              {/* Local Path (destination) */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                  Local Path <span className="font-normal text-gray-400">(optional)</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                        <Info className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[280px]">
+                      The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
+                    </TooltipContent>
+                  </Tooltip>
+                </label>
+                <input
+                  type="text"
+                  value={localPath}
+                  onChange={(e) => setLocalPath(e.target.value)}
+                  placeholder="Defaults to repo name"
+                  disabled={isFormDisabled}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                />
+                {pathPreview && (
+                  <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-400">Relative:</span>
+                      <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.relative}</code>
+                      <button
+                        onClick={() => handleCopyPath('relative', pathPreview.relative)}
+                        className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        {copiedPathKey === 'relative' ? (
+                          <Check className="size-3 text-green-600" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-400">Absolute:</span>
+                      <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.absolute}</code>
+                      <button
+                        onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
+                        className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        {copiedPathKey === 'absolute' ? (
+                          <Check className="size-3 text-green-600" />
+                        ) : (
+                          <Copy className="size-3" />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-gray-400">Absolute:</span>
-                    <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.absolute}</code>
-                    <button
-                      onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
-                      className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                    >
-                      {copiedPathKey === 'absolute' ? (
-                        <Check className="size-3 text-green-600" />
-                      ) : (
-                        <Copy className="size-3" />
-                      )}
-                    </button>
+                )}
+              </div>
+
+              {/* Error message */}
+              {errorMessage && cloneStatus === 'fail' && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
+                  <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-red-800 m-0">Clone failed</p>
+                    <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{errorMessage}</p>
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Error message */}
-            {errorMessage && cloneStatus === 'fail' && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
-                <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-red-800 m-0">Clone failed</p>
-                  <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{errorMessage}</p>
+              {/* Overwrite confirmation */}
+              {showOverwriteConfirm && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
+                  <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-800 m-0">Local path already exists</p>
+                    <p className="text-xs text-amber-600 m-0 mt-0.5">
+                      The local path (destination directory) is not empty. Delete it and continue with git clone?
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleClone(true)}
+                      >
+                        Delete &amp; Clone
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowOverwriteConfirm(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Overwrite confirmation */}
-            {showOverwriteConfirm && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-                <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-amber-800 m-0">Local path already exists</p>
-                  <p className="text-xs text-amber-600 m-0 mt-0.5">
-                    The local path (destination directory) is not empty. Delete it and continue with git clone?
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
+              {/* Action buttons */}
+              {!showOverwriteConfirm && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    disabled={isCloneDisabled}
+                    onClick={() => handleClone()}
+                  >
+                    {cloneStatus === 'running' ? (
+                      <>
+                        <Loader2 className="size-4 mr-1 animate-spin" />
+                        Cloning...
+                      </>
+                    ) : (
+                      'Clone'
+                    )}
+                  </Button>
+                  {cloneStatus === 'running' && (
                     <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleClone(true)}
-                    >
-                      Delete &amp; Clone
-                    </Button>
-                    <Button
-                      size="sm"
                       variant="outline"
-                      onClick={() => setShowOverwriteConfirm(false)}
+                      size="sm"
+                      onClick={cancel}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
                     >
                       Cancel
                     </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Action buttons */}
-            {!showOverwriteConfirm && (
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  disabled={isCloneDisabled}
-                  onClick={() => handleClone()}
-                >
-                  {cloneStatus === 'running' ? (
-                    <>
-                      <Loader2 className="size-4 mr-1 animate-spin" />
-                      Cloning...
-                    </>
-                  ) : (
-                    'Clone'
                   )}
-                </Button>
-                {cloneStatus === 'running' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={cancel}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* View Logs - always shown when we have logs */}
+      {/* View Logs - below main content */}
       {logs.length > 0 && (
-        <div className="px-4 pb-4">
+        <div className="mt-4 space-y-2">
           <ViewLogs
             logs={logs}
             status={cloneStatus === 'running' ? 'running' : cloneStatus === 'success' ? 'success' : cloneStatus === 'fail' ? 'fail' : 'pending'}

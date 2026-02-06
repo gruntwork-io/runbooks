@@ -2,7 +2,6 @@ import { CheckCircle, FolderOpen, Copy, Check } from "lucide-react"
 import { useState, useCallback } from "react"
 import { copyTextToClipboard } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { CloneResult } from "../types"
 
 interface CloneResultDisplayProps {
@@ -44,36 +43,40 @@ export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayP
           <span>Downloaded {result.fileCount} files</span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-green-700">Location:</span>
-          <code className="text-sm bg-green-100 px-1.5 py-0.5 rounded font-mono text-green-800">
-            {result.relativePath}
-          </code>
-          <Tooltip delayDuration={350}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyRelative}
-                className="h-6 w-6 text-green-600 hover:text-green-800 hover:bg-green-100"
-              >
-                {copiedRelative ? (
-                  <Check className="size-3.5" />
-                ) : (
-                  <Copy className="size-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{copiedRelative ? "Copied!" : "Copy relative path"}</p>
-            </TooltipContent>
-          </Tooltip>
-          <button
-            onClick={handleCopyAbsolute}
-            className="text-xs text-green-600 hover:text-green-800 underline underline-offset-2 cursor-pointer"
-          >
-            {copiedAbsolute ? "copied!" : "copy absolute path"}
-          </button>
+        <div className="space-y-1">
+          <span className="text-sm font-medium text-green-700">Local path:</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-green-600">Relative:</span>
+            <code className="text-sm bg-green-100 px-1.5 py-0.5 rounded font-mono text-green-800">
+              {result.relativePath}
+            </code>
+            <button
+              onClick={handleCopyRelative}
+              className="shrink-0 p-0.5 text-green-600 hover:text-green-800 cursor-pointer"
+            >
+              {copiedRelative ? (
+                <Check className="size-3.5" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-green-600">Absolute:</span>
+            <code className="text-sm bg-green-100 px-1.5 py-0.5 rounded font-mono text-green-800">
+              {result.absolutePath}
+            </code>
+            <button
+              onClick={handleCopyAbsolute}
+              className="shrink-0 p-0.5 text-green-600 hover:text-green-800 cursor-pointer"
+            >
+              {copiedAbsolute ? (
+                <Check className="size-3.5" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
