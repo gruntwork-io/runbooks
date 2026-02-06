@@ -42,6 +42,7 @@ type GitCloneRequest struct {
 	RepoPath  string `json:"repo_path,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 	UsePTY    *bool  `json:"use_pty,omitempty"` // Whether to use PTY for execution (default: true)
+	Force     bool   `json:"force,omitempty"`   // If true, delete existing destination directory before cloning
 }
 
 // GitCloneResultEvent is sent as an SSE event on successful clone
@@ -194,6 +195,27 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		}
 		if !strings.HasPrefix(relativePath, ".") {
 			relativePath = "./" + relativePath
+		}
+
+		// Check if destination already exists
+		if info, err := os.Stat(absolutePath); err == nil && info.IsDir() {
+			if !req.Force {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":       "directory_exists",
+					"message":     fmt.Sprintf("Directory already exists: %s", relativePath),
+					"path":        relativePath,
+					"absolutePath": absolutePath,
+				})
+				return
+			}
+			// Force mode: remove existing directory
+			if err := os.RemoveAll(absolutePath); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "delete_failed",
+					"message": fmt.Sprintf("Failed to delete existing directory: %v", err),
+				})
+				return
+			}
 		}
 
 		// Determine if we should inject a GitHub token

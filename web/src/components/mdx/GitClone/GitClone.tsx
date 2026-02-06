@@ -129,20 +129,29 @@ function GitClone({
     return null
   }, [prefilledUrl])
 
+  // Overwrite confirmation state
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
+
   // Handle clone button
-  const handleClone = useCallback(() => {
+  const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
-    clone(gitUrl.trim(), repoPath.trim(), localPath.trim(), usePty)
+    setShowOverwriteConfirm(false)
+    const result = await clone(gitUrl.trim(), repoPath.trim(), localPath.trim(), usePty, force)
+    if (result === 'directory_exists') {
+      setShowOverwriteConfirm(true)
+    }
   }, [gitUrl, repoPath, localPath, clone, usePty])
 
   // Handle repo selected from GitHub browser
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
+    setShowOverwriteConfirm(false)
   }, [])
 
   // Handle clone again
   const handleCloneAgain = useCallback(() => {
     reset()
+    setShowOverwriteConfirm(false)
   }, [reset])
 
   // Status icon for title
@@ -328,33 +337,64 @@ function GitClone({
               </div>
             )}
 
+            {/* Overwrite confirmation */}
+            {showOverwriteConfirm && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
+                <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-800 m-0">Local path already exists</p>
+                  <p className="text-xs text-amber-600 m-0 mt-0.5">
+                    The local path (destination directory) is not empty. Delete it and continue with git clone?
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleClone(true)}
+                    >
+                      Delete &amp; Clone
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowOverwriteConfirm(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Action buttons */}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                disabled={isCloneDisabled}
-                onClick={handleClone}
-              >
-                {cloneStatus === 'running' ? (
-                  <>
-                    <Loader2 className="size-4 mr-1 animate-spin" />
-                    Cloning...
-                  </>
-                ) : (
-                  'Clone'
-                )}
-              </Button>
-              {cloneStatus === 'running' && (
+            {!showOverwriteConfirm && (
+              <div className="flex items-center gap-2">
                 <Button
-                  variant="outline"
                   size="sm"
-                  onClick={cancel}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  disabled={isCloneDisabled}
+                  onClick={() => handleClone()}
                 >
-                  Cancel
+                  {cloneStatus === 'running' ? (
+                    <>
+                      <Loader2 className="size-4 mr-1 animate-spin" />
+                      Cloning...
+                    </>
+                  ) : (
+                    'Clone'
+                  )}
                 </Button>
-              )}
-            </div>
+                {cloneStatus === 'running' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={cancel}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

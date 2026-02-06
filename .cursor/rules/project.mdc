@@ -49,3 +49,7 @@ If the test has integration tests because it has third-party dependencies, skip 
 Whenever you're defining a new block, be sure to add not only the frontend/backend code for the block itself, but also docs, automated tests, and support in the runbooks testing framework.
 
 For the Runbooks testing framework, `runbooks init` should detect the new block, and `runbooks test` should take thoughtful steps when the block is executed.
+
+# Auth blocks
+
+When making updates to auth blocks like AwsAuth or GitHubAuth, keep in mind that we generally want these auths blocks to behave similarly for end users, behave similarly for tests, have similar documentation, and similar interfaces. So when any changes are made for one of these blocks, consider if it should be made for the other.

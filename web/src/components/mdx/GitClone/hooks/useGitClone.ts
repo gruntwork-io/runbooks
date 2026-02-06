@@ -243,8 +243,9 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     }
   }, [id, registerOutputs])
 
-  // Execute the clone operation
-  const clone = useCallback(async (url: string, repoPath: string, localPath: string, usePty?: boolean) => {
+  // Execute the clone operation. Returns 'directory_exists' if the destination
+  // already exists and force was not set, so the caller can prompt the user.
+  const clone = useCallback(async (url: string, repoPath: string, localPath: string, usePty?: boolean, force?: boolean): Promise<'directory_exists' | void> => {
     setCloneStatus('running')
     setLogs([])
     setCloneResult(null)
@@ -258,6 +259,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
       if (repoPath) body.repo_path = repoPath
       if (localPath) body.local_path = localPath
       if (usePty !== undefined) body.use_pty = usePty
+      if (force) body.force = true
 
       const response = await fetch('/api/git/clone', {
         method: 'POST',
@@ -271,7 +273,14 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null)
-        const msg = errorData?.error || `Server error (${response.status})`
+
+        // Directory already exists — signal caller to prompt
+        if (response.status === 409 && errorData?.error === 'directory_exists') {
+          setCloneStatus('ready')
+          return 'directory_exists'
+        }
+
+        const msg = errorData?.message || errorData?.error || `Server error (${response.status})`
         setErrorMessage(msg)
         setCloneStatus('fail')
         setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
