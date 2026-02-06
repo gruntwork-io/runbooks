@@ -1,0 +1,380 @@
+import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle, Info, Copy, Check } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ViewLogs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
+import { copyTextToClipboard } from "@/lib/utils"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { useTelemetry } from "@/contexts/useTelemetry"
+import { useGitClone } from "./hooks/useGitClone"
+import { GitHubBrowser } from "./components/GitHubBrowser"
+import { CloneResultDisplay } from "./components/CloneResult"
+import type { GitCloneProps } from "./types"
+
+/** Parse org and repo from a GitHub URL */
+function parseGitHubURL(url: string): { org: string; repo: string } | null {
+  try {
+    const match = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/)
+    if (match) {
+      return { org: match[1], repo: match[2] }
+    }
+  } catch {
+    // Not a parseable URL
+  }
+  return null
+}
+
+function GitClone({
+  id,
+  title = "Clone Repository",
+  description = "Enter a git URL to clone a repository",
+  gitHubAuthId,
+  prefilledUrl = '',
+  prefilledRepoPath = '',
+  prefilledLocalPath = '',
+  usePty,
+}: GitCloneProps) {
+  // Check for duplicate component IDs
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitClone')
+
+  // Error reporting context
+  const { reportError, clearError } = useErrorReporting()
+
+  // Telemetry context
+  const { trackBlockRender } = useTelemetry()
+
+  // Track render
+  useEffect(() => {
+    trackBlockRender('GitClone', id)
+  }, [id, trackBlockRender])
+
+  // Core hook
+  const {
+    cloneStatus,
+    logs,
+    cloneResult,
+    errorMessage,
+    hasGitHubToken,
+    tokenChecked,
+    gitHubAuthMet,
+    sessionReady,
+    workingDir,
+    clone,
+    cancel,
+    reset,
+    checkGitHubToken,
+    fetchOrgs,
+    fetchRepos,
+  } = useGitClone({ id, gitHubAuthId })
+
+  // Form state
+  const [gitUrl, setGitUrl] = useState(prefilledUrl)
+  const [repoPath, setRepoPath] = useState(prefilledRepoPath)
+  const [localPath, setLocalPath] = useState(prefilledLocalPath)
+  const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
+
+  const handleCopyPath = useCallback(async (key: string, value: string) => {
+    const ok = await copyTextToClipboard(value)
+    if (ok) {
+      setCopiedPathKey(key)
+      setTimeout(() => setCopiedPathKey(null), 2000)
+    }
+  }, [])
+
+  // Compute path preview from the current form state
+  const pathPreview = useMemo(() => {
+    if (!workingDir) return null
+
+    // Determine the effective local path (defaults to repo name from URL)
+    let effectivePath = localPath.trim()
+    if (!effectivePath && gitUrl.trim()) {
+      // Extract repo name from URL
+      const match = gitUrl.trim().match(/\/([^/]+?)(?:\.git)?$/)
+      if (match) effectivePath = match[1]
+    }
+    if (!effectivePath) return null
+
+    const relative = effectivePath.startsWith('./') ? effectivePath : `./${effectivePath}`
+    const absolute = effectivePath.startsWith('/')
+      ? effectivePath
+      : `${workingDir}/${effectivePath.replace(/^\.\//, '')}`
+
+    return { relative, absolute }
+  }, [workingDir, localPath, gitUrl])
+
+  // Check for GitHub token once session is ready and auth dependency is met
+  useEffect(() => {
+    if (sessionReady && gitHubAuthMet && !tokenChecked) {
+      checkGitHubToken()
+    }
+  }, [sessionReady, gitHubAuthMet, tokenChecked, checkGitHubToken])
+
+  // Report configuration errors
+  useEffect(() => {
+    if (isDuplicate) {
+      reportError(id, `Duplicate GitClone block ID: "${id}"`)
+    } else if (isNormalizedCollision) {
+      reportError(id, `GitClone ID "${id}" collides with "${collidingId}" after normalization`)
+    } else {
+      clearError(id)
+    }
+  }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
+
+  // Determine if the GitHub browser should be pre-opened
+  const prefilledGitHub = useMemo(() => {
+    if (prefilledUrl) {
+      return parseGitHubURL(prefilledUrl)
+    }
+    return null
+  }, [prefilledUrl])
+
+  // Handle clone button
+  const handleClone = useCallback(() => {
+    if (!gitUrl.trim()) return
+    clone(gitUrl.trim(), repoPath.trim(), localPath.trim(), usePty)
+  }, [gitUrl, repoPath, localPath, clone, usePty])
+
+  // Handle repo selected from GitHub browser
+  const handleRepoSelected = useCallback((url: string) => {
+    setGitUrl(url)
+  }, [])
+
+  // Handle clone again
+  const handleCloneAgain = useCallback(() => {
+    reset()
+  }, [reset])
+
+  // Status icon for title
+  const statusIcon = useMemo(() => {
+    switch (cloneStatus) {
+      case 'success':
+        return <CheckCircle className="size-5 text-green-600" />
+      case 'fail':
+        return <XCircle className="size-5 text-red-500" />
+      case 'running':
+        return <Loader2 className="size-5 text-blue-500 animate-spin" />
+      default:
+        return null
+    }
+  }, [cloneStatus])
+
+  const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet
+  const isCloneDisabled = isFormDisabled || !gitUrl.trim()
+
+  // If configuration error, don't render the block
+  if (isDuplicate || isNormalizedCollision) {
+    return null
+  }
+
+  return (
+    <div className="border border-gray-300 rounded-lg shadow-sm overflow-hidden my-6">
+      {/* Header */}
+      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <GitBranch className="size-5 text-gray-500" />
+          <div className="flex items-center gap-2 flex-1">
+            <h3 className="text-base font-semibold text-gray-900 m-0">
+              <InlineMarkdown>{title}</InlineMarkdown>
+            </h3>
+            {statusIcon}
+          </div>
+          <BlockIdLabel id={id} size="large" />
+        </div>
+        <p className="text-sm text-gray-600 mt-1 mb-0">
+          <InlineMarkdown>{description}</InlineMarkdown>
+        </p>
+      </div>
+
+      {/* Body */}
+      <div className="px-4 py-4">
+        {/* Blocked state: waiting for GitHubAuth */}
+        {!gitHubAuthMet && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
+            <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-amber-800 m-0">Waiting for GitHub authentication</p>
+              <p className="text-xs text-amber-600 m-0 mt-0.5">
+                Complete the &apos;{gitHubAuthId}&apos; GitHubAuth block above before cloning.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Success state */}
+        {cloneStatus === 'success' && cloneResult ? (
+          <CloneResultDisplay result={cloneResult} onCloneAgain={handleCloneAgain} />
+        ) : (
+          /* Form state (ready, running, fail) */
+          <div className="space-y-3">
+            {/* Git URL input */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">
+                Git URL
+              </label>
+              <input
+                type="text"
+                value={gitUrl}
+                onChange={(e) => setGitUrl(e.target.value)}
+                placeholder="https://github.com/org/repo.git"
+                disabled={isFormDisabled}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+              />
+            </div>
+
+            {/* GitHub Browser (only if token available) */}
+            {tokenChecked && hasGitHubToken && (
+              <GitHubBrowser
+                onRepoSelected={handleRepoSelected}
+                fetchOrgs={fetchOrgs}
+                fetchRepos={fetchRepos}
+                disabled={isFormDisabled}
+                initialOrg={prefilledGitHub?.org}
+                initialRepo={prefilledGitHub?.repo}
+                defaultOpen={!!prefilledGitHub}
+              />
+            )}
+
+            {/* Repo Path (sparse checkout) */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                Repo Path <span className="font-normal text-gray-400">(optional)</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                      <Info className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[280px]">
+                    Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                  </TooltipContent>
+                </Tooltip>
+              </label>
+              <input
+                type="text"
+                value={repoPath}
+                onChange={(e) => setRepoPath(e.target.value)}
+                placeholder="e.g., modules/vpc"
+                disabled={isFormDisabled}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+              />
+            </div>
+
+            {/* Local Path (destination) */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                Local Path <span className="font-normal text-gray-400">(optional)</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                      <Info className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[280px]">
+                    The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
+                  </TooltipContent>
+                </Tooltip>
+              </label>
+              <input
+                type="text"
+                value={localPath}
+                onChange={(e) => setLocalPath(e.target.value)}
+                placeholder="Defaults to repo name"
+                disabled={isFormDisabled}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+              />
+              {pathPreview && (
+                <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-400">Relative:</span>
+                    <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.relative}</code>
+                    <button
+                      onClick={() => handleCopyPath('relative', pathPreview.relative)}
+                      className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    >
+                      {copiedPathKey === 'relative' ? (
+                        <Check className="size-3 text-green-600" />
+                      ) : (
+                        <Copy className="size-3" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-400">Absolute:</span>
+                    <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.absolute}</code>
+                    <button
+                      onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
+                      className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    >
+                      {copiedPathKey === 'absolute' ? (
+                        <Check className="size-3 text-green-600" />
+                      ) : (
+                        <Copy className="size-3" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Error message */}
+            {errorMessage && cloneStatus === 'fail' && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
+                <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-red-800 m-0">Clone failed</p>
+                  <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{errorMessage}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={isCloneDisabled}
+                onClick={handleClone}
+              >
+                {cloneStatus === 'running' ? (
+                  <>
+                    <Loader2 className="size-4 mr-1 animate-spin" />
+                    Cloning...
+                  </>
+                ) : (
+                  'Clone'
+                )}
+              </Button>
+              {cloneStatus === 'running' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={cancel}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* View Logs - always shown when we have logs */}
+      {logs.length > 0 && (
+        <div className="px-4 pb-4">
+          <ViewLogs
+            logs={logs}
+            status={cloneStatus === 'running' ? 'running' : cloneStatus === 'success' ? 'success' : cloneStatus === 'fail' ? 'fail' : 'pending'}
+            autoOpen={cloneStatus === 'running'}
+            blockId={id}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Set displayName for React DevTools and component detection
+GitClone.displayName = 'GitClone';
+
+export default GitClone;
