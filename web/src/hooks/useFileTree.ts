@@ -1,13 +1,12 @@
-import { useContext } from 'react'
-import { FileTreeContext, type FileTreeContextType } from '../contexts/FileTreeContext.types'
+// Re-export from useGeneratedFiles for backward compatibility
+import { useGeneratedFiles, GeneratedFilesContext } from './useGeneratedFiles'
+import type { GeneratedFilesContextType } from '../contexts/GeneratedFilesContext.types'
 
-export const useFileTree = (): FileTreeContextType => {
-  const context = useContext(FileTreeContext)
-  if (context === undefined) {
-    throw new Error('useFileTree must be used within a FileTreeProvider')
-  }
-  return context
+// Wrap useGeneratedFiles to return the old interface shape (without localPath)
+export const useFileTree = (): { fileTree: GeneratedFilesContextType['fileTree'], setFileTree: GeneratedFilesContextType['setFileTree'] } => {
+  const { fileTree, setFileTree } = useGeneratedFiles()
+  return { fileTree, setFileTree }
 }
 
 // Re-export the context for backward compatibility
-export { FileTreeContext }
+export { GeneratedFilesContext as FileTreeContext }

@@ -12,6 +12,7 @@ import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
+import { useGitWorkTree } from './contexts/GitWorkTreeContext'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
@@ -62,6 +63,10 @@ function App() {
   const { fileTree } = useFileTree()
   const hasFiles = hasGeneratedFiles(fileTree)
   
+  // Get git worktree state to detect when a repo is cloned
+  const { workTrees } = useGitWorkTree()
+  const hasWorkTrees = workTrees.length > 0
+  
   // Show artifacts panel unless user has manually hidden it
   const showArtifacts = !isArtifactsHidden
   
@@ -76,6 +81,17 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileTree, hasFiles]) // Don't include activeMobileSection to avoid blocking user's manual toggle
+  
+  // Auto-show artifacts panel when a git worktree is registered (repo cloned)
+  useEffect(() => {
+    if (hasWorkTrees) {
+      setIsArtifactsHidden(false)
+      if (activeMobileSection === 'markdown') {
+        setActiveMobileSection('code')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasWorkTrees]) // Don't include activeMobileSection to avoid blocking user's manual toggle
   
   // Delay showing the "show code" button to avoid awkward appearance during closing animation
   useEffect(() => {

@@ -52,12 +52,15 @@ interface TemplateProps {
   path: string
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
+  /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($WORKTREE_FILES). */
+  target?: 'generated' | 'worktree'
 }
 
 function Template({
   id,
   path,
-  inputsId
+  inputsId,
+  target
 }: TemplateProps) {
   // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Template')
@@ -266,7 +269,8 @@ function Template({
     path,
     id,
     renderFormData,
-    shouldRender
+    shouldRender,
+    target
   )
 
   // Update global file tree when render result is available

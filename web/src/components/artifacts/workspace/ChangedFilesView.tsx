@@ -24,7 +24,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn, copyTextToClipboard } from '@/lib/utils'
+import { Loader2, Download } from 'lucide-react'
+import { ProvenanceBadge } from './ProvenanceBadge'
 import type { FileChange, FileChangeType } from '@/types/workspace'
+import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
 
 /**
  * Returns the appropriate icon for a file change type
@@ -73,14 +76,26 @@ function ChangeProportionBar({ additions, deletions }: { additions: number; dele
 }
 
 interface ChangedFilesViewProps {
-  /** List of file changes */
-  changes: FileChange[];
+  /** List of file changes (from useWorkspaceChanges or legacy FileChange) */
+  changes: (FileChange | WorkspaceFileChange)[];
+  /** Whether there are too many changes to display */
+  tooManyChanges?: boolean;
+  /** Total number of changes */
+  totalChanges?: number;
+  /** Whether changes are still loading */
+  isLoading?: boolean;
+  /** Callback to load the full diff for a truncated file */
+  onLoadDiff?: (filePath: string) => Promise<void>;
   /** Additional CSS classes */
   className?: string;
 }
 
 export const ChangedFilesView = ({
   changes,
+  tooManyChanges = false,
+  totalChanges,
+  isLoading = false,
+  onLoadDiff,
   className = "",
 }: ChangedFilesViewProps) => {
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null)
@@ -138,8 +153,28 @@ export const ChangedFilesView = ({
     }
   }, [isResizing])
   
+  // Normalize changes to always have an id (WorkspaceFileChange uses path as id)
+  const normalizedChanges: FileChange[] = useMemo(() => 
+    changes.map(c => ({
+      id: 'id' in c ? (c as FileChange).id : c.path,
+      path: c.path,
+      changeType: c.changeType as FileChangeType,
+      additions: c.additions,
+      deletions: c.deletions,
+      originalContent: c.originalContent,
+      newContent: c.newContent,
+      language: c.language,
+      originalPath: 'originalPath' in c ? (c as FileChange).originalPath : undefined,
+      // Carry through extra fields for provenance/truncation
+      ...('diffTruncated' in c ? { diffTruncated: (c as WorkspaceFileChange).diffTruncated } : {}),
+      ...('sourceBlockId' in c ? { sourceBlockId: (c as WorkspaceFileChange).sourceBlockId } : {}),
+      ...('sourceBlockType' in c ? { sourceBlockType: (c as WorkspaceFileChange).sourceBlockType } : {}),
+      ...('isBinary' in c ? { isBinary: (c as WorkspaceFileChange).isBinary } : {}),
+    }))
+  , [changes])
+
   // Build file tree from changes
-  const fileTree = useMemo(() => buildFileTree(changes), [changes])
+  const fileTree = useMemo(() => buildFileTree(normalizedChanges), [normalizedChanges])
   
   // Handle file selection from tree - jump to file
   const handleFileSelect = (fileId: string) => {
@@ -179,6 +214,35 @@ export const ChangedFilesView = ({
     }
   }, [])
   
+  // Loading state
+  if (isLoading && changes.length === 0) {
+    return (
+      <div className={cn("flex items-center justify-center h-full", className)}>
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 mx-auto mb-2 text-blue-500 animate-spin" />
+          <p className="text-sm text-gray-500">Checking for changes...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Too many changes
+  if (tooManyChanges) {
+    return (
+      <div className={cn("flex items-center justify-center h-full", className)}>
+        <div className="text-center">
+          <FileCode className="w-16 h-16 mx-auto mb-2 text-amber-300" />
+          <h3 className="text-lg font-medium mb-2 text-gray-600">
+            Too many changes
+          </h3>
+          <p className="text-sm text-gray-500">
+            {totalChanges ?? 0} files changed — too many to display.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   // Empty state
   if (changes.length === 0) {
     return (
@@ -186,7 +250,7 @@ export const ChangedFilesView = ({
         <div className="text-center">
           <FileCode className="w-16 h-16 mx-auto mb-2 text-gray-300" />
           <h3 className="text-lg font-medium mb-2 text-gray-600">
-            No changes
+            No changes detected
           </h3>
           <p className="text-sm text-gray-500">
             Modified files will appear here.
@@ -211,7 +275,7 @@ export const ChangedFilesView = ({
         >
           <ChangedFileTree
             tree={fileTree}
-            changes={changes}
+            changes={normalizedChanges}
             focusedFileId={focusedFileId}
             onFileSelect={handleFileSelect}
           />
@@ -228,13 +292,14 @@ export const ChangedFilesView = ({
         {/* All Files Diff View */}
         <div className="flex-1 overflow-y-auto p-3">
           <div className="flex flex-col gap-3">
-            {changes.map(change => (
+            {normalizedChanges.map(change => (
               <CollapsibleFileDiff
                 key={change.id}
                 change={change}
                 isCollapsed={collapsedFiles.has(change.id)}
                 isFocused={focusedFileId === change.id}
                 onToggleCollapse={() => toggleFileCollapse(change.id)}
+                onLoadDiff={onLoadDiff}
                 ref={(el) => setFileRef(change.id, el)}
               />
             ))}
@@ -314,7 +379,7 @@ interface ChangedFileTreeProps {
 
 const ChangedFileTree = ({
   tree,
-  changes,
+  changes: _changes,
   focusedFileId,
   onFileSelect,
 }: ChangedFileTreeProps) => {
@@ -426,15 +491,17 @@ function getAllFolderPaths(nodes: TreeNode[]): string[] {
 // ============================================================================
 
 interface CollapsibleFileDiffProps {
-  change: FileChange;
+  change: FileChange & { diffTruncated?: boolean; isBinary?: boolean; sourceBlockId?: string; sourceBlockType?: string };
   isCollapsed: boolean;
   isFocused: boolean;
   onToggleCollapse: () => void;
+  onLoadDiff?: (filePath: string) => Promise<void>;
 }
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
-  ({ change, isCollapsed, isFocused, onToggleCollapse }, ref) => {
+  ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
     const [didCopy, setDidCopy] = useState(false)
+    const [isLoadingDiff, setIsLoadingDiff] = useState(false)
     
     const Icon = getChangeTypeIcon(change.changeType)
     const iconColor = getIconColor(change.changeType)
@@ -481,6 +548,15 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
               <Copy className="w-3.5 h-3.5" />
             )}
           </button>
+          {change.sourceBlockId && (
+            <span onClick={e => e.stopPropagation()}>
+              <ProvenanceBadge
+                sourceBlockId={change.sourceBlockId}
+                sourceBlockType={change.sourceBlockType || 'command'}
+                variant="changed"
+              />
+            </span>
+          )}
           <div className="flex-1" />
           <div className="flex items-center gap-2 text-xs flex-shrink-0">
             {change.additions > 0 && (
@@ -495,7 +571,34 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         
         {/* Diff Content */}
         {!isCollapsed && (
-          <DiffContent change={change} />
+          change.isBinary ? (
+            <div className="p-4 text-center text-sm text-gray-500">
+              Binary file — cannot display diff
+            </div>
+          ) : change.diffTruncated ? (
+            <div className="p-4 text-center">
+              <p className="text-sm text-gray-500 mb-2">Diff is too large to display inline.</p>
+              <button
+                onClick={async () => {
+                  if (onLoadDiff) {
+                    setIsLoadingDiff(true)
+                    await onLoadDiff(change.path)
+                    setIsLoadingDiff(false)
+                  }
+                }}
+                disabled={isLoadingDiff}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+              >
+                {isLoadingDiff ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...</>
+                ) : (
+                  <><Download className="w-3.5 h-3.5" /> Load diff</>
+                )}
+              </button>
+            </div>
+          ) : (
+            <DiffContent change={change} />
+          )
         )}
       </div>
     )
@@ -835,10 +938,6 @@ function computeSimpleDiff(oldLines: string[], newLines: string[]): DiffItem[] {
   // Simple Myers diff algorithm approximation
   const result: DiffItem[] = []
   
-  // Create a map of old lines for quick lookup
-  const oldLineSet = new Set(oldLines)
-  const newLineSet = new Set(newLines)
-  
   let oldIndex = 0
   let newIndex = 0
   
@@ -880,98 +979,6 @@ function computeSimpleDiff(oldLines: string[], newLines: string[]): DiffItem[] {
   return result
 }
 
-interface Hunk {
-  header?: string;
-  lines: DiffLine[];
-}
-
-function findHunks(lines: DiffLine[]): Hunk[] {
-  if (lines.length === 0) return []
-  
-  const hunks: Hunk[] = []
-  const contextLines = 3 // Number of context lines to show around changes
-  
-  // Find ranges of changes
-  const changeRanges: { start: number; end: number }[] = []
-  let inChange = false
-  let changeStart = 0
-  
-  for (let i = 0; i < lines.length; i++) {
-    const isChange = lines[i].type !== 'context'
-    if (isChange && !inChange) {
-      changeStart = Math.max(0, i - contextLines)
-      inChange = true
-    } else if (!isChange && inChange) {
-      // Check if we should extend the current range or end it
-      const nextChangeIndex = lines.slice(i).findIndex(l => l.type !== 'context')
-      if (nextChangeIndex !== -1 && nextChangeIndex <= contextLines * 2) {
-        // Next change is close, keep extending
-        continue
-      }
-      changeRanges.push({ start: changeStart, end: Math.min(lines.length - 1, i + contextLines - 1) })
-      inChange = false
-    }
-  }
-  
-  if (inChange) {
-    changeRanges.push({ start: changeStart, end: lines.length - 1 })
-  }
-  
-  // If no changes, treat all as context
-  if (changeRanges.length === 0) {
-    const firstLine = lines[0]
-    const lastLine = lines[lines.length - 1]
-    hunks.push({
-      header: `@@ -${firstLine.oldLineNum || 1},${lines.length} +${firstLine.newLineNum || 1},${lines.length} @@`,
-      lines,
-    })
-    return hunks
-  }
-  
-  // Create hunks from ranges
-  let lastEnd = -1
-  
-  for (const range of changeRanges) {
-    // Add collapsed context if there's a gap
-    if (lastEnd !== -1 && range.start > lastEnd + 1) {
-      const contextStartLine = lines[lastEnd + 1]
-      const contextEndLine = lines[range.start - 1]
-      const contextCount = range.start - lastEnd - 1
-      hunks.push({
-        header: `@@ ${contextCount} unchanged lines (${contextStartLine.oldLineNum || '?'}-${contextEndLine.oldLineNum || '?'}) @@`,
-        lines: lines.slice(lastEnd + 1, range.start),
-      })
-    }
-    
-    // Add the change hunk
-    const hunkLines = lines.slice(range.start, range.end + 1)
-    const firstLine = hunkLines[0]
-    const deletions = hunkLines.filter(l => l.type === 'deletion').length
-    const additions = hunkLines.filter(l => l.type === 'addition').length
-    const oldStart = firstLine.oldLineNum || 1
-    const newStart = firstLine.newLineNum || 1
-    
-    hunks.push({
-      header: `@@ -${oldStart},${hunkLines.length - additions} +${newStart},${hunkLines.length - deletions} @@`,
-      lines: hunkLines,
-    })
-    
-    lastEnd = range.end
-  }
-  
-  // Add trailing context if any
-  if (lastEnd < lines.length - 1) {
-    const trailingLines = lines.slice(lastEnd + 1)
-    const firstLine = trailingLines[0]
-    hunks.push({
-      header: `@@ ${trailingLines.length} unchanged lines @@`,
-      lines: trailingLines,
-    })
-  }
-  
-  return hunks
-}
-
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -991,32 +998,3 @@ function getIconColor(type: FileChangeType): string {
   }
 }
 
-function getChangeTypeLabel(type: FileChangeType): string {
-  switch (type) {
-    case 'added':
-      return 'Added'
-    case 'modified':
-      return 'Modified'
-    case 'deleted':
-      return 'Deleted'
-    case 'renamed':
-      return 'Renamed'
-    default:
-      return type
-  }
-}
-
-function getChangeTypeBadgeStyle(type: FileChangeType): string {
-  switch (type) {
-    case 'added':
-      return 'bg-green-100 text-green-700'
-    case 'modified':
-      return 'bg-amber-100 text-amber-700'
-    case 'deleted':
-      return 'bg-red-100 text-red-700'
-    case 'renamed':
-      return 'bg-blue-100 text-blue-700'
-    default:
-      return 'bg-gray-100 text-gray-700'
-  }
-}

@@ -27,6 +27,8 @@ interface WorkspaceTabBarProps {
   tabCounts?: Partial<Record<WorkspaceTab, number>>;
   /** Additional CSS classes */
   className?: string;
+  /** Which tabs are available (defaults to all) */
+  availableTabs?: WorkspaceTab[];
 }
 
 export const WorkspaceTabBar = ({
@@ -34,10 +36,15 @@ export const WorkspaceTabBar = ({
   onTabChange,
   tabCounts = {},
   className = "",
+  availableTabs,
 }: WorkspaceTabBarProps) => {
+  const visibleTabs = availableTabs 
+    ? TABS.filter(tab => availableTabs.includes(tab.id))
+    : TABS
+
   return (
     <div className={cn("relative flex items-end gap-2 border-b border-gray-400", className)}>
-      {TABS.map((tab) => {
+      {visibleTabs.map((tab) => {
         const isActive = activeTab === tab.id
         const count = tabCounts[tab.id]
         

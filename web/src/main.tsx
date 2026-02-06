@@ -2,7 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './css/index.css'
 import App from './App.tsx'
-import { FileTreeProvider } from './contexts/FileTreeContext'
+import { GeneratedFilesProvider } from './contexts/GeneratedFilesContext'
+import { GitWorkTreeProvider } from './contexts/GitWorkTreeContext'
 import { ExecutableRegistryProvider } from './contexts/ExecutableRegistryContext'
 import { ErrorReportingProvider } from './contexts/ErrorReportingContext'
 import { TelemetryProvider } from './contexts/TelemetryContext'
@@ -15,11 +16,13 @@ createRoot(document.getElementById('root')!).render(
       <SessionProvider>
         <ErrorReportingProvider>
           <ExecutableRegistryProvider>
-            <FileTreeProvider>
-              <LogsProvider>
-                <App />
-              </LogsProvider>
-            </FileTreeProvider>
+            <GeneratedFilesProvider>
+              <GitWorkTreeProvider>
+                <LogsProvider>
+                  <App />
+                </LogsProvider>
+              </GitWorkTreeProvider>
+            </GeneratedFilesProvider>
           </ExecutableRegistryProvider>
         </ErrorReportingProvider>
       </SessionProvider>

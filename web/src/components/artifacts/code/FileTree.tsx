@@ -245,7 +245,7 @@ export const FileTree = ({
   /** Currently selected item ID */
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   /** Current width of the tree in pixels */
-  const [treeWidth, setTreeWidth] = useState(200);
+  const [_treeWidth, setTreeWidth] = useState(200);
 
   /**
    * Calculates the optimal width for the tree based on the longest item name.

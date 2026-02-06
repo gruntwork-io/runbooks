@@ -23,6 +23,8 @@ interface TemplateInlineProps {
   outputPath?: string
   /** Whether to generate the file to the file tree (default: false, preview only) */
   generateFile?: boolean
+  /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($WORKTREE_FILES). Only used when generateFile is true. */
+  target?: 'generated' | 'worktree'
   /** Inline template content (code blocks with file paths) */
   children?: ReactNode
 }
@@ -38,6 +40,7 @@ function TemplateInline({
   inputsId,
   outputPath,
   generateFile = false,
+  target,
   children
 }: TemplateInlineProps) {
   // Render state
@@ -153,6 +156,8 @@ function TemplateInline({
           // Includes _blocks namespace for output access
           inputs: inputsWithBlocks,
           generateFile,
+          // Target specifies where output is written: "generated" (default) or "worktree"
+          ...(target ? { target } : {}),
           // Note: outputPath is already used to name the file in templateFiles,
           // so we don't need to send it separately for directory determination
         }),

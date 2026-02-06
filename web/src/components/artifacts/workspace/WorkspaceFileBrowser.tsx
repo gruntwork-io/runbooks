@@ -1,38 +1,53 @@
 /**
  * @fileoverview WorkspaceFileBrowser Component
  * 
- * File browser for the "All" tab showing a file tree on the left
- * and a single file viewer on the right. Supports editing files.
+ * File browser for the "All files" tab showing a structure-only file tree
+ * on the left and a single file viewer on the right with lazy content loading.
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { FileTree } from '../code/FileTree'
-import { SingleFileViewer } from './SingleFileViewer'
-import { FolderOpen } from 'lucide-react'
+import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { WorkspaceTreeNode, WorkspaceFile } from '@/types/workspace'
+import { useFileContent } from '@/hooks/useFileContent'
+import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
+import type { WorkspaceTreeNode } from '@/hooks/useWorkspaceTree'
 import type { FileTreeNode } from '../code/FileTree'
 
 interface WorkspaceFileBrowserProps {
-  /** Files in the workspace */
-  files: WorkspaceTreeNode[];
+  /** Structure-only tree (no content) from useWorkspaceTree */
+  tree: WorkspaceTreeNode[] | null;
+  /** Whether the tree is loading */
+  isLoading: boolean;
+  /** Error message if tree failed to load */
+  error: string | null;
+  /** Total file count */
+  totalFiles: number;
+  /** Callback to retry loading */
+  onRetry: () => void;
   /** Additional CSS classes */
   className?: string;
 }
 
 export const WorkspaceFileBrowser = ({
-  files,
+  tree,
+  isLoading,
+  error,
+  totalFiles: _totalFiles,
+  onRetry,
   className = "",
 }: WorkspaceFileBrowserProps) => {
-  const [selectedFile, setSelectedFile] = useState<WorkspaceFile | null>(null)
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const [treeWidth, setTreeWidth] = useState(225)
-  const [editedContent, setEditedContent] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
-  const widthRef = useRef(225) // Track width without causing re-renders
+  const widthRef = useRef(225)
   const rafRef = useRef<number | null>(null)
+  
+  // Lazy file content loader
+  const { fetchFileContent, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
+  const { activeWorkTree } = useGitWorkTree()
   
   // Handle resize drag - update DOM directly for performance
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -45,29 +60,24 @@ export const WorkspaceFileBrowser = ({
     if (!isResizing) return
     
     const handleMouseMove = (e: MouseEvent) => {
-      // Cancel any pending animation frame
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current)
       }
       
-      // Schedule update on next animation frame
       rafRef.current = requestAnimationFrame(() => {
         if (!containerRef.current || !treeRef.current) return
         const containerRect = containerRef.current.getBoundingClientRect()
         const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400)
-        // Update DOM directly - no React re-render
         treeRef.current.style.width = `${newWidth}px`
         widthRef.current = newWidth
       })
     }
     
     const handleMouseUp = () => {
-      // Cancel any pending animation frame
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
-      // Only update React state when done dragging
       setTreeWidth(widthRef.current)
       setIsResizing(false)
     }
@@ -85,63 +95,45 @@ export const WorkspaceFileBrowser = ({
   }, [isResizing])
   
   // Convert WorkspaceTreeNode to FileTreeNode for the existing FileTree component
-  const fileTreeData = useMemo(() => convertToFileTreeNodes(files), [files])
+  const fileTreeData = useMemo(() => {
+    if (!tree) return []
+    return convertToFileTreeNodes(tree)
+  }, [tree])
   
-  // Handle file selection from tree
-  const handleFileSelect = (item: FileTreeNode) => {
-    if (item.type === 'file' && item.file) {
-      // Find the corresponding workspace file
-      const workspaceFile = findWorkspaceFile(files, item.id)
-      if (workspaceFile) {
-        // If we're editing and switching files, ask to save/discard
-        if (isEditing && editedContent !== null) {
-          // For now, just discard - in future, show a confirmation dialog
-          setEditedContent(null)
-          setIsEditing(false)
-        }
-        setSelectedFile(workspaceFile)
-      }
-    }
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className={cn("flex items-center justify-center h-full", className)}>
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 mx-auto mb-2 text-blue-500 animate-spin" />
+          <p className="text-sm text-gray-500">Loading file tree...</p>
+        </div>
+      </div>
+    )
   }
   
-  // Handle edit mode
-  const handleStartEdit = () => {
-    if (selectedFile) {
-      setEditedContent(selectedFile.content)
-      setIsEditing(true)
-    }
-  }
-  
-  // Handle save
-  const handleSave = () => {
-    if (selectedFile && editedContent !== null) {
-      // In the future, this will call an API to persist the changes
-      console.log('Saving file:', selectedFile.path, editedContent)
-      
-      // Update the selected file with new content (in future, this comes from API response)
-      setSelectedFile({
-        ...selectedFile,
-        content: editedContent,
-        isModified: editedContent !== selectedFile.originalContent,
-      })
-      setEditedContent(null)
-      setIsEditing(false)
-    }
-  }
-  
-  // Handle cancel edit
-  const handleCancelEdit = () => {
-    setEditedContent(null)
-    setIsEditing(false)
-  }
-  
-  // Handle content change
-  const handleContentChange = (newContent: string) => {
-    setEditedContent(newContent)
+  // Error state
+  if (error) {
+    return (
+      <div className={cn("flex items-center justify-center h-full", className)}>
+        <div className="text-center">
+          <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-amber-400" />
+          <h3 className="text-lg font-medium mb-1 text-gray-600">Failed to load file tree</h3>
+          <p className="text-sm text-gray-500 mb-3">{error}</p>
+          <button
+            onClick={onRetry}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
+      </div>
+    )
   }
   
   // Empty state
-  if (files.length === 0) {
+  if (!tree || tree.length === 0) {
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
@@ -170,12 +162,21 @@ export const WorkspaceFileBrowser = ({
       >
         <FileTree
           items={fileTreeData}
-          onItemClick={handleFileSelect}
+          onItemClick={(item) => {
+            if (item.type === 'file') {
+              setSelectedFilePath(item.id)
+              // Construct absolute path from worktree root + relative path
+              if (activeWorkTree?.localPath) {
+                const absPath = `${activeWorkTree.localPath}/${item.id}`
+                fetchFileContent(absPath)
+              }
+            }
+          }}
           className="relative"
         />
       </div>
       
-      {/* Resize Handle - 7px hit area with 1px visible line */}
+      {/* Resize Handle */}
       <div
         className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
         onMouseDown={handleMouseDown}
@@ -185,15 +186,11 @@ export const WorkspaceFileBrowser = ({
       
       {/* File Viewer */}
       <div className="flex-1 h-full overflow-y-auto">
-        {selectedFile ? (
-          <SingleFileViewer
-            file={selectedFile}
-            isEditing={isEditing}
-            editedContent={editedContent}
-            onStartEdit={handleStartEdit}
-            onSave={handleSave}
-            onCancel={handleCancelEdit}
-            onContentChange={handleContentChange}
+        {selectedFilePath ? (
+          <FileContentViewer
+            fileContent={fileContent}
+            isLoading={contentLoading}
+            error={contentError}
           />
         ) : (
           <div className="flex items-center justify-center h-full">
@@ -208,7 +205,112 @@ export const WorkspaceFileBrowser = ({
 }
 
 /**
- * Convert WorkspaceTreeNode to FileTreeNode
+ * File content viewer that handles text, images, binary, and too-large files.
+ */
+function FileContentViewer({ fileContent, isLoading, error }: {
+  fileContent: { path: string; content?: string; language: string; size: number; isImage?: boolean; mimeType?: string; dataUri?: string; isBinary?: boolean; isTooLarge?: boolean } | null
+  isLoading: boolean
+  error: string | null
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <Loader2 className="w-6 h-6 mx-auto mb-2 text-blue-500 animate-spin" />
+          <p className="text-sm text-gray-500">Loading file...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+          <p className="text-sm text-gray-500">{error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!fileContent) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-gray-500">Select a file to view its contents</p>
+      </div>
+    )
+  }
+
+  // Image file
+  if (fileContent.isImage && fileContent.dataUri) {
+    return (
+      <div className="p-4">
+        <div className="flex items-center gap-2 mb-3 text-sm text-gray-600">
+          <ImageIcon className="w-4 h-4" />
+          <span className="font-mono text-xs">{fileContent.path.split('/').pop()}</span>
+          <span className="text-gray-400">({formatFileSize(fileContent.size)})</span>
+        </div>
+        <img 
+          src={fileContent.dataUri} 
+          alt={fileContent.path.split('/').pop() || 'Image'} 
+          className="max-w-full border border-gray-200 rounded" 
+        />
+      </div>
+    )
+  }
+
+  // Binary file
+  if (fileContent.isBinary) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <FileX className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm text-gray-600 font-medium">Binary file</p>
+          <p className="text-xs text-gray-400 mt-1">Cannot display content ({formatFileSize(fileContent.size)})</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Too large
+  if (fileContent.isTooLarge) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <FileX className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm text-gray-600 font-medium">File too large to display</p>
+          <p className="text-xs text-gray-400 mt-1">{formatFileSize(fileContent.size)} (max 1 MB)</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Text content
+  return (
+    <div className="h-full flex flex-col">
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs text-gray-600 font-mono flex items-center justify-between">
+        <span>{fileContent.path.split('/').pop()}</span>
+        <span className="text-gray-400">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
+      </div>
+      <pre className="flex-1 overflow-auto p-3 text-xs font-mono text-gray-800 leading-relaxed">
+        <code>{fileContent.content}</code>
+      </pre>
+    </div>
+  )
+}
+
+/**
+ * Format file size in human-readable form
+ */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * Convert WorkspaceTreeNode (structure only) to FileTreeNode for the existing FileTree component
  */
 function convertToFileTreeNodes(nodes: WorkspaceTreeNode[]): FileTreeNode[] {
   return nodes.map(node => ({
@@ -216,28 +318,13 @@ function convertToFileTreeNodes(nodes: WorkspaceTreeNode[]): FileTreeNode[] {
     name: node.name,
     type: node.type,
     children: node.children ? convertToFileTreeNodes(node.children) : undefined,
-    file: node.file ? {
-      name: node.file.name,
-      path: node.file.path,
-      content: node.file.content,
-      language: node.file.language,
-      size: node.file.content.length,
+    // Store the path as a file property so we can fetch content on click
+    file: node.type === 'file' ? {
+      name: node.name,
+      path: node.id, // Relative path used as ID
+      content: '', // Content loaded lazily
+      language: node.language || 'text',
+      size: node.size || 0,
     } : undefined,
   }))
-}
-
-/**
- * Find a workspace file by ID
- */
-function findWorkspaceFile(nodes: WorkspaceTreeNode[], id: string): WorkspaceFile | null {
-  for (const node of nodes) {
-    if (node.id === id && node.file) {
-      return node.file
-    }
-    if (node.children) {
-      const found = findWorkspaceFile(node.children, id)
-      if (found) return found
-    }
-  }
-  return null
 }

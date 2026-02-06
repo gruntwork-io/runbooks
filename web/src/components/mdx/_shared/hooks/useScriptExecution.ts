@@ -393,7 +393,7 @@ export function useScriptExecution({
   // Use the API exec hook for real script execution
   // Pass onFilesCaptured callback to update file tree when command captures files
   // Pass onFilesCaptured and onOutputsCaptured callbacks
-  // Files written to $RUNBOOK_FILES are automatically captured after successful execution
+  // Files written to $GENERATED_FILES are automatically captured after successful execution
   const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
     onOutputsCaptured: handleOutputsCaptured,

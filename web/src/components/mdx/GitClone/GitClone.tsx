@@ -7,6 +7,7 @@ import { copyTextToClipboard } from "@/lib/utils"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { useGitWorkTree } from "@/contexts/GitWorkTreeContext"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { CloneResultDisplay } from "./components/CloneResult"
@@ -34,6 +35,7 @@ function GitClone({
   prefilledRepoPath = '',
   prefilledLocalPath = '',
   usePty,
+  showFileTree = true,
 }: GitCloneProps) {
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitClone')
@@ -44,9 +46,12 @@ function GitClone({
   // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
+  // Git worktree context for registering cloned repos with the workspace
+  const { registerWorkTree } = useGitWorkTree()
+
   // Track render
   useEffect(() => {
-    trackBlockRender('GitClone', id)
+    trackBlockRender('GitClone')
   }, [id, trackBlockRender])
 
   // Core hook
@@ -113,13 +118,46 @@ function GitClone({
   // Report configuration errors
   useEffect(() => {
     if (isDuplicate) {
-      reportError(id, `Duplicate GitClone block ID: "${id}"`)
+      reportError({
+        componentId: id,
+        componentType: 'GitClone',
+        severity: 'error',
+        message: `Duplicate GitClone block ID: "${id}"`,
+      })
     } else if (isNormalizedCollision) {
-      reportError(id, `GitClone ID "${id}" collides with "${collidingId}" after normalization`)
+      reportError({
+        componentId: id,
+        componentType: 'GitClone',
+        severity: 'error',
+        message: `GitClone ID "${id}" collides with "${collidingId}" after normalization`,
+      })
     } else {
       clearError(id)
     }
   }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
+
+  // Register the cloned repo as a git worktree when clone succeeds
+  useEffect(() => {
+    if (cloneStatus === 'success' && cloneResult && showFileTree) {
+      // Parse owner/repoName from the git URL
+      const parsed = parseGitHubURL(gitUrl)
+      registerWorkTree({
+        id,
+        repoUrl: gitUrl.trim(),
+        repoPath: repoPath.trim() || undefined,
+        localPath: cloneResult.absolutePath,
+        gitInfo: {
+          repoUrl: gitUrl.trim(),
+          repoName: parsed?.repo ?? cloneResult.relativePath,
+          repoOwner: parsed?.org ?? '',
+          branch: 'main', // Will be updated from workspace tree API
+          commitSha: undefined,
+        },
+      })
+    }
+    // Only run when clone status changes to success
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloneStatus, cloneResult])
 
   // Determine if the GitHub browser should be pre-opened
   const prefilledGitHub = useMemo(() => {
