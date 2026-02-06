@@ -7,6 +7,7 @@ import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
 import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
 import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
@@ -82,8 +83,9 @@ function Template({
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
   const hasEverGeneratedRef = useRef(false);
   
-  // Get the global file tree context
+  // Get the global file tree context and worktree context for invalidation (for All files when target=worktree)
   const { setFileTree } = useFileTree();
+  const { invalidateTree } = useGitWorkTree();
   
   // Get the runbook context to register our config
   const { registerInputs } = useRunbookContext();
@@ -273,20 +275,20 @@ function Template({
     target
   )
 
-  // Update global file tree when render result is available
-  // The backend returns the complete output directory tree, so we simply replace
+  // Update global file tree when render result is available (Generated tab only)
+  // When target is worktree, output went to the git repo — do not overwrite Generated; refresh All files instead
   useEffect(() => {
-    if (renderResult) {
-      // Mark that we've successfully generated at least once
-      hasEverGeneratedRef.current = true;
-      
-      // Validate the structure before using it to ensure type safety
-      const validatedTree = parseFileTreeNodeArray(renderResult.fileTree)
-      if (validatedTree) {
-        setFileTree(validatedTree);
-      }
+    if (!renderResult) return;
+    hasEverGeneratedRef.current = true;
+    if (target === 'worktree') {
+      invalidateTree();
+      return;
     }
-  }, [renderResult, setFileTree]);
+    const validatedTree = parseFileTreeNodeArray(renderResult.fileTree);
+    if (validatedTree) {
+      setFileTree(validatedTree);
+    }
+  }, [renderResult, setFileTree, target, invalidateTree]);
 
   // Debounce timer ref for auto-render
   const autoRenderTimerRef = useRef<NodeJS.Timeout | null>(null);

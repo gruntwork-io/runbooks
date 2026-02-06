@@ -33,6 +33,11 @@ export interface GitWorkTreeContextType {
   registerWorkTree: (workTree: GitWorkTree) => void
   /** Switch the active worktree by id */
   setActiveWorkTree: (id: string) => void
+  /** Monotonically increasing counter that signals "the worktree contents changed, re-fetch the tree".
+   *  Any component can call invalidateTree() to bump this; useWorkspaceTree watches it. */
+  treeVersion: number
+  /** Bump treeVersion to trigger a re-fetch of the workspace file tree */
+  invalidateTree: () => void
 }
 
 const GitWorkTreeContext = React.createContext<GitWorkTreeContextType | undefined>(undefined)
@@ -44,7 +49,12 @@ interface GitWorkTreeProviderProps {
 export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ children }) => {
   const [workTrees, setWorkTrees] = useState<GitWorkTree[]>([])
   const [activeWorkTreeId, setActiveWorkTreeId] = useState<string | null>(null)
+  const [treeVersion, setTreeVersion] = useState(0)
   const { getAuthHeader } = useSession()
+
+  const invalidateTree = useCallback(() => {
+    setTreeVersion(v => v + 1)
+  }, [])
 
   const registerWorkTree = useCallback((workTree: GitWorkTree) => {
     setWorkTrees(prev => {
@@ -85,7 +95,9 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     activeWorkTree,
     registerWorkTree,
     setActiveWorkTree,
-  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree])
+    treeVersion,
+    invalidateTree,
+  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree, treeVersion, invalidateTree])
 
   return (
     <GitWorkTreeContext.Provider value={value}>

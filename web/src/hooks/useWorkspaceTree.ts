@@ -40,7 +40,7 @@ interface UseWorkspaceTreeResult {
  * Re-fetches automatically when the active worktree changes.
  */
 export function useWorkspaceTree(): UseWorkspaceTreeResult {
-  const { activeWorkTree } = useGitWorkTree()
+  const { activeWorkTree, treeVersion } = useGitWorkTree()
   const { getAuthHeader } = useSession()
   const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -48,7 +48,7 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
   const [totalFiles, setTotalFiles] = useState(0)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const fetchTree = useCallback(async (localPath: string) => {
+  const fetchTree = useCallback(async (localPath: string, silent = false) => {
     // Abort any in-flight request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -57,7 +57,10 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
     const controller = new AbortController()
     abortControllerRef.current = controller
 
-    setIsLoading(true)
+    // Only show loading spinner on initial fetch, not background refreshes
+    if (!silent) {
+      setIsLoading(true)
+    }
     setError(null)
 
     try {
@@ -89,7 +92,8 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
     }
   }, [getAuthHeader])
 
-  // Fetch when active worktree changes
+  // Fetch when active worktree changes (show spinner) or treeVersion bumps (silent refresh)
+  const prevTreeVersionRef = useRef(treeVersion)
   useEffect(() => {
     if (!activeWorkTree) {
       setTree(null)
@@ -98,14 +102,18 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
       return
     }
 
-    fetchTree(activeWorkTree.localPath)
+    // If treeVersion changed but path didn't, this is a background refresh — skip the spinner
+    const silent = prevTreeVersionRef.current !== treeVersion && tree !== null
+    prevTreeVersionRef.current = treeVersion
+
+    fetchTree(activeWorkTree.localPath, silent)
 
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
       }
     }
-  }, [activeWorkTree?.localPath, fetchTree])
+  }, [activeWorkTree?.localPath, fetchTree, treeVersion]) // deliberately exclude `tree` — we only read it for the silent check
 
   const refetch = useCallback(() => {
     if (activeWorkTree) {

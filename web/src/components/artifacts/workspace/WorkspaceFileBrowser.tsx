@@ -10,6 +10,7 @@ import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useFileContent } from '@/hooks/useFileContent'
+import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
 import type { WorkspaceTreeNode } from '@/hooks/useWorkspaceTree'
 import type { FileTreeNode } from '../code/FileTree'
@@ -46,8 +47,37 @@ export const WorkspaceFileBrowser = ({
   const rafRef = useRef<number | null>(null)
   
   // Lazy file content loader
-  const { fetchFileContent, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
-  const { activeWorkTree } = useGitWorkTree()
+  const { fetchFileContent, refetchFileContent, clearCache, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
+  const { changes } = useWorkspaceChanges()
+  const { activeWorkTree, treeVersion } = useGitWorkTree()
+
+  // When changes are detected, refetch the currently selected file so All Files shows updated content
+  const prevChangesRef = useRef<typeof changes>([])
+  useEffect(() => {
+    if (!selectedFilePath || !activeWorkTree?.localPath || changes.length === 0) return
+    const selectedIsChanged = changes.some((c) => c.path === selectedFilePath)
+    if (!selectedIsChanged) return
+    // Avoid refetching on every poll if change list is unchanged
+    const prevPaths = prevChangesRef.current.map((c) => c.path).sort().join(',')
+    const currPaths = changes.map((c) => c.path).sort().join(',')
+    if (prevPaths === currPaths) return
+    prevChangesRef.current = changes
+    const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
+    refetchFileContent(absPath)
+  }, [changes, selectedFilePath, activeWorkTree?.localPath, refetchFileContent])
+
+  // When the worktree tree is invalidated (e.g. template wrote a file),
+  // clear the cache so *any* file clicked afterward gets a fresh fetch,
+  // and refetch the currently selected file immediately.
+  const prevTreeVersionRef = useRef(treeVersion)
+  useEffect(() => {
+    if (treeVersion === prevTreeVersionRef.current) return
+    prevTreeVersionRef.current = treeVersion
+    clearCache()
+    if (!selectedFilePath || !activeWorkTree?.localPath) return
+    const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
+    refetchFileContent(absPath)
+  }, [treeVersion, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
   
   // Handle resize drag - update DOM directly for performance
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

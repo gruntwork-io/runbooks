@@ -13,6 +13,8 @@ tests:
     inputs:
       env-config.AccountName: "dev-sandbox"
       env-config.Environment: "dev"
+      deploy-notes.AccountName: "dev-sandbox"
+      deploy-notes.Environment: "dev"
     steps:
       # Part 1: Worktree workspace
       - block: clone-infra
@@ -24,7 +26,7 @@ tests:
       # Part 2: Generated files workspace
       - block: generate-config
         expect: success
-      - block: template-deploy-notes-7d37a4b8
+      - block: deploy-notes
         expect: success
     assertions:
       # Clone produced the expected directory
@@ -60,6 +62,8 @@ tests:
     inputs:
       env-config.AccountName: "test-account"
       env-config.Environment: "staging"
+      deploy-notes.AccountName: "test-account"
+      deploy-notes.Environment: "staging"
     steps:
       - block: clone-infra
         expect: skip
@@ -69,7 +73,7 @@ tests:
         expect: skip
       - block: generate-config
         expect: success
-      - block: template-deploy-notes-7d37a4b8
+      - block: deploy-notes
         expect: success
     assertions:
       - type: file_exists

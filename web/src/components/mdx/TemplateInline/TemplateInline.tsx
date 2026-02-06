@@ -13,6 +13,7 @@ import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import { extractOutputDependencies, groupDependenciesByBlock } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { normalizeBlockId } from '@/lib/utils'
 
@@ -55,8 +56,9 @@ function TemplateInline({
   // Debounce timer ref for auto-updates
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Get file tree for merging
+  // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
+  const { invalidateTree } = useGitWorkTree();
   
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
@@ -234,9 +236,12 @@ function TemplateInline({
       
       renderTemplate(!isInitialRender)
         .then(newFileTree => {
-          // Only update file tree if generateFile is true
-          // The backend returns the complete output directory tree, so we simply replace
-          if (generateFile) {
+          if (!generateFile) return;
+          // When target is worktree, output went to the git repo — do NOT update Generated tab
+          // (that would show the whole worktree including .git). Instead refresh the All files tree.
+          if (target === 'worktree') {
+            invalidateTree();
+          } else {
             setFileTree(newFileTree);
           }
         })
@@ -244,7 +249,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {

@@ -82,14 +82,15 @@ export function useApiBoilerplateRender(
     }
   }, [debouncedRequest, templateId, target]);
 
-  // Handle file tree updates when data changes
-  // Replace the entire file tree since the backend clears the output folder before each render
+  // Handle file tree updates when data changes (Generated tab only)
+  // When target is worktree, output went to the git repo — do not overwrite Generated with worktree tree
   useEffect(() => {
+    if (target === 'worktree') return;
     const fileTreeData = apiResult.data?.fileTree;
     if (fileTreeData && Array.isArray(fileTreeData)) {
       setFileTree(fileTreeData);
     }
-  }, [apiResult.data?.fileTree, setFileTree]);
+  }, [apiResult.data?.fileTree, setFileTree, target]);
 
   return {
     ...apiResult,

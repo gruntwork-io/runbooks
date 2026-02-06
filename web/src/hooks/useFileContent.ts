@@ -16,6 +16,10 @@ interface FileContentResult {
 interface UseFileContentResult {
   /** Fetch content for a file. Results are cached in memory. */
   fetchFileContent: (filePath: string) => Promise<FileContentResult | null>
+  /** Refetch content for a file, bypassing cache. Use when the file may have changed on disk. */
+  refetchFileContent: (filePath: string) => Promise<FileContentResult | null>
+  /** Clear the entire cache so the next fetch for any file hits the server. */
+  clearCache: () => void
   /** Currently loaded file content */
   fileContent: FileContentResult | null
   /** Whether a fetch is in progress */
@@ -37,17 +41,19 @@ export function useFileContent(): UseFileContentResult {
   const [error, setError] = useState<string | null>(null)
   const cacheRef = useRef<Map<string, FileContentResult>>(new Map())
 
-  const fetchFileContent = useCallback(async (filePath: string): Promise<FileContentResult | null> => {
-    // Check cache first
+  const doFetch = useCallback(async (filePath: string, bypassCache: boolean): Promise<FileContentResult | null> => {
     const cache = cacheRef.current
-    if (cache.has(filePath)) {
+    if (!bypassCache && cache.has(filePath)) {
       const cached = cache.get(filePath)!
-      // Move to end of map (most recently used)
       cache.delete(filePath)
       cache.set(filePath, cached)
       setFileContent(cached)
       setError(null)
       return cached
+    }
+
+    if (bypassCache) {
+      cache.delete(filePath)
     }
 
     setIsLoading(true)
@@ -66,7 +72,6 @@ export function useFileContent(): UseFileContentResult {
 
       const data: FileContentResult = await response.json()
 
-      // Add to cache, evict oldest if at capacity
       if (cache.size >= MAX_CACHE_SIZE) {
         const oldestKey = cache.keys().next().value
         if (oldestKey !== undefined) {
@@ -87,5 +92,9 @@ export function useFileContent(): UseFileContentResult {
     }
   }, [getAuthHeader])
 
-  return { fetchFileContent, fileContent, isLoading, error }
+  const fetchFileContent = useCallback((filePath: string) => doFetch(filePath, false), [doFetch])
+  const refetchFileContent = useCallback((filePath: string) => doFetch(filePath, true), [doFetch])
+  const clearCache = useCallback(() => { cacheRef.current.clear() }, [])
+
+  return { fetchFileContent, refetchFileContent, clearCache, fileContent, isLoading, error }
 }
