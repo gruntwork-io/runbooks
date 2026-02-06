@@ -87,10 +87,6 @@ var authBlockDependentTypes = []BlockType{
 	BlockTypeCommand,
 }
 
-// NOTE: getTestEnvPrefix was removed. The env var prefix for auth blocks in tests
-// is now configured via the env_prefix field in the test step configuration (runbook_test.yml),
-// rather than being parsed from the MDX detectCredentials prop.
-
 // =============================================================================
 // Block State
 // =============================================================================
@@ -1729,13 +1725,13 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 
 	// Inject auth block credentials if this block has an auth dependency (awsAuthId/githubAuthId)
 	// This ensures the block uses credentials from the specific auth block, not just the session
-	// We use mergeEnvVars to properly REPLACE existing env vars rather than append duplicates.
+	// We use api.MergeEnvVars to properly REPLACE existing env vars rather than append duplicates.
 	// This is critical for proper credential isolation - when switching between auth blocks,
 	// we need to fully replace the old credentials including clearing AWS_SESSION_TOKEN if
 	// the new credentials don't have one.
 	if authDep, hasAuthDep := e.authDeps[executable.ComponentID]; hasAuthDep {
 		if authCreds, hasCreds := e.authBlockCredentials[authDep.AuthBlockID]; hasCreds {
-			cmd.Env = mergeEnvVars(cmd.Env, authCreds)
+			cmd.Env = api.MergeEnvVars(cmd.Env, authCreds)
 		}
 	}
 
@@ -2152,35 +2148,3 @@ func (e *TestExecutor) formatBlockError(blockID string, stepResult StepResult) s
 	return fmt.Sprintf("%s block %q failed", blockType, blockID)
 }
 
-// mergeEnvVars merges override env vars into a base env slice.
-// Override values replace any existing keys in the base slice.
-// This is important for proper credential isolation - when using awsAuthId to reference
-// an auth block with different credentials, we need to fully replace the old credentials,
-// including explicitly setting AWS_SESSION_TOKEN="" if the new credentials don't have one.
-func mergeEnvVars(base []string, overrides map[string]string) []string {
-	// Build a map from existing env for efficient lookup
-	envMap := make(map[string]int, len(base)) // key -> index in result
-	result := make([]string, 0, len(base)+len(overrides))
-
-	for _, entry := range base {
-		if idx := strings.Index(entry, "="); idx != -1 {
-			key := entry[:idx]
-			envMap[key] = len(result)
-			result = append(result, entry)
-		}
-	}
-
-	// Apply overrides
-	for key, value := range overrides {
-		entry := key + "=" + value
-		if idx, exists := envMap[key]; exists {
-			// Replace existing entry
-			result[idx] = entry
-		} else {
-			// Add new entry
-			result = append(result, entry)
-		}
-	}
-
-	return result
-}
