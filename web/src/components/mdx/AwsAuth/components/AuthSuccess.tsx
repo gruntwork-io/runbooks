@@ -1,23 +1,13 @@
 import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { AccountInfo, AwsDetectionSource } from "../types"
+import { getSourceLabel } from "../utils"
 
 interface AuthSuccessProps {
   accountInfo: AccountInfo
   warningMessage: string | null
   onReAuthenticate?: () => void
   detectionSource?: AwsDetectionSource
-}
-
-function getSourceLabel(source: AwsDetectionSource): string | null {
-  switch (source) {
-    case 'env':
-      return 'From Environment'
-    case 'block':
-      return 'From Command Output'
-    default:
-      return null
-  }
 }
 
 export function AuthSuccess({ accountInfo, warningMessage, onReAuthenticate, detectionSource }: AuthSuccessProps) {

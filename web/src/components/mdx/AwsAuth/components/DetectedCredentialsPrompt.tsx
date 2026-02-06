@@ -1,6 +1,7 @@
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { DetectedAwsCredentials, AwsDetectionSource } from "../types"
+import type { DetectedAwsCredentials } from "../types"
+import { getSourceLabel } from "../utils"
 
 interface DetectedCredentialsPromptProps {
   credentials: DetectedAwsCredentials
@@ -8,17 +9,6 @@ interface DetectedCredentialsPromptProps {
   confirming?: boolean
   onConfirm: () => void
   onReject: () => void
-}
-
-function getSourceLabel(source: AwsDetectionSource): string {
-  switch (source) {
-    case 'env':
-      return 'Environment Variables'
-    case 'block':
-      return 'Command Output'
-    default:
-      return 'Auto-detected'
-  }
 }
 
 export function DetectedCredentialsPrompt({
@@ -39,7 +29,7 @@ export function DetectedCredentialsPrompt({
               AWS Credentials Detected
             </div>
             <div className="text-sm text-blue-700">
-              Found credentials from {getSourceLabel(credentials.source).toLowerCase()}. 
+              Found credentials from {(getSourceLabel(credentials.source) ?? 'auto-detection').toLowerCase()}. 
               Please confirm you want to use this account.
             </div>
           </div>
@@ -82,7 +72,7 @@ export function DetectedCredentialsPrompt({
           {/* Source badge */}
           <div className="mt-3 pt-3 border-t border-blue-100">
             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-              Source: {getSourceLabel(credentials.source)}
+              Source: {getSourceLabel(credentials.source) ?? 'Auto-detected'}
             </span>
           </div>
         </div>
