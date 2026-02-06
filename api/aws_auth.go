@@ -1410,7 +1410,18 @@ type AwsEnvCredentials struct {
 // Returns the credentials and whether required credentials (access key + secret) were found.
 // Does NOT validate credentials against AWS - just reads from environment.
 // Returns an error if the prefix is invalid.
-func ReadAwsEnvCredentials(prefix string) (creds AwsEnvCredentials, found bool, err error) {
+//
+// An optional getenv function can be provided to override how environment variables are read.
+// If nil or not provided, os.Getenv is used. This is useful for testing, where environment
+// variable overrides need to be respected without mutating the real process environment.
+// NOTE: We use variadic function parameters to make passing a getenv function optional
+// (versus requiring that a function always be passed).
+func ReadAwsEnvCredentials(prefix string, getenvFn ...func(string) string) (creds AwsEnvCredentials, found bool, err error) {
+	getenv := os.Getenv
+	if len(getenvFn) > 0 && getenvFn[0] != nil {
+		getenv = getenvFn[0]
+	}
+
 	// Validate the prefix before using it (security: prevent arbitrary env var probing)
 	if !isValidAwsEnvVarPrefix(prefix) {
 		return creds, false, fmt.Errorf("invalid prefix: must be uppercase alphanumeric with underscores, ending with an underscore (e.g. \"PROD_\")")
@@ -1427,11 +1438,11 @@ func ReadAwsEnvCredentials(prefix string) (creds AwsEnvCredentials, found bool, 
 		return creds, false, fmt.Errorf("invalid prefix results in disallowed environment variable name")
 	}
 
-	// Read credentials from environment
-	creds.AccessKeyID = os.Getenv(accessKeyIDName)
-	creds.SecretAccessKey = os.Getenv(secretAccessKeyName)
-	creds.SessionToken = os.Getenv(sessionTokenName)
-	creds.Region = os.Getenv(regionName)
+	// Read credentials from environment using the provided (or default) lookup function
+	creds.AccessKeyID = getenv(accessKeyIDName)
+	creds.SecretAccessKey = getenv(secretAccessKeyName)
+	creds.SessionToken = getenv(sessionTokenName)
+	creds.Region = getenv(regionName)
 
 	found = creds.AccessKeyID != "" && creds.SecretAccessKey != ""
 	return creds, found, nil

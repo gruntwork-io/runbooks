@@ -388,12 +388,13 @@ func TestReadAwsEnvCredentials(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set up environment
-			for k, v := range tc.envVars {
-				t.Setenv(k, v)
+			// Use a custom getenv that only sees the test's env vars, so real
+			// credentials from the developer's shell don't leak through.
+			getenv := func(key string) string {
+				return tc.envVars[key]
 			}
 
-			creds, found, err := api.ReadAwsEnvCredentials(tc.prefix)
+			creds, found, err := api.ReadAwsEnvCredentials(tc.prefix, getenv)
 
 			if tc.expectError {
 				assert.Error(t, err)

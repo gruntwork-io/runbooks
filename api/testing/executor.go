@@ -161,6 +161,18 @@ func (e *TestExecutor) resolveOutputPath() string {
 	return filepath.Join(e.workingDir, e.outputPath)
 }
 
+// getenv returns a lookup function that consults e.testEnv first, then falls
+// back to os.Getenv. An empty-string value in testEnv is treated as "explicitly
+// cleared" (returns ""), which lets test configs override real env vars to empty.
+func (e *TestExecutor) getenv(key string) string {
+	if e.testEnv != nil {
+		if val, ok := e.testEnv[key]; ok {
+			return val
+		}
+	}
+	return os.Getenv(key)
+}
+
 // TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
 type TemplateInlineBlock struct {
 	ID         string
@@ -1291,10 +1303,11 @@ type AwsCredentialInfo struct {
 }
 
 // detectAwsCredentials checks all possible sources of AWS credentials and returns
-// detailed information about what was found.
-func detectAwsCredentials(prefix string) (creds api.AwsEnvCredentials, info AwsCredentialInfo, found bool) {
+// detailed information about what was found. The getenv function is used to look up
+// environment variables, allowing test overrides to be respected.
+func detectAwsCredentials(prefix string, getenv func(string) string) (creds api.AwsEnvCredentials, info AwsCredentialInfo, found bool) {
 	// 1. Check for explicit static credentials via environment variables
-	envCreds, envFound, err := api.ReadAwsEnvCredentials(prefix)
+	envCreds, envFound, err := api.ReadAwsEnvCredentials(prefix, getenv)
 	if err == nil && envFound {
 		info.Source = AwsCredSourceEnvVars
 		info.HasSessionToken = envCreds.SessionToken != ""
@@ -1328,10 +1341,10 @@ func detectAwsCredentials(prefix string) (creds api.AwsEnvCredentials, info AwsC
 	}
 
 	// 2. Check for AWS_PROFILE (named profile auth)
-	if awsProfile := os.Getenv("AWS_PROFILE"); awsProfile != "" {
+	if awsProfile := getenv("AWS_PROFILE"); awsProfile != "" {
 		info.Source = AwsCredSourceProfile
 		info.ProfileName = awsProfile
-		info.Region = os.Getenv("AWS_REGION")
+		info.Region = getenv("AWS_REGION")
 		info.EnvVars = []string{"AWS_PROFILE"}
 		if info.Region != "" {
 			info.EnvVars = append(info.EnvVars, "AWS_REGION")
@@ -1340,13 +1353,13 @@ func detectAwsCredentials(prefix string) (creds api.AwsEnvCredentials, info AwsC
 	}
 
 	// 3. Check for OIDC / Web Identity Token (common in CI/CD like GitHub Actions)
-	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
-	webIdentityTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+	awsRoleArn := getenv("AWS_ROLE_ARN")
+	webIdentityTokenFile := getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
 	if awsRoleArn != "" && webIdentityTokenFile != "" {
 		info.Source = AwsCredSourceOIDC
 		info.RoleArn = awsRoleArn
 		info.TokenFile = webIdentityTokenFile
-		info.Region = os.Getenv("AWS_REGION")
+		info.Region = getenv("AWS_REGION")
 		info.EnvVars = []string{"AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"}
 		if info.Region != "" {
 			info.EnvVars = append(info.EnvVars, "AWS_REGION")
@@ -1355,18 +1368,18 @@ func detectAwsCredentials(prefix string) (creds api.AwsEnvCredentials, info AwsC
 	}
 
 	// 4. Check for container credentials (ECS, CodeBuild, etc.)
-	if containerCredsUri := os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"); containerCredsUri != "" {
+	if containerCredsUri := getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"); containerCredsUri != "" {
 		info.Source = AwsCredSourceContainerCreds
-		info.Region = os.Getenv("AWS_REGION")
+		info.Region = getenv("AWS_REGION")
 		info.EnvVars = []string{"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"}
 		if info.Region != "" {
 			info.EnvVars = append(info.EnvVars, "AWS_REGION")
 		}
 		return api.AwsEnvCredentials{Region: info.Region}, info, true
 	}
-	if containerCredsFullUri := os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"); containerCredsFullUri != "" {
+	if containerCredsFullUri := getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"); containerCredsFullUri != "" {
 		info.Source = AwsCredSourceContainerCreds
-		info.Region = os.Getenv("AWS_REGION")
+		info.Region = getenv("AWS_REGION")
 		info.EnvVars = []string{"AWS_CONTAINER_CREDENTIALS_FULL_URI"}
 		if info.Region != "" {
 			info.EnvVars = append(info.EnvVars, "AWS_REGION")
@@ -1410,18 +1423,23 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 		Outputs:        make(map[string]string),
 	}
 
+	// Build a getenv function that consults testEnv first, then falls back to os.Getenv.
+	// This ensures that env overrides from runbook_test.yml are respected during
+	// credential detection (e.g., clearing AWS_PROFILE to force a skip).
+	getenv := e.getenv
+
 	// Get prefix from test step config (env_prefix field in runbook_test.yml)
 	prefix := step.EnvPrefix
 
 	// Detect credentials from all possible sources
-	creds, credInfo, found := detectAwsCredentials(prefix)
+	creds, credInfo, found := detectAwsCredentials(prefix, getenv)
 
 	// If prefix was specified but no prefixed credentials found, try without prefix
 	if !found && prefix != "" {
 		if e.verbose {
 			fmt.Printf("  No credentials found with prefix %q, trying standard vars...\n", prefix)
 		}
-		creds, credInfo, found = detectAwsCredentials("")
+		creds, credInfo, found = detectAwsCredentials("", getenv)
 	}
 
 	if !found {
@@ -1501,7 +1519,7 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 	} else if credInfo.Source == AwsCredSourceContainerCreds {
 		// For container creds, store the URI env vars
 		for _, envVar := range credInfo.EnvVars {
-			if val := os.Getenv(envVar); val != "" {
+			if val := getenv(envVar); val != "" {
 				blockCreds[envVar] = val
 			}
 		}
