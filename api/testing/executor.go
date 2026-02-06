@@ -1198,28 +1198,32 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 	var token string
 	var tokenSource string
 
+	// Use e.getenv so that test environment overrides from runbook_test.yml
+	// are respected (e.g., clearing GITHUB_TOKEN to force a skip).
+	getenv := e.getenv
+
 	if prefix != "" {
 		// If env_prefix specified on test step, check prefixed vars
-		token = os.Getenv(prefix + "GITHUB_TOKEN")
+		token = getenv(prefix + "GITHUB_TOKEN")
 		if token != "" {
 			tokenSource = prefix + "GITHUB_TOKEN"
 		} else {
-			token = os.Getenv(prefix + "GH_TOKEN")
+			token = getenv(prefix + "GH_TOKEN")
 			if token != "" {
 				tokenSource = prefix + "GH_TOKEN"
 			}
 		}
 	} else {
 		// Default behavior: check RUNBOOKS_GITHUB_TOKEN first, then standard vars
-		token = os.Getenv(DefaultGitHubAuthEnvVar)
+		token = getenv(DefaultGitHubAuthEnvVar)
 		if token != "" {
 			tokenSource = DefaultGitHubAuthEnvVar
 		} else {
-			token = os.Getenv("GITHUB_TOKEN")
+			token = getenv("GITHUB_TOKEN")
 			if token != "" {
 				tokenSource = "GITHUB_TOKEN"
 			} else {
-				token = os.Getenv("GH_TOKEN")
+				token = getenv("GH_TOKEN")
 				if token != "" {
 					tokenSource = "GH_TOKEN"
 				}
