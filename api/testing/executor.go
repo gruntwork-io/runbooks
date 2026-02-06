@@ -1292,7 +1292,6 @@ const (
 	AwsCredSourceProfile        AwsCredentialSource = "aws_profile"
 	AwsCredSourceOIDC           AwsCredentialSource = "oidc_web_identity"
 	AwsCredSourceContainerCreds AwsCredentialSource = "container_credentials"
-	AwsCredSourceIMDS           AwsCredentialSource = "instance_metadata"
 )
 
 // AwsCredentialInfo holds detailed information about detected AWS credentials.
@@ -1318,28 +1317,15 @@ func detectAwsCredentials(prefix string, getenv func(string) string) (creds api.
 		info.Region = envCreds.Region
 
 		// Build list of env vars that contained credentials
-		if prefix != "" {
-			info.EnvVars = []string{
-				prefix + "AWS_ACCESS_KEY_ID",
-				prefix + "AWS_SECRET_ACCESS_KEY",
-			}
-			if envCreds.SessionToken != "" {
-				info.EnvVars = append(info.EnvVars, prefix+"AWS_SESSION_TOKEN")
-			}
-			if envCreds.Region != "" {
-				info.EnvVars = append(info.EnvVars, prefix+"AWS_REGION")
-			}
-		} else {
-			info.EnvVars = []string{
-				"AWS_ACCESS_KEY_ID",
-				"AWS_SECRET_ACCESS_KEY",
-			}
-			if envCreds.SessionToken != "" {
-				info.EnvVars = append(info.EnvVars, "AWS_SESSION_TOKEN")
-			}
-			if envCreds.Region != "" {
-				info.EnvVars = append(info.EnvVars, "AWS_REGION")
-			}
+		info.EnvVars = []string{
+			prefix + "AWS_ACCESS_KEY_ID",
+			prefix + "AWS_SECRET_ACCESS_KEY",
+		}
+		if envCreds.SessionToken != "" {
+			info.EnvVars = append(info.EnvVars, prefix+"AWS_SESSION_TOKEN")
+		}
+		if envCreds.Region != "" {
+			info.EnvVars = append(info.EnvVars, prefix+"AWS_REGION")
 		}
 		return envCreds, info, true
 	}
@@ -1409,8 +1395,6 @@ func formatCredentialSource(info AwsCredentialInfo) string {
 		return "OIDC web identity"
 	case AwsCredSourceContainerCreds:
 		return "container credentials"
-	case AwsCredSourceIMDS:
-		return "EC2 instance metadata"
 	default:
 		return "unknown source"
 	}
