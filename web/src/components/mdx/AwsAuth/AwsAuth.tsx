@@ -183,6 +183,7 @@ function AwsAuth({
             <DetectedCredentialsPrompt
               credentials={auth.detectedCredentials}
               warning={auth.detectionWarning}
+              confirming={auth.authStatus === 'authenticating'}
               onConfirm={auth.handleConfirmDetected}
               onReject={auth.handleRejectDetected}
             />

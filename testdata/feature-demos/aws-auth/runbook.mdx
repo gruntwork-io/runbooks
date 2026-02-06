@@ -1,16 +1,24 @@
 # AWS Authentication Demo
 
-This runbook demonstrates the AWS Authentication block, which provides multiple ways to authenticate to AWS before running AWS-related commands and checks.
+This runbook demonstrates every configuration option for the `<AwsAuth>` block. Each section explains what the configuration does and when you'd use it.
 
-## Authenticate to AWS
+The `<AwsAuth>` block provides three manual authentication methods (static credentials, AWS SSO, and local profiles) and several automatic credential detection options. By default, it checks for existing credentials in your environment and prompts you to confirm before using them.
 
-Before running any AWS commands, you need to authenticate. The `<AwsAuth>` block below provides three methods:
+---
 
-1. **Static Credentials** - Enter your AWS Access Key ID and Secret Access Key directly
-2. **AWS SSO** - Use your organization's AWS Single Sign-On portal
-3. **Local Profile** - Use a profile configured in your `~/.aws/credentials` file
+## 1. Basic Usage
 
-By default, AwsAuth automatically checks for existing credentials in your environment. If found, you'll be prompted to confirm before they're used.
+The simplest form of AwsAuth. With no `detectCredentials` prop, it defaults to `['env']`, which checks for standard AWS environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.). If found, you'll see a confirmation prompt showing the account ID and identity before anything is registered to the session.
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to AWS"
+  defaultRegion="us-west-2"
+  ssoRegion="us-west-2"
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+/>
+```
 
 <AwsAuth
   id="aws-auth"
@@ -19,45 +27,260 @@ By default, AwsAuth automatically checks for existing credentials in your enviro
   defaultRegion="us-west-2"
   ssoRegion="us-west-2"
   ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
-  detectCredentials={['env']}
 />
-
-## Verify Your Identity
-
-Once authenticated, let's verify which AWS account and identity you're using. Note that this check doesn't specify `awsAuthId` - it automatically uses the credentials from the most recently authenticated AwsAuth block.
 
 <Check
   id="verify-identity"
   title="Verify AWS Identity"
   description="Confirms your AWS authentication by calling STS GetCallerIdentity"
   command="aws sts get-caller-identity"
+  awsAuthId="aws-auth"
   successMessage="Successfully authenticated to AWS!"
   failMessage="Failed to authenticate. Please check your credentials above."
   usePty={false}
 />
 
-## List S3 Buckets
+---
 
-Now let's try a real AWS operation - listing your S3 buckets:
+## 2. Credential Detection Options
+
+The `detectCredentials` prop controls how and whether AwsAuth looks for existing credentials. It accepts `false` (to disable detection entirely) or an array of credential sources to try.
+
+### 2a. Explicit Environment Detection
+
+This is equivalent to the default behavior, but shown explicitly. Use this when you want to make it clear in the runbook source that env detection is intentional.
+
+```mdx
+<AwsAuth
+  id="explicit-env"
+  detectCredentials={['env']}
+  defaultRegion="us-west-2"
+/>
+```
+
+<AwsAuth
+  id="explicit-env"
+  title="AWS Access (explicit env detection)"
+  description="Detects credentials from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc. You'll be prompted to confirm."
+  detectCredentials={['env']}
+  defaultRegion="us-west-2"
+/>
+
+### 2b. Prefixed Environment Variables
+
+Use a custom prefix when your environment has credentials under non-standard names. This is common in CI/CD pipelines or when multiple sets of credentials coexist in the same environment.
+
+For example, the configuration below checks for: `PROD_AWS_ACCESS_KEY_ID`, `PROD_AWS_SECRET_ACCESS_KEY`, `PROD_AWS_SESSION_TOKEN`, and `PROD_AWS_REGION`.
+
+Prefixes must be uppercase alphanumeric with underscores and must end with a trailing underscore (e.g., `PROD_`, `MY_APP_`).
+
+```mdx
+<AwsAuth
+  id="prefixed-env"
+  detectCredentials={[{ env: { prefix: 'PROD_' } }]}
+  defaultRegion="us-east-1"
+/>
+```
+
+<AwsAuth
+  id="prefixed-env"
+  title="Production Credentials (prefixed env)"
+  description="Detects credentials from PROD_AWS_ACCESS_KEY_ID, PROD_AWS_SECRET_ACCESS_KEY, etc."
+  detectCredentials={[{ env: { prefix: 'PROD_' } }]}
+  defaultRegion="us-east-1"
+/>
+
+### 2c. Manual Only (No Auto-Detection)
+
+Set `detectCredentials={false}` to disable credential detection entirely. The user must always authenticate manually via the Static Credentials, SSO, or Local Profile tabs.
+
+Use this when you want to ensure users consciously choose their authentication method every time, or when auto-detection would be confusing (e.g., if the environment always has credentials for the wrong account).
+
+```mdx
+<AwsAuth
+  id="manual-only"
+  detectCredentials={false}
+  defaultRegion="us-west-2"
+/>
+```
+
+<AwsAuth
+  id="manual-only"
+  title="Manual Authentication Only"
+  description="No auto-detection. You must authenticate manually via one of the tabs below."
+  detectCredentials={false}
+  defaultRegion="us-west-2"
+/>
+
+### 2d. From a Command Block
+
+Use `{ block: 'block-id' }` to consume credentials generated by a previous Command block. The Command script should write `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN` and `AWS_REGION` to `$RUNBOOK_OUTPUT`.
+
+This is useful for cross-account access via `sts assume-role`, or any scenario where credentials need to be generated dynamically.
+
+````mdx
+<Command
+  id="assume-cross-account-role"
+  path="scripts/assume-role.sh"
+  title="Assume Cross-Account Role"
+  awsAuthId="aws-auth"
+>
+  <Inputs id="assume-role-inputs">
+    ```yaml
+    variables:
+      - name: TargetAccountId
+        type: string
+        description: "The AWS account ID to assume a role in"
+        default: "121490076058"
+      - name: RoleName
+        type: string
+        description: "The IAM role name to assume"
+        default: "RunbooksDemoAssumeRole"
+    ```
+  </Inputs>
+</Command>
+
+<AwsAuth
+  id="block-sourced"
+  detectCredentials={[{ block: 'assume-cross-account-role' }]}
+  defaultRegion="us-east-1"
+/>
+````
+
+<Command
+  id="assume-cross-account-role"
+  path="scripts/assume-role.sh"
+  title="Assume Cross-Account Role"
+  description="Assumes a role in another account and outputs temporary credentials. Configure the target account and role below."
+  awsAuthId="aws-auth"
+>
+  <Inputs id="assume-role-inputs">
+    ```yaml
+    variables:
+      - name: TargetAccountId
+        type: string
+        description: "The AWS account ID to assume a role into (can be the same account or a different one)"
+        default: "121490076058"
+      - name: RoleName
+        type: string
+        description: >
+          The IAM role name to assume. The role must exist in the target account and its
+          trust policy must allow your current identity to assume it. To create a demo role,
+          run: aws iam create-role --role-name RunbooksDemoAssumeRole --assume-role-policy-document
+          '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::YOUR_ACCOUNT_ID:root"},"Action":"sts:AssumeRole"}]}'
+        default: "RunbooksDemoAssumeRole"
+    ```
+  </Inputs>
+</Command>
+
+<AwsAuth
+  id="block-sourced"
+  title="Cross-Account Access (from block)"
+  description="Uses credentials generated by the assume-role script above. You'll be prompted to confirm once the script completes."
+  detectCredentials={[{ block: 'assume-cross-account-role' }]}
+  defaultRegion="us-east-1"
+/>
 
 <Check
-  id="list-buckets"
-  title="List S3 Buckets"
-  description="Lists all S3 buckets in your AWS account"
-  command="aws s3 ls"
-  successMessage="S3 buckets listed successfully!"
-  failMessage="Failed to list S3 buckets. Make sure you have the necessary permissions."
+  id="verify-block-sourced"
+  title="Verify Cross-Account Access"
+  description="Confirms that the assumed role credentials are working"
+  command="aws sts get-caller-identity"
+  awsAuthId="block-sourced"
+  successMessage="Successfully assumed cross-account role!"
+  failMessage="Failed to verify cross-account credentials."
+  usePty={false}
+/>
+
+### 2e. Priority Ordering: Block Before Environment
+
+When `detectCredentials` contains multiple sources, they're tried **in order**. The first source that succeeds wins.
+
+**Important:** Block sources respect strict priority ordering. If a block source is listed before an environment source but the block hasn't executed yet, AwsAuth **waits for the block** rather than skipping ahead to the environment source. This ensures the author's intended priority is respected.
+
+In the example below:
+1. AwsAuth first waits for the `assume-cross-account-role` Command block to execute
+2. If the block produces valid credentials, those are used (with a confirmation prompt)
+3. Only if the block fails (produces invalid credentials or no AWS keys) does AwsAuth fall back to checking environment variables
+
+```mdx
+<AwsAuth
+  id="block-then-env"
+  detectCredentials={[{ block: 'assume-cross-account-role' }, 'env']}
+  defaultRegion="us-west-2"
+/>
+```
+
+<AwsAuth
+  id="block-then-env"
+  title="Prefer Block, Fall Back to Env"
+  description="Waits for the assume-role script to produce credentials. If the script fails or outputs invalid credentials, falls back to standard environment variables."
+  detectCredentials={[{ block: 'assume-cross-account-role' }, 'env']}
+  defaultRegion="us-west-2"
+/>
+
+### 2f. Priority Ordering: Environment Before Block
+
+If environment sources are listed before a block source, they're checked first (since env vars are available immediately). The block is only tried if the env sources don't produce valid credentials.
+
+Use this when you want to use existing credentials if available, but have a Command block as a backup that can generate fresh credentials.
+
+```mdx
+<AwsAuth
+  id="env-then-block"
+  detectCredentials={['env', { block: 'assume-cross-account-role' }]}
+  defaultRegion="us-west-2"
+/>
+```
+
+<AwsAuth
+  id="env-then-block"
+  title="Prefer Env, Fall Back to Block"
+  description="Checks environment variables first. If none are found, waits for the assume-role script to produce credentials."
+  detectCredentials={['env', { block: 'assume-cross-account-role' }]}
+  defaultRegion="us-west-2"
+/>
+
+### 2g. Multiple Environment Sources
+
+You can chain multiple environment sources to check different prefixed variables in priority order. The first one that has valid credentials wins.
+
+In this example, AwsAuth first checks for `PROD_AWS_ACCESS_KEY_ID`, etc. If those aren't set, it falls back to the standard `AWS_ACCESS_KEY_ID`, etc.
+
+```mdx
+<AwsAuth
+  id="multi-env"
+  detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}
+  defaultRegion="us-east-1"
+/>
+```
+
+<AwsAuth
+  id="multi-env"
+  title="Multi-Env Fallback"
+  description="Checks PROD_* env vars first, then falls back to standard AWS_* env vars."
+  detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}
+  defaultRegion="us-east-1"
 />
 
 ---
 
-## Working with Multiple AWS Accounts
+## 3. Multiple AWS Accounts
 
-In many scenarios, you need to work with multiple AWS accounts in a single runbook - for example, copying data from a development account to production, or comparing resources across accounts.
+A single runbook can include multiple AwsAuth blocks to authenticate to different AWS accounts. Use the `awsAuthId` prop on Command and Check blocks to specify which credentials to use.
 
-When you have multiple AwsAuth blocks, the most recently authenticated credentials become the "active" session. However, you can use the `awsAuthId` prop to explicitly specify which credentials a Command or Check should use.
+Without `awsAuthId`, blocks use the most recently authenticated credentials (the session environment). With `awsAuthId`, they use the specific AwsAuth block's credentials regardless of order.
 
-### Authenticate to a Second Account
+```mdx
+<AwsAuth id="primary-account" defaultRegion="us-west-2" />
+<AwsAuth id="secondary-account" defaultRegion="us-east-1" />
+
+{/* Each Check targets a specific AwsAuth block */}
+<Check command="aws s3 ls" awsAuthId="primary-account" />
+<Check command="aws s3 ls" awsAuthId="secondary-account" />
+```
+
+### Secondary Account
 
 <AwsAuth
   id="aws-auth-secondary"
@@ -66,12 +289,10 @@ When you have multiple AwsAuth blocks, the most recently authenticated credentia
   defaultRegion="us-east-1"
   ssoRegion="us-west-2"
   ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
-  detectCredentials={[ 'env' ]}
+  detectCredentials={['env']}
 />
 
-### Compare S3 Buckets Across Accounts
-
-Now that both accounts are authenticated, we can run commands against each one by specifying `awsAuthId`:
+### Compare Across Accounts
 
 <Check
   id="list-buckets-primary"
@@ -95,92 +316,39 @@ Now that both accounts are authenticated, we can run commands against each one b
 
 ---
 
-## Credential Detection
+## 4. How Credentials Work
 
-### Auto-Detection from Environment Variables
+### Environment Variables Set
 
-By default, AwsAuth auto-detects credentials from environment variables. This example explicitly shows the default behavior:
-
-<AwsAuth
-  id="aws-auth-from-env"
-  title="AWS Access (from environment)"
-  description="Credentials are auto-detected from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc. You'll be prompted to confirm before they're used."
-  detectCredentials={['env']}
-  defaultRegion="us-west-2"
-/>
-
-<Check
-  id="verify-env-auth"
-  title="Verify Environment Credentials"
-  description="Confirms authentication using credentials loaded from environment"
-  command="aws sts get-caller-identity"
-  awsAuthId="aws-auth-from-env"
-  successMessage="Environment credentials are valid!"
-  failMessage="No valid credentials found in environment."
-/>
-
-### Disable Auto-Detection
-
-If you want users to always authenticate manually (no auto-detection), set `detectCredentials={false}`:
-
-<AwsAuth
-  id="manual-only"
-  title="Manual Authentication Only"
-  description="This block won't auto-detect credentials - you must authenticate manually."
-  detectCredentials={false}
-  defaultRegion="us-west-2"
-/>
-
-### Dynamic Credential Generation
-
-In cross-account scenarios, you might need to assume a role and use those credentials. A Command block can generate credentials that are then consumed by an AwsAuth block:
-
-<Command
-  id="assume-cross-account-role"
-  path="scripts/assume-role.sh"
-  title="Assume Cross-Account Role"
-  description="Assumes a role in another account and outputs credentials. Requires ROLE_ARN environment variable."
-/>
-
-<AwsAuth
-  id="cross-account-auth"
-  title="Cross-Account Access"
-  description="Uses credentials from the assume-role script above. You'll be prompted to confirm before they're used."
-  detectCredentials={[{ block: 'assume-cross-account-role' }]}
-  defaultRegion="us-east-1"
-/>
-
-<Check
-  id="verify-cross-account"
-  title="Verify Cross-Account Access"
-  description="Confirms that the assumed role credentials are working"
-  command="aws sts get-caller-identity"
-  awsAuthId="cross-account-auth"
-  successMessage="Successfully assumed cross-account role!"
-  failMessage="Failed to verify cross-account credentials."
-/>
-
----
-
-## Usage Notes
-
-### How Credentials Are Passed
-
-When you authenticate with an AwsAuth block, the following environment variables are set:
+When you authenticate (manually or by confirming auto-detected credentials), these environment variables are set:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
-- `AWS_SESSION_TOKEN` (if using temporary credentials)
+- `AWS_SESSION_TOKEN` (if using temporary credentials from SSO, assume-role, etc.)
 - `AWS_REGION`
 
-By default, these are set as **session environment variables**, meaning all subsequent Command and Check blocks will use them automatically.
+### Session vs `awsAuthId`
 
-When you specify `awsAuthId` on a Command or Check, those credentials are passed **directly to that specific execution**, overriding the session environment for that command only.
+By default, credentials are set as **session environment variables**. Every subsequent Command and Check block sees them. The most recently authenticated AwsAuth block's credentials are the "active" ones.
 
-### Security Considerations
+When you specify `awsAuthId` on a Command or Check, that block uses the specified AwsAuth block's credentials **directly**, overriding the session environment for that execution only.
 
-- **Confirmation Required**: When credentials are auto-detected, you must confirm before they're used. This prevents accidental operations against the wrong account.
-- **Rejection Clears Credentials**: If you click "Use Different Credentials", the detected credentials are cleared from the session to prevent accidental use.
-- **Static Credentials**: Avoid using long-term credentials when possible. Consider using SSO or IAM roles instead.
-- **SSO**: The most secure option for organizations. Credentials automatically expire.
-- **Local Profiles**: Good for development, but be careful not to expose credential files.
+### Security
+
+- **Confirmation required**: Auto-detected credentials are never registered to the session until you confirm. This prevents accidental operations against the wrong AWS account.
+- **Credential stripping**: When a runbook contains any AwsAuth blocks, AWS credentials are automatically stripped from the session at startup. Scripts cannot access AWS credentials until you explicitly confirm.
+- **Credentials stay local**: All authentication happens between your machine and AWS. Credentials are never transmitted to external servers.
+- **Validation before use**: Credentials are validated via STS GetCallerIdentity before being registered.
+
+### `detectCredentials` Quick Reference
+
+| Configuration | Behavior |
+|--------------|----------|
+| *(omitted)* | Same as `['env']` |
+| `{['env']}` | Check `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc. |
+| `{[{ env: { prefix: 'PROD_' } }]}` | Check `PROD_AWS_ACCESS_KEY_ID`, etc. |
+| `{[{ block: 'cmd-id' }]}` | Use credentials from a Command block's output |
+| `{false}` | No auto-detection; manual auth only |
+| `{[{ block: 'cmd-id' }, 'env']}` | Wait for block first; fall back to env if block fails |
+| `{['env', { block: 'cmd-id' }]}` | Check env first; wait for block only if env has no creds |
+| `{[{ env: { prefix: 'PROD_' } }, 'env']}` | Check prefixed env first, then standard env |

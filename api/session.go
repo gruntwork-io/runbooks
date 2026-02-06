@@ -331,25 +331,6 @@ func (sm *SessionManager) AppendToEnv(env map[string]string) error {
 	return nil
 }
 
-// RemoveFromEnv removes the specified environment variables from the session.
-// This is used when a user rejects auto-detected credentials to prevent them
-// from being accidentally used by subsequent commands.
-func (sm *SessionManager) RemoveFromEnv(keys []string) error {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	if sm.session == nil {
-		return fmt.Errorf("no active session")
-	}
-
-	for _, key := range keys {
-		delete(sm.session.Env, key)
-	}
-	sm.session.LastActivity = time.Now()
-
-	return nil
-}
-
 // ResetSession restores the session to its initial environment state.
 func (sm *SessionManager) ResetSession() error {
 	sm.mu.Lock()

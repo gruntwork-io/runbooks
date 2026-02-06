@@ -415,6 +415,17 @@ export function useScriptExecution({
     registerLogs(componentId, logs)
   }, [componentId, logs, registerLogs])
 
+  // When execution finishes without producing outputs, register an empty outputs map.
+  // This lets downstream watchers (e.g. AwsAuth block-based detection) distinguish
+  // "block hasn't run yet" (no entry in blockOutputs) from "block ran but produced
+  // no outputs" (entry exists with empty values).
+  useEffect(() => {
+    const isTerminal = status === 'success' || status === 'fail' || status === 'warn'
+    if (isTerminal && outputs === null) {
+      registerOutputs(componentId, {})
+    }
+  }, [status, outputs, componentId, registerOutputs])
+
   // Function to render script with inputs
   const renderScript = useCallback(async (inputs: InputValue[]) => {
     // Cancel any pending render request

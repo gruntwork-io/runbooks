@@ -1,10 +1,11 @@
-import { AlertTriangle, ShieldCheck } from "lucide-react"
+import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { DetectedAwsCredentials, AwsDetectionSource } from "../types"
 
 interface DetectedCredentialsPromptProps {
   credentials: DetectedAwsCredentials
   warning?: string | null
+  confirming?: boolean
   onConfirm: () => void
   onReject: () => void
 }
@@ -23,6 +24,7 @@ function getSourceLabel(source: AwsDetectionSource): string {
 export function DetectedCredentialsPrompt({
   credentials,
   warning,
+  confirming = false,
   onConfirm,
   onReject,
 }: DetectedCredentialsPromptProps) {
@@ -97,13 +99,16 @@ export function DetectedCredentialsPrompt({
         <div className="flex items-center gap-3">
           <Button
             onClick={onConfirm}
+            disabled={confirming}
             size="sm"
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
-            Use These Credentials
+            {confirming && <Loader2 className="size-4 mr-2 animate-spin" />}
+            {confirming ? 'Confirming…' : 'Use These Credentials'}
           </Button>
           <Button
             onClick={onReject}
+            disabled={confirming}
             variant="outline"
             size="sm"
           >
