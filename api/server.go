@@ -102,6 +102,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.POST("/github/oauth/poll", HandleGitHubOAuthPoll())
 		protectedAPI.POST("/github/env-credentials", HandleGitHubEnvCredentials(sessionManager))
 		protectedAPI.POST("/github/cli-credentials", HandleGitHubCliCredentials(sessionManager))
+		// GitHub browsing endpoints for GitClone block (read-only, requires session for token)
+		protectedAPI.GET("/github/orgs", HandleGitHubListOrgs(sessionManager))
+		protectedAPI.GET("/github/repos", HandleGitHubListRepos(sessionManager))
+		// Git clone endpoint (SSE streaming)
+		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir))
 	}
 
 	// Generated files endpoints (no session context needed)
