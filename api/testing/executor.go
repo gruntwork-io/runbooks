@@ -156,6 +156,10 @@ type TestExecutor struct {
 	// When a Check/Command specifies awsAuthId="my-auth", we look up credentials from this map
 	// instead of just using the session environment
 	authBlockCredentials map[string]map[string]string // authBlockID -> envVarName -> value
+
+	// Active worktree path: set by the last successful GitClone block.
+	// Used to inject WORKTREE_FILES environment variable into Command/Check scripts.
+	activeWorkTreePath string
 }
 
 // resolveOutputPath returns the absolute path to the output directory.
@@ -177,10 +181,12 @@ func (e *TestExecutor) getenv(key string) string {
 
 // TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
 type TemplateInlineBlock struct {
-	ID         string
-	Content    string // The template content (between the tags)
-	OutputPath string // The outputPath prop
-	InputsID   string // The inputsId prop (may be empty)
+	ID           string
+	Content      string // The template content (between the tags)
+	OutputPath   string // The outputPath prop
+	InputsID     string // The inputsId prop (may be empty)
+	Target       string // The target prop: "generated" (default) or "worktree"
+	GenerateFile bool   // Whether to write the file to disk
 }
 
 // TemplateBlock holds information about a Template block parsed from the runbook
@@ -188,6 +194,7 @@ type TemplateBlock struct {
 	ID           string
 	TemplatePath string // The path prop (relative to runbook directory)
 	InputsID     string // The inputsId prop (may be empty)
+	Target       string // The target prop: "generated" (default) or "worktree"
 }
 
 // ExecutorOption configures a TestExecutor.
@@ -328,11 +335,17 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 		// Extract the actual template content from code fence if present
 		templateContent = extractTemplateContent(templateContent)
 
+		target := extractMDXPropValue(props, "target")
+		generateFileStr := extractMDXPropValue(props, "generateFile")
+		generateFile := generateFileStr == "true" || generateFileStr == "{true}"
+
 		blocks[id] = &TemplateInlineBlock{
-			ID:         id,
-			Content:    templateContent,
-			OutputPath: outputPath,
-			InputsID:   inputsID,
+			ID:           id,
+			Content:      templateContent,
+			OutputPath:   outputPath,
+			InputsID:     inputsID,
+			Target:       target,
+			GenerateFile: generateFile,
 		}
 	}
 
@@ -367,10 +380,13 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 			continue // Skip invalid blocks
 		}
 
+		target := extractMDXPropValue(props, "target")
+
 		blocks[id] = &TemplateBlock{
 			ID:           id,
 			TemplatePath: templatePath,
 			InputsID:     inputsID,
+			Target:       target,
 		}
 	}
 
@@ -450,6 +466,8 @@ func extractMDXPropValue(props, propName string) string {
 		fmt.Sprintf(`%s=\{`+"`([^`]*)`"+`\}`, propName),
 		fmt.Sprintf(`%s=\{"([^"]*)"\}`, propName),
 		fmt.Sprintf(`%s=\{'([^']*)'\}`, propName),
+		// Match bare JSX expressions like generateFile={true} or count={42}
+		fmt.Sprintf(`%s=\{([^}]+)\}`, propName),
 	}
 
 	for _, pattern := range patterns {
@@ -825,7 +843,7 @@ func (e *TestExecutor) getConfigErrorForBlock(block api.ParsedComponent, registr
 			return warning
 		}
 		return e.validator.GetConfigError(block.Type, block.ID)
-	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition):
+	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition), string(BlockTypeGitClone):
 		return e.validator.GetConfigError(block.Type, block.ID)
 	default:
 		// Check if it's an auth block
@@ -1074,6 +1092,46 @@ func (e *TestExecutor) executeTemplateInline(step TestStep, block *TemplateInlin
 		return result
 	}
 
+	// If generateFile is true, write the rendered content to disk
+	if block.GenerateFile && block.OutputPath != "" {
+		var outputDir string
+		if block.Target == "worktree" {
+			if e.activeWorkTreePath == "" {
+				result.Passed = false
+				result.ActualStatus = "error"
+				result.Error = "target is \"worktree\" but no git worktree has been cloned. Use a <GitClone> block first"
+				result.Duration = time.Since(start)
+				if e.verbose {
+					fmt.Printf("--- Result: ✗ error ---\n")
+					fmt.Printf("  Error: %s\n", result.Error)
+				}
+				return result
+			}
+			outputDir = e.activeWorkTreePath
+		} else {
+			outputDir = e.resolveOutputPath()
+		}
+
+		outputFile := filepath.Join(outputDir, block.OutputPath)
+		if err := os.MkdirAll(filepath.Dir(outputFile), 0755); err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to create output directory: %v", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		if err := os.WriteFile(outputFile, []byte(rendered), 0644); err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to write file: %v", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		if e.verbose {
+			fmt.Printf("--- Wrote file: %s ---\n", outputFile)
+		}
+	}
+
 	// Success - template rendered
 	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
 	result.ActualStatus = "success"
@@ -1115,8 +1173,24 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 	// Build template variables from test inputs
 	vars := e.buildTemplateVars()
 
-	// Determine output directory - resolve outputPath relative to workingDir
-	outputDir := e.resolveOutputPath()
+	// Determine output directory based on target
+	var outputDir string
+	if block.Target == "worktree" {
+		if e.activeWorkTreePath == "" {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = "target is \"worktree\" but no git worktree has been cloned. Use a <GitClone> block first"
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("--- Result: ✗ error ---\n")
+				fmt.Printf("  Error: %s\n", result.Error)
+			}
+			return result
+		}
+		outputDir = e.activeWorkTreePath
+	} else {
+		outputDir = e.resolveOutputPath()
+	}
 
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -1135,6 +1209,9 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 		fmt.Printf("--- Rendering Template ---\n")
 		fmt.Printf("  Template: %s\n", block.TemplatePath)
 		fmt.Printf("  Output: %s\n", outputDir)
+		if block.Target == "worktree" {
+			fmt.Printf("  Target: worktree\n")
+		}
 	}
 
 	// Render the template using boilerplate
@@ -1392,6 +1469,9 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 
 	// Store in block outputs for downstream access
 	e.blockOutputs[block.ID] = result.Outputs
+
+	// Track this as the active worktree for WORKTREE_FILES injection
+	e.activeWorkTreePath = absolutePath
 
 	e.blockStates[block.ID] = BlockStateSuccess
 	result.ActualStatus = "success"
@@ -1897,7 +1977,13 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	// Set environment
 	cmd.Env = execCtx.Env
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFilePath))
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", filesDir))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("GENERATED_FILES=%s", filesDir))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", filesDir)) // backward-compat alias
+
+	// Inject WORKTREE_FILES if a git worktree has been cloned
+	if e.activeWorkTreePath != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("WORKTREE_FILES=%s", e.activeWorkTreePath))
+	}
 
 	// Add test-specific environment variables
 	for key, value := range e.testEnv {

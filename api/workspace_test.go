@@ -1,0 +1,558 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
+
+// Minimal valid PNG file (8-byte header). Defined once as a test fixture.
+var testPNGBytes = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+
+func setupWorkspaceTestRouter(sm *SessionManager) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/workspace/tree", HandleWorkspaceTree())
+	r.GET("/api/workspace/file", HandleWorkspaceFile())
+	r.GET("/api/workspace/changes", HandleWorkspaceChanges(sm))
+	return r
+}
+
+// createTempDirWithFiles creates a temp dir with nested files for testing.
+func createTempDirWithFiles(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	// Create nested structure
+	os.MkdirAll(filepath.Join(dir, "src", "utils"), 0755)
+	os.MkdirAll(filepath.Join(dir, "docs"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "utils", "helper.go"), []byte("package utils\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "docs", "guide.md"), []byte("# Guide\n"), 0644)
+
+	return dir
+}
+
+// createTempGitRepo creates a temp dir that is a git repo with an initial commit.
+func createTempGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := createTempDirWithFiles(t)
+
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+		{"git", "add", "."},
+		{"git", "commit", "-m", "initial"},
+	}
+
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git command %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	return dir
+}
+
+func TestWorkspaceTreeFullStructure(t *testing.T) {
+	dir := createTempDirWithFiles(t)
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/tree?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceTreeResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if resp.TotalFiles != 4 {
+		t.Errorf("expected 4 files, got %d", resp.TotalFiles)
+	}
+
+	// Verify structure: should have docs/, src/, README.md at top level
+	topNames := make(map[string]bool)
+	for _, node := range resp.Tree {
+		topNames[node.Name] = true
+	}
+	for _, expected := range []string{"docs", "src", "README.md"} {
+		if !topNames[expected] {
+			t.Errorf("missing top-level entry: %s", expected)
+		}
+	}
+}
+
+func TestWorkspaceTreeSkipsGitDir(t *testing.T) {
+	dir := createTempGitRepo(t)
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/tree?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceTreeResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	// .git should NOT appear in the tree
+	for _, node := range resp.Tree {
+		if node.Name == ".git" {
+			t.Error(".git directory should be excluded from tree")
+		}
+	}
+}
+
+func TestWorkspaceTreeMaxFiles(t *testing.T) {
+	// Override the limit to a small value so we don't create 10,001 files in a test.
+	orig := maxWorkspaceFiles
+	maxWorkspaceFiles = 5
+	t.Cleanup(func() { maxWorkspaceFiles = orig })
+
+	dir := t.TempDir()
+
+	// Create one more file than the limit
+	for i := 0; i < maxWorkspaceFiles+1; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.txt", i)), []byte("x"), 0644)
+	}
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/tree?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
+	}
+}
+
+func TestWorkspaceFileContent(t *testing.T) {
+	dir := createTempDirWithFiles(t)
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	filePath := filepath.Join(dir, "README.md")
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+filePath, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceFileResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp.Content != "# Test\n" {
+		t.Errorf("unexpected content: %q", resp.Content)
+	}
+	if resp.Language != "markdown" {
+		t.Errorf("unexpected language: %s", resp.Language)
+	}
+}
+
+func TestWorkspaceFileTooLarge(t *testing.T) {
+	// Override the limit to a tiny value so we don't allocate 1MB+ in a test.
+	orig := maxFileContentSize
+	maxFileContentSize = 64
+	t.Cleanup(func() { maxFileContentSize = orig })
+
+	dir := t.TempDir()
+	largePath := filepath.Join(dir, "large.txt")
+
+	// Create a file just over the limit
+	data := make([]byte, int(maxFileContentSize)+1)
+	os.WriteFile(largePath, data, 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+largePath, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp WorkspaceFileResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if !resp.IsTooLarge {
+		t.Error("expected isTooLarge: true")
+	}
+	if resp.Content != "" {
+		t.Error("expected empty content for too-large file")
+	}
+}
+
+func TestWorkspaceFileBinary(t *testing.T) {
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "data.bin")
+
+	// Create a binary file with null bytes
+	data := []byte("hello\x00world")
+	os.WriteFile(binPath, data, 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+binPath, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp WorkspaceFileResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if !resp.IsBinary {
+		t.Error("expected isBinary: true for file with null bytes")
+	}
+}
+
+func TestWorkspaceFileImage(t *testing.T) {
+	dir := t.TempDir()
+	pngPath := filepath.Join(dir, "test.png")
+	os.WriteFile(pngPath, testPNGBytes, 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+pngPath, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp WorkspaceFileResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if !resp.IsImage {
+		t.Error("expected isImage: true for .png file")
+	}
+	if resp.MimeType != "image/png" {
+		t.Errorf("expected mimeType image/png, got %s", resp.MimeType)
+	}
+	if resp.DataUri == "" {
+		t.Error("expected non-empty dataUri")
+	}
+}
+
+func TestWorkspaceChangesEmpty(t *testing.T) {
+	dir := createTempGitRepo(t)
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp.TotalChanges != 0 {
+		t.Errorf("expected 0 changes, got %d", resp.TotalChanges)
+	}
+}
+
+func TestWorkspaceChangesDetected(t *testing.T) {
+	dir := createTempGitRepo(t)
+
+	// Modify a file
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp.TotalChanges != 1 {
+		t.Errorf("expected 1 change, got %d", resp.TotalChanges)
+	}
+	if len(resp.Changes) != 1 {
+		t.Fatalf("expected 1 change entry, got %d", len(resp.Changes))
+	}
+
+	change := resp.Changes[0]
+	if change.Path != "README.md" {
+		t.Errorf("expected path README.md, got %s", change.Path)
+	}
+	if change.ChangeType != "modified" {
+		t.Errorf("expected changeType modified, got %s", change.ChangeType)
+	}
+}
+
+func TestWorkspaceChangesIncludesDiffContent(t *testing.T) {
+	dir := createTempGitRepo(t)
+
+	// Modify a file
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if len(resp.Changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
+	}
+
+	change := resp.Changes[0]
+	if change.OriginalContent == "" {
+		t.Error("expected non-empty originalContent for modified file")
+	}
+	if change.NewContent == "" {
+		t.Error("expected non-empty newContent for modified file")
+	}
+}
+
+func TestWorkspaceChangesSingleFileDiff(t *testing.T) {
+	dir := createTempGitRepo(t)
+
+	// Modify a file
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir+"&file=README.md", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if len(resp.Changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
+	}
+
+	change := resp.Changes[0]
+	if change.OriginalContent == "" || change.NewContent == "" {
+		t.Error("single file diff should include full content")
+	}
+}
+
+func TestWorkspaceChangesTruncatesLargeDiff(t *testing.T) {
+	// Override the limit to a tiny value so we don't generate 50KB+ in a test.
+	orig := maxDiffSizePerFile
+	maxDiffSizePerFile = 32
+	t.Cleanup(func() { maxDiffSizePerFile = orig })
+
+	dir := createTempGitRepo(t)
+
+	// Modify README.md with content that exceeds the diff limit
+	bigContent := strings.Repeat("this is a long line of content\n", 5)
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte(bigContent), 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if len(resp.Changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
+	}
+
+	change := resp.Changes[0]
+	if !change.DiffTruncated {
+		t.Error("expected diffTruncated: true when diff exceeds limit")
+	}
+	if change.OriginalContent != "" || change.NewContent != "" {
+		t.Error("expected empty content when diff is truncated")
+	}
+}
+
+func TestProvenanceRecordAndLookup(t *testing.T) {
+	ps := NewProvenanceStore()
+
+	ps.Record("setup-infra", "template", []string{"/tmp/a.tf", "/tmp/b.tf"})
+
+	prov := ps.Get("/tmp/a.tf")
+	if prov == nil {
+		t.Fatal("expected provenance for /tmp/a.tf")
+	}
+	if prov.BlockID != "setup-infra" {
+		t.Errorf("expected blockId setup-infra, got %s", prov.BlockID)
+	}
+	if prov.BlockType != "template" {
+		t.Errorf("expected blockType template, got %s", prov.BlockType)
+	}
+
+	// Non-existent path
+	if ps.Get("/tmp/c.tf") != nil {
+		t.Error("expected nil for unrecorded path")
+	}
+}
+
+func TestProvenanceLastWriterWins(t *testing.T) {
+	ps := NewProvenanceStore()
+
+	ps.Record("first-block", "command", []string{"/tmp/main.tf"})
+	ps.Record("second-block", "template", []string{"/tmp/main.tf"})
+
+	prov := ps.Get("/tmp/main.tf")
+	if prov == nil {
+		t.Fatal("expected provenance")
+	}
+	if prov.BlockID != "second-block" {
+		t.Errorf("expected second-block (last writer wins), got %s", prov.BlockID)
+	}
+}
+
+func TestProvenanceInChangesResponse(t *testing.T) {
+	dir := createTempGitRepo(t)
+
+	// Modify a file
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
+
+	sm := NewSessionManager()
+	sm.CreateSession(dir)
+
+	// Record provenance for the changed file
+	session, ok := sm.GetSession()
+	if !ok {
+		t.Fatal("expected session")
+	}
+	session.ProvenanceStore.Record("configure-vpc", "command", []string{filepath.Join(dir, "README.md")})
+
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if len(resp.Changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
+	}
+
+	change := resp.Changes[0]
+	if change.SourceBlockID != "configure-vpc" {
+		t.Errorf("expected sourceBlockId 'configure-vpc', got '%s'", change.SourceBlockID)
+	}
+	if change.SourceBlockType != "command" {
+		t.Errorf("expected sourceBlockType 'command', got '%s'", change.SourceBlockType)
+	}
+}
+
+func TestWorkspaceTreeNotFound(t *testing.T) {
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/tree?path=/nonexistent/path", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestWorkspaceTreeMissingPath(t *testing.T) {
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/tree", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestWorkspaceChangesNewFile(t *testing.T) {
+	dir := createTempGitRepo(t)
+
+	// Add a new untracked file
+	os.WriteFile(filepath.Join(dir, "new_file.txt"), []byte("new content\n"), 0644)
+
+	sm := NewSessionManager()
+	router := setupWorkspaceTestRouter(sm)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	var resp WorkspaceChangesResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	found := false
+	for _, change := range resp.Changes {
+		if change.Path == "new_file.txt" {
+			found = true
+			if change.ChangeType != "added" {
+				t.Errorf("expected changeType added, got %s", change.ChangeType)
+			}
+			if !strings.Contains(change.NewContent, "new content") {
+				t.Error("expected new file content")
+			}
+		}
+	}
+	if !found {
+		t.Error("new_file.txt not found in changes")
+	}
+}

@@ -42,9 +42,11 @@ type ExecStatusEvent struct {
 
 // FilesCapturedEvent represents files captured from script execution
 type FilesCapturedEvent struct {
-	Files    []CapturedFile `json:"files"`    // List of captured files
-	Count    int            `json:"count"`    // Total number of files captured
-	FileTree any            `json:"fileTree"` // Updated file tree for the workspace
+	Files           []CapturedFile `json:"files"`                     // List of captured files
+	Count           int            `json:"count"`                     // Total number of files captured
+	FileTree        any            `json:"fileTree"`                  // Updated file tree for the workspace
+	SourceBlockID   string         `json:"sourceBlockId,omitempty"`   // Block that generated these files
+	SourceBlockType string         `json:"sourceBlockType,omitempty"` // Type of block (command, check)
 }
 
 // CapturedFile represents a single file captured from script output
@@ -60,13 +62,14 @@ type BlockOutputsEvent struct {
 
 // execCommandConfig holds configuration for setting up an exec.Cmd
 type execCommandConfig struct {
-	scriptPath  string
-	interpreter string
-	args        []string
-	execCtx     *SessionExecContext
-	envVars     map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
-	outputFile  string            // Temp file for block outputs (RUNBOOK_OUTPUT)
-	filesDir    string            // Temp directory for file capture (RUNBOOK_FILES)
+	scriptPath   string
+	interpreter  string
+	args         []string
+	execCtx      *SessionExecContext
+	envVars      map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
+	outputFile   string            // Temp file for block outputs (RUNBOOK_OUTPUT)
+	filesDir     string            // Temp directory for file capture (GENERATED_FILES)
+	workTreePath string            // Active git worktree path for WORKTREE_FILES (empty if none)
 }
 
 // envCaptureConfig holds configuration for environment capture after script execution
@@ -112,7 +115,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
-		// Create a temp directory for file capture (RUNBOOK_FILES)
+		// Create a temp directory for file capture (GENERATED_FILES)
 		// Scripts can write files here to have them captured to the output directory
 		filesDir, err2 := os.MkdirTemp("", "runbook-files-*")
 		if err2 != nil {
@@ -149,13 +152,14 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 
 		// Set up command configuration
 		cmdConfig := execCommandConfig{
-			scriptPath:  scriptSetup.ScriptPath,
-			interpreter: scriptSetup.Interpreter,
-			args:        scriptSetup.Args,
-			execCtx:     execCtx,
-			envVars:     req.EnvVarsOverride,
-			outputFile:  outputFilePath,
-			filesDir:    filesDir,
+			scriptPath:   scriptSetup.ScriptPath,
+			interpreter:  scriptSetup.Interpreter,
+			args:         scriptSetup.Args,
+			execCtx:      execCtx,
+			envVars:      req.EnvVarsOverride,
+			outputFile:   outputFilePath,
+			filesDir:     filesDir,
+			workTreePath: sessionManager.GetActiveWorkTreePath(),
 		}
 
 		// Create channels for streaming output
@@ -184,13 +188,33 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			resolvedOutputPath = filepath.Join(workingDir, cliOutputPath)
 		}
 
+		// Provenance tracking: snapshot git status before execution
+		workTreePaths := sessionManager.GetWorkTreePaths()
+		var beforeStatus map[string]map[string]bool
+		if len(workTreePaths) > 0 {
+			beforeStatus = SnapshotGitStatus(workTreePaths)
+		}
+
 		// Stream logs and wait for completion
 		envCaptureConfig := &envCaptureConfig{
 			scriptSetup:    scriptSetup,
 			sessionManager: sessionManager,
 			execCtx:        execCtx,
 		}
-		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig)
+		blockInfo := &blockInfoForSSE{
+			ComponentID:   executable.ComponentID,
+			ComponentType: executable.ComponentType,
+		}
+		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig, blockInfo)
+
+		// Provenance tracking: snapshot git status after execution, diff, and record
+		if len(workTreePaths) > 0 {
+			afterStatus := SnapshotGitStatus(workTreePaths)
+			session, ok := sessionManager.GetSession()
+			if ok && session != nil && session.ProvenanceStore != nil {
+				DiffAndRecord(session.ProvenanceStore, executable.ComponentID, executable.ComponentType, beforeStatus, afterStatus)
+			}
+		}
 	}
 }
 
@@ -291,9 +315,17 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
 
-	// Add RUNBOOK_FILES environment variable for file capture
+	// Add GENERATED_FILES environment variable for file capture
 	// Scripts can write files to this directory to have them saved to the output directory
+	cmd.Env = append(cmd.Env, fmt.Sprintf("GENERATED_FILES=%s", cfg.filesDir))
+
+	// Add backward-compatible alias
 	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", cfg.filesDir))
+
+	// Add WORKTREE_FILES environment variable if a git worktree has been registered
+	if cfg.workTreePath != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("WORKTREE_FILES=%s", cfg.workTreePath))
+	}
 
 	// Set working directory from session
 	if cfg.execCtx.WorkDir != "" {

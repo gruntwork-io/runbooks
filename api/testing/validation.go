@@ -320,6 +320,7 @@ var KnownBlockTypes = map[string]bool{
 	"TemplateInline": true,
 	"AwsAuth":        true,
 	"GitHubAuth":     true,
+	"GitClone":       true,
 	"Admonition":     true, // Decorative block - validated but not executed
 }
 
@@ -359,6 +360,9 @@ func (v *InputValidator) parseAndValidateComponents() error {
 
 	// Parse and validate GitHubAuth blocks
 	allComponents = append(allComponents, v.parseAndValidateAuthBlocks(contentStr, "GitHubAuth")...)
+
+	// Parse and validate GitClone blocks (same id-required validation as auth blocks)
+	allComponents = append(allComponents, v.parseAndValidateAuthBlocks(contentStr, "GitClone")...)
 
 	// Sort by document position
 	sortComponentsByPosition(allComponents)

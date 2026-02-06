@@ -54,10 +54,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, workingDir, outputPath))
+	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, workingDir, outputPath, sessionManager))
 
 	// API endpoint to render boilerplate templates from inline template files
-	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath))
+	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath, sessionManager))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
@@ -107,6 +107,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.GET("/github/repos", HandleGitHubListRepos(sessionManager))
 		// Git clone endpoint (SSE streaming)
 		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir))
+		// Workspace endpoints for file tree, file content, and git changes
+		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
+		protectedAPI.GET("/workspace/file", HandleWorkspaceFile())
+		protectedAPI.GET("/workspace/changes", HandleWorkspaceChanges(sessionManager))
+		protectedAPI.POST("/workspace/register", HandleWorkspaceRegister(sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)

@@ -27,7 +27,13 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- outputLine) {
 }
 
 // streamExecutionOutput handles the main loop of streaming output and handling completion
-func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
+// blockInfoForSSE carries block identity for tagging SSE events (provenance).
+type blockInfoForSSE struct {
+	ComponentID   string
+	ComponentType string
+}
+
+func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig, block *blockInfoForSSE) {
 	for {
 		select {
 		case out := <-outputChan:
@@ -74,15 +80,15 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 				}
 			}
 
-			// Capture files from RUNBOOK_FILES directory if execution was successful (or warning)
-			// Scripts can write files to $RUNBOOK_FILES to have them saved to the output directory
+			// Capture files from GENERATED_FILES directory if execution was successful (or warning)
+			// Scripts can write files to $GENERATED_FILES to have them saved to the output directory
 			if status == "success" || status == "warn" {
 				capturedFiles, captureErr := captureFilesFromDir(filesDir, cliOutputPath)
 				if captureErr != nil {
 					sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
 					flusher.Flush()
 				} else if len(capturedFiles) > 0 {
-					sendSSEFilesCaptured(c, capturedFiles, cliOutputPath)
+					sendSSEFilesCaptured(c, capturedFiles, cliOutputPath, block)
 					flusher.Flush()
 				}
 			}
@@ -163,7 +169,7 @@ func sendSSEError(c *gin.Context, message string) {
 
 // sendSSEFilesCaptured sends a files_captured event via SSE with the list of captured files
 // and the updated file tree
-func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
+func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string, block *blockInfoForSSE) {
 	// Build the updated file tree from the output directory
 	fileTree, err := buildFileTreeWithRoot(cliOutputPath, "")
 	if err != nil {
@@ -177,6 +183,13 @@ func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutpu
 		Count:    len(capturedFiles),
 		FileTree: fileTree,
 	}
+
+	// Tag with block provenance if available
+	if block != nil {
+		event.SourceBlockID = block.ComponentID
+		event.SourceBlockType = block.ComponentType
+	}
+
 	c.SSEvent("files_captured", event)
 }
 

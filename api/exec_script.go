@@ -472,7 +472,7 @@ func isValidEnvVarName(name string) bool {
 // File Capture
 // =============================================================================
 
-// captureFilesFromDir copies all files from the source directory (RUNBOOK_FILES) to the output directory.
+// captureFilesFromDir copies all files from the source directory (GENERATED_FILES) to the output directory.
 // Returns a list of captured files with their relative paths and sizes.
 // If the source directory is empty, returns nil with no error.
 func captureFilesFromDir(srcDir, outputDir string) ([]CapturedFile, error) {
