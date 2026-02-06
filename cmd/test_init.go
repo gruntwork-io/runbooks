@@ -639,13 +639,15 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 			sb.WriteString("      #   expect: success\n\n")
 		case "AwsAuth":
 			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
+			sb.WriteString("      #   # env_prefix: CI_  # Check CI_AWS_ACCESS_KEY_ID, etc. instead of standard vars\n")
 			sb.WriteString("      #   # Set expect: skip if not testing AWS auth\n")
 			sb.WriteString("      #   # Or ensure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set\n")
 			sb.WriteString("      #   expect: skip\n\n")
 		case "GitHubAuth":
 			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
+			sb.WriteString("      #   # env_prefix: CI_  # Check CI_GITHUB_TOKEN, etc. instead of standard vars\n")
 			sb.WriteString("      #   # Set expect: skip if not testing GitHub auth\n")
-			sb.WriteString("      #   # Or set RUNBOOKS_GITHUB_TOKEN env var\n")
+			sb.WriteString("      #   # Or set RUNBOOKS_GITHUB_TOKEN env var (or GITHUB_TOKEN, GH_TOKEN)\n")
 			sb.WriteString("      #   expect: skip\n\n")
 		// Inputs blocks are not executable, so don't add them to steps
 		}

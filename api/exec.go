@@ -285,7 +285,7 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	// Apply per-request env var overrides (e.g., AWS credentials for specific auth block)
 	// These override any session env vars with the same key
 	if len(cfg.envVars) > 0 {
-		cmd.Env = mergeEnvVars(cmd.Env, cfg.envVars)
+		cmd.Env = MergeEnvVars(cmd.Env, cfg.envVars)
 	}
 
 	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
@@ -386,9 +386,12 @@ func hasEnvVar(env []string, key string) bool {
 	return false
 }
 
-// mergeEnvVars merges override env vars into a base env slice.
+// MergeEnvVars merges override env vars into a base env slice.
 // Override values replace any existing keys in the base slice.
-func mergeEnvVars(base []string, overrides map[string]string) []string {
+// This is important for proper credential isolation - when using awsAuthId to reference
+// an auth block with different credentials, we need to fully replace the old credentials,
+// including explicitly setting AWS_SESSION_TOKEN="" if the new credentials don't have one.
+func MergeEnvVars(base []string, overrides map[string]string) []string {
 	// Build a map from existing env for efficient lookup
 	envMap := make(map[string]int, len(base)) // key -> index in result
 	result := make([]string, 0, len(base)+len(overrides))
@@ -415,3 +418,4 @@ func mergeEnvVars(base []string, overrides map[string]string) []string {
 
 	return result
 }
+

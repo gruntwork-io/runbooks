@@ -172,6 +172,20 @@ Check prefixed environment variables (e.g., `PROD_GITHUB_TOKEN`):
 - Optional trailing underscore (recommended for readability)
 - Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN`
 
+#### Test Prefix
+
+To use a different prefix for automated tests (e.g., to avoid conflicts with local credentials), configure `env_prefix` in your test config file (`runbook_test.yml`) rather than in the MDX:
+
+```yaml
+# runbook_test.yml
+steps:
+  - block: gh-auth
+    env_prefix: CI_  # Checks CI_GITHUB_TOKEN, CI_GH_TOKEN
+    expect: success
+```
+
+Without `env_prefix`, the test framework checks `RUNBOOKS_GITHUB_TOKEN` first, which helps avoid accidentally using credentials from your local environment when running tests. See [Testing GitHubAuth Blocks](/authoring/testing/#testing-githubauth-blocks) for details.
+
 #### Disable Auto-Detection
 
 Force manual authentication only:

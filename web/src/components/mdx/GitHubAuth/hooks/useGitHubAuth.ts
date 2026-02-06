@@ -270,8 +270,8 @@ export function useGitHubAuth({
           }
         }
         // Check for { env: { prefix: 'PREFIX_' } } - prefixed env vars
-        else if (typeof source === 'object' && 'env' in source && typeof source.env === 'object' && 'prefix' in source.env) {
-          const prefix = source.env.prefix
+        else if (typeof source === 'object' && 'env' in source) {
+          const prefix = (source.env as { prefix?: string })?.prefix
           const result = await tryEnvCredentials({ prefix })
           if (result.success && result.user) {
             setDetectionSource('env')

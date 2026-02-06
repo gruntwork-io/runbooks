@@ -416,42 +416,49 @@ cleanup:
 
 ## Testing AwsAuth Blocks
 
-For runbooks with `<AwsAuth>` blocks, use `prefilledCredentials={{ type: "env" }}` to enable headless testing:
+For runbooks with `<AwsAuth>` blocks, the test framework checks for AWS credentials in environment variables and injects them into the session for dependent blocks to use.
 
-```mdx
-<AwsAuth
-  id="aws-auth"
-  prefilledCredentials={{ type: "env" }}
-  allowOverridePrefilled={false}
-/>
-```
-This will look specifically for the following environment variables:
+By default, the test framework checks for standard AWS environment variables:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
-- `AWS_SESSION_TOKEN`
-- `AWS_REGION`
+- `AWS_SESSION_TOKEN` (optional)
+- `AWS_REGION` (optional)
 
-Consider using the prefix `RUNBOOKS_TEST_` for environment variables that are used for testing. This will help you avoid conflicts with other environment variables. 
+It also checks for `AWS_PROFILE` and `AWS_ROLE_ARN` as alternative authentication methods.
 
-```mdx
-<AwsAuth
-  id="aws-auth"
-  prefilledCredentials={{ type: "env", prefix: "RUNBOOKS_TEST_" }}
-  allowOverridePrefilled={false}
-/>
+### Using a Test Prefix
+
+To avoid conflicts with your local AWS credentials, use the `env_prefix` option on the test step to specify a prefix for test-only environment variables:
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: happy-path
+    steps:
+      - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
 ```
-This will look specifically for the following environment variables:
+
+This tells the test executor to check for the following environment variables:
 
 - `RUNBOOKS_TEST_AWS_ACCESS_KEY_ID`
 - `RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
 - `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
 - `RUNBOOKS_TEST_AWS_REGION`
 
-In CI, be sure to set the environment variables before running tests. The following example shows one way to set the environment variables for a GitHub Actions workflow:
+If no prefixed credentials are found, the executor falls back to standard env vars (`AWS_ACCESS_KEY_ID`, etc.).
+
+The `env_prefix` is configured in the test config file, not in the runbook MDX. This keeps test infrastructure concerns separate from the runtime `detectCredentials` behavior that end users experience.
+
+### CI Example
+
+In CI, set the environment variables before running tests. Example for GitHub Actions:
 
 ```yaml
-# .github/workflows/test.ymlls
+# .github/workflows/test.yml
+- name: Configure AWS credentials
   uses: aws-actions/configure-aws-credentials@v4
   with:
     role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
@@ -460,10 +467,46 @@ In CI, be sure to set the environment variables before running tests. The follow
 - name: Run runbook tests
   run: runbooks test ./runbooks/...
   env:
-    RUNBOOK_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-    RUNBOOK_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-    RUNBOOK_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
-    RUNBOOK_TEST_AWS_REGION: ${{ env.AWS_REGION }}
+    RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+    RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+    RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+    RUNBOOKS_TEST_AWS_REGION: ${{ env.AWS_REGION }}
+```
+
+## Testing GitHubAuth Blocks
+
+For runbooks with `<GitHubAuth>` blocks, the test framework checks for GitHub tokens in environment variables.
+
+By default, the test framework checks in this order:
+
+1. `RUNBOOKS_GITHUB_TOKEN` (recommended for tests)
+2. `GITHUB_TOKEN`
+3. `GH_TOKEN`
+
+### Using a Test Prefix
+
+Similar to AwsAuth, you can use `env_prefix` on the test step to check for custom environment variables:
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: happy-path
+    steps:
+      - block: gh-auth
+        env_prefix: CI_
+        expect: success
+```
+
+This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
+
+### CI Example
+
+```yaml
+# .github/workflows/test.yml
+- name: Run runbook tests
+  run: runbooks test ./runbooks/...
+  env:
+    RUNBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Running Tests

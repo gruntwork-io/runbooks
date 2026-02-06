@@ -29,6 +29,15 @@ const DefaultGitHubOAuthClientID = "Ov23liDbtds8EmGws3np"
 // Only github.com is supported for security reasons (no custom base URLs).
 const GitHubAPIBaseURL = "https://api.github.com"
 
+// Pre-compiled regexes for GitHub environment variable and CLI output parsing.
+// These are used on every credential detection and confirmation request,
+// so we compile them once at package level to avoid repeated overhead.
+var (
+	allowedGitHubEnvVarPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(GITHUB_TOKEN|GH_TOKEN)$`)
+	validEnvVarPrefixPattern   = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
+	gitHubCliScopePattern      = regexp.MustCompile(`Token scopes?:\s*(.+)`)
+)
+
 // GitHubOAuthBaseURL is the base URL for GitHub OAuth requests.
 const GitHubOAuthBaseURL = "https://github.com"
 
@@ -313,8 +322,7 @@ func isAllowedGitHubEnvVar(name string) bool {
 	}
 	// Check for prefixed variants - must end with _GITHUB_TOKEN or _GH_TOKEN
 	// and prefix must be valid (uppercase alphanumeric + underscore)
-	validPrefixPattern := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(GITHUB_TOKEN|GH_TOKEN)$`)
-	return validPrefixPattern.MatchString(name)
+	return allowedGitHubEnvVarPattern.MatchString(name)
 }
 
 // isValidEnvVarPrefix validates that a prefix is safe to use when constructing
@@ -326,8 +334,7 @@ func isValidEnvVarPrefix(prefix string) bool {
 	}
 	// Prefix must be uppercase alphanumeric with underscores
 	// If non-empty, should typically end with underscore for clean naming
-	validPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
-	return validPrefix.MatchString(prefix)
+	return validEnvVarPrefixPattern.MatchString(prefix)
 }
 
 // HandleGitHubEnvCredentials reads GitHub credentials from the process environment,
@@ -702,8 +709,7 @@ func IsDefaultGitHubOAuthClientID(clientID string) bool {
 // Example output line: "  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'"
 func parseGitHubCliScopes(statusOutput string) []string {
 	// Look for "Token scopes:" line and capture everything after it to end of line
-	scopeRegex := regexp.MustCompile(`Token scopes?:\s*(.+)`)
-	matches := scopeRegex.FindStringSubmatch(statusOutput)
+	matches := gitHubCliScopePattern.FindStringSubmatch(statusOutput)
 	if len(matches) < 2 {
 		return nil
 	}

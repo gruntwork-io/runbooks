@@ -259,3 +259,98 @@ func TestMalformedAuthorizationHeader(t *testing.T) {
 func contains(s, substr string) bool {
 	return bytes.Contains([]byte(s), []byte(substr))
 }
+
+// TestIsAllowedAwsEnvVar verifies the env var name validation.
+func TestIsAllowedAwsEnvVar(t *testing.T) {
+	tests := []struct {
+		name     string
+		envVar   string
+		expected bool
+	}{
+		// Valid cases - standard names
+		{"AWS_ACCESS_KEY_ID is allowed", "AWS_ACCESS_KEY_ID", true},
+		{"AWS_SECRET_ACCESS_KEY is allowed", "AWS_SECRET_ACCESS_KEY", true},
+		{"AWS_SESSION_TOKEN is allowed", "AWS_SESSION_TOKEN", true},
+		{"AWS_REGION is allowed", "AWS_REGION", true},
+
+		// Valid cases - prefixed variants
+		{"prefixed ACCESS_KEY_ID is allowed", "MY_AWS_ACCESS_KEY_ID", true},
+		{"prefixed SECRET_ACCESS_KEY is allowed", "PROD_AWS_SECRET_ACCESS_KEY", true},
+		{"prefixed SESSION_TOKEN is allowed", "DEV_AWS_SESSION_TOKEN", true},
+		{"prefixed REGION is allowed", "STAGING_AWS_REGION", true},
+		{"multiple prefix parts allowed", "MY_APP_AWS_ACCESS_KEY_ID", true},
+		{"numeric prefix allowed", "APP2_AWS_ACCESS_KEY_ID", true},
+		{"underscore in prefix allowed", "MY_APP_2_AWS_ACCESS_KEY_ID", true},
+
+		// Invalid cases - arbitrary env vars
+		{"empty string rejected", "", false},
+		{"PATH rejected", "PATH", false},
+		{"HOME rejected", "HOME", false},
+		{"GITHUB_TOKEN rejected", "GITHUB_TOKEN", false},
+		{"DATABASE_PASSWORD rejected", "DATABASE_PASSWORD", false},
+		{"API_KEY rejected", "API_KEY", false},
+
+		// Invalid cases - similar but not matching pattern
+		{"lowercase aws_access_key_id rejected", "aws_access_key_id", false},
+		{"AWS_ACCESS_KEY_ID with suffix rejected", "AWS_ACCESS_KEY_ID_OLD", false},
+		{"AWS_SECRET_ACCESS_KEY with suffix rejected", "AWS_SECRET_ACCESS_KEY_BACKUP", false},
+		{"partial match rejected", "MY_AWS_ACCESS", false},
+		{"ACCESS_KEY_ID alone rejected", "ACCESS_KEY_ID", false},
+		{"AWS alone rejected", "AWS", false},
+
+		// Edge cases
+		{"lowercase prefix rejected", "my_AWS_ACCESS_KEY_ID", false},
+		{"mixed case prefix rejected", "My_AWS_ACCESS_KEY_ID", false},
+		{"leading underscore rejected", "_AWS_ACCESS_KEY_ID", false},
+		{"double underscore allowed", "MY__AWS_ACCESS_KEY_ID", true}, // Unusual but valid naming, still secure
+		{"space in name rejected", "MY AWS_ACCESS_KEY_ID", false},
+		{"special chars rejected", "MY-AWS_ACCESS_KEY_ID", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isAllowedAwsEnvVar(tc.envVar)
+			if result != tc.expected {
+				t.Errorf("isAllowedAwsEnvVar(%q) = %v, want %v", tc.envVar, result, tc.expected)
+			}
+		})
+	}
+}
+
+// TestIsValidAwsEnvVarPrefix verifies the prefix validation.
+func TestIsValidAwsEnvVarPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		prefix   string
+		expected bool
+	}{
+		// Valid cases
+		{"empty prefix is valid", "", true},
+		{"simple prefix with underscore", "MY_", true},
+		{"prefix without trailing underscore rejected", "MY", false},
+		{"multi-part prefix", "MY_APP_", true},
+		{"prefix with numbers", "APP2_", true},
+		{"all caps no underscore rejected", "MYAPP", false},
+		{"single letter rejected", "M", false},
+		{"PROD prefix", "PROD_", true},
+		{"DEV prefix", "DEV_", true},
+
+		// Invalid cases
+		{"lowercase rejected", "my_", false},
+		{"mixed case rejected", "My_", false},
+		{"leading underscore rejected", "_MY", false},
+		{"starts with number rejected", "2APP_", false},
+		{"special chars rejected", "MY-APP_", false},
+		{"space rejected", "MY APP_", false},
+		{"dot rejected", "MY.APP_", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isValidAwsEnvVarPrefix(tc.prefix)
+			if result != tc.expected {
+				t.Errorf("isValidAwsEnvVarPrefix(%q) = %v, want %v", tc.prefix, result, tc.expected)
+			}
+		})
+	}
+}

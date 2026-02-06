@@ -246,15 +246,23 @@ export function useScriptExecution({
     
     if (!blockOutputs?.values) return undefined
     
-    // Return the outputs as env vars (only include non-empty values)
-    const envVars: Record<string, string> = {}
-    for (const [key, value] of Object.entries(blockOutputs.values)) {
-      if (value !== '') {
-        envVars[key] = value
-      }
+    // Check if we have the minimum required credentials (access key + secret)
+    const hasCredentials = blockOutputs.values.AWS_ACCESS_KEY_ID && blockOutputs.values.AWS_SECRET_ACCESS_KEY
+    if (!hasCredentials) return undefined
+    
+    // Return credentials as env vars
+    // IMPORTANT: We include AWS_SESSION_TOKEN even if empty to explicitly clear any
+    // session token that might be in the session environment from a different auth block.
+    // Without this, using IAM user credentials (no session token) after SSO credentials
+    // (which have a session token) would result in InvalidToken errors.
+    const envVars: Record<string, string> = {
+      AWS_ACCESS_KEY_ID: blockOutputs.values.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: blockOutputs.values.AWS_SECRET_ACCESS_KEY,
+      AWS_REGION: blockOutputs.values.AWS_REGION || '',
+      AWS_SESSION_TOKEN: blockOutputs.values.AWS_SESSION_TOKEN || '',
     }
     
-    return Object.keys(envVars).length > 0 ? envVars : undefined
+    return envVars
   }, [awsAuthId, allOutputs])
   
   // Check if AWS auth dependency is met (when awsAuthId is specified)
@@ -406,6 +414,17 @@ export function useScriptExecution({
   useEffect(() => {
     registerLogs(componentId, logs)
   }, [componentId, logs, registerLogs])
+
+  // When execution finishes without producing outputs, register an empty outputs map.
+  // This lets downstream watchers (e.g. AwsAuth block-based detection) distinguish
+  // "block hasn't run yet" (no entry in blockOutputs) from "block ran but produced
+  // no outputs" (entry exists with empty values).
+  useEffect(() => {
+    const isTerminal = status === 'success' || status === 'fail' || status === 'warn'
+    if (isTerminal && outputs === null) {
+      registerOutputs(componentId, {})
+    }
+  }, [status, outputs, componentId, registerOutputs])
 
   // Function to render script with inputs
   const renderScript = useCallback(async (inputs: InputValue[]) => {

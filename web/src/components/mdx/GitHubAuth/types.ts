@@ -12,10 +12,10 @@ export type GitHubTokenType =
 
 // Credential detection source types
 export type GitHubCredentialSource =
-  | 'env'                          // Check GITHUB_TOKEN, GH_TOKEN
-  | { env: { prefix: string } }    // Check PREFIX_GITHUB_TOKEN, PREFIX_GH_TOKEN
-  | 'cli'                          // Check gh auth token
-  | { block: string }              // From block output (expects GITHUB_TOKEN)
+  | 'env'                                                   // Check GITHUB_TOKEN, GH_TOKEN
+  | { env: { prefix?: string } }                            // Check PREFIX_GITHUB_TOKEN, etc.
+  | 'cli'                                                   // Check gh auth token
+  | { block: string }                                       // From block output (expects GITHUB_TOKEN)
 
 // Detection source for UI badges
 export type GitHubDetectionSource = 'env' | 'cli' | 'block' | null

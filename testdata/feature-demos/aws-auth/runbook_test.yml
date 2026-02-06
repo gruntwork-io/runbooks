@@ -1,0 +1,94 @@
+# Test configuration for aws-auth
+# Tests the AWS authentication testing framework with env_prefix support.
+#
+# To run locally:
+#   export RUNBOOKS_TEST_AWS_ACCESS_KEY_ID=...
+#   export RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY=...
+#   export RUNBOOKS_TEST_AWS_SESSION_TOKEN=...  # if using temp creds
+#   export RUNBOOKS_TEST_AWS_REGION=us-west-2
+#   go run main.go test testdata/feature-demos/aws-auth -v
+#
+# Or use AWS profile:
+#   export AWS_PROFILE=your-profile
+#   go run main.go test testdata/feature-demos/aws-auth -v
+#
+# In CI, credentials are provided via OIDC and exported to both AWS_* and
+# RUNBOOKS_TEST_* environment variables.
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 2m
+  parallelizable: true
+
+tests:
+  # Test 1: Basic auth with env_prefix - validates the env_prefix feature
+  - name: test-prefix-auth
+    description: Test that AwsAuth reads credentials from RUNBOOKS_TEST_* env vars
+
+    steps:
+      # env_prefix tells the test executor to look for RUNBOOKS_TEST_AWS_ACCESS_KEY_ID, etc.
+      - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
+
+      # After AwsAuth succeeds, credentials should be injected into the session
+      # and this Check block should be able to use them
+      - block: verify-identity
+        expect: success
+
+  # Test 2: Skip auth when no credentials - validates graceful skip
+  - name: skip-without-credentials
+    description: Test that AwsAuth is skipped when no credentials are available
+    
+    env:
+      # Clear any credentials that might be in the environment
+      RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ""
+      RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_PROFILE: ""
+      AWS_ROLE_ARN: ""
+
+    steps:
+      - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: skip
+
+  # Test 3: AWS auth secondary test (single auth block with standard env vars)
+  - name: test-aws-auth-secondary
+    description: Test that AwsAuth secondary passes its credentials to the Command block
+
+    steps:
+      - block: aws-auth-secondary
+        expect: success
+
+      - block: list-buckets-secondary
+        expect: success
+
+  # Test 4: Multiple auth blocks with awsAuthId targeting
+  # This test authenticates both auth blocks and verifies that commands
+  # can target specific auth contexts via awsAuthId.
+  # Note: In CI with a single account, both auth blocks use the same credentials.
+  # This still validates that awsAuthId routing works correctly.
+  - name: test-aws-auth-id-targeting
+    description: Test that awsAuthId correctly routes commands to specific auth contexts
+
+    steps:
+      # Authenticate the primary auth block (uses RUNBOOKS_TEST_* prefix)
+      - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
+
+      # Authenticate the secondary auth block (uses standard AWS_* vars)
+      - block: aws-auth-secondary
+        expect: success
+
+      # This Check has awsAuthId="aws-auth" - should use PRIMARY auth context
+      - block: list-buckets-primary
+        expect: success
+
+      # This Check has awsAuthId="aws-auth-secondary" - should use SECONDARY auth context
+      - block: list-buckets-secondary
+        expect: success
