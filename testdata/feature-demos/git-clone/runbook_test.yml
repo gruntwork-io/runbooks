@@ -39,3 +39,9 @@ tests:
     steps:
       - block: clone-generic
         expect: skip  # No prefilledUrl set, so block is skipped in test mode
+
+  - name: clone-with-show-file-tree-false
+    description: Clone helper repo with showFileTree disabled
+    steps:
+      - block: clone-helper
+        expect: skip  # No prefilledUrl set, so block is skipped in test mode

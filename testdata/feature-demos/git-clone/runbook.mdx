@@ -50,3 +50,14 @@ This example works without any GitHub authentication — just enter a git URL fo
   title="Clone Any Git Repo"
   description="Clone a repository using a plain git URL — no GitHub token needed for public repos"
 />
+
+## Step 5: Clone without File Tree
+
+This example clones a helper repo without showing it in the file workspace panel.
+
+<GitClone
+  id="clone-helper"
+  title="Clone Helper Repo (hidden from workspace)"
+  description="This repo won't appear in the All files or Changed tabs"
+  showFileTree={false}
+/>

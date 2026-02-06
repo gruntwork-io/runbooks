@@ -1,15 +1,18 @@
 #!/bin/bash
 # Generate configuration files using project variables
-# Files are written to $RUNBOOK_FILES and captured to /generated
+# Files are written to $GENERATED_FILES and captured to /generated
 
 set -euo pipefail
 
 echo "Generating configuration files..."
 echo ""
 
-# Verify RUNBOOK_FILES is available
+# Support both new and legacy env var names
+RUNBOOK_FILES="${GENERATED_FILES:-${RUNBOOK_FILES:-}}"
+
+# Verify GENERATED_FILES is available
 if [ -z "${RUNBOOK_FILES:-}" ]; then
-    echo "❌ Error: RUNBOOK_FILES is not set"
+    echo "❌ Error: GENERATED_FILES is not set"
     echo "This variable is automatically provided by the Runbooks server."
     exit 1
 fi

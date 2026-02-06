@@ -9,12 +9,14 @@ fi
 echo "Verifying project: $PROJECT_NAME"
 
 # Check for expected files (would be created by template)
-if [[ -z "$RUNBOOK_FILES" ]]; then
-    echo "INFO: RUNBOOK_FILES environment variable not set, skipping README.md check"
-elif [[ -f "$RUNBOOK_FILES/README.md" ]]; then
+# Support both new and legacy env var names
+FILES_DIR="${GENERATED_FILES:-${RUNBOOK_FILES:-}}"
+if [[ -z "$FILES_DIR" ]]; then
+    echo "INFO: GENERATED_FILES environment variable not set, skipping README.md check"
+elif [[ -f "$FILES_DIR/README.md" ]]; then
     echo "README.md exists"
 else
-    echo "INFO: README.md not found (expected in $RUNBOOK_FILES)"
+    echo "INFO: README.md not found (expected in $FILES_DIR)"
 fi
 
 echo "Project verification complete"
