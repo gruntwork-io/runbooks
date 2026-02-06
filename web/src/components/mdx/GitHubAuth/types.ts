@@ -13,7 +13,7 @@ export type GitHubTokenType =
 // Credential detection source types
 export type GitHubCredentialSource =
   | 'env'                                                   // Check GITHUB_TOKEN, GH_TOKEN
-  | { env: { prefix?: string; testPrefix?: string } }       // Check PREFIX_GITHUB_TOKEN, etc. testPrefix is for tests only
+  | { env: { prefix?: string } }                            // Check PREFIX_GITHUB_TOKEN, etc.
   | 'cli'                                                   // Check gh auth token
   | { block: string }                                       // From block output (expects GITHUB_TOKEN)
 

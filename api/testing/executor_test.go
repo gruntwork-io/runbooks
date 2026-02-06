@@ -319,70 +319,6 @@ func TestParseAuthDependencies_FileNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestGetTestEnvPrefix(t *testing.T) {
-	tests := []struct {
-		name           string
-		props          string
-		expectedPrefix string
-	}{
-		{
-			name:           "no detectCredentials prop",
-			props:          `id="aws-auth"`,
-			expectedPrefix: "",
-		},
-		{
-			name:           "detectCredentials with testPrefix single quotes",
-			props:          `id="aws-auth" detectCredentials={[{ env: { testPrefix: 'CI_' } }]}`,
-			expectedPrefix: "CI_",
-		},
-		{
-			name:           "detectCredentials with testPrefix double quotes",
-			props:          `id="aws-auth" detectCredentials={[{ env: { testPrefix: "CI_" } }]}`,
-			expectedPrefix: "CI_",
-		},
-		{
-			name:           "detectCredentials with prefix only (fallback)",
-			props:          `id="aws-auth" detectCredentials={[{ env: { prefix: 'PROD_' } }]}`,
-			expectedPrefix: "PROD_",
-		},
-		{
-			name:           "detectCredentials with both prefix and testPrefix (testPrefix wins)",
-			props:          `id="aws-auth" detectCredentials={[{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }]}`,
-			expectedPrefix: "CI_",
-		},
-		{
-			name:           "detectCredentials with testPrefix first, prefix second",
-			props:          `id="aws-auth" detectCredentials={[{ env: { testPrefix: 'TEST_', prefix: 'PROD_' } }]}`,
-			expectedPrefix: "TEST_",
-		},
-		{
-			name:           "detectCredentials as false",
-			props:          `id="aws-auth" detectCredentials={false}`,
-			expectedPrefix: "",
-		},
-		{
-			name:           "detectCredentials as env string",
-			props:          `id="aws-auth" detectCredentials={['env']}`,
-			expectedPrefix: "",
-		},
-		{
-			name:           "detectCredentials with block source (no prefix)",
-			props:          `id="aws-auth" detectCredentials={[{ block: 'assume-role' }]}`,
-			expectedPrefix: "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			block := api.ParsedComponent{
-				Props: tc.props,
-			}
-			prefix := getTestEnvPrefix(block)
-			assert.Equal(t, tc.expectedPrefix, prefix)
-		})
-	}
-}
-
 func TestReadAwsEnvCredentials(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -483,18 +419,19 @@ func TestAuthBlockCredentialIsolation(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Create runbook with two AwsAuth blocks using different prefixes
+	// Create runbook with two AwsAuth blocks
 	// Each Check block specifies which auth block's credentials to use via awsAuthId
+	// The env_prefix for each auth block is configured in the test config, not the MDX
 	runbookContent := `# Multi-Account Credential Isolation Test
 
 <AwsAuth
   id="aws-auth-primary"
-  detectCredentials={[{ env: { testPrefix: 'PRIMARY_' } }]}
+  detectCredentials={['env']}
 />
 
 <AwsAuth
   id="aws-auth-secondary"
-  detectCredentials={[{ env: { testPrefix: 'SECONDARY_' } }]}
+  detectCredentials={['env']}
 />
 
 ## Check blocks referencing specific auth blocks
@@ -523,13 +460,16 @@ func TestAuthBlockCredentialIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test config that runs both auth blocks and both check blocks
+	// env_prefix on each auth step tells the executor which prefixed env vars to use
 	testConfig := `version: 1
 tests:
   - name: credential-isolation
     steps:
       - block: aws-auth-primary
+        env_prefix: PRIMARY_
         expect: success
       - block: aws-auth-secondary
+        env_prefix: SECONDARY_
         expect: success
       - block: check-primary
         expect: success

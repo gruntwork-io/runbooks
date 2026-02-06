@@ -143,8 +143,6 @@ If either source provides valid credentials, authentication succeeds immediately
 |--------|-------------|
 | `'env'` | Check standard env vars (`GITHUB_TOKEN`, `GH_TOKEN`) |
 | `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_GITHUB_TOKEN`, `PREFIX_GH_TOKEN`) |
-| `{ env: { testPrefix: 'CI_' } }` | In tests only, check `CI_GITHUB_TOKEN`, `CI_GH_TOKEN` |
-| `{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }` | Runtime uses `PROD_`, tests use `CI_` |
 | `'cli'` | Check GitHub CLI (`gh auth token`) |
 | `{ block: 'block-id' }` | Use token from a Command block's output |
 
@@ -174,21 +172,19 @@ Check prefixed environment variables (e.g., `PROD_GITHUB_TOKEN`):
 - Optional trailing underscore (recommended for readability)
 - Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN`
 
-#### Test-Only Prefix
+#### Test Prefix
 
-Use `testPrefix` to specify a different prefix for automated tests:
+To use a different prefix for automated tests (e.g., to avoid conflicts with local credentials), configure `env_prefix` in your test config file (`runbook_test.yml`) rather than in the MDX:
 
-```mdx
-<GitHubAuth
-  id="gh-auth"
-  detectCredentials={[{ env: { testPrefix: 'CI_' } }, 'cli']}
-/>
+```yaml
+# runbook_test.yml
+steps:
+  - block: gh-auth
+    env_prefix: CI_  # Checks CI_GITHUB_TOKEN, CI_GH_TOKEN
+    expect: success
 ```
 
-- **Runtime**: Checks `GITHUB_TOKEN`, `GH_TOKEN`, and CLI (default behavior)
-- **Tests**: Checks `CI_GITHUB_TOKEN`, `CI_GH_TOKEN`
-
-By default (without `testPrefix`), the test framework checks `RUNBOOKS_GITHUB_TOKEN` first, which helps avoid accidentally using credentials from your local environment when running tests.
+Without `env_prefix`, the test framework checks `RUNBOOKS_GITHUB_TOKEN` first, which helps avoid accidentally using credentials from your local environment when running tests. See [Testing GitHubAuth Blocks](/authoring/testing/#testing-githubauth-blocks) for details.
 
 #### Disable Auto-Detection
 

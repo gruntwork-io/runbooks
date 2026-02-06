@@ -23,7 +23,7 @@ export type AwsDetectionSource = 'env' | 'block' | null
  */
 export type AwsCredentialSource =
   | 'env'                                                   // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
-  | { env: { prefix?: string; testPrefix?: string } }       // Check PREFIX_AWS_ACCESS_KEY_ID, etc. testPrefix is for tests only
+  | { env: { prefix?: string } }                            // Check PREFIX_AWS_ACCESS_KEY_ID, etc.
   | { block: string }                                       // From Command block output (only one allowed)
 
 /**

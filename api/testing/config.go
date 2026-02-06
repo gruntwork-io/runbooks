@@ -52,6 +52,7 @@ type TestCase struct {
 type TestStep struct {
 	Block          string          `yaml:"block"`                     // Block ID to execute
 	Expect         ExpectedStatus  `yaml:"expect"`                    // Expected execution status
+	EnvPrefix      string          `yaml:"env_prefix,omitempty"`      // Env var prefix for auth blocks (e.g., "CI_" checks CI_AWS_ACCESS_KEY_ID)
 	Outputs        []string        `yaml:"outputs,omitempty"`         // Output names to capture
 	MissingOutputs []string        `yaml:"missing_outputs,omitempty"` // Expected missing outputs (for blocked status)
 	ErrorContains  string          `yaml:"error_contains,omitempty"`  // Expected error message substring (for config_error status)

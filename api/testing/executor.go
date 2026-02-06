@@ -87,39 +87,9 @@ var authBlockDependentTypes = []BlockType{
 	BlockTypeCommand,
 }
 
-// getTestEnvPrefix extracts the testPrefix (or prefix as fallback) from a block's
-// detectCredentials prop. Works for both AwsAuth and GitHubAuth blocks.
-//
-// Supported formats:
-//   - detectCredentials={[{ env: { testPrefix: 'CI_' } }]}
-//   - detectCredentials={[{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }]}
-//   - detectCredentials={[{ env: { prefix: 'PROD_' } }]}
-//
-// Returns empty string if no prefix is configured.
-func getTestEnvPrefix(block api.ParsedComponent) string {
-	// Extract the detectCredentials prop value directly from props string
-	// ExtractProp doesn't work well for complex JS objects, so we parse it manually
-	detectCredsPattern := regexp.MustCompile(`detectCredentials=\{([^}]*(?:\{[^}]*\}[^}]*)*)\}`)
-	matches := detectCredsPattern.FindStringSubmatch(block.Props)
-	if len(matches) < 2 {
-		return ""
-	}
-	detectCreds := matches[1]
-
-	// Look for testPrefix first (takes precedence)
-	testPrefixPattern := regexp.MustCompile(`testPrefix:\s*['"]([^'"]*)['"]\s*`)
-	if matches := testPrefixPattern.FindStringSubmatch(detectCreds); len(matches) > 1 {
-		return matches[1]
-	}
-
-	// Fall back to prefix if no testPrefix
-	prefixPattern := regexp.MustCompile(`prefix:\s*['"]([^'"]*)['"]\s*`)
-	if matches := prefixPattern.FindStringSubmatch(detectCreds); len(matches) > 1 {
-		return matches[1]
-	}
-
-	return ""
-}
+// NOTE: getTestEnvPrefix was removed. The env var prefix for auth blocks in tests
+// is now configured via the env_prefix field in the test step configuration (runbook_test.yml),
+// rather than being parsed from the MDX detectCredentials prop.
 
 // =============================================================================
 // Block State
@@ -1204,7 +1174,7 @@ const DefaultGitHubAuthEnvVar = "RUNBOOKS_GITHUB_TOKEN"
 
 // executeGitHubAuth handles GitHubAuth block execution in test mode.
 // It looks for GitHub tokens in environment variables and injects them into the session.
-// If detectCredentials has testPrefix set, it checks {prefix}GITHUB_TOKEN and {prefix}GH_TOKEN.
+// If env_prefix is set on the test step, it checks {prefix}GITHUB_TOKEN and {prefix}GH_TOKEN.
 // Otherwise it falls back to RUNBOOKS_GITHUB_TOKEN, then GITHUB_TOKEN, then GH_TOKEN.
 // If no token is found, the block is marked as skipped.
 func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
@@ -1214,14 +1184,14 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 		Outputs:        make(map[string]string),
 	}
 
-	// Get prefix from detectCredentials prop (testPrefix takes precedence over prefix)
-	prefix := getTestEnvPrefix(block)
+	// Get prefix from test step config (env_prefix field in runbook_test.yml)
+	prefix := step.EnvPrefix
 
 	var token string
 	var tokenSource string
 
 	if prefix != "" {
-		// If testPrefix specified, check prefixed vars
+		// If env_prefix specified on test step, check prefixed vars
 		token = os.Getenv(prefix + "GITHUB_TOKEN")
 		if token != "" {
 			tokenSource = prefix + "GITHUB_TOKEN"
@@ -1434,7 +1404,7 @@ func formatCredentialSource(info AwsCredentialInfo) string {
 }
 
 // executeAwsAuth handles AwsAuth block execution in test mode.
-// It looks for AWS credential environment variables (with optional prefix from detectCredentials)
+// It looks for AWS credential environment variables (with optional prefix from the test step's env_prefix)
 // and injects them into the session for dependent blocks to use.
 // If no credentials are found, the block is marked as skipped.
 func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
@@ -1444,8 +1414,8 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 		Outputs:        make(map[string]string),
 	}
 
-	// Get prefix from detectCredentials prop (testPrefix takes precedence over prefix)
-	prefix := getTestEnvPrefix(block)
+	// Get prefix from test step config (env_prefix field in runbook_test.yml)
+	prefix := step.EnvPrefix
 
 	// Detect credentials from all possible sources
 	creds, credInfo, found := detectAwsCredentials(prefix)

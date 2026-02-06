@@ -1,5 +1,5 @@
 # Test configuration for aws-auth
-# Tests the AWS authentication testing framework with testPrefix support.
+# Tests the AWS authentication testing framework with env_prefix support.
 #
 # To run locally:
 #   export RUNBOOKS_TEST_AWS_ACCESS_KEY_ID=...
@@ -23,14 +23,14 @@ settings:
   parallelizable: true
 
 tests:
-  # Test 1: Basic auth with testPrefix - validates the testPrefix feature
+  # Test 1: Basic auth with env_prefix - validates the env_prefix feature
   - name: test-prefix-auth
     description: Test that AwsAuth reads credentials from RUNBOOKS_TEST_* env vars
 
     steps:
-      # This block has detectCredentials={[{ env: { testPrefix: 'RUNBOOKS_TEST_' } }]}
-      # So the test executor should look for RUNBOOKS_TEST_AWS_ACCESS_KEY_ID, etc.
+      # env_prefix tells the test executor to look for RUNBOOKS_TEST_AWS_ACCESS_KEY_ID, etc.
       - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
         expect: success
 
       # After AwsAuth succeeds, credentials should be injected into the session
@@ -53,6 +53,7 @@ tests:
 
     steps:
       - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
         expect: skip
 
   # Test 3: AWS auth secondary test (single auth block with standard env vars)
@@ -77,6 +78,7 @@ tests:
     steps:
       # Authenticate the primary auth block (uses RUNBOOKS_TEST_* prefix)
       - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
         expect: success
 
       # Authenticate the secondary auth block (uses standard AWS_* vars)

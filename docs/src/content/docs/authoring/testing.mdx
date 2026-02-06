@@ -429,33 +429,28 @@ It also checks for `AWS_PROFILE` and `AWS_ROLE_ARN` as alternative authenticatio
 
 ### Using a Test Prefix
 
-To avoid conflicts with your local AWS credentials, use the `testPrefix` option in `detectCredentials` to specify a prefix for test-only environment variables:
+To avoid conflicts with your local AWS credentials, use the `env_prefix` option on the test step to specify a prefix for test-only environment variables:
 
-```mdx
-<AwsAuth
-  id="aws-auth"
-  detectCredentials={[{ env: { testPrefix: 'RUNBOOKS_TEST_' } }]}
-/>
+```yaml
+# runbook_test.yml
+tests:
+  - name: happy-path
+    steps:
+      - block: aws-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
 ```
 
-This will check for the following environment variables in tests:
+This tells the test executor to check for the following environment variables:
 
 - `RUNBOOKS_TEST_AWS_ACCESS_KEY_ID`
 - `RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
 - `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
 - `RUNBOOKS_TEST_AWS_REGION`
 
-You can also specify different prefixes for runtime (what end users will experience) vs tests:
+If no prefixed credentials are found, the executor falls back to standard env vars (`AWS_ACCESS_KEY_ID`, etc.).
 
-```mdx
-<AwsAuth
-  id="aws-auth"
-  detectCredentials={[{ env: { prefix: 'PROD_', testPrefix: 'CI_' } }]}
-/>
-```
-
-- **Runtime**: Checks `PROD_AWS_ACCESS_KEY_ID`, etc.
-- **Tests**: Checks `CI_AWS_ACCESS_KEY_ID`, etc.
+The `env_prefix` is configured in the test config file, not in the runbook MDX. This keeps test infrastructure concerns separate from the runtime `detectCredentials` behavior that end users experience.
 
 ### CI Example
 
@@ -490,16 +485,19 @@ By default, the test framework checks in this order:
 
 ### Using a Test Prefix
 
-Similar to AwsAuth, you can specify a `testPrefix` to use custom environment variables for tests:
+Similar to AwsAuth, you can use `env_prefix` on the test step to check for custom environment variables:
 
-```mdx
-<GitHubAuth
-  id="gh-auth"
-  detectCredentials={[{ env: { testPrefix: 'CI_' } }]}
-/>
+```yaml
+# runbook_test.yml
+tests:
+  - name: happy-path
+    steps:
+      - block: gh-auth
+        env_prefix: CI_
+        expect: success
 ```
 
-This will check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN` in tests.
+This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
 
 ### CI Example
 
