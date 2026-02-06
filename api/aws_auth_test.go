@@ -413,11 +413,11 @@ func TestIsValidAwsEnvVarPrefix(t *testing.T) {
 		// Valid cases
 		{"empty prefix is valid", "", true},
 		{"simple prefix with underscore", "MY_", true},
-		{"prefix without trailing underscore", "MY", true},
+		{"prefix without trailing underscore rejected", "MY", false},
 		{"multi-part prefix", "MY_APP_", true},
 		{"prefix with numbers", "APP2_", true},
-		{"all caps no underscore", "MYAPP", true},
-		{"single letter", "M", true},
+		{"all caps no underscore rejected", "MYAPP", false},
+		{"single letter rejected", "M", false},
 		{"PROD prefix", "PROD_", true},
 		{"DEV prefix", "DEV_", true},
 

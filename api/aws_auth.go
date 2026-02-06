@@ -32,7 +32,7 @@ import (
 // so we compile them once at package level to avoid repeated overhead.
 var (
 	allowedAwsEnvVarPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_REGION)$`)
-	validAwsEnvVarPrefixPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
+	validAwsEnvVarPrefixPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_$`)
 )
 
 // =============================================================================
@@ -1386,13 +1386,15 @@ func isAllowedAwsEnvVar(name string) bool {
 
 // isValidAwsEnvVarPrefix validates that a prefix is safe to use when constructing
 // environment variable names. Must be empty or contain only uppercase letters,
-// digits, and underscores, optionally ending with underscore.
+// digits, and underscores, and must end with an underscore. The trailing underscore
+// is required because the prefix is concatenated directly with "AWS_ACCESS_KEY_ID"
+// etc., and without it the resulting name (e.g. "MYAWS_ACCESS_KEY_ID") would not
+// match the allowed env var pattern which requires an underscore separator.
 func isValidAwsEnvVarPrefix(prefix string) bool {
 	if prefix == "" {
 		return true
 	}
-	// Prefix must be uppercase alphanumeric with underscores
-	// If non-empty, should typically end with underscore for clean naming
+	// Prefix must be uppercase alphanumeric with underscores, ending with underscore
 	return validAwsEnvVarPrefixPattern.MatchString(prefix)
 }
 
@@ -1411,7 +1413,7 @@ type AwsEnvCredentials struct {
 func ReadAwsEnvCredentials(prefix string) (creds AwsEnvCredentials, found bool, err error) {
 	// Validate the prefix before using it (security: prevent arbitrary env var probing)
 	if !isValidAwsEnvVarPrefix(prefix) {
-		return creds, false, fmt.Errorf("invalid prefix: must be uppercase alphanumeric with underscores")
+		return creds, false, fmt.Errorf("invalid prefix: must be uppercase alphanumeric with underscores, ending with an underscore (e.g. \"PROD_\")")
 	}
 
 	// Construct env var names
