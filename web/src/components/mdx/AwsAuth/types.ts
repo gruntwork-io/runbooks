@@ -20,6 +20,7 @@ export type AwsDetectionSource = 'env' | 'block' | null
  * (which involves multiple files and config precedence rules).
  * 
  * IMPORTANT: Only one { block: string } source is allowed in the array. 
+ */
 export type AwsCredentialSource =
   | 'env'                                                   // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
   | { env: { prefix?: string; testPrefix?: string } }       // Check PREFIX_AWS_ACCESS_KEY_ID, etc. testPrefix is for tests only
