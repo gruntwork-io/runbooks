@@ -36,6 +36,7 @@ const (
 	BlockTypeTemplateInline BlockType = "TemplateInline"
 	BlockTypeAwsAuth        BlockType = "AwsAuth"
 	BlockTypeGitHubAuth     BlockType = "GitHubAuth"
+	BlockTypeGitClone       BlockType = "GitClone"
 	BlockTypeAdmonition     BlockType = "Admonition"
 )
 
@@ -85,6 +86,7 @@ func authBlockRefPropName(blockType BlockType) string {
 var authBlockDependentTypes = []BlockType{
 	BlockTypeCheck,
 	BlockTypeCommand,
+	BlockTypeGitClone,
 }
 
 // =============================================================================
@@ -973,6 +975,9 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 	case string(BlockTypeAwsAuth):
 		return e.executeAwsAuth(block, step, start)
 
+	case string(BlockTypeGitClone):
+		return e.executeGitClone(block, step, start)
+
 	case string(BlockTypeAdmonition):
 		// Decorative block - just pass validation, no execution needed
 		result.Passed = true
@@ -1282,6 +1287,176 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 	}
 
 	return result
+}
+
+// executeGitClone handles GitClone block execution in test mode.
+// It performs a git clone using the block's prefilledUrl, prefilledRepoPath, and prefilledLocalPath props.
+// If a gitHubAuthId is specified and the referenced auth block has credentials, the token is injected.
+func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
+	result := StepResult{
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(BlockTypeGitClone)), block.ID),
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// Extract props
+	cloneURL := api.ExtractProp(block.Props, "prefilledUrl")
+	repoPath := api.ExtractProp(block.Props, "prefilledRepoPath")
+	localPath := api.ExtractProp(block.Props, "prefilledLocalPath")
+
+	if cloneURL == "" {
+		// No URL specified - skip in test mode (user would fill this in interactively)
+		if e.verbose {
+			fmt.Printf("--- No prefilledUrl specified ---\n")
+			fmt.Printf("--- Result: skipped (no URL to clone) ---\n")
+		}
+		e.blockStates[block.ID] = BlockStateSkipped
+		result.ActualStatus = "skipped"
+		result.Passed = e.matchesExpectedStatus(step.Expect, "skipped", 0)
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Determine destination
+	dest := localPath
+	if dest == "" {
+		dest = api.RepoNameFromURL(cloneURL)
+	}
+	if dest == "" {
+		dest = "repo"
+	}
+
+	var absolutePath string
+	if filepath.IsAbs(dest) {
+		absolutePath = dest
+	} else {
+		absolutePath = filepath.Join(e.workingDir, dest)
+	}
+
+	// Inject GitHub token if available
+	effectiveURL := cloneURL
+	if api.IsGitHubURL(cloneURL) {
+		// Check gitHubAuthId first
+		gitHubAuthId := api.ExtractProp(block.Props, "gitHubAuthId")
+		if gitHubAuthId != "" {
+			if creds, ok := e.authBlockCredentials[gitHubAuthId]; ok {
+				if token, ok := creds["GITHUB_TOKEN"]; ok && token != "" {
+					effectiveURL = api.InjectGitHubToken(cloneURL, token)
+				}
+			}
+		} else {
+			// Fallback to session env
+			if token := e.getSessionEnvVar("GITHUB_TOKEN"); token != "" {
+				effectiveURL = api.InjectGitHubToken(cloneURL, token)
+			} else if token := e.getSessionEnvVar("GH_TOKEN"); token != "" {
+				effectiveURL = api.InjectGitHubToken(cloneURL, token)
+			}
+		}
+	}
+
+	if e.verbose {
+		fmt.Printf("--- Cloning %s ---\n", cloneURL)
+		if repoPath != "" {
+			fmt.Printf("  Sparse checkout path: %s\n", repoPath)
+		}
+		fmt.Printf("  Destination: %s\n", absolutePath)
+	}
+
+	// Perform the clone
+	var cloneErr error
+	if repoPath != "" {
+		cloneErr = e.performSparseClone(effectiveURL, absolutePath, repoPath)
+	} else {
+		cloneErr = e.performStandardClone(effectiveURL, absolutePath)
+	}
+
+	if cloneErr != nil {
+		sanitizedErr := api.SanitizeGitError(cloneErr.Error())
+		if e.verbose {
+			fmt.Printf("--- Result: ✗ failed ---\n")
+			fmt.Printf("  Error: %s\n", sanitizedErr)
+		}
+		result.Passed = false
+		result.ActualStatus = "fail"
+		result.Error = sanitizedErr
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Count files
+	fileCount := api.CountFiles(absolutePath)
+
+	// Store outputs
+	result.Outputs["CLONE_PATH"] = absolutePath
+	result.Outputs["FILE_COUNT"] = fmt.Sprintf("%d", fileCount)
+
+	// Store in block outputs for downstream access
+	e.blockOutputs[block.ID] = result.Outputs
+
+	e.blockStates[block.ID] = BlockStateSuccess
+	result.ActualStatus = "success"
+	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
+	result.Duration = time.Since(start)
+
+	if e.verbose {
+		fmt.Printf("--- Clone complete: %d files ---\n", fileCount)
+		fmt.Printf("--- Result: ✓ success ---\n")
+	}
+
+	return result
+}
+
+// performStandardClone runs a simple git clone.
+func (e *TestExecutor) performStandardClone(url, dest string) error {
+	cmd := exec.Command("git", "clone", "--progress", url, dest)
+	cmd.Dir = e.workingDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %s", err, string(output))
+	}
+	return nil
+}
+
+// performSparseClone runs a sparse checkout clone.
+func (e *TestExecutor) performSparseClone(url, dest, repoPath string) error {
+	// Step 1: Clone with blob filter and no checkout
+	cmd := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", "--progress", url, dest)
+	cmd.Dir = e.workingDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("sparse clone failed: %s: %s", err, string(output))
+	}
+
+	// Step 2: Set sparse-checkout
+	sparseCmd := exec.Command("git", "-C", dest, "sparse-checkout", "set", repoPath)
+	if output, err := sparseCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("sparse-checkout set failed: %s: %s", err, string(output))
+	}
+
+	// Step 3: Checkout
+	checkoutCmd := exec.Command("git", "-C", dest, "checkout")
+	if output, err := checkoutCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("checkout failed: %s: %s", err, string(output))
+	}
+
+	return nil
+}
+
+// getSessionEnvVar reads an env var from the session.
+func (e *TestExecutor) getSessionEnvVar(key string) string {
+	token := e.getSessionToken()
+	execCtx, valid := e.session.ValidateToken(token)
+	if !valid {
+		return ""
+	}
+	// Parse KEY=VALUE pairs from session env
+	for _, envVar := range execCtx.Env {
+		if idx := strings.Index(envVar, "="); idx >= 0 {
+			if envVar[:idx] == key {
+				return envVar[idx+1:]
+			}
+		}
+	}
+	return ""
 }
 
 // AwsCredentialSource describes how AWS credentials were obtained.

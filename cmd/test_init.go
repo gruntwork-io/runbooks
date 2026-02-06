@@ -211,7 +211,7 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	seen := make(map[string]bool)
 
 	// Parse simple blocks (only need id extraction)
-	for _, blockType := range []string{"Check", "Command", "AwsAuth", "GitHubAuth"} {
+	for _, blockType := range []string{"Check", "Command", "AwsAuth", "GitHubAuth", "GitClone"} {
 		blocks = append(blocks, parseSimpleBlocks(contentStr, blockType, seen)...)
 	}
 
