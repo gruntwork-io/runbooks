@@ -27,6 +27,14 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+// Pre-compiled regexes for AWS environment variable validation.
+// These are used on every credential detection and confirmation request,
+// so we compile them once at package level to avoid repeated overhead.
+var (
+	allowedAwsEnvVarPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_REGION)$`)
+	validAwsEnvVarPrefixPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
+)
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -1373,8 +1381,7 @@ func isAllowedAwsEnvVar(name string) bool {
 	}
 
 	// Check for prefixed variants - must end with _AWS_... and prefix must be valid
-	validPrefixPattern := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_REGION)$`)
-	return validPrefixPattern.MatchString(name)
+	return allowedAwsEnvVarPattern.MatchString(name)
 }
 
 // isValidAwsEnvVarPrefix validates that a prefix is safe to use when constructing
@@ -1386,8 +1393,7 @@ func isValidAwsEnvVarPrefix(prefix string) bool {
 	}
 	// Prefix must be uppercase alphanumeric with underscores
 	// If non-empty, should typically end with underscore for clean naming
-	validPrefix := regexp.MustCompile(`^[A-Z][A-Z0-9_]*_?$`)
-	return validPrefix.MatchString(prefix)
+	return validAwsEnvVarPrefixPattern.MatchString(prefix)
 }
 
 // AwsEnvCredentials holds AWS credentials read from environment variables.
