@@ -58,7 +58,7 @@ export const WorkspaceMetadataBar = ({
 
   return (
     <div className={cn("py-2.5", className)}>
-      {/* Repository link */}
+      {/* Row 1: Git repo and branch */}
       <div className="flex items-center gap-1.5 text-sm">
         <GitHubIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
         <a
@@ -69,45 +69,40 @@ export const WorkspaceMetadataBar = ({
         >
           {gitInfo.repoOwner}/{gitInfo.repoName}
         </a>
-      </div>
-
-      {/* Branch, commit, path on second row */}
-      <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
-        <div className="flex items-center gap-1">
-          <GitBranch className="w-3.5 h-3.5" />
+        <span className="text-gray-300 text-xs">|</span>
+        <div className="flex items-center gap-1 text-xs">
+          <GitBranch className="w-3.5 h-3.5 text-gray-500" />
           <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">
             {gitInfo.branch}
           </span>
           {gitInfo.commitSha && (
-            <span className="font-mono">
+            <span className="font-mono text-gray-500">
               {gitInfo.commitSha.slice(0, 7)}
             </span>
           )}
         </div>
-
-        {localPath && (
-          <>
-            <span className="text-gray-300">|</span>
-            <div className="flex items-center gap-1">
-              <Folder className="w-3.5 h-3.5" />
-              <code className="font-mono text-gray-600" title={localPath}>
-                ./{localPath.split('/').pop()}
-              </code>
-              <button
-                onClick={handleCopyPath}
-                className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
-                title={`Copy full path: ${localPath}`}
-              >
-                {didCopy ? (
-                  <Check className="w-3 h-3 text-green-600" />
-                ) : (
-                  <Copy className="w-3 h-3" />
-                )}
-              </button>
-            </div>
-          </>
-        )}
       </div>
+
+      {/* Row 2: Local path */}
+      {localPath && (
+        <div className="flex items-center gap-1 mt-1.5 text-xs text-gray-500">
+          <Folder className="w-3.5 h-3.5" />
+          <code className="font-mono text-gray-600" title={localPath}>
+            ./{localPath.split('/').pop()}
+          </code>
+          <button
+            onClick={handleCopyPath}
+            className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
+            title={`Copy full path: ${localPath}`}
+          >
+            {didCopy ? (
+              <Check className="w-3 h-3 text-green-600" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
