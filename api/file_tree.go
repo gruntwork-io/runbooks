@@ -141,6 +141,12 @@ func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error)
 
 	for _, entry := range entries {
 		entryName := entry.Name()
+
+		// Skip VCS directories
+		if entry.IsDir() && (entryName == ".git" || entryName == ".svn" || entryName == ".hg") {
+			continue
+		}
+
 		entryRelativePath := filepath.Join(relativePath, entryName)
 		entryFullPath := filepath.Join(rootPath, entryRelativePath)
 
