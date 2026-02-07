@@ -128,6 +128,11 @@ export interface WorkspaceState {
 }
 
 /**
+ * Top-level context for the files workspace
+ */
+export type WorkspaceContext = 'repository' | 'generated';
+
+/**
  * Tab identifiers for the files workspace
  */
 export type WorkspaceTab = 'generated' | 'all' | 'changed';

@@ -416,7 +416,7 @@ function Template({
       localVarValues,
       inputValues,
       mergedData,
-      runtimeValue: mergedData.Runtime
+      runtimeValue: (mergedData as Record<string, unknown>).Runtime
     });
     
     // Register our variables in the block context (without _blocks)

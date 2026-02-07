@@ -257,7 +257,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
             className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
             onMouseDown={handleMouseDown}
           >
-            <div className="w-px bg-gray-400 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
+            <div className="w-px bg-gray-300 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
           </div>
 
           {/* All Files View */}

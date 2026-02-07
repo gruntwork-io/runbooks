@@ -3,6 +3,7 @@
  */
 
 export { FilesWorkspace } from './FilesWorkspace'
+export { WorkspaceContextBar } from './WorkspaceContextBar'
 export { WorkspaceTabBar } from './WorkspaceTabBar'
 export { WorkspaceMetadataBar } from './WorkspaceMetadataBar'
 export { WorkspaceFileBrowser } from './WorkspaceFileBrowser'

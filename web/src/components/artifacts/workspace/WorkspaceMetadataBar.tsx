@@ -51,7 +51,7 @@ export const WorkspaceMetadataBar = ({
   // If no git info, show a minimal state
   if (!gitInfo) {
     return (
-      <div className={cn("px-4 py-2 bg-gray-50 text-sm", className)}>
+      <div className={cn("py-2.5 text-sm", className)}>
         <div className="flex items-center gap-2 text-gray-500">
           <GitHubIcon className="w-4 h-4" />
           <span className="italic">No repository connected</span>
@@ -61,54 +61,55 @@ export const WorkspaceMetadataBar = ({
   }
 
   return (
-    <div className={cn("px-4 py-2 bg-gray-50", className)}>
-      {/* Git Info Row */}
-      <div className="flex items-center gap-4 text-sm">
-        {/* Repository */}
-        <div className="flex items-center gap-1.5 text-gray-700">
-          <GitHubIcon className="w-4 h-4 text-gray-500" />
-          <a
-            href={`https://${gitInfo.repoUrl}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-blue-600 hover:underline"
-          >
-            {gitInfo.repoOwner}/{gitInfo.repoName}
-          </a>
-        </div>
-        
-        {/* Branch and Commit SHA */}
-        <div className="flex items-center gap-1.5 text-gray-700">
-          <GitBranch className="w-4 h-4 text-gray-500" />
-          <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+    <div className={cn("py-2.5", className)}>
+      {/* Repository link */}
+      <div className="flex items-center gap-1.5 text-sm">
+        <GitHubIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
+        <a
+          href={gitInfo.repoUrl.startsWith('http') ? gitInfo.repoUrl : `https://${gitInfo.repoUrl}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-gray-800 font-medium hover:text-blue-600 hover:underline truncate"
+        >
+          {gitInfo.repoOwner}/{gitInfo.repoName}
+        </a>
+      </div>
+
+      {/* Branch, commit, path on second row */}
+      <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
+        <div className="flex items-center gap-1">
+          <GitBranch className="w-3.5 h-3.5" />
+          <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">
             {gitInfo.branch}
           </span>
           {gitInfo.commitSha && (
-            <span className="font-mono text-xs text-gray-500">
-              ({gitInfo.commitSha.slice(0, 7)})
+            <span className="font-mono">
+              {gitInfo.commitSha.slice(0, 7)}
             </span>
           )}
         </div>
-        
-        {/* Local Path */}
+
         {localPath && (
-          <div className="flex items-center gap-1.5 text-gray-700">
-            <Folder className="w-4 h-4 text-gray-500" />
-            <code className="font-mono text-xs text-gray-600" title={localPath}>
-              .../{localPath.split('/').pop()}
-            </code>
-            <button
-              onClick={handleCopyPath}
-              className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
-              title={`Copy full path: ${localPath}`}
-            >
-              {didCopy ? (
-                <Check className="w-3.5 h-3.5 text-green-600" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </div>
+          <>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1">
+              <Folder className="w-3.5 h-3.5" />
+              <code className="font-mono text-gray-600" title={localPath}>
+                ./{localPath.split('/').pop()}
+              </code>
+              <button
+                onClick={handleCopyPath}
+                className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
+                title={`Copy full path: ${localPath}`}
+              >
+                {didCopy ? (
+                  <Check className="w-3 h-3 text-green-600" />
+                ) : (
+                  <Copy className="w-3 h-3" />
+                )}
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -39,7 +39,7 @@ export function useApi<T>(
         endpoint,
         requestBody,
         requestBodyVariables: requestBody?.variables,
-        requestBodyRuntime: requestBody?.variables?.Runtime
+        requestBodyRuntime: (requestBody?.variables as Record<string, unknown> | undefined)?.Runtime
       });
     }
 
@@ -123,7 +123,7 @@ export function useApi<T>(
         endpoint,
         body,
         bodyVariables: body?.variables,
-        bodyRuntime: body?.variables?.Runtime
+        bodyRuntime: (body?.variables as Record<string, unknown> | undefined)?.Runtime
       });
     }
 

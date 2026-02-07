@@ -41,7 +41,7 @@ const POLL_INTERVAL_MS = 3000
  * Polls every 3 seconds, skips if the previous request is still in-flight.
  */
 export function useWorkspaceChanges(): UseWorkspaceChangesResult {
-  const { activeWorkTree } = useGitWorkTree()
+  const { activeWorkTree, treeVersion } = useGitWorkTree()
   const { getAuthHeader } = useSession()
   const [changes, setChanges] = useState<WorkspaceFileChange[]>([])
   const [totalChanges, setTotalChanges] = useState(0)
@@ -83,7 +83,7 @@ export function useWorkspaceChanges(): UseWorkspaceChangesResult {
     }
   }, [getAuthHeader])
 
-  // Poll for changes
+  // Poll for changes, and refetch immediately when treeVersion changes
   useEffect(() => {
     if (!activeWorkTree) {
       setChanges([])
@@ -93,10 +93,13 @@ export function useWorkspaceChanges(): UseWorkspaceChangesResult {
       return
     }
 
+    // Clear cache so the next fetch isn't skipped by smart-dedup
+    previousResponseRef.current = ''
+
     setIsLoading(true)
     const localPath = activeWorkTree.localPath
 
-    // Fetch immediately on mount / worktree change
+    // Fetch immediately on mount / worktree change / tree invalidation
     fetchChanges(localPath).then(() => setIsLoading(false))
 
     const interval = setInterval(() => {
@@ -107,7 +110,7 @@ export function useWorkspaceChanges(): UseWorkspaceChangesResult {
       clearInterval(interval)
       previousResponseRef.current = ''
     }
-  }, [activeWorkTree?.localPath, fetchChanges])
+  }, [activeWorkTree?.localPath, fetchChanges, treeVersion])
 
   const fetchFileDiff = useCallback(async (filePath: string) => {
     if (!activeWorkTree) return
