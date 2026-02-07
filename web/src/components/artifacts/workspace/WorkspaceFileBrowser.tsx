@@ -195,7 +195,9 @@ function FileContentViewer({ fileContent, isLoading, error }: {
   isLoading: boolean
   error: string | null
 }) {
-  if (isLoading) {
+  // Only show spinner when there's no existing content to display.
+  // During background refetches (e.g. template re-render), keep showing stale content.
+  if (isLoading && !fileContent) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
@@ -206,7 +208,7 @@ function FileContentViewer({ fileContent, isLoading, error }: {
     )
   }
 
-  if (error) {
+  if (error && !fileContent) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
