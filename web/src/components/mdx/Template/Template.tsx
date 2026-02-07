@@ -2,7 +2,6 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
 import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
 import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
-import type { UnmetOutputDependency } from '../_shared/hooks/useScriptExecution'
 import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
@@ -13,7 +12,7 @@ import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/c
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { normalizeBlockId } from '@/lib/utils'
+import { buildBlocksNamespace, computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -173,47 +172,10 @@ function Template({
   
   // Compute unmet output dependencies - outputs from other blocks that this template needs
   // but which haven't been produced yet
-  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
-    if (!boilerplateConfig?.outputDependencies || boilerplateConfig.outputDependencies.length === 0) {
-      return [];
-    }
-    
-    // Group dependencies by block ID
-    const byBlock = new Map<string, string[]>();
-    for (const dep of boilerplateConfig.outputDependencies) {
-      const normalizedId = normalizeBlockId(dep.blockId);
-      const existing = byBlock.get(normalizedId) || [];
-      if (!existing.includes(dep.outputName)) {
-        existing.push(dep.outputName);
-      }
-      byBlock.set(normalizedId, existing);
-    }
-    
-    // Check which dependencies are not satisfied
-    const unmet: UnmetOutputDependency[] = [];
-    for (const [blockId, outputNames] of byBlock) {
-      const blockData = allOutputs[blockId];
-      if (!blockData) {
-        // Block hasn't produced any outputs yet - use original block ID for display
-        // Find original block ID from the dependencies
-        const originalBlockId = boilerplateConfig.outputDependencies.find(
-          d => normalizeBlockId(d.blockId) === blockId
-        )?.blockId || blockId;
-        unmet.push({ blockId: originalBlockId, outputNames });
-      } else {
-        // Check which specific outputs are missing
-        const missingOutputs = outputNames.filter(name => !(name in blockData.values));
-        if (missingOutputs.length > 0) {
-          const originalBlockId = boilerplateConfig.outputDependencies.find(
-            d => normalizeBlockId(d.blockId) === blockId
-          )?.blockId || blockId;
-          unmet.push({ blockId: originalBlockId, outputNames: missingOutputs });
-        }
-      }
-    }
-    
-    return unmet;
-  }, [boilerplateConfig?.outputDependencies, allOutputs]);
+  const unmetOutputDependencies = useMemo(
+    () => computeUnmetOutputDependencies(boilerplateConfig?.outputDependencies ?? [], allOutputs),
+    [boilerplateConfig?.outputDependencies, allOutputs]
+  );
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
@@ -306,13 +268,7 @@ function Template({
   }, [boilerplateConfig]);
 
   // Build the _blocks namespace for template rendering
-  const buildBlocksNamespace = useCallback((): Record<string, { outputs: Record<string, string> }> => {
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {};
-    for (const [blockId, data] of Object.entries(allOutputs)) {
-      blocksNamespace[blockId] = { outputs: data.values };
-    }
-    return blocksNamespace;
-  }, [allOutputs]);
+  const blocksNamespace = useCallback(() => buildBlocksNamespace(allOutputs), [allOutputs]);
   
   // Handle form changes - store in ref (no state update to avoid loops)
   const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
@@ -341,7 +297,7 @@ function Template({
       const mergedData = { 
         ...inputValues, 
         ...localVarValues,
-        _blocks: buildBlocksNamespace()
+        _blocks: blocksNamespace()
       };
       
       // Only trigger render when all required values are present
@@ -349,7 +305,7 @@ function Template({
         autoRender(path, mergedData);
       }
     }, 200);
-  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, buildBlocksNamespace]);
+  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, blocksNamespace]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -392,13 +348,13 @@ function Template({
     const mergedData = { 
       ...inputValues, 
       ...localVarValuesRef.current,
-      _blocks: buildBlocksNamespace()
+      _blocks: blocksNamespace()
     };
     
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
     }
-  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, buildBlocksNamespace]);
+  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, blocksNamespace]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
@@ -409,7 +365,7 @@ function Template({
     const mergedData = { 
       ...inputValues, 
       ...localVarValues,
-      _blocks: buildBlocksNamespace()
+      _blocks: blocksNamespace()
     };
     
     console.log('[Template.handleGenerate] Called with:', {
@@ -428,7 +384,7 @@ function Template({
     // Trigger the render with merged data (including _blocks)
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, inputValues, buildBlocksNamespace])
+  }, [id, boilerplateConfig, registerInputs, inputValues, blocksNamespace])
 
   // Early return for duplicate ID error
   if (isDuplicate) {

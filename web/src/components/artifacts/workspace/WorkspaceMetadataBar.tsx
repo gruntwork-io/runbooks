@@ -4,10 +4,10 @@
  * Displays git repository info and workspace statistics.
  */
 
-import { useState } from 'react'
 import type { SVGProps } from 'react'
 import { GitBranch, Folder, Copy, Check } from 'lucide-react'
-import { cn, copyTextToClipboard } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { GitRepoInfo } from '@/types/workspace'
 
 /**
@@ -39,14 +39,10 @@ export const WorkspaceMetadataBar = ({
   localPath,
   className = "",
 }: WorkspaceMetadataBarProps) => {
-  const [didCopy, setDidCopy] = useState(false)
-  
+  const { didCopy, copy } = useCopyToClipboard()
+
   const handleCopyPath = () => {
-    if (localPath) {
-      setDidCopy(true)
-      copyTextToClipboard(localPath)
-      setTimeout(() => setDidCopy(false), 1500)
-    }
+    if (localPath) copy(localPath)
   }
   // If no git info, show a minimal state
   if (!gitInfo) {

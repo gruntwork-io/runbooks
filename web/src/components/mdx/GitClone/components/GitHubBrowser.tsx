@@ -159,13 +159,10 @@ export function GitHubBrowser({
                     <span className="text-gray-400">Loading organizations...</span>
                   ) : selectedOrg ? (
                     <span className="flex items-center gap-2 truncate">
-                      {orgs.find(o => o.login === selectedOrg)?.avatarUrl && (
-                        <img
-                          src={orgs.find(o => o.login === selectedOrg)?.avatarUrl}
-                          alt=""
-                          className="size-4 rounded-full"
-                        />
-                      )}
+                      {(() => {
+                        const avatarUrl = orgs.find(o => o.login === selectedOrg)?.avatarUrl
+                        return avatarUrl ? <img src={avatarUrl} alt="" className="size-4 rounded-full" /> : null
+                      })()}
                       <span className="text-gray-700">{selectedOrg}</span>
                     </span>
                   ) : (

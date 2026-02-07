@@ -33,16 +33,6 @@ export function useApi<T>(
 
   // Shared fetch function that both useEffect and debouncedRequest can use
   const performFetch = useCallback(async (requestBody?: Record<string, unknown>) => {
-    // Debug logging for boilerplate render requests
-    if (endpoint.includes('boilerplate')) {
-      console.log('[useApi.performFetch] About to fetch', {
-        endpoint,
-        requestBody,
-        requestBodyVariables: requestBody?.variables,
-        requestBodyRuntime: (requestBody?.variables as Record<string, unknown> | undefined)?.Runtime
-      });
-    }
-
     try {
       const fetchOptions: RequestInit = {
         method,
@@ -75,7 +65,6 @@ export function useApi<T>(
       setIsLoading(false);
       setData(data);
     } catch (err: unknown) {
-      console.log('err', err);
       setIsLoading(false);
       setError(createAppError(
         err instanceof Error ? err.message : 'An unexpected error occurred',
@@ -115,16 +104,6 @@ export function useApi<T>(
     if (!endpoint) {
       setIsLoading(false);
       return;
-    }
-
-    // Debug logging for boilerplate render requests
-    if (endpoint.includes('boilerplate')) {
-      console.log('[useApi] Effect triggered for boilerplate endpoint', {
-        endpoint,
-        body,
-        bodyVariables: body?.variables,
-        bodyRuntime: (body?.variables as Record<string, unknown> | undefined)?.Runtime
-      });
     }
 
     // Reset state when endpoint changes

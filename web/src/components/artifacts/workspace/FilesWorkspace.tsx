@@ -15,7 +15,8 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChevronLeft, Folder, Copy, Check, FolderOpen } from 'lucide-react'
-import { cn, copyTextToClipboard } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { WorkspaceContextBar } from './WorkspaceContextBar'
 import { WorkspaceTabBar } from './WorkspaceTabBar'
 import { WorkspaceMetadataBar } from './WorkspaceMetadataBar'
@@ -273,14 +274,10 @@ export const FilesWorkspace = ({
  * Layout mirrors WorkspaceMetadataBar for visual consistency.
  */
 function GeneratedFilesInfoBar({ absolutePath, relativePath, fileCount }: { absolutePath?: string; relativePath?: string; fileCount: number }) {
-  const [didCopy, setDidCopy] = useState(false)
+  const { didCopy, copy } = useCopyToClipboard()
 
   const handleCopyPath = () => {
-    if (absolutePath) {
-      setDidCopy(true)
-      copyTextToClipboard(absolutePath)
-      setTimeout(() => setDidCopy(false), 1500)
-    }
+    if (absolutePath) copy(absolutePath)
   }
 
   return (

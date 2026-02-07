@@ -1,9 +1,11 @@
-import { useState, useRef, useMemo, useEffect, useCallback, forwardRef } from 'react'
+import { useState, useRef, useMemo, useCallback, forwardRef } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
 import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode } from 'lucide-react'
-import { cn, copyTextToClipboard } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { useResizablePanel } from '@/hooks/useResizablePanel'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 
 interface CodeFileCollectionProps {
@@ -18,18 +20,13 @@ interface CodeFileCollectionProps {
 }
 
 export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false }: CodeFileCollectionProps) => {
-  const [treeWidth, setTreeWidth] = useState(225);
-  const [isResizing, setIsResizing] = useState(false);
+  const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel();
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isPathVisible, setIsPathVisible] = useState(false);
-  const [didCopyPath, setDidCopyPath] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const treeRef = useRef<HTMLDivElement>(null);
-  const widthRef = useRef(225);
-  const rafRef = useRef<number | null>(null);
+  const { didCopy: didCopyPath, copy: copyPath } = useCopyToClipboard();
 
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
@@ -49,51 +46,6 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     traverse(data);
     return files;
   }, [data]);
-
-  // Handle resize drag - update DOM directly for performance
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    widthRef.current = treeWidth;
-    setIsResizing(true);
-  }, [treeWidth]);
-  
-  useEffect(() => {
-    if (!isResizing) return;
-    
-    const handleMouseMove = (e: MouseEvent) => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-      
-      rafRef.current = requestAnimationFrame(() => {
-        if (!containerRef.current || !treeRef.current) return;
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400);
-        treeRef.current.style.width = `${newWidth}px`;
-        widthRef.current = newWidth;
-      });
-    };
-    
-    const handleMouseUp = () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      setTreeWidth(widthRef.current);
-      setIsResizing(false);
-    };
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-    };
-  }, [isResizing]);
 
   // Handle file tree item clicks - jump to file
   const handleFileTreeClick = (item: FileTreeNode) => {
@@ -135,23 +87,12 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     }
   }, []);
 
-  // Reset the "copied" state after a brief delay
-  useEffect(() => {
-    if (!didCopyPath) return;
-    const timer = window.setTimeout(() => setDidCopyPath(false), 1500);
-    return () => window.clearTimeout(timer);
-  }, [didCopyPath]);
-
   const generatedFilesAbsolutePath = absoluteOutputPath;
   const generatedFilesRelativePath = useMemo(() => {
     const raw = (relativeOutputPath || '').trim();
     return raw.replaceAll('\\', '/');
   }, [relativeOutputPath])
 
-  const copyToClipboard = async (text: string) => {
-    const ok = await copyTextToClipboard(text)
-    if (ok) setDidCopyPath(true)
-  }
 
   return (
     <div className={`w-full h-full flex flex-col ${className}`}>
@@ -188,7 +129,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                 disabled={!generatedFilesAbsolutePath}
                 onClick={() => {
                   if (!generatedFilesAbsolutePath) return;
-                  void copyToClipboard(generatedFilesAbsolutePath);
+                  void copyPath(generatedFilesAbsolutePath);
                 }}
               >
                 {didCopyPath ? (
@@ -297,18 +238,14 @@ interface CollapsibleCodeFileProps {
 
 const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
   ({ fileItem, isCollapsed, isFocused, onToggleCollapse }, ref) => {
-    const [didCopy, setDidCopy] = useState(false);
-    
+    const { didCopy, copy } = useCopyToClipboard();
+
     const filePath = fileItem.file?.path || fileItem.name;
     const code = fileItem.file?.content || '';
     const language = fileItem.file?.language || 'text';
     const lineCount = code.split('\n').length;
     
-    const handleCopyPath = () => {
-      setDidCopy(true);
-      copyTextToClipboard(filePath);
-      setTimeout(() => setDidCopy(false), 1500);
-    };
+    const handleCopyPath = () => copy(filePath);
     
     return (
       <div 

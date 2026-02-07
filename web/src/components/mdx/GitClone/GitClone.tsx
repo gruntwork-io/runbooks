@@ -193,42 +193,15 @@ function GitClone({
   }, [reset])
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
-  const getStatusClasses = () => {
-    const statusMap: Record<string, string> = {
-      success: 'bg-green-50 border-green-200',
-      fail: 'bg-red-50 border-red-200',
-      running: 'bg-blue-50 border-blue-200',
-      pending: 'bg-gray-100 border-gray-200',
-      ready: 'bg-gray-100 border-gray-200',
-    }
-    return statusMap[cloneStatus] ?? statusMap.pending
+  const statusConfig: Record<string, { bg: string; icon: typeof GitBranch; iconColor: string }> = {
+    success: { bg: 'bg-green-50 border-green-200', icon: CheckCircle, iconColor: 'text-green-600' },
+    fail:    { bg: 'bg-red-50 border-red-200',     icon: XCircle,     iconColor: 'text-red-600' },
+    running: { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,     iconColor: 'text-blue-600' },
+    pending: { bg: 'bg-gray-100 border-gray-200',   icon: GitBranch,   iconColor: 'text-gray-500' },
+    ready:   { bg: 'bg-gray-100 border-gray-200',   icon: GitBranch,   iconColor: 'text-gray-500' },
   }
 
-  const getStatusIcon = () => {
-    const iconMap: Record<string, typeof GitBranch> = {
-      success: CheckCircle,
-      fail: XCircle,
-      running: Loader2,
-      pending: GitBranch,
-      ready: GitBranch,
-    }
-    return iconMap[cloneStatus] ?? GitBranch
-  }
-
-  const getStatusIconClasses = () => {
-    const colorMap: Record<string, string> = {
-      success: 'text-green-600',
-      fail: 'text-red-600',
-      running: 'text-blue-600',
-      pending: 'text-gray-500',
-      ready: 'text-gray-500',
-    }
-    return colorMap[cloneStatus] ?? colorMap.pending
-  }
-
-  const statusClasses = getStatusClasses()
-  const IconComponent = getStatusIcon()
-  const iconClasses = getStatusIconClasses()
+  const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
 
   const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()

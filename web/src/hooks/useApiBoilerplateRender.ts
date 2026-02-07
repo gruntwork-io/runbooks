@@ -47,24 +47,12 @@ export function useApiBoilerplateRender(
   const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
 
   // Build the request body - both templatePath and templateId are required
-  const requestBody = useMemo(() => {   
-    if (!shouldFetch) {
-      console.log('[useApiBoilerplateRender] shouldFetch is false, returning null');
-      return null; // Don't make request if shouldFetch is false
-    }
-    
+  const requestBody = useMemo(() => {
+    if (!shouldFetch) return null;
     if (templatePath && templateId) {
-      console.log('[useApiBoilerplateRender] Building request body', { 
-        templatePath, 
-        templateId, 
-        variables,
-        runtimeValue: variables?.Runtime 
-      });
       return { templatePath, templateId, variables, ...(target ? { target } : {}) };
     }
-    
-    console.log('[useApiBoilerplateRender] Missing required fields', { templatePath, templateId });
-    return null; // Missing required fields
+    return null;
   }, [templatePath, templateId, variables, shouldFetch, target]);
 
   const apiResult = useApi<BoilerplateRenderResult>(

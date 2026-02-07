@@ -18,12 +18,8 @@ import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
 import { cn } from './lib/utils'
 
-import type { AppError } from './types/error'
-
 function App() {
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<AppError | null>(null);
   const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
   const [showCodeButton, setShowCodeButton] = useState(false);
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
@@ -98,18 +94,12 @@ function App() {
     if (!showArtifacts) {
       const timer = setTimeout(() => {
         setShowCodeButton(true)
-      }, 500) // 1.5 second delay
+      }, 500) // 500ms delay
       return () => clearTimeout(timer)
     } else {
       setShowCodeButton(false)
     }
   }, [showArtifacts])
-  
-  // Update local state when hook state changes
-  useEffect(() => {
-    setIsLoading(getRunbookResult.isLoading)
-    setError(getRunbookResult.error)
-  }, [getRunbookResult.isLoading, getRunbookResult.error])
   
   // Show generated files alert (when there are existing generated files before the Runbook was opened) when appropriate
   useEffect(() => {
@@ -140,11 +130,6 @@ function App() {
   const content = getRunbookResult.data?.content || ''
   const runbookPath = getDirectoryPath(pathName)
 
-  // Check if there is an error
-  function hasError() {
-    return Boolean(error?.message || error?.details);
-  }
-
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
     setShowGeneratedFilesAlert(false);
@@ -174,7 +159,7 @@ function App() {
         )}
         
         {/* Loading and Error States */}
-        {isLoading ? (
+        {getRunbookResult.isLoading ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -207,7 +192,7 @@ function App() {
               </div>
             </div>
           </div>
-        ) : hasError() ? (
+        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -215,9 +200,9 @@ function App() {
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <h3 className="text-lg font-medium text-red-800 mb-2">Failed to Load Runbook</h3>
-                <p className="text-red-700 mb-2">{error?.message}</p>
+                <p className="text-red-700 mb-2">{getRunbookResult.error?.message}</p>
                 <p className="text-sm text-red-600 mb-4">
-                  {error?.details}
+                  {getRunbookResult.error?.details}
                 </p>
                 <button 
                   onClick={() => window.location.reload()} 

@@ -244,8 +244,8 @@ export const FileTree = ({
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   /** Currently selected item ID */
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
-  /** Current width of the tree in pixels */
-  const [_treeWidth, setTreeWidth] = useState(200);
+  /** Current width of the tree in pixels (used by onWidthChange callback) */
+  const [, setTreeWidth] = useState(200);
 
   /**
    * Calculates the optimal width for the tree based on the longest item name.
@@ -349,6 +349,7 @@ export const FileTree = ({
     const isExpanded = expandedItems.has(item.id);
     const isSelected = selectedItem === item.id;
     const isFolder = item.type === 'folder';
+    const FileIcon = !isFolder ? getFileIcon(item.name) : null;
 
     return (
       <div key={item.id} className="w-max min-w-full">
@@ -356,7 +357,7 @@ export const FileTree = ({
           role="treeitem"
           onClick={() => handleItemClick(item)}
           className="min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer text-gray-700"
-          style={{ 
+          style={{
             paddingLeft: `${8 + level * indent}px`,
             backgroundColor: isSelected ? '#e5e7eb' : undefined,
             fontWeight: isSelected ? 500 : undefined,
@@ -386,10 +387,7 @@ export const FileTree = ({
             /* File: spacer (same width as chevron) + icon to align with folder icons */
             <>
               <span className="w-4 flex-shrink-0" />
-              {(() => {
-                const Icon = getFileIcon(item.name)
-                return <Icon className="w-4 h-4 text-gray-500 flex-shrink-0" />
-              })()}
+              {FileIcon && <FileIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />}
             </>
           )}
           

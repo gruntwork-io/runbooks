@@ -355,6 +355,19 @@ func HandleWorkspaceRegister(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
+// isBinaryExt returns true if the file extension indicates a binary (non-text) file.
+func isBinaryExt(ext string) bool {
+	return binaryExtensions[ext] || imageExtensions[ext] != ""
+}
+
+// getGitField runs a git command and returns the trimmed output, or "" on error.
+func getGitField(dirPath string, args ...string) string {
+	if out, err := runGitCommand(dirPath, args...); err == nil {
+		return strings.TrimSpace(out)
+	}
+	return ""
+}
+
 // =============================================================================
 // Tree Building
 // =============================================================================
@@ -412,7 +425,6 @@ func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([
 			}
 
 			ext := strings.ToLower(filepath.Ext(name))
-			isBinary := binaryExtensions[ext] || imageExtensions[ext] != ""
 
 			result = append(result, WorkspaceTreeNode{
 				ID:       entryRelPath,
@@ -420,7 +432,7 @@ func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([
 				Type:     "file",
 				Size:     info.Size(),
 				Language: getLanguageFromExtension(name),
-				IsBinary: isBinary,
+				IsBinary: isBinaryExt(ext),
 			})
 		}
 	}
@@ -434,24 +446,12 @@ func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([
 
 // getGitInfo retrieves git metadata for a directory.
 func getGitInfo(dirPath string) *WorkspaceGitInfo {
-	info := &WorkspaceGitInfo{}
-
-	// Get branch
-	if out, err := runGitCommand(dirPath, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
-		info.Branch = strings.TrimSpace(out)
+	info := &WorkspaceGitInfo{
+		Branch:    getGitField(dirPath, "rev-parse", "--abbrev-ref", "HEAD"),
+		RemoteURL: getGitField(dirPath, "remote", "get-url", "origin"),
+		CommitSha: getGitField(dirPath, "rev-parse", "HEAD"),
 	}
 
-	// Get remote URL
-	if out, err := runGitCommand(dirPath, "remote", "get-url", "origin"); err == nil {
-		info.RemoteURL = strings.TrimSpace(out)
-	}
-
-	// Get commit SHA
-	if out, err := runGitCommand(dirPath, "rev-parse", "HEAD"); err == nil {
-		info.CommitSha = strings.TrimSpace(out)
-	}
-
-	// Only return if we got at least something
 	if info.Branch == "" && info.RemoteURL == "" && info.CommitSha == "" {
 		return nil
 	}
@@ -496,7 +496,7 @@ func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 		}
 
 		ext := strings.ToLower(filepath.Ext(filePath))
-		isBinary := binaryExtensions[ext] || imageExtensions[ext] != ""
+		isBinary := isBinaryExt(ext)
 
 		change := WorkspaceFileChange{
 			Path:       filePath,
@@ -554,7 +554,7 @@ func getSingleFileDiff(dirPath string, filePath string) (*WorkspaceFileChange, e
 		Path:       filePath,
 		ChangeType: changeType,
 		Language:   getLanguageFromExtension(filePath),
-		IsBinary:   binaryExtensions[ext] || imageExtensions[ext] != "",
+		IsBinary:   isBinaryExt(ext),
 	}
 
 	if !change.IsBinary {

@@ -8,7 +8,8 @@ import { useState, useEffect, useRef, useTransition } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Edit2, Save, X, Copy, Check, FileCode, Image, FileQuestion } from 'lucide-react'
-import { cn, copyTextToClipboard } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { WorkspaceFile } from '@/types/workspace'
 
 // Custom style that removes italic from line numbers
@@ -65,27 +66,26 @@ export const SingleFileViewer = ({
   onContentChange,
   className = "",
 }: SingleFileViewerProps) => {
-  const [didCopy, setDidCopy] = useState(false)
+  const { didCopy, copy } = useCopyToClipboard()
   const [lineCount, setLineCount] = useState(0)
   const [isDirty, setIsDirty] = useState(false)
   const lineNumbersRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLPreElement>(null)
   const [, startTransition] = useTransition()
   
-  // Update line count when entering edit mode or content changes
+  // Reset dirty state only when entering edit mode
+  useEffect(() => {
+    if (isEditing) {
+      setIsDirty(false)
+    }
+  }, [isEditing])
+
+  // Update line count when content changes in edit mode
   useEffect(() => {
     if (isEditing && editedContent !== null) {
       setLineCount(editedContent.split('\n').length)
-      setIsDirty(false) // Reset dirty state when starting edit
     }
   }, [isEditing, editedContent])
-  
-  // Reset copy state after delay
-  useEffect(() => {
-    if (!didCopy) return
-    const timer = setTimeout(() => setDidCopy(false), 1500)
-    return () => clearTimeout(timer)
-  }, [didCopy])
   
   // Sync scroll between editor and line numbers
   const handleEditorScroll = () => {
@@ -113,11 +113,8 @@ export const SingleFileViewer = ({
   }
   
   const handleCopy = () => {
-    // Show feedback immediately
-    setDidCopy(true)
     const content = isEditing && editedContent !== null ? editedContent : file.content
-    // Copy in background - don't wait for it
-    copyTextToClipboard(content)
+    copy(content)
   }
   
   const handleCancel = () => {

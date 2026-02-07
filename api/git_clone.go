@@ -17,6 +17,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Pre-compiled regex patterns
+var (
+	sshURLPattern        = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./-]+$`)
+	gitHubOwnerPattern   = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+	tokenSanitizePattern = regexp.MustCompile(`x-access-token:[^@]+@`)
+)
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -442,14 +449,14 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 	for {
 		select {
 		case out := <-outputChan:
-			line := sanitizeGitOutput(out.Line)
+			line := SanitizeGitError(out.Line)
 			sendSSELogWithReplace(c, line, out.Replace)
 			flusher.Flush()
 		case err := <-doneChan:
 			// Drain any remaining output
 			for len(outputChan) > 0 {
 				out := <-outputChan
-				line := sanitizeGitOutput(out.Line)
+				line := SanitizeGitError(out.Line)
 				sendSSELogWithReplace(c, line, out.Replace)
 				flusher.Flush()
 			}
@@ -674,8 +681,7 @@ func isValidGitURL(rawURL string) bool {
 	}
 
 	// SSH URLs: git@host:org/repo.git
-	sshPattern := regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./-]+$`)
-	if sshPattern.MatchString(rawURL) {
+	if sshURLPattern.MatchString(rawURL) {
 		return true
 	}
 
@@ -692,8 +698,7 @@ func isValidGitHubOwner(owner string) bool {
 	if owner == "" || len(owner) > 39 {
 		return false
 	}
-	pattern := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
-	return pattern.MatchString(owner)
+	return gitHubOwnerPattern.MatchString(owner)
 }
 
 // CountFiles counts the number of files in a directory, excluding .git.
@@ -717,12 +722,5 @@ func CountFiles(dir string) int {
 
 // SanitizeGitError removes tokens from git error messages.
 func SanitizeGitError(msg string) string {
-	// Remove x-access-token:TOKEN@ from URLs
-	tokenPattern := regexp.MustCompile(`x-access-token:[^@]+@`)
-	return tokenPattern.ReplaceAllString(msg, "")
-}
-
-// sanitizeGitOutput removes tokens from git output lines.
-func sanitizeGitOutput(line string) string {
-	return SanitizeGitError(line)
+	return tokenSanitizePattern.ReplaceAllString(msg, "")
 }

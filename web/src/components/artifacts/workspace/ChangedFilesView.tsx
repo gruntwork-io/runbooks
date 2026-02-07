@@ -6,7 +6,7 @@
  */
 
 import type React from 'react'
-import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from 'react'
+import { useState, useMemo, useCallback, useRef, forwardRef } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -23,28 +23,26 @@ import {
   ArrowDownToLine,
   type LucideIcon,
 } from 'lucide-react'
-import { cn, copyTextToClipboard } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Loader2, Download } from 'lucide-react'
 import { ProvenanceBadge } from './ProvenanceBadge'
+import { useResizablePanel } from '@/hooks/useResizablePanel'
 import type { FileChange, FileChangeType } from '@/types/workspace'
 import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
 
-/**
- * Returns the appropriate icon for a file change type
- */
+/** Maps change types to their icon and color */
+const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
+  added:    { icon: FilePlus,  color: 'text-green-600' },
+  deleted:  { icon: FileMinus, color: 'text-red-600' },
+  modified: { icon: FileDiff,  color: 'text-gray-600' },
+  renamed:  { icon: FileDiff,  color: 'text-gray-600' },
+}
+
+const defaultChangeConfig = { icon: FileDiff, color: 'text-gray-600' }
+
 function getChangeTypeIcon(changeType: FileChangeType): LucideIcon {
-  switch (changeType) {
-    case 'added':
-      return FilePlus
-    case 'modified':
-      return FileDiff
-    case 'deleted':
-      return FileMinus
-    case 'renamed':
-      return FileDiff
-    default:
-      return FileDiff
-  }
+  return (changeTypeConfig[changeType] ?? defaultChangeConfig).icon
 }
 
 /**
@@ -64,12 +62,9 @@ function ChangeProportionBar({ additions, deletions }: { additions: number; dele
     )
   }
 
-  let greenBoxes = 0
-  if (total > 0) {
-    greenBoxes = Math.round((additions / total) * BOXES)
-    if (additions > 0 && greenBoxes === 0) greenBoxes = 1
-    if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
-  }
+  let greenBoxes = Math.round((additions / total) * BOXES)
+  if (additions > 0 && greenBoxes === 0) greenBoxes = 1
+  if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
   
   const redBoxes = BOXES - greenBoxes
   
@@ -110,58 +105,8 @@ export const ChangedFilesView = ({
 }: ChangedFilesViewProps) => {
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null)
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
-  const [treeWidth, setTreeWidth] = useState(225)
-  const [isResizing, setIsResizing] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const treeRef = useRef<HTMLDivElement>(null)
-  const widthRef = useRef(225)
-  const rafRef = useRef<number | null>(null)
+  const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  
-  // Handle resize drag - update DOM directly for performance
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    widthRef.current = treeWidth
-    setIsResizing(true)
-  }, [treeWidth])
-  
-  useEffect(() => {
-    if (!isResizing) return
-    
-    const handleMouseMove = (e: MouseEvent) => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-      }
-      
-      rafRef.current = requestAnimationFrame(() => {
-        if (!containerRef.current || !treeRef.current) return
-        const containerRect = containerRef.current.getBoundingClientRect()
-        const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400)
-        treeRef.current.style.width = `${newWidth}px`
-        widthRef.current = newWidth
-      })
-    }
-    
-    const handleMouseUp = () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
-      setTreeWidth(widthRef.current)
-      setIsResizing(false)
-    }
-    
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-      }
-    }
-  }, [isResizing])
   
   // Normalize changes to always have an id (WorkspaceFileChange uses path as id)
   const normalizedChanges: FileChange[] = useMemo(() => 
@@ -510,17 +455,13 @@ interface CollapsibleFileDiffProps {
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
   ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
-    const [didCopy, setDidCopy] = useState(false)
+    const { didCopy, copy } = useCopyToClipboard()
     const [isLoadingDiff, setIsLoadingDiff] = useState(false)
-    
+
     const Icon = getChangeTypeIcon(change.changeType)
     const iconColor = getIconColor(change.changeType)
-    
-    const handleCopyPath = () => {
-      setDidCopy(true)
-      copyTextToClipboard(change.path)
-      setTimeout(() => setDidCopy(false), 1500)
-    }
+
+    const handleCopyPath = () => copy(change.path)
     
     return (
       <div 
@@ -815,30 +756,14 @@ interface DiffLineRowProps {
   line: DiffLine;
 }
 
+const diffLineStyles: Record<string, { bg: string; prefix: string; prefixColor: string; lineNumBg: string }> = {
+  addition: { bg: 'bg-green-50', prefix: '+', prefixColor: 'text-green-600', lineNumBg: 'bg-green-100' },
+  deletion: { bg: 'bg-red-50',   prefix: '-', prefixColor: 'text-red-600',   lineNumBg: 'bg-red-100' },
+  context:  { bg: '',            prefix: ' ', prefixColor: 'text-gray-400',  lineNumBg: 'bg-gray-50' },
+}
+
 const DiffLineRow = ({ line }: DiffLineRowProps) => {
-  const bgColor = line.type === 'addition' 
-    ? 'bg-green-50' 
-    : line.type === 'deletion' 
-    ? 'bg-red-50' 
-    : ''
-  
-  const prefix = line.type === 'addition' 
-    ? '+' 
-    : line.type === 'deletion' 
-    ? '-' 
-    : ' '
-  
-  const prefixColor = line.type === 'addition'
-    ? 'text-green-600'
-    : line.type === 'deletion'
-    ? 'text-red-600'
-    : 'text-gray-400'
-  
-  const lineNumBg = line.type === 'addition'
-    ? 'bg-green-100'
-    : line.type === 'deletion'
-    ? 'bg-red-100'
-    : 'bg-gray-50'
+  const { bg: bgColor, prefix, prefixColor, lineNumBg } = diffLineStyles[line.type] ?? diffLineStyles.context
   
   return (
     <tr className={bgColor}>
@@ -994,17 +919,6 @@ function computeSimpleDiff(oldLines: string[], newLines: string[]): DiffItem[] {
 // ============================================================================
 
 function getIconColor(type: FileChangeType): string {
-  switch (type) {
-    case 'added':
-      return 'text-green-600'
-    case 'modified':
-      return 'text-gray-600'
-    case 'deleted':
-      return 'text-red-600'
-    case 'renamed':
-      return 'text-gray-600'
-    default:
-      return 'text-gray-600'
-  }
+  return (changeTypeConfig[type] ?? defaultChangeConfig).color
 }
 

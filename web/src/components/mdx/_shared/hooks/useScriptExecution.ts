@@ -9,9 +9,10 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
-import { extractOutputDependenciesFromString, type OutputDependency, groupDependenciesByBlock } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
+import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
+import { computeUnmetOutputDependencies } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -33,11 +34,8 @@ interface UseScriptExecutionProps {
   usePty?: boolean
 }
 
-/** Information about an unmet output dependency */
-export interface UnmetOutputDependency {
-  blockId: string
-  outputNames: string[]
-}
+// Re-export for backwards compatibility
+export type { UnmetOutputDependency } from '@/lib/templateUtils'
 
 /** Information about an unmet AWS auth dependency */
 export interface UnmetAwsAuthDependency {
@@ -340,31 +338,10 @@ export function useScriptExecution({
   }, [rawScriptContent])
   
   // Check which output dependencies are not yet satisfied
-  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
-    if (outputDependencies.length === 0) return []
-    
-    // Group dependencies by block
-    const byBlock = groupDependenciesByBlock(outputDependencies)
-    const unmet: UnmetOutputDependency[] = []
-    
-    for (const [blockId, outputNames] of byBlock) {
-      // Normalize for lookup since outputs are stored under normalized IDs
-      const normalizedId = normalizeBlockId(blockId)
-      const blockData = allOutputs[normalizedId]
-      if (!blockData) {
-        // Block hasn't produced any outputs yet - preserve original blockId for display
-        unmet.push({ blockId, outputNames })
-      } else {
-        // Check which specific outputs are missing
-        const missingOutputs = outputNames.filter(name => !(name in blockData.values))
-        if (missingOutputs.length > 0) {
-          unmet.push({ blockId, outputNames: missingOutputs })
-        }
-      }
-    }
-    
-    return unmet
-  }, [outputDependencies, allOutputs])
+  const unmetOutputDependencies = useMemo(
+    () => computeUnmetOutputDependencies(outputDependencies, allOutputs),
+    [outputDependencies, allOutputs]
+  )
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0

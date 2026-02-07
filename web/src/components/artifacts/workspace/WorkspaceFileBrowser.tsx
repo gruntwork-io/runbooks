@@ -5,12 +5,13 @@
  * on the left and a single file viewer on the right with lazy content loading.
  */
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { useFileContent } from '@/hooks/useFileContent'
 import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
@@ -41,12 +42,7 @@ export const WorkspaceFileBrowser = ({
   className = "",
 }: WorkspaceFileBrowserProps) => {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
-  const [treeWidth, setTreeWidth] = useState(225)
-  const [isResizing, setIsResizing] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const treeRef = useRef<HTMLDivElement>(null)
-  const widthRef = useRef(225)
-  const rafRef = useRef<number | null>(null)
+  const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   
   // Lazy file content loader
   const { fetchFileContent, refetchFileContent, clearCache, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
@@ -80,51 +76,6 @@ export const WorkspaceFileBrowser = ({
     const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
     refetchFileContent(absPath)
   }, [treeVersion, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
-  
-  // Handle resize drag - update DOM directly for performance
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    widthRef.current = treeWidth
-    setIsResizing(true)
-  }, [treeWidth])
-  
-  useEffect(() => {
-    if (!isResizing) return
-    
-    const handleMouseMove = (e: MouseEvent) => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-      }
-      
-      rafRef.current = requestAnimationFrame(() => {
-        if (!containerRef.current || !treeRef.current) return
-        const containerRect = containerRef.current.getBoundingClientRect()
-        const newWidth = Math.min(Math.max(e.clientX - containerRect.left, 150), 400)
-        treeRef.current.style.width = `${newWidth}px`
-        widthRef.current = newWidth
-      })
-    }
-    
-    const handleMouseUp = () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
-      setTreeWidth(widthRef.current)
-      setIsResizing(false)
-    }
-    
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-      }
-    }
-  }, [isResizing])
   
   // Convert WorkspaceTreeNode to FileTreeNode for the existing FileTree component
   const fileTreeData = useMemo(() => {
