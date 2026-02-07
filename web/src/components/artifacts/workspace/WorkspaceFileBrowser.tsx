@@ -6,6 +6,8 @@
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -323,9 +325,30 @@ function FileContentViewer({ fileContent, isLoading, error }: {
         <span>{fileContent.path.split('/').pop()}</span>
         <span className="text-gray-400">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
       </div>
-      <pre className="flex-1 overflow-auto p-3 text-xs font-mono text-gray-800 leading-relaxed">
-        <code>{fileContent.content}</code>
-      </pre>
+      <div className="flex-1 overflow-auto">
+        <SyntaxHighlighter
+          language={fileContent.language}
+          style={coy}
+          showLineNumbers={true}
+          customStyle={{
+            fontSize: '12px',
+            margin: 0,
+            borderRadius: 0,
+            border: 'none',
+            padding: '14px 0px',
+            background: 'transparent',
+          }}
+          lineNumberStyle={{
+            color: '#999',
+            fontSize: '11px',
+            paddingRight: '12px',
+            borderRight: '1px solid #eee',
+            marginRight: '8px',
+          }}
+        >
+          {fileContent.content || ''}
+        </SyntaxHighlighter>
+      </div>
     </div>
   )
 }

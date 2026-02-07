@@ -332,7 +332,7 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
             <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
           )}
           <FileCode className="w-4 h-4 text-gray-500 flex-shrink-0" />
-          <span className="font-mono text-sm text-gray-700 truncate">
+          <span className="font-mono text-xs text-gray-700 truncate">
             {filePath}
           </span>
           <button

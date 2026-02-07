@@ -534,7 +534,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
             <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
           )}
           <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
-          <span className="font-mono text-sm text-gray-700 truncate">
+          <span className="font-mono text-xs text-gray-700 truncate">
             {change.path}
           </span>
           <button
