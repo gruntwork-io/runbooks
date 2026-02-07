@@ -33,4 +33,11 @@ EOF
 
 echo "Appended custom locals block to root.hcl"
 echo ""
+
+# Delete a file to demonstrate deleted file tracking in the Changed tab
+echo "Removing CODEOWNERS (no longer needed)..."
+rm -f "$REPO_DIR/CODEOWNERS"
+echo "Deleted CODEOWNERS"
+echo ""
+
 echo "Check the Changed tab to review the diff."

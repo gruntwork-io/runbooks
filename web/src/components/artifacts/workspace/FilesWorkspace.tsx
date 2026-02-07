@@ -55,6 +55,7 @@ export const FilesWorkspace = ({
   const [activeContext, setActiveContext] = useState<WorkspaceContext>('generated')
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('all')
   const hasAutoSwitched = useRef(false)
+  const prevTotalChanges = useRef(0)
 
   // Git worktree data
   const { workTrees, activeWorkTree, activeWorkTreeId, setActiveWorkTree } = useGitWorkTree()
@@ -78,6 +79,20 @@ export const FilesWorkspace = ({
       setActiveTab('all')
     }
   }, [hasWorkTree])
+
+  // Auto-switch to Changed files tab when changes first appear,
+  // and refresh the file tree whenever the set of changes updates
+  // (files may have been added or deleted).
+  useEffect(() => {
+    if (prevTotalChanges.current === 0 && totalChanges > 0 && hasWorkTree) {
+      setActiveContext('repository')
+      setActiveTab('changed')
+    }
+    if (totalChanges !== prevTotalChanges.current && hasWorkTree) {
+      refetchTree()
+    }
+    prevTotalChanges.current = totalChanges
+  }, [totalChanges, hasWorkTree, refetchTree])
 
   // Ensure active context is valid
   useEffect(() => {
