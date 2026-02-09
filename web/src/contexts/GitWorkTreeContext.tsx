@@ -70,14 +70,12 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     // Auto-activate the first registered worktree
     setActiveWorkTreeId(prev => prev ?? workTree.id)
 
-    // Register the worktree path with the backend for provenance tracking
+    // Register the worktree path with the backend
     fetch('/api/workspace/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ path: workTree.localPath }),
-    }).catch(() => {
-      // Non-critical: provenance will just not be tracked
-    })
+    }).catch(() => {})
   }, [getAuthHeader])
 
   const setActiveWorkTree = useCallback((id: string) => {

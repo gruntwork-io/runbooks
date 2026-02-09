@@ -42,11 +42,9 @@ type ExecStatusEvent struct {
 
 // FilesCapturedEvent represents files captured from script execution
 type FilesCapturedEvent struct {
-	Files           []CapturedFile `json:"files"`                     // List of captured files
-	Count           int            `json:"count"`                     // Total number of files captured
-	FileTree        any            `json:"fileTree"`                  // Updated file tree for the workspace
-	SourceBlockID   string         `json:"sourceBlockId,omitempty"`   // Block that generated these files
-	SourceBlockType string         `json:"sourceBlockType,omitempty"` // Type of block (command, check)
+	Files    []CapturedFile `json:"files"`    // List of captured files
+	Count    int            `json:"count"`    // Total number of files captured
+	FileTree any            `json:"fileTree"` // Updated file tree for the workspace
 }
 
 // CapturedFile represents a single file captured from script output
@@ -188,13 +186,6 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			resolvedOutputPath = filepath.Join(workingDir, cliOutputPath)
 		}
 
-		// Provenance tracking: snapshot git status before execution
-		workTreePaths := sessionManager.GetWorkTreePaths()
-		var beforeStatus map[string]map[string]bool
-		if len(workTreePaths) > 0 {
-			beforeStatus = SnapshotGitStatus(workTreePaths)
-		}
-
 		// Stream logs and wait for completion
 		envCaptureConfig := &envCaptureConfig{
 			scriptSetup:    scriptSetup,
@@ -206,15 +197,6 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			ComponentType: executable.ComponentType,
 		}
 		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig, blockInfo)
-
-		// Provenance tracking: snapshot git status after execution, diff, and record
-		if len(workTreePaths) > 0 {
-			afterStatus := SnapshotGitStatus(workTreePaths)
-			session, ok := sessionManager.GetSession()
-			if ok && session != nil && session.ProvenanceStore != nil {
-				DiffAndRecord(session.ProvenanceStore, executable.ComponentID, executable.ComponentType, beforeStatus, afterStatus)
-			}
-		}
 	}
 }
 

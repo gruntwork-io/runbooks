@@ -70,9 +70,6 @@ type WorkspaceFileChange struct {
 	Language        string `json:"language"`
 	IsBinary        bool   `json:"isBinary,omitempty"`
 	DiffTruncated   bool   `json:"diffTruncated,omitempty"`
-	// Provenance: which block last modified this file
-	SourceBlockID   string `json:"sourceBlockId,omitempty"`
-	SourceBlockType string `json:"sourceBlockType,omitempty"`
 }
 
 // WorkspaceChangesResponse is the response for GET /api/workspace/changes.
@@ -280,7 +277,7 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 
 // HandleWorkspaceChanges returns the list of changed files in a git workspace.
 // GET /api/workspace/changes?path=<abs_path>&file=<optional>
-func HandleWorkspaceChanges(sm *SessionManager) gin.HandlerFunc {
+func HandleWorkspaceChanges() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dirPath := c.Query("path")
 		if dirPath == "" {
@@ -296,8 +293,6 @@ func HandleWorkspaceChanges(sm *SessionManager) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to get diff: %v", err)})
 				return
 			}
-			// Annotate with provenance
-			annotateProvenance(sm, dirPath, []*WorkspaceFileChange{change})
 			c.JSON(http.StatusOK, WorkspaceChangesResponse{
 				Changes:      []WorkspaceFileChange{*change},
 				TotalChanges: 1,
@@ -324,13 +319,6 @@ func HandleWorkspaceChanges(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		// Annotate with provenance
-		changePtrs := make([]*WorkspaceFileChange, len(changes))
-		for i := range changes {
-			changePtrs[i] = &changes[i]
-		}
-		annotateProvenance(sm, dirPath, changePtrs)
-
 		c.JSON(http.StatusOK, WorkspaceChangesResponse{
 			Changes:      changes,
 			TotalChanges: totalChanges,
@@ -338,7 +326,7 @@ func HandleWorkspaceChanges(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
-// HandleWorkspaceRegister registers a worktree path with the session for provenance tracking.
+// HandleWorkspaceRegister registers a worktree path with the session.
 // POST /api/workspace/register
 func HandleWorkspaceRegister(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -650,30 +638,6 @@ func parseGitStatusCode(code string) string {
 
 	// Default to modified for anything else
 	return "modified"
-}
-
-// =============================================================================
-// Provenance
-// =============================================================================
-
-// annotateProvenance adds provenance info to changes from the session's provenance store.
-func annotateProvenance(sm *SessionManager, dirPath string, changes []*WorkspaceFileChange) {
-	if sm == nil {
-		return
-	}
-
-	session, ok := sm.GetSession()
-	if !ok || session == nil || session.ProvenanceStore == nil {
-		return
-	}
-
-	for _, change := range changes {
-		absPath := filepath.Join(dirPath, change.Path)
-		if prov := session.ProvenanceStore.Get(absPath); prov != nil {
-			change.SourceBlockID = prov.BlockID
-			change.SourceBlockType = prov.BlockType
-		}
-	}
 }
 
 // =============================================================================

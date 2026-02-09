@@ -26,7 +26,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Loader2, Download } from 'lucide-react'
-import { ProvenanceBadge } from './ProvenanceBadge'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import type { FileChange, FileChangeType } from '@/types/workspace'
 import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
@@ -120,10 +119,8 @@ export const ChangedFilesView = ({
       newContent: c.newContent,
       language: c.language,
       originalPath: 'originalPath' in c ? (c as FileChange).originalPath : undefined,
-      // Carry through extra fields for provenance/truncation
+      // Carry through extra fields
       ...('diffTruncated' in c ? { diffTruncated: (c as WorkspaceFileChange).diffTruncated } : {}),
-      ...('sourceBlockId' in c ? { sourceBlockId: (c as WorkspaceFileChange).sourceBlockId } : {}),
-      ...('sourceBlockType' in c ? { sourceBlockType: (c as WorkspaceFileChange).sourceBlockType } : {}),
       ...('isBinary' in c ? { isBinary: (c as WorkspaceFileChange).isBinary } : {}),
     }))
   , [changes])
@@ -446,7 +443,7 @@ function getAllFolderPaths(nodes: TreeNode[]): string[] {
 // ============================================================================
 
 interface CollapsibleFileDiffProps {
-  change: FileChange & { diffTruncated?: boolean; isBinary?: boolean; sourceBlockId?: string; sourceBlockType?: string };
+  change: FileChange & { diffTruncated?: boolean; isBinary?: boolean };
   isCollapsed: boolean;
   isFocused: boolean;
   onToggleCollapse: () => void;
@@ -499,15 +496,6 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
               <Copy className="w-3.5 h-3.5" />
             )}
           </button>
-          {change.sourceBlockId && (
-            <span onClick={e => e.stopPropagation()}>
-              <ProvenanceBadge
-                sourceBlockId={change.sourceBlockId}
-                sourceBlockType={change.sourceBlockType || 'command'}
-                variant="changed"
-              />
-            </span>
-          )}
           <div className="flex-1" />
           <div className="flex items-center gap-2 text-xs flex-shrink-0">
             {change.additions > 0 && (

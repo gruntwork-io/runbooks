@@ -36,11 +36,7 @@ type Session struct {
 	ExecutionCount int                  // Global execution counter
 	CreatedAt      time.Time
 	LastActivity   time.Time
-	// ProvenanceStore tracks which block last modified each file.
-	// Used by workspace endpoints to annotate changed files with their source block.
-	ProvenanceStore *ProvenanceStore
 	// RegisteredWorkTreePaths stores absolute paths of registered git worktrees.
-	// Used for provenance tracking: before/after git status comparison during block execution.
 	RegisteredWorkTreePaths []string
 }
 
@@ -173,7 +169,6 @@ func (sm *SessionManager) CreateSession(initialWorkingDir string) (*SessionToken
 		ExecutionCount:  0,
 		CreatedAt:       now,
 		LastActivity:    now,
-		ProvenanceStore: NewProvenanceStore(),
 	}
 
 	sm.mu.Lock()
@@ -350,9 +345,6 @@ func (sm *SessionManager) ResetSession() error {
 	sm.session.Env = copyEnvMap(sm.session.InitialEnv)
 	sm.session.WorkingDir = sm.session.InitialWorkDir
 	sm.session.LastActivity = time.Now()
-	if sm.session.ProvenanceStore != nil {
-		sm.session.ProvenanceStore.Clear()
-	}
 
 	return nil
 }
@@ -421,21 +413,6 @@ func (sm *SessionManager) RegisterWorkTreePath(path string) {
 	}
 
 	sm.session.RegisteredWorkTreePaths = append(sm.session.RegisteredWorkTreePaths, path)
-}
-
-// GetWorkTreePaths returns the registered worktree paths.
-func (sm *SessionManager) GetWorkTreePaths() []string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	if sm.session == nil {
-		return nil
-	}
-
-	// Return a copy to avoid mutation
-	paths := make([]string, len(sm.session.RegisteredWorkTreePaths))
-	copy(paths, sm.session.RegisteredWorkTreePaths)
-	return paths
 }
 
 // GetActiveWorkTreePath returns the most recently registered worktree path,

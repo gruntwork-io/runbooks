@@ -17,12 +17,12 @@ import (
 // Minimal valid PNG file (8-byte header). Defined once as a test fixture.
 var testPNGBytes = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 
-func setupWorkspaceTestRouter(sm *SessionManager) *gin.Engine {
+func setupWorkspaceTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/workspace/tree", HandleWorkspaceTree())
 	r.GET("/api/workspace/file", HandleWorkspaceFile())
-	r.GET("/api/workspace/changes", HandleWorkspaceChanges(sm))
+	r.GET("/api/workspace/changes", HandleWorkspaceChanges())
 	return r
 }
 
@@ -70,8 +70,7 @@ func createTempGitRepo(t *testing.T) string {
 
 func TestWorkspaceTreeFullStructure(t *testing.T) {
 	dir := createTempDirWithFiles(t)
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/tree?path="+dir, nil)
@@ -104,8 +103,7 @@ func TestWorkspaceTreeFullStructure(t *testing.T) {
 
 func TestWorkspaceTreeSkipsGitDir(t *testing.T) {
 	dir := createTempGitRepo(t)
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/tree?path="+dir, nil)
@@ -139,8 +137,7 @@ func TestWorkspaceTreeMaxFiles(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.txt", i)), []byte("x"), 0644)
 	}
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/tree?path="+dir, nil)
@@ -153,8 +150,7 @@ func TestWorkspaceTreeMaxFiles(t *testing.T) {
 
 func TestWorkspaceFileContent(t *testing.T) {
 	dir := createTempDirWithFiles(t)
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	filePath := filepath.Join(dir, "README.md")
 	w := httptest.NewRecorder()
@@ -189,8 +185,7 @@ func TestWorkspaceFileTooLarge(t *testing.T) {
 	data := make([]byte, int(maxFileContentSize)+1)
 	os.WriteFile(largePath, data, 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+largePath, nil)
@@ -219,8 +214,7 @@ func TestWorkspaceFileBinary(t *testing.T) {
 	data := []byte("hello\x00world")
 	os.WriteFile(binPath, data, 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+binPath, nil)
@@ -243,8 +237,7 @@ func TestWorkspaceFileImage(t *testing.T) {
 	pngPath := filepath.Join(dir, "test.png")
 	os.WriteFile(pngPath, testPNGBytes, 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+pngPath, nil)
@@ -270,8 +263,7 @@ func TestWorkspaceFileImage(t *testing.T) {
 
 func TestWorkspaceChangesEmpty(t *testing.T) {
 	dir := createTempGitRepo(t)
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
@@ -295,8 +287,7 @@ func TestWorkspaceChangesDetected(t *testing.T) {
 	// Modify a file
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
@@ -331,8 +322,7 @@ func TestWorkspaceChangesIncludesDiffContent(t *testing.T) {
 	// Modify a file
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
@@ -360,8 +350,7 @@ func TestWorkspaceChangesSingleFileDiff(t *testing.T) {
 	// Modify a file
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir+"&file=README.md", nil)
@@ -396,8 +385,7 @@ func TestWorkspaceChangesTruncatesLargeDiff(t *testing.T) {
 	bigContent := strings.Repeat("this is a long line of content\n", 5)
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte(bigContent), 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
@@ -423,84 +411,8 @@ func TestWorkspaceChangesTruncatesLargeDiff(t *testing.T) {
 	}
 }
 
-func TestProvenanceRecordAndLookup(t *testing.T) {
-	ps := NewProvenanceStore()
-
-	ps.Record("setup-infra", "template", []string{"/tmp/a.tf", "/tmp/b.tf"})
-
-	prov := ps.Get("/tmp/a.tf")
-	if prov == nil {
-		t.Fatal("expected provenance for /tmp/a.tf")
-	}
-	if prov.BlockID != "setup-infra" {
-		t.Errorf("expected blockId setup-infra, got %s", prov.BlockID)
-	}
-	if prov.BlockType != "template" {
-		t.Errorf("expected blockType template, got %s", prov.BlockType)
-	}
-
-	// Non-existent path
-	if ps.Get("/tmp/c.tf") != nil {
-		t.Error("expected nil for unrecorded path")
-	}
-}
-
-func TestProvenanceLastWriterWins(t *testing.T) {
-	ps := NewProvenanceStore()
-
-	ps.Record("first-block", "command", []string{"/tmp/main.tf"})
-	ps.Record("second-block", "template", []string{"/tmp/main.tf"})
-
-	prov := ps.Get("/tmp/main.tf")
-	if prov == nil {
-		t.Fatal("expected provenance")
-	}
-	if prov.BlockID != "second-block" {
-		t.Errorf("expected second-block (last writer wins), got %s", prov.BlockID)
-	}
-}
-
-func TestProvenanceInChangesResponse(t *testing.T) {
-	dir := createTempGitRepo(t)
-
-	// Modify a file
-	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated\n"), 0644)
-
-	sm := NewSessionManager()
-	sm.CreateSession(dir)
-
-	// Record provenance for the changed file
-	session, ok := sm.GetSession()
-	if !ok {
-		t.Fatal("expected session")
-	}
-	session.ProvenanceStore.Record("configure-vpc", "command", []string{filepath.Join(dir, "README.md")})
-
-	router := setupWorkspaceTestRouter(sm)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
-	router.ServeHTTP(w, req)
-
-	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
-
-	if len(resp.Changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
-	}
-
-	change := resp.Changes[0]
-	if change.SourceBlockID != "configure-vpc" {
-		t.Errorf("expected sourceBlockId 'configure-vpc', got '%s'", change.SourceBlockID)
-	}
-	if change.SourceBlockType != "command" {
-		t.Errorf("expected sourceBlockType 'command', got '%s'", change.SourceBlockType)
-	}
-}
-
 func TestWorkspaceTreeNotFound(t *testing.T) {
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/tree?path=/nonexistent/path", nil)
@@ -512,8 +424,7 @@ func TestWorkspaceTreeNotFound(t *testing.T) {
 }
 
 func TestWorkspaceTreeMissingPath(t *testing.T) {
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/tree", nil)
@@ -530,8 +441,7 @@ func TestWorkspaceChangesNewFile(t *testing.T) {
 	// Add a new untracked file
 	os.WriteFile(filepath.Join(dir, "new_file.txt"), []byte("new content\n"), 0644)
 
-	sm := NewSessionManager()
-	router := setupWorkspaceTestRouter(sm)
+	router := setupWorkspaceTestRouter()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)

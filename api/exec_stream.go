@@ -27,7 +27,7 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- outputLine) {
 }
 
 // streamExecutionOutput handles the main loop of streaming output and handling completion
-// blockInfoForSSE carries block identity for tagging SSE events (provenance).
+// blockInfoForSSE carries block identity for tagging SSE events.
 type blockInfoForSSE struct {
 	ComponentID   string
 	ComponentType string
@@ -184,12 +184,6 @@ func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutpu
 		Files:    capturedFiles,
 		Count:    len(capturedFiles),
 		FileTree: fileTree,
-	}
-
-	// Tag with block provenance if available
-	if block != nil {
-		event.SourceBlockID = block.ComponentID
-		event.SourceBlockType = block.ComponentType
 	}
 
 	c.SSEvent("files_captured", event)
