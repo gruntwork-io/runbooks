@@ -1,18 +1,46 @@
 ---
-title: Generated Files
+title: Files Workspace
 sidebar:
   order: 5
 ---
 
 import { Aside, FileTree } from '@astrojs/starlight/components';
 
-When you use a Runbook, files are generated locally on your machine. This page explains how file generation works and where those files end up.
+When you use a Runbook, you'll often work with files, whether they're freshly generated from templates, or cloned from a git repository. The **files workspace** (labeled just "Files" in the Runbooks UI) is the panel on the right side of the Runbooks UI where all of these files live.
 
-## How files are generated
+This page explains the two types of files you'll encounter, when each one appears, and how to work with them.
 
-Files can be generated in two ways:
+## Two types of files
 
-### 1. Template blocks
+The files workspace can show two categories of files, each in its own tab. Let's learn about each at a high level. Later, we'll dive into the details of each type of file.
+
+### Generated files
+
+| | |
+|----------|-------------|
+| **Where they come from** | [\<Template\>](/authoring/blocks/template/) or [\<Command\>](/authoring/blocks/command/) blocks generate them |
+| **Where they're stored** | In a `generated/` folder on your local machine (by default) |
+| **When you see them** | After you click "Generate" on a \<Template\> block<br />After a \<Command\> block writes to `$GENERATED_FILES` |
+| **Git tracking** | Not tracked by git |
+
+### Repository files
+
+|||
+|----------|-------------|
+| **Where they come from** | Cloned from a git repository via a [\<GitClone\>](/authoring/blocks/gitclone/) block |
+| **Where they're stored** | In a local path specified in the \<GitClone\> block |
+| **When you see them** | After a \<GitClone\> block successfully clones a repository |
+| **Git tracking** | Tracked by git |
+
+<Aside type="tip">
+If a runbook only produces generated files (no git clone), you'll only see the "Generated files" tab. If it only clones a repository, you'll only see the "Repository" tab. When both are present, you can switch between them using the context bar at the top of the workspace.
+</Aside>
+
+## Generated files
+
+Generated files are new files that the runbook creates on your local machine. There are two ways they get created:
+
+### Template blocks
 
 The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/blocks/templateinline/) blocks generate files from [Boilerplate templates](/authoring/boilerplate/). When you fill in the form fields and click "Generate", the template engine processes your inputs and creates the output files.
 
@@ -22,93 +50,94 @@ The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/bloc
 
 Template blocks automatically re-render when you change input values, so your generated files stay in sync with the form.
 
-### 2. Command blocks with $GENERATED_FILES
+### Command blocks with $GENERATED_FILES
 
 [Command](/authoring/blocks/command/) blocks can write files to the `$GENERATED_FILES` environment variable to capture them:
 
 ```mdx
-<Command 
+<Command
   id="export-terraform"
   command={`tofu output -json > "$GENERATED_FILES/tf-outputs.json"`}
   title="Export Terraform outputs"
 />
 ```
 
-Any files written to `$GENERATED_FILES` automatically appear in your generated files after the command completes successfully.
+Any files written to `$GENERATED_FILES` automatically appear in the workspace after the command completes successfully.
 
-## Where files are stored
+### Where generated files are stored
 
-Generated files are persisted to a folder on your local machine—they're not ephemeral or stored in memory.
-
-### Default location
+Generated files are persisted to a folder on your local machine — they're not ephemeral or stored in memory.
 
 By default, generated files are written to a `generated/` folder in the working directory (the directory you run the `runbooks` command from):
 
 <FileTree>
-- **generated/** ← Created in your working directory
+- **generated/** &larr; Created in your working directory
   - main.tf
   - variables.tf
   - outputs.tf
 </FileTree>
 
-### Customizing the working directory
-
-The working directory is the base directory for all file operations. By default, it's the current directory where you run the command. You can customize it:
+You can customize the output location with CLI flags:
 
 ```bash
 # Use a specific working directory
 runbooks open my-runbook --working-dir /path/to/project
+
+# Write to a custom subfolder within the working directory
+runbooks open my-runbook --output-path ./infrastructure
 
 # Use an isolated temporary directory (auto-cleaned on exit)
 runbooks open my-runbook --working-dir-tmp
 ```
 
 <Aside type="tip">
-The `--working-dir-tmp` flag is useful for sandboxed execution where you don't want generated files to persist.
-</Aside>
-
-### Customizing the output path
-
-The output path specifies where generated files are written, relative to the working directory:
-
-```bash
-# Write to a custom folder (within working directory)
-runbooks open my-runbook --output-path ./infrastructure
-
-# Nested subdirectory
-runbooks open my-runbook --output-path ./projects/acme/infra
-
-# Combined with working directory
-runbooks open my-runbook --working-dir /tmp/sandbox --output-path output
-# Files written to: /tmp/sandbox/output/
-```
-
-<Aside type="tip">
-These flags work with all Runbooks commands: `open`, `serve`, and `watch`.
+The `--working-dir-tmp` flag is useful for sandboxed execution where you don't want generated files to persist after you close the runbook.
 </Aside>
 
 ### Subdirectories within templates
 
-Within a runbook, you can organize generated files into subdirectories:
+If your template or script writes to a subdirectory of `$GENERATED_FILES`, the subdirectory will be created automatically. For example, if you write to `$GENERATED_FILES/config/app.json`, the `config/` subdirectory will be created automatically.
 
-- **Template blocks**: The directory structure of your template folder is preserved in the output.
-- **TemplateInline blocks**: Use the `outputPath` prop to specify a path like `config/app.yaml`.
-- **Command/Check blocks**: Create subdirectories within `$GENERATED_FILES`.
+<FileTree>
+- generated 
+  - config/
+    - app.json  
+  - main.tf
+  - variables.tf
+  - outputs.tf
+</FileTree>
 
 ```bash
-# In your command script
+# In a command script
 mkdir -p "$GENERATED_FILES/config"
 echo '{}' > "$GENERATED_FILES/config/app.json"
 ```
 
-## Viewing generated files
+## Repository files
 
-When files are generated, they appear in the **file panel** on the right side of the Runbooks UI. You can:
+Repository files come from a git repository that was cloned by a [GitClone](/authoring/blocks/gitclone/) block in the runbook. When the clone completes, the workspace automatically switches to the **Repository** tab to show the cloned files.
 
-- Browse the file tree
-- Click files to view their contents
-- Copy file contents to clipboard
-- See which files changed after each render
+The Repository tab has two sub-tabs:
+
+### All files
+
+The **All files** tab shows the complete file tree of the cloned repository. Click any file to view its contents with syntax highlighting.
+
+### Changed files
+
+The **Changed files** tab shows a diff view of any files that have been modified since the repository was cloned. This is useful when subsequent blocks in the runbook (like Command or Template blocks with `target="worktree"`) write files into the cloned repository. You'll see:
+
+- Which files were added, modified, or deleted
+- Line-by-line additions and deletions (similar to a GitHub pull request diff)
+- A summary of total changes at the top
+
+<Aside type="note">
+The "Changed files" tab appears automatically the first time a change is detected. If no files have been modified, the tab will show zero changes.
+</Aside>
+
+### Multiple repositories
+
+If a runbook clones more than one repository (using multiple GitClone blocks), a dropdown appears in the workspace header letting you switch between them.
 
 ## Security: Where files can be written
 
@@ -135,5 +164,4 @@ Runbooks blocks writes to system-critical directories:
 
 ## Next
 
-Now that you understand how generated files work, explore the [use cases](/intro/use_cases/) where Runbooks shines.
-
+Now that you understand how the files workspace works, explore the [use cases](/intro/use_cases/) where Runbooks shines.
