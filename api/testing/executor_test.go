@@ -1,7 +1,9 @@
 package testing
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -538,4 +540,736 @@ tests:
 	// because aws-auth-secondary was the last to run and overwrote the session
 	assert.Contains(t, checkSessionLogs, "ACCESS_KEY=AKIASECONDARY987654",
 		"check-session should receive session credentials (last auth block executed)")
+}
+
+// =============================================================================
+// GitClone block tests
+// =============================================================================
+
+// TestParseAuthDependencies_GitClone verifies that GitClone blocks are recognized
+// as auth-dependent block types (added to authBlockDependentTypes on this branch).
+func TestParseAuthDependencies_GitClone(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		expectedDeps map[string]AuthDependency
+	}{
+		{
+			name: "GitClone with githubAuthId",
+			content: `
+<GitHubAuth id="gh-auth" />
+<GitClone id="clone-repo" githubAuthId="gh-auth" prefilledUrl="https://github.com/org/repo" />
+`,
+			expectedDeps: map[string]AuthDependency{
+				"clone-repo": {
+					BlockID:       "clone-repo",
+					AuthBlockID:   "gh-auth",
+					AuthBlockType: BlockTypeGitHubAuth,
+				},
+			},
+		},
+		{
+			name: "GitClone with awsAuthId",
+			content: `
+<AwsAuth id="aws-creds" />
+<GitClone id="clone-cc" awsAuthId="aws-creds" prefilledUrl="https://git-codecommit.us-east-1.amazonaws.com/v1/repos/myrepo" />
+`,
+			expectedDeps: map[string]AuthDependency{
+				"clone-cc": {
+					BlockID:       "clone-cc",
+					AuthBlockID:   "aws-creds",
+					AuthBlockType: BlockTypeAwsAuth,
+				},
+			},
+		},
+		{
+			name: "GitClone without auth dependency",
+			content: `
+<GitClone id="clone-public" prefilledUrl="https://github.com/org/public-repo" />
+`,
+			expectedDeps: map[string]AuthDependency{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+			err := os.WriteFile(runbookPath, []byte(tc.content), 0644)
+			require.NoError(t, err)
+
+			deps, err := parseAuthDependencies(runbookPath)
+			require.NoError(t, err)
+
+			assert.Equal(t, len(tc.expectedDeps), len(deps))
+			for blockID, expected := range tc.expectedDeps {
+				actual, ok := deps[blockID]
+				assert.True(t, ok, "expected dependency for block %q not found", blockID)
+				if ok {
+					assert.Equal(t, expected.BlockID, actual.BlockID)
+					assert.Equal(t, expected.AuthBlockID, actual.AuthBlockID)
+					assert.Equal(t, expected.AuthBlockType, actual.AuthBlockType)
+				}
+			}
+		})
+	}
+}
+
+// initLocalGitRepo creates a bare git repo with a single commit for testing GitClone.
+// Returns the file:// URL to the repo.
+func initLocalGitRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	// Create a bare repo
+	bareDir := filepath.Join(t.TempDir(), "bare.git")
+	runGit(t, "", "init", "--bare", bareDir)
+
+	// Create a working clone, add files, commit, push
+	workDir := filepath.Join(t.TempDir(), "work")
+	runGit(t, "", "clone", bareDir, workDir)
+	runGit(t, workDir, "config", "user.email", "test@test.com")
+	runGit(t, workDir, "config", "user.name", "Test")
+
+	for name, content := range files {
+		fullPath := filepath.Join(workDir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0755))
+		require.NoError(t, os.WriteFile(fullPath, []byte(content), 0644))
+	}
+
+	runGit(t, workDir, "add", ".")
+	runGit(t, workDir, "commit", "-m", "initial")
+	runGit(t, workDir, "push", "origin", "HEAD")
+
+	return "file://" + bareDir
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v failed: %s", args, string(out))
+}
+
+// TestExecuteGitClone_SkipWhenNoURL verifies that a GitClone block without
+// a prefilledUrl is skipped (the user would fill it interactively).
+func TestExecuteGitClone_SkipWhenNoURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	runbookContent := `# GitClone Skip Test
+<GitClone id="clone-empty" />
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "skip-no-url",
+		Steps: []TestStep{
+			{Block: "clone-empty", Expect: StatusSkip},
+		},
+	})
+
+	assert.Equal(t, TestPassed, result.Status, "test should pass: %s", result.Error)
+
+	// Find the clone step result
+	var cloneResult *StepResult
+	for i := range result.StepResults {
+		if result.StepResults[i].Block == "gitClone:clone-empty" {
+			cloneResult = &result.StepResults[i]
+			break
+		}
+	}
+	require.NotNil(t, cloneResult, "should have a step result for clone-empty")
+	assert.True(t, cloneResult.Passed)
+	assert.Equal(t, "skipped", cloneResult.ActualStatus)
+}
+
+// TestExecuteGitClone_Success clones a real local git repo and verifies
+// outputs (CLONE_PATH, FILE_COUNT) and activeWorkTreePath are set.
+func TestExecuteGitClone_Success(t *testing.T) {
+	repoURL := initLocalGitRepo(t, map[string]string{
+		"README.md":  "# Test Repo",
+		"src/main.go": "package main",
+	})
+
+	tmpDir := t.TempDir()
+	runbookContent := fmt.Sprintf(`# GitClone Success Test
+<GitClone id="clone-test" prefilledUrl="%s" />
+
+<Check id="verify-clone" command="test -d $REPO_FILES" />
+`, repoURL)
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "clone-success",
+		Steps: []TestStep{
+			{Block: "clone-test", Expect: StatusSuccess},
+			{Block: "verify-clone", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestPassed, result.Status, "test should pass: %s", result.Error)
+
+	// Verify GitClone step outputs
+	var cloneResult *StepResult
+	for i := range result.StepResults {
+		if result.StepResults[i].Block == "gitClone:clone-test" {
+			cloneResult = &result.StepResults[i]
+			break
+		}
+	}
+	require.NotNil(t, cloneResult, "should have a step result for clone-test")
+	assert.True(t, cloneResult.Passed)
+	assert.Equal(t, "success", cloneResult.ActualStatus)
+	assert.NotEmpty(t, cloneResult.Outputs["CLONE_PATH"])
+	assert.Equal(t, "2", cloneResult.Outputs["FILE_COUNT"]) // README.md + src/main.go
+
+	// Verify cloned files exist on disk
+	clonePath := cloneResult.Outputs["CLONE_PATH"]
+	_, err = os.Stat(filepath.Join(clonePath, "README.md"))
+	assert.NoError(t, err, "README.md should exist in clone")
+	_, err = os.Stat(filepath.Join(clonePath, "src/main.go"))
+	assert.NoError(t, err, "src/main.go should exist in clone")
+
+	// Verify activeWorkTreePath was set (Check block can use REPO_FILES)
+	assert.Equal(t, clonePath, executor.activeWorkTreePath)
+}
+
+// TestExecuteGitClone_WithRef clones a specific branch.
+func TestExecuteGitClone_WithRef(t *testing.T) {
+	// Create repo with a second branch
+	bareDir := filepath.Join(t.TempDir(), "bare.git")
+	runGit(t, "", "init", "--bare", bareDir)
+
+	workDir := filepath.Join(t.TempDir(), "work")
+	runGit(t, "", "clone", bareDir, workDir)
+	runGit(t, workDir, "config", "user.email", "test@test.com")
+	runGit(t, workDir, "config", "user.name", "Test")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "main.txt"), []byte("main"), 0644))
+	runGit(t, workDir, "add", ".")
+	runGit(t, workDir, "commit", "-m", "main commit")
+	runGit(t, workDir, "push", "origin", "HEAD")
+
+	// Create a feature branch with an extra file
+	runGit(t, workDir, "checkout", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "feature.txt"), []byte("feature"), 0644))
+	runGit(t, workDir, "add", ".")
+	runGit(t, workDir, "commit", "-m", "feature commit")
+	runGit(t, workDir, "push", "origin", "feature")
+
+	repoURL := "file://" + bareDir
+
+	tmpDir := t.TempDir()
+	runbookContent := fmt.Sprintf(`# GitClone Ref Test
+<GitClone id="clone-ref" prefilledUrl="%s" prefilledRef="feature" />
+`, repoURL)
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "clone-ref",
+		Steps: []TestStep{
+			{Block: "clone-ref", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestPassed, result.Status, "test should pass: %s", result.Error)
+
+	var cloneResult *StepResult
+	for i := range result.StepResults {
+		if result.StepResults[i].Block == "gitClone:clone-ref" {
+			cloneResult = &result.StepResults[i]
+			break
+		}
+	}
+	require.NotNil(t, cloneResult)
+	assert.True(t, cloneResult.Passed)
+	assert.Equal(t, "feature", cloneResult.Outputs["REF"])
+	assert.Equal(t, "2", cloneResult.Outputs["FILE_COUNT"]) // main.txt + feature.txt
+
+	// Verify the feature branch file exists
+	clonePath := cloneResult.Outputs["CLONE_PATH"]
+	_, err = os.Stat(filepath.Join(clonePath, "feature.txt"))
+	assert.NoError(t, err, "feature.txt should exist when cloning the feature branch")
+}
+
+// TestExecuteGitClone_SparseCheckout clones only a subdirectory.
+func TestExecuteGitClone_SparseCheckout(t *testing.T) {
+	repoURL := initLocalGitRepo(t, map[string]string{
+		"docs/README.md":   "# Docs",
+		"docs/guide.md":    "# Guide",
+		"src/main.go":      "package main",
+		"src/main_test.go": "package main",
+	})
+
+	tmpDir := t.TempDir()
+	runbookContent := fmt.Sprintf(`# GitClone Sparse Test
+<GitClone id="clone-sparse" prefilledUrl="%s" prefilledRepoPath="docs" />
+`, repoURL)
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "clone-sparse",
+		Steps: []TestStep{
+			{Block: "clone-sparse", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestPassed, result.Status, "test should pass: %s", result.Error)
+
+	var cloneResult *StepResult
+	for i := range result.StepResults {
+		if result.StepResults[i].Block == "gitClone:clone-sparse" {
+			cloneResult = &result.StepResults[i]
+			break
+		}
+	}
+	require.NotNil(t, cloneResult)
+	assert.True(t, cloneResult.Passed)
+
+	clonePath := cloneResult.Outputs["CLONE_PATH"]
+	// Sparse checkout should have docs/ files
+	_, err = os.Stat(filepath.Join(clonePath, "docs/README.md"))
+	assert.NoError(t, err, "docs/README.md should exist in sparse checkout")
+
+	// src/ should NOT be checked out
+	_, err = os.Stat(filepath.Join(clonePath, "src/main.go"))
+	assert.True(t, os.IsNotExist(err), "src/main.go should not exist in sparse checkout")
+}
+
+// =============================================================================
+// TemplateInline generateFile + target=worktree tests
+// =============================================================================
+
+// TestExecuteTemplateInline_GenerateFile verifies that when generateFile={true}
+// is set, the rendered template is written to disk under the output directory.
+func TestExecuteTemplateInline_GenerateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	runbookContent := `# TemplateInline GenerateFile Test
+
+<Inputs id="config">
+</Inputs>
+
+<TemplateInline outputPath="output.txt" generateFile={true}>
+` + "```" + `
+Hello from template
+` + "```" + `
+</TemplateInline>
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "generate-file",
+		Steps: []TestStep{
+			{Block: "template-inline-output-txt", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestPassed, result.Status, "test should pass: %s", result.Error)
+
+	// Verify the file was written to disk
+	outputFile := filepath.Join(tmpDir, "generated", "output.txt")
+	content, err := os.ReadFile(outputFile)
+	require.NoError(t, err, "output.txt should be written to disk when generateFile=true")
+	assert.Contains(t, string(content), "Hello from template")
+}
+
+// TestExecuteTemplateInline_WorktreeTarget_NoWorktree verifies that target="worktree"
+// fails when no GitClone has been executed.
+func TestExecuteTemplateInline_WorktreeTarget_NoWorktree(t *testing.T) {
+	tmpDir := t.TempDir()
+	runbookContent := `# TemplateInline Worktree Error Test
+
+<TemplateInline outputPath="config.yaml" generateFile={true} target="worktree">
+` + "```yaml" + `
+key: value
+` + "```" + `
+</TemplateInline>
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "worktree-no-clone",
+		Steps: []TestStep{
+			{Block: "template-inline-config-yaml", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestFailed, result.Status)
+	assert.Contains(t, result.Error, "worktree")
+}
+
+// TestExecuteTemplateInline_WorktreeTarget_WithClone verifies that target="worktree"
+// writes files into the cloned repo directory.
+func TestExecuteTemplateInline_WorktreeTarget_WithClone(t *testing.T) {
+	repoURL := initLocalGitRepo(t, map[string]string{
+		"README.md": "# Test",
+	})
+
+	tmpDir := t.TempDir()
+	runbookContent := fmt.Sprintf(`# TemplateInline Worktree Test
+
+<GitClone id="clone-repo" prefilledUrl="%s" />
+
+<TemplateInline outputPath="generated.txt" generateFile={true} target="worktree">
+`+"```"+`
+Generated content
+`+"```"+`
+</TemplateInline>
+`, repoURL)
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "worktree-with-clone",
+		Steps: []TestStep{
+			{Block: "clone-repo", Expect: StatusSuccess},
+			{Block: "template-inline-generated-txt", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestPassed, result.Status, "test should pass: %s", result.Error)
+
+	// File should be in the clone directory, not the generated directory
+	clonePath := executor.activeWorkTreePath
+	require.NotEmpty(t, clonePath)
+
+	content, err := os.ReadFile(filepath.Join(clonePath, "generated.txt"))
+	require.NoError(t, err, "generated.txt should be written to worktree")
+	assert.Contains(t, string(content), "Generated content")
+
+	// Should NOT exist in the regular generated directory
+	_, err = os.Stat(filepath.Join(tmpDir, "generated", "generated.txt"))
+	assert.True(t, os.IsNotExist(err), "file should not be in the generated directory when target=worktree")
+}
+
+// =============================================================================
+// Template target=worktree test
+// =============================================================================
+
+// TestExecuteTemplate_WorktreeTarget_NoWorktree verifies that target="worktree"
+// fails for Template blocks when no GitClone has been executed.
+func TestExecuteTemplate_WorktreeTarget_NoWorktree(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a minimal boilerplate template
+	templateDir := filepath.Join(tmpDir, "templates", "my-template")
+	require.NoError(t, os.MkdirAll(templateDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(templateDir, "boilerplate.yml"),
+		[]byte("variables: []\n"),
+		0644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(templateDir, "output.txt"),
+		[]byte("template output"),
+		0644,
+	))
+
+	runbookContent := `# Template Worktree Error Test
+
+<Template id="my-tmpl" path="templates/my-template" target="worktree" />
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	result := executor.RunTest(TestCase{
+		Name: "template-worktree-no-clone",
+		Steps: []TestStep{
+			{Block: "my-tmpl", Expect: StatusSuccess},
+		},
+	})
+
+	assert.Equal(t, TestFailed, result.Status)
+	assert.Contains(t, result.Error, "worktree")
+}
+
+// =============================================================================
+// extractMDXPropValue bare JSX expression test
+// =============================================================================
+
+func TestExtractMDXPropValue_BareJSXExpression(t *testing.T) {
+	tests := []struct {
+		name     string
+		props    string
+		propName string
+		expected string
+	}{
+		{
+			name:     "bare boolean true",
+			props:    `generateFile={true}`,
+			propName: "generateFile",
+			expected: "true",
+		},
+		{
+			name:     "bare boolean false",
+			props:    `generateFile={false}`,
+			propName: "generateFile",
+			expected: "false",
+		},
+		{
+			name:     "bare number",
+			props:    `count={42}`,
+			propName: "count",
+			expected: "42",
+		},
+		{
+			name:     "mixed with string props",
+			props:    `id="my-block" generateFile={true} outputPath="out.txt"`,
+			propName: "generateFile",
+			expected: "true",
+		},
+		{
+			// Quoted string in JSX should still match the earlier pattern
+			name:     "quoted string in JSX still works",
+			props:    `target={"worktree"}`,
+			propName: "target",
+			expected: "worktree",
+		},
+		{
+			name:     "standard double-quoted prop still works",
+			props:    `target="generated"`,
+			propName: "target",
+			expected: "generated",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := extractMDXPropValue(tc.props, tc.propName)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// =============================================================================
+// getSessionEnvVar test
+// =============================================================================
+
+func TestGetSessionEnvVar(t *testing.T) {
+	tmpDir := t.TempDir()
+	runbookContent := `# Session Env Test
+<Check id="noop" command="true" />
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+
+	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	require.NoError(t, err)
+	defer executor.Close()
+
+	// Inject an env var via the session
+	err = executor.session.AppendToEnv(map[string]string{
+		"MY_TOKEN": "secret-value",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "secret-value", executor.getSessionEnvVar("MY_TOKEN"))
+	assert.Equal(t, "", executor.getSessionEnvVar("NONEXISTENT_VAR"))
+}
+
+// =============================================================================
+// detectAwsCredentials tests
+// =============================================================================
+
+func TestDetectAwsCredentials(t *testing.T) {
+	tests := []struct {
+		name           string
+		prefix         string
+		envVars        map[string]string
+		expectFound    bool
+		expectSource   AwsCredentialSource
+		expectProfile  string
+		expectRoleArn  string
+	}{
+		{
+			name:   "env var credentials",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "AKIATEST",
+				"AWS_SECRET_ACCESS_KEY": "secret",
+			},
+			expectFound:  true,
+			expectSource: AwsCredSourceEnvVars,
+		},
+		{
+			name:   "AWS_PROFILE",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_PROFILE": "my-profile",
+				"AWS_REGION":  "us-east-1",
+			},
+			expectFound:   true,
+			expectSource:  AwsCredSourceProfile,
+			expectProfile: "my-profile",
+		},
+		{
+			name:   "OIDC web identity",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_ROLE_ARN":                "arn:aws:iam::123456:role/test",
+				"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token",
+			},
+			expectFound:   true,
+			expectSource:  AwsCredSourceOIDC,
+			expectRoleArn: "arn:aws:iam::123456:role/test",
+		},
+		{
+			name:   "container credentials relative URI",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": "/creds",
+			},
+			expectFound:  true,
+			expectSource: AwsCredSourceContainerCreds,
+		},
+		{
+			name:   "container credentials full URI",
+			prefix: "",
+			envVars: map[string]string{
+				"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://169.254.170.2/creds",
+			},
+			expectFound:  true,
+			expectSource: AwsCredSourceContainerCreds,
+		},
+		{
+			name:        "no credentials",
+			prefix:      "",
+			envVars:     map[string]string{},
+			expectFound: false,
+		},
+		{
+			name:   "prefixed env var credentials",
+			prefix: "CI_",
+			envVars: map[string]string{
+				"CI_AWS_ACCESS_KEY_ID":     "AKIACITEST",
+				"CI_AWS_SECRET_ACCESS_KEY": "ci-secret",
+			},
+			expectFound:  true,
+			expectSource: AwsCredSourceEnvVars,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			getenv := func(key string) string {
+				return tc.envVars[key]
+			}
+
+			_, info, found := detectAwsCredentials(tc.prefix, getenv)
+			assert.Equal(t, tc.expectFound, found)
+			if found {
+				assert.Equal(t, tc.expectSource, info.Source)
+				if tc.expectProfile != "" {
+					assert.Equal(t, tc.expectProfile, info.ProfileName)
+				}
+				if tc.expectRoleArn != "" {
+					assert.Equal(t, tc.expectRoleArn, info.RoleArn)
+				}
+			}
+		})
+	}
+}
+
+// =============================================================================
+// parseTemplateInlineBlocks / parseTemplateBlocks with new fields
+// =============================================================================
+
+func TestParseTemplateInlineBlocks_NewFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `# Template Test
+
+<TemplateInline outputPath="config.yaml" generateFile={true} target="worktree">
+` + "```yaml" + `
+key: value
+` + "```" + `
+</TemplateInline>
+
+<TemplateInline outputPath="plain.txt">
+` + "```" + `
+plain content
+` + "```" + `
+</TemplateInline>
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(content), 0644))
+
+	blocks, err := parseTemplateInlineBlocks(runbookPath)
+	require.NoError(t, err)
+
+	// Use GenerateTemplateInlineID to get the real IDs (they include a hash suffix)
+	configID := GenerateTemplateInlineID("config.yaml")
+	plainID := GenerateTemplateInlineID("plain.txt")
+
+	// First block: generateFile=true, target=worktree
+	configBlock := blocks[configID]
+	require.NotNil(t, configBlock, "should parse config.yaml block (id=%s)", configID)
+	assert.True(t, configBlock.GenerateFile, "generateFile should be true")
+	assert.Equal(t, "worktree", configBlock.Target, "target should be worktree")
+
+	// Second block: defaults (generateFile=false, target empty)
+	plainBlock := blocks[plainID]
+	require.NotNil(t, plainBlock, "should parse plain.txt block (id=%s)", plainID)
+	assert.False(t, plainBlock.GenerateFile, "generateFile should default to false")
+	assert.Equal(t, "", plainBlock.Target, "target should be empty by default")
+}
+
+func TestParseTemplateBlocks_TargetField(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `# Template Test
+
+<Template id="worktree-tmpl" path="templates/my-template" target="worktree" />
+<Template id="default-tmpl" path="templates/other" />
+`
+	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	require.NoError(t, os.WriteFile(runbookPath, []byte(content), 0644))
+
+	blocks, err := parseTemplateBlocks(runbookPath)
+	require.NoError(t, err)
+
+	worktreeBlock := blocks["worktree-tmpl"]
+	require.NotNil(t, worktreeBlock)
+	assert.Equal(t, "worktree", worktreeBlock.Target)
+
+	defaultBlock := blocks["default-tmpl"]
+	require.NotNil(t, defaultBlock)
+	assert.Equal(t, "", defaultBlock.Target)
 }
