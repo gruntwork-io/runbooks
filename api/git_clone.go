@@ -80,31 +80,6 @@ type gitHubAPISetup struct {
 	cancel context.CancelFunc
 }
 
-// prepareGitHubAPICall validates the session token and returns a ready-to-use
-// context, token, and validated user info. Returns a non-empty error message
-// if setup fails; the caller is responsible for formatting the JSON response.
-func prepareGitHubAPICall(c *gin.Context, sm *SessionManager) (*gitHubAPISetup, string) {
-	token := getGitHubTokenFromSession(sm)
-	if token == "" {
-		return nil, "No GitHub token found in session"
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-
-	user, _, err := validateGitHubToken(ctx, token)
-	if err != nil {
-		cancel()
-		return nil, fmt.Sprintf("Failed to validate token: %v", err)
-	}
-
-	return &gitHubAPISetup{
-		token:  token,
-		user:   user,
-		ctx:    ctx,
-		cancel: cancel,
-	}, ""
-}
-
 // HandleGitHubListOrgs returns the authenticated user's organizations plus their personal account.
 // GET /api/github/orgs
 // Requires SessionAuthMiddleware.
@@ -538,6 +513,31 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 // =============================================================================
 // GitHub API Helpers
 // =============================================================================
+
+// prepareGitHubAPICall validates the session token and returns a ready-to-use
+// context, token, and validated user info. Returns a non-empty error message
+// if setup fails; the caller is responsible for formatting the JSON response.
+func prepareGitHubAPICall(c *gin.Context, sm *SessionManager) (*gitHubAPISetup, string) {
+	token := getGitHubTokenFromSession(sm)
+	if token == "" {
+		return nil, "No GitHub token found in session"
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+
+	user, _, err := validateGitHubToken(ctx, token)
+	if err != nil {
+		cancel()
+		return nil, fmt.Sprintf("Failed to validate token: %v", err)
+	}
+
+	return &gitHubAPISetup{
+		token:  token,
+		user:   user,
+		ctx:    ctx,
+		cancel: cancel,
+	}, ""
+}
 
 // doGitHubAPIGet creates and executes an authenticated GitHub API GET request.
 // It sets the standard Authorization, Accept, and API version headers.

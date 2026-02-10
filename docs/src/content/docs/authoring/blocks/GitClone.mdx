@@ -71,9 +71,9 @@ You can pre-populate the URL, ref, sparse checkout path, and local path fields. 
 
 The "Ref" field lets users specify a branch or tag to clone instead of the default branch. There are two ways to set the ref:
 
-1. **GitHub browser** — When a GitHub token is available and a repo is selected in the browser, a "Ref" dropdown appears listing all branches. The default branch is automatically pre-selected and marked with a "default" badge. For repos with many branches, type in the search field to filter.
+1. **GitHub browser.** When a GitHub token is available and a repo is selected in the GitHub browser, a searchable "Ref" dropdown appears listing all branches and tags in that repo. The default branch is automatically pre-selected and marked with a "default" badge.
 
-2. **Text input** — The "Ref" field below the GitHub browser accepts any branch or tag name directly, even without GitHub authentication. Use the `prefilledRef` prop to set this in advance.
+2. **Text input.** The "Ref" field below the GitHub browser accepts any branch or tag name directly, independent of GitHub authentication. Use the `prefilledRef` prop to set this in advance.
 
 The ref is passed to `git clone --branch`, which accepts both branch names and tag names.
 
