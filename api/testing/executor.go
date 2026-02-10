@@ -1394,21 +1394,7 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 		return result
 	}
 
-	// Determine destination
-	dest := localPath
-	if dest == "" {
-		dest = api.RepoNameFromURL(cloneURL)
-	}
-	if dest == "" {
-		dest = "repo"
-	}
-
-	var absolutePath string
-	if filepath.IsAbs(dest) {
-		absolutePath = dest
-	} else {
-		absolutePath = filepath.Join(e.workingDir, dest)
-	}
+	absolutePath, _ := api.ResolveClonePaths(localPath, cloneURL, e.workingDir)
 
 	// Inject GitHub token if available
 	effectiveURL := cloneURL

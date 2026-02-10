@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -216,6 +217,23 @@ func HandleGitHubListBranches(sm *SessionManager) gin.HandlerFunc {
 }
 
 // =============================================================================
+// SSE Auto-Flush Writer
+// =============================================================================
+
+// sseWriter wraps a gin.Context and http.Flusher to auto-flush after each SSE event,
+// eliminating repetitive flusher.Flush() calls throughout the clone handler.
+type sseWriter struct {
+	c       *gin.Context
+	flusher http.Flusher
+}
+
+func (w *sseWriter) log(line string)                      { sendSSELog(w.c, line); w.flusher.Flush() }
+func (w *sseWriter) status(status string, exitCode int)   { sendSSEStatus(w.c, status, exitCode); w.flusher.Flush() }
+func (w *sseWriter) done()                                { sendSSEDone(w.c); w.flusher.Flush() }
+func (w *sseWriter) outputs(outputs map[string]string)    { sendSSEOutputs(w.c, outputs); w.flusher.Flush() }
+func (w *sseWriter) event(name string, data interface{})  { w.c.SSEvent(name, data); w.flusher.Flush() }
+
+// =============================================================================
 // Git Clone Handler
 // =============================================================================
 
@@ -254,28 +272,7 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			effectiveWorkDir = workingDir
 		}
 
-		// Determine local path (destination)
-		localPath := req.LocalPath
-		if localPath == "" {
-			localPath = RepoNameFromURL(req.URL)
-		}
-
-		// Resolve to absolute path
-		var absolutePath string
-		if filepath.IsAbs(localPath) {
-			absolutePath = localPath
-		} else {
-			absolutePath = filepath.Join(effectiveWorkDir, localPath)
-		}
-
-		// Compute relative path from working directory
-		relativePath, err := filepath.Rel(effectiveWorkDir, absolutePath)
-		if err != nil {
-			relativePath = localPath
-		}
-		if !strings.HasPrefix(relativePath, ".") {
-			relativePath = "./" + relativePath
-		}
+		absolutePath, relativePath := ResolveClonePaths(req.LocalPath, req.URL, effectiveWorkDir)
 
 		// Check if destination already exists
 		if info, err := os.Stat(absolutePath); err == nil && info.IsDir() {
@@ -317,6 +314,7 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			sendSSEError(c, "Streaming not supported")
 			return
 		}
+		sse := &sseWriter{c: c, flusher: flusher}
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
@@ -325,45 +323,32 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		// Determine if PTY should be used (defaults to true if not specified)
 		usePTY := req.UsePTY == nil || *req.UsePTY
 
-		sendSSELog(c, fmt.Sprintf("Cloning into '%s'...", relativePath))
-		flusher.Flush()
+		sse.log(fmt.Sprintf("Cloning into '%s'...", relativePath))
 
 		var cloneErr error
-
 		if req.RepoPath != "" {
-			// Sparse checkout: clone with filter, then set sparse-checkout path
 			cloneErr = performSparseClone(ctx, c, flusher, cloneURL, absolutePath, req.RepoPath, req.Ref, usePTY)
 		} else {
-			// Standard clone
 			cloneErr = performStandardClone(ctx, c, flusher, cloneURL, absolutePath, req.Ref, usePTY)
 		}
 
 		if cloneErr != nil {
-			// Sanitize error message to remove any embedded tokens
 			sanitizedErr := SanitizeGitError(cloneErr.Error())
-			sendSSELog(c, fmt.Sprintf("Clone failed: %s", sanitizedErr))
-			flusher.Flush()
-			sendSSEStatus(c, "fail", 1)
-			flusher.Flush()
-			sendSSEDone(c)
-			flusher.Flush()
+			sse.log(fmt.Sprintf("Clone failed: %s", sanitizedErr))
+			sse.status("fail", 1)
+			sse.done()
 			return
 		}
 
 		// Count files (excluding .git directory)
 		fileCount := CountFiles(absolutePath)
 
-		sendSSELog(c, fmt.Sprintf("Clone complete. %d files downloaded to %s", fileCount, relativePath))
-		flusher.Flush()
-
-		// Send clone result event
-		result := GitCloneResultEvent{
+		sse.log(fmt.Sprintf("Clone complete. %d files downloaded to %s", fileCount, relativePath))
+		sse.event("clone_result", GitCloneResultEvent{
 			FileCount:    fileCount,
 			AbsolutePath: absolutePath,
 			RelativePath: relativePath,
-		}
-		c.SSEvent("clone_result", result)
-		flusher.Flush()
+		})
 
 		// Send outputs event so the block can register outputs in RunbookContext
 		outputs := map[string]string{
@@ -373,14 +358,9 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		if req.Ref != "" {
 			outputs["REF"] = req.Ref
 		}
-		sendSSEOutputs(c, outputs)
-		flusher.Flush()
-
-		sendSSEStatus(c, "success", 0)
-		flusher.Flush()
-
-		sendSSEDone(c)
-		flusher.Flush()
+		sse.outputs(outputs)
+		sse.status("success", 0)
+		sse.done()
 	}
 }
 
@@ -388,17 +368,41 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 // Clone Operations
 // =============================================================================
 
-// GitCloneSimple performs a standard git clone without SSE streaming.
-// It returns combined stdout/stderr output and any error.
-// This is the core clone logic used by both the runtime (via the SSE wrapper) and the
-// testing framework. Exported for use by the testing package.
-func GitCloneSimple(ctx context.Context, cloneURL, destPath, ref string) ([]byte, error) {
+// buildCloneArgs returns the git args for a standard clone.
+func buildCloneArgs(cloneURL, destPath, ref string) []string {
 	args := []string{"clone", "--progress"}
 	if ref != "" {
 		args = append(args, "--branch", ref)
 	}
-	args = append(args, cloneURL, destPath)
-	cmd := exec.CommandContext(ctx, "git", args...)
+	return append(args, cloneURL, destPath)
+}
+
+// sparseCloneStep represents one step of a sparse checkout operation.
+type sparseCloneStep struct {
+	args    []string
+	errWrap string // e.g. "sparse clone failed"
+}
+
+// buildSparseCloneSteps returns the ordered git arg sets for a sparse checkout.
+func buildSparseCloneSteps(cloneURL, destPath, repoPath, ref string) []sparseCloneStep {
+	cloneArgs := []string{"clone", "--filter=blob:none", "--no-checkout", "--progress"}
+	if ref != "" {
+		cloneArgs = append(cloneArgs, "--branch", ref)
+	}
+	cloneArgs = append(cloneArgs, cloneURL, destPath)
+
+	return []sparseCloneStep{
+		{args: cloneArgs, errWrap: "sparse clone failed"},
+		{args: []string{"-C", destPath, "sparse-checkout", "set", repoPath}, errWrap: "sparse-checkout set failed"},
+		{args: []string{"-C", destPath, "checkout"}, errWrap: "checkout failed"},
+	}
+}
+
+// GitCloneSimple performs a standard git clone without SSE streaming.
+// It returns combined stdout/stderr output and any error.
+// Exported for use by the testing package.
+func GitCloneSimple(ctx context.Context, cloneURL, destPath, ref string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", buildCloneArgs(cloneURL, destPath, ref)...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return output, fmt.Errorf("%w: %s", err, string(output))
@@ -408,76 +412,36 @@ func GitCloneSimple(ctx context.Context, cloneURL, destPath, ref string) ([]byte
 
 // GitSparseCloneSimple performs a sparse checkout clone without SSE streaming.
 // It clones only the specified repoPath subdirectory.
-// This is the core sparse clone logic used by both the runtime (via the SSE wrapper) and the
-// testing framework. Exported for use by the testing package.
+// Exported for use by the testing package.
 func GitSparseCloneSimple(ctx context.Context, cloneURL, destPath, repoPath, ref string) ([]byte, error) {
-	// Step 1: Clone with blob filter and no checkout
-	args := []string{"clone", "--filter=blob:none", "--no-checkout", "--progress"}
-	if ref != "" {
-		args = append(args, "--branch", ref)
+	for _, step := range buildSparseCloneSteps(cloneURL, destPath, repoPath, ref) {
+		cmd := exec.CommandContext(ctx, "git", step.args...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return output, fmt.Errorf("%s: %w: %s", step.errWrap, err, string(output))
+		}
 	}
-	args = append(args, cloneURL, destPath)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return output, fmt.Errorf("sparse clone failed: %w: %s", err, string(output))
-	}
-
-	// Step 2: Set sparse-checkout
-	sparseCmd := exec.CommandContext(ctx, "git", "-C", destPath, "sparse-checkout", "set", repoPath)
-	if output, err := sparseCmd.CombinedOutput(); err != nil {
-		return output, fmt.Errorf("sparse-checkout set failed: %w: %s", err, string(output))
-	}
-
-	// Step 3: Checkout
-	checkoutCmd := exec.CommandContext(ctx, "git", "-C", destPath, "checkout")
-	if output, err := checkoutCmd.CombinedOutput(); err != nil {
-		return output, fmt.Errorf("checkout failed: %w: %s", err, string(output))
-	}
-
 	return nil, nil
 }
 
 // performStandardClone does a regular git clone and streams output via SSE.
 func performStandardClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, ref string, usePTY bool) error {
-	args := []string{"clone", "--progress"}
-	if ref != "" {
-		args = append(args, "--branch", ref)
-	}
-	args = append(args, cloneURL, destPath)
-	return streamGitCommand(ctx, c, flusher, args, "", usePTY)
+	return streamGitCommand(ctx, c, flusher, buildCloneArgs(cloneURL, destPath, ref), "", usePTY)
 }
 
 // performSparseClone does a sparse checkout to clone only a specific subdirectory, streaming output via SSE.
 func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, repoPath, ref string, usePTY bool) error {
-	// Step 1: Clone with blob filter and no checkout
-	sendSSELog(c, "Setting up sparse checkout...")
-	flusher.Flush()
-
-	args := []string{"clone", "--filter=blob:none", "--no-checkout", "--progress"}
-	if ref != "" {
-		args = append(args, "--branch", ref)
-	}
-	args = append(args, cloneURL, destPath)
-	if err := streamGitCommand(ctx, c, flusher, args, "", usePTY); err != nil {
-		return fmt.Errorf("sparse clone failed: %w", err)
+	sse := &sseWriter{c: c, flusher: flusher}
+	stepMessages := []string{
+		"Setting up sparse checkout...",
+		fmt.Sprintf("Configuring sparse checkout for path: %s", repoPath),
+		"Checking out files...",
 	}
 
-	// Step 2: Set sparse-checkout to the requested path
-	sendSSELog(c, fmt.Sprintf("Configuring sparse checkout for path: %s", repoPath))
-	flusher.Flush()
-
-	sparseArgs := []string{"-C", destPath, "sparse-checkout", "set", repoPath}
-	if err := streamGitCommand(ctx, c, flusher, sparseArgs, "", usePTY); err != nil {
-		return fmt.Errorf("sparse-checkout set failed: %w", err)
-	}
-
-	// Step 3: Checkout
-	sendSSELog(c, "Checking out files...")
-	flusher.Flush()
-
-	checkoutArgs := []string{"-C", destPath, "checkout"}
-	if err := streamGitCommand(ctx, c, flusher, checkoutArgs, "", usePTY); err != nil {
-		return fmt.Errorf("checkout failed: %w", err)
+	for i, step := range buildSparseCloneSteps(cloneURL, destPath, repoPath, ref) {
+		sse.log(stepMessages[i])
+		if err := streamGitCommand(ctx, c, flusher, step.args, "", usePTY); err != nil {
+			return fmt.Errorf("%s: %w", step.errWrap, err)
+		}
 	}
 
 	return nil
@@ -632,6 +596,14 @@ func fetchGitHubOrgs(ctx context.Context, token string) ([]GitHubOrg, error) {
 	return orgs, nil
 }
 
+// ghRepoRaw is the JSON shape returned by GitHub's repo list and search APIs.
+type ghRepoRaw struct {
+	Name        string `json:"name"`
+	FullName    string `json:"full_name"`
+	Private     bool   `json:"private"`
+	Description string `json:"description"`
+}
+
 // fetchGitHubRepos fetches repositories for a given owner. If query is provided, uses the search API.
 func fetchGitHubRepos(ctx context.Context, token, owner, query string) ([]GitHubRepo, error) {
 	var apiURL string
@@ -644,43 +616,18 @@ func fetchGitHubRepos(ctx context.Context, token, owner, query string) ([]GitHub
 		apiURL = fmt.Sprintf("%s/users/%s/repos?per_page=100&sort=updated&type=all", GitHubAPIBaseURL, url.PathEscape(owner))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	resp, err := doGitHubAPIGet(ctx, token, apiURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
 	// Parse response - different format for search vs list
-	var rawRepos []struct {
-		Name        string `json:"name"`
-		FullName    string `json:"full_name"`
-		Private     bool   `json:"private"`
-		Description string `json:"description"`
-	}
-
+	var rawRepos []ghRepoRaw
 	if query != "" {
 		// Search API wraps results in { items: [...] }
 		var searchResult struct {
-			Items []struct {
-				Name        string `json:"name"`
-				FullName    string `json:"full_name"`
-				Private     bool   `json:"private"`
-				Description string `json:"description"`
-			} `json:"items"`
+			Items []ghRepoRaw `json:"items"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
 			return nil, fmt.Errorf("failed to parse search response: %w", err)
@@ -712,24 +659,11 @@ func fetchGitHubRepos(ctx context.Context, token, owner, query string) ([]GitHub
 func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) ([]GitHubBranch, int, error) {
 	// First, get the default branch name from the repo metadata
 	repoURL := fmt.Sprintf("%s/repos/%s/%s", GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo))
-	repoReq, err := http.NewRequestWithContext(ctx, "GET", repoURL, nil)
+	repoResp, err := doGitHubAPIGet(ctx, token, repoURL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to create repo request: %w", err)
-	}
-	repoReq.Header.Set("Authorization", "Bearer "+token)
-	repoReq.Header.Set("Accept", "application/vnd.github+json")
-	repoReq.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	repoResp, err := http.DefaultClient.Do(repoReq)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch repo info: %w", err)
+		return nil, 0, err
 	}
 	defer repoResp.Body.Close()
-
-	if repoResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(repoResp.Body)
-		return nil, 0, fmt.Errorf("GitHub API error (status %d): %s", repoResp.StatusCode, string(body))
-	}
 
 	var repoInfo struct {
 		DefaultBranch string `json:"default_branch"`
@@ -747,23 +681,9 @@ func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) 
 		apiURL := fmt.Sprintf("%s/repos/%s/%s/branches?per_page=100&page=%d",
 			GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo), page)
 
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		resp, err := doGitHubAPIGet(ctx, token, apiURL)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to create request: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to call GitHub API: %w", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return nil, 0, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
+			return nil, 0, err
 		}
 
 		var pageBranches []struct {
@@ -810,16 +730,12 @@ func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) 
 
 // sortBranches sorts branches with the default branch first, then alphabetically.
 func sortBranches(branches []GitHubBranch) {
-	for i := 0; i < len(branches); i++ {
-		for j := i + 1; j < len(branches); j++ {
-			// Default branch always comes first
-			if branches[j].IsDefault && !branches[i].IsDefault {
-				branches[i], branches[j] = branches[j], branches[i]
-			} else if !branches[i].IsDefault && !branches[j].IsDefault && branches[i].Name > branches[j].Name {
-				branches[i], branches[j] = branches[j], branches[i]
-			}
+	sort.Slice(branches, func(i, j int) bool {
+		if branches[i].IsDefault != branches[j].IsDefault {
+			return branches[i].IsDefault
 		}
-	}
+		return branches[i].Name < branches[j].Name
+	})
 }
 
 // =============================================================================
@@ -864,6 +780,32 @@ func InjectGitHubToken(rawURL, token string) string {
 
 	parsed.User = url.UserPassword("x-access-token", token)
 	return parsed.String()
+}
+
+// ResolveClonePaths computes absolute and relative paths for a clone destination.
+// localPath is the user-specified destination (may be empty). cloneURL is used as
+// a fallback to derive the repo name. workDir is the base directory.
+func ResolveClonePaths(localPath, cloneURL, workDir string) (absolutePath, relativePath string) {
+	dest := localPath
+	if dest == "" {
+		dest = RepoNameFromURL(cloneURL)
+	}
+
+	if filepath.IsAbs(dest) {
+		absolutePath = dest
+	} else {
+		absolutePath = filepath.Join(workDir, dest)
+	}
+
+	rel, err := filepath.Rel(workDir, absolutePath)
+	if err != nil {
+		rel = dest
+	}
+	if !strings.HasPrefix(rel, ".") {
+		rel = "./" + rel
+	}
+	relativePath = rel
+	return
 }
 
 // RepoNameFromURL extracts the repository name from a git URL.
