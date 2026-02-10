@@ -1,4 +1,4 @@
-import { FilesWorkspace } from '../artifacts/workspace'
+import { Workspace } from '../artifacts/workspace'
 import { useFileTree } from '../../hooks/useFileTree'
 
 
@@ -17,7 +17,7 @@ export const ArtifactsContainer = ({ className = "", onHide, hideContent = false
   const generatedFiles = fileTree && fileTree.length > 0 ? fileTree : []
   
   return (
-    <FilesWorkspace
+    <Workspace
       generatedFiles={generatedFiles}
       className={className}
       onHide={onHide}

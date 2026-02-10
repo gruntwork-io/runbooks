@@ -1,5 +1,5 @@
 /**
- * @fileoverview WorkspaceFileBrowser Component
+ * @fileoverview RepositoryFileBrowser Component
  * 
  * File browser for the "All files" tab showing a structure-only file tree
  * on the left and a single file viewer on the right with lazy content loading.
@@ -18,7 +18,7 @@ import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
 import type { WorkspaceTreeNode } from '@/hooks/useWorkspaceTree'
 import type { FileTreeNode } from '../code/FileTree'
 
-interface WorkspaceFileBrowserProps {
+interface RepositoryFileBrowserProps {
   /** Structure-only tree (no content) from useWorkspaceTree */
   tree: WorkspaceTreeNode[] | null;
   /** Whether the tree is loading */
@@ -33,14 +33,14 @@ interface WorkspaceFileBrowserProps {
   className?: string;
 }
 
-export const WorkspaceFileBrowser = ({
+export const RepositoryFileBrowser = ({
   tree,
   isLoading,
   error,
   totalFiles: _totalFiles,
   onRetry,
   className = "",
-}: WorkspaceFileBrowserProps) => {
+}: RepositoryFileBrowserProps) => {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   

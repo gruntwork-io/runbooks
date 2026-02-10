@@ -15,7 +15,7 @@ interface CodeFileCollectionProps {
   hideContent?: boolean;
   absoluteOutputPath?: string;
   relativeOutputPath?: string;
-  /** When true, hides the header (used when embedded in FilesWorkspace) */
+  /** When true, hides the header (used when embedded in Workspace) */
   hideHeader?: boolean;
 }
 
@@ -96,7 +96,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
 
   return (
     <div className={`w-full h-full flex flex-col ${className}`}>
-      {/* Header - only shown when not embedded in FilesWorkspace */}
+      {/* Header - only shown when not embedded in Workspace */}
       {!hideHeader && (
         <div className="flex items-start justify-between py-2 mb-3 border-b border-gray-200 bg-transparent">
           <div className="min-w-0 pl-4 lg:pl-0">

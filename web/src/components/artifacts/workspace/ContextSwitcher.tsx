@@ -1,9 +1,9 @@
 /**
- * @fileoverview WorkspaceContextBar Component
+ * @fileoverview ContextSwitcher Component
  *
  * Top-level context switcher for the files workspace.
  * Switches between "Repository" and "Generated files" contexts.
- * Uses bold underline-style tabs, visually distinct from the sub-tabs in WorkspaceTabBar.
+ * Uses bold underline-style tabs, visually distinct from the sub-tabs in RepositoryTabs.
  */
 
 import { cn } from '@/lib/utils'
@@ -19,7 +19,7 @@ const CONTEXT_TABS: ContextTabConfig[] = [
   { id: 'generated', label: 'Generated files' },
 ]
 
-interface WorkspaceContextBarProps {
+interface ContextSwitcherProps {
   /** Currently active context */
   activeContext: WorkspaceContext;
   /** Callback when context changes */
@@ -30,12 +30,12 @@ interface WorkspaceContextBarProps {
   className?: string;
 }
 
-export const WorkspaceContextBar = ({
+export const ContextSwitcher = ({
   activeContext,
   onContextChange,
   generatedCount,
   className = "",
-}: WorkspaceContextBarProps) => {
+}: ContextSwitcherProps) => {
   return (
     <div className={cn("relative flex items-end gap-4 border-b border-gray-300", className)}>
       {CONTEXT_TABS.map((tab) => {

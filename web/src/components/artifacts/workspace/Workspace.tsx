@@ -1,5 +1,5 @@
 /**
- * @fileoverview FilesWorkspace Component
+ * @fileoverview Workspace Component
  *
  * Main container for the files workspace with two-tier navigation:
  *
@@ -16,11 +16,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChevronLeft, FolderOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WorkspaceContextBar } from './WorkspaceContextBar'
-import { WorkspaceTabBar } from './WorkspaceTabBar'
-import { FilesWorkspaceRepositoryMetadataBar } from './FilesWorkspaceRepositoryMetadataBar'
+import { ContextSwitcher } from './ContextSwitcher'
+import { RepositoryTabs } from './RepositoryTabs'
+import { RepositoryMetadataBar } from './RepositoryMetadataBar'
 import { LocalPathRow } from './rows/LocalPathRow'
-import { WorkspaceFileBrowser } from './WorkspaceFileBrowser'
+import { RepositoryFileBrowser } from './RepositoryFileBrowser'
 import { ChangedFilesView } from './ChangedFilesView'
 import { CodeFileCollection } from '../code/CodeFileCollection'
 import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
@@ -29,7 +29,7 @@ import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import type { FileTreeNode } from '../code/FileTree'
 import type { WorkspaceTab, WorkspaceContext } from '@/types/workspace'
 
-interface FilesWorkspaceProps {
+interface WorkspaceProps {
   /** Generated files tree (from GeneratedFilesContext) */
   generatedFiles: FileTreeNode[];
   /** Additional CSS classes */
@@ -44,14 +44,14 @@ interface FilesWorkspaceProps {
   relativeOutputPath?: string;
 }
 
-export const FilesWorkspace = ({
+export const Workspace = ({
   generatedFiles,
   className = "",
   onHide,
   hideContent = false,
   absoluteOutputPath,
   relativeOutputPath,
-}: FilesWorkspaceProps) => {
+}: WorkspaceProps) => {
   const [activeContext, setActiveContext] = useState<WorkspaceContext>('generated')
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('all')
   const hasAutoSwitched = useRef(false)
@@ -176,7 +176,7 @@ export const FilesWorkspace = ({
 
       {/* Top-level context bar - only when both repository and generated files exist */}
       {hasBothContexts && (
-        <WorkspaceContextBar
+        <ContextSwitcher
           activeContext={activeContext}
           onContextChange={setActiveContext}
           generatedCount={generatedFileCount}
@@ -187,7 +187,7 @@ export const FilesWorkspace = ({
       {/* Repository context */}
       {isRepositoryView && (
         <>
-          <FilesWorkspaceRepositoryMetadataBar
+          <RepositoryMetadataBar
             gitInfo={gitInfo}
             localPath={activeWorkTree?.localPath}
             workTrees={workTrees}
@@ -198,7 +198,7 @@ export const FilesWorkspace = ({
 
           {/* Sub-tabs: All files / Changed files — flush against the content border */}
           <div className="flex items-end px-3 border-b border-gray-300">
-            <WorkspaceTabBar
+            <RepositoryTabs
               activeTab={activeTab}
               onTabChange={setActiveTab}
               tabCounts={tabCounts}
@@ -223,7 +223,7 @@ export const FilesWorkspace = ({
 
       {/* Generated files context */}
       {isGeneratedView && (
-        <GeneratedFilesInfoBar
+        <GeneratedFilesMetadataBar
           absolutePath={absoluteOutputPath}
           relativePath={relativeOutputPath}
           fileCount={generatedFileCount}
@@ -244,7 +244,7 @@ export const FilesWorkspace = ({
         )}
 
         {isRepositoryView && activeTab === 'all' && (
-          <WorkspaceFileBrowser
+          <RepositoryFileBrowser
             tree={workspaceTree}
             isLoading={treeLoading}
             error={treeError}
@@ -271,9 +271,9 @@ export const FilesWorkspace = ({
 
 /**
  * Info bar for Generated files tab showing local folder path and file count.
- * Layout mirrors FilesWorkspaceRepositoryMetadataBar for visual consistency.
+ * Layout mirrors RepositoryMetadataBar for visual consistency.
  */
-function GeneratedFilesInfoBar({ absolutePath, relativePath, fileCount }: { absolutePath?: string; relativePath?: string; fileCount: number }) {
+function GeneratedFilesMetadataBar({ absolutePath, relativePath, fileCount }: { absolutePath?: string; relativePath?: string; fileCount: number }) {
   const displayText = relativePath
     ? `./${relativePath}`
     : absolutePath

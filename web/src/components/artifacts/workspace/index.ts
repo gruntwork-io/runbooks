@@ -2,11 +2,11 @@
  * @fileoverview Workspace Components Export
  */
 
-export { FilesWorkspace } from './FilesWorkspace'
-export { WorkspaceContextBar } from './WorkspaceContextBar'
-export { WorkspaceTabBar } from './WorkspaceTabBar'
-export { FilesWorkspaceRepositoryMetadataBar } from './FilesWorkspaceRepositoryMetadataBar'
-export { WorkspaceFileBrowser } from './WorkspaceFileBrowser'
+export { Workspace } from './Workspace'
+export { ContextSwitcher } from './ContextSwitcher'
+export { RepositoryTabs } from './RepositoryTabs'
+export { RepositoryMetadataBar } from './RepositoryMetadataBar'
+export { RepositoryFileBrowser } from './RepositoryFileBrowser'
 export { SingleFileViewer } from './SingleFileViewer'
 export { ChangedFilesView } from './ChangedFilesView'
 export { WorktreeSwitcherRow, WorktreeStaticRow, LocalPathRow } from './rows'

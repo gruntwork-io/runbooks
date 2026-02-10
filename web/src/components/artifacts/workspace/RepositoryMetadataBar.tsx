@@ -1,5 +1,5 @@
 /**
- * @fileoverview FilesWorkspaceRepositoryMetadataBar Component
+ * @fileoverview RepositoryMetadataBar Component
  *
  * Displays git repository info: either
  * - static repo/branch row, plus the local path, or
@@ -14,7 +14,7 @@ import { LocalPathRow } from './rows/LocalPathRow'
 import type { GitRepoInfo } from '@/types/workspace'
 import type { GitWorkTree } from '@/contexts/GitWorkTreeContext'
 
-interface FilesWorkspaceRepositoryMetadataBarProps {
+interface RepositoryMetadataBarProps {
   /** Git repository information for the active worktree */
   gitInfo: GitRepoInfo | null;
   /** Local path where files are downloaded */
@@ -27,14 +27,14 @@ interface FilesWorkspaceRepositoryMetadataBarProps {
   className?: string;
 }
 
-export const FilesWorkspaceRepositoryMetadataBar = ({
+export const RepositoryMetadataBar = ({
   gitInfo,
   localPath,
   workTrees = [],
   activeWorkTreeId = null,
   onWorktreeSelect,
   className = "",
-}: FilesWorkspaceRepositoryMetadataBarProps) => {
+}: RepositoryMetadataBarProps) => {
   const hasSwitcher = workTrees.length >= 2 && onWorktreeSelect
 
   // No repo and no path: minimal state or nothing

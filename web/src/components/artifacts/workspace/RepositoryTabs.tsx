@@ -1,5 +1,5 @@
 /**
- * @fileoverview WorkspaceTabBar Component
+ * @fileoverview RepositoryTabs Component
  *
  * Sub-tab navigation for switching between All files and Changed files views
  * within the Repository context.
@@ -18,7 +18,7 @@ const TABS: TabConfig[] = [
   { id: 'changed', label: 'Changed files' },
 ]
 
-interface WorkspaceTabBarProps {
+interface RepositoryTabsProps {
   /** Currently active tab */
   activeTab: WorkspaceTab;
   /** Callback when tab changes */
@@ -31,13 +31,13 @@ interface WorkspaceTabBarProps {
   availableTabs?: WorkspaceTab[];
 }
 
-export const WorkspaceTabBar = ({
+export const RepositoryTabs = ({
   activeTab,
   onTabChange,
   tabCounts = {},
   className = "",
   availableTabs,
-}: WorkspaceTabBarProps) => {
+}: RepositoryTabsProps) => {
   const visibleTabs = availableTabs 
     ? TABS.filter(tab => availableTabs.includes(tab.id))
     : TABS
