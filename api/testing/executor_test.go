@@ -883,10 +883,11 @@ Hello from template
 	require.NoError(t, err)
 	defer executor.Close()
 
+	blockID := GenerateTemplateInlineID("output.txt")
 	result := executor.RunTest(TestCase{
 		Name: "generate-file",
 		Steps: []TestStep{
-			{Block: "template-inline-output-txt", Expect: StatusSuccess},
+			{Block: blockID, Expect: StatusSuccess},
 		},
 	})
 
@@ -918,10 +919,11 @@ key: value
 	require.NoError(t, err)
 	defer executor.Close()
 
+	blockID := GenerateTemplateInlineID("config.yaml")
 	result := executor.RunTest(TestCase{
 		Name: "worktree-no-clone",
 		Steps: []TestStep{
-			{Block: "template-inline-config-yaml", Expect: StatusSuccess},
+			{Block: blockID, Expect: StatusSuccess},
 		},
 	})
 
@@ -954,11 +956,12 @@ Generated content
 	require.NoError(t, err)
 	defer executor.Close()
 
+	templateBlockID := GenerateTemplateInlineID("generated.txt")
 	result := executor.RunTest(TestCase{
 		Name: "worktree-with-clone",
 		Steps: []TestStep{
 			{Block: "clone-repo", Expect: StatusSuccess},
-			{Block: "template-inline-generated-txt", Expect: StatusSuccess},
+			{Block: templateBlockID, Expect: StatusSuccess},
 		},
 	})
 
