@@ -47,8 +47,9 @@ export interface GitHubRepo {
   description: string
 }
 
-/** A GitHub branch */
-export interface GitHubBranch {
+/** A GitHub ref (branch or tag) */
+export interface GitHubRef {
   name: string
-  isDefault: boolean
+  type: 'branch' | 'tag'
+  isDefaultBranch: boolean
 }

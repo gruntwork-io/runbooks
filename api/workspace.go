@@ -33,7 +33,8 @@ type WorkspaceTreeNode struct {
 
 // WorkspaceGitInfo contains git metadata for a workspace.
 type WorkspaceGitInfo struct {
-	Branch    string `json:"branch"`
+	Ref       string `json:"ref"`
+	RefType   string `json:"refType"` // "branch", "tag", or "commit"
 	RemoteURL string `json:"remoteUrl"`
 	CommitSha string `json:"commitSha"`
 }
@@ -424,17 +425,36 @@ func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([
 
 // getGitInfo retrieves git metadata for a directory.
 func getGitInfo(dirPath string) *WorkspaceGitInfo {
-	info := &WorkspaceGitInfo{
-		Branch:    getGitField(dirPath, "rev-parse", "--abbrev-ref", "HEAD"),
-		RemoteURL: getGitField(dirPath, "remote", "get-url", "origin"),
-		CommitSha: getGitField(dirPath, "rev-parse", "HEAD"),
-	}
+	abbrevRef := getGitField(dirPath, "rev-parse", "--abbrev-ref", "HEAD")
+	commitSha := getGitField(dirPath, "rev-parse", "HEAD")
+	remoteURL := getGitField(dirPath, "remote", "get-url", "origin")
 
-	if info.Branch == "" && info.RemoteURL == "" && info.CommitSha == "" {
+	if abbrevRef == "" && remoteURL == "" && commitSha == "" {
 		return nil
 	}
 
-	return info
+	ref := abbrevRef
+	refType := "branch"
+
+	if abbrevRef == "HEAD" {
+		// Detached HEAD: check if the commit is an exact tag match
+		tagName := getGitField(dirPath, "describe", "--exact-match", "--tags", "HEAD")
+		if tagName != "" {
+			ref = tagName
+			refType = "tag"
+		} else {
+			// Bare commit SHA (detached, not on a tag)
+			ref = commitSha
+			refType = "commit"
+		}
+	}
+
+	return &WorkspaceGitInfo{
+		Ref:       ref,
+		RefType:   refType,
+		RemoteURL: remoteURL,
+		CommitSha: commitSha,
+	}
 }
 
 // getAllChanges returns all changed files in a git workspace with inline diffs.

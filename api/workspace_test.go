@@ -129,8 +129,11 @@ func TestWorkspaceTreeSkipsGitDir(t *testing.T) {
 	if resp.GitInfo == nil {
 		t.Fatal("expected gitInfo for a git repo")
 	}
-	if resp.GitInfo.Branch == "" {
-		t.Error("expected non-empty branch name")
+	if resp.GitInfo.Ref == "" {
+		t.Error("expected non-empty ref")
+	}
+	if resp.GitInfo.RefType == "" {
+		t.Error("expected non-empty refType")
 	}
 	if resp.GitInfo.CommitSha == "" {
 		t.Error("expected non-empty commit SHA")

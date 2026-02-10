@@ -72,7 +72,7 @@ function GitClone({
     checkGitHubToken,
     fetchOrgs,
     fetchRepos,
-    fetchBranches,
+    fetchRefs,
   } = useGitClone({ id, gitHubAuthId })
 
   // Form state
@@ -153,7 +153,8 @@ function GitClone({
           repoUrl: gitUrl.trim(),
           repoName: parsed?.repo ?? cloneResult.relativePath,
           repoOwner: parsed?.org ?? '',
-          branch: ref.trim() || 'main', // Use the selected ref, or fallback
+          ref: ref.trim() || 'main',
+          refType: undefined, // Determined by the backend when the workspace tree is fetched
           commitSha: undefined,
         },
       })
@@ -285,7 +286,7 @@ function GitClone({
                   onRefSelected={handleRefSelected}
                   fetchOrgs={fetchOrgs}
                   fetchRepos={fetchRepos}
-                  fetchBranches={fetchBranches}
+                  fetchRefs={fetchRefs}
                   disabled={isFormDisabled}
                   initialOrg={prefilledGitHub?.org}
                   initialRepo={prefilledGitHub?.repo}

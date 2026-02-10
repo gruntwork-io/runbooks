@@ -45,10 +45,11 @@ type GitHubRepo struct {
 	Description string `json:"description"`
 }
 
-// GitHubBranch represents a branch in a GitHub repository
-type GitHubBranch struct {
-	Name      string `json:"name"`
-	IsDefault bool   `json:"isDefault"`
+// GitHubRef represents a git ref (branch or tag) in a GitHub repository.
+type GitHubRef struct {
+	Name            string `json:"name"`
+	Type            string `json:"type"`            // "branch" or "tag"
+	IsDefaultBranch bool   `json:"isDefaultBranch"` // true only for the default branch
 }
 
 // GitCloneRequest represents the request body for POST /api/git/clone
@@ -147,10 +148,10 @@ func HandleGitHubListRepos(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
-// HandleGitHubListBranches returns branches for a given owner/repo.
-// GET /api/github/branches?owner=<owner>&repo=<repo>&query=<optional search>
+// HandleGitHubListRefs returns branches and tags for a given owner/repo.
+// GET /api/github/refs?owner=<owner>&repo=<repo>&query=<optional search>
 // Requires SessionAuthMiddleware.
-func HandleGitHubListBranches(sm *SessionManager) gin.HandlerFunc {
+func HandleGitHubListRefs(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner := c.Query("owner")
 		repo := c.Query("repo")
@@ -171,20 +172,41 @@ func HandleGitHubListBranches(sm *SessionManager) gin.HandlerFunc {
 
 		setup, errMsg := prepareGitHubAPICall(c, sm)
 		if errMsg != "" {
-			c.JSON(http.StatusOK, gin.H{"branches": []GitHubBranch{}, "error": errMsg})
+			c.JSON(http.StatusOK, gin.H{"refs": []GitHubRef{}, "error": errMsg})
 			return
 		}
 		defer setup.cancel()
 
 		query := c.Query("query")
-		branches, totalCount, err := fetchGitHubBranches(setup.ctx, setup.token, owner, repo, query)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"branches": []GitHubBranch{}, "error": fmt.Sprintf("Failed to list branches: %v", err)})
+
+		// Fetch branches and tags
+		branches, branchTotal, branchErr := fetchGitHubBranches(setup.ctx, setup.token, owner, repo, query)
+		tags, tagTotal, tagErr := fetchGitHubTags(setup.ctx, setup.token, owner, repo, query)
+
+		if branchErr != nil && tagErr != nil {
+			c.JSON(http.StatusOK, gin.H{"refs": []GitHubRef{}, "error": fmt.Sprintf("Failed to fetch refs: %v; %v", branchErr, tagErr)})
 			return
 		}
 
-		result := gin.H{"branches": branches, "totalCount": totalCount}
-		if totalCount > len(branches) {
+		// Convert branches to GitHubRef and merge with tags
+		var refs []GitHubRef
+		for _, b := range branches {
+			refs = append(refs, GitHubRef{
+				Name:            b.Name,
+				Type:            "branch",
+				IsDefaultBranch: b.IsDefault,
+			})
+		}
+		refs = append(refs, tags...)
+
+		totalCount := branchTotal + tagTotal
+		result := gin.H{
+			"refs":        refs,
+			"totalCount":  totalCount,
+			"branchCount": branchTotal,
+			"tagCount":    tagTotal,
+		}
+		if branchTotal > len(branches) || tagTotal > len(tags) {
 			result["hasMore"] = true
 		}
 		c.JSON(http.StatusOK, result)
@@ -652,11 +674,16 @@ func fetchGitHubRepos(ctx context.Context, token, owner, query string) ([]GitHub
 	return repos, nil
 }
 
+// gitHubBranchInfo is an internal type used by fetchGitHubBranches.
+type gitHubBranchInfo struct {
+	Name      string
+	IsDefault bool
+}
+
 // fetchGitHubBranches fetches branches for a given owner/repo.
 // If query is provided, filters branches by name (case-insensitive contains).
-// Returns up to 300 branches (3 pages), the total count from the first page's Link header,
-// and any error.
-func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) ([]GitHubBranch, int, error) {
+// Returns up to 300 branches (3 pages), the total count, and any error.
+func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) ([]gitHubBranchInfo, int, error) {
 	// First, get the default branch name from the repo metadata
 	repoURL := fmt.Sprintf("%s/repos/%s/%s", GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo))
 	repoResp, err := doGitHubAPIGet(ctx, token, repoURL)
@@ -673,7 +700,7 @@ func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) 
 	}
 
 	// Fetch branches with pagination (up to 3 pages of 100)
-	var allBranches []GitHubBranch
+	var allBranches []gitHubBranchInfo
 	totalCount := 0
 	maxPages := 3
 
@@ -696,7 +723,7 @@ func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) 
 		resp.Body.Close()
 
 		for _, b := range pageBranches {
-			allBranches = append(allBranches, GitHubBranch{
+			allBranches = append(allBranches, gitHubBranchInfo{
 				Name:      b.Name,
 				IsDefault: b.Name == repoInfo.DefaultBranch,
 			})
@@ -713,7 +740,7 @@ func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) 
 	// Filter by query if provided (case-insensitive contains)
 	if query != "" {
 		lowerQuery := strings.ToLower(query)
-		var filtered []GitHubBranch
+		var filtered []gitHubBranchInfo
 		for _, b := range allBranches {
 			if strings.Contains(strings.ToLower(b.Name), lowerQuery) {
 				filtered = append(filtered, b)
@@ -723,19 +750,70 @@ func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) 
 	}
 
 	// Sort: default branch first, then alphabetical
-	sortBranches(allBranches)
+	sort.Slice(allBranches, func(i, j int) bool {
+		if allBranches[i].IsDefault != allBranches[j].IsDefault {
+			return allBranches[i].IsDefault
+		}
+		return allBranches[i].Name < allBranches[j].Name
+	})
 
 	return allBranches, totalCount, nil
 }
 
-// sortBranches sorts branches with the default branch first, then alphabetically.
-func sortBranches(branches []GitHubBranch) {
-	sort.Slice(branches, func(i, j int) bool {
-		if branches[i].IsDefault != branches[j].IsDefault {
-			return branches[i].IsDefault
+// fetchGitHubTags fetches tags for a given owner/repo.
+// If query is provided, filters tags by name (case-insensitive contains).
+// Returns up to 300 tags (3 pages), the total count, and any error.
+func fetchGitHubTags(ctx context.Context, token, owner, repo, query string) ([]GitHubRef, int, error) {
+	var allTags []GitHubRef
+	totalCount := 0
+	maxPages := 3
+
+	for page := 1; page <= maxPages; page++ {
+		apiURL := fmt.Sprintf("%s/repos/%s/%s/tags?per_page=100&page=%d",
+			GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo), page)
+
+		resp, err := doGitHubAPIGet(ctx, token, apiURL)
+		if err != nil {
+			return nil, 0, err
 		}
-		return branches[i].Name < branches[j].Name
-	})
+
+		var pageTags []struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&pageTags); err != nil {
+			resp.Body.Close()
+			return nil, 0, fmt.Errorf("failed to parse tags response: %w", err)
+		}
+		resp.Body.Close()
+
+		for _, t := range pageTags {
+			allTags = append(allTags, GitHubRef{
+				Name:            t.Name,
+				Type:            "tag",
+				IsDefaultBranch: false,
+			})
+		}
+
+		totalCount += len(pageTags)
+
+		if len(pageTags) < 100 {
+			break
+		}
+	}
+
+	// Filter by query if provided (case-insensitive contains)
+	if query != "" {
+		lowerQuery := strings.ToLower(query)
+		var filtered []GitHubRef
+		for _, t := range allTags {
+			if strings.Contains(strings.ToLower(t.Name), lowerQuery) {
+				filtered = append(filtered, t)
+			}
+		}
+		allTags = filtered
+	}
+
+	return allTags, totalCount, nil
 }
 
 // =============================================================================

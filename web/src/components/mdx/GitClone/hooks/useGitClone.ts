@@ -4,7 +4,7 @@ import { useSession } from '@/contexts/useSession'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
-import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubBranch } from '../types'
+import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
 
 // Zod schemas for SSE events (reuse same format as exec)
 const LogEventSchema = z.object({
@@ -160,28 +160,28 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     }
   }, [getAuthHeader])
 
-  // Fetch GitHub branches for a repo
-  const fetchBranches = useCallback(async (owner: string, repo: string, query?: string): Promise<{ branches: GitHubBranch[]; totalCount: number; hasMore: boolean }> => {
+  // Fetch GitHub refs (branches + tags) for a repo
+  const fetchRefs = useCallback(async (owner: string, repo: string, query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
     try {
       const params = new URLSearchParams({ owner, repo })
       if (query) params.set('query', query)
 
-      const response = await fetch(`/api/github/branches?${params.toString()}`, {
+      const response = await fetch(`/api/github/refs?${params.toString()}`, {
         headers: {
           ...getAuthHeader(),
         },
       })
 
-      if (!response.ok) return { branches: [], totalCount: 0, hasMore: false }
+      if (!response.ok) return { refs: [], totalCount: 0, hasMore: false }
 
       const data = await response.json()
       return {
-        branches: data.branches ?? [],
+        refs: data.refs ?? [],
         totalCount: data.totalCount ?? 0,
         hasMore: data.hasMore ?? false,
       }
     } catch {
-      return { branches: [], totalCount: 0, hasMore: false }
+      return { refs: [], totalCount: 0, hasMore: false }
     }
   }, [getAuthHeader])
 
@@ -365,6 +365,6 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     checkGitHubToken,
     fetchOrgs,
     fetchRepos,
-    fetchBranches,
+    fetchRefs,
   }
 }

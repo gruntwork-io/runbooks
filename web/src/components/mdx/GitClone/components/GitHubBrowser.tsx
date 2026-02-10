@@ -119,7 +119,7 @@ export function GitHubBrowser({
     setLoadingRefs(false)
 
     // Auto-select the default branch
-    const defaultBranch = result.refs.find(r => r.isDefault)
+    const defaultBranch = result.refs.find(r => r.isDefaultBranch)
     if (defaultBranch) {
       setSelectedRef(defaultBranch.name)
       onRefSelected(defaultBranch.name)
@@ -376,7 +376,7 @@ export function GitHubBrowser({
                           <GitBranch className="size-3 text-gray-400" />
                         )}
                         <span className="text-gray-700">{selectedRef}</span>
-                        {selectedRefObj?.isDefault && (
+                        {selectedRefObj?.isDefaultBranch && (
                           <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none">default</span>
                         )}
                       </span>
@@ -414,7 +414,7 @@ export function GitHubBrowser({
                               />
                               <GitBranch className="size-3 text-gray-400 shrink-0" />
                               <span className="text-gray-700 truncate">{ref.name}</span>
-                              {ref.isDefault && (
+                              {ref.isDefaultBranch && (
                                 <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
                               )}
                             </CommandItem>

@@ -17,8 +17,10 @@ export interface GitRepoInfo {
   repoName: string;
   /** Repository owner (e.g., "gruntwork-io") */
   repoOwner: string;
-  /** Branch name (e.g., "main", "feature/add-vpc") */
-  branch: string;
+  /** Git ref: branch name, tag name, or commit SHA */
+  ref: string;
+  /** Type of ref: "branch", "tag", or "commit" */
+  refType?: 'branch' | 'tag' | 'commit';
   /** Commit SHA */
   commitSha?: string;
 }
@@ -115,7 +117,8 @@ export const GitRepoInfoSchema = z.object({
   repoUrl: z.string(),
   repoName: z.string(),
   repoOwner: z.string(),
-  branch: z.string(),
+  ref: z.string(),
+  refType: z.enum(['branch', 'tag', 'commit']).optional(),
   commitSha: z.string().optional(),
 })
 
