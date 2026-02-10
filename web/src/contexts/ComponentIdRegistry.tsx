@@ -9,7 +9,7 @@ interface ComponentRegistration {
   instanceId: string // Unique per-render instance to track unmounts
 }
 
-export interface DuplicateInfo {
+interface DuplicateInfo {
   /** Whether this is a duplicate (exact same ID or normalized collision) */
   isDuplicate: boolean
   /** Whether this is a normalized collision (different raw IDs but same normalized ID) */
