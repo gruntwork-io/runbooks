@@ -118,19 +118,19 @@ The `prefilledLocalPath` prop (or the "Local Path" input field) controls where f
 
 ### Environment Variables
 
-When a `<GitClone>` block successfully clones a repository, it sets the `$WORKTREE_FILES` environment variable for all subsequent Command and Check blocks. This variable points to the local path of the most recently cloned repository.
+When a `<GitClone>` block successfully clones a repository, it sets the `$REPO_FILES` environment variable for all subsequent Command and Check blocks. This variable points to the local path of the most recently cloned repository.
 
 ```bash
 #!/bin/bash
 # In a Command or Check script after GitClone
-echo "Cloned repo is at: $WORKTREE_FILES"
+echo "Cloned repo is at: $REPO_FILES"
 
 # Modify files directly in the cloned repo
-echo "new_setting = true" >> "$WORKTREE_FILES/config.hcl"
+echo "new_setting = true" >> "$REPO_FILES/config.hcl"
 ```
 
 <Aside type="note">
-`$WORKTREE_FILES` always points to the **most recently** cloned repository. If you have multiple `<GitClone>` blocks, the variable reflects whichever one ran last.
+`$REPO_FILES` always points to the **most recently** cloned repository. If you have multiple `<GitClone>` blocks, the variable reflects whichever one ran last.
 </Aside>
 
 Template and TemplateInline blocks can also write directly into the cloned repository by setting `target="worktree"`:

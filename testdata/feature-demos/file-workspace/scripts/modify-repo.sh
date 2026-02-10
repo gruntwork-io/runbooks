@@ -1,10 +1,10 @@
 #!/bin/bash
 # Modify a file in the cloned repository to demonstrate the Changed tab.
-# Uses $WORKTREE_FILES which points to the active git worktree (set by GitClone).
+# Uses $REPO_FILES which points to the active git worktree (set by GitClone).
 
 set -euo pipefail
 
-REPO_DIR="${WORKTREE_FILES:-./infra-live}"
+REPO_DIR="${REPO_FILES:-./infra-live}"
 
 if [ ! -d "$REPO_DIR" ]; then
     echo "Error: Repository not found at $REPO_DIR."

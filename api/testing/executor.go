@@ -157,7 +157,7 @@ type TestExecutor struct {
 	authBlockCredentials map[string]map[string]string // authBlockID -> envVarName -> value
 
 	// Active worktree path: set by the last successful GitClone block.
-	// Used to inject WORKTREE_FILES environment variable into Command/Check scripts.
+	// Used to inject REPO_FILES environment variable into Command/Check scripts.
 	activeWorkTreePath string
 }
 
@@ -1472,7 +1472,7 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 	// Store in block outputs for downstream access
 	e.blockOutputs[block.ID] = result.Outputs
 
-	// Track this as the active worktree for WORKTREE_FILES injection
+	// Track this as the active worktree for REPO_FILES injection
 	e.activeWorkTreePath = absolutePath
 
 	e.blockStates[block.ID] = BlockStateSuccess

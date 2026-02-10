@@ -451,12 +451,12 @@ If multiple checks run concurrently and write files with the same name, the last
 
 ### Writing to Repository Files
 
-If a `<GitClone>` block has cloned a repository, the `$WORKTREE_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to read or validate files inside the cloned repo:
+If a `<GitClone>` block has cloned a repository, the `$REPO_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to read or validate files inside the cloned repo:
 
 ```bash
 #!/bin/bash
 # Validate a config file in the cloned repo
-if [ -f "$WORKTREE_FILES/terragrunt.hcl" ]; then
+if [ -f "$REPO_FILES/terragrunt.hcl" ]; then
     log_info "Found terragrunt.hcl"
     exit 0
 else
@@ -465,13 +465,13 @@ else
 fi
 ```
 
-Unlike `$GENERATED_FILES`, writes to `$WORKTREE_FILES` are not captured to a temporary directory; they happen directly on the filesystem. Changes are visible in the **Changed** tab via `git diff`.
+Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` are not captured to a temporary directory; they happen directly on the filesystem. Changes are visible in the **Changed** tab via `git diff`.
 
 :::note
-`$WORKTREE_FILES` is only set when a `<GitClone>` block has successfully cloned a repository. If no repo has been cloned, this variable is **unset**. Always check for it in your scripts:
+`$REPO_FILES` is only set when a `<GitClone>` block has successfully cloned a repository. If no repo has been cloned, this variable is **unset**. Always check for it in your scripts:
 
 ```bash
-if [ -z "${WORKTREE_FILES:-}" ]; then
+if [ -z "${REPO_FILES:-}" ]; then
     echo "No git worktree available. Clone a repo first."
     exit 1
 fi

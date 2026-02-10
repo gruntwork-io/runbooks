@@ -67,7 +67,7 @@ type execCommandConfig struct {
 	envVars      map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
 	outputFile   string            // Temp file for block outputs (RUNBOOK_OUTPUT)
 	filesDir     string            // Temp directory for file capture (GENERATED_FILES)
-	workTreePath string            // Active git worktree path for WORKTREE_FILES (empty if none)
+	workTreePath string            // Active git worktree path for REPO_FILES (empty if none)
 }
 
 // envCaptureConfig holds configuration for environment capture after script execution
@@ -274,7 +274,7 @@ func createOutputFile() (string, error) {
 // framework. It sets:
 //   - RUNBOOK_OUTPUT: path to the block outputs file (key-value pairs)
 //   - GENERATED_FILES: path to the file capture directory
-//   - WORKTREE_FILES: path to the active git worktree (if one is registered)
+//   - REPO_FILES: path to the active git worktree (if one is registered)
 func SetupExecEnvVars(env []string, outputFile, filesDir, workTreePath string) []string {
 	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
 	env = append(env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFile))
@@ -283,9 +283,9 @@ func SetupExecEnvVars(env []string, outputFile, filesDir, workTreePath string) [
 	// Scripts can write files to this directory to have them saved to the output directory
 	env = append(env, fmt.Sprintf("GENERATED_FILES=%s", filesDir))
 
-	// Add WORKTREE_FILES environment variable if a git worktree has been registered
+	// Add REPO_FILES environment variable if a git worktree has been registered
 	if workTreePath != "" {
-		env = append(env, fmt.Sprintf("WORKTREE_FILES=%s", workTreePath))
+		env = append(env, fmt.Sprintf("REPO_FILES=%s", workTreePath))
 	}
 
 	return env

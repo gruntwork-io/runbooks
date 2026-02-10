@@ -345,7 +345,7 @@ func HandleWorkspaceRegister(sm *SessionManager) gin.HandlerFunc {
 
 // HandleWorkspaceSetActive sets the active worktree path.
 // Called when the user switches between worktrees in the UI so that
-// target="worktree" templates and WORKTREE_FILES point to the correct repo.
+// target="worktree" templates and REPO_FILES point to the correct repo.
 // POST /api/workspace/set-active
 func HandleWorkspaceSetActive(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {

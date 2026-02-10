@@ -111,7 +111,7 @@ Runbooks exposes the following environment variables to all scripts:
 | Variable | Description |
 |----------|-------------|
 | `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
-| `WORKTREE_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
+| `REPO_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
 | `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
 
 ### Capturing Output Files
@@ -134,19 +134,19 @@ See [Capturing Output Files](/authoring/blocks/command/#capturing-output-files) 
 
 ### Modifying Cloned Repositories
 
-If a `<GitClone>` block has cloned a repository, use `$WORKTREE_FILES` to modify files in the cloned repo:
+If a `<GitClone>` block has cloned a repository, use `$REPO_FILES` to modify files in the cloned repo:
 
 ```bash
 #!/bin/bash
-if [ -n "${WORKTREE_FILES:-}" ]; then
-    echo "Modifying files in cloned repo: $WORKTREE_FILES"
-    echo "new config" >> "$WORKTREE_FILES/settings.hcl"
+if [ -n "${REPO_FILES:-}" ]; then
+    echo "Modifying files in cloned repo: $REPO_FILES"
+    echo "new config" >> "$REPO_FILES/settings.hcl"
 else
     echo "No git worktree available"
 fi
 ```
 
-Unlike `$GENERATED_FILES`, writes to `$WORKTREE_FILES` happen directly on the filesystem — they are not captured to a temporary directory. Changes show up in the **Changed** tab via `git diff`.
+Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` happen directly on the filesystem — they are not captured to a temporary directory. Changes show up in the **Changed** tab via `git diff`.
 
 ---
 
@@ -268,6 +268,6 @@ The [`capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree
 The [`file-workspace`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/file-workspace) demo demonstrates:
 
 - Cloning a repository with `<GitClone>` and browsing its files
-- Using `$WORKTREE_FILES` to modify files in a cloned repo
+- Using `$REPO_FILES` to modify files in a cloned repo
 - Writing templates directly into a worktree with `target="worktree"`
 - Viewing changes in the "Changed files" diff view

@@ -431,7 +431,7 @@ func (sm *SessionManager) SetActiveWorkTreePath(path string) {
 	sm.session.ActiveWorkTreePath = path
 }
 
-// GetActiveWorkTreePath returns the active worktree path for WORKTREE_FILES
+// GetActiveWorkTreePath returns the active worktree path for REPO_FILES
 // injection and target="worktree" template writes. If the user has explicitly
 // selected a worktree, that path is returned. Otherwise, falls back to the
 // last registered worktree for backward compatibility.
@@ -460,7 +460,7 @@ var excludedEnvVars = map[string]bool{
 	"SHLVL":                 true, // Shell level
 	"RUNBOOK_OUTPUT":        true, // Temp file for block outputs, deleted after each execution
 	"GENERATED_FILES":       true, // Temp directory for file capture, deleted after each execution
-	"WORKTREE_FILES":        true, // Active git worktree path, set per execution
+	"REPO_FILES":            true, // Active git worktree path, set per execution
 	"OLDPWD":                true, // Previous directory (we track workdir separately)
 	"FUNCNAME":              true, // Bash function name stack
 	"LINENO":                true, // Current line number

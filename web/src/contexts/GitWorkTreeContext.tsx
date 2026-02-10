@@ -57,7 +57,7 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
   }, [])
 
   // Sync the active worktree path to the backend so that target="worktree"
-  // templates and WORKTREE_FILES point to the correct repo.
+  // templates and REPO_FILES point to the correct repo.
   const syncActiveToBackend = useCallback((path: string) => {
     fetch('/api/workspace/set-active', {
       method: 'POST',

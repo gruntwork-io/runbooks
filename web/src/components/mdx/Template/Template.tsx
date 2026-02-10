@@ -52,7 +52,7 @@ interface TemplateProps {
   path: string
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
-  /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($WORKTREE_FILES). */
+  /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). */
   target?: 'generated' | 'worktree'
 }
 
