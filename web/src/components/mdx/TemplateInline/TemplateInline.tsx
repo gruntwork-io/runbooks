@@ -12,7 +12,7 @@ import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import { extractOutputDependencies } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
-import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
+import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
 

@@ -12,7 +12,7 @@ import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
-import { useGitWorkTree } from './contexts/GitWorkTreeContext'
+import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'

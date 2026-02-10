@@ -40,7 +40,7 @@ export interface GitWorkTreeContextType {
   invalidateTree: () => void
 }
 
-const GitWorkTreeContext = React.createContext<GitWorkTreeContextType | undefined>(undefined)
+export const GitWorkTreeContext = React.createContext<GitWorkTreeContextType | undefined>(undefined)
 
 interface GitWorkTreeProviderProps {
   children: ReactNode
@@ -131,13 +131,3 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
   )
 }
 
-/**
- * Hook to access the git worktree context.
- */
-export const useGitWorkTree = (): GitWorkTreeContextType => {
-  const context = React.useContext(GitWorkTreeContext)
-  if (context === undefined) {
-    throw new Error('useGitWorkTree must be used within a GitWorkTreeProvider')
-  }
-  return context
-}

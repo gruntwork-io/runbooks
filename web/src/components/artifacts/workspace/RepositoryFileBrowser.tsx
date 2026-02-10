@@ -15,7 +15,7 @@ import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useFileContent } from '@/hooks/useFileContent'
 import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
-import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
+import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import type { WorkspaceTreeNode } from '@/hooks/useWorkspaceTree'
 import type { FileTreeNode } from '../code/FileTree'
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useGitWorkTree } from '../contexts/GitWorkTreeContext'
+import { useGitWorkTree } from '../contexts/useGitWorkTree'
 import { useSession } from '../contexts/useSession'
 
 /**
