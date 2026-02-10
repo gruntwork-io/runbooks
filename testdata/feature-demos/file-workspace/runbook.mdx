@@ -24,6 +24,14 @@ Start by cloning an example infrastructure-live repository. Once cloning complet
   prefilledLocalPath="./infra-live"
 />
 
+<GitClone
+  id="clone-test"
+  title="Clone Infrastructure Live"
+  description="Clone the runbooks-test repository"
+  prefilledUrl="https://github.com/gruntwork-io/runbooks-test"
+  prefilledLocalPath="./infra-test"
+/>
+
 ### 1b. Modify a Cloned File with a Script
 
 This script uses `$WORKTREE_FILES` to modify `root.hcl` and delete `CODEOWNERS` in the cloned repo. Both changes show up in the **Changed** tab — modifications as a diff, and deletions as a removed file.
