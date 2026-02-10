@@ -12,7 +12,12 @@ This page explains the two types of files you'll encounter, when each one appear
 
 ## Two types of files
 
-The files workspace can show two different types of files. Let's learn about them at a high level. Later, we'll dive into the details of each type of file.
+The files workspace can show two different types of files. 
+
+- [Generated files](#generated-files)
+- [Repository files](#repository-files)
+
+ Let's start by learning about them at a high level.
 
 ### Generated files
 
@@ -31,10 +36,12 @@ After the user clicks "Generate" on a \<Template\> block, or after a \<Command\>
 ### Repository files
 
 ##### Why use them
-You want the user to `git clone` a repository and create, modify, or delete files in it as part of the runbook. Presumably, after git cloning the files and making changes, the runbook will either `git push` the changes or open a pull request on them.
+You want the user to `git clone` a repository and then create, modify, or delete files in that repo using subsequent blocks in the runbook. Presumably, after git cloning the files and making changes, the runbook will either `git push` the changes or open a pull request on them.
 
 ##### Where they come from
-Initially, the files are cloned from a git repository via a [\<GitClone\>](/authoring/blocks/gitclone/) block. Any subsequent changes in the files come from a [\<Template\>](/authoring/blocks/template/) block that sets `target="worktree"`, or [\<Command\>](/authoring/blocks/command/), and [\<Check\>](/authoring/blocks/check/) blocks that run scripts that write to the `$REPO_FILES` environment variable.
+Initially, the files are cloned from a git repository via a [\<GitClone\>](/authoring/blocks/gitclone/) block.
+
+Any subsequent changes in the files come from a [\<Template\>](/authoring/blocks/template/) block that sets `target="worktree"`, or [\<Command\>](/authoring/blocks/command/), and [\<Check\>](/authoring/blocks/check/) blocks that run scripts that write to the `$REPO_FILES` environment variable.
 
 ##### Where they're stored
 The files are stored in a local path (relative to the [working directory](/commands/open#flags)) specified in the [\<GitClone\>](/authoring/blocks/gitclone/) block.

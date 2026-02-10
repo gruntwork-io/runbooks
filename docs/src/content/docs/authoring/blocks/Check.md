@@ -389,10 +389,10 @@ Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbo
 
 Scripts can write files to two different destinations, depending on the workflow.
 
-- [Generated files](/intro/generated_files/#generated-files)
-- [Repository files](/intro/generated_files/#repository-files)
+- [Generated files](/intro/files_workspace/#generated-files)
+- [Repository files](/intro/files_workspace/#repository-files)
 
-See the [Files workspace](/intro/generated_files/) page for more details.
+See the [Files workspace](/intro/files_workspace/) page for more details.
 
 ### Writing to Generated Files
 
