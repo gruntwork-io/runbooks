@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -122,20 +121,14 @@ var binaryExtensions = map[string]bool{
 // GET /api/workspace/tree?path=<abs_path>
 func HandleWorkspaceTree() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		dirPath := c.Query("path")
-		if dirPath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path query parameter is required"})
+		dirPath, ok := requirePathQuery(c)
+		if !ok {
 			return
 		}
 
 		// Validate the path exists and is a directory
-		info, err := os.Stat(dirPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "directory not found", "path": dirPath})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat path: %v", err)})
+		info, ok := statPathOrFail(c, dirPath, "directory")
+		if !ok {
 			return
 		}
 		if !info.IsDir() {
@@ -173,20 +166,14 @@ func HandleWorkspaceTree() gin.HandlerFunc {
 // GET /api/workspace/file?path=<abs_path>
 func HandleWorkspaceFile() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		filePath := c.Query("path")
-		if filePath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path query parameter is required"})
+		filePath, ok := requirePathQuery(c)
+		if !ok {
 			return
 		}
 
 		// Validate the path exists and is a file
-		info, err := os.Stat(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "file not found", "path": filePath})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat file: %v", err)})
+		info, ok := statPathOrFail(c, filePath, "file")
+		if !ok {
 			return
 		}
 		if info.IsDir() {
@@ -216,11 +203,6 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 				return
 			}
 
-			// Detect actual MIME type for accuracy
-			if mimeType == "" {
-				mimeType = mime.TypeByExtension(ext)
-			}
-
 			dataUri := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(content))
 			c.JSON(http.StatusOK, WorkspaceFileResponse{
 				Path:     filePath,
@@ -233,14 +215,18 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 			return
 		}
 
-		// Check if it's a known binary extension
-		if binaryExtensions[ext] {
+		binaryResp := func() {
 			c.JSON(http.StatusOK, WorkspaceFileResponse{
 				Path:     filePath,
 				Language: language,
 				Size:     info.Size(),
 				IsBinary: true,
 			})
+		}
+
+		// Check if it's a known binary extension
+		if binaryExtensions[ext] {
+			binaryResp()
 			return
 		}
 
@@ -252,17 +238,8 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 		}
 
 		// Check for binary content (null bytes in first 8KB)
-		checkSize := len(content)
-		if checkSize > 8192 {
-			checkSize = 8192
-		}
-		if bytes.Contains(content[:checkSize], []byte{0}) {
-			c.JSON(http.StatusOK, WorkspaceFileResponse{
-				Path:     filePath,
-				Language: language,
-				Size:     info.Size(),
-				IsBinary: true,
-			})
+		if bytes.Contains(content[:min(len(content), 8192)], []byte{0}) {
+			binaryResp()
 			return
 		}
 
@@ -279,9 +256,8 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 // GET /api/workspace/changes?path=<abs_path>&file=<optional>
 func HandleWorkspaceChanges() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		dirPath := c.Query("path")
-		if dirPath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path query parameter is required"})
+		dirPath, ok := requirePathQuery(c)
+		if !ok {
 			return
 		}
 
@@ -329,18 +305,7 @@ func HandleWorkspaceChanges() gin.HandlerFunc {
 // HandleWorkspaceRegister registers a worktree path with the session.
 // POST /api/workspace/register
 func HandleWorkspaceRegister(sm *SessionManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req struct {
-			Path string `json:"path"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil || req.Path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
-			return
-		}
-
-		sm.RegisterWorkTreePath(req.Path)
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
+	return handleWorkspacePathAction(sm.RegisterWorkTreePath)
 }
 
 // HandleWorkspaceSetActive sets the active worktree path.
@@ -348,6 +313,12 @@ func HandleWorkspaceRegister(sm *SessionManager) gin.HandlerFunc {
 // target="worktree" templates and REPO_FILES point to the correct repo.
 // POST /api/workspace/set-active
 func HandleWorkspaceSetActive(sm *SessionManager) gin.HandlerFunc {
+	return handleWorkspacePathAction(sm.SetActiveWorkTreePath)
+}
+
+// handleWorkspacePathAction creates a handler that reads a JSON body with a
+// "path" field and passes it to the given action.
+func handleWorkspacePathAction(action func(string)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Path string `json:"path"`
@@ -357,7 +328,7 @@ func HandleWorkspaceSetActive(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		sm.SetActiveWorkTreePath(req.Path)
+		action(req.Path)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
@@ -500,10 +471,6 @@ func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 		}
 
 		changeType := parseGitStatusCode(statusCode)
-		if changeType == "" {
-			continue
-		}
-
 		ext := strings.ToLower(filepath.Ext(filePath))
 		isBinary := isBinaryExt(ext)
 
@@ -635,6 +602,7 @@ func populateDiffContent(dirPath string, change *WorkspaceFileChange) error {
 }
 
 // parseGitStatusCode converts a git status porcelain code to a change type.
+// Always returns a non-empty string ("added", "deleted", or "modified").
 func parseGitStatusCode(code string) string {
 	// Index status is code[0], working tree status is code[1]
 	x := code[0]
@@ -679,6 +647,31 @@ func runGitCommand(dir string, args ...string) (string, error) {
 	}
 
 	return stdout.String(), nil
+}
+
+// statPathOrFail calls os.Stat and writes the appropriate error response on failure.
+// kind is used in error messages (e.g. "directory" or "file").
+func statPathOrFail(c *gin.Context, path, kind string) (os.FileInfo, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": kind + " not found", "path": path})
+			return nil, false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to stat %s: %v", kind, err)})
+		return nil, false
+	}
+	return info, true
+}
+
+// requirePathQuery extracts the "path" query parameter or writes a 400 error.
+func requirePathQuery(c *gin.Context) (string, bool) {
+	p := c.Query("path")
+	if p == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path query parameter is required"})
+		return "", false
+	}
+	return p, true
 }
 
 // countLines counts the number of lines in a string.
