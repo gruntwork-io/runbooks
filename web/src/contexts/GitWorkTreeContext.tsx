@@ -93,7 +93,10 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ path: workTree.localPath }),
     }).catch(() => {})
-  }, [getAuthHeader, syncActiveToBackend])
+
+    // Always invalidate the tree so re-clones refresh the file tree and reset changed files
+    invalidateTree()
+  }, [getAuthHeader, syncActiveToBackend, invalidateTree])
 
   const setActiveWorkTree = useCallback((id: string) => {
     setActiveWorkTreeId(id)

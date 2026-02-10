@@ -425,6 +425,7 @@ function GitClone({
                     <p className="text-sm font-medium text-amber-800 m-0">Local path already exists</p>
                     <p className="text-xs text-amber-600 m-0 mt-0.5">
                       The local path (destination directory) is not empty. Delete it and continue with git clone?
+                      Any changes you&apos;ve made to files in this directory will be lost.
                     </p>
                     <div className="flex items-center gap-2 mt-2">
                       <Button
