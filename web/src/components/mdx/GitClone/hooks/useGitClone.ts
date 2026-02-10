@@ -4,7 +4,7 @@ import { useSession } from '@/contexts/useSession'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
-import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo } from '../types'
+import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubBranch } from '../types'
 
 // Zod schemas for SSE events (reuse same format as exec)
 const LogEventSchema = z.object({
@@ -160,6 +160,31 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     }
   }, [getAuthHeader])
 
+  // Fetch GitHub branches for a repo
+  const fetchBranches = useCallback(async (owner: string, repo: string, query?: string): Promise<{ branches: GitHubBranch[]; totalCount: number; hasMore: boolean }> => {
+    try {
+      const params = new URLSearchParams({ owner, repo })
+      if (query) params.set('query', query)
+
+      const response = await fetch(`/api/github/branches?${params.toString()}`, {
+        headers: {
+          ...getAuthHeader(),
+        },
+      })
+
+      if (!response.ok) return { branches: [], totalCount: 0, hasMore: false }
+
+      const data = await response.json()
+      return {
+        branches: data.branches ?? [],
+        totalCount: data.totalCount ?? 0,
+        hasMore: data.hasMore ?? false,
+      }
+    } catch {
+      return { branches: [], totalCount: 0, hasMore: false }
+    }
+  }, [getAuthHeader])
+
   // Process SSE stream from clone endpoint
   const processSSEStream = useCallback(async (response: Response) => {
     const reader = response.body?.getReader()
@@ -245,7 +270,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
-  const clone = useCallback(async (url: string, repoPath: string, localPath: string, usePty?: boolean, force?: boolean): Promise<'directory_exists' | void> => {
+  const clone = useCallback(async (url: string, ref: string, repoPath: string, localPath: string, usePty?: boolean, force?: boolean): Promise<'directory_exists' | void> => {
     setCloneStatus('running')
     setLogs([])
     setCloneResult(null)
@@ -256,6 +281,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
 
     try {
       const body: Record<string, unknown> = { url }
+      if (ref) body.ref = ref
       if (repoPath) body.repo_path = repoPath
       if (localPath) body.local_path = localPath
       if (usePty !== undefined) body.use_pty = usePty
@@ -339,5 +365,6 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     checkGitHubToken,
     fetchOrgs,
     fetchRepos,
+    fetchBranches,
   }
 }

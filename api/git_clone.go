@@ -19,9 +19,10 @@ import (
 
 // Pre-compiled regex patterns
 var (
-	sshURLPattern        = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./-]+$`)
-	gitHubOwnerPattern   = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
-	tokenSanitizePattern = regexp.MustCompile(`x-access-token:[^@]+@`)
+	sshURLPattern          = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./-]+$`)
+	gitHubOwnerPattern     = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+	gitHubRepoNamePattern  = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	tokenSanitizePattern   = regexp.MustCompile(`x-access-token:[^@]+@`)
 )
 
 // =============================================================================
@@ -43,9 +44,16 @@ type GitHubRepo struct {
 	Description string `json:"description"`
 }
 
+// GitHubBranch represents a branch in a GitHub repository
+type GitHubBranch struct {
+	Name      string `json:"name"`
+	IsDefault bool   `json:"isDefault"`
+}
+
 // GitCloneRequest represents the request body for POST /api/git/clone
 type GitCloneRequest struct {
 	URL       string `json:"url"`
+	Ref       string `json:"ref,omitempty"`        // Branch or tag to clone (uses --branch flag)
 	RepoPath  string `json:"repo_path,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 	UsePTY    *bool  `json:"use_pty,omitempty"` // Whether to use PTY for execution (default: true)
@@ -160,6 +168,50 @@ func HandleGitHubListRepos(sm *SessionManager) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"repos": repos})
+	}
+}
+
+// HandleGitHubListBranches returns branches for a given owner/repo.
+// GET /api/github/branches?owner=<owner>&repo=<repo>&query=<optional search>
+// Requires SessionAuthMiddleware.
+func HandleGitHubListBranches(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		owner := c.Query("owner")
+		repo := c.Query("repo")
+		if owner == "" || repo == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "owner and repo query parameters are required"})
+			return
+		}
+
+		if !isValidGitHubOwner(owner) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid owner name"})
+			return
+		}
+
+		if !isValidGitHubRepoName(repo) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository name"})
+			return
+		}
+
+		setup, errMsg := prepareGitHubAPICall(c, sm)
+		if errMsg != "" {
+			c.JSON(http.StatusOK, gin.H{"branches": []GitHubBranch{}, "error": errMsg})
+			return
+		}
+		defer setup.cancel()
+
+		query := c.Query("query")
+		branches, totalCount, err := fetchGitHubBranches(setup.ctx, setup.token, owner, repo, query)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"branches": []GitHubBranch{}, "error": fmt.Sprintf("Failed to list branches: %v", err)})
+			return
+		}
+
+		result := gin.H{"branches": branches, "totalCount": totalCount}
+		if totalCount > len(branches) {
+			result["hasMore"] = true
+		}
+		c.JSON(http.StatusOK, result)
 	}
 }
 
@@ -280,10 +332,10 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 
 		if req.RepoPath != "" {
 			// Sparse checkout: clone with filter, then set sparse-checkout path
-			cloneErr = performSparseClone(ctx, c, flusher, cloneURL, absolutePath, req.RepoPath, usePTY)
+			cloneErr = performSparseClone(ctx, c, flusher, cloneURL, absolutePath, req.RepoPath, req.Ref, usePTY)
 		} else {
 			// Standard clone
-			cloneErr = performStandardClone(ctx, c, flusher, cloneURL, absolutePath, usePTY)
+			cloneErr = performStandardClone(ctx, c, flusher, cloneURL, absolutePath, req.Ref, usePTY)
 		}
 
 		if cloneErr != nil {
@@ -318,6 +370,9 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			"CLONE_PATH": absolutePath,
 			"FILE_COUNT": fmt.Sprintf("%d", fileCount),
 		}
+		if req.Ref != "" {
+			outputs["REF"] = req.Ref
+		}
 		sendSSEOutputs(c, outputs)
 		flusher.Flush()
 
@@ -337,8 +392,13 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 // It returns combined stdout/stderr output and any error.
 // This is the core clone logic used by both the runtime (via the SSE wrapper) and the
 // testing framework. Exported for use by the testing package.
-func GitCloneSimple(ctx context.Context, cloneURL, destPath string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", cloneURL, destPath)
+func GitCloneSimple(ctx context.Context, cloneURL, destPath, ref string) ([]byte, error) {
+	args := []string{"clone", "--progress"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, cloneURL, destPath)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return output, fmt.Errorf("%w: %s", err, string(output))
@@ -350,9 +410,14 @@ func GitCloneSimple(ctx context.Context, cloneURL, destPath string) ([]byte, err
 // It clones only the specified repoPath subdirectory.
 // This is the core sparse clone logic used by both the runtime (via the SSE wrapper) and the
 // testing framework. Exported for use by the testing package.
-func GitSparseCloneSimple(ctx context.Context, cloneURL, destPath, repoPath string) ([]byte, error) {
+func GitSparseCloneSimple(ctx context.Context, cloneURL, destPath, repoPath, ref string) ([]byte, error) {
 	// Step 1: Clone with blob filter and no checkout
-	cmd := exec.CommandContext(ctx, "git", "clone", "--filter=blob:none", "--no-checkout", "--progress", cloneURL, destPath)
+	args := []string{"clone", "--filter=blob:none", "--no-checkout", "--progress"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, cloneURL, destPath)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return output, fmt.Errorf("sparse clone failed: %w: %s", err, string(output))
 	}
@@ -373,18 +438,26 @@ func GitSparseCloneSimple(ctx context.Context, cloneURL, destPath, repoPath stri
 }
 
 // performStandardClone does a regular git clone and streams output via SSE.
-func performStandardClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath string, usePTY bool) error {
-	args := []string{"clone", "--progress", cloneURL, destPath}
+func performStandardClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, ref string, usePTY bool) error {
+	args := []string{"clone", "--progress"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, cloneURL, destPath)
 	return streamGitCommand(ctx, c, flusher, args, "", usePTY)
 }
 
 // performSparseClone does a sparse checkout to clone only a specific subdirectory, streaming output via SSE.
-func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, repoPath string, usePTY bool) error {
+func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, repoPath, ref string, usePTY bool) error {
 	// Step 1: Clone with blob filter and no checkout
 	sendSSELog(c, "Setting up sparse checkout...")
 	flusher.Flush()
 
-	args := []string{"clone", "--filter=blob:none", "--no-checkout", "--progress", cloneURL, destPath}
+	args := []string{"clone", "--filter=blob:none", "--no-checkout", "--progress"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, cloneURL, destPath)
 	if err := streamGitCommand(ctx, c, flusher, args, "", usePTY); err != nil {
 		return fmt.Errorf("sparse clone failed: %w", err)
 	}
@@ -502,9 +575,12 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 // GitHub API Helpers
 // =============================================================================
 
-// fetchGitHubOrgs fetches the organizations for the authenticated user.
-func fetchGitHubOrgs(ctx context.Context, token string) ([]GitHubOrg, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", GitHubAPIBaseURL+"/user/orgs?per_page=100", nil)
+// doGitHubAPIGet creates and executes an authenticated GitHub API GET request.
+// It sets the standard Authorization, Accept, and API version headers.
+// The caller is responsible for closing resp.Body on success.
+// Returns an error if the request fails or the status code is not 200.
+func doGitHubAPIGet(ctx context.Context, token, apiURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -517,12 +593,23 @@ func fetchGitHubOrgs(ctx context.Context, token string) ([]GitHubOrg, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		return nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
 	}
+
+	return resp, nil
+}
+
+// fetchGitHubOrgs fetches the organizations for the authenticated user.
+func fetchGitHubOrgs(ctx context.Context, token string) ([]GitHubOrg, error) {
+	resp, err := doGitHubAPIGet(ctx, token, GitHubAPIBaseURL+"/user/orgs?per_page=100")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
 	var rawOrgs []struct {
 		Login     string `json:"login"`
@@ -616,6 +703,123 @@ func fetchGitHubRepos(ctx context.Context, token, owner, query string) ([]GitHub
 	}
 
 	return repos, nil
+}
+
+// fetchGitHubBranches fetches branches for a given owner/repo.
+// If query is provided, filters branches by name (case-insensitive contains).
+// Returns up to 300 branches (3 pages), the total count from the first page's Link header,
+// and any error.
+func fetchGitHubBranches(ctx context.Context, token, owner, repo, query string) ([]GitHubBranch, int, error) {
+	// First, get the default branch name from the repo metadata
+	repoURL := fmt.Sprintf("%s/repos/%s/%s", GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo))
+	repoReq, err := http.NewRequestWithContext(ctx, "GET", repoURL, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create repo request: %w", err)
+	}
+	repoReq.Header.Set("Authorization", "Bearer "+token)
+	repoReq.Header.Set("Accept", "application/vnd.github+json")
+	repoReq.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	repoResp, err := http.DefaultClient.Do(repoReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch repo info: %w", err)
+	}
+	defer repoResp.Body.Close()
+
+	if repoResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(repoResp.Body)
+		return nil, 0, fmt.Errorf("GitHub API error (status %d): %s", repoResp.StatusCode, string(body))
+	}
+
+	var repoInfo struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := json.NewDecoder(repoResp.Body).Decode(&repoInfo); err != nil {
+		return nil, 0, fmt.Errorf("failed to parse repo info: %w", err)
+	}
+
+	// Fetch branches with pagination (up to 3 pages of 100)
+	var allBranches []GitHubBranch
+	totalCount := 0
+	maxPages := 3
+
+	for page := 1; page <= maxPages; page++ {
+		apiURL := fmt.Sprintf("%s/repos/%s/%s/branches?per_page=100&page=%d",
+			GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo), page)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to call GitHub API: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, 0, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var pageBranches []struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&pageBranches); err != nil {
+			resp.Body.Close()
+			return nil, 0, fmt.Errorf("failed to parse response: %w", err)
+		}
+		resp.Body.Close()
+
+		for _, b := range pageBranches {
+			allBranches = append(allBranches, GitHubBranch{
+				Name:      b.Name,
+				IsDefault: b.Name == repoInfo.DefaultBranch,
+			})
+		}
+
+		totalCount += len(pageBranches)
+
+		// If we got fewer than per_page results, there are no more pages
+		if len(pageBranches) < 100 {
+			break
+		}
+	}
+
+	// Filter by query if provided (case-insensitive contains)
+	if query != "" {
+		lowerQuery := strings.ToLower(query)
+		var filtered []GitHubBranch
+		for _, b := range allBranches {
+			if strings.Contains(strings.ToLower(b.Name), lowerQuery) {
+				filtered = append(filtered, b)
+			}
+		}
+		allBranches = filtered
+	}
+
+	// Sort: default branch first, then alphabetical
+	sortBranches(allBranches)
+
+	return allBranches, totalCount, nil
+}
+
+// sortBranches sorts branches with the default branch first, then alphabetically.
+func sortBranches(branches []GitHubBranch) {
+	for i := 0; i < len(branches); i++ {
+		for j := i + 1; j < len(branches); j++ {
+			// Default branch always comes first
+			if branches[j].IsDefault && !branches[i].IsDefault {
+				branches[i], branches[j] = branches[j], branches[i]
+			} else if !branches[i].IsDefault && !branches[j].IsDefault && branches[i].Name > branches[j].Name {
+				branches[i], branches[j] = branches[j], branches[i]
+			}
+		}
+	}
 }
 
 // =============================================================================
@@ -720,6 +924,15 @@ func isValidGitHubOwner(owner string) bool {
 		return false
 	}
 	return gitHubOwnerPattern.MatchString(owner)
+}
+
+// isValidGitHubRepoName validates a GitHub repository name.
+// GitHub repo names can contain alphanumeric characters, hyphens, underscores, and dots.
+func isValidGitHubRepoName(name string) bool {
+	if name == "" || len(name) > 100 {
+		return false
+	}
+	return gitHubRepoNamePattern.MatchString(name)
 }
 
 // CountFiles counts the number of files in a directory, excluding .git.

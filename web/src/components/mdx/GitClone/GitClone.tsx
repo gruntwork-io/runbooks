@@ -32,6 +32,7 @@ function GitClone({
   description = "Enter a git URL to clone a repository",
   gitHubAuthId,
   prefilledUrl = '',
+  prefilledRef = '',
   prefilledRepoPath = '',
   prefilledLocalPath = '',
   usePty,
@@ -71,10 +72,12 @@ function GitClone({
     checkGitHubToken,
     fetchOrgs,
     fetchRepos,
+    fetchBranches,
   } = useGitClone({ id, gitHubAuthId })
 
   // Form state
   const [gitUrl, setGitUrl] = useState(prefilledUrl)
+  const [ref, setRef] = useState(prefilledRef)
   const [repoPath, setRepoPath] = useState(prefilledRepoPath)
   const [localPath, setLocalPath] = useState(prefilledLocalPath)
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
@@ -150,7 +153,7 @@ function GitClone({
           repoUrl: gitUrl.trim(),
           repoName: parsed?.repo ?? cloneResult.relativePath,
           repoOwner: parsed?.org ?? '',
-          branch: 'main', // Will be updated from workspace tree API
+          branch: ref.trim() || 'main', // Use the selected ref, or fallback
           commitSha: undefined,
         },
       })
@@ -174,16 +177,21 @@ function GitClone({
   const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
     setShowOverwriteConfirm(false)
-    const result = await clone(gitUrl.trim(), repoPath.trim(), localPath.trim(), usePty, force)
+    const result = await clone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim(), usePty, force)
     if (result === 'directory_exists') {
       setShowOverwriteConfirm(true)
     }
-  }, [gitUrl, repoPath, localPath, clone, usePty])
+  }, [gitUrl, ref, repoPath, localPath, clone, usePty])
 
   // Handle repo selected from GitHub browser
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
     setShowOverwriteConfirm(false)
+  }, [])
+
+  // Handle ref selected from GitHub browser
+  const handleRefSelected = useCallback((selectedRef: string) => {
+    setRef(selectedRef)
   }, [])
 
   // Handle clone again
@@ -274,14 +282,46 @@ function GitClone({
               {tokenChecked && hasGitHubToken && (
                 <GitHubBrowser
                   onRepoSelected={handleRepoSelected}
+                  onRefSelected={handleRefSelected}
                   fetchOrgs={fetchOrgs}
                   fetchRepos={fetchRepos}
+                  fetchBranches={fetchBranches}
                   disabled={isFormDisabled}
                   initialOrg={prefilledGitHub?.org}
                   initialRepo={prefilledGitHub?.repo}
                   defaultOpen={!!prefilledGitHub}
                 />
               )}
+
+              {/* Ref (branch/tag) */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                  Ref <span className="font-normal text-gray-400">(optional)</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                        <Info className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[280px]">
+                      The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
+                      {tokenChecked && hasGitHubToken && (
+                        <>
+                          <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
+                        </>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                </label>
+                <input
+                  type="text"
+                  value={ref}
+                  onChange={(e) => setRef(e.target.value)}
+                  placeholder="Defaults to default branch"
+                  disabled={isFormDisabled}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                />
+              </div>
 
               {/* Repo Path (sparse checkout) */}
               <div>

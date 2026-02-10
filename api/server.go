@@ -105,6 +105,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		// GitHub browsing endpoints for GitClone block (read-only, requires session for token)
 		protectedAPI.GET("/github/orgs", HandleGitHubListOrgs(sessionManager))
 		protectedAPI.GET("/github/repos", HandleGitHubListRepos(sessionManager))
+		protectedAPI.GET("/github/branches", HandleGitHubListBranches(sessionManager))
 		// Git clone endpoint (SSE streaming)
 		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir))
 		// Workspace endpoints for file tree, file content, and git changes

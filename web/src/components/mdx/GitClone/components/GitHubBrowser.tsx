@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock } from "lucide-react"
+import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock, GitBranch } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -16,15 +16,19 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { GitHubIcon } from "@/components/icons/GitHubIcon"
-import type { GitHubOrg, GitHubRepo } from "../types"
+import type { GitHubOrg, GitHubRepo, GitHubBranch } from "../types"
 
 interface GitHubBrowserProps {
   /** Callback when a repo is selected (sets the URL field) */
   onRepoSelected: (url: string) => void
+  /** Callback when a ref (branch/tag) is selected */
+  onRefSelected: (ref: string) => void
   /** Function to fetch orgs */
   fetchOrgs: () => Promise<GitHubOrg[]>
   /** Function to fetch repos for an owner */
   fetchRepos: (owner: string, query?: string) => Promise<GitHubRepo[]>
+  /** Function to fetch branches for a repo */
+  fetchBranches: (owner: string, repo: string, query?: string) => Promise<{ branches: GitHubBranch[]; totalCount: number; hasMore: boolean }>
   /** Whether the browser is disabled */
   disabled?: boolean
   /** Initial org to pre-select (parsed from URL) */
@@ -37,8 +41,10 @@ interface GitHubBrowserProps {
 
 export function GitHubBrowser({
   onRepoSelected,
+  onRefSelected,
   fetchOrgs,
   fetchRepos,
+  fetchBranches,
   disabled = false,
   initialOrg,
   initialRepo,
@@ -47,16 +53,24 @@ export function GitHubBrowser({
   const [isOpen, setIsOpen] = useState(defaultOpen)
   const [orgs, setOrgs] = useState<GitHubOrg[]>([])
   const [repos, setRepos] = useState<GitHubRepo[]>([])
+  const [branches, setBranches] = useState<GitHubBranch[]>([])
+  const [branchTotalCount, setBranchTotalCount] = useState(0)
+  const [branchHasMore, setBranchHasMore] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(initialOrg || "")
   const [selectedRepo, setSelectedRepo] = useState(initialRepo || "")
+  const [selectedRef, setSelectedRef] = useState("")
   const [orgOpen, setOrgOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
+  const [refOpen, setRefOpen] = useState(false)
   const [loadingOrgs, setLoadingOrgs] = useState(false)
   const [loadingRepos, setLoadingRepos] = useState(false)
+  const [loadingBranches, setLoadingBranches] = useState(false)
   const [orgSearch, setOrgSearch] = useState("")
   const [repoSearch, setRepoSearch] = useState("")
+  const [refSearch, setRefSearch] = useState("")
   const orgListRef = useRef<HTMLDivElement>(null)
   const repoListRef = useRef<HTMLDivElement>(null)
+  const refListRef = useRef<HTMLDivElement>(null)
   const hasLoadedOrgs = useRef(false)
 
   // Load orgs when browser opens
@@ -87,6 +101,33 @@ export function GitHubBrowser({
     }
   }, [selectedOrg, loadRepos])
 
+  // Load branches when repo changes
+  const loadBranches = useCallback(async (org: string, repo: string) => {
+    if (!org || !repo) return
+    setLoadingBranches(true)
+    setBranches([])
+    setBranchTotalCount(0)
+    setBranchHasMore(false)
+    const result = await fetchBranches(org, repo)
+    setBranches(result.branches)
+    setBranchTotalCount(result.totalCount)
+    setBranchHasMore(result.hasMore)
+    setLoadingBranches(false)
+
+    // Auto-select the default branch
+    const defaultBranch = result.branches.find(b => b.isDefault)
+    if (defaultBranch) {
+      setSelectedRef(defaultBranch.name)
+      onRefSelected(defaultBranch.name)
+    }
+  }, [fetchBranches, onRefSelected])
+
+  useEffect(() => {
+    if (selectedOrg && selectedRepo) {
+      loadBranches(selectedOrg, selectedRepo)
+    }
+  }, [selectedOrg, selectedRepo, loadBranches])
+
   // Scroll to top on search change
   useEffect(() => {
     if (orgOpen && orgListRef.current) {
@@ -100,19 +141,35 @@ export function GitHubBrowser({
     }
   }, [repoOpen, repoSearch])
 
+  useEffect(() => {
+    if (refOpen && refListRef.current) {
+      refListRef.current.scrollTo({ top: 0 })
+    }
+  }, [refOpen, refSearch])
+
   const handleOrgSelect = (org: string) => {
     setSelectedOrg(org)
     setSelectedRepo("")
+    setSelectedRef("")
+    setBranches([])
     setOrgOpen(false)
     setOrgSearch("")
   }
 
   const handleRepoSelect = (repo: string) => {
     setSelectedRepo(repo)
+    setSelectedRef("")
     setRepoOpen(false)
     setRepoSearch("")
     // Auto-fill the URL
     onRepoSelected(`https://github.com/${selectedOrg}/${repo}`)
+  }
+
+  const handleRefSelect = (ref: string) => {
+    setSelectedRef(ref)
+    setRefOpen(false)
+    setRefSearch("")
+    onRefSelected(ref)
   }
 
   return (
@@ -283,6 +340,83 @@ export function GitHubBrowser({
               </PopoverContent>
             </Popover>
           </div>
+
+          {/* Ref (branch/tag) selector — only shown after a repo is selected */}
+          {selectedRepo && (
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">
+                Ref
+              </label>
+              <Popover open={refOpen} onOpenChange={(open) => {
+                setRefOpen(open)
+                if (!open) setRefSearch("")
+              }}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={refOpen}
+                    className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+                    disabled={disabled || loadingBranches}
+                  >
+                    {loadingBranches ? (
+                      <span className="text-gray-400">Loading refs...</span>
+                    ) : selectedRef ? (
+                      <span className="flex items-center gap-2 truncate">
+                        <GitBranch className="size-3 text-gray-400" />
+                        <span className="text-gray-700">{selectedRef}</span>
+                        {branches.find(b => b.name === selectedRef)?.isDefault && (
+                          <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none">default</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">Select ref...</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[350px] p-0" align="start" side="bottom" avoidCollisions={false}>
+                  <Command>
+                    <CommandInput
+                      placeholder="Search branches..."
+                      value={refSearch}
+                      onValueChange={setRefSearch}
+                    />
+                    <CommandList ref={refListRef} className="max-h-[300px]">
+                      <CommandEmpty>No branches found.</CommandEmpty>
+                      <CommandGroup>
+                        {branches.map((branch) => (
+                          <CommandItem
+                            key={branch.name}
+                            value={branch.name}
+                            onSelect={() => handleRefSelect(branch.name)}
+                            className="flex items-center gap-2"
+                          >
+                            <Check
+                              className={cn(
+                                "h-4 w-4 shrink-0",
+                                selectedRef === branch.name ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            <GitBranch className="size-3 text-gray-400 shrink-0" />
+                            <span className="text-gray-700 truncate">{branch.name}</span>
+                            {branch.isDefault && (
+                              <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
+                            )}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                      {branchHasMore && (
+                        <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
+                          Showing {branches.length} of {branchTotalCount} branches — type to filter
+                        </div>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
         </div>
       )}
     </div>

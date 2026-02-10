@@ -1366,7 +1366,7 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 }
 
 // executeGitClone handles GitClone block execution in test mode.
-// It performs a git clone using the block's prefilledUrl, prefilledRepoPath, and prefilledLocalPath props.
+// It performs a git clone using the block's prefilledUrl, prefilledRef, prefilledRepoPath, and prefilledLocalPath props.
 // If a gitHubAuthId is specified and the referenced auth block has credentials, the token is injected.
 func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
@@ -1377,6 +1377,7 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 
 	// Extract props
 	cloneURL := api.ExtractProp(block.Props, "prefilledUrl")
+	ref := api.ExtractProp(block.Props, "prefilledRef")
 	repoPath := api.ExtractProp(block.Props, "prefilledRepoPath")
 	localPath := api.ExtractProp(block.Props, "prefilledLocalPath")
 
@@ -1432,6 +1433,9 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 
 	if e.verbose {
 		fmt.Printf("--- Cloning %s ---\n", cloneURL)
+		if ref != "" {
+			fmt.Printf("  Ref: %s\n", ref)
+		}
 		if repoPath != "" {
 			fmt.Printf("  Sparse checkout path: %s\n", repoPath)
 		}
@@ -1444,9 +1448,9 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 
 	var cloneErr error
 	if repoPath != "" {
-		_, cloneErr = api.GitSparseCloneSimple(cloneCtx, effectiveURL, absolutePath, repoPath)
+		_, cloneErr = api.GitSparseCloneSimple(cloneCtx, effectiveURL, absolutePath, repoPath, ref)
 	} else {
-		_, cloneErr = api.GitCloneSimple(cloneCtx, effectiveURL, absolutePath)
+		_, cloneErr = api.GitCloneSimple(cloneCtx, effectiveURL, absolutePath, ref)
 	}
 
 	if cloneErr != nil {
@@ -1468,6 +1472,9 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 	// Store outputs
 	result.Outputs["CLONE_PATH"] = absolutePath
 	result.Outputs["FILE_COUNT"] = fmt.Sprintf("%d", fileCount)
+	if ref != "" {
+		result.Outputs["REF"] = ref
+	}
 
 	// Store in block outputs for downstream access
 	e.blockOutputs[block.ID] = result.Outputs

@@ -10,6 +10,8 @@ export interface GitCloneProps {
   gitHubAuthId?: string
   /** Pre-fill the Git URL input */
   prefilledUrl?: string
+  /** Pre-fill the ref (branch or tag) to clone */
+  prefilledRef?: string
   /** Pre-fill the sparse checkout path (subdirectory to clone) */
   prefilledRepoPath?: string
   /** Pre-fill the local path (relative to CWD) where files will be cloned */
@@ -43,4 +45,10 @@ export interface GitHubRepo {
   fullName: string
   private: boolean
   description: string
+}
+
+/** A GitHub branch */
+export interface GitHubBranch {
+  name: string
+  isDefault: boolean
 }
