@@ -114,7 +114,9 @@ func TestWorkspaceTreeSkipsGitDir(t *testing.T) {
 	}
 
 	var resp WorkspaceTreeResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	// .git should NOT appear in the tree
 	for _, node := range resp.Tree {
@@ -122,6 +124,18 @@ func TestWorkspaceTreeSkipsGitDir(t *testing.T) {
 			t.Error(".git directory should be excluded from tree")
 		}
 	}
+
+	// Verify git metadata is populated for a git repo
+	if resp.GitInfo == nil {
+		t.Fatal("expected gitInfo for a git repo")
+	}
+	if resp.GitInfo.Branch == "" {
+		t.Error("expected non-empty branch name")
+	}
+	if resp.GitInfo.CommitSha == "" {
+		t.Error("expected non-empty commit SHA")
+	}
+	// RemoteURL is expected to be empty (no remote configured in test repo)
 }
 
 func TestWorkspaceTreeMaxFiles(t *testing.T) {
@@ -162,7 +176,9 @@ func TestWorkspaceFileContent(t *testing.T) {
 	}
 
 	var resp WorkspaceFileResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if resp.Content != "# Test\n" {
 		t.Errorf("unexpected content: %q", resp.Content)
@@ -196,7 +212,9 @@ func TestWorkspaceFileTooLarge(t *testing.T) {
 	}
 
 	var resp WorkspaceFileResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if !resp.IsTooLarge {
 		t.Error("expected isTooLarge: true")
@@ -206,11 +224,13 @@ func TestWorkspaceFileTooLarge(t *testing.T) {
 	}
 }
 
-func TestWorkspaceFileBinary(t *testing.T) {
+func TestWorkspaceFileBinaryByContent(t *testing.T) {
+	// Tests null-byte detection for files whose extension is NOT in binaryExtensions.
+	// Uses .customdata so the handler reads the file and checks for null bytes
+	// rather than short-circuiting on the extension.
 	dir := t.TempDir()
-	binPath := filepath.Join(dir, "data.bin")
+	binPath := filepath.Join(dir, "data.customdata")
 
-	// Create a binary file with null bytes
 	data := []byte("hello\x00world")
 	os.WriteFile(binPath, data, 0644)
 
@@ -225,10 +245,45 @@ func TestWorkspaceFileBinary(t *testing.T) {
 	}
 
 	var resp WorkspaceFileResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if !resp.IsBinary {
 		t.Error("expected isBinary: true for file with null bytes")
+	}
+	if resp.Content != "" {
+		t.Error("expected empty content for binary file")
+	}
+}
+
+func TestWorkspaceFileBinaryByExtension(t *testing.T) {
+	// Tests that known binary extensions (e.g. .zip) are detected without reading file content.
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "archive.zip")
+
+	os.WriteFile(zipPath, []byte("not real zip data"), 0644)
+
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/file?path="+zipPath, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp WorkspaceFileResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if !resp.IsBinary {
+		t.Error("expected isBinary: true for .zip file")
+	}
+	if resp.Content != "" {
+		t.Error("expected empty content for binary file")
 	}
 }
 
@@ -248,7 +303,9 @@ func TestWorkspaceFileImage(t *testing.T) {
 	}
 
 	var resp WorkspaceFileResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if !resp.IsImage {
 		t.Error("expected isImage: true for .png file")
@@ -274,7 +331,9 @@ func TestWorkspaceChangesEmpty(t *testing.T) {
 	}
 
 	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if resp.TotalChanges != 0 {
 		t.Errorf("expected 0 changes, got %d", resp.TotalChanges)
@@ -298,7 +357,9 @@ func TestWorkspaceChangesDetected(t *testing.T) {
 	}
 
 	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if resp.TotalChanges != 1 {
 		t.Errorf("expected 1 change, got %d", resp.TotalChanges)
@@ -329,18 +390,20 @@ func TestWorkspaceChangesIncludesDiffContent(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if len(resp.Changes) != 1 {
 		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
 	}
 
 	change := resp.Changes[0]
-	if change.OriginalContent == "" {
-		t.Error("expected non-empty originalContent for modified file")
+	if change.OriginalContent != "# Test\n" {
+		t.Errorf("expected original content %q, got %q", "# Test\n", change.OriginalContent)
 	}
-	if change.NewContent == "" {
-		t.Error("expected non-empty newContent for modified file")
+	if change.NewContent != "# Updated\n" {
+		t.Errorf("expected new content %q, got %q", "# Updated\n", change.NewContent)
 	}
 }
 
@@ -361,15 +424,20 @@ func TestWorkspaceChangesSingleFileDiff(t *testing.T) {
 	}
 
 	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if len(resp.Changes) != 1 {
 		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
 	}
 
 	change := resp.Changes[0]
-	if change.OriginalContent == "" || change.NewContent == "" {
-		t.Error("single file diff should include full content")
+	if change.OriginalContent != "# Test\n" {
+		t.Errorf("expected original content %q, got %q", "# Test\n", change.OriginalContent)
+	}
+	if change.NewContent != "# Updated\n" {
+		t.Errorf("expected new content %q, got %q", "# Updated\n", change.NewContent)
 	}
 }
 
@@ -396,7 +464,9 @@ func TestWorkspaceChangesTruncatesLargeDiff(t *testing.T) {
 	}
 
 	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	if len(resp.Changes) != 1 {
 		t.Fatalf("expected 1 change, got %d", len(resp.Changes))
@@ -448,7 +518,9 @@ func TestWorkspaceChangesNewFile(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var resp WorkspaceChangesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 
 	found := false
 	for _, change := range resp.Changes {
@@ -464,5 +536,46 @@ func TestWorkspaceChangesNewFile(t *testing.T) {
 	}
 	if !found {
 		t.Error("new_file.txt not found in changes")
+	}
+}
+
+func TestWorkspaceChangesDeletedFile(t *testing.T) {
+	dir := createTempGitRepo(t)
+
+	// Delete a committed file
+	os.Remove(filepath.Join(dir, "README.md"))
+
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	found := false
+	for _, change := range resp.Changes {
+		if change.Path == "README.md" {
+			found = true
+			if change.ChangeType != "deleted" {
+				t.Errorf("expected changeType deleted, got %s", change.ChangeType)
+			}
+			if change.OriginalContent != "# Test\n" {
+				t.Errorf("expected original content from HEAD %q, got %q", "# Test\n", change.OriginalContent)
+			}
+			if change.NewContent != "" {
+				t.Errorf("expected empty newContent for deleted file, got %q", change.NewContent)
+			}
+		}
+	}
+	if !found {
+		t.Error("README.md not found in changes after deletion")
 	}
 }
