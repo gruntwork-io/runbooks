@@ -12,25 +12,35 @@ This page explains the two types of files you'll encounter, when each one appear
 
 ## Two types of files
 
-The files workspace can show two categories of files, each in its own tab. Let's learn about each at a high level. Later, we'll dive into the details of each type of file.
+The files workspace can show two different types of files. Let's learn about them at a high level. Later, we'll dive into the details of each type of file.
 
 ### Generated files
 
-| | |
-|----------|-------------|
-| **Where they come from** | [\<Template\>](/authoring/blocks/template/) or [\<Command\>](/authoring/blocks/command/) blocks generate them |
-| **Where they're stored** | In a `generated/` folder on your local machine (by default) |
-| **When you see them** | After you click "Generate" on a \<Template\> block<br />After a \<Command\> block writes to `$GENERATED_FILES` |
-| **Git tracking** | Not tracked by git |
+##### Why use them
+You want the runbook to generate new files and expect the user will then perform some _out-of-band action_ with the files, such as manually integrating them into a separate project.
+
+##### Where they come from
+A [\<Template\>](/authoring/blocks/template/) block that sets `target="generated"` generates files when the user clicks "Generate". [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) blocks generate files when they run scripts that write to the `$GENERATED_FILES` environment variable.
+
+##### Where they're stored
+The files are stored in a `generated/` folder on the user's local machine, relative to the [working directory](/commands/open#flags), or whatever folder the user specifies with the [output-path](/commands/open#flags) flag.
+
+##### When you see them
+After the user clicks "Generate" on a \<Template\> block, or after a \<Command\> or \<Check\> block writes to `$GENERATED_FILES`, the files workspace is automatically opened.
 
 ### Repository files
 
-|||
-|----------|-------------|
-| **Where they come from** | Cloned from a git repository via a [\<GitClone\>](/authoring/blocks/gitclone/) block |
-| **Where they're stored** | In a local path specified in the \<GitClone\> block |
-| **When you see them** | After a \<GitClone\> block successfully clones a repository |
-| **Git tracking** | Tracked by git |
+##### Why use them
+You want the user to `git clone` a repository and create, modify, or delete files in it as part of the runbook. Presumably, after git cloning the files and making changes, the runbook will either `git push` the changes or open a pull request on them.
+
+##### Where they come from
+Initially, the files are cloned from a git repository via a [\<GitClone\>](/authoring/blocks/gitclone/) block. Any subsequent changes in the files come from a [\<Template\>](/authoring/blocks/template/) block that sets `target="worktree"`, or [\<Command\>](/authoring/blocks/command/), and [\<Check\>](/authoring/blocks/check/) blocks that run scripts that write to the `$WORKTREE_FILES` environment variable.
+
+##### Where they're stored
+The files are stored in a local path (relative to the [working directory](/commands/open#flags)) specified in the [\<GitClone\>](/authoring/blocks/gitclone/) block.
+
+##### When you see them
+After a \<GitClone\> block successfully clones a repository, the files workspace automatically switches to the **Repository** tab to show the cloned files.
 
 <Aside type="tip">
 If a runbook only produces generated files (no git clone), you'll only see the "Generated files" tab. If it only clones a repository, you'll only see the "Repository" tab. When both are present, you can switch between them using the context bar at the top of the workspace.
@@ -38,7 +48,7 @@ If a runbook only produces generated files (no git clone), you'll only see the "
 
 ## Generated files
 
-Generated files are new files that the runbook creates on your local machine. There are two ways they get created:
+Generated files are new files that the runbook creates on your local machine. There are two main ways they get created:
 
 ### Template blocks
 
@@ -50,9 +60,9 @@ The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/bloc
 
 Template blocks automatically re-render when you change input values, so your generated files stay in sync with the form.
 
-### Command blocks with $GENERATED_FILES
+### Command and Check blocks with $GENERATED_FILES
 
-[Command](/authoring/blocks/command/) blocks can write files to the `$GENERATED_FILES` environment variable to capture them:
+[Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks can write files to the `$GENERATED_FILES` environment variable to capture them:
 
 ```mdx
 <Command
@@ -62,7 +72,7 @@ Template blocks automatically re-render when you change input values, so your ge
 />
 ```
 
-Any files written to `$GENERATED_FILES` automatically appear in the workspace after the command completes successfully.
+Any files written to `$GENERATED_FILES` automatically appear in the workspace after the block completes successfully.
 
 ### Where generated files are stored
 

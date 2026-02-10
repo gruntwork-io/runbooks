@@ -350,9 +350,18 @@ log_info "Deployment successful!"
 
 ## Capturing Output Files
 
-Commands can save files to the generated files directory using the `$GENERATED_FILES` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
+Scripts can write files to two different destinations, depending on the workflow.
 
-### Basic Example
+- [Generated files](/intro/generated_files/#generated-files)
+- [Repository files](/intro/generated_files/#repository-files)
+
+See the [Files workspace](/intro/generated_files/) page for more details.
+
+### Writing to Generated Files
+
+Use `$GENERATED_FILES` to capture new files. Any files written to this directory automatically appear in the file panel after the command completes successfully.
+
+#### Basic Example
 
 ```bash
 #!/bin/bash
@@ -374,7 +383,7 @@ Or as an inline command:
 />
 ```
 
-### Organizing Files with Subdirectories
+#### Organizing Files with Subdirectories
 
 You can create subdirectories within `$GENERATED_FILES` to organize your captured files:
 
@@ -397,7 +406,7 @@ generated/
     └── settings.json
 ```
 
-### How It Works
+#### How It Works
 
 1. Before your script runs, Runbooks creates a temporary capture directory
 2. The `$GENERATED_FILES` environment variable points to this directory
@@ -413,7 +422,7 @@ Files are only captured after **successful** execution (exit code 0 or 2). If yo
 If multiple commands run concurrently and write files with the same name, the last command to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
 </Aside>
 
-### Writing to a Git Worktree
+### Writing to Repository Files
 
 If a `<GitClone>` block has cloned a repository, the `$WORKTREE_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to modify files inside the cloned repo directly:
 

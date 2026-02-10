@@ -112,6 +112,7 @@ Runbooks exposes the following environment variables to all scripts:
 |----------|-------------|
 | `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
 | `WORKTREE_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
+| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
 
 ### Capturing Output Files
 
@@ -261,3 +262,12 @@ The [`capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree
 - Using `$GENERATED_FILES` to capture generated files
 - Combining environment persistence with file generation
 - Creating OpenTofu configs from environment variables set in earlier blocks
+
+### File Workspace Demo
+
+The [`file-workspace`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/file-workspace) demo demonstrates:
+
+- Cloning a repository with `<GitClone>` and browsing its files
+- Using `$WORKTREE_FILES` to modify files in a cloned repo
+- Writing templates directly into a worktree with `target="worktree"`
+- Viewing changes in the "Changed files" diff view
