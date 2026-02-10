@@ -51,7 +51,9 @@ Taskfile.yml  — Task runner config
 | **OpenTofu**     | Terraform      | For any IaC examples in runbooks or docs        |
 | **prek**         | husky          | Pre-commit hook manager (optional)              |
 
-To add a new shadcn/ui component: `bunx shadcn@latest add <component_name>`
+### Adding new shadcn/ui components
+
+First add the component directly into our code base: `bunx shadcn@latest add <component_name>`. Then customize the generated component as needed to adapt it to our needs. The component should be generic and reusable, so if you need a lot of customization, consider creating a new component composed of shadcn/ui components.
 
 ## Key Commands
 
@@ -155,7 +157,7 @@ When defining a new block, you must add **all** of the following:
 | What                  | Where                                                        |
 |-----------------------|--------------------------------------------------------------|
 | Frontend component    | `web/src/components/mdx/<BlockName>/`                        |
-| Backend handler       | `api/<block_name>.go`                                        |
+| Backend handler (if needed)       | `api/<block_name>.go`                                        |
 | Block documentation   | `docs/src/content/docs/authoring/blocks/<BlockName>.mdx`     |
 | Automated tests       | `testdata/feature-demos/<block-name>/` (runbook + test YAML) |
 | Test framework support| `api/testing/` — `runbooks test init` must detect the block, and `runbooks test` must handle it |
@@ -202,3 +204,4 @@ When making changes to one auth block, evaluate whether the same change should b
 - **Don't create blocks without docs, tests, and test framework support** — all four artifacts are required
 - **Don't re-implement codebase logic in tests** — reference the source of truth
 - **Don't skip pre-commit hooks** — if spellcheck fails, fix the spelling
+- When working in a feature branch, do not attempt to preserve backward compatibility with a feature or interface introduced in the feature branch itself. 
