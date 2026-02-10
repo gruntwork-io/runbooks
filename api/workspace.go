@@ -343,6 +343,25 @@ func HandleWorkspaceRegister(sm *SessionManager) gin.HandlerFunc {
 	}
 }
 
+// HandleWorkspaceSetActive sets the active worktree path.
+// Called when the user switches between worktrees in the UI so that
+// target="worktree" templates and WORKTREE_FILES point to the correct repo.
+// POST /api/workspace/set-active
+func HandleWorkspaceSetActive(sm *SessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+			return
+		}
+
+		sm.SetActiveWorkTreePath(req.Path)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
 // isBinaryExt returns true if the file extension indicates a binary (non-text) file.
 func isBinaryExt(ext string) bool {
 	return binaryExtensions[ext] || imageExtensions[ext] != ""
@@ -449,8 +468,10 @@ func getGitInfo(dirPath string) *WorkspaceGitInfo {
 
 // getAllChanges returns all changed files in a git workspace with inline diffs.
 func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
-	// Run git status --porcelain
-	statusOutput, err := runGitCommand(dirPath, "status", "--porcelain")
+	// Run git status --porcelain with --untracked-files=all to list individual
+	// untracked files rather than directory summaries (e.g. "docs/account.hcl"
+	// instead of "docs/").
+	statusOutput, err := runGitCommand(dirPath, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}

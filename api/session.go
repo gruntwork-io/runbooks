@@ -38,6 +38,9 @@ type Session struct {
 	LastActivity   time.Time
 	// RegisteredWorkTreePaths stores absolute paths of registered git worktrees.
 	RegisteredWorkTreePaths []string
+	// ActiveWorkTreePath is the user-selected active worktree path.
+	// When set, it takes precedence over the implicit "last registered" heuristic.
+	ActiveWorkTreePath string
 }
 
 // SessionMetadata is the public-safe subset of Session returned by GET endpoints.
@@ -415,8 +418,23 @@ func (sm *SessionManager) RegisterWorkTreePath(path string) {
 	sm.session.RegisteredWorkTreePaths = append(sm.session.RegisteredWorkTreePaths, path)
 }
 
-// GetActiveWorkTreePath returns the most recently registered worktree path,
-// which is considered the "active" worktree for WORKTREE_FILES injection.
+// SetActiveWorkTreePath sets the explicitly selected active worktree path.
+// Called when the user switches worktrees in the UI.
+func (sm *SessionManager) SetActiveWorkTreePath(path string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.session == nil {
+		return
+	}
+
+	sm.session.ActiveWorkTreePath = path
+}
+
+// GetActiveWorkTreePath returns the active worktree path for WORKTREE_FILES
+// injection and target="worktree" template writes. If the user has explicitly
+// selected a worktree, that path is returned. Otherwise, falls back to the
+// last registered worktree for backward compatibility.
 // Returns an empty string if no worktrees are registered.
 func (sm *SessionManager) GetActiveWorkTreePath() string {
 	sm.mu.RLock()
@@ -426,7 +444,12 @@ func (sm *SessionManager) GetActiveWorkTreePath() string {
 		return ""
 	}
 
-	// The last registered worktree is the active one
+	// Prefer the explicitly selected worktree
+	if sm.session.ActiveWorkTreePath != "" {
+		return sm.session.ActiveWorkTreePath
+	}
+
+	// Fall back to the last registered worktree
 	return sm.session.RegisteredWorkTreePaths[len(sm.session.RegisteredWorkTreePaths)-1]
 }
 

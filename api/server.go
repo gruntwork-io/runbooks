@@ -112,6 +112,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.GET("/workspace/file", HandleWorkspaceFile())
 		protectedAPI.GET("/workspace/changes", HandleWorkspaceChanges())
 		protectedAPI.POST("/workspace/register", HandleWorkspaceRegister(sessionManager))
+		protectedAPI.POST("/workspace/set-active", HandleWorkspaceSetActive(sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)
