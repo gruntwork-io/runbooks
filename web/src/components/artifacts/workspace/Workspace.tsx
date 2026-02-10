@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 import { ContextSwitcher } from './ContextSwitcher'
 import { RepositoryTabs } from './RepositoryTabs'
 import { RepositoryMetadataBar } from './RepositoryMetadataBar'
-import { LocalPathRow } from './rows/LocalPathRow'
+import { GeneratedFilesMetadataBar } from './GeneratedFilesMetadataBar'
 import { RepositoryFileBrowser } from './RepositoryFileBrowser'
 import { ChangedFilesView } from './ChangedFilesView'
 import { CodeFileCollection } from '../code/CodeFileCollection'
@@ -59,7 +59,7 @@ export const Workspace = ({
 
   // Git worktree data
   const { workTrees, activeWorkTree, activeWorkTreeId, setActiveWorkTree } = useGitWorkTree()
-  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, totalFiles, refetch: refetchTree } = useWorkspaceTree()
+  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree } = useWorkspaceTree()
   const { changes, totalChanges, tooManyChanges, isLoading: changesLoading, fetchFileDiff } = useWorkspaceChanges()
 
   // Determine what's available
@@ -227,6 +227,7 @@ export const Workspace = ({
           absolutePath={absoluteOutputPath}
           relativePath={relativeOutputPath}
           fileCount={generatedFileCount}
+          className="px-3"
         />
       )}
 
@@ -248,7 +249,6 @@ export const Workspace = ({
             tree={workspaceTree}
             isLoading={treeLoading}
             error={treeError}
-            totalFiles={totalFiles}
             onRetry={refetchTree}
             className="h-full"
           />
@@ -265,38 +265,6 @@ export const Workspace = ({
           />
         )}
       </div>
-    </div>
-  )
-}
-
-/**
- * Info bar for Generated files tab showing local folder path and file count.
- * Layout mirrors RepositoryMetadataBar for visual consistency.
- */
-function GeneratedFilesMetadataBar({ absolutePath, relativePath, fileCount }: { absolutePath?: string; relativePath?: string; fileCount: number }) {
-  const displayText = relativePath
-    ? `./${relativePath}`
-    : absolutePath
-      ? `./${absolutePath.split('/').pop()}`
-      : null
-
-  return (
-    <div className="px-3 py-2.5 border-b border-gray-300">
-      {/* Row 1: Title */}
-      <div className="flex items-center gap-1.5 text-sm">
-        <span className="text-gray-800 font-medium">
-          {fileCount} {fileCount === 1 ? 'file' : 'files'} generated
-        </span>
-      </div>
-
-      {/* Row 2: Output path (relative display, copies absolute) */}
-      {displayText && (
-        <LocalPathRow
-          displayText={displayText}
-          copyPath={absolutePath}
-          className="mt-1.5"
-        />
-      )}
     </div>
   )
 }

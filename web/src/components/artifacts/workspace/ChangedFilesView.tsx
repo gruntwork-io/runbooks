@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
+import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
 
 type ChangeType = WorkspaceFileChange['changeType']
@@ -214,13 +215,7 @@ export const ChangedFilesView = ({
           />
         </div>
         
-        {/* Resize Handle - 7px hit area with 1px visible line */}
-        <div
-          className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
-          onMouseDown={handleMouseDown}
-        >
-          <div className="w-px bg-gray-300 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
-        </div>
+        <ResizeHandle onMouseDown={handleMouseDown} />
         
         {/* All Files Diff View */}
         <div className="flex-1 overflow-y-auto p-3">

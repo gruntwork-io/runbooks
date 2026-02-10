@@ -5,6 +5,7 @@ import { FileTree, type FileTreeNode } from './FileTree'
 import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
+import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 
@@ -193,13 +194,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
             />
           </div>
 
-          {/* Resize Handle - 7px hit area with 1px visible line */}
-          <div
-            className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
-            onMouseDown={handleMouseDown}
-          >
-            <div className="w-px bg-gray-300 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
-          </div>
+          <ResizeHandle onMouseDown={handleMouseDown} />
 
           {/* All Files View */}
           <div 

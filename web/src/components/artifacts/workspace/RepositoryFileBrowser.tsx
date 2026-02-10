@@ -12,6 +12,7 @@ import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
+import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useFileContent } from '@/hooks/useFileContent'
 import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import { useGitWorkTree } from '@/contexts/GitWorkTreeContext'
@@ -25,8 +26,6 @@ interface RepositoryFileBrowserProps {
   isLoading: boolean;
   /** Error message if tree failed to load */
   error: string | null;
-  /** Total file count */
-  totalFiles: number;
   /** Callback to retry loading */
   onRetry: () => void;
   /** Additional CSS classes */
@@ -37,7 +36,6 @@ export const RepositoryFileBrowser = ({
   tree,
   isLoading,
   error,
-  totalFiles: _totalFiles,
   onRetry,
   className = "",
 }: RepositoryFileBrowserProps) => {
@@ -159,13 +157,7 @@ export const RepositoryFileBrowser = ({
         />
       </div>
       
-      {/* Resize Handle */}
-      <div
-        className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
-        onMouseDown={handleMouseDown}
-      >
-        <div className="w-px bg-gray-300 group-hover:bg-blue-500 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
-      </div>
+      <ResizeHandle onMouseDown={handleMouseDown} />
       
       {/* File Viewer */}
       <div className="flex-1 h-full overflow-y-auto">
