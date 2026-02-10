@@ -27,20 +27,20 @@ import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
-import type { FileChange, FileChangeType } from '@/types/workspace'
 import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
+
+type ChangeType = WorkspaceFileChange['changeType']
 
 /** Maps change types to their icon and color */
 const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
   added:    { icon: FilePlus,  color: 'text-green-600' },
   deleted:  { icon: FileMinus, color: 'text-red-600' },
   modified: { icon: FileDiff,  color: 'text-gray-600' },
-  renamed:  { icon: FileDiff,  color: 'text-gray-600' },
 }
 
 const defaultChangeConfig = { icon: FileDiff, color: 'text-gray-600' }
 
-function getChangeTypeIcon(changeType: FileChangeType): LucideIcon {
+function getChangeTypeIcon(changeType: ChangeType): LucideIcon {
   return (changeTypeConfig[changeType] ?? defaultChangeConfig).icon
 }
 
@@ -80,8 +80,8 @@ function ChangeProportionBar({ additions, deletions }: { additions: number; dele
 }
 
 interface ChangedFilesViewProps {
-  /** List of file changes (from useWorkspaceChanges or legacy FileChange) */
-  changes: (FileChange | WorkspaceFileChange)[];
+  /** List of file changes from useWorkspaceChanges */
+  changes: WorkspaceFileChange[];
   /** Whether there are too many changes to display */
   tooManyChanges?: boolean;
   /** Total number of changes */
@@ -102,67 +102,49 @@ export const ChangedFilesView = ({
   onLoadDiff,
   className = "",
 }: ChangedFilesViewProps) => {
-  const [focusedFileId, setFocusedFileId] = useState<string | null>(null)
+  const [focusedPath, setFocusedPath] = useState<string | null>(null)
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  
-  // Normalize changes to always have an id (WorkspaceFileChange uses path as id)
-  const normalizedChanges: FileChange[] = useMemo(() => 
-    changes.map(c => ({
-      id: 'id' in c ? (c as FileChange).id : c.path,
-      path: c.path,
-      changeType: c.changeType as FileChangeType,
-      additions: c.additions,
-      deletions: c.deletions,
-      originalContent: c.originalContent,
-      newContent: c.newContent,
-      language: c.language,
-      originalPath: 'originalPath' in c ? (c as FileChange).originalPath : undefined,
-      // Carry through extra fields
-      ...('diffTruncated' in c ? { diffTruncated: (c as WorkspaceFileChange).diffTruncated } : {}),
-      ...('isBinary' in c ? { isBinary: (c as WorkspaceFileChange).isBinary } : {}),
-    }))
-  , [changes])
 
   // Build file tree from changes
-  const fileTree = useMemo(() => buildFileTree(normalizedChanges), [normalizedChanges])
+  const fileTree = useMemo(() => buildFileTree(changes), [changes])
   
   // Handle file selection from tree - jump to file
-  const handleFileSelect = (fileId: string) => {
-    setFocusedFileId(fileId)
+  const handleFileSelect = (filePath: string) => {
+    setFocusedPath(filePath)
     // Expand the file if it's collapsed
     setCollapsedFiles(prev => {
       const next = new Set(prev)
-      next.delete(fileId)
+      next.delete(filePath)
       return next
     })
     // Jump to the file
-    const fileEl = fileRefs.current.get(fileId)
+    const fileEl = fileRefs.current.get(filePath)
     if (fileEl) {
       fileEl.scrollIntoView({ behavior: 'auto', block: 'start' })
     }
   }
   
   // Toggle file collapse
-  const toggleFileCollapse = (fileId: string) => {
+  const toggleFileCollapse = (filePath: string) => {
     setCollapsedFiles(prev => {
       const next = new Set(prev)
-      if (next.has(fileId)) {
-        next.delete(fileId)
+      if (next.has(filePath)) {
+        next.delete(filePath)
       } else {
-        next.add(fileId)
+        next.add(filePath)
       }
       return next
     })
   }
   
   // Register file ref
-  const setFileRef = useCallback((fileId: string, el: HTMLDivElement | null) => {
+  const setFileRef = useCallback((filePath: string, el: HTMLDivElement | null) => {
     if (el) {
-      fileRefs.current.set(fileId, el)
+      fileRefs.current.set(filePath, el)
     } else {
-      fileRefs.current.delete(fileId)
+      fileRefs.current.delete(filePath)
     }
   }, [])
   
@@ -227,8 +209,7 @@ export const ChangedFilesView = ({
         >
           <ChangedFileTree
             tree={fileTree}
-            changes={normalizedChanges}
-            focusedFileId={focusedFileId}
+            focusedPath={focusedPath}
             onFileSelect={handleFileSelect}
           />
         </div>
@@ -244,15 +225,15 @@ export const ChangedFilesView = ({
         {/* All Files Diff View */}
         <div className="flex-1 overflow-y-auto p-3">
           <div className="flex flex-col gap-3">
-            {normalizedChanges.map(change => (
+            {changes.map(change => (
               <CollapsibleFileDiff
-                key={change.id}
+                key={change.path}
                 change={change}
-                isCollapsed={collapsedFiles.has(change.id)}
-                isFocused={focusedFileId === change.id}
-                onToggleCollapse={() => toggleFileCollapse(change.id)}
+                isCollapsed={collapsedFiles.has(change.path)}
+                isFocused={focusedPath === change.path}
+                onToggleCollapse={() => toggleFileCollapse(change.path)}
                 onLoadDiff={onLoadDiff}
-                ref={(el) => setFileRef(change.id, el)}
+                ref={(el) => setFileRef(change.path, el)}
               />
             ))}
           </div>
@@ -271,14 +252,17 @@ interface TreeNode {
   path: string;
   type: 'file' | 'folder';
   children?: TreeNode[];
-  change?: FileChange;
+  change?: WorkspaceFileChange;
 }
 
-function buildFileTree(changes: FileChange[]): TreeNode[] {
+function buildFileTree(changes: WorkspaceFileChange[]): TreeNode[] {
   const root: TreeNode[] = []
   
   for (const change of changes) {
-    const parts = change.path.split('/')
+    // Strip trailing slashes (git may report directories as "docs/")
+    const cleanPath = change.path.replace(/\/+$/, '')
+    if (!cleanPath) continue // Skip empty paths
+    const parts = cleanPath.split('/')
     let current = root
     let currentPath = ''
     
@@ -324,15 +308,13 @@ function buildFileTree(changes: FileChange[]): TreeNode[] {
 
 interface ChangedFileTreeProps {
   tree: TreeNode[];
-  changes: FileChange[];
-  focusedFileId: string | null;
-  onFileSelect: (fileId: string) => void;
+  focusedPath: string | null;
+  onFileSelect: (filePath: string) => void;
 }
 
 const ChangedFileTree = ({
   tree,
-  changes: _changes,
-  focusedFileId,
+  focusedPath,
   onFileSelect,
 }: ChangedFileTreeProps) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
@@ -356,7 +338,7 @@ const ChangedFileTree = ({
   
   const renderNode = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path)
-    const isSelected = node.change?.id === focusedFileId
+    const isSelected = node.change?.path === focusedPath
     
     if (node.type === 'folder') {
       return (
@@ -402,7 +384,7 @@ const ChangedFileTree = ({
       <button
         key={node.path}
         role="treeitem"
-        onClick={() => onFileSelect(change.id)}
+        onClick={() => onFileSelect(change.path)}
         className={cn(
           "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
           isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-gray-100 text-gray-700"
@@ -443,7 +425,7 @@ function getAllFolderPaths(nodes: TreeNode[]): string[] {
 // ============================================================================
 
 interface CollapsibleFileDiffProps {
-  change: FileChange & { diffTruncated?: boolean; isBinary?: boolean };
+  change: WorkspaceFileChange;
   isCollapsed: boolean;
   isFocused: boolean;
   onToggleCollapse: () => void;
@@ -550,7 +532,7 @@ CollapsibleFileDiff.displayName = 'CollapsibleFileDiff'
 // ============================================================================
 
 interface DiffContentProps {
-  change: FileChange;
+  change: WorkspaceFileChange;
 }
 
 interface DiffLine {
@@ -790,7 +772,7 @@ const DiffLineRow = ({ line }: DiffLineRowProps) => {
 // Diff Generation
 // ============================================================================
 
-function generateUnifiedDiff(change: FileChange): DiffLine[] {
+function generateUnifiedDiff(change: WorkspaceFileChange): DiffLine[] {
   const lines: DiffLine[] = []
   
   if (change.changeType === 'added' && change.newContent) {
@@ -813,8 +795,7 @@ function generateUnifiedDiff(change: FileChange): DiffLine[] {
         oldLineNum: i + 1,
       })
     })
-  } else if ((change.changeType === 'modified' || change.changeType === 'renamed') && 
-             change.originalContent && change.newContent) {
+  } else if (change.changeType === 'modified' && change.originalContent && change.newContent) {
     // Generate a simple unified diff
     const oldLines = change.originalContent.split('\n')
     const newLines = change.newContent.split('\n')
@@ -906,7 +887,7 @@ function computeSimpleDiff(oldLines: string[], newLines: string[]): DiffItem[] {
 // Helper Functions
 // ============================================================================
 
-function getIconColor(type: FileChangeType): string {
+function getIconColor(type: ChangeType): string {
   return (changeTypeConfig[type] ?? defaultChangeConfig).color
 }
 

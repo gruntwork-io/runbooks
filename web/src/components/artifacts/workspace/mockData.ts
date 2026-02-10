@@ -5,7 +5,8 @@
  * This will be replaced with actual API data in the future.
  */
 
-import type { WorkspaceState, WorkspaceTreeNode, FileChange } from '@/types/workspace'
+import type { WorkspaceState, WorkspaceTreeNode } from '@/types/workspace'
+import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
 
 /**
  * Generate mock workspace data
@@ -423,10 +424,9 @@ func main() {
 /**
  * Generate mock file changes - uses paths that exist in the file tree
  */
-function getMockChanges(): FileChange[] {
+function getMockChanges(): WorkspaceFileChange[] {
   return [
     {
-      id: 'change-1',
       path: 'src/api/main.go',
       changeType: 'modified',
       additions: 2,
@@ -635,7 +635,6 @@ func main() {
 }`,
     },
     {
-      id: 'change-2',
       path: 'src/web/App.tsx',
       changeType: 'modified',
       additions: 4,
@@ -790,7 +789,6 @@ export function App({ theme = DEFAULT_THEME }: AppProps) {
 }`,
     },
     {
-      id: 'change-3',
       path: 'infra/modules/lambda/outputs.tf',
       changeType: 'deleted',
       additions: 0,
@@ -809,7 +807,6 @@ output "function_name" {
 }`,
     },
     {
-      id: 'change-4',
       path: 'src/api/middleware.go',
       changeType: 'added',
       additions: 28,

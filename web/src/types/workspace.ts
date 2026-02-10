@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod'
+import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
 
 /**
  * Git repository information
@@ -63,35 +64,6 @@ export interface WorkspaceTreeNode {
 }
 
 /**
- * Change type for a file in the changeset
- */
-export type FileChangeType = 'added' | 'modified' | 'deleted' | 'renamed';
-
-/**
- * A single file change in the changeset
- */
-export interface FileChange {
-  /** Unique identifier */
-  id: string;
-  /** File path */
-  path: string;
-  /** Type of change */
-  changeType: FileChangeType;
-  /** Number of lines added */
-  additions: number;
-  /** Number of lines removed */
-  deletions: number;
-  /** Original content (for modified/deleted files) */
-  originalContent?: string;
-  /** New content (for added/modified files) */
-  newContent?: string;
-  /** Original path (for renamed files) */
-  originalPath?: string;
-  /** Programming language */
-  language: string;
-}
-
-/**
  * Workspace statistics
  */
 export interface WorkspaceStats {
@@ -118,7 +90,7 @@ export interface WorkspaceState {
   /** All files in the workspace */
   files: WorkspaceTreeNode[];
   /** File changes (for Changed tab) */
-  changes: FileChange[];
+  changes: WorkspaceFileChange[];
   /** Workspace statistics */
   stats: WorkspaceStats;
   /** Whether workspace is loading */
