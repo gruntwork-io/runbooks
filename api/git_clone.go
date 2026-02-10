@@ -63,37 +63,61 @@ type GitCloneResultEvent struct {
 // GitHub API Handlers
 // =============================================================================
 
+// gitHubAPISetup holds the common validated context for GitHub API handler calls.
+type gitHubAPISetup struct {
+	token  string
+	user   *GitHubUserInfo
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+// prepareGitHubAPICall validates the session token and returns a ready-to-use
+// context, token, and validated user info. Returns a non-empty error message
+// if setup fails; the caller is responsible for formatting the JSON response.
+func prepareGitHubAPICall(c *gin.Context, sm *SessionManager) (*gitHubAPISetup, string) {
+	token := getGitHubTokenFromSession(sm)
+	if token == "" {
+		return nil, "No GitHub token found in session"
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+
+	user, _, err := validateGitHubToken(ctx, token)
+	if err != nil {
+		cancel()
+		return nil, fmt.Sprintf("Failed to validate token: %v", err)
+	}
+
+	return &gitHubAPISetup{
+		token:  token,
+		user:   user,
+		ctx:    ctx,
+		cancel: cancel,
+	}, ""
+}
+
 // HandleGitHubListOrgs returns the authenticated user's organizations plus their personal account.
 // GET /api/github/orgs
 // Requires SessionAuthMiddleware.
 func HandleGitHubListOrgs(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := getGitHubTokenFromSession(sm)
-		if token == "" {
-			c.JSON(http.StatusOK, gin.H{"orgs": []GitHubOrg{}, "error": "No GitHub token found in session"})
+		setup, errMsg := prepareGitHubAPICall(c, sm)
+		if errMsg != "" {
+			c.JSON(http.StatusOK, gin.H{"orgs": []GitHubOrg{}, "error": errMsg})
 			return
 		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-		defer cancel()
-
-		// Get the authenticated user first (for their personal account)
-		user, _, err := validateGitHubToken(ctx, token)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"orgs": []GitHubOrg{}, "error": fmt.Sprintf("Failed to validate token: %v", err)})
-			return
-		}
+		defer setup.cancel()
 
 		orgs := []GitHubOrg{
 			{
-				Login:     user.Login,
-				AvatarURL: user.AvatarURL,
+				Login:     setup.user.Login,
+				AvatarURL: setup.user.AvatarURL,
 				Type:      "User",
 			},
 		}
 
 		// Fetch organizations
-		ghOrgs, err := fetchGitHubOrgs(ctx, token)
+		ghOrgs, err := fetchGitHubOrgs(setup.ctx, setup.token)
 		if err != nil {
 			// Return the user account even if org fetch fails
 			c.JSON(http.StatusOK, gin.H{"orgs": orgs, "warning": fmt.Sprintf("Failed to list organizations: %v", err)})
@@ -116,23 +140,20 @@ func HandleGitHubListRepos(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		// Validate owner is safe (alphanumeric, hyphens, underscores)
 		if !isValidGitHubOwner(owner) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid owner name"})
 			return
 		}
 
-		token := getGitHubTokenFromSession(sm)
-		if token == "" {
-			c.JSON(http.StatusOK, gin.H{"repos": []GitHubRepo{}, "error": "No GitHub token found in session"})
+		setup, errMsg := prepareGitHubAPICall(c, sm)
+		if errMsg != "" {
+			c.JSON(http.StatusOK, gin.H{"repos": []GitHubRepo{}, "error": errMsg})
 			return
 		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-		defer cancel()
+		defer setup.cancel()
 
 		query := c.Query("query")
-		repos, err := fetchGitHubRepos(ctx, token, owner, query)
+		repos, err := fetchGitHubRepos(setup.ctx, setup.token, owner, query)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"repos": []GitHubRepo{}, "error": fmt.Sprintf("Failed to list repositories: %v", err)})
 			return
