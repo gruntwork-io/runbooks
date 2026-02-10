@@ -56,6 +56,16 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     setTreeVersion(v => v + 1)
   }, [])
 
+  // Sync the active worktree path to the backend so that target="worktree"
+  // templates and WORKTREE_FILES point to the correct repo.
+  const syncActiveToBackend = useCallback((path: string) => {
+    fetch('/api/workspace/set-active', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ path }),
+    }).catch(() => {})
+  }, [getAuthHeader])
+
   const registerWorkTree = useCallback((workTree: GitWorkTree) => {
     setWorkTrees(prev => {
       const existing = prev.findIndex(wt => wt.id === workTree.id)
@@ -68,7 +78,14 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     })
 
     // Auto-activate the first registered worktree
-    setActiveWorkTreeId(prev => prev ?? workTree.id)
+    setActiveWorkTreeId(prev => {
+      if (prev === null) {
+        // First worktree: set it as active on the backend too
+        syncActiveToBackend(workTree.localPath)
+        return workTree.id
+      }
+      return prev
+    })
 
     // Register the worktree path with the backend
     fetch('/api/workspace/register', {
@@ -76,11 +93,18 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ path: workTree.localPath }),
     }).catch(() => {})
-  }, [getAuthHeader])
+  }, [getAuthHeader, syncActiveToBackend])
 
   const setActiveWorkTree = useCallback((id: string) => {
     setActiveWorkTreeId(id)
-  }, [])
+
+    // Find the worktree's local path and sync to the backend
+    setWorkTrees(prev => {
+      const wt = prev.find(w => w.id === id)
+      if (wt) syncActiveToBackend(wt.localPath)
+      return prev // no mutation, just reading
+    })
+  }, [syncActiveToBackend])
 
   const activeWorkTree = useMemo(() => {
     if (!activeWorkTreeId) return null
