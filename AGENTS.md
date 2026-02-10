@@ -127,9 +127,78 @@ Runtime errors should be displayed inline within the component (e.g., with an al
 
 ### Philosophy
 
-- Use the **source of truth** to recreate program behavior. Do not re-implement logic in the testing framework that already exists in the codebase. Reference the actual code; refactor into public functions if needed.
-- When a test fails, assume the problem is with the **runbook configuration** first. Then check the **runbooks codebase**. Only update the test framework if it does not faithfully reproduce how the real codebase behaves.
-- **Never "make the tests pass" by weakening the test code.** The goal is to catch both runbook misconfigurations and codebase regressions.
+### Guiding Philosophy: Smart Coverage Over Complete Coverage
+
+**Do not pursue 100% coverage for its own sake.** Testing is a trade-off, and every test should justify its existence against three factors:
+
+1. **Likelihood of bugs** — Complex logic, intricate state management, code touched by many contributors, and areas with high churn are where bugs concentrate. Focus testing energy here.
+2. **Cost of bugs** — A bug in a payment flow, authentication layer, or data pipeline is catastrophically more expensive than a bug in a tooltip. Weight your coverage toward high-consequence code paths.
+3. **Cost of testing** — Integration and UI tests are expensive to write, slow to run, and brittle to maintain. A test that costs more to maintain than the bugs it catches is a net negative.
+
+This means:
+
+- **Not all code deserves the same test investment.** Simple pass-through functions, trivial getters/setters, and thin wrappers around well-tested libraries often don't need dedicated tests.
+- **Prefer fewer, high-signal tests over many shallow ones.** One well-designed test that exercises a real workflow through multiple layers catches more bugs than ten isolated unit tests with mocked-out dependencies.
+- **Dead tests are worse than no tests.** Tests that always pass regardless of code changes provide false confidence. Tests that are skipped, ignored, or flaky erode trust in the entire suite.
+
+### Best practices
+
+### 1. Maximize Use of Real Code Paths
+
+- Tests should call the actual production code — real functions, real classes, real methods — not reimplementations or simplified stand-ins.
+- When a test duplicates production logic (e.g., re-computing an expected value using the same algorithm it's testing), flag it. Tests should verify behavior against **independently known correct outcomes**, not mirror the implementation.
+- Prefer integration-style tests that wire together real components over unit tests that mock every dependency, unless isolation is genuinely necessary.
+
+### 2. Mock Only at True Boundaries
+
+- Mocks, stubs, and fakes are justified **only** at external boundaries: network calls, databases, file systems, third-party APIs, time/randomness, and other non-deterministic or side-effectful dependencies.
+- Flag any mock of an internal module, utility function, or sibling class that could be used directly. Mocking internals couples tests to implementation details and lets interface mismatches go undetected.
+- When mocks are necessary, verify they **faithfully represent** the real interface: correct method signatures, realistic return shapes/types, accurate error behavior. Stale or oversimplified mocks are a common source of false-passing tests.
+- Watch for "mock trains" — deep chains of mocked objects returning mocked objects — which almost always indicate the test is too far from reality.
+- Where possible, recommend real in-memory alternatives (e.g., SQLite for a database layer, in-memory event buses for message queues) over mocks.
+
+### 3. Verify Test Fidelity to Real Behavior
+
+- Check that test setup (fixtures, factories, seed data) reflects realistic production state, not contrived minimal cases that skip important code paths.
+- Ensure error/edge-case tests trigger errors the **same way** production would encounter them, not by artificially injecting impossible states.
+- Confirm that test assertions check **meaningful outcomes** (return values, state changes, observable side effects) rather than implementation details (which private method was called, in what order).
+- Flag tests that only assert "no error was thrown" without verifying the actual result.
+
+### 4. Detect Drift Between Tests and Production Code
+
+- Identify tests that reference outdated interfaces, deprecated methods, removed parameters, or renamed fields — signs the tests haven't kept pace with the real code.
+- Look for test helpers or shared fixtures that silently diverge from how production code constructs or initializes objects.
+- Flag hardcoded expected values that may have been correct once but no longer match current behavior.
+
+### 5. Prioritize Coverage by Risk, Not by Line Count
+
+Rather than checking whether every line is covered, evaluate whether the **right things** are covered:
+
+- **High risk, must cover:** Complex business logic, financial/payment flows, authentication and authorization, data validation and transformation, error handling for known failure modes, security-sensitive operations.
+- **Medium risk, should cover:** Core CRUD operations, state transitions, API contracts (request/response shapes), integrations between internal modules.
+- **Low risk, cover if cheap:** Simple delegation/pass-through, configuration wiring, UI cosmetic rendering, trivial getters/setters.
+- **Skip unless there's a specific reason:** Auto-generated code, third-party library internals, one-line wrappers with no logic.
+
+Flag cases where coverage effort is **inverted** — heavy testing on low-risk trivia while high-risk business logic has gaps.
+
+### 6. Tests as Safety Brakes, Not Bureaucracy
+
+Automated tests serve as continuous integration's safety mechanism — they are the brakes that let a team move fast by catching regressions on every commit. To serve this role effectively:
+
+- **Tests must be fast enough to run on every commit.** If the suite takes too long, developers skip it or batch commits, undermining the safety net. Flag tests that are unnecessarily slow due to heavy setup, redundant teardown, or over-broad integration scope.
+- **Tests must be deterministic.** Flaky tests that pass or fail randomly destroy trust. Flag tests with race conditions, time-dependent logic, or reliance on external state that isn't controlled.
+- **Tests should support small, frequent commits.** The test suite should encourage developers to commit early and often by making it painless to verify changes. A suite that takes 30 minutes to run discourages the small-commit workflow that keeps integration conflicts rare and bugs easy to trace.
+- **A failing test must be actionable.** When a test fails, a developer should be able to quickly identify what broke and why. Flag tests with vague assertions, missing context in failure messages, or overly broad scope that could fail for many unrelated reasons.
+
+### 7. Assess the Test Portfolio Balance
+
+A healthy test suite is a portfolio, not a monoculture. Evaluate the overall shape:
+
+- **Too many mocked unit tests, too few integration tests:** High line coverage, low confidence. Bugs hide in the seams between components.
+- **Too many end-to-end tests, too few focused tests:** Slow suite, flaky results, hard-to-diagnose failures. Developers stop trusting or running them.
+- **Right balance:** A base of focused unit tests for complex pure logic, a middle layer of integration tests using real components wired together, and a thin layer of end-to-end tests for critical user journeys.
+
+As codebase size grows, bug density grows disproportionately. The test portfolio should account for this — larger, more complex modules need proportionally more testing investment, not a uniform distribution.
 
 ### Writing Tests for Runbooks
 
@@ -146,7 +215,7 @@ Look at `testdata/sample-runbooks/my-first-runbook/runbook_test.yml` for a well-
 
 - If the runbook has **locally run scripts**, test them
 - If the runbook has **integration tests** (third-party dependencies like AWS), **skip those** in automated tests
-- If a test fails, fix the issue and re-run until it passes
+- If a test fails, first see if the problem is with the runbook configuration. If not, then check the runbooks code. Only update the test framework itself if it does not faithfully reproduce how the real codebase behaves. Never "make the tests pass" by weakening the test code. The goal is to catch both runbook misconfigurations and codebase regressions.
 
 ## Blocks
 
@@ -193,6 +262,14 @@ Auth blocks (`AwsAuth`, `GitHubAuth`) should maintain **consistency** across:
 - Component interfaces
 
 When making changes to one auth block, evaluate whether the same change should be applied to the others.
+
+## Backward compatibility
+
+Runbooks is currently in beta and it is acceptable to make sweeping breaking changes if necessary. Later, when we approach 1.0, we will stabilize the interface. Therefore, prefere more elegant mental models and data structures, even if it means we lose backwards compatibility.
+
+### On feature branches
+
+If code or a feature was created on a feature branch, do not prioritize backwards-compatibility at all. Instead, remove the legacy code entirely. This way, the feature branch shows our best thinking versus preserving backward compatibility merely for an earlier version of the feature branch.
 
 ## Don't Do This
 

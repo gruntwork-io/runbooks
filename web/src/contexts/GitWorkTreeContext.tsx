@@ -15,7 +15,7 @@ export interface GitWorkTree {
   repoPath?: string
   /** Absolute local path where the repo was cloned */
   localPath: string
-  /** Git metadata: branch, commit, owner, repoName */
+  /** Git metadata: ref, refType, commit, owner, repoName */
   gitInfo: GitRepoInfo
 }
 

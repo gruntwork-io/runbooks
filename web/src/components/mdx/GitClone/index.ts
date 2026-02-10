@@ -9,5 +9,5 @@ export type {
   CloneResult,
   GitHubOrg,
   GitHubRepo,
-  GitHubBranch,
+  GitHubRef,
 } from './types'

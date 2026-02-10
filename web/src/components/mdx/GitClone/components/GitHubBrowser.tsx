@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react"
-import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock, GitBranch } from "lucide-react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock, GitBranch, Tag } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -16,7 +16,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { GitHubIcon } from "@/components/icons/GitHubIcon"
-import type { GitHubOrg, GitHubRepo, GitHubBranch } from "../types"
+import type { GitHubOrg, GitHubRepo, GitHubRef } from "../types"
 
 interface GitHubBrowserProps {
   /** Callback when a repo is selected (sets the URL field) */
@@ -27,8 +27,8 @@ interface GitHubBrowserProps {
   fetchOrgs: () => Promise<GitHubOrg[]>
   /** Function to fetch repos for an owner */
   fetchRepos: (owner: string, query?: string) => Promise<GitHubRepo[]>
-  /** Function to fetch branches for a repo */
-  fetchBranches: (owner: string, repo: string, query?: string) => Promise<{ branches: GitHubBranch[]; totalCount: number; hasMore: boolean }>
+  /** Function to fetch refs (branches + tags) for a repo */
+  fetchRefs: (owner: string, repo: string, query?: string) => Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }>
   /** Whether the browser is disabled */
   disabled?: boolean
   /** Initial org to pre-select (parsed from URL) */
@@ -44,7 +44,7 @@ export function GitHubBrowser({
   onRefSelected,
   fetchOrgs,
   fetchRepos,
-  fetchBranches,
+  fetchRefs,
   disabled = false,
   initialOrg,
   initialRepo,
@@ -53,9 +53,9 @@ export function GitHubBrowser({
   const [isOpen, setIsOpen] = useState(defaultOpen)
   const [orgs, setOrgs] = useState<GitHubOrg[]>([])
   const [repos, setRepos] = useState<GitHubRepo[]>([])
-  const [branches, setBranches] = useState<GitHubBranch[]>([])
-  const [branchTotalCount, setBranchTotalCount] = useState(0)
-  const [branchHasMore, setBranchHasMore] = useState(false)
+  const [refs, setRefs] = useState<GitHubRef[]>([])
+  const [refTotalCount, setRefTotalCount] = useState(0)
+  const [refHasMore, setRefHasMore] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(initialOrg || "")
   const [selectedRepo, setSelectedRepo] = useState(initialRepo || "")
   const [selectedRef, setSelectedRef] = useState("")
@@ -64,7 +64,7 @@ export function GitHubBrowser({
   const [refOpen, setRefOpen] = useState(false)
   const [loadingOrgs, setLoadingOrgs] = useState(false)
   const [loadingRepos, setLoadingRepos] = useState(false)
-  const [loadingBranches, setLoadingBranches] = useState(false)
+  const [loadingRefs, setLoadingRefs] = useState(false)
   const [orgSearch, setOrgSearch] = useState("")
   const [repoSearch, setRepoSearch] = useState("")
   const [refSearch, setRefSearch] = useState("")
@@ -72,6 +72,10 @@ export function GitHubBrowser({
   const repoListRef = useRef<HTMLDivElement>(null)
   const refListRef = useRef<HTMLDivElement>(null)
   const hasLoadedOrgs = useRef(false)
+
+  // Split refs into branches and tags for grouped display
+  const branchRefs = useMemo(() => refs.filter(r => r.type === 'branch'), [refs])
+  const tagRefs = useMemo(() => refs.filter(r => r.type === 'tag'), [refs])
 
   // Load orgs when browser opens
   useEffect(() => {
@@ -101,32 +105,32 @@ export function GitHubBrowser({
     }
   }, [selectedOrg, loadRepos])
 
-  // Load branches when repo changes
-  const loadBranches = useCallback(async (org: string, repo: string) => {
+  // Load refs when repo changes
+  const loadRefs = useCallback(async (org: string, repo: string) => {
     if (!org || !repo) return
-    setLoadingBranches(true)
-    setBranches([])
-    setBranchTotalCount(0)
-    setBranchHasMore(false)
-    const result = await fetchBranches(org, repo)
-    setBranches(result.branches)
-    setBranchTotalCount(result.totalCount)
-    setBranchHasMore(result.hasMore)
-    setLoadingBranches(false)
+    setLoadingRefs(true)
+    setRefs([])
+    setRefTotalCount(0)
+    setRefHasMore(false)
+    const result = await fetchRefs(org, repo)
+    setRefs(result.refs)
+    setRefTotalCount(result.totalCount)
+    setRefHasMore(result.hasMore)
+    setLoadingRefs(false)
 
     // Auto-select the default branch
-    const defaultBranch = result.branches.find(b => b.isDefault)
+    const defaultBranch = result.refs.find(r => r.isDefault)
     if (defaultBranch) {
       setSelectedRef(defaultBranch.name)
       onRefSelected(defaultBranch.name)
     }
-  }, [fetchBranches, onRefSelected])
+  }, [fetchRefs, onRefSelected])
 
   useEffect(() => {
     if (selectedOrg && selectedRepo) {
-      loadBranches(selectedOrg, selectedRepo)
+      loadRefs(selectedOrg, selectedRepo)
     }
-  }, [selectedOrg, selectedRepo, loadBranches])
+  }, [selectedOrg, selectedRepo, loadRefs])
 
   // Scroll to top on search change
   useEffect(() => {
@@ -151,7 +155,7 @@ export function GitHubBrowser({
     setSelectedOrg(org)
     setSelectedRepo("")
     setSelectedRef("")
-    setBranches([])
+    setRefs([])
     setOrgOpen(false)
     setOrgSearch("")
   }
@@ -171,6 +175,9 @@ export function GitHubBrowser({
     setRefSearch("")
     onRefSelected(ref)
   }
+
+  // Determine the icon for the currently selected ref
+  const selectedRefObj = useMemo(() => refs.find(r => r.name === selectedRef), [refs, selectedRef])
 
   return (
     <div className="mt-1.5">
@@ -357,15 +364,19 @@ export function GitHubBrowser({
                     role="combobox"
                     aria-expanded={refOpen}
                     className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
-                    disabled={disabled || loadingBranches}
+                    disabled={disabled || loadingRefs}
                   >
-                    {loadingBranches ? (
+                    {loadingRefs ? (
                       <span className="text-gray-400">Loading refs...</span>
                     ) : selectedRef ? (
                       <span className="flex items-center gap-2 truncate">
-                        <GitBranch className="size-3 text-gray-400" />
+                        {selectedRefObj?.type === 'tag' ? (
+                          <Tag className="size-3 text-gray-400" />
+                        ) : (
+                          <GitBranch className="size-3 text-gray-400" />
+                        )}
                         <span className="text-gray-700">{selectedRef}</span>
-                        {branches.find(b => b.name === selectedRef)?.isDefault && (
+                        {selectedRefObj?.isDefault && (
                           <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none">default</span>
                         )}
                       </span>
@@ -378,37 +389,65 @@ export function GitHubBrowser({
                 <PopoverContent className="w-[350px] p-0" align="start" side="bottom" avoidCollisions={false}>
                   <Command>
                     <CommandInput
-                      placeholder="Search branches..."
+                      placeholder="Search branches and tags..."
                       value={refSearch}
                       onValueChange={setRefSearch}
                     />
                     <CommandList ref={refListRef} className="max-h-[300px]">
-                      <CommandEmpty>No branches found.</CommandEmpty>
-                      <CommandGroup>
-                        {branches.map((branch) => (
-                          <CommandItem
-                            key={branch.name}
-                            value={branch.name}
-                            onSelect={() => handleRefSelect(branch.name)}
-                            className="flex items-center gap-2"
-                          >
-                            <Check
-                              className={cn(
-                                "h-4 w-4 shrink-0",
-                                selectedRef === branch.name ? "opacity-100" : "opacity-0"
+                      <CommandEmpty>No branches or tags found.</CommandEmpty>
+
+                      {/* Branches group */}
+                      {branchRefs.length > 0 && (
+                        <CommandGroup heading="Branches">
+                          {branchRefs.map((ref) => (
+                            <CommandItem
+                              key={`branch-${ref.name}`}
+                              value={ref.name}
+                              onSelect={() => handleRefSelect(ref.name)}
+                              className="flex items-center gap-2"
+                            >
+                              <Check
+                                className={cn(
+                                  "h-4 w-4 shrink-0",
+                                  selectedRef === ref.name ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <GitBranch className="size-3 text-gray-400 shrink-0" />
+                              <span className="text-gray-700 truncate">{ref.name}</span>
+                              {ref.isDefault && (
+                                <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
                               )}
-                            />
-                            <GitBranch className="size-3 text-gray-400 shrink-0" />
-                            <span className="text-gray-700 truncate">{branch.name}</span>
-                            {branch.isDefault && (
-                              <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
-                            )}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                      {branchHasMore && (
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+
+                      {/* Tags group */}
+                      {tagRefs.length > 0 && (
+                        <CommandGroup heading="Tags">
+                          {tagRefs.map((ref) => (
+                            <CommandItem
+                              key={`tag-${ref.name}`}
+                              value={ref.name}
+                              onSelect={() => handleRefSelect(ref.name)}
+                              className="flex items-center gap-2"
+                            >
+                              <Check
+                                className={cn(
+                                  "h-4 w-4 shrink-0",
+                                  selectedRef === ref.name ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <Tag className="size-3 text-gray-400 shrink-0" />
+                              <span className="text-gray-700 truncate">{ref.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+
+                      {refHasMore && (
                         <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
-                          Showing {branches.length} of {branchTotalCount} branches — type to filter
+                          Showing {refs.length} of {refTotalCount} refs — type to filter
                         </div>
                       )}
                     </CommandList>

@@ -2,18 +2,33 @@
  * @fileoverview WorktreeSwitcherRow Component
  *
  * A Popover-based dropdown for switching between multiple git worktrees.
- * Each option shows the GitHub icon, owner/repo, and branch name so users
- * can distinguish clones of the same repo on different branches.
+ * Each option shows the GitHub icon, owner/repo, and ref name so users
+ * can distinguish clones of the same repo on different refs.
  *
  * Only renders when there are 2+ worktrees.
  */
 
 import { useState } from 'react'
-import { GitBranch, ChevronDown, CircleDot } from 'lucide-react'
+import { GitBranch, Tag, GitCommit, ChevronDown, CircleDot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { GitHubIcon } from '@/components/icons/GitHubIcon'
 import type { GitWorkTree } from '@/contexts/GitWorkTreeContext'
+
+/** Renders the appropriate icon for a git ref type. */
+function RefIcon({ refType, className }: { refType?: string; className?: string }) {
+  switch (refType) {
+    case 'tag': return <Tag className={className} />
+    case 'commit': return <GitCommit className={className} />
+    default: return <GitBranch className={className} />
+  }
+}
+
+/** Formats a ref for display — truncates commit SHAs. */
+function formatRef(ref: string, refType?: string): string {
+  if (refType === 'commit') return ref.slice(0, 7)
+  return ref
+}
 
 interface WorktreeSwitcherRowProps {
   /** All registered worktrees */
@@ -64,9 +79,9 @@ export const WorktreeSwitcherRow = ({
             </span>
             <span className="text-gray-300 text-xs flex-shrink-0">|</span>
             <div className="flex items-center gap-1 flex-shrink-0">
-              <GitBranch className="w-3 h-3 text-gray-500" />
+              <RefIcon refType={activeWorkTree.gitInfo.refType} className="w-3 h-3 text-gray-500" />
               <span className="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded text-gray-600">
-                {activeWorkTree.gitInfo.branch}
+                {formatRef(activeWorkTree.gitInfo.ref, activeWorkTree.gitInfo.refType)}
               </span>
             </div>
             <ChevronDown className={cn(
@@ -117,7 +132,7 @@ export const WorktreeSwitcherRow = ({
                       {wt.gitInfo.repoOwner}/{wt.gitInfo.repoName}
                     </span>
                     <div className="flex items-center gap-1">
-                      <GitBranch className={cn(
+                      <RefIcon refType={wt.gitInfo.refType} className={cn(
                         "w-3 h-3 flex-shrink-0",
                         isActive ? "text-blue-400" : "text-gray-400",
                       )} />
@@ -125,7 +140,7 @@ export const WorktreeSwitcherRow = ({
                         "font-mono text-xs truncate",
                         isActive ? "text-blue-600" : "text-gray-500",
                       )}>
-                        {wt.gitInfo.branch}
+                        {formatRef(wt.gitInfo.ref, wt.gitInfo.refType)}
                       </span>
                     </div>
                   </div>
