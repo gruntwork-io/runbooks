@@ -20,7 +20,7 @@ The files workspace can show two different types of files. Let's learn about the
 You want the runbook to generate new files and expect the user will then perform some _out-of-band action_ with the files, such as manually integrating them into a separate project.
 
 ##### Where they come from
-A [\<Template\>](/authoring/blocks/template/) block that sets `target="generated"` generates files when the user clicks "Generate". [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) blocks generate files when they run scripts that write to the `$GENERATED_FILES` environment variable.
+A [\<Template\>](/authoring/blocks/template/) block generates files when the user clicks "Generate" (the default `target` is `"generated"`). [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) blocks generate files when they run scripts that write to the `$GENERATED_FILES` environment variable.
 
 ##### Where they're stored
 The files are stored in a `generated/` folder on the user's local machine, relative to the [working directory](/commands/open#flags), or whatever folder the user specifies with the [output-path](/commands/open#flags) flag.

@@ -47,7 +47,7 @@ Think of runbooks as Jupyter Notebooks for DevOps and Infrastructure tasks.
 
 ## Configuration
 
-<BoilerplateInputs id="service-config">
+<Inputs id="service-config">
 ```yaml
 variables:
   - name: ServiceName
@@ -57,14 +57,14 @@ variables:
     type: enum
     options: [dev, staging, production]
 \```
-</BoilerplateInputs>
+</Inputs>
 
 ## Deploy
 
 <Command 
     id="deploy" 
     command="kubectl apply -f {{ .ServiceName }}-{{ .Environment }}.yaml"
-    boilerplateInputsId="service-config"
+    inputsId="service-config"
     title="Deploy Service"
     successMessage="Service deployed successfully!"
 />
@@ -103,12 +103,12 @@ Runbooks ensure your documentation always works because it actually executes. Ex
   <Card title="Install Runbooks" icon="setting">
     Get up and running in minutes. Build from source or use a pre-built binary.
     
-    [Installation Guide →](/setup/installation/)
+    [Installation Guide →](/intro/installation/)
   </Card>
   <Card title="Write Your First Runbook" icon="document">
     Learn the basics by creating a simple runbook from scratch.
     
-    [Tutorial →](/setup/write_your_first_runbook/)
+    [Tutorial →](/intro/write_your_first_runbook/)
   </Card>
   <Card title="Explore Examples" icon="open-book">
     See real-world examples in the testdata directory, including AWS multi-account setups and ECS deployments.
@@ -131,7 +131,7 @@ Runbooks ensure your documentation always works because it actually executes. Ex
     [Authoring →](/authoring/overview/)
   </Card>
   <Card title="Block Reference" icon="puzzle">
-    Detailed documentation for Check, Command, BoilerplateInputs, and more.
+    Detailed documentation for Check, Command, Inputs, and more.
     
     [Blocks →](/authoring/blocks/)
   </Card>
