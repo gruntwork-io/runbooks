@@ -84,7 +84,7 @@ function getFileIcon(filename: string): IconComponent {
   const name = filename.toLowerCase()
   
   // Special filenames
-  if (name === 'terragrunt.hcl') return TerragruntIcon
+  if (name === 'terragrunt.hcl' || name === 'terragrunt.stack.hcl') return TerragruntIcon
   if (name === 'dockerfile' || name === 'makefile' || name === 'taskfile.yml') return Settings
   if (name.startsWith('.env')) return Lock
   if (name === 'license' || name === 'license.md' || name === 'license.txt') return FileText
