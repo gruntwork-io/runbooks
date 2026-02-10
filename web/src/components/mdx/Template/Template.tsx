@@ -12,7 +12,7 @@ import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/c
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { buildBlocksNamespace, computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
+import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
 import { XCircle } from 'lucide-react'
 
 /**

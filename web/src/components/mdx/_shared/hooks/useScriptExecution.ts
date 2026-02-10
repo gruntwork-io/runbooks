@@ -12,7 +12,7 @@ import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/ex
 import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { computeUnmetOutputDependencies } from '@/lib/templateUtils'
+import { computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
