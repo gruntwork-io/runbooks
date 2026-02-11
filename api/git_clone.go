@@ -271,6 +271,22 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 
 		absolutePath, relativePath := ResolveClonePaths(req.LocalPath, req.URL, effectiveWorkDir)
 
+		// Validate the resolved path is contained within the working directory
+		absWorkDir, err := filepath.Abs(effectiveWorkDir)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve working directory"})
+			return
+		}
+		absClonePath, err := filepath.Abs(absolutePath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to resolve clone path"})
+			return
+		}
+		if !strings.HasPrefix(absClonePath, absWorkDir+string(filepath.Separator)) && absClonePath != absWorkDir {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Clone path must be within the working directory"})
+			return
+		}
+
 		// Check if destination already exists (file or directory)
 		if _, err := os.Stat(absolutePath); err == nil {
 			if !req.Force {
@@ -304,7 +320,6 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
-		c.Header("Transfer-Encoding", "chunked")
 
 		flusher, ok := c.Writer.(http.Flusher)
 		if !ok {
