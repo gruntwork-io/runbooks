@@ -1,5 +1,6 @@
-import { Info } from "lucide-react"
+import { Info, Copy, Check } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
 interface BlockIdLabelProps {
   id: string
@@ -12,10 +13,17 @@ interface BlockIdLabelProps {
  * Used in MDX blocks to help users identify block IDs.
  */
 export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
-  const sizeClasses = size === 'large' 
-    ? 'text-xs px-1.5 py-0.5 bg-gray-200/50 rounded' 
+  const { didCopy, copy } = useCopyToClipboard(2000)
+
+  const sizeClasses = size === 'large'
+    ? 'text-xs px-1.5 py-0.5 bg-gray-200/50 rounded'
     : 'text-[9px] mt-1'
-  
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    await copy(id)
+  }
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -25,7 +33,20 @@ export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
       </TooltipTrigger>
       <TooltipContent side={size === 'large' ? 'bottom' : 'right'} className="max-w-xs">
         <div className="space-y-2">
-          <div className="font-mono text-sm font-medium">{id}</div>
+          <div className="flex items-center gap-2">
+            <div className="font-mono text-sm font-medium">{id}</div>
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center justify-center rounded p-0.5 hover:bg-white/20 transition-colors"
+              aria-label="Copy block ID"
+            >
+              {didCopy ? (
+                <Check className="size-3.5 text-green-400" />
+              ) : (
+                <Copy className="size-3.5 opacity-70 hover:opacity-100" />
+              )}
+            </button>
+          </div>
           <div className="flex items-start gap-2 text-xs opacity-80">
             <Info className="size-3 mt-0.5 flex-shrink-0" />
             <span>
