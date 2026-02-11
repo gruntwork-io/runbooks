@@ -498,8 +498,11 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
                 onClick={async () => {
                   if (onLoadDiff) {
                     setIsLoadingDiff(true)
-                    await onLoadDiff(change.path)
-                    setIsLoadingDiff(false)
+                    try {
+                      await onLoadDiff(change.path)
+                    } finally {
+                      setIsLoadingDiff(false)
+                    }
                   }
                 }}
                 disabled={isLoadingDiff}
