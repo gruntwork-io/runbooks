@@ -1,0 +1,147 @@
+---
+title: <GitHubPullRequest>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GitHubPullRequest>` block provides a streamlined way to create GitHub pull requests directly from a runbook. It integrates with the [`<GitClone>`](/authoring/blocks/gitclone/) block to push changes made during the runbook workflow and open a PR.
+
+This block completes the git workflow loop: clone a repository, make changes (via Command, Template, or other blocks), and open a pull request.
+
+### Basic Usage
+
+Pair with `<GitHubAuth>` and `<GitClone>` to create a complete workflow:
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Connect to GitHub"
+/>
+
+<GitClone
+  id="clone-repo"
+  gitHubAuthId="gh-auth"
+  title="Clone Repository"
+  prefilledUrl="https://github.com/acme-corp/infrastructure"
+/>
+
+<GitHubPullRequest
+  id="create-pr"
+  githubAuthId="gh-auth"
+  title="Open Pull Request"
+  description="Create a PR with the changes made in this runbook"
+/>
+```
+
+### Pre-filled Values
+
+You can pre-populate the PR title, description, labels, and branch name. Users can still edit these values before creating the PR.
+
+```mdx
+<GitHubPullRequest
+  id="create-pr"
+  githubAuthId="gh-auth"
+  prefilledPullRequestTitle="Add VPC module configuration"
+  prefilledPullRequestDescription="## Changes\n- Added VPC module\n- Configured NAT gateway"
+  prefilledPullRequestLabels={["enhancement", "terraform"]}
+  prefilledBranchName="feature/add-vpc"
+/>
+```
+
+### Template Expressions
+
+The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, and `prefilledBranchName` props support template expressions that reference outputs from other blocks:
+
+```mdx
+<GitHubPullRequest
+  id="create-pr"
+  githubAuthId="gh-auth"
+  prefilledPullRequestTitle="Add {{ ._blocks.config.outputs.MODULE_NAME }} module"
+  prefilledBranchName="feature/{{ ._blocks.config.outputs.MODULE_NAME }}"
+/>
+```
+
+Template expressions are resolved in real-time as upstream blocks produce outputs.
+
+### Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
+| `title` | `string` | No | Display title for the block header. Supports inline markdown. |
+| `description` | `string` | No | Description text below the title. Supports inline markdown. |
+| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
+| `prefilledPullRequestTitle` | `string` | No | Pre-fills the PR title field. Supports template expressions. |
+| `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions and markdown. |
+| `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
+| `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
+
+### Block Outputs
+
+After a successful PR creation, the block produces outputs that can be referenced by downstream blocks:
+
+| Output | Description | Example |
+|--------|-------------|---------|
+| `PR_ID` | The pull request number | `42` |
+| `PR_URL` | The full URL of the created pull request | `https://github.com/org/repo/pull/42` |
+
+Reference outputs in downstream blocks using template variables:
+
+```mdx
+<Command
+  id="notify"
+  title="Post PR Link"
+  command="echo 'PR created: {{ ._blocks.create_pr.outputs.PR_URL }}'"
+/>
+```
+
+<Aside type="note">
+  Block IDs with hyphens are converted to underscores in template variables. For example, `create-pr` becomes `create_pr`.
+</Aside>
+
+### Git Push
+
+After creating a PR, the block displays a "Git Push" button. This allows you to push additional changes made after the PR was created (for example, by running more Command or Template blocks). Each push stages all changes, commits them with the message "Additional changes", and pushes to the same branch.
+
+### Prerequisites
+
+The GitHubPullRequest block requires two prerequisites:
+
+1. **GitHub authentication** -- A `<GitHubAuth>` block must be completed to provide the GitHub token for API access.
+2. **A cloned repository** -- A `<GitClone>` block must have successfully cloned a repository. The PR is created against this repository.
+
+Both prerequisites are checked automatically, and the block shows warnings when they are not met.
+
+### Labels
+
+The block fetches available labels from the repository and presents them in a searchable multi-select dropdown. Labels can also be pre-selected using the `prefilledPullRequestLabels` prop.
+
+### Example: Full Workflow
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Authenticate to GitHub"
+/>
+
+<GitClone
+  id="clone-infra"
+  gitHubAuthId="gh-auth"
+  title="Clone Infrastructure Repo"
+  prefilledUrl="https://github.com/acme-corp/infrastructure-live"
+/>
+
+<Command
+  id="make-changes"
+  title="Apply Configuration"
+  command="echo 'new_setting = true' >> config.hcl"
+/>
+
+<GitHubPullRequest
+  id="open-pr"
+  githubAuthId="gh-auth"
+  title="Open Pull Request"
+  prefilledPullRequestTitle="Update infrastructure configuration"
+  prefilledPullRequestLabels={["infrastructure"]}
+/>
+```

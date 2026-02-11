@@ -434,6 +434,7 @@ func validateRunbook(filePath string) ([]string, error) {
 		"Check",
 		"Command",
 		"GitClone",
+		"GitHubPullRequest",
 		"BoilerplateInputs",
 		"BoilerplateTemplate",
 	}

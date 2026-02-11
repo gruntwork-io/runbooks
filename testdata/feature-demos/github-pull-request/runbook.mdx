@@ -1,0 +1,48 @@
+---
+title: GitHub Pull Request Demo
+---
+
+# GitHub Pull Request
+
+This runbook demonstrates the GitHubPullRequest block, which provides a streamlined way to create pull requests from within a runbook.
+
+## Step 1: Authenticate to GitHub
+
+<GitHubAuth
+  id="gh-auth"
+  title="Connect to GitHub"
+  description="Authenticate to access repositories and create pull requests"
+/>
+
+## Step 2: Clone a Repository
+
+<GitClone
+  id="clone-repo"
+  gitHubAuthId="gh-auth"
+  title="Clone a Repository"
+  description="Clone the repository you want to create a PR for"
+  prefilledUrl="https://github.com/gruntwork-io/runbooks-test"
+  prefilledRepoPath="."
+  prefilledLocalPath="./runbooks-test"
+/>
+
+## Step 3: Make Some Changes
+
+<Command
+  id="make-changes"
+  title="Update configuration"
+  description="Append a timestamp entry to the changelog"
+  command="date '+- Updated via runbook on %Y-%m-%d at %H:%M:%S' >> $REPO_FILES/CHANGELOG.md"
+/>
+
+## Step 4: Create a Pull Request
+
+<GitHubPullRequest
+  id="create-pr"
+  githubAuthId="gh-auth"
+  title="Open Pull Request"
+  description="Create a pull request with the changes from this runbook"
+  prefilledPullRequestTitle="Update changelog via runbook"
+  prefilledPullRequestDescription={"## Changes\n\n- Added a new changelog entry with timestamp\n- Generated automatically by the GitHub Pull Request demo runbook"}
+  prefilledPullRequestLabels={["documentation"]}
+/>
