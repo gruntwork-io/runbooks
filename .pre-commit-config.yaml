@@ -7,3 +7,9 @@ repos:
         language: system
         files: ^docs/src/content/.*\.(md|mdx)$
         pass_filenames: false
+      - id: web-eslint
+        name: Run ESLint
+        entry: bun run eslint .
+        language: system
+        files: ^web/src/.*\.(ts|tsx)$
+        pass_filenames: false
