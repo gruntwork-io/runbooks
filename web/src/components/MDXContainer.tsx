@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
 import remarkGfm from 'remark-gfm'
@@ -39,9 +39,17 @@ interface MDXContainerProps {
   runbookPath?: string
 }
 
-function MDXContainer({ content, className }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, className }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
+
+  // Extract runbook name from its directory path (last segment)
+  // e.g., "testdata/feature-demos/github-pull-request" → "github-pull-request"
+  const runbookName = useMemo(() => {
+    if (!runbookPath) return undefined
+    const segments = runbookPath.replace(/[\\/]+$/, '').split(/[\\/]/)
+    return segments[segments.length - 1] || undefined
+  }, [runbookPath])
 
   // Compile the MDX content into a React component that the browser can render
   useEffect(() => {
@@ -85,7 +93,7 @@ function MDXContainer({ content, className }: MDXContainerProps) {
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider>
+        <RunbookContextProvider runbookName={runbookName}>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >

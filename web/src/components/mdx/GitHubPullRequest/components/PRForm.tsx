@@ -1,6 +1,16 @@
 import { useState } from "react"
 import { Loader2, CircleHelp } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { MarkdownEditor } from "./MarkdownEditor"
 import { LabelSelector } from "./LabelSelector"
 import { InfoTooltip } from "./InfoTooltip"
@@ -19,6 +29,7 @@ interface PRFormProps {
   setBranchName: (v: string) => void
   commitMessage: string
   setCommitMessage: (v: string) => void
+  defaultCommitMessage: string
   selectedLabels: string[]
   setSelectedLabels: (labels: string[]) => void
   availableLabels: GitHubLabel[]
@@ -39,6 +50,7 @@ export function PRForm({
   setBranchName,
   commitMessage,
   setCommitMessage,
+  defaultCommitMessage,
   selectedLabels,
   setSelectedLabels,
   availableLabels,
@@ -50,12 +62,22 @@ export function PRForm({
   onCancel,
 }: PRFormProps) {
   const [commitMessageExpanded, setCommitMessageExpanded] = useState(
-    commitMessage !== "Changes from runbook" || !branchName.startsWith("runbook/")
+    commitMessage !== defaultCommitMessage || !branchName.startsWith("runbook/")
   )
   const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
+  const [showNoChangesConfirm, setShowNoChangesConfirm] = useState(false)
 
   const isCreating = status === 'creating'
   const isFormDisabled = disabled || isCreating
+  const hasChanges = changeSummary !== null && changeSummary.fileCount > 0
+
+  const handleSubmitClick = () => {
+    if (hasChanges) {
+      onSubmit()
+    } else {
+      setShowNoChangesConfirm(true)
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -147,7 +169,7 @@ export function PRForm({
               type="text"
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
-              placeholder="Changes from runbook"
+              placeholder={defaultCommitMessage}
               disabled={isFormDisabled}
               className={INPUT_CLASS}
             />
@@ -198,7 +220,7 @@ export function PRForm({
         <Button
           size="sm"
           disabled={isFormDisabled || !prTitle.trim() || !branchName.trim()}
-          onClick={onSubmit}
+          onClick={handleSubmitClick}
         >
           {isCreating ? (
             <>
@@ -220,6 +242,24 @@ export function PRForm({
           </Button>
         )}
       </div>
+
+      {/* No file changes confirmation dialog */}
+      <AlertDialog open={showNoChangesConfirm} onOpenChange={setShowNoChangesConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>No file changes detected</AlertDialogTitle>
+            <AlertDialogDescription>
+              There are no modified files in the workspace. The pull request will be created with an empty commit. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={onSubmit}>
+              Create Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -113,32 +113,35 @@ export function valuesToOutputs(values: Record<string, string>): OutputValue[] {
  * - TemplateInline, Command, and Check components consume inputs for API requests.
  */
 export interface RunbookContextType {
+  /** The runbook name derived from its directory path (e.g., "github-pull-request") */
+  runbookName: string | undefined
+
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
-  
+
   /** Register or update an Inputs component's data */
   registerInputs: (id: string, values: Record<string, unknown>, config: BoilerplateConfig) => void
-  
-  /** 
+
+  /**
    * Get inputs for API requests.
    * Returns an array of { name, type, value } objects suitable for sending to the backend.
    * The backend uses the type information to properly convert JSON values to Go types.
    */
   getInputs: (inputsId: string | string[]) => InputValue[]
-  
+
   /** All registered block outputs, keyed by Command/Check block ID */
   blockOutputs: Record<string, BlockOutputs>
-  
+
   /** Register or replace a block's outputs (completely replaces previous outputs) */
   registerOutputs: (blockId: string, values: Record<string, string>) => void
-  
+
   /** Get outputs for a specific block */
   getOutputs: (blockId: string) => OutputValue[] | undefined
-  
-  /** 
+
+  /**
    * Get template variables for rendering.
    * Returns input values spread at root level, plus _blocks namespace with all block outputs.
-   * 
+   *
    * @example
    * // Returns: { region: "us-west-2", _blocks: { "create_account": { outputs: { account_id: "123" } } } }
    * getTemplateVariables("aws-config")
@@ -161,7 +164,7 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ ._blocks.create_account.outputs.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children }: { children: ReactNode }) {
+export function RunbookContextProvider({ children, runbookName }: { children: ReactNode, runbookName?: string }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
@@ -283,6 +286,7 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
   }, [getValues, blockOutputs])
 
   const contextValue = useMemo(() => ({
+    runbookName,
     blockInputs,
     registerInputs,
     getInputs,
@@ -290,7 +294,7 @@ export function RunbookContextProvider({ children }: { children: ReactNode }) {
     registerOutputs,
     getOutputs,
     getTemplateVariables,
-  }), [blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
+  }), [runbookName, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
 
   return (
     <RunbookContext.Provider value={contextValue}>

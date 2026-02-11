@@ -54,8 +54,8 @@ function GitHubPullRequest({
   // Git worktree context
   const { activeWorkTree } = useGitWorkTree()
 
-  // Runbook context for template resolution
-  const { blockOutputs: allOutputs } = useRunbookContext()
+  // Runbook context for template resolution and metadata
+  const { blockOutputs: allOutputs, runbookName } = useRunbookContext()
 
   // Track render
   useEffect(() => {
@@ -106,11 +106,16 @@ function GitHubPullRequest({
     [prefilledBranchName, allOutputs]
   )
 
+  // Default commit message includes the runbook name when available
+  const defaultCommitMessage = runbookName
+    ? `Changes from runbook "${runbookName}"`
+    : "Changes from runbook"
+
   // Form state
   const [prTitle, setPRTitle] = useState(resolvedTitle)
   const [prDescription, setPRDescription] = useState(resolvedDescription)
   const [branchName, setBranchName] = useState(() => resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`)
-  const [commitMessage, setCommitMessage] = useState("Changes from runbook")
+  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage)
   const [selectedLabels, setSelectedLabels] = useState<string[]>(prefilledPullRequestLabels)
 
   // Track if user has manually edited each field
@@ -181,11 +186,11 @@ function GitHubPullRequest({
       description: prDescription,
       labels: selectedLabels,
       branchName: branchName.trim(),
-      commitMessage: commitMessage.trim() || "Changes from runbook",
+      commitMessage: commitMessage.trim() || defaultCommitMessage,
       localPath: activeWorkTree.localPath,
       repoUrl: activeWorkTree.repoUrl,
     })
-  }, [activeWorkTree, prTitle, prDescription, selectedLabels, branchName, commitMessage, createPullRequest])
+  }, [activeWorkTree, prTitle, prDescription, selectedLabels, branchName, commitMessage, defaultCommitMessage, createPullRequest])
 
   // Handle push
   const handlePush = useCallback(() => {
@@ -199,12 +204,12 @@ function GitHubPullRequest({
     setPRTitle(resolvedTitle)
     setPRDescription(resolvedDescription)
     setBranchName(`runbook/${Math.floor(Date.now() / 1000)}`)
-    setCommitMessage("Changes from runbook")
+    setCommitMessage(defaultCommitMessage)
     setSelectedLabels(prefilledPullRequestLabels)
     setUserEditedTitle(false)
     setUserEditedDescription(false)
     setUserEditedBranch(false)
-  }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels])
+  }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels, defaultCommitMessage])
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
@@ -304,6 +309,7 @@ function GitHubPullRequest({
               setBranchName={(v) => { setBranchName(v); setUserEditedBranch(true) }}
               commitMessage={commitMessage}
               setCommitMessage={setCommitMessage}
+              defaultCommitMessage={defaultCommitMessage}
               selectedLabels={selectedLabels}
               setSelectedLabels={setSelectedLabels}
               availableLabels={labels}
