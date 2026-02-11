@@ -65,6 +65,9 @@ export function GitHubBrowser({
   const [loadingOrgs, setLoadingOrgs] = useState(false)
   const [loadingRepos, setLoadingRepos] = useState(false)
   const [loadingRefs, setLoadingRefs] = useState(false)
+  const [orgsError, setOrgsError] = useState<string | null>(null)
+  const [reposError, setReposError] = useState<string | null>(null)
+  const [refsError, setRefsError] = useState<string | null>(null)
   const [orgSearch, setOrgSearch] = useState("")
   const [repoSearch, setRepoSearch] = useState("")
   const [refSearch, setRefSearch] = useState("")
@@ -80,10 +83,14 @@ export function GitHubBrowser({
   // Load orgs when browser opens
   useEffect(() => {
     if (isOpen && !hasLoadedOrgs.current) {
-      hasLoadedOrgs.current = true
       setLoadingOrgs(true)
+      setOrgsError(null)
       fetchOrgs().then(result => {
+        hasLoadedOrgs.current = true
         setOrgs(result)
+      }).catch(err => {
+        setOrgsError(err instanceof Error ? err.message : "Failed to load organizations")
+      }).finally(() => {
         setLoadingOrgs(false)
       })
     }
@@ -94,9 +101,15 @@ export function GitHubBrowser({
     if (!org) return
     setLoadingRepos(true)
     setRepos([])
-    const result = await fetchRepos(org)
-    setRepos(result)
-    setLoadingRepos(false)
+    setReposError(null)
+    try {
+      const result = await fetchRepos(org)
+      setRepos(result)
+    } catch (err) {
+      setReposError(err instanceof Error ? err.message : "Failed to load repositories")
+    } finally {
+      setLoadingRepos(false)
+    }
   }, [fetchRepos])
 
   useEffect(() => {
@@ -112,17 +125,23 @@ export function GitHubBrowser({
     setRefs([])
     setRefTotalCount(0)
     setRefHasMore(false)
-    const result = await fetchRefs(org, repo)
-    setRefs(result.refs)
-    setRefTotalCount(result.totalCount)
-    setRefHasMore(result.hasMore)
-    setLoadingRefs(false)
+    setRefsError(null)
+    try {
+      const result = await fetchRefs(org, repo)
+      setRefs(result.refs)
+      setRefTotalCount(result.totalCount)
+      setRefHasMore(result.hasMore)
 
-    // Auto-select the default branch
-    const defaultBranch = result.refs.find(r => r.isDefaultBranch)
-    if (defaultBranch) {
-      setSelectedRef(defaultBranch.name)
-      onRefSelected(defaultBranch.name)
+      // Auto-select the default branch
+      const defaultBranch = result.refs.find(r => r.isDefaultBranch)
+      if (defaultBranch) {
+        setSelectedRef(defaultBranch.name)
+        onRefSelected(defaultBranch.name)
+      }
+    } catch (err) {
+      setRefsError(err instanceof Error ? err.message : "Failed to load refs")
+    } finally {
+      setLoadingRefs(false)
     }
   }, [fetchRefs, onRefSelected])
 
@@ -271,6 +290,9 @@ export function GitHubBrowser({
                 </Command>
               </PopoverContent>
             </Popover>
+            {orgsError && (
+              <p className="mt-1 text-xs text-red-600">{orgsError}</p>
+            )}
           </div>
 
           {/* Repository selector */}
@@ -346,6 +368,9 @@ export function GitHubBrowser({
                 </Command>
               </PopoverContent>
             </Popover>
+            {reposError && (
+              <p className="mt-1 text-xs text-red-600">{reposError}</p>
+            )}
           </div>
 
           {/* Ref (branch/tag) selector — only shown after a repo is selected */}
@@ -454,6 +479,9 @@ export function GitHubBrowser({
                   </Command>
                 </PopoverContent>
               </Popover>
+              {refsError && (
+                <p className="mt-1 text-xs text-red-600">{refsError}</p>
+              )}
             </div>
           )}
         </div>
