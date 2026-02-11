@@ -954,27 +954,9 @@ func ResolveClonePaths(localPath, cloneURL, workDir string) (absolutePath, relat
 // RepoNameFromURL extracts the repository name from a git URL.
 // e.g., "https://github.com/org/repo.git" -> "repo"
 func RepoNameFromURL(rawURL string) string {
-	// Try parsing as a URL
-	parsed, err := url.Parse(rawURL)
-	if err == nil && parsed.Path != "" {
-		base := filepath.Base(parsed.Path)
-		return strings.TrimSuffix(base, ".git")
+	if _, repo := parseOwnerRepoFromURL(rawURL); repo != "" {
+		return repo
 	}
-
-	// Handle SSH-style URLs: git@github.com:org/repo.git
-	if idx := strings.LastIndex(rawURL, "/"); idx >= 0 {
-		base := rawURL[idx+1:]
-		return strings.TrimSuffix(base, ".git")
-	}
-
-	if idx := strings.LastIndex(rawURL, ":"); idx >= 0 {
-		base := rawURL[idx+1:]
-		if slashIdx := strings.LastIndex(base, "/"); slashIdx >= 0 {
-			base = base[slashIdx+1:]
-		}
-		return strings.TrimSuffix(base, ".git")
-	}
-
 	return "repo"
 }
 

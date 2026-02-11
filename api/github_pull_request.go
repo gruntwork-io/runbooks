@@ -437,7 +437,20 @@ func getBaseBranch(ctx context.Context, dir, token, owner, repo string) string {
 }
 
 // parseOwnerRepoFromURL extracts the owner and repo name from a GitHub URL.
+// Supports HTTPS URLs (https://github.com/org/repo.git) and
+// SSH URLs (git@github.com:org/repo.git).
 func parseOwnerRepoFromURL(rawURL string) (owner, repo string) {
+	// Handle SSH-style URLs: git@github.com:org/repo.git
+	if idx := strings.Index(rawURL, ":"); idx >= 0 && !strings.Contains(rawURL, "://") {
+		path := rawURL[idx+1:]
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 3)
+		if len(parts) >= 2 {
+			return parts[0], parts[1]
+		}
+		return "", ""
+	}
+
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return "", ""
