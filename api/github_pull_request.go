@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -377,8 +378,15 @@ func gitPushWithToken(ctx context.Context, dir, branchName, token string, setUps
 		return fmt.Errorf("failed to set remote URL: %w", err)
 	}
 
-	// Restore original URL on exit
-	defer runGitCommandCtx(ctx, dir, "remote", "set-url", "origin", originalURL)
+	// Restore original URL on exit using a detached context so the restore
+	// still runs even if the caller's ctx is cancelled.
+	defer func() {
+		restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := runGitCommandCtx(restoreCtx, dir, "remote", "set-url", "origin", originalURL); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: failed to restore original remote URL: %v\n", err)
+		}
+	}()
 
 	// Push
 	pushArgs := []string{"push"}
