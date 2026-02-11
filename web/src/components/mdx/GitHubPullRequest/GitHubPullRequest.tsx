@@ -14,6 +14,15 @@ import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import type { GitHubPullRequestProps, PRBlockStatus } from "./types"
 
+const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; iconColor: string }> = {
+  success:  { bg: 'bg-green-50 border-green-200', icon: CheckCircle,    iconColor: 'text-green-600' },
+  fail:     { bg: 'bg-red-50 border-red-200',     icon: XCircle,        iconColor: 'text-red-600' },
+  creating: { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,        iconColor: 'text-blue-600' },
+  pushing:  { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,        iconColor: 'text-blue-600' },
+  pending:  { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
+  ready:    { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
+}
+
 /** Resolve template expressions like {{ ._blocks.X.outputs.Y }} */
 function resolveTemplateString(template: string, blockOutputs: Record<string, { values: Record<string, string> }>): string {
   return template.replace(/\{\{\s*\._blocks\.(\w+)\.outputs\.(\w+)\s*\}\}/g, (_match, blockId, outputName) => {
@@ -98,10 +107,9 @@ function GitHubPullRequest({
   )
 
   // Form state
-  const defaultBranch = `runbook/${Math.floor(Date.now() / 1000)}`
   const [prTitle, setPRTitle] = useState(resolvedTitle)
   const [prDescription, setPRDescription] = useState(resolvedDescription)
-  const [branchName, setBranchName] = useState(resolvedBranchName || defaultBranch)
+  const [branchName, setBranchName] = useState(() => resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`)
   const [commitMessage, setCommitMessage] = useState("Changes from runbook")
   const [selectedLabels, setSelectedLabels] = useState<string[]>(prefilledPullRequestLabels)
 
@@ -198,17 +206,7 @@ function GitHubPullRequest({
     setUserEditedBranch(false)
   }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels])
 
-  // Status-driven styling
-  const statusConfig: Record<string, { bg: string; icon: typeof GitPullRequest; iconColor: string }> = {
-    success:  { bg: 'bg-green-50 border-green-200', icon: CheckCircle,    iconColor: 'text-green-600' },
-    fail:     { bg: 'bg-red-50 border-red-200',     icon: XCircle,        iconColor: 'text-red-600' },
-    creating: { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,        iconColor: 'text-blue-600' },
-    pushing:  { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,        iconColor: 'text-blue-600' },
-    pending:  { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
-    ready:    { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
-  }
-
-  const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[effectiveStatus] ?? statusConfig.pending
+  const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
   const isFormDisabled = !githubAuthMet || !activeWorkTree
 

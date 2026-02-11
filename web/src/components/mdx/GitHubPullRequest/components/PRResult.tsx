@@ -3,6 +3,7 @@ import { CheckCircle, ExternalLink, Loader2, XCircle, ChevronDown, ChevronRight,
 import { Button } from "@/components/ui/button"
 import type { PRResult, PRBlockStatus } from "../types"
 import type { ChangeSummary } from "./PRForm"
+import { ChangeSummaryText } from "./ChangeSummaryText"
 
 interface PRResultDisplayProps {
   result: PRResult
@@ -102,19 +103,7 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
                 Git Push will commit and push{' '}
                 <span className="font-medium">{changeSummary.fileCount}</span>{' '}
                 {changeSummary.fileCount === 1 ? 'file' : 'files'}
-                {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
-                  <>
-                    {' '}(
-                    {changeSummary.additions > 0 && (
-                      <span className="text-green-600 font-medium">+{changeSummary.additions}</span>
-                    )}
-                    {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
-                    {changeSummary.deletions > 0 && (
-                      <span className="text-red-600 font-medium">&minus;{changeSummary.deletions}</span>
-                    )}
-                    )
-                  </>
-                )}
+                <ChangeSummaryText changeSummary={changeSummary} />
                 {' '}to the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
                 Review your changes in the <span className="font-semibold">Changed files</span> tab of the workspace panel.
               </p>

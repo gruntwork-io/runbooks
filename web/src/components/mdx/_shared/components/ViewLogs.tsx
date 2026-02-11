@@ -86,7 +86,6 @@ export function ViewLogs({
 
   return (
     <div className="border border-gray-200 rounded-sm">
-      
       {/* Toggle button with Copy/Download actions */}
       <div className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
         <button

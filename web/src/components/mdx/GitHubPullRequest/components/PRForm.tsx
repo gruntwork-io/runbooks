@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { MarkdownEditor } from "./MarkdownEditor"
 import { LabelSelector } from "./LabelSelector"
+import { ChangeSummaryText } from "./ChangeSummaryText"
 import type { GitHubLabel, PRBlockStatus } from "../types"
 
 export interface ChangeSummary {
@@ -210,19 +211,7 @@ export function PRForm({
                 This pull request will commit{' '}
                 <span className="font-medium">{changeSummary.fileCount}</span>{' '}
                 {changeSummary.fileCount === 1 ? 'file' : 'files'}
-                {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
-                  <>
-                    {' '}(
-                    {changeSummary.additions > 0 && (
-                      <span className="text-green-600 font-medium">+{changeSummary.additions}</span>
-                    )}
-                    {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
-                    {changeSummary.deletions > 0 && (
-                      <span className="text-red-600 font-medium">&minus;{changeSummary.deletions}</span>
-                    )}
-                    )
-                  </>
-                )}
+                <ChangeSummaryText changeSummary={changeSummary} />
                 {' '}from the <span className="font-semibold">Changed files</span> tab in the workspace panel.
                 Review your changes there before creating the pull request.
               </p>
