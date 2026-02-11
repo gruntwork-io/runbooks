@@ -207,4 +207,15 @@
     list-style-type: decimal;
   }
 
+  /* Scale markdown preview to match GitHub's PR description sizing (14px base).
+     All heading sizes in github-markdown.css use em units, so they scale with this. */
+  .markdown-body .runbook-block .markdown-preview {
+    font-size: 0.875rem;
+  }
+
+  .markdown-body .runbook-block .markdown-preview img {
+    max-width: 100%;
+    height: auto;
+  }
+
 }

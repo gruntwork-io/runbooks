@@ -7,6 +7,7 @@ import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { normalizeBlockId } from "@/lib/utils"
+import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
@@ -227,7 +228,8 @@ function GitHubPullRequest({
 
         <div className="flex-1 space-y-2">
           {/* Title and description */}
-          <div className="text-md font-bold text-gray-700">
+          <div className="flex items-center gap-1 text-md font-bold text-gray-700">
+            <GitHubLogo className="size-5 text-gray-800" />
             <InlineMarkdown>{title}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">
