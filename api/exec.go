@@ -142,7 +142,6 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
-		c.Header("Transfer-Encoding", "chunked")
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
