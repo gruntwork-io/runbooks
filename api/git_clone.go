@@ -839,8 +839,12 @@ func getGitHubTokenFromSession(sm *SessionManager) string {
 
 // IsGitHubURL checks if a URL points to github.com
 func IsGitHubURL(rawURL string) bool {
-	lower := strings.ToLower(rawURL)
-	return strings.Contains(lower, "github.com")
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	return hostname == "github.com" || strings.HasSuffix(hostname, ".github.com")
 }
 
 // InjectGitHubToken injects a token into a GitHub HTTPS URL for authentication.
