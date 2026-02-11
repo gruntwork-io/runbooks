@@ -156,20 +156,24 @@ The "Changed files" tab appears automatically the first time a change is detecte
 
 If a runbook clones more than one repository (using multiple GitClone blocks), a dropdown appears in the workspace header letting you switch between them.
 
-## Security: Where files can be written
+## Security: Where files can be read and written
 
-Runbooks enforces rules about where template-generated files can be written:
+Runbooks enforces rules about where files can be read and written:
 
 ### Path restrictions
 
 | Rule | Description |
 |------|-------------|
 | **Within working directory** | Output paths must resolve to locations within the working directory |
-| **No directory traversal** | Output paths containing `..` (like `../../../etc/passwd`) are rejected |
+| **No directory traversal** | Paths containing `..` (like `../../../etc/passwd`) are rejected |
 | **No system directories** | Protected directories like `/etc`, `/usr`, `C:\Windows` are blocked |
 
+### Workspace API restrictions
+
+The workspace APIs (file tree, file content, and git changes) reject any path containing directory traversal sequences. These APIs are scoped to workspace directories — the paths registered by GitClone blocks and the configured output directory — so they only serve files within the intended workspace.
+
 <Aside type="note">
-These restrictions apply to template output paths. Scripts executed via Command blocks have full filesystem access and can write anywhere the user has permissions.
+These restrictions apply to template output paths and workspace APIs. Scripts executed via Command blocks have full filesystem access and can write anywhere the user has permissions.
 </Aside>
 
 ### Protected directories

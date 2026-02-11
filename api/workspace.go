@@ -127,6 +127,11 @@ func HandleWorkspaceTree() gin.HandlerFunc {
 			return
 		}
 
+		if ContainsPathTraversal(dirPath) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
+			return
+		}
+
 		// Validate the path exists and is a directory
 		info, ok := statPathOrFail(c, dirPath, "directory")
 		if !ok {
@@ -169,6 +174,11 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		filePath, ok := requirePathQuery(c)
 		if !ok {
+			return
+		}
+
+		if ContainsPathTraversal(filePath) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
 			return
 		}
 
@@ -259,6 +269,11 @@ func HandleWorkspaceChanges() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dirPath, ok := requirePathQuery(c)
 		if !ok {
+			return
+		}
+
+		if ContainsPathTraversal(dirPath) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
 			return
 		}
 
