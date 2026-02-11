@@ -215,6 +215,8 @@ function TemplateInline({
             invalidateTree();
           } else {
             setFileTree(newFileTree);
+            // Trigger immediate changelog refresh so changes appear without waiting for next poll
+            invalidateTree();
           }
         })
         .catch(err => {
