@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { ExecutionStatus } from "../types"
 import { TerminalText } from "@/components/shared/TerminalText"
 import type { LogEntry } from "@/hooks/useApiExec"
@@ -34,6 +34,8 @@ export function ViewLogs({
 }: ViewLogsProps) {
   const [showLogs, setShowLogs] = useState(autoOpen)
   const [copied, setCopied] = useState(false)
+  const logContainerRef = useRef<HTMLDivElement>(null)
+  const userHasScrolledUp = useRef(false)
 
   // Update showLogs when autoOpen changes
   useEffect(() => {
@@ -41,6 +43,13 @@ export function ViewLogs({
       setShowLogs(true)
     }
   }, [autoOpen])
+
+  // Scroll to bottom when logs panel opens or new logs arrive
+  useEffect(() => {
+    if (showLogs && logContainerRef.current && !userHasScrolledUp.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [showLogs, logs])
 
   // Get plain text logs with ANSI codes stripped
   const getPlainTextLogs = () => {
@@ -81,7 +90,7 @@ export function ViewLogs({
       {/* Toggle button with Copy/Download actions */}
       <div className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
         <button
-          onClick={() => setShowLogs(!showLogs)}
+          onClick={() => { setShowLogs(!showLogs); userHasScrolledUp.current = false }}
           className="flex items-center gap-2 text-left cursor-pointer flex-1"
         >
           {showLogs ? (
@@ -146,7 +155,17 @@ export function ViewLogs({
 
       {/* Logs */}
       {showLogs && (
-        <div className="border-t border-gray-200 p-3 bg-gray-900 max-h-64 overflow-y-auto">
+        <div
+          ref={logContainerRef}
+          onScroll={() => {
+            const el = logContainerRef.current
+            if (!el) return
+            // Consider "at bottom" if within 32px of the end
+            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
+            userHasScrolledUp.current = !atBottom
+          }}
+          className="border-t border-gray-200 p-3 bg-gray-900 max-h-64 overflow-y-auto"
+        >
           {logs.length === 0 ? (
             <div className="text-sm text-gray-400 italic">
               No logs yet. Click to start the execution.
