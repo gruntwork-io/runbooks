@@ -110,7 +110,10 @@ The GitHubPullRequest block requires two prerequisites:
 1. **GitHub authentication** -- A `<GitHubAuth>` block must be completed to provide the GitHub token for API access.
 2. **A cloned repository** -- A `<GitClone>` block must have successfully cloned a repository. The PR is created against this repository.
 
-Both prerequisites are checked automatically, and the block shows warnings when they are not met.
+Both prerequisites are checked automatically, and the block shows amber warnings when they are not met:
+
+- **GitHub authentication**: The block looks for a `GITHUB_TOKEN` output from the `GitHubAuth` block referenced by `githubAuthId`. When the `GitHubAuth` block authenticates via pre-existing credentials (e.g., environment variables or the GitHub CLI) rather than its interactive OAuth flow, there is no explicit `GITHUB_TOKEN` output — instead the block registers an `__AUTHENTICATED` marker to signal success. The prerequisite is satisfied by either. Until one is present, the block displays "Waiting for GitHub authentication" and names the specific block to complete.
+- **Cloned repository**: The block checks whether a `GitClone` block has registered an active worktree. Until a repository has been cloned, the block displays "No repository available". The block remains in a `pending` state and the Create PR button is disabled until both prerequisites are satisfied.
 
 ### Labels
 
