@@ -21,7 +21,7 @@ tests:
         expect: success
       - block: modify-repo
         expect: success
-      - block: template-account-6d639593
+      - block: template-account-c991c121
         expect: success
       # Part 2: Generated files workspace
       - block: generate-config
@@ -40,9 +40,9 @@ tests:
         contains: "custom_bucket_prefix"
       # Template was generated into the worktree
       - type: file_exists
-        path: "../infra-live/account.hcl"
+        path: "../infra-live/docs/account.hcl"
       - type: file_contains
-        path: "../infra-live/account.hcl"
+        path: "../infra-live/docs/account.hcl"
         contains: "dev-sandbox"
       # Generated config was captured
       - type: file_exists
@@ -69,7 +69,7 @@ tests:
         expect: skip
       - block: modify-repo
         expect: skip
-      - block: template-account-6d639593
+      - block: template-account-c991c121
         expect: skip
       - block: generate-config
         expect: success

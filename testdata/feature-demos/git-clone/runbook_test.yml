@@ -20,7 +20,7 @@ tests:
         block: clone-subdir
         output: CLONE_PATH
       - type: dir_exists
-        path: "./runbooks-docs"
+        path: "../runbooks-docs"
 
   - name: skip-without-credentials
     description: Auth block skips when no credentials; dependent clone blocks also skip
