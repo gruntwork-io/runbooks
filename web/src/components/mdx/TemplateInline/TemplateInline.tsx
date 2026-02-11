@@ -166,7 +166,7 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, inputs, generateFile, blocksNamespace]);
+  }, [templateFiles, inputs, generateFile, blocksNamespace, target]);
   
   // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);

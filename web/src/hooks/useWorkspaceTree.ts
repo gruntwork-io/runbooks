@@ -113,7 +113,8 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
         abortControllerRef.current.abort()
       }
     }
-  }, [activeWorkTree?.localPath, fetchTree, treeVersion]) // deliberately exclude `tree` — we only read it for the silent check
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately exclude `activeWorkTree` (only need path) and `tree` (only read for silent check)
+  }, [activeWorkTree?.localPath, fetchTree, treeVersion])
 
   const refetch = useCallback(() => {
     if (activeWorkTree) {

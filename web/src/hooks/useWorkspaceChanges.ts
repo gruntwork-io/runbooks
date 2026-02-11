@@ -110,6 +110,7 @@ export function useWorkspaceChanges(): UseWorkspaceChangesResult {
       clearInterval(interval)
       previousResponseRef.current = ''
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when the path changes, not the full object
   }, [activeWorkTree?.localPath, fetchChanges, treeVersion])
 
   const fetchFileDiff = useCallback(async (filePath: string) => {

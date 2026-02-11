@@ -1,6 +1,6 @@
 import React from 'react'
-import { GitWorkTreeContext } from './GitWorkTreeContext'
-import type { GitWorkTreeContextType } from './GitWorkTreeContext'
+import { GitWorkTreeContext } from './gitWorkTreeTypes'
+import type { GitWorkTreeContextType } from './gitWorkTreeTypes'
 
 /**
  * Hook to access the git worktree context.
