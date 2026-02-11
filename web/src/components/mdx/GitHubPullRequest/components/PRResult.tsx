@@ -1,17 +1,21 @@
-import { CheckCircle, ExternalLink, Loader2, XCircle } from "lucide-react"
+import { useState } from "react"
+import { CheckCircle, ExternalLink, Loader2, XCircle, ChevronDown, ChevronRight, CircleHelp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { PRResult, PRBlockStatus } from "../types"
+import type { ChangeSummary } from "./PRForm"
 
 interface PRResultDisplayProps {
   result: PRResult
   status: PRBlockStatus
   pushError: string | null
+  changeSummary: ChangeSummary | null
   onPush: () => void
   onCreateAnother: () => void
 }
 
-export function PRResultDisplay({ result, status, pushError, onPush, onCreateAnother }: PRResultDisplayProps) {
+export function PRResultDisplay({ result, status, pushError, changeSummary, onPush, onCreateAnother }: PRResultDisplayProps) {
   const isPushing = status === 'pushing'
+  const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
 
   return (
     <div className="space-y-3">
@@ -49,8 +53,8 @@ export function PRResultDisplay({ result, status, pushError, onPush, onCreateAno
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2">
+      {/* Git Push button + "create another" link */}
+      <div className="flex items-center gap-3">
         <Button
           size="sm"
           variant="outline"
@@ -66,15 +70,63 @@ export function PRResultDisplay({ result, status, pushError, onPush, onCreateAno
             'Git Push'
           )}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
+        <button
+          type="button"
           onClick={onCreateAnother}
           disabled={isPushing}
-          className="text-gray-600"
+          className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Create Another
-        </Button>
+          or create another PR
+        </button>
+      </div>
+
+      {/* What files will be committed? (collapsible) */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setWhatFilesExpanded(!whatFilesExpanded)}
+          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 cursor-pointer"
+        >
+          {whatFilesExpanded ? (
+            <ChevronDown className="size-3.5" />
+          ) : (
+            <ChevronRight className="size-3.5" />
+          )}
+          <CircleHelp className="size-3.5" />
+          <span className="font-medium">What will Git Push commit?</span>
+        </button>
+        {whatFilesExpanded && (
+          <div className="mt-1.5 ml-5 text-xs text-gray-600 leading-relaxed">
+            {changeSummary && changeSummary.fileCount > 0 ? (
+              <p className="m-0">
+                Git Push will commit and push{' '}
+                <span className="font-medium">{changeSummary.fileCount}</span>{' '}
+                {changeSummary.fileCount === 1 ? 'file' : 'files'}
+                {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
+                  <>
+                    {' '}(
+                    {changeSummary.additions > 0 && (
+                      <span className="text-green-600 font-medium">+{changeSummary.additions}</span>
+                    )}
+                    {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
+                    {changeSummary.deletions > 0 && (
+                      <span className="text-red-600 font-medium">&minus;{changeSummary.deletions}</span>
+                    )}
+                    )
+                  </>
+                )}
+                {' '}to the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+                Review your changes in the <span className="font-semibold">Changed files</span> tab of the workspace panel.
+              </p>
+            ) : (
+              <p className="m-0">
+                No new file changes detected. If you make additional changes to the cloned repository,
+                use Git Push to add them to the existing pull request on
+                the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

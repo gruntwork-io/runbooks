@@ -8,6 +8,7 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { normalizeBlockId } from "@/lib/utils"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
+import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
@@ -69,6 +70,18 @@ function GitHubPullRequest({
     cancel,
     reset,
   } = useGitHubPullRequest({ id, githubAuthId })
+
+  // Workspace changes for diff summary
+  const { changes: workspaceChanges } = useWorkspaceChanges()
+
+  const changeSummary = useMemo(() => {
+    if (!workspaceChanges || workspaceChanges.length === 0) return null
+    return {
+      fileCount: workspaceChanges.length,
+      additions: workspaceChanges.reduce((sum, c) => sum + c.additions, 0),
+      deletions: workspaceChanges.reduce((sum, c) => sum + c.deletions, 0),
+    }
+  }, [workspaceChanges])
 
   // Resolve prefilled values with template expressions
   const resolvedTitle = useMemo(() =>
@@ -278,6 +291,7 @@ function GitHubPullRequest({
               result={prResult}
               status={effectiveStatus}
               pushError={pushError}
+              changeSummary={changeSummary}
               onPush={handlePush}
               onCreateAnother={handleCreateAnother}
             />
@@ -298,6 +312,7 @@ function GitHubPullRequest({
               labelsLoading={labelsLoading}
               status={effectiveStatus}
               disabled={isFormDisabled}
+              changeSummary={changeSummary}
               onSubmit={handleCreatePR}
               onCancel={cancel}
             />
