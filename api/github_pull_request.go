@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -173,10 +172,7 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		// Step 1: Create branch
 		sse.log(fmt.Sprintf("Creating branch %s...", req.BranchName))
 		if err := runGitCommandCtx(ctx, req.LocalPath, "checkout", "-b", req.BranchName); err != nil {
-			sanitizedErr := SanitizeGitError(err.Error())
-			sse.log(fmt.Sprintf("Failed to create branch: %s", sanitizedErr))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Failed to create branch: %s", SanitizeGitError(err.Error())))
 			return
 		}
 
@@ -184,26 +180,20 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		sse.log("Checking for changes...")
 		hasChanges, err := gitHasChanges(ctx, req.LocalPath)
 		if err != nil {
-			sse.log(fmt.Sprintf("Failed to check for changes: %s", err.Error()))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Failed to check for changes: %s", err.Error()))
 			return
 		}
 
 		if hasChanges {
 			sse.log("Staging changes...")
 			if err := runGitCommandCtx(ctx, req.LocalPath, "add", "-A"); err != nil {
-				sse.log(fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
-				sse.status("fail", 1)
-				sse.done()
+				sse.fail(fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
 				return
 			}
 
 			sse.log(fmt.Sprintf("Committing: %s", commitMessage))
 			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "-m", commitMessage); err != nil {
-				sse.log(fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
-				sse.status("fail", 1)
-				sse.done()
+				sse.fail(fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
 				return
 			}
 		} else {
@@ -211,9 +201,7 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 			// Without this, GitHub rejects the PR with "No commits between main and <branch>".
 			sse.log("No file changes found, creating empty commit...")
 			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", commitMessage); err != nil {
-				sse.log(fmt.Sprintf("Failed to create empty commit: %s", SanitizeGitError(err.Error())))
-				sse.status("fail", 1)
-				sse.done()
+				sse.fail(fmt.Sprintf("Failed to create empty commit: %s", SanitizeGitError(err.Error())))
 				return
 			}
 		}
@@ -221,9 +209,7 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		// Step 3: Push branch
 		sse.log(fmt.Sprintf("Pushing branch to origin/%s...", req.BranchName))
 		if err := gitPushWithToken(ctx, req.LocalPath, req.BranchName, token, true); err != nil {
-			sse.log(fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
 			return
 		}
 
@@ -236,9 +222,7 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		sse.log("Creating pull request...")
 		prResult, err := createGitHubPR(ctx, token, owner, repo, req.Title, req.Description, req.BranchName, baseBranch)
 		if err != nil {
-			sse.log(fmt.Sprintf("Failed to create pull request: %s", err.Error()))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Failed to create pull request: %s", err.Error()))
 			return
 		}
 
@@ -312,9 +296,7 @@ func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 		sse.log("Checking for changes...")
 		hasChanges, err := gitHasChanges(ctx, req.LocalPath)
 		if err != nil {
-			sse.log(fmt.Sprintf("Failed to check for changes: %s", err.Error()))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Failed to check for changes: %s", err.Error()))
 			return
 		}
 
@@ -328,26 +310,20 @@ func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 		// Stage and commit
 		sse.log("Staging changes...")
 		if err := runGitCommandCtx(ctx, req.LocalPath, "add", "-A"); err != nil {
-			sse.log(fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
 			return
 		}
 
 		sse.log("Committing: Additional changes")
 		if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "-m", "Additional changes"); err != nil {
-			sse.log(fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
 			return
 		}
 
 		// Push
 		sse.log(fmt.Sprintf("Pushing to origin/%s...", req.BranchName))
 		if err := gitPushWithToken(ctx, req.LocalPath, req.BranchName, token, false); err != nil {
-			sse.log(fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
-			sse.status("fail", 1)
-			sse.done()
+			sse.fail(fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
 			return
 		}
 
@@ -480,31 +456,19 @@ func createGitHubPR(ctx context.Context, token, owner, repo, title, description,
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/pulls",
 		GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo))
 
-	body := map[string]string{
+	jsonBody, err := json.Marshal(map[string]string{
 		"title": title,
 		"body":  description,
 		"head":  head,
 		"base":  base,
-	}
-
-	jsonBody, err := json.Marshal(body)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonBody))
+	resp, err := doGitHubAPIPost(ctx, token, apiURL, jsonBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -531,25 +495,14 @@ func addGitHubLabels(ctx context.Context, token, owner, repo string, prNumber in
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/issues/%d/labels",
 		GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo), prNumber)
 
-	body := map[string][]string{"labels": labels}
-	jsonBody, err := json.Marshal(body)
+	jsonBody, err := json.Marshal(map[string][]string{"labels": labels})
 	if err != nil {
 		return fmt.Errorf("failed to marshal labels: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonBody))
+	resp, err := doGitHubAPIPost(ctx, token, apiURL, jsonBody)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to call GitHub API: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
 

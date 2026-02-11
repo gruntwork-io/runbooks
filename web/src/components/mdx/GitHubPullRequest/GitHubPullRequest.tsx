@@ -115,14 +115,6 @@ function GitHubPullRequest({
     }
   }, [resolvedBranchName, userEditedBranch])
 
-  // Transition from pending to ready when dependencies are met
-  useEffect(() => {
-    if (status === 'pending' && githubAuthMet && activeWorkTree && sessionReady) {
-      // Status transitions are handled internally, but we need to trigger readiness
-      // The hook starts as 'pending', we manually transition here
-    }
-  }, [status, githubAuthMet, activeWorkTree, sessionReady])
-
   // Determine effective status (override pending → ready when deps met)
   const effectiveStatus: PRBlockStatus = useMemo(() => {
     if (status === 'pending' && githubAuthMet && activeWorkTree && sessionReady) {
