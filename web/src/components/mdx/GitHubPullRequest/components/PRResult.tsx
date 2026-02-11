@@ -1,9 +1,8 @@
 import { useState } from "react"
-import { CheckCircle, ExternalLink, Loader2, XCircle, ChevronDown, ChevronRight, CircleHelp } from "lucide-react"
+import { CheckCircle, ExternalLink, Loader2, XCircle, CircleHelp } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { PRResult, PRBlockStatus } from "../types"
-import type { ChangeSummary } from "./PRForm"
-import { ChangeSummaryText } from "./ChangeSummaryText"
+import { CollapsibleToggle } from "./CollapsibleToggle"
+import type { PRResult, PRBlockStatus, ChangeSummary } from "../types"
 
 interface PRResultDisplayProps {
   result: PRResult
@@ -81,42 +80,44 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
         </button>
       </div>
 
-      {/* What files will be committed? (collapsible) */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setWhatFilesExpanded(!whatFilesExpanded)}
-          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 cursor-pointer"
-        >
-          {whatFilesExpanded ? (
-            <ChevronDown className="size-3.5" />
+      {/* What will Git Push commit? (collapsible) */}
+      <CollapsibleToggle
+        expanded={whatFilesExpanded}
+        onToggle={() => setWhatFilesExpanded(!whatFilesExpanded)}
+        label="What will Git Push commit?"
+        icon={<CircleHelp className="size-3.5" />}
+      >
+        <div className="mt-1.5 ml-5 text-xs text-gray-600 leading-relaxed">
+          {changeSummary && changeSummary.fileCount > 0 ? (
+            <p className="m-0">
+              Git Push will commit and push{' '}
+              <span className="font-medium">{changeSummary.fileCount}</span>{' '}
+              {changeSummary.fileCount === 1 ? 'file' : 'files'}
+              {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
+                <>
+                  {' '}(
+                  {changeSummary.additions > 0 && (
+                    <span className="text-green-600 font-medium">+{changeSummary.additions}</span>
+                  )}
+                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
+                  {changeSummary.deletions > 0 && (
+                    <span className="text-red-600 font-medium">&minus;{changeSummary.deletions}</span>
+                  )}
+                  )
+                </>
+              )}
+              {' '}to the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+              Review your changes in the <span className="font-semibold">Changed files</span> tab of the workspace panel.
+            </p>
           ) : (
-            <ChevronRight className="size-3.5" />
+            <p className="m-0">
+              No new file changes detected. If you make additional changes to the cloned repository,
+              use Git Push to add them to the existing pull request on
+              the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+            </p>
           )}
-          <CircleHelp className="size-3.5" />
-          <span className="font-medium">What will Git Push commit?</span>
-        </button>
-        {whatFilesExpanded && (
-          <div className="mt-1.5 ml-5 text-xs text-gray-600 leading-relaxed">
-            {changeSummary && changeSummary.fileCount > 0 ? (
-              <p className="m-0">
-                Git Push will commit and push{' '}
-                <span className="font-medium">{changeSummary.fileCount}</span>{' '}
-                {changeSummary.fileCount === 1 ? 'file' : 'files'}
-                <ChangeSummaryText changeSummary={changeSummary} />
-                {' '}to the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
-                Review your changes in the <span className="font-semibold">Changed files</span> tab of the workspace panel.
-              </p>
-            ) : (
-              <p className="m-0">
-                No new file changes detected. If you make additional changes to the cloned repository,
-                use Git Push to add them to the existing pull request on
-                the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
+      </CollapsibleToggle>
     </div>
   )
 }

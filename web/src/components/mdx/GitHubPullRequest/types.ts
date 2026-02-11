@@ -34,3 +34,10 @@ export interface PRResult {
   prNumber: number
   branchName: string
 }
+
+/** Summary of workspace file changes for display */
+export interface ChangeSummary {
+  fileCount: number
+  additions: number
+  deletions: number
+}

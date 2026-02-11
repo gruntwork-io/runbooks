@@ -175,6 +175,55 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     }
   }, [id, registerOutputs])
 
+  // Shared helper for SSE-streamed POST requests
+  const executeSSERequest = useCallback(async (opts: {
+    url: string
+    body: unknown
+    onError: (msg: string) => void
+    errorStatus: PRBlockStatus
+    abortStatus: PRBlockStatus
+    abortMessage: string
+    errorPrefix: string
+  }) => {
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    try {
+      const response = await fetch(opts.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(opts.body),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null)
+        const msg = errorData?.message || errorData?.error || `Server error (${response.status})`
+        opts.onError(msg)
+        setStatus(opts.errorStatus)
+        setLogs(prev => [...prev, createLogEntry(`${opts.errorPrefix}: ${msg}`)])
+        return
+      }
+
+      await processSSEStream(response, () => {
+        setStatus('success')
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setLogs(prev => [...prev, createLogEntry(opts.abortMessage)])
+        setStatus(opts.abortStatus)
+        return
+      }
+
+      const msg = error instanceof Error ? error.message : `${opts.errorPrefix} failed`
+      opts.onError(msg)
+      setStatus(opts.errorStatus)
+      setLogs(prev => [...prev, createLogEntry(`${opts.errorPrefix}: ${msg}`)])
+    } finally {
+      abortControllerRef.current = null
+    }
+  }, [getAuthHeader, processSSEStream])
+
   // Create pull request
   const createPullRequest = useCallback(async (params: {
     title: string
@@ -191,97 +240,33 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     setErrorMessage(null)
     setPushError(null)
 
-    const controller = new AbortController()
-    abortControllerRef.current = controller
-
-    try {
-      const response = await fetch('/api/git/pull-request', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify(params),
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const msg = errorData?.message || errorData?.error || `Server error (${response.status})`
-        setErrorMessage(msg)
-        setStatus('fail')
-        setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
-        return
-      }
-
-      await processSSEStream(response, () => {
-        setStatus('success')
-      })
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setLogs(prev => [...prev, createLogEntry('Operation cancelled by user')])
-        setStatus('ready')
-        return
-      }
-
-      const msg = error instanceof Error ? error.message : 'An unexpected error occurred'
-      setErrorMessage(msg)
-      setStatus('fail')
-      setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
-    } finally {
-      abortControllerRef.current = null
-    }
-  }, [getAuthHeader, processSSEStream])
+    await executeSSERequest({
+      url: '/api/git/pull-request',
+      body: params,
+      onError: setErrorMessage,
+      errorStatus: 'fail',
+      abortStatus: 'ready',
+      abortMessage: 'Operation cancelled by user',
+      errorPrefix: 'Error',
+    })
+  }, [executeSSERequest])
 
   // Push additional changes
   const pushChanges = useCallback(async (localPath: string, branchName: string) => {
     setStatus('pushing')
     setPushError(null)
-
-    // Add a separator in logs
     setLogs(prev => [...prev, createLogEntry('─────────────────────────────────')])
 
-    const controller = new AbortController()
-    abortControllerRef.current = controller
-
-    try {
-      const response = await fetch('/api/git/push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify({ localPath, branchName }),
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const msg = errorData?.message || errorData?.error || `Server error (${response.status})`
-        setPushError(msg)
-        setStatus('success') // Stay in success state with inline error
-        setLogs(prev => [...prev, createLogEntry(`Push error: ${msg}`)])
-        return
-      }
-
-      await processSSEStream(response, () => {
-        setStatus('success')
-      })
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setLogs(prev => [...prev, createLogEntry('Push cancelled')])
-        setStatus('success')
-        return
-      }
-
-      const msg = error instanceof Error ? error.message : 'Push failed'
-      setPushError(msg)
-      setStatus('success') // Stay in success state with inline error
-      setLogs(prev => [...prev, createLogEntry(`Push error: ${msg}`)])
-    } finally {
-      abortControllerRef.current = null
-    }
-  }, [getAuthHeader, processSSEStream])
+    await executeSSERequest({
+      url: '/api/git/push',
+      body: { localPath, branchName },
+      onError: setPushError,
+      errorStatus: 'success',  // Stay in success state with inline error
+      abortStatus: 'success',
+      abortMessage: 'Push cancelled',
+      errorPrefix: 'Push error',
+    })
+  }, [executeSSERequest])
 
   // Cancel operation
   const cancel = useCallback(() => {
