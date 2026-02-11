@@ -2,17 +2,17 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
 import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
 import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
-import type { UnmetOutputDependency } from '../_shared/hooks/useScriptExecution'
 import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
 import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { normalizeBlockId } from '@/lib/utils'
+import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -52,12 +52,15 @@ interface TemplateProps {
   path: string
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
+  /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). */
+  target?: 'generated' | 'worktree'
 }
 
 function Template({
   id,
   path,
-  inputsId
+  inputsId,
+  target
 }: TemplateProps) {
   // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Template')
@@ -79,8 +82,9 @@ function Template({
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
   const hasEverGeneratedRef = useRef(false);
   
-  // Get the global file tree context
+  // Get the global file tree context and worktree context for invalidation (for All files when target=worktree)
   const { setFileTree } = useFileTree();
+  const { invalidateTree } = useGitWorkTree();
   
   // Get the runbook context to register our config
   const { registerInputs } = useRunbookContext();
@@ -168,47 +172,10 @@ function Template({
   
   // Compute unmet output dependencies - outputs from other blocks that this template needs
   // but which haven't been produced yet
-  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
-    if (!boilerplateConfig?.outputDependencies || boilerplateConfig.outputDependencies.length === 0) {
-      return [];
-    }
-    
-    // Group dependencies by block ID
-    const byBlock = new Map<string, string[]>();
-    for (const dep of boilerplateConfig.outputDependencies) {
-      const normalizedId = normalizeBlockId(dep.blockId);
-      const existing = byBlock.get(normalizedId) || [];
-      if (!existing.includes(dep.outputName)) {
-        existing.push(dep.outputName);
-      }
-      byBlock.set(normalizedId, existing);
-    }
-    
-    // Check which dependencies are not satisfied
-    const unmet: UnmetOutputDependency[] = [];
-    for (const [blockId, outputNames] of byBlock) {
-      const blockData = allOutputs[blockId];
-      if (!blockData) {
-        // Block hasn't produced any outputs yet - use original block ID for display
-        // Find original block ID from the dependencies
-        const originalBlockId = boilerplateConfig.outputDependencies.find(
-          d => normalizeBlockId(d.blockId) === blockId
-        )?.blockId || blockId;
-        unmet.push({ blockId: originalBlockId, outputNames });
-      } else {
-        // Check which specific outputs are missing
-        const missingOutputs = outputNames.filter(name => !(name in blockData.values));
-        if (missingOutputs.length > 0) {
-          const originalBlockId = boilerplateConfig.outputDependencies.find(
-            d => normalizeBlockId(d.blockId) === blockId
-          )?.blockId || blockId;
-          unmet.push({ blockId: originalBlockId, outputNames: missingOutputs });
-        }
-      }
-    }
-    
-    return unmet;
-  }, [boilerplateConfig?.outputDependencies, allOutputs]);
+  const unmetOutputDependencies = useMemo(
+    () => computeUnmetOutputDependencies(boilerplateConfig?.outputDependencies ?? [], allOutputs),
+    [boilerplateConfig?.outputDependencies, allOutputs]
+  );
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
@@ -266,23 +233,24 @@ function Template({
     path,
     id,
     renderFormData,
-    shouldRender
+    shouldRender,
+    target
   )
 
-  // Update global file tree when render result is available
-  // The backend returns the complete output directory tree, so we simply replace
+  // Update global file tree when render result is available (Generated tab only)
+  // When target is worktree, output went to the git repo — do not overwrite Generated; refresh All files instead
   useEffect(() => {
-    if (renderResult) {
-      // Mark that we've successfully generated at least once
-      hasEverGeneratedRef.current = true;
-      
-      // Validate the structure before using it to ensure type safety
-      const validatedTree = parseFileTreeNodeArray(renderResult.fileTree)
-      if (validatedTree) {
-        setFileTree(validatedTree);
-      }
+    if (!renderResult) return;
+    hasEverGeneratedRef.current = true;
+    if (target === 'worktree') {
+      invalidateTree();
+      return;
     }
-  }, [renderResult, setFileTree]);
+    const validatedTree = parseFileTreeNodeArray(renderResult.fileTree);
+    if (validatedTree) {
+      setFileTree(validatedTree);
+    }
+  }, [renderResult, setFileTree, target, invalidateTree]);
 
   // Debounce timer ref for auto-render
   const autoRenderTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -300,13 +268,7 @@ function Template({
   }, [boilerplateConfig]);
 
   // Build the _blocks namespace for template rendering
-  const buildBlocksNamespace = useCallback((): Record<string, { outputs: Record<string, string> }> => {
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {};
-    for (const [blockId, data] of Object.entries(allOutputs)) {
-      blocksNamespace[blockId] = { outputs: data.values };
-    }
-    return blocksNamespace;
-  }, [allOutputs]);
+  const blocksNamespace = useCallback(() => buildBlocksNamespace(allOutputs), [allOutputs]);
   
   // Handle form changes - store in ref (no state update to avoid loops)
   const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
@@ -335,7 +297,7 @@ function Template({
       const mergedData = { 
         ...inputValues, 
         ...localVarValues,
-        _blocks: buildBlocksNamespace()
+        _blocks: blocksNamespace()
       };
       
       // Only trigger render when all required values are present
@@ -343,7 +305,7 @@ function Template({
         autoRender(path, mergedData);
       }
     }, 200);
-  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, buildBlocksNamespace]);
+  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, blocksNamespace]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -386,13 +348,13 @@ function Template({
     const mergedData = { 
       ...inputValues, 
       ...localVarValuesRef.current,
-      _blocks: buildBlocksNamespace()
+      _blocks: blocksNamespace()
     };
     
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
     }
-  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, buildBlocksNamespace]);
+  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, blocksNamespace]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
@@ -403,8 +365,15 @@ function Template({
     const mergedData = { 
       ...inputValues, 
       ...localVarValues,
-      _blocks: buildBlocksNamespace()
+      _blocks: blocksNamespace()
     };
+    
+    console.log('[Template.handleGenerate] Called with:', {
+      localVarValues,
+      inputValues,
+      mergedData,
+      runtimeValue: (mergedData as Record<string, unknown>).Runtime
+    });
     
     // Register our variables in the block context (without _blocks)
     if (boilerplateConfig) {
@@ -415,7 +384,7 @@ function Template({
     // Trigger the render with merged data (including _blocks)
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, inputValues, buildBlocksNamespace])
+  }, [id, boilerplateConfig, registerInputs, inputValues, blocksNamespace])
 
   // Early return for duplicate ID error
   if (isDuplicate) {

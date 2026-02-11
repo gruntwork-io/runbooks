@@ -5,11 +5,11 @@ import { normalizeBlockId } from '../lib/utils'
 interface ComponentRegistration {
   id: string
   normalizedId: string // ID with hyphens converted to underscores
-  componentType: 'Command' | 'Check' | 'Inputs' | 'Template' | 'AwsAuth' | 'GitHubAuth'
+  componentType: 'Command' | 'Check' | 'Inputs' | 'Template' | 'AwsAuth' | 'GitHubAuth' | 'GitClone'
   instanceId: string // Unique per-render instance to track unmounts
 }
 
-export interface DuplicateInfo {
+interface DuplicateInfo {
   /** Whether this is a duplicate (exact same ID or normalized collision) */
   isDuplicate: boolean
   /** Whether this is a normalized collision (different raw IDs but same normalized ID) */

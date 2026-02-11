@@ -43,7 +43,7 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 			}
 
 			// Determine exit code and status
-			exitCode, status := determineExitStatus(err, ctx)
+			exitCode, status := DetermineExitStatus(err, ctx)
 
 			// Log timeout message if applicable
 			if ctx.Err() == context.DeadlineExceeded {
@@ -57,7 +57,7 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 
 			// Parse and send block outputs (if any were written to RUNBOOK_OUTPUT)
 			if status == "success" || status == "warn" {
-				outputs, parseErr := parseBlockOutputs(outputFilePath)
+				outputs, parseErr := ParseBlockOutputs(outputFilePath)
 				if parseErr != nil {
 					slog.Warn("Failed to parse block outputs", "error", parseErr)
 				} else if len(outputs) > 0 {
@@ -74,10 +74,10 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 				}
 			}
 
-			// Capture files from RUNBOOK_FILES directory if execution was successful (or warning)
-			// Scripts can write files to $RUNBOOK_FILES to have them saved to the output directory
+			// Capture files from GENERATED_FILES directory if execution was successful (or warning)
+			// Scripts can write files to $GENERATED_FILES to have them saved to the output directory
 			if status == "success" || status == "warn" {
-				capturedFiles, captureErr := captureFilesFromDir(filesDir, cliOutputPath)
+				capturedFiles, captureErr := CaptureFilesFromDir(filesDir, cliOutputPath)
 				if captureErr != nil {
 					sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
 					flusher.Flush()
@@ -95,8 +95,10 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 	}
 }
 
-// determineExitStatus converts an exec error and context into exit code and status string
-func determineExitStatus(err error, ctx context.Context) (int, string) {
+// DetermineExitStatus converts an exec error and context into exit code and status string.
+// Exit code 0 = "success", 2 = "warn", anything else = "fail".
+// This function is exported for use by the testing package.
+func DetermineExitStatus(err error, ctx context.Context) (int, string) {
 	if err == nil {
 		return 0, "success"
 	}
@@ -177,6 +179,7 @@ func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutpu
 		Count:    len(capturedFiles),
 		FileTree: fileTree,
 	}
+
 	c.SSEvent("files_captured", event)
 }
 

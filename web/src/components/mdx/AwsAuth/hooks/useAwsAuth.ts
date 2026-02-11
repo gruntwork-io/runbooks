@@ -393,7 +393,6 @@ export function useAwsAuth({
     detectionAttemptedRef.current = true
 
     trySourcesInOrder(detectCredentials, detectionAttempt > 0)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- detectionAttempt triggers re-run on retry
   }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt])
 
   // Watch for block outputs when waiting for a block

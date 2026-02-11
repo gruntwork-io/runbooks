@@ -433,6 +433,7 @@ func validateRunbook(filePath string) ([]string, error) {
 	componentTypes := []string{
 		"Check",
 		"Command",
+		"GitClone",
 		"BoilerplateInputs",
 		"BoilerplateTemplate",
 	}

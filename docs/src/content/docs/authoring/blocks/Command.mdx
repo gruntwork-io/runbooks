@@ -350,17 +350,26 @@ log_info "Deployment successful!"
 
 ## Capturing Output Files
 
-Commands can save files to the generated files directory using the `$RUNBOOK_FILES` environment variable. Any files written to this directory will automatically appear in the file panel after the command completes successfully.
+Scripts can write files to two different destinations, depending on the workflow.
 
-### Basic Example
+- [Generated files](/intro/files_workspace/#generated-files)
+- [Repository files](/intro/files_workspace/#repository-files)
+
+See the [Files workspace](/intro/files_workspace/) page for more details.
+
+### Writing to Generated Files
+
+Use `$GENERATED_FILES` to capture new files. Any files written to this directory automatically appear in the file panel after the command completes successfully.
+
+#### Basic Example
 
 ```bash
 #!/bin/bash
 # Export OpenTofu outputs to generated files
-tofu output -json > "$RUNBOOK_FILES/tf-outputs.json"
+tofu output -json > "$GENERATED_FILES/tf-outputs.json"
 
 # Copy a config file
-cp config.yaml "$RUNBOOK_FILES/"
+cp config.yaml "$GENERATED_FILES/"
 ```
 
 Or as an inline command:
@@ -369,22 +378,22 @@ Or as an inline command:
 <Command 
   id="create-file"
   title="Create a greeting file"
-  command={`echo "Hello from the command!" > "$RUNBOOK_FILES/greeting.txt"`}
+  command={`echo "Hello from the command!" > "$GENERATED_FILES/greeting.txt"`}
   successMessage="File created successfully!"
 />
 ```
 
-### Organizing Files with Subdirectories
+#### Organizing Files with Subdirectories
 
-You can create subdirectories within `$RUNBOOK_FILES` to organize your captured files:
+You can create subdirectories within `$GENERATED_FILES` to organize your captured files:
 
 ```bash
 #!/bin/bash
-mkdir -p "$RUNBOOK_FILES/terraform"
-mkdir -p "$RUNBOOK_FILES/config"
+mkdir -p "$GENERATED_FILES/terraform"
+mkdir -p "$GENERATED_FILES/config"
 
-tofu output -json > "$RUNBOOK_FILES/opentofu/outputs.json"
-echo '{"env": "production"}' > "$RUNBOOK_FILES/config/settings.json"
+tofu output -json > "$GENERATED_FILES/opentofu/outputs.json"
+echo '{"env": "production"}' > "$GENERATED_FILES/config/settings.json"
 ```
 
 This creates:
@@ -397,20 +406,43 @@ generated/
     └── settings.json
 ```
 
-### How It Works
+#### How It Works
 
 1. Before your script runs, Runbooks creates a temporary capture directory
-2. The `$RUNBOOK_FILES` environment variable points to this directory
-3. Your script writes files to `$RUNBOOK_FILES`
+2. The `$GENERATED_FILES` environment variable points to this directory
+3. Your script writes files to `$GENERATED_FILES`
 4. After successful execution, files are copied to the generated files directory
 5. The temporary directory is cleaned up
 
 <Aside type="tip">
-Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOK_FILES` are discarded.
+Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$GENERATED_FILES` are discarded.
 </Aside>
 
 <Aside type="note">
 If multiple commands run concurrently and write files with the same name, the last command to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
+</Aside>
+
+### Writing to Repository Files
+
+If a `<GitClone>` block has cloned a repository, the `$REPO_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to modify files inside the cloned repo directly:
+
+```bash
+#!/bin/bash
+# Modify a file in the cloned repository
+echo "new setting = true" >> "$REPO_FILES/config.hcl"
+```
+
+Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` are not captured to a temporary directory; they happen directly on the filesystem. Changes are visible in the **Changed** tab via `git diff`.
+
+<Aside type="note">
+`$REPO_FILES` is only set when a `<GitClone>` block has successfully cloned a repository. If no repo has been cloned, this variable is **unset**. Always check for it in your scripts:
+
+```bash
+if [ -z "${REPO_FILES:-}" ]; then
+    echo "No git worktree available. Clone a repo first."
+    exit 1
+fi
+```
 </Aside>
 
 ## Block Outputs

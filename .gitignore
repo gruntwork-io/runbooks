@@ -22,3 +22,6 @@ TODO/
 
 # Ignore taskfile.dev artifacts
 .task/
+
+# Ignore local cursor directorires
+.cursor*/

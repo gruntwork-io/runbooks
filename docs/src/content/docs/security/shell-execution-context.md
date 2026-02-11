@@ -110,25 +110,43 @@ Runbooks exposes the following environment variables to all scripts:
 
 | Variable | Description |
 |----------|-------------|
-| `RUNBOOK_FILES` | Path to a directory where scripts can write files to be captured. Files written here appear in the generated files panel after successful execution. |
+| `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
+| `REPO_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
+| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
 
 ### Capturing Output Files
 
-To save files to the generated files directory, write them to `$RUNBOOK_FILES`:
+To save files to the generated files directory, write them to `$GENERATED_FILES`:
 
 ```bash
 #!/bin/bash
 # Generate a config and capture it
-tofu output -json > "$RUNBOOK_FILES/outputs.json"
+tofu output -json > "$GENERATED_FILES/outputs.json"
 
 # Create subdirectories as needed
-mkdir -p "$RUNBOOK_FILES/config"
-echo '{"env": "production"}' > "$RUNBOOK_FILES/config/settings.json"
+mkdir -p "$GENERATED_FILES/config"
+echo '{"env": "production"}' > "$GENERATED_FILES/config/settings.json"
 ```
 
-Files are only captured after successful execution (exit code 0 or 2). If your script fails, any files written to `$RUNBOOK_FILES` are discarded.
+Files are only captured after successful execution (exit code 0 or 2). If your script fails, any files written to `$GENERATED_FILES` are discarded.
 
 See [Capturing Output Files](/authoring/blocks/command/#capturing-output-files) for more details.
+
+### Modifying Cloned Repositories
+
+If a `<GitClone>` block has cloned a repository, use `$REPO_FILES` to modify files in the cloned repo:
+
+```bash
+#!/bin/bash
+if [ -n "${REPO_FILES:-}" ]; then
+    echo "Modifying files in cloned repo: $REPO_FILES"
+    echo "new config" >> "$REPO_FILES/settings.hcl"
+else
+    echo "No git worktree available"
+fi
+```
+
+Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` happen directly on the filesystem — they are not captured to a temporary directory. Changes show up in the **Changed** tab via `git diff`.
 
 ---
 
@@ -241,6 +259,15 @@ The [`runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/ma
 
 The [`capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/capture-files-from-scripts) demo demonstrates:
 
-- Using `$RUNBOOK_FILES` to capture generated files
+- Using `$GENERATED_FILES` to capture generated files
 - Combining environment persistence with file generation
 - Creating OpenTofu configs from environment variables set in earlier blocks
+
+### File Workspace Demo
+
+The [`file-workspace`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/file-workspace) demo demonstrates:
+
+- Cloning a repository with `<GitClone>` and browsing its files
+- Using `$REPO_FILES` to modify files in a cloned repo
+- Writing templates directly into a worktree with `target="worktree"`
+- Viewing changes in the "Changed files" diff view

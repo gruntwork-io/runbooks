@@ -1,0 +1,208 @@
+---
+title: <GitClone>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GitClone>` block provides a streamlined way to clone git repositories. It works with any git upstream, and includes optional GitHub integration for browsing organizations, repositories, and branches when a GitHub token is available.
+
+Compared to using the [Command](/authoring/blocks/command/) block to clone a git repository, the GitClone block provides a purpose-built UI for cloning a git repository, the ability to search the GitHub API for orgs, repos, branches, and tags, and automatically shows the [file workspace](/authoring/workspace), where users can see the contents of the cloned repository, along with any changes to it.
+
+### Basic Usage
+
+At its simplest, the GitClone block provides a single text input for a git URL:
+
+```mdx
+<GitClone
+  id="clone-repo"
+  title="Clone Repository"
+  description="Enter a git URL to clone"
+/>
+```
+
+### With GitHub Authentication
+
+When paired with a `<GitHubAuth>` block, the GitClone block enables a "Browse GitHub repositories" dropdown for discovering repos by organization and name, and a ref selector for choosing a branch or tag to clone. The GitHub token is also automatically injected when cloning GitHub URLs, enabling access to private repositories.
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Connect to GitHub"
+  description="Authenticate to access private repos"
+/>
+
+<GitClone
+  id="clone-repo"
+  gitHubAuthId="gh-auth"
+  title="Clone a Repo"
+  description="Browse or enter a git URL to clone"
+/>
+```
+
+### Pre-filled Values
+
+You can pre-populate the URL, ref, sparse checkout path, and local path fields. Users can still edit these values before cloning. This follows the same pattern as the `prefilledVariables` prop on the [Inputs](/authoring/blocks/inputs) block.
+
+```mdx
+<GitClone
+  id="clone-docs"
+  title="Clone Runbooks Docs"
+  prefilledUrl="https://github.com/gruntwork-io/runbooks"
+  prefilledRef="v1.0.0"
+  prefilledRepoPath="docs"
+  prefilledLocalPath="./runbooks-docs"
+/>
+```
+
+### Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
+| `title` | `string` | No | Display title for the block header. Supports inline markdown. |
+| `description` | `string` | No | Description text below the title. Supports inline markdown. |
+| `gitHubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
+| `prefilledUrl` | `string` | No | Pre-fills the Git URL input field. The user can edit this value before cloning. |
+| `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
+| `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path. When set, only the specified subdirectory of the repository will be cloned (e.g., `modules/vpc`). |
+| `prefilledLocalPath` | `string` | No | Pre-fills the local path (relative to the current working directory) where files will be cloned. Defaults to the repository name if empty. |
+| `usePty` | `boolean` | No | Whether to use a pseudo-terminal (PTY) for the git clone process. Defaults to `true`. PTY enables rich output like progress bars and colors. Set to `false` if your environment doesn't support PTY. |
+| `showFileTree` | `boolean` | No | Whether to show the cloned repository's file tree in the workspace panel after cloning. Defaults to `true`. When enabled, the "All files" and "Changed" tabs display the cloned files and any subsequent modifications. |
+
+### Ref Selection
+
+The "Ref" field lets users specify a branch or tag to clone instead of the default branch. There are two ways to set the ref:
+
+1. **GitHub browser.** When a GitHub token is available and a repo is selected in the GitHub browser, a searchable "Ref" dropdown appears listing all branches and tags in that repo. The default branch is automatically pre-selected and marked with a "default" badge.
+
+2. **Text input.** The "Ref" field below the GitHub browser accepts any branch or tag name directly, independent of GitHub authentication. Use the `prefilledRef` prop to set this in advance.
+
+The ref is passed to `git clone --branch`, which accepts both branch names and tag names.
+
+### File Workspace Integration
+
+When `showFileTree` is `true` (the default), the GitClone block registers the cloned repository with the workspace panel. After a successful clone:
+
+- The **All files** tab shows the full file tree of the cloned repository. Click any file to view its contents.
+- The **Changed** tab shows a GitHub PR-style diff view of any files modified after cloning (e.g., by Command or Template blocks).
+- If multiple `<GitClone>` blocks are used in a single runbook, a dropdown in the workspace header lets the user switch between repositories.
+
+Set `showFileTree={false}` if you don't want the cloned repository to appear in the workspace panel (e.g., for helper repositories that the user doesn't need to browse).
+
+### Accepted Git URL Formats
+
+The GitClone block accepts the following URL formats:
+
+| Format | Example | Notes |
+|--------|---------|-------|
+| HTTPS | `https://github.com/org/repo.git` | Recommended. Token auth injected automatically for GitHub URLs. |
+| HTTPS (no .git) | `https://github.com/org/repo` | Also works without the `.git` suffix. |
+| Any host | `https://gitlab.com/org/repo.git` | Works with any git hosting provider. |
+| SSH | `git@github.com:org/repo.git` | Token auth does **not** apply to SSH URLs. Use HTTPS for token-based auth. |
+
+### GitHub Authentication
+
+The GitClone block resolves GitHub credentials in the following order:
+
+1. **`gitHubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs.
+2. **Session environment** — Checks the session environment for `GITHUB_TOKEN` or `GH_TOKEN`.
+3. **No token** — The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
+
+When a GitHub token is available and the user enters a `github.com` HTTPS URL, the token is automatically injected on the server side for authentication. The token is never exposed in the browser.
+
+### Sparse Checkout
+
+Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to clone only a specific subdirectory:
+
+```mdx
+<GitClone
+  id="clone-vpc-module"
+  title="Clone VPC Module"
+  prefilledUrl="https://github.com/gruntwork-io/terraform-aws-vpc"
+  prefilledRepoPath="modules/vpc-app"
+  prefilledLocalPath="./vpc-module"
+/>
+```
+
+This uses `git sparse-checkout` under the hood, which is efficient even for large repositories because it only downloads the blobs for the specified path.
+
+### Custom Local Path
+
+The `prefilledLocalPath` prop (or the "Local Path" input field) controls where files are cloned, relative to the current working directory. If not set, the repository name is used.
+
+### Environment Variables
+
+When a `<GitClone>` block successfully clones a repository, it sets the `$REPO_FILES` environment variable for all subsequent Command and Check blocks. This variable points to the local path of the most recently cloned repository.
+
+```bash
+#!/bin/bash
+# In a Command or Check script after GitClone
+echo "Cloned repo is at: $REPO_FILES"
+
+# Modify files directly in the cloned repo
+echo "new_setting = true" >> "$REPO_FILES/config.hcl"
+```
+
+<Aside type="note">
+`$REPO_FILES` always points to the **most recently** cloned repository. If you have multiple `<GitClone>` blocks, the variable reflects whichever one ran last.
+</Aside>
+
+Template and TemplateInline blocks can also write directly into the cloned repository by setting `target="worktree"`:
+
+```mdx
+<Template id="new-module" path="templates/module" target="worktree" />
+```
+
+### Block Outputs
+
+After a successful clone, the GitClone block produces outputs that can be referenced by downstream blocks:
+
+| Output | Description | Example |
+|--------|-------------|---------|
+| `CLONE_PATH` | Absolute path where files were cloned | `/Users/josh/Code/my-repo` |
+| `FILE_COUNT` | Number of files downloaded (excluding `.git`) | `127` |
+| `REF` | The ref (branch/tag) that was cloned, if specified | `v1.2.0` |
+
+Reference outputs in downstream blocks using template variables:
+
+```mdx
+<Command
+  id="list-files"
+  title="List Cloned Files"
+  command="ls -la {{ ._blocks.clone_repo.outputs.CLONE_PATH }}"
+/>
+```
+
+<Aside type="note">
+  Block IDs with hyphens are converted to underscores in template variables. For example, `clone-repo` becomes `clone_repo`.
+</Aside>
+
+### View Logs
+
+The GitClone block includes a collapsible "View Logs" section (identical to the [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks) that shows the full `git clone` output, including real-time streaming during the clone operation. This includes progress indicators, transfer statistics, and any error details.
+
+### Example: Full Workflow
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Authenticate to GitHub"
+/>
+
+<GitClone
+  id="clone-infra"
+  gitHubAuthId="gh-auth"
+  title="Clone Infrastructure Repo"
+  description="Clone the infrastructure repository to make changes"
+  prefilledUrl="https://github.com/acme-corp/infrastructure-live"
+  prefilledRef="release/v2"
+  prefilledLocalPath="./infra"
+/>
+
+<Command
+  id="apply-changes"
+  githubAuthId="gh-auth"
+  title="Apply OpenTofu Changes"
+  command="cd {{ ._blocks.clone_infra.outputs.CLONE_PATH }} && tofu apply -auto-approve"
+/>
+```

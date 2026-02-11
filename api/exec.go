@@ -60,13 +60,14 @@ type BlockOutputsEvent struct {
 
 // execCommandConfig holds configuration for setting up an exec.Cmd
 type execCommandConfig struct {
-	scriptPath  string
-	interpreter string
-	args        []string
-	execCtx     *SessionExecContext
-	envVars     map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
-	outputFile  string            // Temp file for block outputs (RUNBOOK_OUTPUT)
-	filesDir    string            // Temp directory for file capture (RUNBOOK_FILES)
+	scriptPath   string
+	interpreter  string
+	args         []string
+	execCtx      *SessionExecContext
+	envVars      map[string]string // Per-request env var overrides (e.g., AWS credentials for specific auth block)
+	outputFile   string            // Temp file for block outputs (RUNBOOK_OUTPUT)
+	filesDir     string            // Temp directory for file capture (GENERATED_FILES)
+	workTreePath string            // Active git worktree path for REPO_FILES (empty if none)
 }
 
 // envCaptureConfig holds configuration for environment capture after script execution
@@ -112,7 +113,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
-		// Create a temp directory for file capture (RUNBOOK_FILES)
+		// Create a temp directory for file capture (GENERATED_FILES)
 		// Scripts can write files here to have them captured to the output directory
 		filesDir, err2 := os.MkdirTemp("", "runbook-files-*")
 		if err2 != nil {
@@ -141,7 +142,6 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
-		c.Header("Transfer-Encoding", "chunked")
 
 		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -149,13 +149,14 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 
 		// Set up command configuration
 		cmdConfig := execCommandConfig{
-			scriptPath:  scriptSetup.ScriptPath,
-			interpreter: scriptSetup.Interpreter,
-			args:        scriptSetup.Args,
-			execCtx:     execCtx,
-			envVars:     req.EnvVarsOverride,
-			outputFile:  outputFilePath,
-			filesDir:    filesDir,
+			scriptPath:   scriptSetup.ScriptPath,
+			interpreter:  scriptSetup.Interpreter,
+			args:         scriptSetup.Args,
+			execCtx:      execCtx,
+			envVars:      req.EnvVarsOverride,
+			outputFile:   outputFilePath,
+			filesDir:     filesDir,
+			workTreePath: sessionManager.GetActiveWorkTreePath(),
 		}
 
 		// Create channels for streaming output
@@ -262,6 +263,29 @@ func createOutputFile() (string, error) {
 // Command Setup and Execution
 // =============================================================================
 
+// SetupExecEnvVars appends the standard runbook-managed environment variables to the
+// given environment slice. This is the single source of truth for which env vars are
+// injected into script execution, used by both the runtime server and the testing
+// framework. It sets:
+//   - RUNBOOK_OUTPUT: path to the block outputs file (key-value pairs)
+//   - GENERATED_FILES: path to the file capture directory
+//   - REPO_FILES: path to the active git worktree (if one is registered)
+func SetupExecEnvVars(env []string, outputFile, filesDir, workTreePath string) []string {
+	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
+	env = append(env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFile))
+
+	// Add GENERATED_FILES environment variable for file capture
+	// Scripts can write files to this directory to have them saved to the output directory
+	env = append(env, fmt.Sprintf("GENERATED_FILES=%s", filesDir))
+
+	// Add REPO_FILES environment variable if a git worktree has been registered
+	if workTreePath != "" {
+		env = append(env, fmt.Sprintf("REPO_FILES=%s", workTreePath))
+	}
+
+	return env
+}
+
 // setupExecCommand creates and configures an exec.Cmd with the given configuration
 func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 	cmdArgs := append(cfg.args, cfg.scriptPath)
@@ -288,12 +312,8 @@ func setupExecCommand(ctx context.Context, cfg execCommandConfig) *exec.Cmd {
 		cmd.Env = MergeEnvVars(cmd.Env, cfg.envVars)
 	}
 
-	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", cfg.outputFile))
-
-	// Add RUNBOOK_FILES environment variable for file capture
-	// Scripts can write files to this directory to have them saved to the output directory
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", cfg.filesDir))
+	// Use shared helper for standard execution env vars
+	cmd.Env = SetupExecEnvVars(cmd.Env, cfg.outputFile, cfg.filesDir, cfg.workTreePath)
 
 	// Set working directory from session
 	if cfg.execCtx.WorkDir != "" {

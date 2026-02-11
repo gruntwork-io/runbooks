@@ -71,8 +71,30 @@ func prepareOutputDirectory(workingDir string, cliOutputPath string, apiOutputPa
 	return outputDir, nil
 }
 
+// resolveTargetOutputDir returns the effective output directory based on the target.
+// For "worktree", it uses the active git worktree path from the session.
+// For "generated" (or empty/default), it uses the CLI-configured output path.
+func resolveTargetOutputDir(target string, workingDir string, cliOutputPath string, apiOutputPath *string, sessionManager *SessionManager) (string, error) {
+	if target == "worktree" {
+		worktreePath := sessionManager.GetActiveWorkTreePath()
+		if worktreePath == "" {
+			return "", fmt.Errorf("target is \"worktree\" but no git worktree has been cloned. Use a <GitClone> block first")
+		}
+		// For worktree target, use the worktree path as the base, with optional subdirectory
+		if apiOutputPath != nil && *apiOutputPath != "" {
+			if err := ValidateRelativePath(*apiOutputPath); err != nil {
+				return "", fmt.Errorf("invalid output path: %w", err)
+			}
+			return filepath.Join(worktreePath, *apiOutputPath), nil
+		}
+		return worktreePath, nil
+	}
+	// Default: use the standard generated files output path
+	return prepareOutputDirectory(workingDir, cliOutputPath, apiOutputPath)
+}
+
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
-func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPath string) gin.HandlerFunc {
+func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -115,18 +137,27 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 			return
 		}
 
-		// Prepare the output directory (determine path and create it)
-		outputDir, err := prepareOutputDirectory(workingDir, cliOutputPath, req.OutputPath)
+		// Prepare the output directory based on target
+		outputDir, err := resolveTargetOutputDir(req.Target, workingDir, cliOutputPath, req.OutputPath, sessionManager)
 		if err != nil {
-			slog.Error("Failed to prepare output directory", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
+			slog.Error("Failed to prepare output directory", "error", err, "target", req.Target)
+			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Failed to prepare output directory",
 				"details": err.Error(),
 			})
 			return
 		}
+		// Ensure the directory exists
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			slog.Error("Failed to create output directory", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to create output directory",
+				"details": err.Error(),
+			})
+			return
+		}
 
-		slog.Info("Rendering template to output directory", "outputDir", outputDir)
+		slog.Info("Rendering template to output directory", "outputDir", outputDir, "target", req.Target, "variables", req.Variables)
 
 		// Render with manifest tracking for smart file cleanup
 		diff, err := RenderWithManifest(req.TemplateID, func() (string, error) {
@@ -331,7 +362,7 @@ func inputValuesToMap(inputs []InputValue) map[string]any {
 }
 
 // HandleBoilerplateRenderInline renders boilerplate templates provided directly in the request body
-func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string) gin.HandlerFunc {
+func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderInlineRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -449,11 +480,20 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string) gin.
 		// This merges with existing files instead of replacing them
 		var persistentOutputDir string
 		if req.GenerateFile {
-			persistentOutputDir, err = prepareOutputDirectory(workingDir, cliOutputPath, nil)
+			persistentOutputDir, err = resolveTargetOutputDir(req.Target, workingDir, cliOutputPath, nil, sessionManager)
 			if err != nil {
-				slog.Error("Failed to prepare output directory", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{
+				slog.Error("Failed to prepare output directory", "error", err, "target", req.Target)
+				c.JSON(http.StatusBadRequest, gin.H{
 					"error":   "Failed to prepare output directory",
+					"details": err.Error(),
+				})
+				return
+			}
+			// Ensure the directory exists
+			if err := os.MkdirAll(persistentOutputDir, 0755); err != nil {
+				slog.Error("Failed to create output directory", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "Failed to create output directory",
 					"details": err.Error(),
 				})
 				return

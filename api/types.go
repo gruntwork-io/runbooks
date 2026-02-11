@@ -44,6 +44,10 @@ type RenderRequest struct {
 	// and this is "prod", files will be written to /out/prod).
 	// Defaults to the CLI-configured output path if not provided.
 	OutputPath   *string        `json:"outputPath,omitempty"`
+	// Target specifies where template output is written.
+	// "generated" (default) writes to the configured output path ($GENERATED_FILES destination).
+	// "worktree" writes to the active git worktree path ($REPO_FILES).
+	Target       string         `json:"target,omitempty"`
 }
 
 // RenderResponse represents the response from the render endpoint
@@ -132,6 +136,11 @@ type RenderInlineRequest struct {
 	// Only used when GenerateFile is true.
 	// SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
 	OutputPath *string `json:"outputPath,omitempty"`
+	// Target specifies where template output is written.
+	// "generated" (default) writes to the configured output path ($GENERATED_FILES destination).
+	// "worktree" writes to the active git worktree path ($REPO_FILES).
+	// Only used when GenerateFile is true.
+	Target string `json:"target,omitempty"`
 }
 
 // RenderInlineResponse represents the response from the inline render endpoint

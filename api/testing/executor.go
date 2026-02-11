@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -36,6 +35,7 @@ const (
 	BlockTypeTemplateInline BlockType = "TemplateInline"
 	BlockTypeAwsAuth        BlockType = "AwsAuth"
 	BlockTypeGitHubAuth     BlockType = "GitHubAuth"
+	BlockTypeGitClone       BlockType = "GitClone"
 	BlockTypeAdmonition     BlockType = "Admonition"
 )
 
@@ -85,6 +85,7 @@ func authBlockRefPropName(blockType BlockType) string {
 var authBlockDependentTypes = []BlockType{
 	BlockTypeCheck,
 	BlockTypeCommand,
+	BlockTypeGitClone,
 }
 
 // =============================================================================
@@ -154,6 +155,10 @@ type TestExecutor struct {
 	// When a Check/Command specifies awsAuthId="my-auth", we look up credentials from this map
 	// instead of just using the session environment
 	authBlockCredentials map[string]map[string]string // authBlockID -> envVarName -> value
+
+	// Active worktree path: set by the last successful GitClone block.
+	// Used to inject REPO_FILES environment variable into Command/Check scripts.
+	activeWorkTreePath string
 }
 
 // resolveOutputPath returns the absolute path to the output directory.
@@ -175,10 +180,12 @@ func (e *TestExecutor) getenv(key string) string {
 
 // TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
 type TemplateInlineBlock struct {
-	ID         string
-	Content    string // The template content (between the tags)
-	OutputPath string // The outputPath prop
-	InputsID   string // The inputsId prop (may be empty)
+	ID           string
+	Content      string // The template content (between the tags)
+	OutputPath   string // The outputPath prop
+	InputsID     string // The inputsId prop (may be empty)
+	Target       string // The target prop: "generated" (default) or "worktree"
+	GenerateFile bool   // Whether to write the file to disk
 }
 
 // TemplateBlock holds information about a Template block parsed from the runbook
@@ -186,6 +193,7 @@ type TemplateBlock struct {
 	ID           string
 	TemplatePath string // The path prop (relative to runbook directory)
 	InputsID     string // The inputsId prop (may be empty)
+	Target       string // The target prop: "generated" (default) or "worktree"
 }
 
 // ExecutorOption configures a TestExecutor.
@@ -326,11 +334,17 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 		// Extract the actual template content from code fence if present
 		templateContent = extractTemplateContent(templateContent)
 
+		target := extractMDXPropValue(props, "target")
+		generateFileStr := extractMDXPropValue(props, "generateFile")
+		generateFile := generateFileStr == "true" || generateFileStr == "{true}"
+
 		blocks[id] = &TemplateInlineBlock{
-			ID:         id,
-			Content:    templateContent,
-			OutputPath: outputPath,
-			InputsID:   inputsID,
+			ID:           id,
+			Content:      templateContent,
+			OutputPath:   outputPath,
+			InputsID:     inputsID,
+			Target:       target,
+			GenerateFile: generateFile,
 		}
 	}
 
@@ -365,10 +379,13 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 			continue // Skip invalid blocks
 		}
 
+		target := extractMDXPropValue(props, "target")
+
 		blocks[id] = &TemplateBlock{
 			ID:           id,
 			TemplatePath: templatePath,
 			InputsID:     inputsID,
+			Target:       target,
 		}
 	}
 
@@ -448,6 +465,8 @@ func extractMDXPropValue(props, propName string) string {
 		fmt.Sprintf(`%s=\{`+"`([^`]*)`"+`\}`, propName),
 		fmt.Sprintf(`%s=\{"([^"]*)"\}`, propName),
 		fmt.Sprintf(`%s=\{'([^']*)'\}`, propName),
+		// Match bare JSX expressions like generateFile={true} or count={42}
+		fmt.Sprintf(`%s=\{([^}]+)\}`, propName),
 	}
 
 	for _, pattern := range patterns {
@@ -823,7 +842,7 @@ func (e *TestExecutor) getConfigErrorForBlock(block api.ParsedComponent, registr
 			return warning
 		}
 		return e.validator.GetConfigError(block.Type, block.ID)
-	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition):
+	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition), string(BlockTypeGitClone):
 		return e.validator.GetConfigError(block.Type, block.ID)
 	default:
 		// Check if it's an auth block
@@ -973,6 +992,9 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 	case string(BlockTypeAwsAuth):
 		return e.executeAwsAuth(block, step, start)
 
+	case string(BlockTypeGitClone):
+		return e.executeGitClone(block, step, start)
+
 	case string(BlockTypeAdmonition):
 		// Decorative block - just pass validation, no execution needed
 		result.Passed = true
@@ -1069,6 +1091,46 @@ func (e *TestExecutor) executeTemplateInline(step TestStep, block *TemplateInlin
 		return result
 	}
 
+	// If generateFile is true, write the rendered content to disk
+	if block.GenerateFile && block.OutputPath != "" {
+		var outputDir string
+		if block.Target == "worktree" {
+			if e.activeWorkTreePath == "" {
+				result.Passed = false
+				result.ActualStatus = "error"
+				result.Error = "target is \"worktree\" but no git worktree has been cloned. Use a <GitClone> block first"
+				result.Duration = time.Since(start)
+				if e.verbose {
+					fmt.Printf("--- Result: ✗ error ---\n")
+					fmt.Printf("  Error: %s\n", result.Error)
+				}
+				return result
+			}
+			outputDir = e.activeWorkTreePath
+		} else {
+			outputDir = e.resolveOutputPath()
+		}
+
+		outputFile := filepath.Join(outputDir, block.OutputPath)
+		if err := os.MkdirAll(filepath.Dir(outputFile), 0755); err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to create output directory: %v", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		if err := os.WriteFile(outputFile, []byte(rendered), 0644); err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to write file: %v", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		if e.verbose {
+			fmt.Printf("--- Wrote file: %s ---\n", outputFile)
+		}
+	}
+
 	// Success - template rendered
 	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
 	result.ActualStatus = "success"
@@ -1110,8 +1172,24 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 	// Build template variables from test inputs
 	vars := e.buildTemplateVars()
 
-	// Determine output directory - resolve outputPath relative to workingDir
-	outputDir := e.resolveOutputPath()
+	// Determine output directory based on target
+	var outputDir string
+	if block.Target == "worktree" {
+		if e.activeWorkTreePath == "" {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = "target is \"worktree\" but no git worktree has been cloned. Use a <GitClone> block first"
+			result.Duration = time.Since(start)
+			if e.verbose {
+				fmt.Printf("--- Result: ✗ error ---\n")
+				fmt.Printf("  Error: %s\n", result.Error)
+			}
+			return result
+		}
+		outputDir = e.activeWorkTreePath
+	} else {
+		outputDir = e.resolveOutputPath()
+	}
 
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -1130,6 +1208,9 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 		fmt.Printf("--- Rendering Template ---\n")
 		fmt.Printf("  Template: %s\n", block.TemplatePath)
 		fmt.Printf("  Output: %s\n", outputDir)
+		if block.Target == "worktree" {
+			fmt.Printf("  Target: worktree\n")
+		}
 	}
 
 	// Render the template using boilerplate
@@ -1282,6 +1363,142 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 	}
 
 	return result
+}
+
+// executeGitClone handles GitClone block execution in test mode.
+// It performs a git clone using the block's prefilledUrl, prefilledRef, prefilledRepoPath, and prefilledLocalPath props.
+// If a gitHubAuthId is specified and the referenced auth block has credentials, the token is injected.
+func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
+	result := StepResult{
+		Block:          fmt.Sprintf("%s:%s", lowercaseFirst(string(BlockTypeGitClone)), block.ID),
+		ExpectedStatus: step.Expect,
+		Outputs:        make(map[string]string),
+	}
+
+	// Extract props
+	cloneURL := api.ExtractProp(block.Props, "prefilledUrl")
+	ref := api.ExtractProp(block.Props, "prefilledRef")
+	repoPath := api.ExtractProp(block.Props, "prefilledRepoPath")
+	localPath := api.ExtractProp(block.Props, "prefilledLocalPath")
+
+	if cloneURL == "" {
+		// No URL specified - skip in test mode (user would fill this in interactively)
+		if e.verbose {
+			fmt.Printf("--- No prefilledUrl specified ---\n")
+			fmt.Printf("--- Result: skipped (no URL to clone) ---\n")
+		}
+		e.blockStates[block.ID] = BlockStateSkipped
+		result.ActualStatus = "skipped"
+		result.Passed = e.matchesExpectedStatus(step.Expect, "skipped", 0)
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	absolutePath, _ := api.ResolveClonePaths(localPath, cloneURL, e.workingDir)
+
+	// Inject GitHub token if available
+	effectiveURL := cloneURL
+	if api.IsGitHubURL(cloneURL) {
+		// Check gitHubAuthId first
+		gitHubAuthId := api.ExtractProp(block.Props, "gitHubAuthId")
+		if gitHubAuthId != "" {
+			if creds, ok := e.authBlockCredentials[gitHubAuthId]; ok {
+				if token, ok := creds["GITHUB_TOKEN"]; ok && token != "" {
+					effectiveURL = api.InjectGitHubToken(cloneURL, token)
+				}
+			}
+		} else {
+			// Fallback to session env
+			if token := e.getSessionEnvVar("GITHUB_TOKEN"); token != "" {
+				effectiveURL = api.InjectGitHubToken(cloneURL, token)
+			} else if token := e.getSessionEnvVar("GH_TOKEN"); token != "" {
+				effectiveURL = api.InjectGitHubToken(cloneURL, token)
+			}
+		}
+	}
+
+	if e.verbose {
+		fmt.Printf("--- Cloning %s ---\n", cloneURL)
+		if ref != "" {
+			fmt.Printf("  Ref: %s\n", ref)
+		}
+		if repoPath != "" {
+			fmt.Printf("  Sparse checkout path: %s\n", repoPath)
+		}
+		fmt.Printf("  Destination: %s\n", absolutePath)
+	}
+
+	// Perform the clone using the same core functions as the runtime server
+	cloneCtx, cloneCancel := context.WithTimeout(context.Background(), e.timeout)
+	defer cloneCancel()
+
+	var cloneErr error
+	if repoPath != "" {
+		_, cloneErr = api.GitSparseCloneSimple(cloneCtx, effectiveURL, absolutePath, repoPath, ref)
+	} else {
+		_, cloneErr = api.GitCloneSimple(cloneCtx, effectiveURL, absolutePath, ref)
+	}
+
+	if cloneErr != nil {
+		sanitizedErr := api.SanitizeGitError(cloneErr.Error())
+		if e.verbose {
+			fmt.Printf("--- Result: ✗ failed ---\n")
+			fmt.Printf("  Error: %s\n", sanitizedErr)
+		}
+		result.Passed = false
+		result.ActualStatus = "fail"
+		result.Error = sanitizedErr
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Count files
+	fileCount := api.CountFiles(absolutePath)
+
+	// Store outputs
+	result.Outputs["CLONE_PATH"] = absolutePath
+	result.Outputs["FILE_COUNT"] = fmt.Sprintf("%d", fileCount)
+	if ref != "" {
+		result.Outputs["REF"] = ref
+	}
+
+	// Store in block outputs for downstream access
+	e.blockOutputs[block.ID] = result.Outputs
+
+	// Track this as the active worktree for REPO_FILES injection
+	e.activeWorkTreePath = absolutePath
+
+	e.blockStates[block.ID] = BlockStateSuccess
+	result.ActualStatus = "success"
+	result.Passed = e.matchesExpectedStatus(step.Expect, "success", 0)
+	result.Duration = time.Since(start)
+
+	if e.verbose {
+		fmt.Printf("--- Clone complete: %d files ---\n", fileCount)
+		fmt.Printf("--- Result: ✓ success ---\n")
+	}
+
+	return result
+}
+
+
+
+// getSessionEnvVar reads an env var from the session.
+func (e *TestExecutor) getSessionEnvVar(key string) string {
+	token := e.getSessionToken()
+	execCtx, valid := e.session.ValidateToken(token)
+	if !valid {
+		return ""
+	}
+	// Parse KEY=VALUE pairs from session env
+	for _, envVar := range execCtx.Env {
+		if idx := strings.Index(envVar, "="); idx >= 0 {
+			if envVar[:idx] == key {
+				return envVar[idx+1:]
+			}
+		}
+	}
+	return ""
 }
 
 // AwsCredentialSource describes how AWS credentials were obtained.
@@ -1719,10 +1936,9 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	cmdArgs := append(scriptSetup.Args, scriptSetup.ScriptPath)
 	cmd := exec.CommandContext(ctx, scriptSetup.Interpreter, cmdArgs...)
 
-	// Set environment
+	// Set environment using the same helper as the runtime server
 	cmd.Env = execCtx.Env
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFilePath))
-	cmd.Env = append(cmd.Env, fmt.Sprintf("RUNBOOK_FILES=%s", filesDir))
+	cmd.Env = api.SetupExecEnvVars(cmd.Env, outputFilePath, filesDir, e.activeWorkTreePath)
 
 	// Add test-specific environment variables
 	for key, value := range e.testEnv {
@@ -1760,31 +1976,16 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	waitErr := cmd.Wait()
 	logs := combinedOutput.String()
 
-	// Determine status
-	exitCode := 0
-	status := "success"
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() == context.DeadlineExceeded {
-			return "timeout", -1, nil, logs, fmt.Errorf("script execution timed out")
-		} else {
-			exitCode = 1
-		}
-		switch exitCode {
-		case 0:
-			status = "success"
-		case 2:
-			status = "warn"
-		default:
-			status = "fail"
-		}
+	// Determine status using the same logic as the runtime server
+	exitCode, status := api.DetermineExitStatus(waitErr, ctx)
+	if status == "fail" && ctx.Err() == context.DeadlineExceeded {
+		return "timeout", -1, nil, logs, fmt.Errorf("script execution timed out")
 	}
 
-	// Parse outputs
+	// Parse outputs using the same parser as the runtime server
 	outputs := make(map[string]string)
 	if status == "success" || status == "warn" {
-		outputs, _ = parseBlockOutputs(outputFilePath)
+		outputs, _ = api.ParseBlockOutputs(outputFilePath)
 	}
 
 	// Capture environment changes from bash scripts and update session
@@ -1794,10 +1995,11 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 		}
 	}
 
-	// Copy captured files to output directory
+	// Copy captured files to output directory using the same function as the runtime server
 	if status == "success" || status == "warn" {
-		if err := e.captureFiles(filesDir); err != nil {
-			slog.Warn("Failed to capture files", "error", err)
+		resolvedOutputPath := e.resolveOutputPath()
+		if _, captureErr := api.CaptureFilesFromDir(filesDir, resolvedOutputPath); captureErr != nil {
+			slog.Warn("Failed to capture files", "error", captureErr)
 		}
 	}
 
@@ -1917,103 +2119,6 @@ func (e *TestExecutor) buildTemplateVars() map[string]interface{} {
 	}
 
 	return vars
-}
-
-// captureFiles copies files from the capture directory to the output path.
-func (e *TestExecutor) captureFiles(srcDir string) error {
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return err
-	}
-	if len(entries) == 0 {
-		return nil
-	}
-
-	// Resolve output directory relative to working directory
-	resolvedOutputPath := e.resolveOutputPath()
-
-	// Create output directory if needed
-	if err := os.MkdirAll(resolvedOutputPath, 0755); err != nil {
-		return err
-	}
-
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if path == srcDir {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return err
-		}
-		dstPath := filepath.Join(resolvedOutputPath, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		return copyFile(path, dstPath)
-	})
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
-}
-
-// parseBlockOutputs reads the output file and parses key=value pairs.
-func parseBlockOutputs(filePath string) (map[string]string, error) {
-	outputs := make(map[string]string)
-
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return outputs, nil
-		}
-		return nil, err
-	}
-
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		idx := strings.Index(line, "=")
-		if idx == -1 {
-			continue
-		}
-		key := strings.TrimSpace(line[:idx])
-		value := line[idx+1:]
-		outputs[key] = value
-	}
-
-	return outputs, nil
 }
 
 // runCleanup runs a single cleanup action.

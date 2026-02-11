@@ -1,0 +1,85 @@
+# Test configuration for file-workspace demo
+# Tests the worktree workspace, generated files workspace, and both together.
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+
+tests:
+  - name: full-workspace-flow
+    description: Clone a repo, modify and generate into worktree, then generate standalone files
+    inputs:
+      env-config.AccountName: "dev-sandbox"
+      env-config.Environment: "dev"
+      deploy-notes.AccountName: "dev-sandbox"
+      deploy-notes.Environment: "dev"
+    steps:
+      # Part 1: Worktree workspace
+      - block: clone-infra
+        expect: success
+      - block: modify-repo
+        expect: success
+      - block: template-account-c991c121
+        expect: success
+      # Part 2: Generated files workspace
+      - block: generate-config
+        expect: success
+      - block: deploy-notes
+        expect: success
+    assertions:
+      # Clone produced the expected directory
+      - type: dir_exists
+        path: "../infra-live"
+      - type: file_exists
+        path: "../infra-live/root.hcl"
+      # Script modification was applied to cloned repo
+      - type: file_contains
+        path: "../infra-live/root.hcl"
+        contains: "custom_bucket_prefix"
+      # Template was generated into the worktree
+      - type: file_exists
+        path: "../infra-live/docs/account.hcl"
+      - type: file_contains
+        path: "../infra-live/docs/account.hcl"
+        contains: "dev-sandbox"
+      # Generated config was captured
+      - type: file_exists
+        path: "deploy-config.yaml"
+      - type: file_contains
+        path: "deploy-config.yaml"
+        contains: "stateful-ec2-asg-service"
+      # Generated template was captured
+      - type: file_exists
+        path: "deploy-notes.md"
+      - type: file_contains
+        path: "deploy-notes.md"
+        contains: "Deployment Notes"
+
+  - name: generated-only
+    description: Generate files without cloning (no network required)
+    inputs:
+      env-config.AccountName: "test-account"
+      env-config.Environment: "staging"
+      deploy-notes.AccountName: "test-account"
+      deploy-notes.Environment: "staging"
+    steps:
+      - block: clone-infra
+        expect: skip
+      - block: modify-repo
+        expect: skip
+      - block: template-account-c991c121
+        expect: skip
+      - block: generate-config
+        expect: success
+      - block: deploy-notes
+        expect: success
+    assertions:
+      - type: file_exists
+        path: "deploy-config.yaml"
+      - type: file_exists
+        path: "deploy-notes.md"
+      - type: file_contains
+        path: "deploy-notes.md"
+        contains: "test-account"

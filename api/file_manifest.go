@@ -180,7 +180,7 @@ func ComputeDiff(oldEntries, newEntries []ManifestEntry) DiffResult {
 // ApplyDiff applies the diff result to the output directory:
 // - Deletes orphaned files
 // - Writes created and modified files from the source directory
-// - Skips unchanged files
+// - Skips unchanged files (unless they've been manually deleted)
 // Returns the number of files written and deleted
 //
 // SECURITY: All paths are validated before any file operation to prevent
@@ -239,9 +239,36 @@ func ApplyDiff(diff DiffResult, sourceDir, outputDir string) (written int, delet
 		slog.Debug("Updated modified file", "path", relPath)
 	}
 
-	// Unchanged files are skipped
-	if len(diff.Unchanged) > 0 {
-		slog.Debug("Skipped unchanged files", "count", len(diff.Unchanged))
+	// Handle "unchanged" files - check if they actually exist on disk
+	// If a file was manually deleted, we need to recreate it
+	skippedCount := 0
+	recreatedCount := 0
+	for _, relPath := range diff.Unchanged {
+		fullPath := filepath.Join(outputDir, relPath)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			// File was manually deleted - recreate it
+			// SECURITY: Full validation before writing
+			if err := ValidateRelativePathIn(relPath, outputDir); err != nil {
+				slog.Error("Refusing to write file with unsafe path", "path", relPath, "error", err)
+				return written, deleted, fmt.Errorf("unsafe path in unchanged files: %w", err)
+			}
+
+			if err := copyFileForManifest(sourceDir, outputDir, relPath); err != nil {
+				return written, deleted, err
+			}
+			written++
+			recreatedCount++
+			slog.Debug("Recreated manually deleted file", "path", relPath)
+		} else {
+			skippedCount++
+		}
+	}
+
+	if skippedCount > 0 {
+		slog.Debug("Skipped unchanged files", "count", skippedCount)
+	}
+	if recreatedCount > 0 {
+		slog.Info("Recreated manually deleted files", "count", recreatedCount)
 	}
 
 	return written, deleted, nil

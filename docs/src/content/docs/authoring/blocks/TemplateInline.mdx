@@ -49,6 +49,7 @@ Use `<TemplateInline>` when you want to show users what generated content looks 
 - `inputsId` (string | string[]) - ID of the Inputs block(s) to get variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones). If not provided, the template renders without variable substitution.
 - `outputPath` (string) - File path to display for the rendered output (e.g., `config.yaml`). This appears as the filename in the code block header.
 - `generateFile` (boolean) - Whether to add the rendered file to the file tree. When `false` (the default), the template is preview-only and displays inline. Set to `true` to also save the rendered file to the workspace.
+- `target` (`"generated"` | `"worktree"`) - Where template output is written when `generateFile={true}`. Defaults to `"generated"`, which writes to the standard generated files directory (`$GENERATED_FILES`). Set to `"worktree"` to write directly into the active git worktree (the most recently cloned repo via `<GitClone>`). Requires a `<GitClone>` block to have run first.
 
 <Aside type="note">
 For security reasons, `outputPath` must be a relative path. Absolute paths and directory traversal attempts (e.g., `../`) are blocked.

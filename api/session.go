@@ -36,6 +36,11 @@ type Session struct {
 	ExecutionCount int                  // Global execution counter
 	CreatedAt      time.Time
 	LastActivity   time.Time
+	// RegisteredWorkTreePaths stores absolute paths of registered git worktrees.
+	RegisteredWorkTreePaths []string
+	// ActiveWorkTreePath is the user-selected active worktree path.
+	// When set, it takes precedence over the implicit "last registered" heuristic.
+	ActiveWorkTreePath string
 }
 
 // SessionMetadata is the public-safe subset of Session returned by GET endpoints.
@@ -159,14 +164,14 @@ func (sm *SessionManager) CreateSession(initialWorkingDir string) (*SessionToken
 	}
 
 	session := &Session{
-		ValidTokens:    map[string]time.Time{token: now},
-		Env:            env,
-		InitialEnv:     copyEnvMap(env), // InitialEnv also has them stripped (for reset)
-		InitialWorkDir: absWorkingDir,
-		WorkingDir:     absWorkingDir,
-		ExecutionCount: 0,
-		CreatedAt:      now,
-		LastActivity:   now,
+		ValidTokens:     map[string]time.Time{token: now},
+		Env:             env,
+		InitialEnv:      copyEnvMap(env), // InitialEnv also has them stripped (for reset)
+		InitialWorkDir:  absWorkingDir,
+		WorkingDir:      absWorkingDir,
+		ExecutionCount:  0,
+		CreatedAt:       now,
+		LastActivity:    now,
 	}
 
 	sm.mu.Lock()
@@ -393,13 +398,69 @@ func (s *Session) EnvSlice() []string {
 	return result
 }
 
+// RegisterWorkTreePath adds a worktree path to the session's list of registered worktrees.
+// If the path is already registered, it's a no-op.
+func (sm *SessionManager) RegisterWorkTreePath(path string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.session == nil {
+		return
+	}
+
+	// Check for duplicates
+	for _, existing := range sm.session.RegisteredWorkTreePaths {
+		if existing == path {
+			return
+		}
+	}
+
+	sm.session.RegisteredWorkTreePaths = append(sm.session.RegisteredWorkTreePaths, path)
+}
+
+// SetActiveWorkTreePath sets the explicitly selected active worktree path.
+// Called when the user switches worktrees in the UI.
+func (sm *SessionManager) SetActiveWorkTreePath(path string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.session == nil {
+		return
+	}
+
+	sm.session.ActiveWorkTreePath = path
+}
+
+// GetActiveWorkTreePath returns the active worktree path for REPO_FILES
+// injection and target="worktree" template writes. If the user has explicitly
+// selected a worktree, that path is returned. Otherwise, falls back to the
+// last registered worktree for backward compatibility.
+// Returns an empty string if no worktrees are registered.
+func (sm *SessionManager) GetActiveWorkTreePath() string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if sm.session == nil || len(sm.session.RegisteredWorkTreePaths) == 0 {
+		return ""
+	}
+
+	// Prefer the explicitly selected worktree
+	if sm.session.ActiveWorkTreePath != "" {
+		return sm.session.ActiveWorkTreePath
+	}
+
+	// Fall back to the last registered worktree
+	return sm.session.RegisteredWorkTreePaths[len(sm.session.RegisteredWorkTreePaths)-1]
+}
+
 // excludedEnvVars are environment variables that should not be captured/overwritten
 // because they are shell internals or change with each execution.
 var excludedEnvVars = map[string]bool{
 	"_":                     true, // Last command
 	"SHLVL":                 true, // Shell level
 	"RUNBOOK_OUTPUT":        true, // Temp file for block outputs, deleted after each execution
-	"RUNBOOK_FILES":         true, // Temp directory for file capture, deleted after each execution
+	"GENERATED_FILES":       true, // Temp directory for file capture, deleted after each execution
+	"REPO_FILES":            true, // Active git worktree path, set per execution
 	"OLDPWD":                true, // Previous directory (we track workdir separately)
 	"FUNCNAME":              true, // Bash function name stack
 	"LINENO":                true, // Current line number

@@ -65,7 +65,6 @@ export function useApi<T>(
       setIsLoading(false);
       setData(data);
     } catch (err: unknown) {
-      console.log('err', err);
       setIsLoading(false);
       setError(createAppError(
         err instanceof Error ? err.message : 'An unexpected error occurred',

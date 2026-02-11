@@ -4,17 +4,17 @@ import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDispl
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
 import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
 import { UnmetInputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetInputDependenciesWarning'
-import type { UnmetOutputDependency } from '@/components/mdx/_shared/hooks/useScriptExecution'
 import { useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import { extractOutputDependencies, groupDependenciesByBlock } from './lib/extractOutputDependencies'
+import { extractOutputDependencies } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
-import { normalizeBlockId } from '@/lib/utils'
+import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
@@ -23,6 +23,8 @@ interface TemplateInlineProps {
   outputPath?: string
   /** Whether to generate the file to the file tree (default: false, preview only) */
   generateFile?: boolean
+  /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). Only used when generateFile is true. */
+  target?: 'generated' | 'worktree'
   /** Inline template content (code blocks with file paths) */
   children?: ReactNode
 }
@@ -38,6 +40,7 @@ function TemplateInline({
   inputsId,
   outputPath,
   generateFile = false,
+  target,
   children
 }: TemplateInlineProps) {
   // Render state
@@ -52,8 +55,9 @@ function TemplateInline({
   // Debounce timer ref for auto-updates
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Get file tree for merging
+  // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
+  const { invalidateTree } = useGitWorkTree();
   
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
@@ -73,31 +77,10 @@ function TemplateInline({
   }, [children]);
   
   // Compute unmet output dependencies
-  const unmetOutputDependencies = useMemo((): UnmetOutputDependency[] => {
-    if (outputDependencies.length === 0) return [];
-    
-    // Group dependencies by block ID
-    const byBlock = groupDependenciesByBlock(outputDependencies);
-    const unmet: UnmetOutputDependency[] = [];
-    
-    for (const [blockId, outputNames] of byBlock) {
-      const normalizedId = normalizeBlockId(blockId);
-      const blockData = allOutputs[normalizedId];
-      
-      if (!blockData) {
-        // Block hasn't produced any outputs yet
-        unmet.push({ blockId, outputNames });
-      } else {
-        // Check which specific outputs are missing
-        const missingOutputs = outputNames.filter(name => !(name in blockData.values));
-        if (missingOutputs.length > 0) {
-          unmet.push({ blockId, outputNames: missingOutputs });
-        }
-      }
-    }
-    
-    return unmet;
-  }, [outputDependencies, allOutputs]);
+  const unmetOutputDependencies = useMemo(
+    () => computeUnmetOutputDependencies(outputDependencies, allOutputs),
+    [outputDependencies, allOutputs]
+  );
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
@@ -121,13 +104,7 @@ function TemplateInline({
   }, [inputDependencies]);
   
   // Build the _blocks namespace for template rendering
-  const buildBlocksNamespace = useCallback((): Record<string, { outputs: Record<string, string> }> => {
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {};
-    for (const [blockId, data] of Object.entries(allOutputs)) {
-      blocksNamespace[blockId] = { outputs: data.values };
-    }
-    return blocksNamespace;
-  }, [allOutputs]);
+  const blocksNamespace = useCallback(() => buildBlocksNamespace(allOutputs), [allOutputs]);
   
   // Core render function that calls the API
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
@@ -140,7 +117,7 @@ function TemplateInline({
     // Build inputs array including _blocks namespace for output access
     const inputsWithBlocks = [
       ...inputs.filter(i => i.name !== '_blocks'),
-      { name: '_blocks', type: BoilerplateVariableType.Map, value: buildBlocksNamespace() }
+      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace() }
     ];
     
     try {
@@ -153,6 +130,8 @@ function TemplateInline({
           // Includes _blocks namespace for output access
           inputs: inputsWithBlocks,
           generateFile,
+          // Target specifies where output is written: "generated" (default) or "worktree"
+          ...(target ? { target } : {}),
           // Note: outputPath is already used to name the file in templateFiles,
           // so we don't need to send it separately for directory determination
         }),
@@ -187,7 +166,7 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, inputs, generateFile, buildBlocksNamespace]);
+  }, [templateFiles, inputs, generateFile, blocksNamespace, target]);
   
   // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
@@ -229,9 +208,12 @@ function TemplateInline({
       
       renderTemplate(!isInitialRender)
         .then(newFileTree => {
-          // Only update file tree if generateFile is true
-          // The backend returns the complete output directory tree, so we simply replace
-          if (generateFile) {
+          if (!generateFile) return;
+          // When target is worktree, output went to the git repo — do NOT update Generated tab
+          // (that would show the whole worktree including .git). Instead refresh the All files tree.
+          if (target === 'worktree') {
+            invalidateTree();
+          } else {
             setFileTree(newFileTree);
           }
         })
@@ -239,7 +221,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {

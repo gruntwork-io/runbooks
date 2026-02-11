@@ -1,0 +1,8 @@
+variables:
+  - name: AccountName
+    type: string
+    description: Name of the AWS account
+  - name: Environment
+    type: enum
+    description: Deployment environment
+    options: [dev, staging, prod]

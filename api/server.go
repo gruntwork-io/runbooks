@@ -54,10 +54,10 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
 
 	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, workingDir, outputPath))
+	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, workingDir, outputPath, sessionManager))
 
 	// API endpoint to render boilerplate templates from inline template files
-	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath))
+	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath, sessionManager))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
@@ -102,6 +102,18 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.POST("/github/oauth/poll", HandleGitHubOAuthPoll())
 		protectedAPI.POST("/github/env-credentials", HandleGitHubEnvCredentials(sessionManager))
 		protectedAPI.POST("/github/cli-credentials", HandleGitHubCliCredentials(sessionManager))
+		// GitHub browsing endpoints for GitClone block (read-only, requires session for token)
+		protectedAPI.GET("/github/orgs", HandleGitHubListOrgs(sessionManager))
+		protectedAPI.GET("/github/repos", HandleGitHubListRepos(sessionManager))
+		protectedAPI.GET("/github/refs", HandleGitHubListRefs(sessionManager))
+		// Git clone endpoint (SSE streaming)
+		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir))
+		// Workspace endpoints for file tree, file content, and git changes
+		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
+		protectedAPI.GET("/workspace/file", HandleWorkspaceFile())
+		protectedAPI.GET("/workspace/changes", HandleWorkspaceChanges())
+		protectedAPI.POST("/workspace/register", HandleWorkspaceRegister(sessionManager))
+		protectedAPI.POST("/workspace/set-active", HandleWorkspaceSetActive(sessionManager))
 	}
 
 	// Generated files endpoints (no session context needed)

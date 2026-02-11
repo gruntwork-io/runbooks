@@ -385,6 +385,99 @@ For more details on block outputs, see the [Command block documentation](/author
 Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of block outputs, including a Check block that consumes outputs from upstream Command blocks.
 :::
 
+## Capturing Output Files
+
+Scripts can write files to two different destinations, depending on the workflow.
+
+- [Generated files](/intro/files_workspace/#generated-files)
+- [Repository files](/intro/files_workspace/#repository-files)
+
+See the [Files workspace](/intro/files_workspace/) page for more details.
+
+### Writing to Generated Files
+
+Use `$GENERATED_FILES` to capture new files. Any files written to this directory automatically appear in the file panel after the check completes successfully.
+
+#### Basic Example
+
+```bash
+#!/bin/bash
+# Export current state for review
+aws sts get-caller-identity > "$GENERATED_FILES/caller-identity.json"
+
+# Save a diagnostic report
+echo "Check ran at $(date)" > "$GENERATED_FILES/diagnostic-report.txt"
+```
+
+#### Organizing Files with Subdirectories
+
+You can create subdirectories within `$GENERATED_FILES` to organize your captured files:
+
+```bash
+#!/bin/bash
+mkdir -p "$GENERATED_FILES/diagnostics"
+mkdir -p "$GENERATED_FILES/config"
+
+aws sts get-caller-identity > "$GENERATED_FILES/diagnostics/caller-identity.json"
+aws configure list > "$GENERATED_FILES/diagnostics/aws-config.txt"
+```
+
+This creates:
+
+```
+generated/
+├── diagnostics/
+│   ├── caller-identity.json
+│   └── aws-config.txt
+└── config/
+    └── ...
+```
+
+#### How It Works
+
+1. Before your script runs, Runbooks creates a temporary capture directory
+2. The `$GENERATED_FILES` environment variable points to this directory
+3. Your script writes files to `$GENERATED_FILES`
+4. After successful execution, files are copied to the generated files directory
+5. The temporary directory is cleaned up
+
+:::tip
+Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$GENERATED_FILES` are discarded.
+:::
+
+:::note
+If multiple checks run concurrently and write files with the same name, the last check to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
+:::
+
+### Writing to Repository Files
+
+If a `<GitClone>` block has cloned a repository, the `$REPO_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to read or validate files inside the cloned repo:
+
+```bash
+#!/bin/bash
+# Validate a config file in the cloned repo
+if [ -f "$REPO_FILES/terragrunt.hcl" ]; then
+    log_info "Found terragrunt.hcl"
+    exit 0
+else
+    log_error "Missing terragrunt.hcl"
+    exit 1
+fi
+```
+
+Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` are not captured to a temporary directory; they happen directly on the filesystem. Changes are visible in the **Changed** tab via `git diff`.
+
+:::note
+`$REPO_FILES` is only set when a `<GitClone>` block has successfully cloned a repository. If no repo has been cloned, this variable is **unset**. Always check for it in your scripts:
+
+```bash
+if [ -z "${REPO_FILES:-}" ]; then
+    echo "No git worktree available. Clone a repo first."
+    exit 1
+fi
+```
+:::
+
 ## Common Use Cases
 
 The `<Check>` block works especially well for:
