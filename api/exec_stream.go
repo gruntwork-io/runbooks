@@ -27,13 +27,7 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- outputLine) {
 }
 
 // streamExecutionOutput handles the main loop of streaming output and handling completion
-// blockInfoForSSE carries block identity for tagging SSE events.
-type blockInfoForSSE struct {
-	ComponentID   string
-	ComponentType string
-}
-
-func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig, block *blockInfoForSSE) {
+func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
 	for {
 		select {
 		case out := <-outputChan:
@@ -88,7 +82,7 @@ func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-ch
 					sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
 					flusher.Flush()
 				} else if len(capturedFiles) > 0 {
-					sendSSEFilesCaptured(c, capturedFiles, cliOutputPath, block)
+					sendSSEFilesCaptured(c, capturedFiles, cliOutputPath)
 					flusher.Flush()
 				}
 			}
@@ -171,7 +165,7 @@ func sendSSEError(c *gin.Context, message string) {
 
 // sendSSEFilesCaptured sends a files_captured event via SSE with the list of captured files
 // and the updated file tree
-func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string, block *blockInfoForSSE) {
+func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
 	// Build the updated file tree from the output directory
 	fileTree, err := buildFileTreeWithRoot(cliOutputPath, "")
 	if err != nil {

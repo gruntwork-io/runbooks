@@ -192,11 +192,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			sessionManager: sessionManager,
 			execCtx:        execCtx,
 		}
-		blockInfo := &blockInfoForSSE{
-			ComponentID:   executable.ComponentID,
-			ComponentType: executable.ComponentType,
-		}
-		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig, blockInfo)
+		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig)
 	}
 }
 
