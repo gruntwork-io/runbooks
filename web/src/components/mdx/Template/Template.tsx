@@ -250,6 +250,8 @@ function Template({
     if (validatedTree) {
       setFileTree(validatedTree);
     }
+    // Trigger immediate changelog refresh so changes appear without waiting for next poll
+    invalidateTree();
   }, [renderResult, setFileTree, target, invalidateTree]);
 
   // Debounce timer ref for auto-render

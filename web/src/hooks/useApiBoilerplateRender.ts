@@ -2,6 +2,7 @@ import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
 import { useFileTree } from './useFileTree';
+import { useGitWorkTree } from '@/contexts/useGitWorkTree';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 interface BoilerplateRenderResult {
@@ -45,6 +46,7 @@ export function useApiBoilerplateRender(
   target?: 'generated' | 'worktree'
 ): UseApiBoilerplateRenderResult {
   const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
+  const { invalidateTree } = useGitWorkTree();
 
   // Build the request body - both templatePath and templateId are required
   const requestBody = useMemo(() => {
@@ -77,8 +79,10 @@ export function useApiBoilerplateRender(
     const fileTreeData = apiResult.data?.fileTree;
     if (fileTreeData && Array.isArray(fileTreeData)) {
       setFileTree(fileTreeData);
+      // Trigger immediate changelog refresh so changes appear without waiting for next poll
+      invalidateTree();
     }
-  }, [apiResult.data?.fileTree, setFileTree, target]);
+  }, [apiResult.data?.fileTree, setFileTree, target, invalidateTree]);
 
   return {
     ...apiResult,
