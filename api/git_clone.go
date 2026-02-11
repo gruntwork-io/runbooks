@@ -271,22 +271,22 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 
 		absolutePath, relativePath := ResolveClonePaths(req.LocalPath, req.URL, effectiveWorkDir)
 
-		// Check if destination already exists
-		if info, err := os.Stat(absolutePath); err == nil && info.IsDir() {
+		// Check if destination already exists (file or directory)
+		if _, err := os.Stat(absolutePath); err == nil {
 			if !req.Force {
 				c.JSON(http.StatusConflict, gin.H{
 					"error":       "directory_exists",
-					"message":     fmt.Sprintf("Directory already exists: %s", relativePath),
+					"message":     fmt.Sprintf("Path already exists: %s", relativePath),
 					"path":        relativePath,
 					"absolutePath": absolutePath,
 				})
 				return
 			}
-			// Force mode: remove existing directory
+			// Force mode: remove existing path
 			if err := os.RemoveAll(absolutePath); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "delete_failed",
-					"message": fmt.Sprintf("Failed to delete existing directory: %v", err),
+					"message": fmt.Sprintf("Failed to delete existing path: %v", err),
 				})
 				return
 			}
