@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -472,13 +473,18 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 	}
 
 	var started bool
+	var wg sync.WaitGroup
 
 	// Try PTY first if requested and supported
 	if usePTY && ptySupported() {
 		ptmx, err := startCommandWithPTY(cmd)
 		if err == nil {
 			started = true
-			go streamPTYOutput(ptmx, outputChan)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				streamPTYOutput(ptmx, outputChan)
+			}()
 			go func() {
 				doneChan <- cmd.Wait()
 			}()
@@ -507,8 +513,15 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 			return fmt.Errorf("failed to start git: %w", err)
 		}
 
-		go streamOutput(stderr, outputChan)
-		go streamOutput(stdout, outputChan)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			streamOutput(stderr, outputChan)
+		}()
+		go func() {
+			defer wg.Done()
+			streamOutput(stdout, outputChan)
+		}()
 
 		go func() {
 			doneChan <- cmd.Wait()
@@ -523,9 +536,13 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 			sendSSELogWithReplace(c, line, out.Replace)
 			flusher.Flush()
 		case err := <-doneChan:
+			// Wait for all reader goroutines to finish, then close
+			// outputChan so the drain loop below sees every line.
+			wg.Wait()
+			close(outputChan)
+
 			// Drain any remaining output
-			for len(outputChan) > 0 {
-				out := <-outputChan
+			for out := range outputChan {
 				line := SanitizeGitError(out.Line)
 				sendSSELogWithReplace(c, line, out.Replace)
 				flusher.Flush()
