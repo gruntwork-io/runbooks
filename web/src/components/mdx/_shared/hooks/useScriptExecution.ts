@@ -6,6 +6,7 @@ import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
@@ -112,6 +113,9 @@ export function useScriptExecution({
   
   // Get file tree context for updating when files are captured
   const { setFileTree } = useFileTree()
+
+  // Get worktree context for triggering immediate changelog refresh
+  const { invalidateTree } = useGitWorkTree()
   
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
@@ -124,7 +128,9 @@ export function useScriptExecution({
     // Update the file tree with the new tree from the backend
     // The fileTree is already validated by Zod in useApiExec
     setFileTree(event.fileTree)
-  }, [setFileTree])
+    // Trigger immediate changelog refresh so changes appear without waiting for next poll
+    invalidateTree()
+  }, [setFileTree, invalidateTree])
   
   // Callback to handle outputs captured from script execution
   const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {
@@ -402,6 +408,15 @@ export function useScriptExecution({
       registerOutputs(componentId, {})
     }
   }, [status, outputs, componentId, registerOutputs])
+
+  // Trigger immediate changelog refresh when execution completes successfully.
+  // Scripts may write directly to $REPO_FILES without using $GENERATED_FILES,
+  // so we need to refresh even when no files_captured event was emitted.
+  useEffect(() => {
+    if (status === 'success' || status === 'warn') {
+      invalidateTree()
+    }
+  }, [status, invalidateTree])
 
   // Function to render script with inputs
   const renderScript = useCallback(async (inputs: InputValue[]) => {
