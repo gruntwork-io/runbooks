@@ -43,7 +43,7 @@ export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
               {didCopy ? (
                 <Check className="size-3.5 text-green-400" />
               ) : (
-                <Copy className="size-3.5 opacity-70 hover:opacity-100" />
+                <Copy className="size-3.5 opacity-70 hover:opacity-100 cursor-pointer" />
               )}
             </button>
           </div>
