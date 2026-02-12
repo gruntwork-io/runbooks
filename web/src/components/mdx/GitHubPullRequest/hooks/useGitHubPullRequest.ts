@@ -125,7 +125,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
           if (line.startsWith('event:')) {
             eventType = line.slice(6).trim()
           } else if (line.startsWith('data:')) {
-            eventData = line.slice(5).trim()
+            eventData += (eventData ? '\n' : '') + line.slice(5).trim()
           }
         }
 
