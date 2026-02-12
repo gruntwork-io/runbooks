@@ -19,7 +19,6 @@ export function CollapsibleToggle({ expanded, onToggle, label, icon, disabled, c
         type="button"
         onClick={onToggle}
         className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 cursor-pointer"
-        disabled={disabled}
       >
         {expanded ? (
           <ChevronDown className="size-3.5" />
@@ -29,7 +28,11 @@ export function CollapsibleToggle({ expanded, onToggle, label, icon, disabled, c
         {icon}
         <span className="font-medium">{label}</span>
       </button>
-      {expanded && children}
+      {expanded && (
+        <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
+          {children}
+        </div>
+      )}
     </div>
   )
 }
