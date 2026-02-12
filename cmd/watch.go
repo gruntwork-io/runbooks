@@ -19,11 +19,13 @@ var disableLiveFileReload bool
 
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
-	Use:   "watch PATH",
+	Use:   "watch SOURCE",
 	Short: "Open a runbook and auto-reload changes (for runbook authors)",
-	Long: `Open the runbook located at PATH, or the runbook contained in the PATH directory.
+	Long: `Open the runbook located at SOURCE, or the runbook contained in the SOURCE directory.
 The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
-By default, script changes take effect immediately without server restart (live-file-reload mode).`,
+By default, script changes take effect immediately without server restart (live-file-reload mode).
+
+SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.`,
 	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
@@ -49,6 +51,20 @@ func init() {
 
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(path string) {
+	// Check if path is a remote source (GitHub/GitLab URL, Terraform source, etc.)
+	localPath, remoteCleanup, remoteURL, err := resolveRemoteSource(path)
+	if err != nil {
+		slog.Error("Failed to fetch remote runbook", "error", err)
+		os.Exit(1)
+	}
+	if remoteCleanup != nil {
+		defer remoteCleanup()
+		if workingDir == "" && !workingDirTmp {
+			workingDirTmp = true
+		}
+	}
+	path = localPath
+
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
 	if err != nil {
@@ -77,7 +93,7 @@ func watchRunbook(path string) {
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		errCh <- api.StartServerWithWatch(path, 7825, resolvedWorkDir, outputPath, useExecutableRegistry)
+		errCh <- api.StartServerWithWatch(path, 7825, resolvedWorkDir, outputPath, useExecutableRegistry, remoteURL)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint

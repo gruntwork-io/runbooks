@@ -17,11 +17,12 @@ type FileRequest struct {
 
 // Return the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
-func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool) gin.HandlerFunc {
+// remoteSourceURL is the original remote URL (e.g., GitHub URL) if the runbook was fetched remotely; empty for local runbooks.
+func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool, remoteSourceURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Use the runbook path directly
 		filePath := runbookPath
-		serveFileContentWithWatchMode(c, filePath, isWatchMode, useExecutableRegistry)
+		serveFileContentWithWatchMode(c, filePath, isWatchMode, useExecutableRegistry, remoteSourceURL)
 	}
 }
 
@@ -202,11 +203,12 @@ func getContentType(filename string) string {
 
 // serveFileContent is a helper function that serves file content
 func serveFileContent(c *gin.Context, filePath string) {
-	serveFileContentWithWatchMode(c, filePath, false, true)
+	serveFileContentWithWatchMode(c, filePath, false, true, "")
 }
 
-// serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info
-func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool) {
+// serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info.
+// remoteSourceURL is included in the response when non-empty, allowing the frontend to display the original URL.
+func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool, remoteSourceURL string) {
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -260,6 +262,11 @@ func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode 
 	// Add watch mode info if provided
 	if isWatchMode {
 		response["isWatchMode"] = true
+	}
+
+	// Add remote source URL if this runbook was fetched from a remote source
+	if remoteSourceURL != "" {
+		response["remoteSource"] = remoteSourceURL
 	}
 
 	// In live-reload mode, validate for duplicate components on-demand

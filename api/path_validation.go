@@ -235,6 +235,30 @@ func IsFilesystemRoot(path string) bool {
 // 3. Path is within CWD (after resolving symlinks)
 // 4. Path is not a system-critical directory
 func ValidateAbsolutePathInCwd(path string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return ValidateAbsolutePathInDir(path, cwd)
+}
+
+// ValidateAbsolutePathInDir checks if an absolute path is safe for file operations
+// and is contained within the specified base directory.
+//
+// USE THIS WHEN:
+// - You have an absolute path (already resolved by caller)
+// - You need to ensure it's within a specific base directory (not necessarily CWD)
+// - You're about to perform file operations (read, write, delete)
+//
+// This is used by generated files validation where the working directory may differ
+// from the process CWD (e.g., when using --working-dir-tmp or remote runbooks).
+//
+// Checks performed:
+// 1. Path is not empty
+// 2. Path is absolute (rejects relative paths)
+// 3. Path is within baseDir (after resolving symlinks)
+// 4. Path is not a system-critical directory
+func ValidateAbsolutePathInDir(path string, baseDir string) error {
 	// Reject empty paths
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
@@ -246,7 +270,7 @@ func ValidateAbsolutePathInCwd(path string) error {
 	}
 
 	// Resolve symlinks to get the actual target path
-	// This prevents attacks using symlinks pointing outside CWD
+	// This prevents attacks using symlinks pointing outside the base dir
 	resolvedPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		// If the path doesn't exist yet, EvalSymlinks will fail
@@ -257,30 +281,24 @@ func ValidateAbsolutePathInCwd(path string) error {
 	// Clean the path to resolve any . or .. components
 	cleanPath := filepath.Clean(resolvedPath)
 
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
-	}
-
-	// Resolve symlinks for CWD as well (e.g., on macOS /tmp -> /private/tmp)
+	// Resolve symlinks for base dir as well (e.g., on macOS /tmp -> /private/tmp)
 	// This ensures consistent comparison when both paths involve symlinks
-	resolvedCwd, err := filepath.EvalSymlinks(cwd)
+	resolvedBaseDir, err := filepath.EvalSymlinks(baseDir)
 	if err != nil {
-		// If we can't resolve symlinks on the CWD, it's a sign of a problem.
+		// If we can't resolve symlinks on the base dir, it's a sign of a problem.
 		// It's better to fail fast than to proceed with a potentially incorrect path.
-		return fmt.Errorf("failed to resolve symlinks for current working directory %q: %w", cwd, err)
+		return fmt.Errorf("failed to resolve symlinks for base directory %q: %w", baseDir, err)
 	}
 
-	// The path must be within or equal to the current working directory
-	rel, err := filepath.Rel(resolvedCwd, cleanPath)
+	// The path must be within or equal to the base directory
+	rel, err := filepath.Rel(resolvedBaseDir, cleanPath)
 	if err != nil {
 		return fmt.Errorf("failed to compute relative path: %w", err)
 	}
 
-	// If rel starts with "..", it's outside the current working directory
+	// If rel starts with "..", it's outside the base directory
 	if filepath.IsAbs(rel) || len(rel) >= 2 && rel[0] == '.' && rel[1] == '.' {
-		return fmt.Errorf("path must be within current working directory (path: %s, cwd: %s)", cleanPath, resolvedCwd)
+		return fmt.Errorf("path must be within current working directory (path: %s, cwd: %s)", cleanPath, resolvedBaseDir)
 	}
 
 	// Reject system-critical directories

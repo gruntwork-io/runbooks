@@ -17,9 +17,20 @@ import (
 
 // openCmd represents the open command
 var openCmd = &cobra.Command{
-	Use:     "open PATH",
+	Use:     "open SOURCE",
 	Short:   "Open a runbook (for runbook consumers)",
-	Long:    `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
+	Long: `Open the runbook located at SOURCE, or the runbook contained in the SOURCE directory.
+
+SOURCE can be a local path or a remote URL:
+  runbooks open ./path/to/runbook
+  runbooks open https://github.com/org/repo/tree/main/runbooks/setup-vpc
+  runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0
+  runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main"
+
+Supported remote formats:
+  - GitHub/GitLab browser URLs (tree or blob)
+  - Terraform-style github.com/owner/repo//path?ref=tag
+  - Terraform-style git::https://host/owner/repo.git//path?ref=tag`,
 	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
@@ -42,6 +53,21 @@ func init() {
 
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(path string) {
+	// Check if path is a remote source (GitHub/GitLab URL, Terraform source, etc.)
+	localPath, remoteCleanup, remoteURL, err := resolveRemoteSource(path)
+	if err != nil {
+		slog.Error("Failed to fetch remote runbook", "error", err)
+		os.Exit(1)
+	}
+	if remoteCleanup != nil {
+		defer remoteCleanup()
+		// Use temp working dir for remote runbooks if none was explicitly set
+		if workingDir == "" && !workingDirTmp {
+			workingDirTmp = true
+		}
+	}
+	path = localPath
+
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
 	if err != nil {
@@ -67,7 +93,7 @@ func openRunbook(path string) {
 
 	// Start the API server in a goroutine
 	go func() {
-		errCh <- api.StartServer(path, 7825, resolvedWorkDir, outputPath)
+		errCh <- api.StartServer(path, 7825, resolvedWorkDir, outputPath, remoteURL)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint
