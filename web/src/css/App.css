@@ -179,43 +179,4 @@
   .runbook-block input {
     background-color: white;
   }
-
-  /* Restore markdown-body styles inside markdown preview areas (e.g. PR description preview).
-     These need higher specificity than the runbook-block resets above. */
-  .markdown-body .runbook-block .markdown-preview p,
-  .markdown-body .runbook-block .markdown-preview blockquote,
-  .markdown-body .runbook-block .markdown-preview ul,
-  .markdown-body .runbook-block .markdown-preview ol,
-  .markdown-body .runbook-block .markdown-preview dl,
-  .markdown-body .runbook-block .markdown-preview table,
-  .markdown-body .runbook-block .markdown-preview pre {
-    margin-top: 16px;
-    margin-bottom: 16px;
-  }
-
-  .markdown-body .runbook-block .markdown-preview ul,
-  .markdown-body .runbook-block .markdown-preview ol {
-    padding-left: 2em;
-    list-style: revert;
-  }
-
-  .markdown-body .runbook-block .markdown-preview ul {
-    list-style-type: disc;
-  }
-
-  .markdown-body .runbook-block .markdown-preview ol {
-    list-style-type: decimal;
-  }
-
-  /* Scale markdown preview to match GitHub's PR description sizing (14px base).
-     All heading sizes in github-markdown.css use em units, so they scale with this. */
-  .markdown-body .runbook-block .markdown-preview {
-    font-size: 0.875rem;
-  }
-
-  .markdown-body .runbook-block .markdown-preview img {
-    max-width: 100%;
-    height: auto;
-  }
-
 }
