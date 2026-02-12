@@ -3,6 +3,7 @@ import "./MarkdownEditor.css"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeRaw from "rehype-raw"
+import rehypeSanitize from "rehype-sanitize"
 
 interface MarkdownEditorProps {
   value: string
@@ -66,7 +67,7 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
             <div className="markdown-body markdown-preview">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
                 components={{
                   a: ({ href, children }) => (
                     <a href={href} target="_blank" rel="noopener noreferrer">

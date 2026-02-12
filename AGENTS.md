@@ -21,6 +21,7 @@ Taskfile.yml  — Task runner config
 ### Frontend (`/web`)
 
 - **React 19** with TypeScript, built with **Vite**
+- **Bun** as the javascript runtime
 - **Tailwind CSS 4** for styling
 - **shadcn/ui** (Radix primitives) for accessible UI components
 - **MDX** (`@mdx-js/mdx`) for rendering runbook content
