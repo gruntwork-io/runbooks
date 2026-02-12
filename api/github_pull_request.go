@@ -94,6 +94,15 @@ func HandleGitHubListLabels(sm *SessionManager) gin.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			c.JSON(http.StatusOK, gin.H{
+				"labels": []interface{}{},
+				"error":  fmt.Sprintf("GitHub API returned status %d: %s", resp.StatusCode, string(body)),
+			})
+			return
+		}
+
 		var rawLabels []struct {
 			Name        string `json:"name"`
 			Color       string `json:"color"`
