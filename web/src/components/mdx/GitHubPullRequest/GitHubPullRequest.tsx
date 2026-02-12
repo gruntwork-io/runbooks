@@ -122,6 +122,7 @@ function GitHubPullRequest({
   const [userEditedTitle, setUserEditedTitle] = useState(false)
   const [userEditedDescription, setUserEditedDescription] = useState(false)
   const [userEditedBranch, setUserEditedBranch] = useState(false)
+  const [userEditedCommitMessage, setUserEditedCommitMessage] = useState(false)
 
   // Update form state when resolved values change (unless user has edited)
   useEffect(() => {
@@ -141,6 +142,12 @@ function GitHubPullRequest({
       setBranchName(resolvedBranchName)
     }
   }, [resolvedBranchName, userEditedBranch])
+
+  useEffect(() => {
+    if (!userEditedCommitMessage) {
+      setCommitMessage(defaultCommitMessage)
+    }
+  }, [defaultCommitMessage, userEditedCommitMessage])
 
   // Determine effective status (override pending → ready when deps met)
   const effectiveStatus: PRBlockStatus = useMemo(() => {
@@ -209,6 +216,7 @@ function GitHubPullRequest({
     setUserEditedTitle(false)
     setUserEditedDescription(false)
     setUserEditedBranch(false)
+    setUserEditedCommitMessage(false)
   }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels, defaultCommitMessage])
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
@@ -308,7 +316,7 @@ function GitHubPullRequest({
               branchName={branchName}
               setBranchName={(v) => { setBranchName(v); setUserEditedBranch(true) }}
               commitMessage={commitMessage}
-              setCommitMessage={setCommitMessage}
+              setCommitMessage={(v) => { setCommitMessage(v); setUserEditedCommitMessage(true) }}
               defaultCommitMessage={defaultCommitMessage}
               selectedLabels={selectedLabels}
               setSelectedLabels={setSelectedLabels}
