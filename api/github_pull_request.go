@@ -141,6 +141,10 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "localPath is required"})
 			return
 		}
+		if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid localPath: %v", err)})
+			return
+		}
 		if req.RepoURL == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "repoUrl is required"})
 			return
@@ -274,6 +278,10 @@ func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 
 		if req.LocalPath == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "localPath is required"})
+			return
+		}
+		if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid localPath: %v", err)})
 			return
 		}
 		if req.BranchName == "" {
