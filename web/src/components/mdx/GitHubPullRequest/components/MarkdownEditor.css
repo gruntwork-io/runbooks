@@ -1,0 +1,45 @@
+/* Restore markdown-body styles inside the PR description preview.
+   The outer .runbook-block resets margins and list styles for form elements,
+   but the preview pane needs them back for rendered markdown.
+   Scoped here instead of App.css since only MarkdownEditor uses these.
+
+   Selectors include .runbook-block to beat the specificity of the resets
+   in App.css (which target .markdown-body .runbook-block <element>). */
+
+@layer components {
+  .runbook-block .markdown-body.markdown-preview p,
+  .runbook-block .markdown-body.markdown-preview blockquote,
+  .runbook-block .markdown-body.markdown-preview ul,
+  .runbook-block .markdown-body.markdown-preview ol,
+  .runbook-block .markdown-body.markdown-preview dl,
+  .runbook-block .markdown-body.markdown-preview table,
+  .runbook-block .markdown-body.markdown-preview pre {
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+
+  .runbook-block .markdown-body.markdown-preview ul,
+  .runbook-block .markdown-body.markdown-preview ol {
+    padding-left: 2em;
+    list-style: revert;
+  }
+
+  .runbook-block .markdown-body.markdown-preview ul {
+    list-style-type: disc;
+  }
+
+  .runbook-block .markdown-body.markdown-preview ol {
+    list-style-type: decimal;
+  }
+
+  /* Scale to match GitHub's PR description sizing (14px base).
+     All heading sizes in github-markdown.css use em units, so they scale with this. */
+  .runbook-block .markdown-body.markdown-preview {
+    font-size: 0.875rem;
+  }
+
+  .runbook-block .markdown-body.markdown-preview img {
+    max-width: 100%;
+    height: auto;
+  }
+}

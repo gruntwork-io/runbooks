@@ -35,8 +35,9 @@ const (
 	BlockTypeTemplateInline BlockType = "TemplateInline"
 	BlockTypeAwsAuth        BlockType = "AwsAuth"
 	BlockTypeGitHubAuth     BlockType = "GitHubAuth"
-	BlockTypeGitClone       BlockType = "GitClone"
-	BlockTypeAdmonition     BlockType = "Admonition"
+	BlockTypeGitClone           BlockType = "GitClone"
+	BlockTypeGitHubPullRequest BlockType = "GitHubPullRequest"
+	BlockTypeAdmonition        BlockType = "Admonition"
 )
 
 // =============================================================================
@@ -86,6 +87,7 @@ var authBlockDependentTypes = []BlockType{
 	BlockTypeCheck,
 	BlockTypeCommand,
 	BlockTypeGitClone,
+	BlockTypeGitHubPullRequest,
 }
 
 // =============================================================================
@@ -842,7 +844,7 @@ func (e *TestExecutor) getConfigErrorForBlock(block api.ParsedComponent, registr
 			return warning
 		}
 		return e.validator.GetConfigError(block.Type, block.ID)
-	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition), string(BlockTypeGitClone):
+	case string(BlockTypeInputs), string(BlockTypeTemplate), string(BlockTypeTemplateInline), string(BlockTypeAdmonition), string(BlockTypeGitClone), string(BlockTypeGitHubPullRequest):
 		return e.validator.GetConfigError(block.Type, block.ID)
 	default:
 		// Check if it's an auth block
@@ -994,6 +996,17 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 
 	case string(BlockTypeGitClone):
 		return e.executeGitClone(block, step, start)
+
+	case string(BlockTypeGitHubPullRequest):
+		// GitHubPullRequest blocks are always skipped in test mode because they
+		// require interactive GitHub token and create real PRs.
+		result.Passed = step.Expect == StatusSkip
+		result.ActualStatus = "skipped"
+		result.Duration = time.Since(start)
+		if e.verbose {
+			fmt.Println("  (GitHubPullRequest blocks are skipped in test mode)")
+		}
+		return result
 
 	case string(BlockTypeAdmonition):
 		// Decorative block - just pass validation, no execution needed

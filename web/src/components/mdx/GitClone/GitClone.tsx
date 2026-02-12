@@ -290,7 +290,7 @@ function GitClone({
                   disabled={isFormDisabled}
                   initialOrg={prefilledGitHub?.org}
                   initialRepo={prefilledGitHub?.repo}
-                  defaultOpen={!!prefilledGitHub}
+                  defaultOpen={false}
                 />
               )}
 

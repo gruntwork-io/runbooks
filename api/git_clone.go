@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -230,6 +231,10 @@ func (w *sseWriter) status(status string, exitCode int)   { sendSSEStatus(w.c, s
 func (w *sseWriter) done()                                { sendSSEDone(w.c); w.flusher.Flush() }
 func (w *sseWriter) outputs(outputs map[string]string)    { sendSSEOutputs(w.c, outputs); w.flusher.Flush() }
 func (w *sseWriter) event(name string, data interface{})  { w.c.SSEvent(name, data); w.flusher.Flush() }
+
+// fail logs an error message, sends a fail status, and closes the SSE stream.
+// Combines the common sse.log + sse.status("fail") + sse.done() pattern.
+func (w *sseWriter) fail(msg string)  { w.log(msg); w.status("fail", 1); w.done() }
 
 // =============================================================================
 // Git Clone Handler
@@ -621,6 +626,30 @@ func doGitHubAPIGet(ctx context.Context, token, apiURL string) (*http.Response, 
 	return resp, nil
 }
 
+// doGitHubAPIPost creates and executes an authenticated GitHub API POST request.
+// It sets the standard Authorization, Accept, API version, and Content-Type headers.
+// The caller is responsible for closing resp.Body on success.
+// Unlike doGitHubAPIGet, this does NOT check the status code — callers handle
+// different expected status codes (e.g. 200 for labels, 201 for PR creation).
+func doGitHubAPIPost(ctx context.Context, token, apiURL string, jsonBody []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
+	}
+
+	return resp, nil
+}
+
 // fetchGitHubOrgs fetches the organizations for the authenticated user.
 func fetchGitHubOrgs(ctx context.Context, token string) ([]GitHubOrg, error) {
 	resp, err := doGitHubAPIGet(ctx, token, GitHubAPIBaseURL+"/user/orgs?per_page=100")
@@ -925,27 +954,9 @@ func ResolveClonePaths(localPath, cloneURL, workDir string) (absolutePath, relat
 // RepoNameFromURL extracts the repository name from a git URL.
 // e.g., "https://github.com/org/repo.git" -> "repo"
 func RepoNameFromURL(rawURL string) string {
-	// Try parsing as a URL
-	parsed, err := url.Parse(rawURL)
-	if err == nil && parsed.Path != "" {
-		base := filepath.Base(parsed.Path)
-		return strings.TrimSuffix(base, ".git")
+	if _, repo := parseOwnerRepoFromURL(rawURL); repo != "" {
+		return repo
 	}
-
-	// Handle SSH-style URLs: git@github.com:org/repo.git
-	if idx := strings.LastIndex(rawURL, "/"); idx >= 0 {
-		base := rawURL[idx+1:]
-		return strings.TrimSuffix(base, ".git")
-	}
-
-	if idx := strings.LastIndex(rawURL, ":"); idx >= 0 {
-		base := rawURL[idx+1:]
-		if slashIdx := strings.LastIndex(base, "/"); slashIdx >= 0 {
-			base = base[slashIdx+1:]
-		}
-		return strings.TrimSuffix(base, ".git")
-	}
-
 	return "repo"
 }
 

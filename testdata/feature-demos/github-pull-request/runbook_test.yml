@@ -1,0 +1,20 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: "5m"
+
+tests:
+  - name: skip-without-credentials
+    description: Auth block skips when no credentials; dependent PR block also skips
+    env:
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+      RUNBOOKS_GITHUB_TOKEN: ""
+    steps:
+      - block: gh-auth
+        expect: skip
+      - block: clone-repo
+        expect: skip
+      - block: create-pr
+        expect: skip
