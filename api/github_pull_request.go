@@ -36,6 +36,12 @@ type GitPushRequest struct {
 	BranchName string `json:"branchName"`
 }
 
+// GitDeleteBranchRequest represents the request body for DELETE /api/git/branch
+type GitDeleteBranchRequest struct {
+	LocalPath  string `json:"localPath"`
+	BranchName string `json:"branchName"`
+}
+
 // PRResultEvent is sent as an SSE event on successful PR creation
 type PRResultEvent struct {
 	PRUrl      string `json:"prUrl"`
@@ -186,7 +192,21 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		// Step 1: Create branch
 		sse.log(fmt.Sprintf("Creating branch %s...", req.BranchName))
 		if err := runGitCommandCtx(ctx, req.LocalPath, "checkout", "-b", req.BranchName); err != nil {
-			sse.fail(fmt.Sprintf("Failed to create branch: %s", SanitizeGitError(err.Error())))
+			errMsg := SanitizeGitError(err.Error())
+			if strings.Contains(errMsg, "already exists") {
+				msg := fmt.Sprintf("Branch %q already exists.", req.BranchName)
+				sse.log(msg)
+				c.SSEvent("error", gin.H{
+					"message":    msg,
+					"code":       "branch_exists",
+					"branchName": req.BranchName,
+				})
+				flusher.Flush()
+				sse.status("fail", 1)
+				sse.done()
+			} else {
+				sse.fail(fmt.Sprintf("Failed to create branch: %s", errMsg))
+			}
 			return
 		}
 
@@ -349,6 +369,94 @@ func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 		sse.status("success", 0)
 		sse.done()
 	}
+}
+
+// protectedBranches is the set of branch names that cannot be deleted via the API.
+var protectedBranches = map[string]bool{
+	"main":    true,
+	"master":  true,
+	"develop": true,
+	"dev":     true,
+	"staging": true,
+	"release": true,
+	"prod":    true,
+	"production": true,
+}
+
+// HandleGitDeleteBranch deletes a local git branch.
+// DELETE /api/git/branch
+// Requires SessionAuthMiddleware.
+//
+// Safety: only branches not on the protected list can be deleted.
+// The branch name is also validated to reject values containing
+// path separators, whitespace, or git-special characters.
+func HandleGitDeleteBranch() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req GitDeleteBranchRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+			return
+		}
+
+		if req.LocalPath == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "localPath is required"})
+			return
+		}
+		if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid localPath: %v", err)})
+			return
+		}
+		if req.BranchName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "branchName is required"})
+			return
+		}
+
+		// Reject branch names with suspicious characters (null bytes, spaces, control chars, ~, ^, :, \)
+		if strings.ContainsAny(req.BranchName, "\x00 \t\n~^:\\") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Branch name contains invalid characters"})
+			return
+		}
+
+		// Reject branch names that start with "-" (could be interpreted as git flags)
+		if strings.HasPrefix(req.BranchName, "-") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Branch name cannot start with a dash"})
+			return
+		}
+
+		// Protect well-known branches from accidental deletion
+		if protectedBranches[req.BranchName] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Refusing to delete protected branch %q", req.BranchName)})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
+		// Verify we are not deleting the currently checked-out branch
+		currentBranch, err := getCurrentBranch(ctx, req.LocalPath)
+		if err == nil && currentBranch == req.BranchName {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Cannot delete branch %q because it is currently checked out", req.BranchName)})
+			return
+		}
+
+		if err := runGitCommandCtx(ctx, req.LocalPath, "branch", "-D", req.BranchName); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete branch: %s", SanitizeGitError(err.Error()))})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"deleted": req.BranchName})
+	}
+}
+
+// getCurrentBranch returns the name of the currently checked-out branch.
+func getCurrentBranch(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // =============================================================================

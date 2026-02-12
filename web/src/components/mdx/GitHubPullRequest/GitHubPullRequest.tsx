@@ -1,4 +1,4 @@
-import { GitPullRequest, CheckCircle, XCircle, Loader2, AlertTriangle } from "lucide-react"
+import { GitPullRequest, CheckCircle, XCircle, Loader2, AlertTriangle, Trash2 } from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -68,6 +68,8 @@ function GitHubPullRequest({
     logs,
     prResult,
     errorMessage,
+    errorCode,
+    conflictBranchName,
     pushError,
     labels,
     labelsLoading,
@@ -75,6 +77,7 @@ function GitHubPullRequest({
     sessionReady,
     createPullRequest,
     pushChanges,
+    deleteBranch,
     fetchLabels,
     cancel,
     reset,
@@ -219,6 +222,15 @@ function GitHubPullRequest({
     setUserEditedCommitMessage(false)
   }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels, defaultCommitMessage])
 
+  // Delete conflicting branch handler
+  const [deletingBranch, setDeletingBranch] = useState(false)
+  const handleDeleteBranch = useCallback(async () => {
+    if (!activeWorkTree || !conflictBranchName) return
+    setDeletingBranch(true)
+    await deleteBranch(activeWorkTree.localPath, conflictBranchName)
+    setDeletingBranch(false)
+  }, [activeWorkTree, conflictBranchName, deleteBranch])
+
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
   const isFormDisabled = !githubAuthMet || !activeWorkTree
@@ -289,9 +301,20 @@ function GitHubPullRequest({
           {errorMessage && effectiveStatus === 'fail' && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
               <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-medium text-red-800 m-0">Pull request creation failed</p>
                 <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{errorMessage}</p>
+                {errorCode === 'branch_exists' && conflictBranchName && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteBranch}
+                    disabled={deletingBranch}
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 border border-red-300 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="size-3" />
+                    {deletingBranch ? 'Deleting...' : `Delete branch "${conflictBranchName}" and retry`}
+                  </button>
+                )}
               </div>
             </div>
           )}

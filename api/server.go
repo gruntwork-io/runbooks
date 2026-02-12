@@ -112,6 +112,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.GET("/github/labels", HandleGitHubListLabels(sessionManager))
 		protectedAPI.POST("/git/pull-request", HandleGitPullRequest(sessionManager))
 		protectedAPI.POST("/git/push", HandleGitPush(sessionManager))
+		protectedAPI.DELETE("/git/branch", HandleGitDeleteBranch())
 		// Workspace endpoints for file tree, file content, and git changes
 		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
 		protectedAPI.GET("/workspace/file", HandleWorkspaceFile())

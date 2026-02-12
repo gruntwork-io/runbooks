@@ -49,6 +49,8 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [prResult, setPRResult] = useState<PRResult | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
+  const [conflictBranchName, setConflictBranchName] = useState<string | null>(null)
   const [pushError, setPushError] = useState<string | null>(null)
   const [labels, setLabels] = useState<GitHubLabel[]>([])
   const [labelsLoading, setLabelsLoading] = useState(false)
@@ -166,6 +168,10 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
             }
           } else if (eventType === 'error') {
             setErrorMessage(data.message || 'Operation failed')
+            setErrorCode(data.code || null)
+            if (data.code === 'branch_exists' && data.branchName) {
+              setConflictBranchName(data.branchName)
+            }
             setStatus('fail')
           }
         } catch {
@@ -238,6 +244,8 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     setLogs([])
     setPRResult(null)
     setErrorMessage(null)
+    setErrorCode(null)
+    setConflictBranchName(null)
     setPushError(null)
 
     await executeSSERequest({
@@ -276,12 +284,37 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     }
   }, [])
 
+  // Delete a local branch and reset to ready state
+  const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
+    const response = await fetch('/api/git/branch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ localPath, branchName }),
+    })
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null)
+      setErrorMessage(data?.error || `Failed to delete branch (${response.status})`)
+      setErrorCode(null)
+      setConflictBranchName(null)
+      return
+    }
+
+    setErrorMessage(null)
+    setErrorCode(null)
+    setConflictBranchName(null)
+    setStatus('ready')
+    setLogs([])
+  }, [getAuthHeader])
+
   // Reset to ready state
   const reset = useCallback(() => {
     setStatus('ready')
     setLogs([])
     setPRResult(null)
     setErrorMessage(null)
+    setErrorCode(null)
+    setConflictBranchName(null)
     setPushError(null)
   }, [])
 
@@ -291,6 +324,8 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     logs,
     prResult,
     errorMessage,
+    errorCode,
+    conflictBranchName,
     pushError,
     labels,
     labelsLoading,
@@ -300,6 +335,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     // Actions
     createPullRequest,
     pushChanges,
+    deleteBranch,
     fetchLabels,
     cancel,
     reset,
