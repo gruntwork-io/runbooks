@@ -15,31 +15,58 @@ func TestProtectedGitHubEndpointsRequireAuth(t *testing.T) {
 	router := setupTestRouter(t, sm)
 
 	endpoints := []struct {
-		name string
-		path string
-		body interface{}
+		name   string
+		method string
+		path   string
+		body   interface{}
 	}{
 		{
-			name: "/api/github/oauth/poll",
-			path: "/api/github/oauth/poll",
-			body: GitHubOAuthPollRequest{ClientID: "test", DeviceCode: "test"},
+			name:   "/api/github/oauth/poll",
+			method: http.MethodPost,
+			path:   "/api/github/oauth/poll",
+			body:   GitHubOAuthPollRequest{ClientID: "test", DeviceCode: "test"},
 		},
 		{
-			name: "/api/github/env-credentials",
-			path: "/api/github/env-credentials",
-			body: GitHubEnvCredentialsRequest{GitHubAuthID: "test"},
+			name:   "/api/github/env-credentials",
+			method: http.MethodPost,
+			path:   "/api/github/env-credentials",
+			body:   GitHubEnvCredentialsRequest{GitHubAuthID: "test"},
 		},
 		{
-			name: "/api/github/cli-credentials",
-			path: "/api/github/cli-credentials",
-			body: struct{ GitHubAuthID string }{GitHubAuthID: "test"},
+			name:   "/api/github/cli-credentials",
+			method: http.MethodPost,
+			path:   "/api/github/cli-credentials",
+			body:   struct{ GitHubAuthID string }{GitHubAuthID: "test"},
+		},
+		{
+			name:   "/api/github/labels",
+			method: http.MethodGet,
+			path:   "/api/github/labels?owner=test&repo=test",
+			body:   nil,
+		},
+		{
+			name:   "/api/git/pull-request",
+			method: http.MethodPost,
+			path:   "/api/git/pull-request",
+			body:   CreatePullRequestRequest{Title: "test", BranchName: "test", LocalPath: "/tmp", RepoURL: "https://github.com/org/repo"},
+		},
+		{
+			name:   "/api/git/push",
+			method: http.MethodPost,
+			path:   "/api/git/push",
+			body:   GitPushRequest{LocalPath: "/tmp", BranchName: "test"},
 		},
 	}
 
 	for _, ep := range endpoints {
 		t.Run(ep.name+" without auth returns 401", func(t *testing.T) {
-			bodyBytes, _ := json.Marshal(ep.body)
-			req := httptest.NewRequest(http.MethodPost, ep.path, bytes.NewReader(bodyBytes))
+			var req *http.Request
+			if ep.body != nil {
+				bodyBytes, _ := json.Marshal(ep.body)
+				req = httptest.NewRequest(ep.method, ep.path, bytes.NewReader(bodyBytes))
+			} else {
+				req = httptest.NewRequest(ep.method, ep.path, nil)
+			}
 			req.Header.Set("Content-Type", "application/json")
 			// No Authorization header
 
@@ -62,8 +89,13 @@ func TestProtectedGitHubEndpointsRequireAuth(t *testing.T) {
 		})
 
 		t.Run(ep.name+" with invalid token returns 401", func(t *testing.T) {
-			bodyBytes, _ := json.Marshal(ep.body)
-			req := httptest.NewRequest(http.MethodPost, ep.path, bytes.NewReader(bodyBytes))
+			var req *http.Request
+			if ep.body != nil {
+				bodyBytes, _ := json.Marshal(ep.body)
+				req = httptest.NewRequest(ep.method, ep.path, bytes.NewReader(bodyBytes))
+			} else {
+				req = httptest.NewRequest(ep.method, ep.path, nil)
+			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer invalid-token-12345")
 
@@ -91,31 +123,58 @@ func TestProtectedGitHubEndpointsAcceptValidToken(t *testing.T) {
 	router := setupTestRouter(t, sm)
 
 	endpoints := []struct {
-		name string
-		path string
-		body interface{}
+		name   string
+		method string
+		path   string
+		body   interface{}
 	}{
 		{
-			name: "/api/github/oauth/poll",
-			path: "/api/github/oauth/poll",
-			body: GitHubOAuthPollRequest{ClientID: "test", DeviceCode: "test"},
+			name:   "/api/github/oauth/poll",
+			method: http.MethodPost,
+			path:   "/api/github/oauth/poll",
+			body:   GitHubOAuthPollRequest{ClientID: "test", DeviceCode: "test"},
 		},
 		{
-			name: "/api/github/env-credentials",
-			path: "/api/github/env-credentials",
-			body: GitHubEnvCredentialsRequest{GitHubAuthID: "test"},
+			name:   "/api/github/env-credentials",
+			method: http.MethodPost,
+			path:   "/api/github/env-credentials",
+			body:   GitHubEnvCredentialsRequest{GitHubAuthID: "test"},
 		},
 		{
-			name: "/api/github/cli-credentials",
-			path: "/api/github/cli-credentials",
-			body: struct{ GitHubAuthID string }{GitHubAuthID: "test"},
+			name:   "/api/github/cli-credentials",
+			method: http.MethodPost,
+			path:   "/api/github/cli-credentials",
+			body:   struct{ GitHubAuthID string }{GitHubAuthID: "test"},
+		},
+		{
+			name:   "/api/github/labels",
+			method: http.MethodGet,
+			path:   "/api/github/labels?owner=test&repo=test",
+			body:   nil,
+		},
+		{
+			name:   "/api/git/pull-request",
+			method: http.MethodPost,
+			path:   "/api/git/pull-request",
+			body:   CreatePullRequestRequest{Title: "test", BranchName: "test", LocalPath: "/tmp", RepoURL: "https://github.com/org/repo"},
+		},
+		{
+			name:   "/api/git/push",
+			method: http.MethodPost,
+			path:   "/api/git/push",
+			body:   GitPushRequest{LocalPath: "/tmp", BranchName: "test"},
 		},
 	}
 
 	for _, ep := range endpoints {
 		t.Run(ep.name+" with valid token passes auth", func(t *testing.T) {
-			bodyBytes, _ := json.Marshal(ep.body)
-			req := httptest.NewRequest(http.MethodPost, ep.path, bytes.NewReader(bodyBytes))
+			var req *http.Request
+			if ep.body != nil {
+				bodyBytes, _ := json.Marshal(ep.body)
+				req = httptest.NewRequest(ep.method, ep.path, bytes.NewReader(bodyBytes))
+			} else {
+				req = httptest.NewRequest(ep.method, ep.path, nil)
+			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+sessionResp.Token)
 
