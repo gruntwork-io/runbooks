@@ -126,6 +126,12 @@ func TestGenerateRunbook_ComplexModule(t *testing.T) {
 	// Variables from common.tf
 	assert.Contains(t, bp, "environment")
 	assert.Contains(t, bp, "notification_config")
+
+	// Verify filename-based section groupings are in the generated YAML
+	assert.Contains(t, bp, "x-section: Common")
+	assert.Contains(t, bp, "x-section: Lambda")
+	assert.Contains(t, bp, "x-section: Network")
+	assert.Contains(t, bp, "x-section: S3")
 }
 
 func TestMarshalBoilerplateConfig(t *testing.T) {

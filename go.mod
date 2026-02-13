@@ -15,7 +15,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
-	github.com/gruntwork-io/boilerplate v0.11.2-0.20260212221136-406853de7dfc
+	github.com/gruntwork-io/boilerplate v0.11.1
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/mixpanel/mixpanel-go v1.2.1
 	github.com/spf13/cobra v1.10.1

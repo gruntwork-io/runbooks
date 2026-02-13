@@ -207,8 +207,8 @@ github.com/gookit/color v1.4.2/go.mod h1:fqRyamkC1W8uxl+lxCQxOT09l/vYfZ+QeiX3rKQ
 github.com/gookit/color v1.5.0/go.mod h1:43aQb+Zerm/BWh2GnrgOQm7ffz7tvQXEKV6BFMl7wAo=
 github.com/gookit/color v1.6.0 h1:JjJXBTk1ETNyqyilJhkTXJYYigHG24TM9Xa2M1xAhRA=
 github.com/gookit/color v1.6.0/go.mod h1:9ACFc7/1IpHGBW8RwuDm/0YEnhg3dwwXpoMsmtyHfjs=
-github.com/gruntwork-io/boilerplate v0.11.2-0.20260212221136-406853de7dfc h1:4i+cTnupAml7w42Nl0gKv0DHgCYLhgD8tnisreVzrMc=
-github.com/gruntwork-io/boilerplate v0.11.2-0.20260212221136-406853de7dfc/go.mod h1:vEzbY0RqubrdKZkKP0YOYHYZmSXmkmCeCU6y61rOzsI=
+github.com/gruntwork-io/boilerplate v0.11.1 h1:ZSecYqf6EWcKiX2OXooJcqGQwGGlTsiFllgLbKOyweE=
+github.com/gruntwork-io/boilerplate v0.11.1/go.mod h1:hnRatlVcNAsILm7ChXoKkqjQZhqk6mLaplDH+eDDnbo=
 github.com/gruntwork-io/go-commons v0.17.2 h1:14dsCJ7M5Vv2X3BIPKeG9Kdy6vTMGhM8L4WZazxfTuY=
 github.com/gruntwork-io/go-commons v0.17.2/go.mod h1:zs7Q2AbUKuTarBPy19CIxJVUX/rBamfW8IwuWKniWkE=
 github.com/gruntwork-io/terratest v0.47.2 h1:t6iWwsqJH7Gx0RwXleU/vjc+2c0JXRMdj3DxYXTBssQ=

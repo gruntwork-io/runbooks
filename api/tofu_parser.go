@@ -363,8 +363,23 @@ func MapToBoilerplateConfig(vars []TofuVariable) *BoilerplateConfig {
 		config.Variables = append(config.Variables, bv)
 	}
 
-	// Build sections
+	// Build sections and back-propagate section names to variables
 	config.Sections = buildSections(vars)
+
+	// Populate SectionName on each variable from the computed sections.
+	// This ensures x-section is written to boilerplate.yml even for
+	// filename-based and prefix-based groupings (not just @group comments).
+	sectionByVar := make(map[string]string)
+	for _, s := range config.Sections {
+		for _, varName := range s.Variables {
+			sectionByVar[varName] = s.Name
+		}
+	}
+	for i := range config.Variables {
+		if name, ok := sectionByVar[config.Variables[i].Name]; ok && config.Variables[i].SectionName == "" {
+			config.Variables[i].SectionName = name
+		}
+	}
 
 	return config
 }
