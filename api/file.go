@@ -10,6 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ResolvedRunbook represents a runbook that has been located and is ready to serve.
+// For local runbooks, RemoteSourceURL is empty.
+// For remote runbooks, the content has already been downloaded to LocalPath.
+type ResolvedRunbook struct {
+	LocalPath       string
+	RemoteSourceURL string // original URL (e.g., GitHub URL); empty for local runbooks
+}
+
 // FileRequest represents the request body for the file endpoint
 type FileRequest struct {
 	Path string `json:"path"`
@@ -17,16 +25,32 @@ type FileRequest struct {
 
 // HandleRunbookRequest returns the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
-// remoteSourceURL is the original remote URL (e.g., GitHub URL) if the runbook was fetched remotely; empty for local runbooks.
-func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool, remoteSourceURL string) gin.HandlerFunc {
-	// Build extra fields for the response (only remote source for now)
-	var extraFields gin.H
-	if remoteSourceURL != "" {
-		extraFields = gin.H{"remoteSource": remoteSourceURL}
-	}
-
+func HandleRunbookRequest(runbook ResolvedRunbook, isWatchMode bool, useExecutableRegistry bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		serveFileContentWithWatchMode(c, runbookPath, isWatchMode, useExecutableRegistry, extraFields)
+		// Read the file
+		content, fileInfo, err := readFileContent(runbook.LocalPath)
+		if err != nil {
+			handleFileError(c, runbook.LocalPath, err)
+			return
+		}
+
+		// Build the response
+		response := buildRunbookResponse(runbook, string(content), fileInfo, isWatchMode, useExecutableRegistry)
+
+		// In live-reload mode, validate for duplicate components on-demand
+		// (In registry mode, warnings are captured once at server startup during registry creation.
+		// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
+		if !useExecutableRegistry {
+			warnings, err := validateRunbook(runbook.LocalPath)
+			if err != nil {
+				// Log error but don't fail the request
+				slog.Warn("Failed to validate runbook for duplicates", "error", err)
+			} else {
+				response["warnings"] = warnings
+			}
+		}
+
+		c.JSON(http.StatusOK, response)
 	}
 }
 
@@ -184,6 +208,65 @@ func getContentType(filename string) string {
 		return contentType
 	}
 	return "application/octet-stream"
+}
+
+// readFileContent reads a file and returns its content and file info.
+func readFileContent(filePath string) ([]byte, os.FileInfo, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return content, fileInfo, nil
+}
+
+// handleFileError writes an appropriate JSON error response for file operations.
+func handleFileError(c *gin.Context, filePath string, err error) {
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "File not found",
+			"details": "The file at the path " + filePath + " was not found.",
+		})
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to open file",
+			"details": "The file at the path " + filePath + " could not be opened.",
+		})
+	}
+}
+
+// buildRunbookResponse builds the JSON response map for a runbook request.
+// This is a pure function (no I/O) that assembles the response fields.
+func buildRunbookResponse(runbook ResolvedRunbook, content string, fileInfo os.FileInfo, isWatchMode bool, useExecutableRegistry bool) gin.H {
+	response := gin.H{
+		"path":                  runbook.LocalPath,
+		"content":               content,
+		"contentHash":           computeContentHash(content),
+		"language":              getLanguageFromExtension(filepath.Base(runbook.LocalPath)),
+		"size":                  fileInfo.Size(),
+		"useExecutableRegistry": useExecutableRegistry,
+	}
+
+	if isWatchMode {
+		response["isWatchMode"] = true
+	}
+
+	if runbook.RemoteSourceURL != "" {
+		response["remoteSource"] = runbook.RemoteSourceURL
+	}
+
+	return response
 }
 
 // serveFileContent is a helper function that serves file content.

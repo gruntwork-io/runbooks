@@ -163,9 +163,9 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 }
 
 // StartServer serves both the frontend files and also the backend API
-func StartServer(runbookPath string, port int, workingDir string, outputPath string, remoteSourceURL string) error {
+func StartServer(runbook ResolvedRunbook, port int, workingDir string, outputPath string) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := ResolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbook.LocalPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -190,7 +190,8 @@ func StartServer(runbookPath string, port int, workingDir string, outputPath str
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true, remoteSourceURL))
+	resolved := ResolvedRunbook{LocalPath: resolvedPath, RemoteSourceURL: runbook.RemoteSourceURL}
+	r.GET("/api/runbook", HandleRunbookRequest(resolved, false, true))
 
 	// Set up common routes
 	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
@@ -200,9 +201,9 @@ func StartServer(runbookPath string, port int, workingDir string, outputPath str
 }
 
 // StartBackendServer starts the API server for serving runbook files
-func StartBackendServer(runbookPath string, port int, workingDir string, outputPath string, remoteSourceURL string) error {
+func StartBackendServer(runbook ResolvedRunbook, port int, workingDir string, outputPath string) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := ResolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbook.LocalPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -233,7 +234,8 @@ func StartBackendServer(runbookPath string, port int, workingDir string, outputP
 	}))
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, false, true, remoteSourceURL))
+	resolved := ResolvedRunbook{LocalPath: resolvedPath, RemoteSourceURL: runbook.RemoteSourceURL}
+	r.GET("/api/runbook", HandleRunbookRequest(resolved, false, true))
 
 	// Set up common routes (includes all other endpoints)
 	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
@@ -243,9 +245,9 @@ func StartBackendServer(runbookPath string, port int, workingDir string, outputP
 }
 
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
-func StartServerWithWatch(runbookPath string, port int, workingDir string, outputPath string, useExecutableRegistry bool, remoteSourceURL string) error {
+func StartServerWithWatch(runbook ResolvedRunbook, port int, workingDir string, outputPath string, useExecutableRegistry bool) error {
 	// Resolve the runbook path to the actual file
-	resolvedPath, err := ResolveRunbookPath(runbookPath)
+	resolvedPath, err := ResolveRunbookPath(runbook.LocalPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
@@ -276,7 +278,8 @@ func StartServerWithWatch(runbookPath string, port int, workingDir string, outpu
 	r.SetTrustedProxies(nil)
 
 	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(resolvedPath, true, useExecutableRegistry, remoteSourceURL))
+	resolved := ResolvedRunbook{LocalPath: resolvedPath, RemoteSourceURL: runbook.RemoteSourceURL}
+	r.GET("/api/runbook", HandleRunbookRequest(resolved, true, useExecutableRegistry))
 
 	// SSE endpoint for file change notifications
 	r.GET("/api/watch", HandleWatchSSE(fileWatcher))

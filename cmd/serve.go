@@ -30,13 +30,21 @@ SOURCE can be a local path or a remote URL. See 'runbooks open --help' for suppo
 		// Track command usage
 		telemetry.TrackCommand("serve")
 
-		path := args[0]
-
 		// Check if path is a remote source
-		path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+		localPath, remoteCleanup, remoteURL, err := resolveSource(args[0])
+		if err != nil {
+			slog.Error("Failed to resolve runbook source", "error", err)
+			os.Exit(1)
+		}
 		if remoteCleanup != nil {
 			defer remoteCleanup()
+			// Remote runbooks have no meaningful local directory for a working dir
+			if workingDir == "" && !workingDirTmp {
+				workingDirTmp = true
+			}
 		}
+
+		runbook := api.ResolvedRunbook{LocalPath: localPath, RemoteSourceURL: remoteURL}
 
 		// Resolve the working directory
 		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
@@ -50,7 +58,7 @@ SOURCE can be a local path or a remote URL. See 'runbooks open --help' for suppo
 
 		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
-		if err := api.StartBackendServer(path, defaultPort, resolvedWorkDir, outputPath, remoteURL); err != nil {
+		if err := api.StartBackendServer(runbook, defaultPort, resolvedWorkDir, outputPath); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}

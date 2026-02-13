@@ -48,10 +48,20 @@ func init() {
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(path string) {
 	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
-	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+	localPath, remoteCleanup, remoteURL, err := resolveSource(path)
+	if err != nil {
+		slog.Error("Failed to resolve runbook source", "error", err)
+		os.Exit(1)
+	}
 	if remoteCleanup != nil {
 		defer remoteCleanup()
+		// Remote runbooks have no meaningful local directory for a working dir
+		if workingDir == "" && !workingDirTmp {
+			workingDirTmp = true
+		}
 	}
+
+	runbook := api.ResolvedRunbook{LocalPath: localPath, RemoteSourceURL: remoteURL}
 
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
@@ -63,11 +73,11 @@ func openRunbook(path string) {
 		defer cleanup()
 	}
 
-	slog.Info("Opening runbook", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath)
+	slog.Info("Opening runbook", "path", localPath, "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
 	// Resolve the runbook path before starting the server
 	// This is needed to verify we're connecting to the correct server instance
-	resolvedPath, err := api.ResolveRunbookPath(path)
+	resolvedPath, err := api.ResolveRunbookPath(localPath)
 	if err != nil {
 		slog.Error("Failed to resolve runbook path", "error", err)
 		os.Exit(1)
@@ -78,7 +88,7 @@ func openRunbook(path string) {
 
 	// Start the API server in a goroutine
 	go func() {
-		errCh <- api.StartServer(path, defaultPort, resolvedWorkDir, outputPath, remoteURL)
+		errCh <- api.StartServer(runbook, defaultPort, resolvedWorkDir, outputPath)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint

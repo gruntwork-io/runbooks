@@ -46,10 +46,20 @@ func init() {
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(path string) {
 	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
-	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+	localPath, remoteCleanup, remoteURL, err := resolveSource(path)
+	if err != nil {
+		slog.Error("Failed to resolve runbook source", "error", err)
+		os.Exit(1)
+	}
 	if remoteCleanup != nil {
 		defer remoteCleanup()
+		// Remote runbooks have no meaningful local directory for a working dir
+		if workingDir == "" && !workingDirTmp {
+			workingDirTmp = true
+		}
 	}
+
+	runbook := api.ResolvedRunbook{LocalPath: localPath, RemoteSourceURL: remoteURL}
 
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
@@ -64,11 +74,11 @@ func watchRunbook(path string) {
 	// By default, watch mode uses live-file-reload (no registry) for better UX
 	// If --disable-live-file-reload is true, use the executable registry for better security
 	useExecutableRegistry := disableLiveFileReload
-	slog.Info("Opening runbook with file watching", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
+	slog.Info("Opening runbook with file watching", "path", localPath, "workingDir", resolvedWorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
 	// Resolve the runbook path before starting the server
 	// This is needed to verify we're connecting to the correct server instance
-	resolvedPath, err := api.ResolveRunbookPath(path)
+	resolvedPath, err := api.ResolveRunbookPath(localPath)
 	if err != nil {
 		slog.Error("Failed to resolve runbook path", "error", err)
 		os.Exit(1)
@@ -79,7 +89,7 @@ func watchRunbook(path string) {
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		errCh <- api.StartServerWithWatch(path, defaultPort, resolvedWorkDir, outputPath, useExecutableRegistry, remoteURL)
+		errCh <- api.StartServerWithWatch(runbook, defaultPort, resolvedWorkDir, outputPath, useExecutableRegistry)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint

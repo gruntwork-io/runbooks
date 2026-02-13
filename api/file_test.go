@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -53,7 +54,8 @@ func TestHandleRunbookRequest(t *testing.T) {
 			// Set up Gin router
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/runbook", HandleRunbookRequest(tt.runbookPath, false, true, ""))
+			runbook := ResolvedRunbook{LocalPath: tt.runbookPath}
+			router.GET("/runbook", HandleRunbookRequest(runbook, false, true))
 
 			// Create request
 			req, err := http.NewRequest("GET", "/runbook", nil)
@@ -90,7 +92,8 @@ func TestHandleRunbookRequest_WithRemoteSourceURL(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/runbook", HandleRunbookRequest(testFile, false, true, remoteURL))
+	runbook := ResolvedRunbook{LocalPath: testFile, RemoteSourceURL: remoteURL}
+	router.GET("/runbook", HandleRunbookRequest(runbook, false, true))
 
 	req, err := http.NewRequest("GET", "/runbook", nil)
 	require.NoError(t, err)
@@ -116,7 +119,8 @@ func TestHandleRunbookRequest_WithoutRemoteSourceURL(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/runbook", HandleRunbookRequest(testFile, false, true, ""))
+	runbook := ResolvedRunbook{LocalPath: testFile}
+	router.GET("/runbook", HandleRunbookRequest(runbook, false, true))
 
 	req, err := http.NewRequest("GET", "/runbook", nil)
 	require.NoError(t, err)
@@ -132,6 +136,53 @@ func TestHandleRunbookRequest_WithoutRemoteSourceURL(t *testing.T) {
 	require.NoError(t, err)
 	_, hasRemoteSource := response["remoteSource"]
 	assert.False(t, hasRemoteSource, "remoteSource should not be in response for local runbooks")
+}
+
+// mockFileInfo is a minimal os.FileInfo for testing buildRunbookResponse without disk I/O.
+type mockFileInfo struct {
+	size int64
+}
+
+func (m mockFileInfo) Name() string      { return "runbook.mdx" }
+func (m mockFileInfo) Size() int64       { return m.size }
+func (m mockFileInfo) Mode() os.FileMode { return 0644 }
+func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (m mockFileInfo) IsDir() bool       { return false }
+func (m mockFileInfo) Sys() interface{}  { return nil }
+
+func TestBuildRunbookResponse_IncludesRemoteSource(t *testing.T) {
+	runbook := ResolvedRunbook{
+		LocalPath:       "/tmp/whatever/runbook.mdx",
+		RemoteSourceURL: "https://github.com/org/repo/tree/main/runbooks/setup-vpc",
+	}
+	resp := buildRunbookResponse(runbook, "content", mockFileInfo{size: 7}, false, true)
+
+	assert.Equal(t, runbook.RemoteSourceURL, resp["remoteSource"])
+	assert.Equal(t, runbook.LocalPath, resp["path"])
+	assert.Equal(t, "content", resp["content"])
+}
+
+func TestBuildRunbookResponse_OmitsRemoteSourceWhenEmpty(t *testing.T) {
+	runbook := ResolvedRunbook{LocalPath: "/path/to/runbook.mdx"}
+	resp := buildRunbookResponse(runbook, "content", mockFileInfo{size: 7}, false, true)
+
+	_, hasRemoteSource := resp["remoteSource"]
+	assert.False(t, hasRemoteSource, "remoteSource should not be in response for local runbooks")
+}
+
+func TestBuildRunbookResponse_IncludesWatchMode(t *testing.T) {
+	runbook := ResolvedRunbook{LocalPath: "/path/to/runbook.mdx"}
+	resp := buildRunbookResponse(runbook, "content", mockFileInfo{size: 7}, true, true)
+
+	assert.Equal(t, true, resp["isWatchMode"])
+}
+
+func TestBuildRunbookResponse_OmitsWatchModeWhenFalse(t *testing.T) {
+	runbook := ResolvedRunbook{LocalPath: "/path/to/runbook.mdx"}
+	resp := buildRunbookResponse(runbook, "content", mockFileInfo{size: 7}, false, true)
+
+	_, hasWatchMode := resp["isWatchMode"]
+	assert.False(t, hasWatchMode, "isWatchMode should not be in response when not in watch mode")
 }
 
 func TestHandleFileRequest(t *testing.T) {
