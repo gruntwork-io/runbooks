@@ -13,6 +13,21 @@ import (
 	"runbooks/api"
 )
 
+// resolveAndApplyRemoteDefaults resolves a remote source and applies working directory defaults.
+// Returns the local path, a cleanup function (nil for local sources), and the original remote URL.
+// Exits the process on error.
+func resolveAndApplyRemoteDefaults(source string) (localPath string, cleanup func(), remoteURL string) {
+	localPath, cleanup, remoteURL, err := resolveRemoteSource(source)
+	if err != nil {
+		slog.Error("Failed to fetch remote runbook", "error", err)
+		os.Exit(1)
+	}
+	if cleanup != nil && workingDir == "" && !workingDirTmp {
+		workingDirTmp = true
+	}
+	return localPath, cleanup, remoteURL
+}
+
 // resolveRemoteSource checks if the given source is a remote URL.
 // If so, downloads the runbook to a temp directory and returns the local path + cleanup func + original remote URL.
 // If not a remote source, returns the original path unchanged with nil cleanup and empty remoteURL.
@@ -57,7 +72,7 @@ func fetchRemoteRunbook(parsed *api.ParsedRemoteSource, rawSource string) (strin
 		parsed.Ref = ref
 		parsed.Path = repoPath
 	} else if parsed.IsBlobURL && parsed.Path != "" {
-		// For Terraform-style blob URLs (unlikely but handle gracefully),
+		// For OpenTofu-style blob URLs (unlikely but handle gracefully),
 		// adjust path to parent directory
 		parsed.Path = api.AdjustBlobPath(parsed.Path)
 	}

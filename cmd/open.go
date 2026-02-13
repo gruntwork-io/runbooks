@@ -29,8 +29,8 @@ SOURCE can be a local path or a remote URL:
 
 Supported remote formats:
   - GitHub/GitLab browser URLs (tree or blob)
-  - Terraform-style github.com/owner/repo//path?ref=tag
-  - Terraform-style git::https://host/owner/repo.git//path?ref=tag`,
+  - OpenTofu-style github.com/owner/repo//path?ref=tag
+  - OpenTofu-style git::https://host/owner/repo.git//path?ref=tag`,
 	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
@@ -53,20 +53,11 @@ func init() {
 
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(path string) {
-	// Check if path is a remote source (GitHub/GitLab URL, Terraform source, etc.)
-	localPath, remoteCleanup, remoteURL, err := resolveRemoteSource(path)
-	if err != nil {
-		slog.Error("Failed to fetch remote runbook", "error", err)
-		os.Exit(1)
-	}
+	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
+	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
 	if remoteCleanup != nil {
 		defer remoteCleanup()
-		// Use temp working dir for remote runbooks if none was explicitly set
-		if workingDir == "" && !workingDirTmp {
-			workingDirTmp = true
-		}
 	}
-	path = localPath
 
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)

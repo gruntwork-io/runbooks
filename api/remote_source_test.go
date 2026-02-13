@@ -154,7 +154,7 @@ func TestParseRemoteSource_GitLabBrowserURL(t *testing.T) {
 	}
 }
 
-func TestParseRemoteSource_TerraformGitHubShorthand(t *testing.T) {
+func TestParseRemoteSource_TofuGitHubShorthand(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -222,7 +222,7 @@ func TestParseRemoteSource_TerraformGitHubShorthand(t *testing.T) {
 	}
 }
 
-func TestParseRemoteSource_TerraformGitPrefix(t *testing.T) {
+func TestParseRemoteSource_TofuGitPrefix(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -349,7 +349,7 @@ func TestParseRemoteSource_InvalidURLs(t *testing.T) {
 			errContains: "expected owner/repo",
 		},
 		{
-			name:        "Terraform shorthand missing repo",
+			name:        "Tofu shorthand missing repo",
 			input:       "github.com/onlyowner",
 			errContains: "expected github.com/owner/repo",
 		},
@@ -430,7 +430,7 @@ func TestNeedsRefResolution(t *testing.T) {
 		assert.True(t, result.NeedsRefResolution())
 	})
 
-	t.Run("terraform URL does not need resolution", func(t *testing.T) {
+	t.Run("Tofu URL does not need resolution", func(t *testing.T) {
 		result := &ParsedRemoteSource{
 			Ref:  "v1.0",
 			Path: "path",

@@ -15,14 +15,18 @@ type FileRequest struct {
 	Path string `json:"path"`
 }
 
-// Return the contents of the runbook file directly.
+// HandleRunbookRequest returns the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
 // remoteSourceURL is the original remote URL (e.g., GitHub URL) if the runbook was fetched remotely; empty for local runbooks.
 func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool, remoteSourceURL string) gin.HandlerFunc {
+	// Build extra fields for the response (only remote source for now)
+	var extraFields gin.H
+	if remoteSourceURL != "" {
+		extraFields = gin.H{"remoteSource": remoteSourceURL}
+	}
+
 	return func(c *gin.Context) {
-		// Use the runbook path directly
-		filePath := runbookPath
-		serveFileContentWithWatchMode(c, filePath, isWatchMode, useExecutableRegistry, remoteSourceURL)
+		serveFileContentWithWatchMode(c, runbookPath, isWatchMode, useExecutableRegistry, extraFields)
 	}
 }
 
@@ -201,14 +205,14 @@ func getContentType(filename string) string {
 	return "application/octet-stream"
 }
 
-// serveFileContent is a helper function that serves file content
+// serveFileContent is a helper function that serves file content.
 func serveFileContent(c *gin.Context, filePath string) {
-	serveFileContentWithWatchMode(c, filePath, false, true, "")
+	serveFileContentWithWatchMode(c, filePath, false, true, nil)
 }
 
 // serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info.
-// remoteSourceURL is included in the response when non-empty, allowing the frontend to display the original URL.
-func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool, remoteSourceURL string) {
+// extraFields are merged into the JSON response if non-nil (e.g., {"remoteSource": "https://..."}).
+func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool, extraFields gin.H) {
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -264,9 +268,9 @@ func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode 
 		response["isWatchMode"] = true
 	}
 
-	// Add remote source URL if this runbook was fetched from a remote source
-	if remoteSourceURL != "" {
-		response["remoteSource"] = remoteSourceURL
+	// Merge any extra fields into the response (e.g., remote source URL)
+	for k, v := range extraFields {
+		response[k] = v
 	}
 
 	// In live-reload mode, validate for duplicate components on-demand

@@ -38,18 +38,10 @@ SOURCE can be a local path or a remote URL. See 'runbooks open --help' for suppo
 		path := args[0]
 
 		// Check if path is a remote source
-		localPath, remoteCleanup, remoteURL, err := resolveRemoteSource(path)
-		if err != nil {
-			slog.Error("Failed to fetch remote runbook", "error", err)
-			os.Exit(1)
-		}
+		path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
 		if remoteCleanup != nil {
 			defer remoteCleanup()
-			if workingDir == "" && !workingDirTmp {
-				workingDirTmp = true
-			}
 		}
-		path = localPath
 
 		// Resolve the working directory
 		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)

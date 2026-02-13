@@ -51,19 +51,11 @@ func init() {
 
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(path string) {
-	// Check if path is a remote source (GitHub/GitLab URL, Terraform source, etc.)
-	localPath, remoteCleanup, remoteURL, err := resolveRemoteSource(path)
-	if err != nil {
-		slog.Error("Failed to fetch remote runbook", "error", err)
-		os.Exit(1)
-	}
+	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
+	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
 	if remoteCleanup != nil {
 		defer remoteCleanup()
-		if workingDir == "" && !workingDirTmp {
-			workingDirTmp = true
-		}
 	}
-	path = localPath
 
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)

@@ -298,7 +298,7 @@ func ValidateAbsolutePathInDir(path string, baseDir string) error {
 
 	// If rel starts with "..", it's outside the base directory
 	if filepath.IsAbs(rel) || len(rel) >= 2 && rel[0] == '.' && rel[1] == '.' {
-		return fmt.Errorf("path must be within current working directory (path: %s, cwd: %s)", cleanPath, resolvedBaseDir)
+		return fmt.Errorf("path must be within base directory (path: %s, base: %s)", cleanPath, resolvedBaseDir)
 	}
 
 	// Reject system-critical directories

@@ -29,7 +29,7 @@ type ParsedRemoteSource struct {
 	// rawRefAndPath is the unresolved ref+path segment from browser URLs.
 	// For browser URLs like /tree/main/path, this is "main/path" and needs
 	// ResolveRef() to split it into Ref and Path.
-	// Empty for Terraform-style URLs where ref and path are already separated.
+	// Empty for OpenTofu-style URLs where ref and path are already separated.
 	rawRefAndPath string
 }
 
@@ -49,8 +49,8 @@ func (p *ParsedRemoteSource) RawRefAndPath() string {
 // Returns nil, error if it looks like a remote source but is malformed.
 //
 // Supported formats:
-//   - git::https://host/owner/repo.git//path?ref=v1.0  (Terraform git:: prefix)
-//   - github.com/owner/repo//path?ref=v1.0             (Terraform GitHub shorthand)
+//   - git::https://host/owner/repo.git//path?ref=v1.0  (OpenTofu git:: prefix)
+//   - github.com/owner/repo//path?ref=v1.0             (OpenTofu GitHub shorthand)
 //   - https://github.com/owner/repo/tree/ref/path      (GitHub browser URL)
 //   - https://github.com/owner/repo/blob/ref/file.mdx  (GitHub blob URL)
 //   - https://gitlab.com/owner/repo/-/tree/ref/path    (GitLab browser URL)
@@ -62,37 +62,37 @@ func ParseRemoteSource(raw string) (*ParsedRemoteSource, error) {
 		return nil, nil
 	}
 
-	// 1. git::https:// prefix (Terraform generic git source)
-	if strings.HasPrefix(raw, "git::https://") {
-		return parseGitPrefixURL(raw)
-	}
-	if strings.HasPrefix(raw, "git::http://") {
+	lowered := strings.ToLower(raw)
+
+	// 1. git::https:// or git::http:// prefix (OpenTofu generic git source)
+	if strings.HasPrefix(lowered, "git::https://") || strings.HasPrefix(lowered, "git::http://") {
 		return parseGitPrefixURL(raw)
 	}
 
-	// 2. github.com/ without scheme (Terraform GitHub shorthand)
+	// 2. github.com/ without scheme (OpenTofu GitHub shorthand)
 	if strings.HasPrefix(raw, "github.com/") {
-		return parseTerraformGitHubShorthand(raw)
+		return parseGitHubShorthand(raw)
 	}
 
-	// 3. https://github.com/ (GitHub browser URL)
-	if strings.HasPrefix(strings.ToLower(raw), "https://github.com/") || strings.HasPrefix(strings.ToLower(raw), "http://github.com/") {
-		return parseGitHubBrowserURL(raw)
+	// 3. https://github.com/ or http://github.com/ (GitHub browser URL)
+	if strings.HasPrefix(lowered, "https://github.com/") || strings.HasPrefix(lowered, "http://github.com/") {
+		return parseBrowserURL(raw, "github.com")
 	}
 
-	// 4. https://gitlab.com/ (GitLab browser URL)
-	if strings.HasPrefix(strings.ToLower(raw), "https://gitlab.com/") || strings.HasPrefix(strings.ToLower(raw), "http://gitlab.com/") {
-		return parseGitLabBrowserURL(raw)
+	// 4. https://gitlab.com/ or http://gitlab.com/ (GitLab browser URL)
+	if strings.HasPrefix(lowered, "https://gitlab.com/") || strings.HasPrefix(lowered, "http://gitlab.com/") {
+		return parseBrowserURL(raw, "gitlab.com")
 	}
 
 	// Not a recognized remote source — treat as local path
 	return nil, nil
 }
 
-// parseGitPrefixURL parses a Terraform git::https:// URL.
+// --- OpenTofu-style URL parsers (git:: prefix and GitHub shorthand) ---
+
+// parseGitPrefixURL parses an OpenTofu git::https:// URL.
 // Format: git::https://host/owner/repo.git//path?ref=v1.0
 func parseGitPrefixURL(raw string) (*ParsedRemoteSource, error) {
-	// Strip the "git::" prefix
 	rawURL := strings.TrimPrefix(raw, "git::")
 
 	parsed, err := url.Parse(rawURL)
@@ -105,65 +105,51 @@ func parseGitPrefixURL(raw string) (*ParsedRemoteSource, error) {
 		return nil, fmt.Errorf("invalid git URL %q: missing host", raw)
 	}
 
-	// Extract ref from query params
-	ref := parsed.Query().Get("ref")
-
-	// The path may contain // to separate repo path from sub-path
-	// e.g., /owner/repo.git//subdir
-	fullPath := strings.TrimPrefix(parsed.Path, "/")
-	fullPath = strings.TrimSuffix(fullPath, "/")
-
-	var repoPath, subPath string
-	if idx := strings.Index(fullPath, "//"); idx >= 0 {
-		repoPath = fullPath[:idx]
-		subPath = strings.TrimPrefix(fullPath[idx+2:], "/")
-		subPath = strings.TrimSuffix(subPath, "/")
-	} else {
-		repoPath = fullPath
+	owner, repo, subPath, err := splitTofuSourcePath(parsed.Path, raw, "expected owner/repo in path")
+	if err != nil {
+		return nil, err
 	}
-
-	// Parse owner/repo from the repo path
-	repoPath = strings.TrimSuffix(repoPath, ".git")
-	parts := strings.SplitN(repoPath, "/", 3)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid git URL %q: expected owner/repo in path", raw)
-	}
-	owner := parts[0]
-	repo := parts[1]
-
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("invalid git URL %q: empty owner or repo", raw)
-	}
-
-	cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
 
 	return &ParsedRemoteSource{
 		Host:     host,
 		Owner:    owner,
 		Repo:     repo,
-		Ref:      ref,
+		Ref:      parsed.Query().Get("ref"),
 		Path:     subPath,
-		CloneURL: cloneURL,
+		CloneURL: fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo),
 	}, nil
 }
 
-// parseTerraformGitHubShorthand parses a Terraform GitHub shorthand URL.
+// parseGitHubShorthand parses an OpenTofu GitHub shorthand URL.
 // Format: github.com/owner/repo//path?ref=v1.0
-func parseTerraformGitHubShorthand(raw string) (*ParsedRemoteSource, error) {
-	// Add https:// scheme so we can use url.Parse
-	withScheme := "https://" + raw
-
-	parsed, err := url.Parse(withScheme)
+func parseGitHubShorthand(raw string) (*ParsedRemoteSource, error) {
+	parsed, err := url.Parse("https://" + raw)
 	if err != nil {
 		return nil, fmt.Errorf("invalid GitHub source %q: %w", raw, err)
 	}
 
-	ref := parsed.Query().Get("ref")
+	owner, repo, subPath, err := splitTofuSourcePath(parsed.Path, raw, "expected github.com/owner/repo")
+	if err != nil {
+		return nil, err
+	}
 
-	fullPath := strings.TrimPrefix(parsed.Path, "/")
+	return &ParsedRemoteSource{
+		Host:     "github.com",
+		Owner:    owner,
+		Repo:     repo,
+		Ref:      parsed.Query().Get("ref"),
+		Path:     subPath,
+		CloneURL: fmt.Sprintf("https://github.com/%s/%s.git", owner, repo),
+	}, nil
+}
+
+// splitTofuSourcePath extracts owner, repo, and sub-path from a URL path
+// that uses the OpenTofu // separator convention (e.g., /owner/repo.git//sub/path).
+func splitTofuSourcePath(urlPath, rawInput, errHint string) (owner, repo, subPath string, err error) {
+	fullPath := strings.TrimPrefix(urlPath, "/")
 	fullPath = strings.TrimSuffix(fullPath, "/")
 
-	var repoPath, subPath string
+	var repoPath string
 	if idx := strings.Index(fullPath, "//"); idx >= 0 {
 		repoPath = fullPath[:idx]
 		subPath = strings.TrimPrefix(fullPath[idx+2:], "/")
@@ -174,145 +160,102 @@ func parseTerraformGitHubShorthand(raw string) (*ParsedRemoteSource, error) {
 
 	repoPath = strings.TrimSuffix(repoPath, ".git")
 	parts := strings.SplitN(repoPath, "/", 3)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid GitHub source %q: expected github.com/owner/repo", raw)
-	}
-	owner := parts[0]
-	repo := parts[1]
-
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("invalid GitHub source %q: empty owner or repo", raw)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", "", fmt.Errorf("invalid source %q: %s", rawInput, errHint)
 	}
 
-	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
-
-	return &ParsedRemoteSource{
-		Host:     "github.com",
-		Owner:    owner,
-		Repo:     repo,
-		Ref:      ref,
-		Path:     subPath,
-		CloneURL: cloneURL,
-	}, nil
+	return parts[0], parts[1], subPath, nil
 }
 
-// parseGitHubBrowserURL parses a GitHub browser URL.
-// Formats:
+// --- Browser URL parser (GitHub and GitLab) ---
+
+// parseBrowserURL parses a GitHub or GitLab browser URL.
+//
+// GitHub formats:
 //   - https://github.com/owner/repo/tree/ref/path
 //   - https://github.com/owner/repo/blob/ref/path
 //   - https://github.com/owner/repo
-func parseGitHubBrowserURL(raw string) (*ParsedRemoteSource, error) {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid GitHub URL %q: %w", raw, err)
-	}
-
-	pathStr := strings.TrimPrefix(parsed.Path, "/")
-	pathStr = strings.TrimSuffix(pathStr, "/")
-
-	segments := strings.SplitN(pathStr, "/", 4)
-	if len(segments) < 2 {
-		return nil, fmt.Errorf("invalid GitHub URL %q: expected github.com/owner/repo", raw)
-	}
-
-	owner := segments[0]
-	repo := strings.TrimSuffix(segments[1], ".git")
-
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("invalid GitHub URL %q: empty owner or repo", raw)
-	}
-
-	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
-
-	result := &ParsedRemoteSource{
-		Host:     "github.com",
-		Owner:    owner,
-		Repo:     repo,
-		CloneURL: cloneURL,
-	}
-
-	// If there are more segments, look for tree/ or blob/
-	if len(segments) >= 4 {
-		action := segments[2] // "tree" or "blob"
-		rawRefAndPath := segments[3]
-
-		switch action {
-		case "tree":
-			result.rawRefAndPath = rawRefAndPath
-		case "blob":
-			result.rawRefAndPath = rawRefAndPath
-			result.IsBlobURL = true
-		default:
-			return nil, fmt.Errorf("invalid GitHub URL %q: expected /tree/ or /blob/ in path, got /%s/", raw, action)
-		}
-	} else if len(segments) == 3 {
-		// Could be github.com/owner/repo/tree without further path — treat as malformed
-		action := segments[2]
-		if action == "tree" || action == "blob" {
-			return nil, fmt.Errorf("invalid GitHub URL %q: missing ref after /%s/", raw, action)
-		}
-		// Otherwise it's something unexpected
-		return nil, fmt.Errorf("invalid GitHub URL %q: unexpected path segment /%s/", raw, action)
-	}
-	// len(segments) == 2 means just owner/repo, which is fine (no ref/path)
-
-	return result, nil
-}
-
-// parseGitLabBrowserURL parses a GitLab browser URL.
-// Formats:
+//
+// GitLab formats:
 //   - https://gitlab.com/owner/repo/-/tree/ref/path
 //   - https://gitlab.com/owner/repo/-/blob/ref/path
 //   - https://gitlab.com/owner/repo
-func parseGitLabBrowserURL(raw string) (*ParsedRemoteSource, error) {
+func parseBrowserURL(raw string, host string) (*ParsedRemoteSource, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid GitLab URL %q: %w", raw, err)
+		return nil, fmt.Errorf("invalid %s URL %q: %w", host, raw, err)
 	}
 
 	pathStr := strings.TrimPrefix(parsed.Path, "/")
 	pathStr = strings.TrimSuffix(pathStr, "/")
 
-	// GitLab paths: owner/repo/-/tree/ref/path or owner/repo/-/blob/ref/path
-	// Split into segments
 	segments := strings.Split(pathStr, "/")
 	if len(segments) < 2 {
-		return nil, fmt.Errorf("invalid GitLab URL %q: expected gitlab.com/owner/repo", raw)
+		return nil, fmt.Errorf("invalid %s URL %q: expected %s/owner/repo", host, raw, host)
 	}
 
 	owner := segments[0]
 	repo := strings.TrimSuffix(segments[1], ".git")
-
 	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("invalid GitLab URL %q: empty owner or repo", raw)
+		return nil, fmt.Errorf("invalid %s URL %q: empty owner or repo", host, raw)
 	}
-
-	cloneURL := fmt.Sprintf("https://gitlab.com/%s/%s.git", owner, repo)
 
 	result := &ParsedRemoteSource{
-		Host:     "gitlab.com",
+		Host:     host,
 		Owner:    owner,
 		Repo:     repo,
-		CloneURL: cloneURL,
+		CloneURL: fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo),
 	}
 
-	// Look for /-/tree/ or /-/blob/ pattern
-	// segments: [owner, repo, "-", "tree"|"blob", ref..., path...]
-	if len(segments) >= 5 && segments[2] == "-" {
-		action := segments[3]
-		switch action {
-		case "tree":
-			result.rawRefAndPath = strings.Join(segments[4:], "/")
-		case "blob":
-			result.rawRefAndPath = strings.Join(segments[4:], "/")
-			result.IsBlobURL = true
-		default:
-			// Unknown action after /-/, treat as plain repo URL
-		}
+	// Extract the tree/blob action and rawRefAndPath from remaining segments.
+	// GitLab uses /-/tree/ while GitHub uses /tree/ directly.
+	action, refAndPath, err := extractBrowserAction(segments[2:], host, raw)
+	if err != nil {
+		return nil, err
 	}
+	if action == "blob" {
+		result.IsBlobURL = true
+	}
+	result.rawRefAndPath = refAndPath
 
 	return result, nil
 }
+
+// extractBrowserAction parses the segments after owner/repo to find the tree/blob
+// action and the ref+path string. Returns empty strings if there's no action.
+func extractBrowserAction(segments []string, host, raw string) (action, refAndPath string, err error) {
+	if len(segments) == 0 {
+		return "", "", nil
+	}
+
+	// GitLab uses /-/ before tree/blob; skip it
+	if segments[0] == "-" {
+		segments = segments[1:]
+		if len(segments) == 0 {
+			return "", "", nil
+		}
+	}
+
+	action = segments[0]
+	switch action {
+	case "tree", "blob":
+		remaining := segments[1:]
+		if len(remaining) == 0 {
+			return "", "", fmt.Errorf("invalid %s URL %q: missing ref after /%s/", host, raw, action)
+		}
+		return action, strings.Join(remaining, "/"), nil
+	default:
+		// For GitHub: unexpected third segment like /settings or /actions
+		// For GitLab: unknown action after /-/
+		if host == "github.com" {
+			return "", "", fmt.Errorf("invalid %s URL %q: unexpected path segment /%s/", host, raw, action)
+		}
+		// GitLab: treat unknown /-/<action> as plain repo URL
+		return "", "", nil
+	}
+}
+
+// --- Ref resolution ---
 
 // ResolveRef uses git ls-remote to resolve the ref from a browser URL's ambiguous
 // ref+path segment (e.g., "main/runbooks/setup-vpc" could be ref="main" path="runbooks/setup-vpc"
@@ -343,7 +286,6 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 	// Find the longest ref that matches the beginning of rawRefAndPath
 	for _, r := range refs {
 		if rawRefAndPath == r {
-			// Exact match — entire rawRefAndPath is the ref, no remaining path
 			return r, "", nil
 		}
 		if strings.HasPrefix(rawRefAndPath, r+"/") {
