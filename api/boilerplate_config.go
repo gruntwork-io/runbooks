@@ -432,6 +432,8 @@ func determineValidationType(rule bpVariables.CustomValidationRule) BoilerplateV
 	switch {
 	case strings.Contains(validatorType, "required"):
 		return ValidationRequired
+	case strings.Contains(validatorType, "MatchRule"):
+		return ValidationRegex
 	case strings.Contains(validatorType, "StringRule"):
 		// For StringRule, we need to check the message to determine the specific validation type
 		message := rule.DescriptionText()
