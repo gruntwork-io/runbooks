@@ -155,27 +155,29 @@ func TestMarshalBoilerplateConfig(t *testing.T) {
 
 	yaml := string(yamlBytes)
 	assert.Contains(t, yaml, "test_var")
-	assert.Contains(t, yaml, "required,regex(^[a-z]+$)")
+	// Validations are emitted as a YAML list, not a string
+	assert.Contains(t, yaml, "- required")
+	assert.Contains(t, yaml, "- regex(^[a-z]+$)")
 	assert.Contains(t, yaml, "x-section: Testing")
 	assert.Contains(t, yaml, "enum_var")
 	assert.Contains(t, yaml, "options:")
 }
 
-func TestValidationsToString(t *testing.T) {
+func TestValidationsToList(t *testing.T) {
 	tests := []struct {
 		name     string
 		rules    []ValidationRule
-		expected string
+		expected []string
 	}{
 		{
 			name:     "empty",
 			rules:    nil,
-			expected: "",
+			expected: nil,
 		},
 		{
 			name:     "required only",
 			rules:    []ValidationRule{{Type: ValidationRequired}},
-			expected: "required",
+			expected: []string{"required"},
 		},
 		{
 			name: "required with regex",
@@ -183,20 +185,20 @@ func TestValidationsToString(t *testing.T) {
 				{Type: ValidationRequired},
 				{Type: ValidationRegex, Args: []interface{}{"^[a-z]+$"}},
 			},
-			expected: "required,regex(^[a-z]+$)",
+			expected: []string{"required", "regex(^[a-z]+$)"},
 		},
 		{
 			name: "length",
 			rules: []ValidationRule{
 				{Type: ValidationLength, Args: []interface{}{3, 50}},
 			},
-			expected: "length(3,50)",
+			expected: []string{"length-3-50"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, validationsToString(tt.rules))
+			assert.Equal(t, tt.expected, validationsToList(tt.rules))
 		})
 	}
 }

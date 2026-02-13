@@ -188,13 +188,22 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 		Sections:  sections,
 	}
 
+	// Extract raw validation strings from YAML (catches validations the boilerplate library doesn't understand)
+	rawValidations := extractValidationsFromYAML(boilerplateYamlContent)
+
 	for _, variable := range boilerplateConfig.Variables {
 		// Convert default value to JSON-serializable format
 		defaultValue := convertToJSONSerializable(variable.Default())
 
-		// Extract validations and determine if required
+		// Extract validations from the boilerplate library's parsed rules
 		validations := extractValidations(variable.Validations())
 		isRequired := isVariableRequired(variable.Validations())
+
+		// Merge in any validations from raw YAML that the boilerplate library didn't parse
+		// (e.g., regex(...) patterns that boilerplate doesn't natively support)
+		if rawRules, exists := rawValidations[variable.Name()]; exists {
+			validations, isRequired = mergeRawValidations(validations, isRequired, rawRules)
+		}
 
 		slog.Debug("Variable validation info", "name", variable.Name(), "validationCount", len(variable.Validations()), "required", isRequired)
 
@@ -386,6 +395,171 @@ func extractSectionGroupings(yamlContent string) []Section {
 	}
 
 	return sections
+}
+
+// extractValidationsFromYAML parses the raw YAML to extract validation strings for variables.
+// This catches validations that the boilerplate library doesn't natively understand (e.g., regex patterns).
+// Supports both YAML formats that boilerplate accepts:
+//
+//	validations: "required url"          # string format (space-delimited)
+//	validations:                          # list format
+//	  - required
+//	  - "regex(^[a-z]+$)"
+//
+// Returns a map of variable name to a list of parsed ValidationRules.
+func extractValidationsFromYAML(yamlContent string) map[string][]ValidationRule {
+	type rawVariable struct {
+		Name        string      `yaml:"name"`
+		Validations interface{} `yaml:"validations"`
+	}
+	type rawConfig struct {
+		Variables []rawVariable `yaml:"variables"`
+	}
+
+	var config rawConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
+		slog.Warn("Failed to parse YAML for validation extraction", "error", err)
+		return map[string][]ValidationRule{}
+	}
+
+	result := make(map[string][]ValidationRule)
+	for _, variable := range config.Variables {
+		if variable.Validations == nil {
+			continue
+		}
+
+		var rules []ValidationRule
+
+		switch v := variable.Validations.(type) {
+		case string:
+			// String format: "required url" or "required regex(^[a-z]+$)"
+			if v != "" {
+				rules = parseValidationString(v)
+			}
+		case []interface{}:
+			// List format: ["required", "regex(^[a-z]+$)"]
+			for _, item := range v {
+				if s, ok := item.(string); ok && s != "" {
+					// Each list item is a single rule — parse it individually
+					itemRules := parseValidationString(s)
+					rules = append(rules, itemRules...)
+				}
+			}
+		}
+
+		if len(rules) > 0 {
+			result[variable.Name] = rules
+		}
+	}
+
+	return result
+}
+
+// validationTokenRe splits a validation string into tokens, respecting parenthesized arguments.
+// Handles both space-delimited (boilerplate native) and comma-delimited (legacy) formats.
+// Also matches length-min-max format (e.g., "length-3-50").
+// e.g., "required regex(^vpc-[0-9a-f]{8,17}$)" → ["required", "regex(^vpc-[0-9a-f]{8,17}$)"]
+var validationTokenRe = regexp.MustCompile(`([a-zA-Z]+(?:-\d+-\d+|\([^)]*\))?)`)
+
+// parseValidationString parses a validation string into ValidationRules.
+// Supports both space-delimited (boilerplate native) and comma-delimited formats.
+// Understands: required, regex(pattern), length-min-max, length(min,max), url, email, alpha, digit, alphanumeric, semver, countrycode2.
+func parseValidationString(s string) []ValidationRule {
+	tokens := validationTokenRe.FindAllString(s, -1)
+	var rules []ValidationRule
+
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+
+		switch {
+		case token == "required":
+			rules = append(rules, ValidationRule{Type: ValidationRequired, Message: "This field is required"})
+		case strings.HasPrefix(token, "regex(") && strings.HasSuffix(token, ")"):
+			pattern := token[6 : len(token)-1]
+			rules = append(rules, ValidationRule{Type: ValidationRegex, Args: []interface{}{pattern}})
+		// Boilerplate native format: length-min-max (e.g., "length-3-50")
+		case strings.HasPrefix(token, "length-"):
+			inner := token[7:]
+			parts := strings.SplitN(inner, "-", 2)
+			if len(parts) == 2 {
+				rules = append(rules, ValidationRule{
+					Type: ValidationLength,
+					Args: []interface{}{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])},
+				})
+			}
+		// Legacy format: length(min,max) (e.g., "length(3,50)")
+		case strings.HasPrefix(token, "length(") && strings.HasSuffix(token, ")"):
+			inner := token[7 : len(token)-1]
+			parts := strings.SplitN(inner, ",", 2)
+			if len(parts) == 2 {
+				rules = append(rules, ValidationRule{
+					Type: ValidationLength,
+					Args: []interface{}{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])},
+				})
+			}
+		case token == "url":
+			rules = append(rules, ValidationRule{Type: ValidationURL})
+		case token == "email":
+			rules = append(rules, ValidationRule{Type: ValidationEmail})
+		case token == "alpha":
+			rules = append(rules, ValidationRule{Type: ValidationAlpha})
+		case token == "digit":
+			rules = append(rules, ValidationRule{Type: ValidationDigit})
+		case token == "alphanumeric":
+			rules = append(rules, ValidationRule{Type: ValidationAlphanumeric})
+		case token == "semver":
+			rules = append(rules, ValidationRule{Type: ValidationSemver})
+		case token == "countrycode2":
+			rules = append(rules, ValidationRule{Type: ValidationCountryCode2})
+		}
+	}
+
+	return rules
+}
+
+// mergeRawValidations merges raw YAML-extracted validations with those from the boilerplate library.
+// Raw validations fill in gaps where the boilerplate library doesn't support certain validation types.
+// When a raw rule has Args (e.g., regex pattern) and the existing one doesn't, the raw rule replaces it.
+// Returns the merged validations and the updated isRequired flag.
+func mergeRawValidations(existing []ValidationRule, isRequired bool, rawRules []ValidationRule) ([]ValidationRule, bool) {
+	// Build a map of existing validation types for deduplication, tracking index
+	existingByType := make(map[BoilerplateValidationType]int)
+	for i, r := range existing {
+		existingByType[r.Type] = i
+	}
+
+	for _, raw := range rawRules {
+		if raw.Type == ValidationRequired {
+			isRequired = true
+			// Only add if not already present
+			if _, exists := existingByType[ValidationRequired]; !exists {
+				existing = append([]ValidationRule{raw}, existing...)
+				// Shift all indices by 1 since we prepended
+				for k, v := range existingByType {
+					existingByType[k] = v + 1
+				}
+				existingByType[ValidationRequired] = 0
+			}
+			continue
+		}
+
+		if idx, exists := existingByType[raw.Type]; exists {
+			// If the raw rule has Args but the existing one doesn't, replace it
+			// (e.g., boilerplate parsed regex into MatchRule but we need the pattern string)
+			if len(raw.Args) > 0 && len(existing[idx].Args) == 0 {
+				existing[idx] = raw
+			}
+		} else {
+			// Add new rule type
+			existingByType[raw.Type] = len(existing)
+			existing = append(existing, raw)
+		}
+	}
+
+	return existing, isRequired
 }
 
 // Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate

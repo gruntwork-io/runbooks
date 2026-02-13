@@ -355,14 +355,9 @@ func MapToBoilerplateConfig(vars []TofuVariable) *BoilerplateConfig {
 			bv.SectionName = v.GroupComment
 		}
 
-		// Handle tuple type: add note to description
-		if isTupleType(v.Type) && !strings.Contains(bv.Description, "tuple") {
-			note := "(Note: This is a tuple type. Enter as a JSON array.)"
-			if bv.Description != "" {
-				bv.Description += " " + note
-			} else {
-				bv.Description = note
-			}
+		// Handle tuple type: extract element types as schema with numeric keys
+		if tupleSchema := extractTupleSchema(v.Type); tupleSchema != nil {
+			bv.Schema = tupleSchema
 		}
 
 		config.Variables = append(config.Variables, bv)
@@ -407,6 +402,44 @@ func MapTofuType(typeExpr string) BoilerplateVarType {
 // isTupleType checks if a type expression is a tuple type.
 func isTupleType(typeExpr string) bool {
 	return strings.HasPrefix(strings.TrimSpace(typeExpr), "tuple(")
+}
+
+// extractTupleSchema parses a tuple([T1, T2, ...]) type expression into a schema map
+// with numeric keys: {"0": "string", "1": "number"}.
+// Returns nil if the type is not a tuple or has no elements.
+func extractTupleSchema(typeExpr string) map[string]string {
+	typeExpr = strings.TrimSpace(typeExpr)
+	if !strings.HasPrefix(typeExpr, "tuple(") {
+		return nil
+	}
+
+	// Extract inner content: tuple([string, number]) → string, number
+	inner := typeExpr[len("tuple("):]
+	if len(inner) > 0 && inner[len(inner)-1] == ')' {
+		inner = inner[:len(inner)-1]
+	}
+	inner = strings.TrimSpace(inner)
+	if len(inner) >= 2 && inner[0] == '[' && inner[len(inner)-1] == ']' {
+		inner = inner[1 : len(inner)-1]
+	}
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return nil
+	}
+
+	schema := make(map[string]string)
+	for i, elem := range strings.Split(inner, ",") {
+		elem = strings.TrimSpace(elem)
+		if elem == "" {
+			continue
+		}
+		schema[fmt.Sprintf("%d", i)] = elem
+	}
+
+	if len(schema) == 0 {
+		return nil
+	}
+	return schema
 }
 
 // extractObjectSchema parses an object({k=T, ...}) type expression into a schema map.

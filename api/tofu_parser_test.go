@@ -296,10 +296,12 @@ func TestMapToBoilerplateConfig_TupleNote(t *testing.T) {
 		varMap[v.Name] = v
 	}
 
-	// priority_order: tuple → list with note in description
+	// priority_order: tuple → list with schema for element types
 	priority := varMap["priority_order"]
 	assert.Equal(t, VarTypeList, priority.Type)
-	assert.Contains(t, priority.Description, "tuple type")
+	require.NotNil(t, priority.Schema)
+	assert.Equal(t, "string", priority.Schema["0"])
+	assert.Equal(t, "number", priority.Schema["1"])
 }
 
 func TestMapTofuType(t *testing.T) {
@@ -443,6 +445,40 @@ func TestFilenameToSectionName(t *testing.T) {
 			assert.Equal(t, tt.expected, filenameToSectionName(tt.filename))
 		})
 	}
+}
+
+func TestExtractTupleSchema(t *testing.T) {
+	t.Run("string and number", func(t *testing.T) {
+		schema := extractTupleSchema("tuple([string, number])")
+		require.NotNil(t, schema)
+		assert.Equal(t, "string", schema["0"])
+		assert.Equal(t, "number", schema["1"])
+		assert.Len(t, schema, 2)
+	})
+
+	t.Run("single element", func(t *testing.T) {
+		schema := extractTupleSchema("tuple([bool])")
+		require.NotNil(t, schema)
+		assert.Equal(t, "bool", schema["0"])
+		assert.Len(t, schema, 1)
+	})
+
+	t.Run("three elements", func(t *testing.T) {
+		schema := extractTupleSchema("tuple([bool, string, number])")
+		require.NotNil(t, schema)
+		assert.Len(t, schema, 3)
+		assert.Equal(t, "bool", schema["0"])
+		assert.Equal(t, "string", schema["1"])
+		assert.Equal(t, "number", schema["2"])
+	})
+
+	t.Run("empty tuple", func(t *testing.T) {
+		assert.Nil(t, extractTupleSchema("tuple([])"))
+	})
+
+	t.Run("not a tuple", func(t *testing.T) {
+		assert.Nil(t, extractTupleSchema("list(string)"))
+	})
 }
 
 func TestSlugify(t *testing.T) {

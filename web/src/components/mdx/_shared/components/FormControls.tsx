@@ -505,12 +505,85 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 }
 
 /**
+ * Tuple input component for fixed-length typed arrays (e.g. tuple([string, number]))
+ * Renders one input per element with the appropriate type based on the schema.
+ * Schema keys are numeric indices ("0", "1", ...) mapping to element types.
+ */
+export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+  const schema = variable.schema || {}
+  // Sort keys numerically to preserve element order
+  const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
+  const currentTuple = Array.isArray(value) ? value : new Array(elementKeys.length).fill('')
+
+  const updateElement = (index: number, newValue: unknown) => {
+    const updated = [...currentTuple]
+    updated[index] = newValue
+    onChange(updated)
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2 items-end">
+      {elementKeys.map((key) => {
+        const index = Number(key)
+        const elemType = schema[key]
+        const elemValue = currentTuple[index] ?? ''
+        const elemLabel = elemType === 'number' ? 'Enter a number'
+          : elemType === 'bool' ? 'Enter a boolean'
+          : `Enter a ${elemType}`
+
+        return (
+          <div key={key} className="flex-1 min-w-24">
+            <label className="block text-xs text-gray-500 mb-1">{elemLabel}</label>
+            {elemType === 'number' ? (
+              <input
+                type="number"
+                id={`${id}-${variable.name}-${key}`}
+                value={elemValue === '' ? '' : String(elemValue)}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  updateElement(index, raw === '' ? '' : parseFloat(raw))
+                }}
+                onBlur={onBlur}
+                disabled={disabled}
+                className={getInputClassName(error, 'w-full', disabled)}
+              />
+            ) : elemType === 'bool' ? (
+              <select
+                id={`${id}-${variable.name}-${key}`}
+                value={String(elemValue || 'false')}
+                onChange={(e) => updateElement(index, e.target.value === 'true')}
+                onBlur={onBlur}
+                disabled={disabled}
+                className={getInputClassName(error, 'w-full', disabled)}
+              >
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            ) : (
+              <input
+                type="text"
+                id={`${id}-${variable.name}-${key}`}
+                value={String(elemValue || '')}
+                onChange={(e) => updateElement(index, e.target.value)}
+                onBlur={onBlur}
+                disabled={disabled}
+                className={getInputClassName(error, 'w-full', disabled)}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
  * Main form control component that renders the appropriate input type
  * based on the variable type. Acts as a factory for different input components.
  */
 export const FormControl: React.FC<BaseFormControlProps> = (props) => {
   const { variable } = props
-  
+
   switch (variable.type) {
     case BoilerplateVariableType.String:
       return <StringInput {...props} />
@@ -522,11 +595,14 @@ export const FormControl: React.FC<BaseFormControlProps> = (props) => {
     case BoilerplateVariableType.Enum:
       return <EnumSelect {...props} />
     case BoilerplateVariableType.List:
-      return <ListInput {...props} />
+      // Use tuple input if schema is defined (numeric keys = fixed-length typed array)
+      return variable.schema && Object.keys(variable.schema).length > 0
+        ? <TupleInput {...props} />
+        : <ListInput {...props} />
     case BoilerplateVariableType.Map:
       // Use structured input if schema is defined, otherwise use simple key-value input
-      return variable.schema && Object.keys(variable.schema).length > 0 
-        ? <StructuredMapInput {...props} /> 
+      return variable.schema && Object.keys(variable.schema).length > 0
+        ? <StructuredMapInput {...props} />
         : <MapInput {...props} />
     default:
       return <StringInput {...props} />

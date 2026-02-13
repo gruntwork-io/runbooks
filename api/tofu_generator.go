@@ -133,6 +133,9 @@ func GenerateRunbook(modulePath string, templateName string) (string, func(), er
 }
 
 // marshalBoilerplateConfig converts a BoilerplateConfig to a boilerplate.yml YAML file.
+// Validations are emitted as a YAML list so that boilerplate's unmarshalValidationsField
+// processes each rule individually via convertSingleValidationRule, avoiding issues with
+// space-splitting regex patterns.
 func marshalBoilerplateConfig(config *BoilerplateConfig) ([]byte, error) {
 	type yamlVariable struct {
 		Name        string            `yaml:"name"`
@@ -140,7 +143,7 @@ func marshalBoilerplateConfig(config *BoilerplateConfig) ([]byte, error) {
 		Description string            `yaml:"description,omitempty"`
 		Default     any               `yaml:"default,omitempty"`
 		Options     []string          `yaml:"options,omitempty"`
-		Validations string            `yaml:"validations,omitempty"`
+		Validations []string          `yaml:"validations,omitempty"`
 		XSection    string            `yaml:"x-section,omitempty"`
 		XSchema     map[string]string `yaml:"x-schema,omitempty"`
 	}
@@ -163,17 +166,20 @@ func marshalBoilerplateConfig(config *BoilerplateConfig) ([]byte, error) {
 			XSchema:     v.Schema,
 		}
 
-		yv.Validations = validationsToString(v.Validations)
+		yv.Validations = validationsToList(v.Validations)
 		yc.Variables = append(yc.Variables, yv)
 	}
 
 	return yaml.Marshal(yc)
 }
 
-// validationsToString converts ValidationRules to a boilerplate validation string.
-func validationsToString(rules []ValidationRule) string {
+// validationsToList converts ValidationRules to a list of boilerplate validation strings.
+// Each rule becomes a separate list item so that boilerplate's YAML list parser handles
+// each rule individually (including regex patterns with special characters).
+// e.g., []string{"required", "regex(^vpc-[0-9a-f]{8,17}$)"} or []string{"required", "length-3-50"}
+func validationsToList(rules []ValidationRule) []string {
 	if len(rules) == 0 {
-		return ""
+		return nil
 	}
 
 	var parts []string
@@ -187,7 +193,7 @@ func validationsToString(rules []ValidationRule) string {
 			}
 		case ValidationLength:
 			if len(r.Args) >= 2 {
-				parts = append(parts, fmt.Sprintf("length(%v,%v)", r.Args[0], r.Args[1]))
+				parts = append(parts, fmt.Sprintf("length-%v-%v", r.Args[0], r.Args[1]))
 			}
 		case ValidationURL:
 			parts = append(parts, "url")
@@ -206,7 +212,7 @@ func validationsToString(rules []ValidationRule) string {
 		}
 	}
 
-	return strings.Join(parts, ",")
+	return parts
 }
 
 var nonAlphanumericRe = regexp.MustCompile(`[^a-z0-9-]`)
