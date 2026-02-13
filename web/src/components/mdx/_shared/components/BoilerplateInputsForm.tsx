@@ -76,7 +76,7 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
   
   return (
     <div className="space-y-1">
-      <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1 -mb-5' : 'contents space-y-1'}>
+      <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1' : 'contents space-y-1'}>
         <label 
           htmlFor={`${id}-${variable.name}`}
           className={`${isBooleanType ? 'cursor-pointer' : 'block'} text-md font-medium ${disabled ? 'text-gray-500' : 'text-gray-700'}`}
@@ -132,6 +132,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   
   // Track whether the form has been generated at least once
   const [hasGenerated, setHasGenerated] = useState(hasGeneratedSuccessfully)
+  // Track whether submit was attempted (to show validation error summary near button)
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   
   // Use validation hook first so we can use isFormValid in the wrapped callback
   const { 
@@ -205,14 +207,16 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!validateForm(formData)) {
+      setSubmitAttempted(true)
       return
     }
-    
+
     // Mark as generated after first successful submission
+    setSubmitAttempted(false)
     setHasGenerated(true)
-    
+
     if (onGenerate) {
       onGenerate(formData)
     }
@@ -330,6 +334,14 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 >
                   {effectiveButtonText}
                 </Button>
+                {/* Show validation error summary near the button after a failed submit */}
+                {submitAttempted && Object.keys(visibleErrors).length > 0 && (
+                  <p className="mt-3 text-sm text-red-600">
+                    {Object.keys(visibleErrors).length === 1
+                      ? <>There is <strong>1 validation error</strong> above. Please fix it before generating.</>
+                      : <>There are <strong>{Object.keys(visibleErrors).length} validation errors</strong> above. Please fix them before generating.</>}
+                  </p>
+                )}
                 {/* Show warning for unmet output dependencies below the button */}
                 {unmetOutputDependencies.length > 0 && (
                   <div className="mt-3 -mb-3">

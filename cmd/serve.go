@@ -45,6 +45,25 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 			defer cleanup()
 		}
 
+		// Check if the path is a runbook; if not, try OpenTofu module fallback
+		if _, err := api.ResolveRunbookPath(path); err != nil {
+			if api.IsTofuModule(path) {
+				slog.Info("Detected OpenTofu module, generating runbook", "path", path)
+				generatedPath, tofuCleanup, genErr := api.GenerateRunbook(path, "" /* default template */)
+				if genErr != nil {
+					slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
+					os.Exit(1)
+				}
+				if tofuCleanup != nil {
+					defer tofuCleanup()
+				}
+				path = generatedPath
+			} else {
+				slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
+				os.Exit(1)
+			}
+		}
+
 		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
 		if err := api.StartBackendServer(path, 7825, resolvedWorkDir, outputPath); err != nil {

@@ -7,6 +7,10 @@ variable "lambda_runtime" {
   type        = string
   default     = "python3.13"
   description = "Lambda runtime"
+  validation {
+    condition     = contains(["python3.13", "python3.12", "nodejs22.x", "nodejs20.x"], var.lambda_runtime)
+    error_message = "Runtime must be one of: python3.13, python3.12, nodejs22.x, nodejs20.x"
+  }
 }
 
 variable "lambda_handler" {

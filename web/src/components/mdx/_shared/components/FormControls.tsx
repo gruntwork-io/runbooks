@@ -134,7 +134,8 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
  */
 export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onBlur, disabled }) => {
   const currentList = Array.isArray(value) ? value : []
-  
+  const inputRef = React.useRef<HTMLInputElement>(null)
+
   const addItem = (newItem: string) => {
     if (newItem.trim()) {
       onChange([...currentList, newItem.trim()])
@@ -156,10 +157,9 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
   }
 
   const handleAddClick = () => {
-    const input = document.querySelector(`input[placeholder*="Type an entry"]`) as HTMLInputElement
-    if (input) {
-      addItem(input.value)
-      input.value = ''
+    if (inputRef.current) {
+      addItem(inputRef.current.value)
+      inputRef.current.value = ''
     }
   }
 
@@ -169,6 +169,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
       {!disabled && (
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             placeholder="Type an entry and press Enter..."
             className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
@@ -178,14 +179,14 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
           <Button
             type="button"
             variant="secondary"
-            className="translate translate-y-0.75"
+            className="translate translate-y-0.75 text-secondary-foreground"
             onClick={handleAddClick}
           >
             Add
           </Button>
         </div>
       )}
-      
+
       {/* List items */}
       {currentList.length > 0 && (
         <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
@@ -262,6 +263,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
         <Button
           type="button"
           variant="secondary"
+          className="text-secondary-foreground"
           onClick={() => setIsAddingEntry(true)}
         >
           Add
@@ -456,14 +458,14 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
           <Button
             type="button"
             variant="secondary"
-            className="translate translate-y-0.75"
+            className="translate translate-y-0.75 text-secondary-foreground"
             onClick={handleAddClick}
           >
             Add
           </Button>
         </div>
       )}
-      
+
       {/* Map entries */}
       {entries.length > 0 ? (
         <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
