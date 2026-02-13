@@ -1,11 +1,29 @@
 package api
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// =============================================================================
+// Test helpers
+// =============================================================================
+
+// assertParsedSourceEqual checks all fields of a ParsedRemoteSource match the expected values.
+func assertParsedSourceEqual(t *testing.T, expected, actual *ParsedRemoteSource) {
+	t.Helper()
+	assert.Equal(t, expected.Host, actual.Host, "Host")
+	assert.Equal(t, expected.Owner, actual.Owner, "Owner")
+	assert.Equal(t, expected.Repo, actual.Repo, "Repo")
+	assert.Equal(t, expected.Ref, actual.Ref, "Ref")
+	assert.Equal(t, expected.Path, actual.Path, "Path")
+	assert.Equal(t, expected.CloneURL, actual.CloneURL, "CloneURL")
+	assert.Equal(t, expected.IsBlobURL, actual.IsBlobURL, "IsBlobURL")
+	assert.Equal(t, expected.rawRefAndPath, actual.rawRefAndPath, "rawRefAndPath")
+}
 
 // =============================================================================
 // ParseRemoteSource tests
@@ -36,6 +54,7 @@ func TestParseRemoteSource_GitHubBrowserURL(t *testing.T) {
 				Owner:         "gruntwork-io",
 				Repo:          "runbooks",
 				CloneURL:      "https://github.com/gruntwork-io/runbooks.git",
+				IsBlobURL:     true,
 				rawRefAndPath: "main/runbooks/setup-vpc/runbook.mdx",
 			},
 		},
@@ -87,13 +106,7 @@ func TestParseRemoteSource_GitHubBrowserURL(t *testing.T) {
 			result, err := ParseRemoteSource(tt.input)
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			assert.Equal(t, tt.expected.Host, result.Host)
-			assert.Equal(t, tt.expected.Owner, result.Owner)
-			assert.Equal(t, tt.expected.Repo, result.Repo)
-			assert.Equal(t, tt.expected.Ref, result.Ref)
-			assert.Equal(t, tt.expected.Path, result.Path)
-			assert.Equal(t, tt.expected.CloneURL, result.CloneURL)
-			assert.Equal(t, tt.expected.rawRefAndPath, result.rawRefAndPath)
+			assertParsedSourceEqual(t, tt.expected, result)
 		})
 	}
 }
@@ -123,6 +136,7 @@ func TestParseRemoteSource_GitLabBrowserURL(t *testing.T) {
 				Owner:         "myorg",
 				Repo:          "myrepo",
 				CloneURL:      "https://gitlab.com/myorg/myrepo.git",
+				IsBlobURL:     true,
 				rawRefAndPath: "main/runbooks/setup-vpc/runbook.mdx",
 			},
 		},
@@ -143,13 +157,7 @@ func TestParseRemoteSource_GitLabBrowserURL(t *testing.T) {
 			result, err := ParseRemoteSource(tt.input)
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			assert.Equal(t, tt.expected.Host, result.Host)
-			assert.Equal(t, tt.expected.Owner, result.Owner)
-			assert.Equal(t, tt.expected.Repo, result.Repo)
-			assert.Equal(t, tt.expected.Ref, result.Ref)
-			assert.Equal(t, tt.expected.Path, result.Path)
-			assert.Equal(t, tt.expected.CloneURL, result.CloneURL)
-			assert.Equal(t, tt.expected.rawRefAndPath, result.rawRefAndPath)
+			assertParsedSourceEqual(t, tt.expected, result)
 		})
 	}
 }
@@ -212,12 +220,7 @@ func TestParseRemoteSource_TofuGitHubShorthand(t *testing.T) {
 			result, err := ParseRemoteSource(tt.input)
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			assert.Equal(t, tt.expected.Host, result.Host)
-			assert.Equal(t, tt.expected.Owner, result.Owner)
-			assert.Equal(t, tt.expected.Repo, result.Repo)
-			assert.Equal(t, tt.expected.Ref, result.Ref)
-			assert.Equal(t, tt.expected.Path, result.Path)
-			assert.Equal(t, tt.expected.CloneURL, result.CloneURL)
+			assertParsedSourceEqual(t, tt.expected, result)
 		})
 	}
 }
@@ -292,12 +295,7 @@ func TestParseRemoteSource_TofuGitPrefix(t *testing.T) {
 			result, err := ParseRemoteSource(tt.input)
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			assert.Equal(t, tt.expected.Host, result.Host)
-			assert.Equal(t, tt.expected.Owner, result.Owner)
-			assert.Equal(t, tt.expected.Repo, result.Repo)
-			assert.Equal(t, tt.expected.Ref, result.Ref)
-			assert.Equal(t, tt.expected.Path, result.Path)
-			assert.Equal(t, tt.expected.CloneURL, result.CloneURL)
+			assertParsedSourceEqual(t, tt.expected, result)
 		})
 	}
 }
@@ -371,37 +369,184 @@ func TestParseRemoteSource_InvalidURLs(t *testing.T) {
 }
 
 // =============================================================================
+// Browser URL edge cases (GitHub vs GitLab action handling)
+// =============================================================================
+
+func TestParseRemoteSource_GitHubUnexpectedAction(t *testing.T) {
+	// GitHub URLs with unexpected third segments (like /settings, /actions) should error
+	result, err := ParseRemoteSource("https://github.com/org/repo/settings")
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "unexpected path segment")
+}
+
+func TestParseRemoteSource_GitLabUnknownAction(t *testing.T) {
+	// GitLab URLs with unknown /-/<action> should be treated as plain repo URLs (no error)
+	result, err := ParseRemoteSource("https://gitlab.com/org/repo/-/settings")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "gitlab.com", result.Host)
+	assert.Equal(t, "org", result.Owner)
+	assert.Equal(t, "repo", result.Repo)
+	assert.Empty(t, result.rawRefAndPath)
+	assert.False(t, result.IsBlobURL)
+}
+
+// =============================================================================
 // ResolveRef tests
 // =============================================================================
 
-func TestResolveRef_SimpleRef(t *testing.T) {
-	// We can't easily test the full ResolveRef with real git ls-remote,
-	// but we can test the fallback behavior.
-	ref, repoPath, err := resolveRefFallback("main/runbooks/setup-vpc", false)
+func TestResolveRef_MatchesLongestRef(t *testing.T) {
+	// Inject fake refs to test the matching logic without git ls-remote
+	origFn := listRemoteRefsFn
+	defer func() { listRemoteRefsFn = origFn }()
+
+	tests := []struct {
+		name            string
+		refs            []string
+		rawRefAndPath   string
+		isBlobURL       bool
+		expectedRef     string
+		expectedPath    string
+	}{
+		{
+			name:          "matches simple ref",
+			refs:          []string{"main", "develop"},
+			rawRefAndPath: "main/runbooks/setup-vpc",
+			expectedRef:   "main",
+			expectedPath:  "runbooks/setup-vpc",
+		},
+		{
+			name:          "prefers longest matching ref",
+			refs:          []string{"main", "main/dev"},
+			rawRefAndPath: "main/dev/some/path",
+			expectedRef:   "main/dev",
+			expectedPath:  "some/path",
+		},
+		{
+			name:          "exact match with no remaining path",
+			refs:          []string{"v1.0", "v1.0.1"},
+			rawRefAndPath: "v1.0",
+			expectedRef:   "v1.0",
+			expectedPath:  "",
+		},
+		{
+			name:          "shorter ref wins when longer ref does not match",
+			refs:          []string{"release/v2", "main"},
+			rawRefAndPath: "main/deep/path",
+			expectedRef:   "main",
+			expectedPath:  "deep/path",
+		},
+		{
+			name:          "no ref matches falls back to first segment",
+			refs:          []string{"develop", "staging"},
+			rawRefAndPath: "main/some/path",
+			expectedRef:   "main",
+			expectedPath:  "some/path",
+		},
+		{
+			name:          "blob URL adjusts path to parent directory",
+			refs:          []string{"main"},
+			rawRefAndPath: "main/runbooks/setup-vpc/runbook.mdx",
+			isBlobURL:     true,
+			expectedRef:   "main",
+			expectedPath:  "runbooks/setup-vpc",
+		},
+		{
+			name:          "blob URL with single file adjusts to empty path",
+			refs:          []string{"main"},
+			rawRefAndPath: "main/runbook.mdx",
+			isBlobURL:     true,
+			expectedRef:   "main",
+			expectedPath:  "",
+		},
+		{
+			name:          "empty refs list falls back to first segment",
+			refs:          []string{},
+			rawRefAndPath: "v1.0/path/to/runbook",
+			expectedRef:   "v1.0",
+			expectedPath:  "path/to/runbook",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+				return tt.refs, nil
+			}
+
+			ref, repoPath, err := ResolveRef("https://fake.com/repo.git", tt.rawRefAndPath, tt.isBlobURL)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedRef, ref, "ref")
+			assert.Equal(t, tt.expectedPath, repoPath, "repoPath")
+		})
+	}
+}
+
+func TestResolveRef_FallsBackOnLsRemoteError(t *testing.T) {
+	origFn := listRemoteRefsFn
+	defer func() { listRemoteRefsFn = origFn }()
+
+	listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+		return nil, fmt.Errorf("auth failed")
+	}
+
+	ref, repoPath, err := ResolveRef("https://fake.com/repo.git", "main/runbooks/setup-vpc", false)
 	require.NoError(t, err)
 	assert.Equal(t, "main", ref)
 	assert.Equal(t, "runbooks/setup-vpc", repoPath)
 }
 
-func TestResolveRef_FallbackSingleSegment(t *testing.T) {
-	ref, repoPath, err := resolveRefFallback("main", false)
+func TestResolveRef_EmptyRawRefAndPath(t *testing.T) {
+	ref, repoPath, err := ResolveRef("https://fake.com/repo.git", "", false)
 	require.NoError(t, err)
-	assert.Equal(t, "main", ref)
+	assert.Equal(t, "", ref)
 	assert.Equal(t, "", repoPath)
 }
 
-func TestResolveRef_FallbackBlobURL(t *testing.T) {
-	ref, repoPath, err := resolveRefFallback("main/runbooks/setup-vpc/runbook.mdx", true)
-	require.NoError(t, err)
-	assert.Equal(t, "main", ref)
-	assert.Equal(t, "runbooks/setup-vpc", repoPath)
-}
+func TestResolveRef_Fallback(t *testing.T) {
+	tests := []struct {
+		name         string
+		rawRefPath   string
+		isBlobURL    bool
+		expectedRef  string
+		expectedPath string
+	}{
+		{
+			name:         "simple ref and path",
+			rawRefPath:   "main/runbooks/setup-vpc",
+			expectedRef:  "main",
+			expectedPath: "runbooks/setup-vpc",
+		},
+		{
+			name:         "single segment",
+			rawRefPath:   "main",
+			expectedRef:  "main",
+			expectedPath: "",
+		},
+		{
+			name:         "blob URL adjusts path",
+			rawRefPath:   "main/runbooks/setup-vpc/runbook.mdx",
+			isBlobURL:    true,
+			expectedRef:  "main",
+			expectedPath: "runbooks/setup-vpc",
+		},
+		{
+			name:         "blob URL with single file",
+			rawRefPath:   "main/runbook.mdx",
+			isBlobURL:    true,
+			expectedRef:  "main",
+			expectedPath: "",
+		},
+	}
 
-func TestResolveRef_FallbackBlobURLSingleFile(t *testing.T) {
-	ref, repoPath, err := resolveRefFallback("main/runbook.mdx", true)
-	require.NoError(t, err)
-	assert.Equal(t, "main", ref)
-	assert.Equal(t, "", repoPath)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref, repoPath := resolveRefFallback(tt.rawRefPath, tt.isBlobURL)
+			assert.Equal(t, tt.expectedRef, ref)
+			assert.Equal(t, tt.expectedPath, repoPath)
+		})
+	}
 }
 
 func TestAdjustBlobPath(t *testing.T) {

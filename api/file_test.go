@@ -18,7 +18,7 @@ import (
 func TestHandleRunbookRequest(t *testing.T) {
 	// Create a temporary directory for test files
 	tempDir := t.TempDir()
-	
+
 	// Create a test file
 	testFile := filepath.Join(tempDir, "test-file.txt")
 	testContent := "This is test content for the runbook handler"
@@ -78,6 +78,60 @@ func TestHandleRunbookRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleRunbookRequest_WithRemoteSourceURL(t *testing.T) {
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "test-file.txt")
+	err := os.WriteFile(testFile, []byte("remote runbook content"), 0644)
+	require.NoError(t, err)
+
+	remoteURL := "https://github.com/org/repo/tree/main/runbooks/setup-vpc"
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/runbook", HandleRunbookRequest(testFile, false, true, remoteURL))
+
+	req, err := http.NewRequest("GET", "/runbook", nil)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+
+	// Verify the remoteSource field is present in the JSON response
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, remoteURL, response["remoteSource"])
+	assert.Contains(t, w.Body.String(), "remote runbook content")
+}
+
+func TestHandleRunbookRequest_WithoutRemoteSourceURL(t *testing.T) {
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "test-file.txt")
+	err := os.WriteFile(testFile, []byte("local content"), 0644)
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/runbook", HandleRunbookRequest(testFile, false, true, ""))
+
+	req, err := http.NewRequest("GET", "/runbook", nil)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
+
+	// Verify the remoteSource field is NOT present when URL is empty
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	_, hasRemoteSource := response["remoteSource"]
+	assert.False(t, hasRemoteSource, "remoteSource should not be in response for local runbooks")
 }
 
 func TestHandleFileRequest(t *testing.T) {

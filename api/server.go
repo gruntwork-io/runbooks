@@ -196,7 +196,7 @@ func StartServer(runbookPath string, port int, workingDir string, outputPath str
 	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
-	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
+	return r.Run(fmt.Sprintf("127.0.0.1:%d", port))
 }
 
 // StartBackendServer starts the API server for serving runbook files
@@ -239,7 +239,7 @@ func StartBackendServer(runbookPath string, port int, workingDir string, outputP
 	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
-	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
+	return r.Run(fmt.Sprintf("127.0.0.1:%d", port))
 }
 
 // StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
@@ -285,5 +285,5 @@ func StartServerWithWatch(runbookPath string, port int, workingDir string, outpu
 	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, useExecutableRegistry)
 
 	// listen and serve on localhost:$port only (security: prevent remote access)
-	return r.Run("127.0.0.1:" + fmt.Sprintf("%d", port))
+	return r.Run(fmt.Sprintf("127.0.0.1:%d", port))
 }

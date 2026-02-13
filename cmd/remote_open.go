@@ -11,7 +11,20 @@ import (
 	"time"
 
 	"runbooks/api"
+
+	"github.com/spf13/cobra"
 )
+
+// validateSourceArg is a Cobra Args validator that provides a clear error when SOURCE is missing.
+func validateSourceArg(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("missing required argument: <Runbook Source>\n\nProvide a local path or remote URL to a runbook:\n  %s /path/to/runbook\n  %s https://github.com/org/repo/tree/main/runbooks/my-runbook\n", cmd.CommandPath(), cmd.CommandPath())
+	}
+	if len(args) > 1 {
+		return fmt.Errorf("expected 1 argument but received %d", len(args))
+	}
+	return nil
+}
 
 // resolveAndApplyRemoteDefaults resolves a remote source and applies working directory defaults.
 // Returns the local path, a cleanup function (nil for local sources), and the original remote URL.

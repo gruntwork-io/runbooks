@@ -27,18 +27,12 @@ By default, script changes take effect immediately without server restart (live-
 
 SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.`,
 	GroupID: "main",
+	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
 		telemetry.TrackCommand("watch")
 
-		if len(args) == 0 {
-			slog.Error("Error: You must specify a path to a runbook file or directory\n")
-			fmt.Fprintf(os.Stderr, "")
-			os.Exit(1)
-		}
-		path := args[0]
-
-		watchRunbook(path)
+		watchRunbook(args[0])
 	},
 }
 
@@ -85,7 +79,7 @@ func watchRunbook(path string) {
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		errCh <- api.StartServerWithWatch(path, 7825, resolvedWorkDir, outputPath, useExecutableRegistry, remoteURL)
+		errCh <- api.StartServerWithWatch(path, defaultPort, resolvedWorkDir, outputPath, useExecutableRegistry, remoteURL)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint
@@ -95,5 +89,5 @@ func watchRunbook(path string) {
 	}
 
 	// Open browser and keep server running
-	browser.LaunchAndWait(7825)
+	browser.LaunchAndWait(defaultPort)
 }

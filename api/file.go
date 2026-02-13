@@ -145,61 +145,42 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 	}
 }
 
+// allowedAssetContentTypes maps file extensions to their MIME types.
+// This is the single source of truth for both allowed-extension checks and content-type resolution.
+var allowedAssetContentTypes = map[string]string{
+	// Images
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".svg":  "image/svg+xml",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+	".ico":  "image/x-icon",
+	// Documents
+	".pdf": "application/pdf",
+	// Media
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
+	".ogg":  "video/ogg",
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".m4a":  "audio/mp4",
+	".avi":  "video/x-msvideo",
+	".mov":  "video/quicktime",
+}
+
 // isAllowedAssetExtension checks if the file extension is in the whitelist of allowed types
 func isAllowedAssetExtension(filename string) bool {
 	ext := filepath.Ext(filename)
-	allowedExtensions := map[string]bool{
-		// Images
-		".png":  true,
-		".jpg":  true,
-		".jpeg": true,
-		".gif":  true,
-		".svg":  true,
-		".webp": true,
-		".bmp":  true,
-		".ico":  true,
-		// Documents
-		".pdf": true,
-		// Media
-		".mp4":  true,
-		".webm": true,
-		".ogg":  true,
-		".mp3":  true,
-		".wav":  true,
-		".m4a":  true,
-		".avi":  true,
-		".mov":  true,
-	}
-	return allowedExtensions[ext]
+	_, ok := allowedAssetContentTypes[ext]
+	return ok
 }
 
 // getContentType returns the MIME type for a file based on its extension
 func getContentType(filename string) string {
 	ext := filepath.Ext(filename)
-	contentTypes := map[string]string{
-		// Images
-		".png":  "image/png",
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
-		".gif":  "image/gif",
-		".svg":  "image/svg+xml",
-		".webp": "image/webp",
-		".bmp":  "image/bmp",
-		".ico":  "image/x-icon",
-		// Documents
-		".pdf": "application/pdf",
-		// Media
-		".mp4":  "video/mp4",
-		".webm": "video/webm",
-		".ogg":  "video/ogg",
-		".mp3":  "audio/mpeg",
-		".wav":  "audio/wav",
-		".m4a":  "audio/mp4",
-		".avi":  "video/x-msvideo",
-		".mov":  "video/quicktime",
-	}
-	
-	if contentType, ok := contentTypes[ext]; ok {
+	if contentType, ok := allowedAssetContentTypes[ext]; ok {
 		return contentType
 	}
 	return "application/octet-stream"
@@ -213,22 +194,20 @@ func serveFileContent(c *gin.Context, filePath string) {
 // serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info.
 // extraFields are merged into the JSON response if non-nil (e.g., {"remoteSource": "https://..."}).
 func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool, extraFields gin.H) {
-	// Check if the file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "File not found",
-			"details": "The file at the path " + filePath + " was not found.",
-		})
-		return
-	}
-
-	// Read the file contents
+	// Open the file (handles both existence check and open in one syscall)
 	file, err := os.Open(filePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open file",
-			"details": "The file at the path " + filePath + " could not be opened.",
-		})
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "File not found",
+				"details": "The file at the path " + filePath + " was not found.",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to open file",
+				"details": "The file at the path " + filePath + " could not be opened.",
+			})
+		}
 		return
 	}
 	defer file.Close()
@@ -243,8 +222,8 @@ func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode 
 		return
 	}
 
-	// Get file info for size and language detection
-	fileInfo, err := os.Stat(filePath)
+	// Get file info from the already-open file descriptor (avoids a second os.Stat syscall)
+	fileInfo, err := file.Stat()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to get file info",

@@ -272,10 +272,11 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 	}
 
 	// Get all refs from the remote
-	refs, err := listRemoteRefs(cloneURL)
+	refs, err := listRemoteRefsFn(cloneURL)
 	if err != nil {
 		// If ls-remote fails (e.g., no auth), fall back to first segment as ref
-		return resolveRefFallback(rawRefAndPath, isBlobURL)
+		ref, repoPath := resolveRefFallback(rawRefAndPath, isBlobURL)
+		return ref, repoPath, nil
 	}
 
 	// Sort refs by length descending so we find the longest match first
@@ -299,11 +300,13 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 	}
 
 	// No ref matched — fall back to first segment
-	return resolveRefFallback(rawRefAndPath, isBlobURL)
+	ref, repoPath = resolveRefFallback(rawRefAndPath, isBlobURL)
+	return ref, repoPath, nil
 }
 
 // resolveRefFallback splits rawRefAndPath using the first segment as the ref.
-func resolveRefFallback(rawRefAndPath string, isBlobURL bool) (string, string, error) {
+// This never fails — it always produces a best-effort split.
+func resolveRefFallback(rawRefAndPath string, isBlobURL bool) (string, string) {
 	parts := strings.SplitN(rawRefAndPath, "/", 2)
 	ref := parts[0]
 	repoPath := ""
@@ -313,11 +316,12 @@ func resolveRefFallback(rawRefAndPath string, isBlobURL bool) (string, string, e
 	if isBlobURL {
 		repoPath = AdjustBlobPath(repoPath)
 	}
-	return ref, repoPath, nil
+	return ref, repoPath
 }
 
 // AdjustBlobPath adjusts a path from a /blob/ URL to point to the parent directory.
 // For example, "runbooks/setup-vpc/runbook.mdx" becomes "runbooks/setup-vpc".
+// Uses path.Dir (POSIX) intentionally since these are URL/repo paths, not filesystem paths.
 func AdjustBlobPath(p string) string {
 	if p == "" {
 		return ""
@@ -329,9 +333,13 @@ func AdjustBlobPath(p string) string {
 	return dir
 }
 
-// listRemoteRefs runs git ls-remote and returns a list of ref names
+// listRemoteRefsFn is the function used to list remote refs.
+// It is a variable so tests can inject a fake implementation.
+var listRemoteRefsFn = listRemoteRefsImpl
+
+// listRemoteRefsImpl runs git ls-remote and returns a list of ref names
 // (with refs/heads/ and refs/tags/ prefixes stripped).
-func listRemoteRefs(cloneURL string) ([]string, error) {
+func listRemoteRefsImpl(cloneURL string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
