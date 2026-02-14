@@ -27,7 +27,7 @@ type RunbookConfig struct {
 // This handler is used for GET /api/runbook requests.
 func HandleRunbookRequest(cfg RunbookConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		serveFileAsJSON(c, cfg)
+		serveRunbookContent(c, cfg)
 	}
 }
 
@@ -50,7 +50,7 @@ func HandleFileRequest(runbookPath string) gin.HandlerFunc {
 		if req.Path != "" {
 			filePath = filepath.Join(filepath.Dir(runbookPath), req.Path)
 		}
-		serveFileAsJSON(c, RunbookConfig{LocalPath: filePath, UseExecutableRegistry: true})
+		serveFileAsJSON(c, filePath)
 	}
 }
 
@@ -75,7 +75,7 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 
 		// Clean the path to prevent directory traversal attacks
 		cleanPath := filepath.Clean(requestedPath)
-		
+
 		// Ensure the clean path doesn't try to escape (no ".." allowed)
 		if filepath.IsAbs(cleanPath) || len(cleanPath) > 0 && cleanPath[0] == '.' {
 			c.JSON(http.StatusForbidden, gin.H{
@@ -96,7 +96,7 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 
 		// Get the runbook directory
 		runbookDir := filepath.Dir(runbookPath)
-		
+
 		// Construct the full path: <runbook-dir>/assets/<requested-path>
 		fullPath := filepath.Join(runbookDir, "assets", cleanPath)
 
@@ -146,6 +146,96 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 	}
 }
 
+// serveRunbookContent serves a runbook file as JSON, adding runbook-specific fields to the response.
+func serveRunbookContent(c *gin.Context, cfg RunbookConfig) {
+	response := readFileMetadata(c, cfg.LocalPath)
+	if response == nil {
+		return
+	}
+
+	response["useExecutableRegistry"] = cfg.UseExecutableRegistry
+
+	if cfg.IsWatchMode {
+		response["isWatchMode"] = true
+	}
+
+	if cfg.RemoteSourceURL != "" {
+		response["remoteSource"] = cfg.RemoteSourceURL
+	}
+
+	// In live-reload mode, validate for duplicate components on-demand
+	// (In registry mode, warnings are captured once at server startup during registry creation.
+	// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
+	if !cfg.UseExecutableRegistry {
+		warnings, err := validateRunbook(cfg.LocalPath)
+		if err != nil {
+			// Log error but don't fail the request
+			slog.Warn("Failed to validate runbook for duplicates", "error", err)
+		} else {
+			response["warnings"] = warnings
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// serveFileAsJSON reads a file and returns its content as a JSON response with metadata.
+func serveFileAsJSON(c *gin.Context, filePath string) {
+	if response := readFileMetadata(c, filePath); response != nil {
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+// readFileMetadata reads a file and returns a JSON-ready map with its content and metadata.
+// Returns nil and sends an error response if the file cannot be read.
+func readFileMetadata(c *gin.Context, filePath string) gin.H {
+	// Open the file (handles both existence check and open in one syscall)
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "File not found",
+				"details": "The file at the path " + filePath + " was not found.",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to open file",
+				"details": "The file at the path " + filePath + " could not be opened.",
+			})
+		}
+		return nil
+	}
+	defer file.Close()
+
+	// Read all content
+	content, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read file",
+			"details": "The file at the path " + filePath + " could not be read.",
+		})
+		return nil
+	}
+
+	// Get file info from the already-open file descriptor (avoids a second os.Stat syscall)
+	fileInfo, err := file.Stat()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to get file info",
+			"details": "Could not get file information for " + filePath,
+		})
+		return nil
+	}
+
+	return gin.H{
+		"path":        filePath,
+		"content":     string(content),
+		"contentHash": computeContentHash(string(content)),
+		"language":    getLanguageFromExtension(filepath.Base(filePath)),
+		"size":        fileInfo.Size(),
+	}
+}
+
 // allowedAssetContentTypes maps file extensions to their MIME types.
 // This is the single source of truth for both allowed-extension checks and content-type resolution.
 var allowedAssetContentTypes = map[string]string{
@@ -185,79 +275,4 @@ func getContentType(filename string) string {
 		return contentType
 	}
 	return "application/octet-stream"
-}
-
-// serveFileAsJSON reads a file and returns its content as a JSON response with metadata.
-func serveFileAsJSON(c *gin.Context, cfg RunbookConfig) {
-	filePath := cfg.LocalPath
-	// Open the file (handles both existence check and open in one syscall)
-	file, err := os.Open(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "File not found",
-				"details": "The file at the path " + filePath + " was not found.",
-			})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to open file",
-				"details": "The file at the path " + filePath + " could not be opened.",
-			})
-		}
-		return
-	}
-	defer file.Close()
-
-	// Read all content
-	content, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read file",
-			"details": "The file at the path " + filePath + " could not be read.",
-		})
-		return
-	}
-
-	// Get file info from the already-open file descriptor (avoids a second os.Stat syscall)
-	fileInfo, err := file.Stat()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to get file info",
-			"details": "Could not get file information for " + filePath,
-		})
-		return
-	}
-
-	// Build response with common fields
-	response := gin.H{
-		"path":                  filePath,
-		"content":               string(content),
-		"contentHash":           computeContentHash(string(content)),
-		"language":              getLanguageFromExtension(filepath.Base(filePath)),
-		"size":                  fileInfo.Size(),
-		"useExecutableRegistry": cfg.UseExecutableRegistry,
-	}
-
-	if cfg.IsWatchMode {
-		response["isWatchMode"] = true
-	}
-
-	if cfg.RemoteSourceURL != "" {
-		response["remoteSource"] = cfg.RemoteSourceURL
-	}
-
-	// In live-reload mode, validate for duplicate components on-demand
-	// (In registry mode, warnings are captured once at server startup during registry creation.
-	// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
-	if !cfg.UseExecutableRegistry {
-		warnings, err := validateRunbook(filePath)
-		if err != nil {
-			// Log error but don't fail the request
-			slog.Warn("Failed to validate runbook for duplicates", "error", err)
-		} else {
-			response["warnings"] = warnings
-		}
-	}
-
-	c.JSON(http.StatusOK, response)
 }
