@@ -69,11 +69,11 @@ func IsAbsolutePath(path string) bool {
 //
 // USE THIS WHEN:
 // - You're validating an untrusted path (e.g. from an API request or user input)
-// - You don't have a base directory yet (early validation)
+// - You don't have a directory yet (early validation)
 // - You just need to check the path structure is safe
 //
 // USE ValidateRelativePathIn INSTEAD WHEN:
-// - You have a base directory and need to verify containment
+// - You have a directory and need to verify containment
 // - You're about to perform file I/O operations
 //
 // Checks performed:
@@ -103,12 +103,12 @@ func ValidateRelativePath(path string) error {
 // ValidateRelativePathIn performs full validation on a relative path within a directory.
 //
 // USE THIS WHEN:
-// - You have a base directory and need to verify the path stays within it
+// - You have a directory and need to verify the path stays within it
 // - You're about to perform file I/O operations (read, write, delete)
 // - You need detailed error messages to report to users
 //
 // USE ValidateRelativePath INSTEAD WHEN:
-// - You don't have a base directory yet (early validation)
+// - You don't have a directory yet (early validation)
 // - You just need basic path structure validation
 //
 // USE IsContainedIn INSTEAD WHEN:
@@ -243,11 +243,11 @@ func ValidateAbsolutePathInCwd(path string) error {
 }
 
 // ValidateAbsolutePathInDir checks if an absolute path is safe for file operations
-// and is contained within the specified base directory.
+// and is contained within the specified directory.
 //
 // USE THIS WHEN:
 // - You have an absolute path (already resolved by caller)
-// - You need to ensure it's within a specific base directory (not necessarily CWD)
+// - You need to ensure it's within a specific directory (not necessarily CWD)
 // - You're about to perform file operations (read, write, delete)
 //
 // This is used by generated files validation where the working directory may differ
@@ -256,9 +256,9 @@ func ValidateAbsolutePathInCwd(path string) error {
 // Checks performed:
 // 1. Path is not empty
 // 2. Path is absolute (rejects relative paths)
-// 3. Path is within baseDir (after resolving symlinks)
+// 3. Path is within dir (after resolving symlinks)
 // 4. Path is not a system-critical directory
-func ValidateAbsolutePathInDir(path string, baseDir string) error {
+func ValidateAbsolutePathInDir(path string, dir string) error {
 	// Reject empty paths
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
@@ -270,7 +270,7 @@ func ValidateAbsolutePathInDir(path string, baseDir string) error {
 	}
 
 	// Resolve symlinks to get the actual target path
-	// This prevents attacks using symlinks pointing outside the base dir
+	// This prevents attacks using symlinks pointing outside the dir
 	resolvedPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		// If the path doesn't exist yet, EvalSymlinks will fail
@@ -281,25 +281,25 @@ func ValidateAbsolutePathInDir(path string, baseDir string) error {
 	// Clean the path to resolve any . or .. components
 	cleanPath := filepath.Clean(resolvedPath)
 
-	// Resolve symlinks for base dir as well (e.g., on macOS /tmp -> /private/tmp)
+	// Resolve symlinks for dir as well (e.g., on macOS /tmp -> /private/tmp)
 	// This ensures consistent comparison when both paths involve symlinks
-	resolvedBaseDir, err := filepath.EvalSymlinks(baseDir)
+	resolvedDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		// If we can't resolve symlinks on the base dir, it's a sign of a problem.
+		// If we can't resolve symlinks on the dir, it's a sign of a problem.
 		// It's better to fail fast than to proceed with a potentially incorrect path.
-		return fmt.Errorf("failed to resolve symlinks for base directory %q: %w", baseDir, err)
+		return fmt.Errorf("failed to resolve symlinks for directory %q: %w", dir, err)
 	}
 
-	// The path must be within or equal to the base directory
-	rel, err := filepath.Rel(resolvedBaseDir, cleanPath)
+	// The path must be within or equal to the directory
+	rel, err := filepath.Rel(resolvedDir, cleanPath)
 	if err != nil {
 		return fmt.Errorf("failed to compute relative path: %w", err)
 	}
 
-	// If rel starts with "..", it's outside the base directory
+	// If rel starts with "..", it's outside the directory
 	// (filepath.Rel always returns a relative path, so no need to check filepath.IsAbs)
 	if len(rel) >= 2 && rel[0] == '.' && rel[1] == '.' {
-		return fmt.Errorf("path must be within base directory (path: %s, base: %s)", cleanPath, resolvedBaseDir)
+		return fmt.Errorf("path must be within directory (path: %s, dir: %s)", cleanPath, resolvedDir)
 	}
 
 	// Reject system-critical directories
