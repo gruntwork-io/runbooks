@@ -27,7 +27,7 @@ type RunbookConfig struct {
 // This handler is used for GET /api/runbook requests.
 func HandleRunbookRequest(cfg RunbookConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		serveRunbookContent(c, cfg)
+		serveFileAsJSON(c, cfg)
 	}
 }
 
@@ -50,7 +50,7 @@ func HandleFileRequest(runbookPath string) gin.HandlerFunc {
 		if req.Path != "" {
 			filePath = filepath.Join(filepath.Dir(runbookPath), req.Path)
 		}
-		serveFileContent(c, filePath)
+		serveFileAsJSON(c, RunbookConfig{LocalPath: filePath, UseExecutableRegistry: true})
 	}
 }
 
@@ -187,13 +187,8 @@ func getContentType(filename string) string {
 	return "application/octet-stream"
 }
 
-// serveFileContent is a helper function that serves file content for non-runbook endpoints.
-func serveFileContent(c *gin.Context, filePath string) {
-	serveRunbookContent(c, RunbookConfig{LocalPath: filePath, UseExecutableRegistry: true})
-}
-
-// serveRunbookContent serves file content based on the given RunbookConfig.
-func serveRunbookContent(c *gin.Context, cfg RunbookConfig) {
+// serveFileAsJSON reads a file and returns its content as a JSON response with metadata.
+func serveFileAsJSON(c *gin.Context, cfg RunbookConfig) {
 	filePath := cfg.LocalPath
 	// Open the file (handles both existence check and open in one syscall)
 	file, err := os.Open(filePath)
