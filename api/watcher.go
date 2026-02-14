@@ -152,8 +152,8 @@ func HandleWatchSSE(fileWatcher *FileWatcher) gin.HandlerFunc {
 	}
 }
 
-// ResolveRunbookPath resolves the runbook path to an actual file
-// If it's a directory, it looks for runbook.mdx or runbook.md
+// ResolveRunbookPath resolves the runbook path to an actual file.
+// If it's a directory, it looks for runbook.mdx.
 func ResolveRunbookPath(path string) (string, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
@@ -161,19 +161,14 @@ func ResolveRunbookPath(path string) (string, error) {
 	}
 
 	if fileInfo.IsDir() {
-		// Try runbook.mdx first, then runbook.md
-		candidates := []string{"runbook.mdx", "runbook.md"}
-		for _, candidate := range candidates {
-			fullPath := filepath.Join(path, candidate)
-			slog.Info("Looking for runbook", "path", fullPath)
-			if _, err := os.Stat(fullPath); err == nil {
-				return fullPath, nil
-			} else if !os.IsNotExist(err) {
-				// An unexpected error occurred (e.g., permissions). Propagate it.
-				return "", fmt.Errorf("error checking for runbook %q: %w", fullPath, err)
-			}
+		fullPath := filepath.Join(path, "runbook.mdx")
+		slog.Info("Looking for runbook", "path", fullPath)
+		if _, err := os.Stat(fullPath); err == nil {
+			return fullPath, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("error checking for runbook %q: %w", fullPath, err)
 		}
-		return "", fmt.Errorf("no runbook found in directory %s", path)
+		return "", fmt.Errorf("no runbook found in directory %s (expected runbook.mdx)", path)
 	}
 
 	return path, nil

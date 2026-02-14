@@ -17,22 +17,27 @@ import (
 
 // openCmd represents the open command
 var openCmd = &cobra.Command{
-	Use:     "open PATH",
+	Use:     "open <Runbook Source>",
 	Short:   "Open a runbook (for runbook consumers)",
-	Long:    `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
+	Long: `Open the runbook located at SOURCE, or the runbook contained in the <Runbook Source> directory.
+
+<Runbook Source> can be a local path or a remote URL:
+  runbooks open ./path/to/runbook
+  runbooks open https://github.com/org/repo/tree/main/runbooks/setup-vpc
+  runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0
+  runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main"
+
+Supported remote formats:
+  - GitHub/GitLab browser URLs (tree or blob)
+  - OpenTofu-style github.com/owner/repo//path?ref=tag
+  - OpenTofu-style git::https://host/owner/repo.git//path?ref=tag`,
 	GroupID: "main",
+	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
 		telemetry.TrackCommand("open")
 
-		if len(args) == 0 {
-			slog.Error("Error: You must specify a path to a runbook file or directory\n")
-			fmt.Fprintf(os.Stderr, "")
-			os.Exit(1)
-		}
-		path := args[0]
-
-		openRunbook(path)
+		openRunbook(args[0])
 	},
 }
 
@@ -42,6 +47,12 @@ func init() {
 
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(path string) {
+	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
+	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+	if remoteCleanup != nil {
+		defer remoteCleanup()
+	}
+
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
 	if err != nil {
@@ -67,7 +78,7 @@ func openRunbook(path string) {
 
 	// Start the API server in a goroutine
 	go func() {
-		errCh <- api.StartServer(path, 7825, resolvedWorkDir, outputPath)
+		errCh <- api.StartServer(path, defaultPort, resolvedWorkDir, outputPath, remoteURL)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint
@@ -77,5 +88,5 @@ func openRunbook(path string) {
 	}
 
 	// Open browser and keep server running
-	browser.LaunchAndWait(7825)
+	browser.LaunchAndWait(defaultPort)
 }

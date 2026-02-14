@@ -25,3 +25,6 @@ TODO/
 
 # Ignore local cursor directorires
 .cursor*/
+
+# Ignore .claude directory
+.claude/

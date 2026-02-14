@@ -11,6 +11,8 @@ export interface GetFileReturn {
   size: number;
   isWatchMode?: boolean;
   warnings?: string[];
+  /** The original remote URL when the runbook was opened from a remote source */
+  remoteSource?: string;
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseApiReturn<GetFileReturn> {

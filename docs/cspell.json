@@ -42,7 +42,8 @@
     "yourcompany",
     "prek",
     "worktree",
-    "WORKTREE"
+    "WORKTREE",
+    "glab"
   ],
   "ignorePaths": [
     "node_modules",

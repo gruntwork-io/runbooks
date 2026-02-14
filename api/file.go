@@ -15,13 +15,19 @@ type FileRequest struct {
 	Path string `json:"path"`
 }
 
-// Return the contents of the runbook file directly.
+// RunbookConfig holds the configuration for serving a runbook via the API.
+type RunbookConfig struct {
+	LocalPath             string // Resolved local path to the runbook file
+	RemoteSourceURL       string // Original remote URL (e.g., GitHub URL); empty for local runbooks
+	IsWatchMode           bool   // Whether live file-watching is enabled
+	UseExecutableRegistry bool   // Whether to use the pre-built executable registry
+}
+
+// HandleRunbookRequest returns the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
-func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool) gin.HandlerFunc {
+func HandleRunbookRequest(cfg RunbookConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Use the runbook path directly
-		filePath := runbookPath
-		serveFileContentWithWatchMode(c, filePath, isWatchMode, useExecutableRegistry)
+		serveRunbookContent(c, cfg)
 	}
 }
 
@@ -44,7 +50,7 @@ func HandleFileRequest(runbookPath string) gin.HandlerFunc {
 		if req.Path != "" {
 			filePath = filepath.Join(filepath.Dir(runbookPath), req.Path)
 		}
-		serveFileContent(c, filePath)
+		serveFileAsJSON(c, filePath)
 	}
 }
 
@@ -69,7 +75,7 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 
 		// Clean the path to prevent directory traversal attacks
 		cleanPath := filepath.Clean(requestedPath)
-		
+
 		// Ensure the clean path doesn't try to escape (no ".." allowed)
 		if filepath.IsAbs(cleanPath) || len(cleanPath) > 0 && cleanPath[0] == '.' {
 			c.JSON(http.StatusForbidden, gin.H{
@@ -90,7 +96,7 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 
 		// Get the runbook directory
 		runbookDir := filepath.Dir(runbookPath)
-		
+
 		// Construct the full path: <runbook-dir>/assets/<requested-path>
 		fullPath := filepath.Join(runbookDir, "assets", cleanPath)
 
@@ -140,90 +146,64 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 	}
 }
 
-// isAllowedAssetExtension checks if the file extension is in the whitelist of allowed types
-func isAllowedAssetExtension(filename string) bool {
-	ext := filepath.Ext(filename)
-	allowedExtensions := map[string]bool{
-		// Images
-		".png":  true,
-		".jpg":  true,
-		".jpeg": true,
-		".gif":  true,
-		".svg":  true,
-		".webp": true,
-		".bmp":  true,
-		".ico":  true,
-		// Documents
-		".pdf": true,
-		// Media
-		".mp4":  true,
-		".webm": true,
-		".ogg":  true,
-		".mp3":  true,
-		".wav":  true,
-		".m4a":  true,
-		".avi":  true,
-		".mov":  true,
-	}
-	return allowedExtensions[ext]
-}
-
-// getContentType returns the MIME type for a file based on its extension
-func getContentType(filename string) string {
-	ext := filepath.Ext(filename)
-	contentTypes := map[string]string{
-		// Images
-		".png":  "image/png",
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
-		".gif":  "image/gif",
-		".svg":  "image/svg+xml",
-		".webp": "image/webp",
-		".bmp":  "image/bmp",
-		".ico":  "image/x-icon",
-		// Documents
-		".pdf": "application/pdf",
-		// Media
-		".mp4":  "video/mp4",
-		".webm": "video/webm",
-		".ogg":  "video/ogg",
-		".mp3":  "audio/mpeg",
-		".wav":  "audio/wav",
-		".m4a":  "audio/mp4",
-		".avi":  "video/x-msvideo",
-		".mov":  "video/quicktime",
-	}
-	
-	if contentType, ok := contentTypes[ext]; ok {
-		return contentType
-	}
-	return "application/octet-stream"
-}
-
-// serveFileContent is a helper function that serves file content
-func serveFileContent(c *gin.Context, filePath string) {
-	serveFileContentWithWatchMode(c, filePath, false, true)
-}
-
-// serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info
-func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool) {
-	// Check if the file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "File not found",
-			"details": "The file at the path " + filePath + " was not found.",
-		})
+// serveRunbookContent serves a runbook file as JSON, adding runbook-specific fields to the response.
+func serveRunbookContent(c *gin.Context, cfg RunbookConfig) {
+	response := readFileMetadata(c, cfg.LocalPath)
+	if response == nil {
 		return
 	}
 
-	// Read the file contents
+	response["useExecutableRegistry"] = cfg.UseExecutableRegistry
+
+	if cfg.IsWatchMode {
+		response["isWatchMode"] = true
+	}
+
+	if cfg.RemoteSourceURL != "" {
+		response["remoteSource"] = cfg.RemoteSourceURL
+	}
+
+	// In live-reload mode, validate for duplicate components on-demand
+	// (In registry mode, warnings are captured once at server startup during registry creation.
+	// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
+	if !cfg.UseExecutableRegistry {
+		warnings, err := validateRunbook(cfg.LocalPath)
+		if err != nil {
+			// Log error but don't fail the request
+			slog.Warn("Failed to validate runbook for duplicates", "error", err)
+		} else {
+			response["warnings"] = warnings
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// serveFileAsJSON reads a file and returns its content as a JSON response with metadata.
+func serveFileAsJSON(c *gin.Context, filePath string) {
+	if response := readFileMetadata(c, filePath); response != nil {
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+// readFileMetadata reads a file and returns a JSON-ready map with its content and metadata.
+// Returns nil and sends an error response if the file cannot be read.
+func readFileMetadata(c *gin.Context, filePath string) gin.H {
+	// Open the file (handles both existence check and open in one syscall)
 	file, err := os.Open(filePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open file",
-			"details": "The file at the path " + filePath + " could not be opened.",
-		})
-		return
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "File not found",
+				"details": "The file at the path " + filePath + " was not found.",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to open file",
+				"details": "The file at the path " + filePath + " could not be opened.",
+			})
+		}
+		return nil
 	}
 	defer file.Close()
 
@@ -234,46 +214,65 @@ func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode 
 			"error":   "Failed to read file",
 			"details": "The file at the path " + filePath + " could not be read.",
 		})
-		return
+		return nil
 	}
 
-	// Get file info for size and language detection
-	fileInfo, err := os.Stat(filePath)
+	// Get file info from the already-open file descriptor (avoids a second os.Stat syscall)
+	fileInfo, err := file.Stat()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to get file info",
 			"details": "Could not get file information for " + filePath,
 		})
-		return
+		return nil
 	}
 
-	// Build response with common fields
-	response := gin.H{
-		"path":                  filePath,
-		"content":               string(content),
-		"contentHash":           computeContentHash(string(content)),
-		"language":              getLanguageFromExtension(filepath.Base(filePath)),
-		"size":                  fileInfo.Size(),
-		"useExecutableRegistry": useExecutableRegistry,
+	return gin.H{
+		"path":        filePath,
+		"content":     string(content),
+		"contentHash": computeContentHash(string(content)),
+		"language":    getLanguageFromExtension(filepath.Base(filePath)),
+		"size":        fileInfo.Size(),
 	}
+}
 
-	// Add watch mode info if provided
-	if isWatchMode {
-		response["isWatchMode"] = true
+// allowedAssetContentTypes maps file extensions to their MIME types.
+// This is the single source of truth for both allowed-extension checks and content-type resolution.
+var allowedAssetContentTypes = map[string]string{
+	// Images
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".svg":  "image/svg+xml",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+	".ico":  "image/x-icon",
+	// Documents
+	".pdf": "application/pdf",
+	// Media
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
+	".ogg":  "video/ogg",
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".m4a":  "audio/mp4",
+	".avi":  "video/x-msvideo",
+	".mov":  "video/quicktime",
+}
+
+// isAllowedAssetExtension checks if the file extension is in the whitelist of allowed types
+func isAllowedAssetExtension(filename string) bool {
+	ext := filepath.Ext(filename)
+	_, ok := allowedAssetContentTypes[ext]
+	return ok
+}
+
+// getContentType returns the MIME type for a file based on its extension
+func getContentType(filename string) string {
+	ext := filepath.Ext(filename)
+	if contentType, ok := allowedAssetContentTypes[ext]; ok {
+		return contentType
 	}
-
-	// In live-reload mode, validate for duplicate components on-demand
-	// (In registry mode, warnings are captured once at server startup during registry creation.
-	// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
-	if !useExecutableRegistry {
-		warnings, err := validateRunbook(filePath)
-		if err != nil {
-			// Log error but don't fail the request
-			slog.Warn("Failed to validate runbook for duplicates", "error", err)
-		} else {
-			response["warnings"] = warnings
-		}
-	}
-
-	c.JSON(http.StatusOK, response)
+	return "application/octet-stream"
 }

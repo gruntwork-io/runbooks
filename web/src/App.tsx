@@ -126,9 +126,10 @@ function App() {
   ]);
   
   // Extract commonly used values
-  const pathName = getRunbookResult.data?.path || ''
+  // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
+  const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ''
   const content = getRunbookResult.data?.content || ''
-  const runbookPath = getDirectoryPath(pathName)
+  const runbookPath = getDirectoryPath(getRunbookResult.data?.path || '')
 
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
@@ -147,7 +148,7 @@ function App() {
   return (
     <>
       <div className="flex flex-col">
-        <Header pathName={pathName} />
+        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
         
         {/* Error Summary Banner */}
         {(errorCount > 0 || warningCount > 0) && (

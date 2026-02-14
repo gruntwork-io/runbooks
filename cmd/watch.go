@@ -19,24 +19,20 @@ var disableLiveFileReload bool
 
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
-	Use:   "watch PATH",
+	Use:   "watch SOURCE",
 	Short: "Open a runbook and auto-reload changes (for runbook authors)",
-	Long: `Open the runbook located at PATH, or the runbook contained in the PATH directory.
+	Long: `Open the runbook located at SOURCE, or the runbook contained in the SOURCE directory.
 The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
-By default, script changes take effect immediately without server restart (live-file-reload mode).`,
+By default, script changes take effect immediately without server restart (live-file-reload mode).
+
+SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.`,
 	GroupID: "main",
+	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Track command usage
 		telemetry.TrackCommand("watch")
 
-		if len(args) == 0 {
-			slog.Error("Error: You must specify a path to a runbook file or directory\n")
-			fmt.Fprintf(os.Stderr, "")
-			os.Exit(1)
-		}
-		path := args[0]
-
-		watchRunbook(path)
+		watchRunbook(args[0])
 	},
 }
 
@@ -49,6 +45,12 @@ func init() {
 
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(path string) {
+	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
+	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+	if remoteCleanup != nil {
+		defer remoteCleanup()
+	}
+
 	// Resolve the working directory
 	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
 	if err != nil {
@@ -77,7 +79,7 @@ func watchRunbook(path string) {
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		errCh <- api.StartServerWithWatch(path, 7825, resolvedWorkDir, outputPath, useExecutableRegistry)
+		errCh <- api.StartServerWithWatch(path, defaultPort, resolvedWorkDir, outputPath, useExecutableRegistry, remoteURL)
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint
@@ -87,5 +89,5 @@ func watchRunbook(path string) {
 	}
 
 	// Open browser and keep server running
-	browser.LaunchAndWait(7825)
+	browser.LaunchAndWait(defaultPort)
 }
