@@ -53,7 +53,10 @@ func TestHandleRunbookRequest(t *testing.T) {
 			// Set up Gin router
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/runbook", HandleRunbookRequest(tt.runbookPath, false, true, ""))
+			router.GET("/runbook", HandleRunbookRequest(RunbookConfig{
+				LocalPath:             tt.runbookPath,
+				UseExecutableRegistry: true,
+			}))
 
 			// Create request
 			req, err := http.NewRequest("GET", "/runbook", nil)
@@ -90,7 +93,11 @@ func TestHandleRunbookRequest_WithRemoteSourceURL(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/runbook", HandleRunbookRequest(testFile, false, true, remoteURL))
+	router.GET("/runbook", HandleRunbookRequest(RunbookConfig{
+		LocalPath:             testFile,
+		RemoteSourceURL:       remoteURL,
+		UseExecutableRegistry: true,
+	}))
 
 	req, err := http.NewRequest("GET", "/runbook", nil)
 	require.NoError(t, err)
@@ -116,7 +123,10 @@ func TestHandleRunbookRequest_WithoutRemoteSourceURL(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/runbook", HandleRunbookRequest(testFile, false, true, ""))
+	router.GET("/runbook", HandleRunbookRequest(RunbookConfig{
+		LocalPath:             testFile,
+		UseExecutableRegistry: true,
+	}))
 
 	req, err := http.NewRequest("GET", "/runbook", nil)
 	require.NoError(t, err)

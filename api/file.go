@@ -15,18 +15,19 @@ type FileRequest struct {
 	Path string `json:"path"`
 }
 
+// RunbookConfig holds the configuration for serving a runbook via the API.
+type RunbookConfig struct {
+	LocalPath             string // Resolved local path to the runbook file
+	RemoteSourceURL       string // Original remote URL (e.g., GitHub URL); empty for local runbooks
+	IsWatchMode           bool   // Whether live file-watching is enabled
+	UseExecutableRegistry bool   // Whether to use the pre-built executable registry
+}
+
 // HandleRunbookRequest returns the contents of the runbook file directly.
 // This handler is used for GET /api/runbook requests.
-// remoteSourceURL is the original remote URL (e.g., GitHub URL) if the runbook was fetched remotely; empty for local runbooks.
-func HandleRunbookRequest(runbookPath string, isWatchMode bool, useExecutableRegistry bool, remoteSourceURL string) gin.HandlerFunc {
-	// Build extra fields for the response (only remote source for now)
-	var extraFields gin.H
-	if remoteSourceURL != "" {
-		extraFields = gin.H{"remoteSource": remoteSourceURL}
-	}
-
+func HandleRunbookRequest(cfg RunbookConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		serveFileContentWithWatchMode(c, runbookPath, isWatchMode, useExecutableRegistry, extraFields)
+		serveRunbookContent(c, cfg)
 	}
 }
 
@@ -186,14 +187,14 @@ func getContentType(filename string) string {
 	return "application/octet-stream"
 }
 
-// serveFileContent is a helper function that serves file content.
+// serveFileContent is a helper function that serves file content for non-runbook endpoints.
 func serveFileContent(c *gin.Context, filePath string) {
-	serveFileContentWithWatchMode(c, filePath, false, true, nil)
+	serveRunbookContent(c, RunbookConfig{LocalPath: filePath, UseExecutableRegistry: true})
 }
 
-// serveFileContentWithWatchMode is a helper function that serves file content with optional watch mode info.
-// extraFields are merged into the JSON response if non-nil (e.g., {"remoteSource": "https://..."}).
-func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode bool, useExecutableRegistry bool, extraFields gin.H) {
+// serveRunbookContent serves file content based on the given RunbookConfig.
+func serveRunbookContent(c *gin.Context, cfg RunbookConfig) {
+	filePath := cfg.LocalPath
 	// Open the file (handles both existence check and open in one syscall)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -239,23 +240,21 @@ func serveFileContentWithWatchMode(c *gin.Context, filePath string, isWatchMode 
 		"contentHash":           computeContentHash(string(content)),
 		"language":              getLanguageFromExtension(filepath.Base(filePath)),
 		"size":                  fileInfo.Size(),
-		"useExecutableRegistry": useExecutableRegistry,
+		"useExecutableRegistry": cfg.UseExecutableRegistry,
 	}
 
-	// Add watch mode info if provided
-	if isWatchMode {
+	if cfg.IsWatchMode {
 		response["isWatchMode"] = true
 	}
 
-	// Merge any extra fields into the response (e.g., remote source URL)
-	for k, v := range extraFields {
-		response[k] = v
+	if cfg.RemoteSourceURL != "" {
+		response["remoteSource"] = cfg.RemoteSourceURL
 	}
 
 	// In live-reload mode, validate for duplicate components on-demand
 	// (In registry mode, warnings are captured once at server startup during registry creation.
 	// In live-reload mode, no registry exists, so we validate on each request for the runbook.)
-	if !useExecutableRegistry {
+	if !cfg.UseExecutableRegistry {
 		warnings, err := validateRunbook(filePath)
 		if err != nil {
 			// Log error but don't fail the request
