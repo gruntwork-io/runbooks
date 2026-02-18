@@ -245,6 +245,12 @@ func customHelp(cmd *cobra.Command, args []string) {
 	}
 	fmt.Println()
 
+	// For subcommands, print the long description
+	if cmd.Name() != "runbooks" && cmd.Long != "" {
+		fmt.Println(cmd.Long)
+		fmt.Println()
+	}
+
 	// For root command, print commands in sections
 	if cmd.Name() == "runbooks" {
 		// Calculate the maximum command name width dynamically
