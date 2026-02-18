@@ -26,17 +26,14 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolveAndApplyRemoteDefaults resolves a remote source and applies working directory defaults.
-// Returns the local path, a cleanup function (nil for local sources), and the original remote URL.
-// Exits the process on error.
-func resolveAndApplyRemoteDefaults(source string) (localPath string, cleanup func(), remoteURL string) {
+// fetchRemoteRunbook checks whether source is a remote URL and, if so, downloads it to a
+// local temp directory. Returns the local path, a cleanup function (nil for local sources),
+// and the original remote URL. Exits the process on error.
+func fetchRemoteRunbook(source string) (localPath string, cleanup func(), remoteURL string) {
 	localPath, cleanup, remoteURL, err := resolveRemoteSource(source)
 	if err != nil {
 		slog.Error("Failed to fetch remote runbook", "error", err)
 		os.Exit(1)
-	}
-	if cleanup != nil && workingDir == "" && !workingDirTmp {
-		workingDirTmp = true
 	}
 	return localPath, cleanup, remoteURL
 }
@@ -54,15 +51,15 @@ func resolveRemoteSource(source string) (localPath string, cleanup func(), remot
 		return source, nil, "", nil
 	}
 
-	localPath, cleanup, err = fetchRemoteRunbook(parsed)
+	localPath, cleanup, err = downloadRemoteRunbook(parsed)
 	if err != nil {
 		return "", nil, "", err
 	}
 	return localPath, cleanup, source, nil
 }
 
-// fetchRemoteRunbook downloads a runbook from a remote source to a temp directory.
-func fetchRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
+// downloadRemoteRunbook downloads a runbook from a remote source to a temp directory.
+func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
 	if err := requireGit(); err != nil {
 		return "", nil, err
 	}

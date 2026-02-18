@@ -30,16 +30,14 @@ RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' f
 		// Track command usage
 		telemetry.TrackCommand("serve")
 
-		path := args[0]
+		source := args[0]
 
-		// Check if path is a remote source
-		path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+		path, remoteCleanup, remoteURL := fetchRemoteRunbook(source)
 		if remoteCleanup != nil {
 			defer remoteCleanup()
 		}
 
-		// Resolve the working directory
-		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp, remoteCleanup != nil)
 		if err != nil {
 			slog.Error("Failed to resolve working directory", "error", err)
 			os.Exit(1)

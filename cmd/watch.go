@@ -44,15 +44,13 @@ func init() {
 }
 
 // watchRunbook opens a runbook with file watching enabled
-func watchRunbook(path string) {
-	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
-	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+func watchRunbook(source string) {
+	path, remoteCleanup, remoteURL := fetchRemoteRunbook(source)
 	if remoteCleanup != nil {
 		defer remoteCleanup()
 	}
 
-	// Resolve the working directory
-	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp, remoteCleanup != nil)
 	if err != nil {
 		slog.Error("Failed to resolve working directory", "error", err)
 		os.Exit(1)
@@ -66,18 +64,15 @@ func watchRunbook(path string) {
 	useExecutableRegistry := disableLiveFileReload
 	slog.Info("Opening runbook with file watching", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
-	// Resolve the runbook path before starting the server
-	// This is needed to verify we're connecting to the correct server instance
+	// Resolve directory to runbook.mdx file path, used to verify the server is serving the expected runbook
 	resolvedPath, err := api.ResolveRunbookPath(path)
 	if err != nil {
 		slog.Error("Failed to resolve runbook path", "error", err)
 		os.Exit(1)
 	}
 
-	// Channel to receive server startup errors
 	errCh := make(chan error, 1)
 
-	// Start the API server with watching in a goroutine
 	go func() {
 		errCh <- api.StartServerWithWatch(path, defaultPort, resolvedWorkDir, outputPath, useExecutableRegistry, remoteURL)
 	}()

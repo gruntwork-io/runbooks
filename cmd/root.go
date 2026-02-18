@@ -42,11 +42,12 @@ func getVersionString() string {
 }
 
 // resolveWorkingDir determines the final working directory based on CLI flags.
-// Precedence: workingDirTmp wins over configuredWorkDir.
+// Remote sources default to a temp directory when no working directory is explicitly configured.
 // Returns the directory path, a cleanup function (nil if no cleanup needed), and an error.
-func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(), error) {
-	// Precedence: useTempDir wins over configuredWorkDir
-	// This is intentional - if user explicitly requests a temp dir, honor that
+func resolveWorkingDir(configuredWorkDir string, useTempDir bool, isRemote bool) (string, func(), error) {
+	if isRemote && configuredWorkDir == "" {
+		useTempDir = true
+	}
 	if useTempDir {
 		dir, err := os.MkdirTemp("", "runbook-workdir-*")
 		if err != nil {

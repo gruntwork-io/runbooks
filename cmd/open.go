@@ -46,15 +46,13 @@ func init() {
 }
 
 // openRunbook opens a runbook by starting the API server and opening the browser
-func openRunbook(path string) {
-	// Check if path is a remote source (GitHub/GitLab URL, OpenTofu source, etc.)
-	path, remoteCleanup, remoteURL := resolveAndApplyRemoteDefaults(path)
+func openRunbook(source string) {
+	path, remoteCleanup, remoteURL := fetchRemoteRunbook(source)
 	if remoteCleanup != nil {
 		defer remoteCleanup()
 	}
 
-	// Resolve the working directory
-	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp, remoteCleanup != nil)
 	if err != nil {
 		slog.Error("Failed to resolve working directory", "error", err)
 		os.Exit(1)
@@ -65,8 +63,7 @@ func openRunbook(path string) {
 
 	slog.Info("Opening runbook", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
-	// Resolve the runbook path before starting the server
-	// This is needed to verify we're connecting to the correct server instance
+	// Resolve directory to runbook.mdx file path
 	resolvedPath, err := api.ResolveRunbookPath(path)
 	if err != nil {
 		slog.Error("Failed to resolve runbook path", "error", err)
