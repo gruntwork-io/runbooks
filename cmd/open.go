@@ -17,11 +17,11 @@ import (
 
 // openCmd represents the open command
 var openCmd = &cobra.Command{
-	Use:     "open <Runbook Source>",
+	Use:     "open RUNBOOK_SOURCE",
 	Short:   "Open a runbook (for runbook consumers)",
-	Long: `Open the runbook located at SOURCE, or the runbook contained in the <Runbook Source> directory.
+	Long: `Open the runbook located at RUNBOOK_SOURCE, or the runbook contained in the RUNBOOK_SOURCE directory.
 
-<Runbook Source> can be a local path or a remote URL:
+RUNBOOK_SOURCE can be a local path or a remote URL:
   runbooks open ./path/to/runbook
   runbooks open https://github.com/org/repo/tree/main/runbooks/setup-vpc
   runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0

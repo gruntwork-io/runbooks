@@ -19,13 +19,13 @@ var disableLiveFileReload bool
 
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
-	Use:   "watch SOURCE",
+	Use:   "watch RUNBOOK_SOURCE",
 	Short: "Open a runbook and auto-reload changes (for runbook authors)",
-	Long: `Open the runbook located at SOURCE, or the runbook contained in the SOURCE directory.
+	Long: `Open the runbook located at RUNBOOK_SOURCE, or the runbook contained in the RUNBOOK_SOURCE directory.
 The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
 By default, script changes take effect immediately without server restart (live-file-reload mode).
 
-SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.`,
+RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.`,
 	GroupID: "main",
 	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {

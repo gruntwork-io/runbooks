@@ -74,7 +74,7 @@ func TestClassifyCloneError(t *testing.T) {
 		assert.Contains(t, err.Error(), "github.com/org/repo")
 	})
 
-	t.Run("auth error with token gives generic message", func(t *testing.T) {
+	t.Run("auth error with token suggests token may be expired", func(t *testing.T) {
 		parsed := &api.ParsedRemoteSource{
 			Host: "github.com", Owner: "org", Repo: "repo",
 			CloneURL: "https://github.com/org/repo.git",
@@ -85,8 +85,11 @@ func TestClassifyCloneError(t *testing.T) {
 			"ghp_sometoken",
 			parsed,
 		)
-		assert.Contains(t, err.Error(), "failed to download")
-		assert.NotContains(t, err.Error(), "GITHUB_TOKEN")
+		assert.Contains(t, err.Error(), "authentication failed")
+		assert.Contains(t, err.Error(), "invalid or expired")
+		assert.Contains(t, err.Error(), "GITHUB_TOKEN")
+		assert.Contains(t, err.Error(), "gh auth login")
+		assert.Contains(t, err.Error(), "github.com/org/repo")
 	})
 
 	t.Run("non-auth error gives generic message", func(t *testing.T) {

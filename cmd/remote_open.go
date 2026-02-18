@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// validateSourceArg is a Cobra Args validator that provides a clear error when SOURCE is missing.
+// validateSourceArg is a Cobra Args validator that provides a clear error when RUNBOOK_SOURCE is missing.
 func validateSourceArg(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing required argument: <Runbook Source>\n\nProvide a local path or remote URL to a runbook:\n  %s /path/to/runbook\n  %s https://github.com/org/repo/tree/main/runbooks/my-runbook\n", cmd.CommandPath(), cmd.CommandPath())
+		return fmt.Errorf("missing required argument: RUNBOOK_SOURCE\n\nProvide a local path or remote URL to a runbook:\n  %s /path/to/runbook\n  %s https://github.com/org/repo/tree/main/runbooks/my-runbook\n", cmd.CommandPath(), cmd.CommandPath())
 	}
 	if len(args) > 1 {
 		return fmt.Errorf("expected 1 argument but received %d", len(args))
@@ -171,10 +171,13 @@ func classifyCloneError(cloneErr error, output []byte, token string, parsed *api
 	}
 	sanitized := api.SanitizeGitError(errMsg)
 
-	// Check for auth-related errors when no token was provided
-	if token == "" && isAuthError(sanitized) {
+	if isAuthError(sanitized) {
 		tokenVar, cliCmd := authHintForHost(parsed.Host)
-		return fmt.Errorf("authentication required for %s/%s/%s: set %s, or run '%s'",
+		if token == "" {
+			return fmt.Errorf("authentication required for %s/%s/%s: set %s, or run '%s'",
+				parsed.Host, parsed.Owner, parsed.Repo, tokenVar, cliCmd)
+		}
+		return fmt.Errorf("authentication failed for %s/%s/%s (token may be invalid or expired): verify %s, or re-run '%s'",
 			parsed.Host, parsed.Owner, parsed.Repo, tokenVar, cliCmd)
 	}
 

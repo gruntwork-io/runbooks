@@ -30,6 +30,11 @@ func assertParsedSourceEqual(t *testing.T, expected, actual *ParsedRemoteSource)
 // =============================================================================
 
 func TestParseRemoteSource_GitHubBrowserURL(t *testing.T) {
+	// For browser URLs (tree/blob), the ref and path are ambiguous
+	// (e.g. "main/runbooks/setup-vpc" could split many ways), so
+	// ParseRemoteSource stores them combined in rawRefAndPath.
+	// Ref and Path stay empty until ResolveRef() queries the remote.
+	// For that reason, we don't test Ref and Path in these tests.
 	tests := []struct {
 		name     string
 		input    string
@@ -112,6 +117,8 @@ func TestParseRemoteSource_GitHubBrowserURL(t *testing.T) {
 }
 
 func TestParseRemoteSource_GitLabBrowserURL(t *testing.T) {
+	// Same as GitHub: browser URLs leave Ref/Path empty in favor of
+	// rawRefAndPath, which ResolveRef() splits later.
 	tests := []struct {
 		name     string
 		input    string
@@ -189,6 +196,7 @@ func TestParseRemoteSource_TofuGitHubShorthand(t *testing.T) {
 				Repo:     "runbooks",
 				Path:     "runbooks/setup-vpc",
 				CloneURL: "https://github.com/gruntwork-io/runbooks.git",
+				// Ref empty: no ?ref= query parameter in the URL
 			},
 		},
 		{
@@ -199,6 +207,7 @@ func TestParseRemoteSource_TofuGitHubShorthand(t *testing.T) {
 				Owner:    "gruntwork-io",
 				Repo:     "runbooks",
 				CloneURL: "https://github.com/gruntwork-io/runbooks.git",
+				// Ref and Path empty: URL has no // path separator or ?ref= param
 			},
 		},
 		{
@@ -264,6 +273,7 @@ func TestParseRemoteSource_TofuGitPrefix(t *testing.T) {
 				Repo:     "repo",
 				Ref:      "v1.0",
 				CloneURL: "https://github.com/org/repo.git",
+				// Path empty: no // path separator in the URL
 			},
 		},
 		{
@@ -274,6 +284,7 @@ func TestParseRemoteSource_TofuGitPrefix(t *testing.T) {
 				Owner:    "org",
 				Repo:     "repo",
 				CloneURL: "https://github.com/org/repo.git",
+				// Ref and Path empty: URL has no // path separator or ?ref= param
 			},
 		},
 		{
