@@ -44,6 +44,32 @@ func (p *ParsedRemoteSource) RawRefAndPath() string {
 	return p.rawRefAndPath
 }
 
+// Resolve separates the git ref from the repo path when they're ambiguous.
+//
+// Browser URLs like github.com/org/repo/tree/main/infra/vpc embed the ref and
+// path together as "main/infra/vpc". This could mean ref="main" path="infra/vpc",
+// or ref="main/infra" path="vpc" if a branch named "main/infra" exists. Resolve
+// uses git ls-remote to find the correct split.
+//
+// For blob URLs (pointing to a file rather than a directory), the path is also
+// adjusted to the parent directory, since runbooks live in directories.
+//
+// token is used to authenticate the ls-remote call if non-empty.
+func (p *ParsedRemoteSource) Resolve(token string) error {
+	if p.NeedsRefResolution() {
+		cloneURL := InjectGitHubToken(p.CloneURL, token)
+		ref, repoPath, err := ResolveRef(cloneURL, p.RawRefAndPath(), p.IsBlobURL)
+		if err != nil {
+			return fmt.Errorf("could not resolve branch or tag from URL — verify the URL points to a valid branch or tag: %w", err)
+		}
+		p.Ref = ref
+		p.Path = repoPath
+	} else if p.IsBlobURL && p.Path != "" {
+		p.Path = AdjustBlobPath(p.Path)
+	}
+	return nil
+}
+
 // ParseRemoteSource parses any supported remote URL format into a normalized form.
 // Returns nil, nil if the input is not a remote source (i.e., it's a local path).
 // Returns nil, error if it looks like a remote source but is malformed.

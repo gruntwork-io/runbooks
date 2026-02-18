@@ -42,10 +42,10 @@ func TestInjectGitHubToken(t *testing.T) {
 			expected: "",
 		},
 		{
-			name:     "empty token still injects user info",
+			name:     "empty token returns URL unchanged",
 			rawURL:   "https://github.com/org/repo.git",
 			token:    "",
-			expected: "https://x-access-token:@github.com/org/repo.git",
+			expected: "https://github.com/org/repo.git",
 		},
 		{
 			name:     "URL with existing user info gets overwritten",

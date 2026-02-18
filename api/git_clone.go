@@ -910,8 +910,12 @@ func IsGitHubURL(rawURL string) bool {
 
 // InjectGitHubToken injects a token into a GitHub HTTPS URL for authentication.
 // Converts https://github.com/org/repo.git to https://x-access-token:{token}@github.com/org/repo.git
+// Returns the URL unchanged if token is empty or the URL is not HTTPS.
 func InjectGitHubToken(rawURL, token string) string {
-	// Only inject into HTTPS URLs
+	if token == "" {
+		return rawURL
+	}
+
 	if !strings.HasPrefix(strings.ToLower(rawURL), "https://") {
 		return rawURL
 	}
