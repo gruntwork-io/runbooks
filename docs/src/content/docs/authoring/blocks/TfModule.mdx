@@ -28,17 +28,11 @@ inputs = {
 
 ## vs. Inputs
 
-Both `<TfModule>` and `<Inputs>` collect user values and publish them to context, but they serve different purposes:
+Both `<TfModule>` and `<Inputs>` collect user values and publish them to context, but they serve different purposes.
 
-| Feature | `<TfModule>` | `<Inputs>` |
-|---------|-------------|------------|
-| Variable source | Parsed from `.tf` files at runtime | Defined in inline YAML or `boilerplate.yml` |
-| Form rendered | Yes, auto-generated from module variables | Yes, from variable definitions |
-| `_module` namespace | Yes (source, metadata, inputs, hcl_inputs) | No |
-| Dynamic iteration | Yes, iterate over all variables with `_module.inputs` / `_module.hcl_inputs` | No (each variable must be referenced by name) |
-| Use case | Generate config files from OpenTofu modules | Collect arbitrary user input |
+**`<TfModule>`** parses `.tf` files at runtime and auto-generates a form from the module's variables. It provides a `_module` namespace with source, metadata, `inputs`, and `hcl_inputs` — enabling dynamic iteration over all variables without knowing their names upfront. Use it when you want to generate config files from an existing OpenTofu module.
 
-Use `<TfModule>` when you want to parse an existing OpenTofu module and generate configuration from its variables. Use `<Inputs>` when you want to define custom variables that don't come from a `.tf` module.
+**`<Inputs>`** defines variables explicitly in inline YAML or a `boilerplate.yml`. Each variable must be referenced by name in templates. Use it when you want to collect arbitrary user input that doesn't come from a `.tf` module.
 
 ## Props
 
