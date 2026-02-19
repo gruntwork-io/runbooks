@@ -2,10 +2,12 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import type { ReactNode } from 'react'
 import { normalizeBlockId } from '../lib/utils'
 
+export type BlockComponentType = 'Command' | 'Check' | 'Inputs' | 'Template' | 'TfModule' | 'AwsAuth' | 'GitHubAuth' | 'GitClone' | 'GitHubPullRequest'
+
 interface ComponentRegistration {
   id: string
   normalizedId: string // ID with hyphens converted to underscores
-  componentType: 'Command' | 'Check' | 'Inputs' | 'Template' | 'TfModule' | 'AwsAuth' | 'GitHubAuth' | 'GitClone' | 'GitHubPullRequest'
+  componentType: BlockComponentType
   instanceId: string // Unique per-render instance to track unmounts
 }
 

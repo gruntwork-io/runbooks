@@ -1,3 +1,4 @@
+import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 /**
@@ -47,14 +48,16 @@ export function formatHclValue(value: unknown, type: BoilerplateVariableType): s
 /**
  * Builds a map of variable name → HCL-formatted string value.
  * Used to populate _module.hcl_inputs for template iteration.
+ * Accepts a BoilerplateConfig to look up variable types.
  */
 export function buildHclInputsMap(
   formData: Record<string, unknown>,
-  variableTypes: Map<string, BoilerplateVariableType>
+  config: BoilerplateConfig | null
 ): Record<string, string> {
   const hclInputs: Record<string, string> = {}
   for (const [name, value] of Object.entries(formData)) {
-    const type = variableTypes.get(name) ?? BoilerplateVariableType.String
+    const varDef = config?.variables.find(v => v.name === name)
+    const type = varDef?.type ?? BoilerplateVariableType.String
     hclInputs[name] = formatHclValue(value, type)
   }
   return hclInputs
