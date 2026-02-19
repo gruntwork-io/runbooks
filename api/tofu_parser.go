@@ -175,7 +175,6 @@ func extractGroupComments(src []byte) map[int]string {
 	scanner := bufio.NewScanner(strings.NewReader(string(src)))
 	lineNum := 0
 	var pendingGroup string
-	var pendingLine int
 
 	for scanner.Scan() {
 		lineNum++
@@ -183,20 +182,16 @@ func extractGroupComments(src []byte) map[int]string {
 
 		if match := re.FindStringSubmatch(line); match != nil {
 			pendingGroup = match[1]
-			pendingLine = lineNum
 			continue
 		}
 
 		// If we have a pending group and hit a variable block, associate it
 		if pendingGroup != "" && strings.HasPrefix(line, "variable ") {
-			groups[pendingLine+1] = pendingGroup // +1 because the variable block starts on the next line after comment
-			// Actually, we need the line where the variable block starts
 			groups[lineNum] = pendingGroup
 			pendingGroup = ""
 		} else if pendingGroup != "" && line != "" && !strings.HasPrefix(line, "#") {
 			// Non-empty, non-comment line that isn't a variable — reset
 			pendingGroup = ""
-			_ = pendingLine
 		}
 	}
 
@@ -389,34 +384,22 @@ func MapTofuType(typeExpr string) BoilerplateVarType {
 	typeExpr = strings.TrimSpace(typeExpr)
 
 	switch {
-	case typeExpr == "" || typeExpr == "any":
-		return VarTypeString
-	case typeExpr == "string":
+	case typeExpr == "" || typeExpr == "any" || typeExpr == "string":
 		return VarTypeString
 	case typeExpr == "number":
 		return VarTypeInt
 	case typeExpr == "bool":
 		return VarTypeBool
-	case strings.HasPrefix(typeExpr, "list(") || strings.HasPrefix(typeExpr, "set("):
+	case strings.HasPrefix(typeExpr, "list(") || strings.HasPrefix(typeExpr, "set(") || strings.HasPrefix(typeExpr, "tuple("):
 		return VarTypeList
-	case strings.HasPrefix(typeExpr, "tuple("):
-		return VarTypeList
-	case strings.HasPrefix(typeExpr, "map("):
-		return VarTypeMap
-	case strings.HasPrefix(typeExpr, "object("):
+	case strings.HasPrefix(typeExpr, "map(") || strings.HasPrefix(typeExpr, "object("):
 		return VarTypeMap
 	case strings.HasPrefix(typeExpr, "optional("):
-		// Extract inner type
 		inner := typeExpr[len("optional(") : len(typeExpr)-1]
 		return MapTofuType(inner)
 	default:
 		return VarTypeString
 	}
-}
-
-// isTupleType checks if a type expression is a tuple type.
-func isTupleType(typeExpr string) bool {
-	return strings.HasPrefix(strings.TrimSpace(typeExpr), "tuple(")
 }
 
 // extractTupleSchema parses a tuple([T1, T2, ...]) type expression into a schema map
@@ -669,6 +652,9 @@ func extractNumericRange(cond string) (string, string, bool) {
 	return match[1], match[2], true
 }
 
+// singleBoundComparisonRe matches simple single-bound comparisons (e.g. var.x > 0).
+var singleBoundComparisonRe = regexp.MustCompile(`var\.\w+\s*[<>]\s*[0-9.]+$`)
+
 // isTier2Pattern checks if a condition matches a Tier 2 (description-enriched) pattern.
 func isTier2Pattern(cond string) bool {
 	tier2Patterns := []string{
@@ -683,11 +669,7 @@ func isTier2Pattern(cond string) bool {
 			return true
 		}
 	}
-	// Simple single-bound comparison (e.g. var.x > 0) without being a range
-	if regexp.MustCompile(`var\.\w+\s*[<>]\s*[0-9.]+$`).MatchString(strings.TrimSpace(cond)) {
-		return true
-	}
-	return false
+	return singleBoundComparisonRe.MatchString(strings.TrimSpace(cond))
 }
 
 func appendSuffix(existing, new string) string {
@@ -718,76 +700,34 @@ func buildSections(vars []TofuVariable) []Section {
 	return buildSectionsRequiredOptional(vars)
 }
 
+// collectSections groups variables into sections using sectionFn to derive the
+// section name for each variable. The unnamed section ("") is always placed first.
+func collectSections(vars []TofuVariable, sectionFn func(TofuVariable) string) []Section {
+	return groupIntoSections(vars, func(v TofuVariable) (string, string) {
+		return v.Name, sectionFn(v)
+	})
+}
+
 // buildSectionsFromGroups uses @group comments to build sections.
 func buildSectionsFromGroups(vars []TofuVariable) []Section {
-	sectionVars := make(map[string][]string)
-	var sectionOrder []string
-	seen := make(map[string]bool)
-
-	for _, v := range vars {
-		name := v.GroupComment // "" for ungrouped
-		sectionVars[name] = append(sectionVars[name], v.Name)
-		if !seen[name] {
-			seen[name] = true
-			sectionOrder = append(sectionOrder, name)
-		}
-	}
-
-	// Ensure "" is first
-	if seen[""] && len(sectionOrder) > 0 && sectionOrder[0] != "" {
-		newOrder := []string{""}
-		for _, s := range sectionOrder {
-			if s != "" {
-				newOrder = append(newOrder, s)
-			}
-		}
-		sectionOrder = newOrder
-	}
-
-	var sections []Section
-	for _, name := range sectionOrder {
-		sections = append(sections, Section{
-			Name:      name,
-			Variables: sectionVars[name],
-		})
-	}
-	return sections
+	return collectSections(vars, func(v TofuVariable) string {
+		return v.GroupComment
+	})
 }
 
 // buildSectionsFromFilenames groups variables by their source .tf filename.
 func buildSectionsFromFilenames(vars []TofuVariable) []Section {
-	sectionVars := make(map[string][]string)
-	var sectionOrder []string
-	seen := make(map[string]bool)
-
-	for _, v := range vars {
-		sectionName := filenameToSectionName(v.SourceFile)
-		sectionVars[sectionName] = append(sectionVars[sectionName], v.Name)
-		if !seen[sectionName] {
-			seen[sectionName] = true
-			sectionOrder = append(sectionOrder, sectionName)
-		}
-	}
-
-	// Sort for determinism
-	sort.Strings(sectionOrder)
-
-	// Ensure "" is first
-	if seen[""] && len(sectionOrder) > 0 && sectionOrder[0] != "" {
-		newOrder := []string{""}
-		for _, s := range sectionOrder {
-			if s != "" {
-				newOrder = append(newOrder, s)
-			}
-		}
-		sectionOrder = newOrder
-	}
-
-	var sections []Section
-	for _, name := range sectionOrder {
-		sections = append(sections, Section{
-			Name:      name,
-			Variables: sectionVars[name],
+	sections := collectSections(vars, func(v TofuVariable) string {
+		return filenameToSectionName(v.SourceFile)
+	})
+	// Sort named sections for determinism (unnamed "" stays first via collectSections)
+	if len(sections) > 1 && sections[0].Name == "" {
+		sort.Slice(sections[1:], func(i, j int) bool {
+			return sections[1+i].Name < sections[1+j].Name
+		})
+	} else {
+		sort.Slice(sections, func(i, j int) bool {
+			return sections[i].Name < sections[j].Name
 		})
 	}
 	return sections

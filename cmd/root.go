@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"runbooks/api"
 	"runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
@@ -64,6 +66,29 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 		return "", nil, fmt.Errorf("failed to get current working directory: %w", err)
 	}
 	return cwd, nil, nil
+}
+
+// resolveRunbookOrTofuModule attempts to resolve a runbook at the given path.
+// If no runbook is found but the path is an OpenTofu module, it generates a
+// runbook from the module. Returns the resolved runbook path, the (possibly
+// updated) server path, and a cleanup function for any generated temp files.
+// Calls os.Exit(1) on unrecoverable errors.
+func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath string, cleanup func()) {
+	resolvedPath, err := api.ResolveRunbookPath(path)
+	if err != nil {
+		if api.IsTofuModule(path) {
+			slog.Info("Detected OpenTofu module, generating runbook", "path", path)
+			generatedPath, tofuCleanup, genErr := api.GenerateRunbook(path, "" /* default template */)
+			if genErr != nil {
+				slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
+				os.Exit(1)
+			}
+			return generatedPath, generatedPath, tofuCleanup
+		}
+		slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
+		os.Exit(1)
+	}
+	return resolvedPath, path, nil
 }
 
 // rootCmd represents the base command when called without any subcommands

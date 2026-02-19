@@ -1,6 +1,10 @@
 package tofu
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"text/template"
+)
 
 // TemplateVariable holds the minimal info templates need about a variable.
 type TemplateVariable struct {
@@ -35,6 +39,19 @@ type RunbookTemplate interface {
 	// GenerateFiles produces all supporting files (boilerplate.yml, HCL templates, scripts)
 	// Returns map of relative path -> file content
 	GenerateFiles(ctx TemplateContext) (map[string][]byte, error)
+}
+
+// renderMDXTemplate parses and executes a Go text/template against a TemplateContext.
+func renderMDXTemplate(name, content string, ctx TemplateContext) (string, error) {
+	tmpl, err := template.New(name).Parse(content)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse %s template: %w", name, err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ctx); err != nil {
+		return "", fmt.Errorf("failed to render %s template: %w", name, err)
+	}
+	return buf.String(), nil
 }
 
 var templates = map[string]RunbookTemplate{

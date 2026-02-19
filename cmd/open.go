@@ -54,28 +54,10 @@ func openRunbook(path string) {
 
 	slog.Info("Opening runbook", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
-	// Resolve the runbook path before starting the server
-	// This is needed to verify we're connecting to the correct server instance
-	resolvedPath, err := api.ResolveRunbookPath(path)
-	if err != nil {
-		// If no runbook found, check if this is an OpenTofu module
-		if api.IsTofuModule(path) {
-			slog.Info("Detected OpenTofu module, generating runbook", "path", path)
-			generatedPath, tofuCleanup, genErr := api.GenerateRunbook(path, "" /* default template */)
-			if genErr != nil {
-				slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
-				os.Exit(1)
-			}
-			if tofuCleanup != nil {
-				defer tofuCleanup()
-			}
-			resolvedPath = generatedPath
-			// Update path to the generated runbook directory for the server
-			path = generatedPath
-		} else {
-			slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
-			os.Exit(1)
-		}
+	// Resolve the runbook path (or generate from OpenTofu module)
+	resolvedPath, path, tofuCleanup := resolveRunbookOrTofuModule(path)
+	if tofuCleanup != nil {
+		defer tofuCleanup()
 	}
 
 	// Channel to receive server startup errors

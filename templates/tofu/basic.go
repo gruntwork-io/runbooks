@@ -1,11 +1,9 @@
 package tofu
 
 import (
-	"bytes"
 	_ "embed"
 	"fmt"
 	"strings"
-	"text/template"
 )
 
 //go:embed basic.mdx.tmpl
@@ -17,17 +15,7 @@ type BasicTemplate struct{}
 func (t *BasicTemplate) Name() string { return "basic" }
 
 func (t *BasicTemplate) RenderMDX(ctx TemplateContext) (string, error) {
-	tmpl, err := template.New("basic.mdx").Parse(basicMDXTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse basic MDX template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx); err != nil {
-		return "", fmt.Errorf("failed to render basic MDX template: %w", err)
-	}
-
-	return buf.String(), nil
+	return renderMDXTemplate("basic.mdx", basicMDXTemplate, ctx)
 }
 
 func (t *BasicTemplate) GenerateFiles(ctx TemplateContext) (map[string][]byte, error) {

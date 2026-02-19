@@ -1,10 +1,7 @@
 package tofu
 
 import (
-	"bytes"
 	_ "embed"
-	"fmt"
-	"text/template"
 )
 
 //go:embed full.mdx.tmpl
@@ -20,17 +17,7 @@ type FullTemplate struct{}
 func (t *FullTemplate) Name() string { return "full" }
 
 func (t *FullTemplate) RenderMDX(ctx TemplateContext) (string, error) {
-	tmpl, err := template.New("full.mdx").Parse(fullMDXTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse full MDX template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx); err != nil {
-		return "", fmt.Errorf("failed to render full MDX template: %w", err)
-	}
-
-	return buf.String(), nil
+	return renderMDXTemplate("full.mdx", fullMDXTemplate, ctx)
 }
 
 func (t *FullTemplate) GenerateFiles(ctx TemplateContext) (map[string][]byte, error) {
