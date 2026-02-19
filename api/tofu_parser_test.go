@@ -481,6 +481,35 @@ func TestExtractTupleSchema(t *testing.T) {
 	})
 }
 
+func TestParseTofuModuleMetadata(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
+
+	meta := ParseTofuModuleMetadata(fixtureDir)
+
+	assert.Equal(t, "s3-bucket", meta.FolderName)
+	assert.Equal(t, "S3 Bucket Module", meta.ReadmeTitle)
+	assert.Equal(t, []string{"bucket_arn", "bucket_name"}, meta.OutputNames)
+	assert.Equal(t, []string{"aws_s3_bucket.this", "aws_s3_bucket_versioning.this"}, meta.ResourceNames)
+}
+
+func TestParseTofuModuleMetadata_NoReadme(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
+
+	meta := ParseTofuModuleMetadata(fixtureDir)
+
+	assert.Equal(t, "lambda-function", meta.FolderName)
+	assert.Empty(t, meta.ReadmeTitle)
+}
+
+func TestParseTofuModuleMetadata_NoOutputsOrResources(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
+
+	meta := ParseTofuModuleMetadata(fixtureDir)
+
+	assert.Nil(t, meta.OutputNames)
+	assert.Nil(t, meta.ResourceNames)
+}
+
 func TestSlugify(t *testing.T) {
 	tests := []struct {
 		input    string

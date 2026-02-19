@@ -34,7 +34,7 @@ Both `<TfModule>` and `<Inputs>` collect user values and publish them to context
 |---------|-------------|------------|
 | Variable source | Parsed from `.tf` files at runtime | Defined in inline YAML or `boilerplate.yml` |
 | Form rendered | Yes, auto-generated from module variables | Yes, from variable definitions |
-| `_module` namespace | Yes (source, inputs, hcl_inputs) | No |
+| `_module` namespace | Yes (source, metadata, inputs, hcl_inputs) | No |
 | Dynamic iteration | Yes, iterate over all variables with `_module.inputs` / `_module.hcl_inputs` | No (each variable must be referenced by name) |
 | Use case | Generate config files from OpenTofu modules | Collect arbitrary user input |
 
@@ -72,6 +72,10 @@ When `<TfModule>` registers its values, it injects a `_module` map alongside the
 ```
 _module:
   source: "github.com/org/repo//modules/vpc?ref=v1.0.0"
+  folder_name: "vpc"
+  readme_title: "VPC Module"
+  output_names: ["vpc_id", "subnet_ids", "nat_gateway_ip"]
+  resource_names: ["aws_vpc.this", "aws_subnet.public", "aws_nat_gateway.this"]
   inputs:
     vpc_name: "my-vpc"
     cidr_block: "10.0.0.0/16"
@@ -85,6 +89,10 @@ _module:
 | Key | Description |
 |-----|-------------|
 | `_module.source` | The module source from the `source` prop. Useful for embedding in generated config. |
+| `_module.folder_name` | Name of the module's containing directory (e.g., `"vpc"`). |
+| `_module.readme_title` | The first `# Heading` from the module's README.md, if present. Empty string otherwise. |
+| `_module.output_names` | List of output block names defined in the module (sorted alphabetically). |
+| `_module.resource_names` | List of resource block names as `type.name` (sorted, excludes `data` sources). |
 | `_module.inputs` | Map of all variable names to their raw values as entered by the user. |
 | `_module.hcl_inputs` | Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. |
 

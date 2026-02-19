@@ -16,6 +16,14 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// TofuModuleMetadata holds additional metadata extracted from a TF module directory.
+type TofuModuleMetadata struct {
+	FolderName    string   `json:"folder_name"`    // Name of the containing directory
+	ReadmeTitle   string   `json:"readme_title"`   // First h1 heading from README.md, if present
+	OutputNames   []string `json:"output_names"`   // Names of output blocks
+	ResourceNames []string `json:"resource_names"` // Names of resource blocks (excluding data sources)
+}
+
 // TofuVariable represents a parsed OpenTofu variable block.
 type TofuVariable struct {
 	Name         string
@@ -64,6 +72,113 @@ func ParseTofuModule(moduleDir string) ([]TofuVariable, error) {
 	}
 
 	return variables, nil
+}
+
+// ParseTofuModuleMetadata extracts module-level metadata from a TF module directory:
+// folder name, README.md h1 title, output names, and resource names (excluding data sources).
+func ParseTofuModuleMetadata(moduleDir string) TofuModuleMetadata {
+	meta := TofuModuleMetadata{
+		FolderName: filepath.Base(moduleDir),
+	}
+
+	// Extract README title
+	meta.ReadmeTitle = extractReadmeTitle(moduleDir)
+
+	// Extract outputs and resources from .tf files
+	entries, err := os.ReadDir(moduleDir)
+	if err != nil {
+		return meta
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".tf" {
+			continue
+		}
+
+		filePath := filepath.Join(moduleDir, entry.Name())
+		outputs, resources := extractOutputsAndResources(filePath, entry.Name())
+		meta.OutputNames = append(meta.OutputNames, outputs...)
+		meta.ResourceNames = append(meta.ResourceNames, resources...)
+	}
+
+	sort.Strings(meta.OutputNames)
+	sort.Strings(meta.ResourceNames)
+
+	return meta
+}
+
+// extractReadmeTitle looks for a README.md (case-insensitive) in the directory
+// and returns the text of the first h1 heading (# Title), or empty string.
+func extractReadmeTitle(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+
+	var readmePath string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		lower := strings.ToLower(entry.Name())
+		if lower == "readme.md" || lower == "readme.markdown" {
+			readmePath = filepath.Join(dir, entry.Name())
+			break
+		}
+	}
+	if readmePath == "" {
+		return ""
+	}
+
+	f, err := os.Open(readmePath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "# ") {
+			return strings.TrimSpace(line[2:])
+		}
+	}
+	return ""
+}
+
+// extractOutputsAndResources parses a single .tf file and returns output block names
+// and resource block names (excluding data sources).
+func extractOutputsAndResources(filePath, fileName string) (outputs []string, resources []string) {
+	src, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, nil
+	}
+
+	file, diags := hclsyntax.ParseConfig(src, fileName, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return nil, nil
+	}
+
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, nil
+	}
+
+	for _, block := range body.Blocks {
+		switch block.Type {
+		case "output":
+			if len(block.Labels) > 0 {
+				outputs = append(outputs, block.Labels[0])
+			}
+		case "resource":
+			// resource blocks have two labels: type and name (e.g., resource "aws_s3_bucket" "this")
+			if len(block.Labels) >= 2 {
+				resources = append(resources, block.Labels[0]+"."+block.Labels[1])
+			}
+		}
+	}
+
+	return outputs, resources
 }
 
 // parseTFFile parses a single .tf file and returns its variable blocks.

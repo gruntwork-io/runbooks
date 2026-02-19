@@ -55,6 +55,7 @@ function TfModule({ id, source }: TfModuleProps) {
   } = useApiParseTfModule(source, !validationError)
 
   // Build enriched form data with _module namespace
+  const metadata = boilerplateConfig?.metadata
   const enrichFormData = useCallback(
     (formData: Record<string, unknown>) => ({
       ...formData,
@@ -62,9 +63,13 @@ function TfModule({ id, source }: TfModuleProps) {
         source,
         inputs: { ...formData },
         hcl_inputs: buildHclInputsMap(formData, boilerplateConfig),
+        folder_name: metadata?.folder_name ?? '',
+        readme_title: metadata?.readme_title ?? '',
+        output_names: metadata?.output_names ?? [],
+        resource_names: metadata?.resource_names ?? [],
       },
     }),
-    [source, boilerplateConfig]
+    [source, boilerplateConfig, metadata]
   )
 
   // Shared registration logic (ID registry, error reporting, telemetry, form state, debouncing)

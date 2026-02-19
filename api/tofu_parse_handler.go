@@ -20,7 +20,16 @@ type TofuParseRequest struct {
 	Source string `json:"source" binding:"required"`
 }
 
-// HandleTofuModuleParse parses a .tf module directory and returns a BoilerplateConfig JSON.
+// TofuParseResponse extends BoilerplateConfig with module-level metadata.
+// The variables, sections, and outputDependencies fields come from BoilerplateConfig.
+// The module metadata fields are additional.
+type TofuParseResponse struct {
+	*BoilerplateConfig
+	Metadata TofuModuleMetadata `json:"metadata"`
+}
+
+// HandleTofuModuleParse parses a .tf module directory and returns a BoilerplateConfig JSON
+// with additional module metadata (folder name, README title, outputs, resources).
 // The source can be a local path (resolved relative to the runbook directory) or a remote
 // git URL (cloned to a temp directory, parsed, then cleaned up).
 func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
@@ -78,11 +87,21 @@ func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
-		// Convert to BoilerplateConfig
+		// Convert to BoilerplateConfig and extract module metadata
 		config := MapToBoilerplateConfig(vars)
+		metadata := ParseTofuModuleMetadata(modulePath)
 
-		slog.Info("Successfully parsed OpenTofu module", "source", req.Source, "resolvedPath", modulePath, "variableCount", len(config.Variables))
-		c.JSON(http.StatusOK, config)
+		slog.Info("Successfully parsed OpenTofu module",
+			"source", req.Source,
+			"resolvedPath", modulePath,
+			"variableCount", len(config.Variables),
+			"outputCount", len(metadata.OutputNames),
+			"resourceCount", len(metadata.ResourceNames),
+		)
+		c.JSON(http.StatusOK, TofuParseResponse{
+			BoilerplateConfig: config,
+			Metadata:          metadata,
+		})
 	}
 }
 
