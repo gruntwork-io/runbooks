@@ -107,3 +107,7 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
     </div>
   )
 }
+
+// displayName survives minification and is used by extractTemplateFiles
+// to identify code blocks in production builds
+CodeBlock.displayName = 'CodeBlock'
