@@ -203,6 +203,7 @@ const (
 	ValidationCountryCode2 BoilerplateValidationType = "countrycode2"
 	ValidationSemver       BoilerplateValidationType = "semver"
 	ValidationLength       BoilerplateValidationType = "length"
+	ValidationRegex        BoilerplateValidationType = "regex"
 	ValidationCustom       BoilerplateValidationType = "custom"
 )
 

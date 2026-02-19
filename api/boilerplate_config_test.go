@@ -998,3 +998,117 @@ func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestParseValidationString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []ValidationRule
+	}{
+		{
+			name:  "required only",
+			input: "required",
+			expected: []ValidationRule{
+				{Type: ValidationRequired, Message: "This field is required"},
+			},
+		},
+		{
+			name:  "required with regex (comma-delimited legacy)",
+			input: "required,regex(^vpc-[0-9a-f]{8,17}$)",
+			expected: []ValidationRule{
+				{Type: ValidationRequired, Message: "This field is required"},
+				{Type: ValidationRegex, Args: []interface{}{"^vpc-[0-9a-f]{8,17}$"}},
+			},
+		},
+		{
+			name:  "required with regex (space-delimited boilerplate native)",
+			input: "required regex(^vpc-[0-9a-f]{8,17}$)",
+			expected: []ValidationRule{
+				{Type: ValidationRequired, Message: "This field is required"},
+				{Type: ValidationRegex, Args: []interface{}{"^vpc-[0-9a-f]{8,17}$"}},
+			},
+		},
+		{
+			name:  "length legacy format",
+			input: "length(3,50)",
+			expected: []ValidationRule{
+				{Type: ValidationLength, Args: []interface{}{"3", "50"}},
+			},
+		},
+		{
+			name:  "length boilerplate native format",
+			input: "length-3-50",
+			expected: []ValidationRule{
+				{Type: ValidationLength, Args: []interface{}{"3", "50"}},
+			},
+		},
+		{
+			name:  "multiple simple validators (comma-delimited)",
+			input: "required,url",
+			expected: []ValidationRule{
+				{Type: ValidationRequired, Message: "This field is required"},
+				{Type: ValidationURL},
+			},
+		},
+		{
+			name:  "multiple simple validators (space-delimited)",
+			input: "required url",
+			expected: []ValidationRule{
+				{Type: ValidationRequired, Message: "This field is required"},
+				{Type: ValidationURL},
+			},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:  "single regex rule (as list item)",
+			input: "regex(^[a-z]+$)",
+			expected: []ValidationRule{
+				{Type: ValidationRegex, Args: []interface{}{"^[a-z]+$"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseValidationString(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidationRoundTrip(t *testing.T) {
+	// Generate a boilerplate config with regex validation, marshal to YAML, parse back
+	config := &BoilerplateConfig{
+		Variables: []BoilerplateVariable{
+			{
+				Name:     "vpc_id",
+				Type:     VarTypeString,
+				Required: true,
+				Validations: []ValidationRule{
+					{Type: ValidationRequired, Message: "This field is required"},
+					{Type: ValidationRegex, Message: "Must match vpc format", Args: []interface{}{"^vpc-[0-9a-f]{8,17}$"}},
+				},
+			},
+		},
+	}
+
+	yamlBytes, err := marshalBoilerplateConfig(config)
+	require.NoError(t, err)
+
+	// Parse it back
+	parsed, err := parseBoilerplateConfig(string(yamlBytes))
+	require.NoError(t, err)
+	require.Len(t, parsed.Variables, 1)
+
+	v := parsed.Variables[0]
+	assert.Equal(t, "vpc_id", v.Name)
+	assert.True(t, v.Required, "vpc_id should be required after round-trip")
+	require.Len(t, v.Validations, 2, "should have required + regex validations")
+	assert.Equal(t, ValidationRequired, v.Validations[0].Type)
+	assert.Equal(t, ValidationRegex, v.Validations[1].Type)
+	assert.Equal(t, []interface{}{"^vpc-[0-9a-f]{8,17}$"}, v.Validations[1].Args)
+}
