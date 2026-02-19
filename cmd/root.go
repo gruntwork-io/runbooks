@@ -70,25 +70,75 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 
 // resolveRunbookOrTofuModule attempts to resolve a runbook at the given path.
 // If no runbook is found but the path is an OpenTofu module, it generates a
-// runbook from the module. Returns the resolved runbook path, the (possibly
-// updated) server path, and a cleanup function for any generated temp files.
-// Calls os.Exit(1) on unrecoverable errors.
+// runbook from the module. Also handles remote URLs — downloads the source first,
+// then checks for a runbook or OpenTofu module.
+// Returns the resolved runbook path, the (possibly updated) server path, and a
+// cleanup function for any generated temp files. Calls os.Exit(1) on errors.
 func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath string, cleanup func()) {
+	// 1. Try as a local runbook
 	resolvedPath, err := api.ResolveRunbookPath(path)
-	if err != nil {
-		if api.IsTofuModule(path) {
-			slog.Info("Detected OpenTofu module, generating runbook", "path", path)
-			generatedPath, tofuCleanup, genErr := api.GenerateRunbook(path, "" /* default template */)
-			if genErr != nil {
-				slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
-				os.Exit(1)
-			}
-			return generatedPath, generatedPath, tofuCleanup
+	if err == nil {
+		return resolvedPath, path, nil
+	}
+
+	// 2. Try as a local OpenTofu module
+	if api.IsTofuModule(path) {
+		slog.Info("Detected OpenTofu module, generating runbook", "path", path)
+		generatedPath, tofuCleanup, genErr := api.GenerateRunbook(path, "" /* originalSource */, "" /* default template */)
+		if genErr != nil {
+			slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
+			os.Exit(1)
 		}
-		slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
+		return generatedPath, generatedPath, tofuCleanup
+	}
+
+	// 3. Try as a remote source (GitHub/GitLab URL)
+	localPath, remoteCleanup, isRemote, _, remoteErr := resolveRemoteSource(path)
+	if remoteErr != nil {
+		slog.Error("Failed to fetch remote source", "error", remoteErr)
 		os.Exit(1)
 	}
-	return resolvedPath, path, nil
+	if isRemote {
+		// Check if the downloaded source is a runbook
+		resolvedPath, rbErr := api.ResolveRunbookPath(localPath)
+		if rbErr == nil {
+			return resolvedPath, localPath, remoteCleanup
+		}
+
+		// Check if the downloaded source is an OpenTofu module
+		if api.IsTofuModule(localPath) {
+			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
+			generatedPath, tofuCleanup, genErr := api.GenerateRunbook(localPath, path /* originalSource */, "" /* default template */)
+			if genErr != nil {
+				if remoteCleanup != nil {
+					remoteCleanup()
+				}
+				slog.Error("Failed to generate runbook from remote OpenTofu module", "error", genErr)
+				os.Exit(1)
+			}
+			// Combine cleanups: tofu cleanup first, then remote cleanup
+			combinedCleanup := func() {
+				if tofuCleanup != nil {
+					tofuCleanup()
+				}
+				if remoteCleanup != nil {
+					remoteCleanup()
+				}
+			}
+			return generatedPath, generatedPath, combinedCleanup
+		}
+
+		// Downloaded but neither a runbook nor a TF module
+		if remoteCleanup != nil {
+			remoteCleanup()
+		}
+		slog.Error("Remote source is not a runbook or OpenTofu module", "url", path)
+		os.Exit(1)
+	}
+
+	slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
+	os.Exit(1)
+	return // unreachable, but satisfies compiler
 }
 
 // rootCmd represents the base command when called without any subcommands
