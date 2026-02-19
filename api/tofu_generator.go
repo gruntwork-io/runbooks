@@ -14,9 +14,13 @@ import (
 )
 
 // GenerateRunbook parses a tofu module and generates a complete runbook directory.
+// modulePath is the local path to parse. originalSource is the source string to embed
+// in the generated <TfModule source="..."> — when empty, defaults to modulePath.
+// This distinction matters for remote modules: modulePath is the temp directory clone,
+// but originalSource is the original URL (e.g., "github.com/org/repo//modules/vpc").
 // templateName selects a built-in template ("" = "basic"). Returns the path to the
 // generated runbook.mdx and a cleanup function for the temp directory.
-func GenerateRunbook(modulePath string, templateName string) (string, func(), error) {
+func GenerateRunbook(modulePath string, originalSource string, templateName string) (string, func(), error) {
 	// 1. Parse the module
 	absPath, err := filepath.Abs(modulePath)
 	if err != nil {
@@ -50,11 +54,17 @@ func GenerateRunbook(modulePath string, templateName string) (string, func(), er
 	}
 
 	// 5. Build template context
+	// Use originalSource for the MDX template if provided, otherwise fall back to absPath.
+	// This preserves the remote URL for generated <TfModule source="..."> tags.
+	moduleSource := absPath
+	if originalSource != "" {
+		moduleSource = originalSource
+	}
 	moduleName := filepath.Base(absPath)
 	ctx := tofu.TemplateContext{
 		ModuleName:     moduleName,
 		ModuleNameSlug: slugify(moduleName),
-		ModuleSource:   absPath,
+		ModuleSource:   moduleSource,
 		VariableCount:  len(vars),
 		Variables:      templateVars,
 		Config:         tofu.TemplateConfig{BoilerplateYAML: bpYAML},

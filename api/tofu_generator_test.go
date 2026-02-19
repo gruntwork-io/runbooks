@@ -13,7 +13,7 @@ import (
 func TestGenerateRunbook_Basic(t *testing.T) {
 	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
 
-	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "basic")
+	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "", "basic")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -41,7 +41,7 @@ func TestGenerateRunbook_Basic(t *testing.T) {
 func TestGenerateRunbook_Full(t *testing.T) {
 	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
 
-	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "full")
+	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "", "full")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -69,7 +69,7 @@ func TestGenerateRunbook_DefaultTemplate(t *testing.T) {
 	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
 
 	// Empty string should use basic template
-	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "")
+	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -84,20 +84,20 @@ func TestGenerateRunbook_DefaultTemplate(t *testing.T) {
 func TestGenerateRunbook_InvalidTemplate(t *testing.T) {
 	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
 
-	_, _, err := GenerateRunbook(fixtureDir, "nonexistent")
+	_, _, err := GenerateRunbook(fixtureDir, "", "nonexistent")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown template")
 }
 
 func TestGenerateRunbook_InvalidPath(t *testing.T) {
-	_, _, err := GenerateRunbook("/nonexistent/path", "basic")
+	_, _, err := GenerateRunbook("/nonexistent/path", "", "basic")
 	require.Error(t, err)
 }
 
 func TestGenerateRunbook_ComplexModule(t *testing.T) {
 	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-s3-complex"
 
-	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "basic")
+	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, "", "basic")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -109,6 +109,24 @@ func TestGenerateRunbook_ComplexModule(t *testing.T) {
 	assert.Contains(t, mdx, "<TfModule")
 	assert.Contains(t, mdx, "<TemplateInline")
 	assert.Contains(t, mdx, "lambda-s3-complex")
+}
+
+func TestGenerateRunbook_OriginalSource(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
+	remoteURL := "github.com/my-org/infra-modules//modules/s3-bucket?ref=v1.0.0"
+
+	mdxPath, cleanup, err := GenerateRunbook(fixtureDir, remoteURL, "basic")
+	require.NoError(t, err)
+	require.NotNil(t, cleanup)
+	defer cleanup()
+
+	mdxContent, err := os.ReadFile(mdxPath)
+	require.NoError(t, err)
+
+	mdx := string(mdxContent)
+	// The generated TfModule source should use the original remote URL, not the local path
+	assert.Contains(t, mdx, remoteURL)
+	assert.NotContains(t, mdx, fixtureDir)
 }
 
 func TestMarshalBoilerplateConfig(t *testing.T) {
