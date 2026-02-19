@@ -26,10 +26,11 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// fetchRemoteRunbook checks whether source is a remote URL and, if so, downloads it to a
-// local temp directory. Returns the local path, a cleanup function (nil for local sources),
-// and the original remote URL. Exits the process on error.
-func fetchRemoteRunbook(source string) (localPath string, cleanup func(), remoteURL string) {
+// resolveRunbookSource resolves a runbook source (local path or remote URL) to a local path.
+// If the source is remote, it downloads it to a temp directory. Returns the local path,
+// a cleanup function (nil for local sources), and the original remote URL.
+// Exits the process on error.
+func resolveRunbookSource(source string) (localPath string, cleanup func(), remoteURL string) {
 	localPath, cleanup, remoteURL, err := resolveRemoteSource(source)
 	if err != nil {
 		slog.Error("Failed to fetch remote runbook", "error", err)

@@ -47,7 +47,7 @@ func init() {
 
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(source string) {
-	path, remoteCleanup, remoteURL := fetchRemoteRunbook(source)
+	path, remoteCleanup, remoteURL := resolveRunbookSource(source)
 	if remoteCleanup != nil {
 		defer remoteCleanup()
 	}

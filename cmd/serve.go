@@ -32,7 +32,7 @@ RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' f
 
 		source := args[0]
 
-		path, remoteCleanup, remoteURL := fetchRemoteRunbook(source)
+		path, remoteCleanup, remoteURL := resolveRunbookSource(source)
 		if remoteCleanup != nil {
 			defer remoteCleanup()
 		}

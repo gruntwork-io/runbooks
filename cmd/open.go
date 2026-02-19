@@ -47,7 +47,7 @@ func init() {
 
 // openRunbook opens a runbook by starting the API server and opening the browser
 func openRunbook(source string) {
-	path, remoteCleanup, remoteURL := fetchRemoteRunbook(source)
+	path, remoteCleanup, remoteURL := resolveRunbookSource(source)
 	if remoteCleanup != nil {
 		defer remoteCleanup()
 	}
