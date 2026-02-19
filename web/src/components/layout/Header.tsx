@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronDown, Download, Info, Check, FolderOpen, Copy } from 'lucide-react';
+import { useState, type ComponentType } from 'react';
+import { ChevronDown, Download, Info, Check, FolderOpen, Copy, type LucideProps } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -30,6 +30,24 @@ import {
   downloadBlob,
   generateAllLogsZipFilename,
 } from '@/lib/logs';
+
+function CopyButton({ onClick, didCopy, icon: Icon, size, className }: {
+  onClick: () => void;
+  didCopy: boolean;
+  icon: ComponentType<LucideProps>;
+  size: string;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-shrink-0 rounded transition-colors cursor-pointer ${className ?? ''}`}
+      aria-label="Copy local path"
+    >
+      {didCopy ? <Check className={`${size} text-green-600`} /> : <Icon className={`${size} text-gray-400`} />}
+    </button>
+  );
+}
 
 interface HeaderProps {
   pathName: string;
@@ -92,33 +110,13 @@ export function Header({ pathName, localPath }: HeaderProps) {
             <TooltipProvider delayDuration={0}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    onClick={() => copy(localDir || '')}
-                    className="flex-shrink-0 p-1 rounded hover:bg-gray-100 transition-colors cursor-pointer"
-                    aria-label="Copy local path"
-                  >
-                    {didCopy ? (
-                      <Check className="size-3.5 text-green-600" />
-                    ) : (
-                      <FolderOpen className="size-3.5 text-gray-400 hover:text-gray-600" />
-                    )}
-                  </button>
+                  <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={FolderOpen} size="size-3.5" className="p-1 hover:bg-gray-100" />
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-sm">
                   <p className="text-xs font-medium mb-1">Local path:</p>
                   <div className="flex items-start gap-1.5">
                     <p className="text-xs text-gray-400 font-mono break-all">{localDir}</p>
-                    <button
-                      onClick={() => copy(localDir || '')}
-                      className="flex-shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
-                      aria-label="Copy local path"
-                    >
-                      {didCopy ? (
-                        <Check className="size-3 text-green-400" />
-                      ) : (
-                        <Copy className="size-3 text-gray-400" />
-                      )}
-                    </button>
+                    <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={Copy} size="size-3" className="p-0.5 hover:bg-white/10" />
                   </div>
                 </TooltipContent>
               </Tooltip>

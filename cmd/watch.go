@@ -51,6 +51,14 @@ func watchRunbook(source string) {
 	slog.Info("Opening runbook with file watching", "path", rb.Path, "workingDir", rb.WorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
 	startServerAndLaunch(rb, func() error {
-		return api.StartServerWithWatch(rb.Path, defaultPort, rb.WorkDir, outputPath, useExecutableRegistry, rb.RemoteURL)
+		return api.StartServer(api.ServerConfig{
+			RunbookPath:           rb.Path,
+			Port:                  defaultPort,
+			WorkingDir:            rb.WorkDir,
+			OutputPath:            outputPath,
+			RemoteSourceURL:       rb.RemoteURL,
+			UseExecutableRegistry: useExecutableRegistry,
+			IsWatchMode:           true,
+		})
 	})
 }
