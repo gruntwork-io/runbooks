@@ -59,7 +59,12 @@ func ParseTofuModule(moduleDir string) ([]TofuVariable, error) {
 		}
 
 		filePath := filepath.Join(moduleDir, entry.Name())
-		fileVars, err := parseTFFile(filePath, entry.Name())
+		src, err := os.ReadFile(filePath)
+		if err != nil {
+			slog.Warn("Failed to read .tf file", "file", entry.Name(), "error", err)
+			continue
+		}
+		fileVars, err := parseTFFile(src, entry.Name())
 		if err != nil {
 			slog.Warn("Failed to parse .tf file", "file", entry.Name(), "error", err)
 			continue
@@ -96,7 +101,11 @@ func ParseTofuModuleMetadata(moduleDir string) TofuModuleMetadata {
 		}
 
 		filePath := filepath.Join(moduleDir, entry.Name())
-		outputs, resources := extractOutputsAndResources(filePath, entry.Name())
+		src, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		outputs, resources := extractOutputsAndResources(src, entry.Name())
 		meta.OutputNames = append(meta.OutputNames, outputs...)
 		meta.ResourceNames = append(meta.ResourceNames, resources...)
 	}
@@ -115,28 +124,25 @@ func extractReadmeTitle(dir string) string {
 		return ""
 	}
 
-	var readmePath string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		lower := strings.ToLower(entry.Name())
 		if lower == "readme.md" || lower == "readme.markdown" {
-			readmePath = filepath.Join(dir, entry.Name())
-			break
+			content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				return ""
+			}
+			return parseReadmeH1(string(content))
 		}
 	}
-	if readmePath == "" {
-		return ""
-	}
+	return ""
+}
 
-	f, err := os.Open(readmePath)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
+// parseReadmeH1 extracts the first h1 heading from markdown content.
+func parseReadmeH1(content string) string {
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "# ") {
@@ -146,14 +152,9 @@ func extractReadmeTitle(dir string) string {
 	return ""
 }
 
-// extractOutputsAndResources parses a single .tf file and returns output block names
+// extractOutputsAndResources parses HCL source and returns output block names
 // and resource block names (excluding data sources).
-func extractOutputsAndResources(filePath, fileName string) (outputs []string, resources []string) {
-	src, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, nil
-	}
-
+func extractOutputsAndResources(src []byte, fileName string) (outputs []string, resources []string) {
 	file, diags := hclsyntax.ParseConfig(src, fileName, hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return nil, nil
@@ -181,13 +182,8 @@ func extractOutputsAndResources(filePath, fileName string) (outputs []string, re
 	return outputs, resources
 }
 
-// parseTFFile parses a single .tf file and returns its variable blocks.
-func parseTFFile(filePath, fileName string) ([]TofuVariable, error) {
-	src, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", filePath, err)
-	}
-
+// parseTFFile parses HCL source and returns its variable blocks.
+func parseTFFile(src []byte, fileName string) ([]TofuVariable, error) {
 	file, diags := hclsyntax.ParseConfig(src, fileName, hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("failed to parse HCL in %s: %s", fileName, diags.Error())
