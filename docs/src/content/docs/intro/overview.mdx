@@ -42,7 +42,7 @@ Learn more by reading about [Runbooks use cases](/intro/use_cases).
 
 ### What does a runbook look like?
 
-When a user runs `runbooks open /path/to/runbook`, here's a sample of what they'll see:
+When a user runs `runbooks open /path/to/runbook` (or `runbooks open <remote-url>`), here's a sample of what they'll see:
 
 ![Runbooks Example Screenshot 1](../../../assets/screenshots/intro/runbooks-example-1.webp)
 
@@ -78,13 +78,19 @@ You can learn more about how to write a Runbook in the [Authoring Runbooks](/aut
 
 **Runbook consumers** want to apply the expertise of someone else (**Runbooks authors**), so they consume Runbooks by opening them on their local machine, and using them in their web browser.
 
-To open a Runbook, you can use the `runbooks open` command:
+To open a Runbook, you can use the `runbooks open` command with a local path:
 
 ```bash
 runbooks open /path/to/runbook
 ```
 
-Note that for now, you will need to manually download the full Runbook directory (`runbook.mdx` plus any other files in the `checks/`, `scripts/`, and `templates/` directories) to your local machine.
+Or open a runbook directly from a remote URL — no need to clone the repo first:
+
+```bash
+runbooks open https://github.com/org/repo/tree/main/runbooks/launch-rds
+```
+
+Runbooks supports GitHub and GitLab browser URLs, as well as OpenTofu/Terraform-style source addresses. See the [runbooks open](/commands/open/) docs for all supported formats and authentication options for private repos.
 
 ## Next
 

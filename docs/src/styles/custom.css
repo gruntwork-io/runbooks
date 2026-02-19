@@ -210,7 +210,9 @@ header.header {
 }
 
 :root[data-theme='dark'] .sl-markdown-content a code {
-  color: var(--sl-color-accent-high);
+  color: #93c5fd;
+  background-color: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 /* ============================================

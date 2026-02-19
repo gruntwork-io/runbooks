@@ -26,7 +26,7 @@ For end users, they cannot preview the code they will generate in real time, the
 
 For template authors, the authoring experience can be challenging, requiring repeated runs of the same template and wrestling with unique Backstage configuration issues. In addition, Backstage itself is non-trivial to both setup and maintain.
 
-By contrast, Runbooks offers a self-contained first-class templating experience for both end users and template authors. For consumers, they install runbooks from GitHub, run `runbooks open /path/to/runbook` and can instantly read rich documentation, see the files they will generate in real-time, run a customized set of commands, and validate that everything is working correctly.
+By contrast, Runbooks offers a self-contained first-class templating experience for both end users and template authors. For consumers, they install runbooks from GitHub and run `runbooks open /path/to/runbook` (or `runbooks open https://github.com/org/repo/tree/main/path/to/runbook` for a remote URL) and can instantly read rich documentation, see the files they will generate in real-time, run a customized set of commands, and validate that everything is working correctly.
 
 For authors, there is nothing to configure. You download the `runbooks` binary and author a Runbook by writing a `runbook.mdx` file, and seeing real-time changes with `runbooks watch /path/to/runbook`. Authors can test template generation locally using the Runbooks tool itself, or for even more control over the feedback loop, authors can opt to directly use the [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) templating engine. As a result, authors have real-time feedback loops on everything they create.
 
@@ -42,7 +42,7 @@ Runbooks also combine both code and documentation in a single environment, howev
 
    By contrast, Runbooks is focused more on the _consumer_ of the Runbook than the author. In the Runbooks way of thinking, authors are not "exploring ideas," but codifying their knowledge and insights around a specific DevOps pattern. Runbook consumers then get a first-class experience learning and applying this pattern for their needs.
 
-   Moreover, running a Jupyter Notebook is not straightforward for those who do it only periodically. By contrast, Runbooks can be opened by downloading the runbooks binary and running `runbooks open /path/to/runbook`.
+   Moreover, running a Jupyter Notebook is not straightforward for those who do it only periodically. By contrast, Runbooks can be opened by downloading the runbooks binary and running `runbooks open /path/to/runbook` or pointing it at a remote URL like `runbooks open https://github.com/org/repo/tree/main/runbooks/my-runbook`.
 
 2. **Internal Program State vs External Artifacts**: With each "cell" in a Jupyter Notebook, the notebook author evolves the state of a Python program.
 
