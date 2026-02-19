@@ -6,19 +6,19 @@ import { Aside } from '@astrojs/starlight/components';
 
 # runbooks open
 
-This command is intended for **consumers** of Runbooks.
-
 Use `runbooks open` to open a runbook in your browser and use it.
+
+This command is intended for **consumers** of runbooks.
 
 ## Usage
 
 ```bash
-runbooks open <source> [flags]
+runbooks open RUNBOOK_SOURCE [flags]
 ```
 
 ## Arguments
 
-- `<source>` - A local path or remote URL pointing to a directory containing `runbook.mdx`, or to the file itself.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file.
 
 ### Local paths
 
@@ -35,9 +35,6 @@ You can open a runbook directly from a GitHub or GitLab URL without cloning the 
 ```bash
 # GitHub browser URL (copy/paste from your browser)
 runbooks open https://github.com/org/repo/tree/main/runbooks/setup-vpc
-
-# GitHub blob URL (pointing to the runbook.mdx file itself)
-runbooks open https://github.com/org/repo/blob/main/runbooks/setup-vpc/runbook.mdx
 
 # GitLab browser URL
 runbooks open https://gitlab.com/org/repo/-/tree/main/runbooks/setup-vpc
