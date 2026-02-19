@@ -494,72 +494,6 @@ func TestResolveRef_MatchesLongestRef(t *testing.T) {
 	}
 }
 
-func TestResolveRef_FallsBackOnLsRemoteError(t *testing.T) {
-	origFn := listRemoteRefsFn
-	defer func() { listRemoteRefsFn = origFn }()
-
-	listRemoteRefsFn = func(cloneURL string) ([]string, error) {
-		return nil, fmt.Errorf("auth failed")
-	}
-
-	ref, repoPath, err := ResolveRef("https://fake.com/repo.git", "main/runbooks/setup-vpc", false)
-	require.NoError(t, err)
-	assert.Equal(t, "main", ref)
-	assert.Equal(t, "runbooks/setup-vpc", repoPath)
-}
-
-func TestResolveRef_EmptyRawRefAndPath(t *testing.T) {
-	ref, repoPath, err := ResolveRef("https://fake.com/repo.git", "", false)
-	require.NoError(t, err)
-	assert.Equal(t, "", ref)
-	assert.Equal(t, "", repoPath)
-}
-
-func TestResolveRef_Fallback(t *testing.T) {
-	tests := []struct {
-		name         string
-		rawRefPath   string
-		isBlobURL    bool
-		expectedRef  string
-		expectedPath string
-	}{
-		{
-			name:         "simple ref and path",
-			rawRefPath:   "main/runbooks/setup-vpc",
-			expectedRef:  "main",
-			expectedPath: "runbooks/setup-vpc",
-		},
-		{
-			name:         "single segment",
-			rawRefPath:   "main",
-			expectedRef:  "main",
-			expectedPath: "",
-		},
-		{
-			name:         "blob URL adjusts path",
-			rawRefPath:   "main/runbooks/setup-vpc/runbook.mdx",
-			isBlobURL:    true,
-			expectedRef:  "main",
-			expectedPath: "runbooks/setup-vpc",
-		},
-		{
-			name:         "blob URL with single file",
-			rawRefPath:   "main/runbook.mdx",
-			isBlobURL:    true,
-			expectedRef:  "main",
-			expectedPath: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ref, repoPath := resolveRefFallback(tt.rawRefPath, tt.isBlobURL)
-			assert.Equal(t, tt.expectedRef, ref)
-			assert.Equal(t, tt.expectedPath, repoPath)
-		})
-	}
-}
-
 func TestAdjustBlobPath(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -578,29 +512,131 @@ func TestAdjustBlobPath(t *testing.T) {
 	}
 }
 
-func TestNeedsRefResolution(t *testing.T) {
-	t.Run("browser URL needs resolution", func(t *testing.T) {
-		result := &ParsedRemoteSource{
-			rawRefAndPath: "main/path",
+// =============================================================================
+// Resolve tests (ParseRemoteSource → Resolve integration)
+// =============================================================================
+
+func TestResolve(t *testing.T) {
+	origFn := listRemoteRefsFn
+	defer func() { listRemoteRefsFn = origFn }()
+
+	t.Run("browser tree URL resolves ref and path", func(t *testing.T) {
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			return []string{"main", "develop"}, nil
 		}
-		assert.True(t, result.NeedsRefResolution())
+
+		parsed, err := ParseRemoteSource("https://github.com/org/repo/tree/main/infra/vpc")
+		require.NoError(t, err)
+		require.NotNil(t, parsed)
+		assert.True(t, parsed.NeedsRefResolution(), "should need resolution before Resolve()")
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "main", parsed.Ref)
+		assert.Equal(t, "infra/vpc", parsed.Path)
+		assert.False(t, parsed.NeedsRefResolution(), "should not need resolution after Resolve()")
 	})
 
-	t.Run("Tofu URL does not need resolution", func(t *testing.T) {
-		result := &ParsedRemoteSource{
-			Ref:  "v1.0",
-			Path: "path",
+	t.Run("browser blob URL resolves ref and adjusts path to parent dir", func(t *testing.T) {
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			return []string{"main"}, nil
 		}
-		assert.False(t, result.NeedsRefResolution())
+
+		parsed, err := ParseRemoteSource("https://github.com/org/repo/blob/main/infra/vpc/runbook.mdx")
+		require.NoError(t, err)
+		require.NotNil(t, parsed)
+		assert.True(t, parsed.IsBlobURL)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "main", parsed.Ref)
+		assert.Equal(t, "infra/vpc", parsed.Path, "blob path should be adjusted to parent directory")
 	})
 
-	t.Run("plain repo URL does not need resolution", func(t *testing.T) {
-		result := &ParsedRemoteSource{
-			Host:     "github.com",
-			Owner:    "org",
-			Repo:     "repo",
-			CloneURL: "https://github.com/org/repo.git",
+	t.Run("ambiguous ref resolves to longest matching ref", func(t *testing.T) {
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			return []string{"main", "main/dev"}, nil
 		}
-		assert.False(t, result.NeedsRefResolution())
+
+		parsed, err := ParseRemoteSource("https://github.com/org/repo/tree/main/dev/some/path")
+		require.NoError(t, err)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "main/dev", parsed.Ref)
+		assert.Equal(t, "some/path", parsed.Path)
+	})
+
+	t.Run("GitLab browser URL resolves ref and path", func(t *testing.T) {
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			return []string{"main"}, nil
+		}
+
+		parsed, err := ParseRemoteSource("https://gitlab.com/myorg/myrepo/-/tree/main/runbooks/vpc")
+		require.NoError(t, err)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "main", parsed.Ref)
+		assert.Equal(t, "runbooks/vpc", parsed.Path)
+	})
+
+	t.Run("Tofu URL with ref already set is a no-op", func(t *testing.T) {
+		parsed, err := ParseRemoteSource("github.com/org/repo//infra/vpc?ref=v1.0")
+		require.NoError(t, err)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "v1.0", parsed.Ref)
+		assert.Equal(t, "infra/vpc", parsed.Path)
+	})
+
+	t.Run("plain repo URL is a no-op", func(t *testing.T) {
+		parsed, err := ParseRemoteSource("https://github.com/org/repo")
+		require.NoError(t, err)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Empty(t, parsed.Ref)
+		assert.Empty(t, parsed.Path)
+	})
+
+	t.Run("token is injected into clone URL for ls-remote", func(t *testing.T) {
+		var capturedURL string
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			capturedURL = cloneURL
+			return []string{"main"}, nil
+		}
+
+		parsed, err := ParseRemoteSource("https://github.com/org/repo/tree/main/path")
+		require.NoError(t, err)
+
+		err = parsed.Resolve("ghp_testtoken")
+		require.NoError(t, err)
+
+		assert.Contains(t, capturedURL, "x-access-token:ghp_testtoken@",
+			"token should be injected into the clone URL passed to ls-remote")
+	})
+
+	t.Run("ls-remote failure falls back to first path segment as ref", func(t *testing.T) {
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			return nil, fmt.Errorf("authentication failed")
+		}
+
+		parsed, err := ParseRemoteSource("https://github.com/org/repo/tree/v2.0/deep/nested/path")
+		require.NoError(t, err)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "v2.0", parsed.Ref, "should fall back to first segment as ref")
+		assert.Equal(t, "deep/nested/path", parsed.Path)
 	})
 }
+

@@ -170,6 +170,51 @@ func fileRequest(t *testing.T, runbookPath string, rawJSON string) (int, string)
 	return w.Code, w.Body.String()
 }
 
+func TestResolveRunbookPath(t *testing.T) {
+	t.Run("directory containing runbook.mdx returns the file path", func(t *testing.T) {
+		dir := t.TempDir()
+		mdxPath := filepath.Join(dir, "runbook.mdx")
+		require.NoError(t, os.WriteFile(mdxPath, []byte("# Hello"), 0644))
+
+		result, err := ResolveRunbookPath(dir)
+		require.NoError(t, err)
+		assert.Equal(t, mdxPath, result)
+	})
+
+	t.Run("directory without runbook.mdx returns error", func(t *testing.T) {
+		dir := t.TempDir()
+
+		_, err := ResolveRunbookPath(dir)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no runbook found")
+		assert.Contains(t, err.Error(), "expected runbook.mdx")
+	})
+
+	t.Run("file path is returned as-is", func(t *testing.T) {
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "custom-name.mdx")
+		require.NoError(t, os.WriteFile(filePath, []byte("# Hello"), 0644))
+
+		result, err := ResolveRunbookPath(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, filePath, result)
+	})
+
+	t.Run("nonexistent path returns error", func(t *testing.T) {
+		_, err := ResolveRunbookPath("/nonexistent/path")
+		assert.Error(t, err)
+	})
+
+	t.Run("runbook.md is not accepted", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runbook.md"), []byte("# Hello"), 0644))
+
+		_, err := ResolveRunbookPath(dir)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no runbook found")
+	})
+}
+
 func TestHandleRunbookAssetsRequest(t *testing.T) {
 	tempDir := t.TempDir()
 

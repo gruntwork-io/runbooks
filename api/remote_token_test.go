@@ -46,16 +46,11 @@ func TestGetTokenForHost_UnknownHost(t *testing.T) {
 	assert.Equal(t, "", token)
 }
 
-func TestGetTokenForHost_NoTokenSet(t *testing.T) {
-	// Clear all token env vars
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
+func TestGetTokenForHost_GitLabNoTokenSet(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
 
-	// Without gh CLI available, this should return empty
-	// (the CLI fallback may or may not work depending on the test environment,
-	// but with empty env vars the env var path definitely returns empty)
-	token := GetTokenForHost("github.com")
-	// Token will be empty unless `gh auth token` succeeds in the test environment
-	// We just verify it doesn't panic or error
-	_ = token
+	token := GetTokenForHost("gitlab.com")
+	// glab CLI may or may not be installed; if not, token is empty.
+	// Either way, verify the env var path returns empty.
+	assert.Empty(t, token)
 }
