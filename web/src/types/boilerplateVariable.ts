@@ -42,5 +42,6 @@ export enum BoilerplateValidationType {
   CountryCode2 = "countrycode2",
   Semver = "semver",
   Length = "length",
+  Regex = "regex",
   Custom = "custom"
 }

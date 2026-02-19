@@ -146,6 +146,20 @@ export const applyValidationRule = (value: string, rule: ValidationRule): string
       }
       break
 
+    case BoilerplateValidationType.Regex:
+      if (rule.args && rule.args.length >= 1) {
+        const pattern = String(rule.args[0])
+        try {
+          const regex = new RegExp(pattern)
+          if (!regex.test(stringValue)) {
+            return rule.message || `Must match pattern: ${pattern}`
+          }
+        } catch {
+          // Invalid regex pattern — skip validation
+        }
+      }
+      break
+
     case BoilerplateValidationType.Required:
       // Required is handled separately in getFieldError
       break

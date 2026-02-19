@@ -7,7 +7,7 @@
 export const formatVariableLabel = (name: string): string => {
   // Common IT acronyms that should be capitalized
   const itAcronyms = new Set([
-    'aws', 'gcp', 'api', 'sdk', 'cli', 'ui', 'ux', 'db', 'sql', 'http', 'https', 
+    'aws', 'gcp', 'api', 'sdk', 'cli', 'ui', 'ux', 'db', 'id', 'sql', 'http', 'https',
     'ssl', 'tls', 'dns', 'ip', 'url', 'json', 'xml',
     'html', 'css', 'js', 'ts', 'rest', 'jwt', 'saml', 'ldap',
     'vpc', 'vpn', 'cdn', 's3', 'ec2', 'rds', 'iam', 'kms', 'sns', 'sqs',
@@ -28,6 +28,8 @@ export const formatVariableLabel = (name: string): string => {
 
   // Use regex to split camelCase words more intelligently
   const processed = name
+    // Convert snake_case underscores to spaces
+    .replace(/_/g, ' ')
     // Split on lowercase followed by uppercase
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     // Split on uppercase followed by lowercase (but not if it's part of an acronym)
@@ -56,8 +58,8 @@ export const formatVariableLabel = (name: string): string => {
       continue
     }
     
-    // Merge single letter + number (e.g., "V" + "2" -> "V2")
-    if (current.length === 1 && /^[A-Z]$/.test(current) && next && /^\d+$/.test(next)) {
+    // Merge single letter + number (e.g., "V" + "2" -> "V2", "s" + "3" -> "s3")
+    if (current.length === 1 && /^[A-Za-z]$/.test(current) && next && /^\d+$/.test(next)) {
       mergedWords.push(current + next)
       i++ // Skip the next word
     }
