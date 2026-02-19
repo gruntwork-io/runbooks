@@ -50,6 +50,14 @@ func openRunbook(source string) {
 	slog.Info("Opening runbook", "path", rb.Path, "workingDir", rb.WorkDir, "outputPath", outputPath)
 
 	startServerAndLaunch(rb, func() error {
-		return api.StartServer(rb.Path, defaultPort, rb.WorkDir, outputPath, rb.RemoteURL)
+		return api.StartServer(api.ServerConfig{
+			RunbookPath:           rb.Path,
+			Port:                  defaultPort,
+			WorkingDir:            rb.WorkDir,
+			OutputPath:            outputPath,
+			RemoteSourceURL:       rb.RemoteURL,
+			UseExecutableRegistry: true,
+			ReleaseMode:           true,
+		})
 	})
 }

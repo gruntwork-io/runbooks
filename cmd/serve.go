@@ -34,7 +34,15 @@ RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' f
 
 		slog.Info("Starting backend server", "workingDir", rb.WorkDir, "outputPath", outputPath)
 
-		if err := api.StartBackendServer(rb.Path, defaultPort, rb.WorkDir, outputPath, rb.RemoteURL); err != nil {
+		if err := api.StartServer(api.ServerConfig{
+			RunbookPath:           rb.Path,
+			Port:                  defaultPort,
+			WorkingDir:            rb.WorkDir,
+			OutputPath:            outputPath,
+			RemoteSourceURL:       rb.RemoteURL,
+			UseExecutableRegistry: true,
+			EnableCORS:            true,
+		}); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}

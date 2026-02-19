@@ -162,141 +162,78 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	})
 }
 
-// StartServer serves both the frontend files and also the backend API
-func StartServer(runbookPath string, port int, workingDir string, outputPath string, remoteSourceURL string) error {
-	// Resolve the runbook path to the actual file
-	resolvedPath, err := ResolveRunbookPath(runbookPath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve runbook path: %w", err)
-	}
-
-	// Create executable registry
-	registry, err := NewExecutableRegistry(resolvedPath)
-	if err != nil {
-		return fmt.Errorf("failed to create executable registry: %w", err)
-	}
-
-	// Create session manager for persistent environment
-	sessionManager := NewSessionManager()
-
-	// Use release mode for end-users (quieter logs, better performance)
-	// Use gin.New() instead of gin.Default() to skip the default logger middleware
-	// This keeps the logs clean for end-users while still including recovery middleware
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Recovery())
-
-	// Disable proxy trusting - this is safe since we only run locally
-	r.SetTrustedProxies(nil)
-
-	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(RunbookConfig{
-		LocalPath:             resolvedPath,
-		UseExecutableRegistry: true,
-		RemoteSourceURL:       remoteSourceURL,
-	}))
-
-	// Set up common routes
-	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
-
-	// listen and serve on localhost:$port only (security: prevent remote access)
-	return r.Run(fmt.Sprintf("127.0.0.1:%d", port))
+// ServerConfig holds all configuration for starting the API server.
+type ServerConfig struct {
+	RunbookPath           string
+	Port                  int
+	WorkingDir            string
+	OutputPath            string
+	RemoteSourceURL       string
+	UseExecutableRegistry bool // When true, scripts are validated against a registry built at startup
+	IsWatchMode           bool // When true, enables file watching with SSE notifications
+	ReleaseMode           bool // When true, uses gin release mode (quieter logs for end-users)
+	EnableCORS            bool // When true, allows cross-origin requests (for dev with separate frontend)
 }
 
-// StartBackendServer starts the API server for serving runbook files
-func StartBackendServer(runbookPath string, port int, workingDir string, outputPath string, remoteSourceURL string) error {
-	// Resolve the runbook path to the actual file
-	resolvedPath, err := ResolveRunbookPath(runbookPath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve runbook path: %w", err)
-	}
-
-	// Create executable registry
-	registry, err := NewExecutableRegistry(resolvedPath)
-	if err != nil {
-		return fmt.Errorf("failed to create executable registry: %w", err)
-	}
-
-	// Create session manager for persistent environment
-	sessionManager := NewSessionManager()
-
-	// Keep debug mode for development (default behavior)
-	r := gin.Default()
-
-	// Disable proxy trusting for local development - this is safe since we only run locally
-	r.SetTrustedProxies(nil)
-
-	// Configure CORS to allow requests from the frontend on various ports
-	r.Use(cors.New(cors.Config{
-		// Cursor likes to run its own servers when cursoring, so let it do so without hitting CORS
-		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:5174", "http://localhost:5175"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	}))
-
-	// API endpoint to serve the runbook file contents
-	r.GET("/api/runbook", HandleRunbookRequest(RunbookConfig{
-		LocalPath:             resolvedPath,
-		UseExecutableRegistry: true,
-		RemoteSourceURL:       remoteSourceURL,
-	}))
-
-	// Set up common routes (includes all other endpoints)
-	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, true)
-
-	// listen and serve on localhost:$port only (security: prevent remote access)
-	return r.Run(fmt.Sprintf("127.0.0.1:%d", port))
-}
-
-// StartServerWithWatch serves both the frontend files and the backend API with file watching enabled
-func StartServerWithWatch(runbookPath string, port int, workingDir string, outputPath string, useExecutableRegistry bool, remoteSourceURL string) error {
-	// Resolve the runbook path to the actual file
-	resolvedPath, err := ResolveRunbookPath(runbookPath)
+// StartServer starts the API server with the given configuration.
+func StartServer(cfg ServerConfig) error {
+	resolvedPath, err := ResolveRunbookPath(cfg.RunbookPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
 
 	var registry *ExecutableRegistry
-	if useExecutableRegistry {
-		// Create executable registry
+	if cfg.UseExecutableRegistry {
 		registry, err = NewExecutableRegistry(resolvedPath)
 		if err != nil {
 			return fmt.Errorf("failed to create executable registry: %w", err)
 		}
 	}
 
-	// Create session manager for persistent environment
 	sessionManager := NewSessionManager()
 
-	// Create file watcher
-	fileWatcher, err := NewFileWatcher(resolvedPath)
-	if err != nil {
-		return fmt.Errorf("failed to create file watcher: %w", err)
-	}
-	defer fileWatcher.Close()
-
-	// Keep debug mode for development (default behavior)
-	r := gin.Default()
-
-	// Disable proxy trusting for local development - this is safe since we only run locally
+	r := newGinEngine(cfg.ReleaseMode)
 	r.SetTrustedProxies(nil)
 
-	// API endpoint to serve the runbook file contents
+	if cfg.EnableCORS {
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{"http://localhost:5173", "http://localhost:5174", "http://localhost:5175"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowCredentials: true,
+		}))
+	}
+
 	r.GET("/api/runbook", HandleRunbookRequest(RunbookConfig{
 		LocalPath:             resolvedPath,
-		IsWatchMode:           true,
-		UseExecutableRegistry: useExecutableRegistry,
-		RemoteSourceURL:       remoteSourceURL,
+		IsWatchMode:           cfg.IsWatchMode,
+		UseExecutableRegistry: cfg.UseExecutableRegistry,
+		RemoteSourceURL:       cfg.RemoteSourceURL,
 	}))
 
-	// SSE endpoint for file change notifications
-	r.GET("/api/watch", HandleWatchSSE(fileWatcher))
+	if cfg.IsWatchMode {
+		fileWatcher, err := NewFileWatcher(resolvedPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file watcher: %w", err)
+		}
+		defer fileWatcher.Close()
+		r.GET("/api/watch", HandleWatchSSE(fileWatcher))
+	}
 
-	// Set up common routes
-	setupCommonRoutes(r, resolvedPath, workingDir, outputPath, registry, sessionManager, useExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, cfg.UseExecutableRegistry)
 
-	// listen and serve on localhost:$port only (security: prevent remote access)
-	return r.Run(fmt.Sprintf("127.0.0.1:%d", port))
+	return r.Run(fmt.Sprintf("127.0.0.1:%d", cfg.Port))
+}
+
+// newGinEngine creates a gin engine with the appropriate mode.
+// Release mode uses minimal logging for end-users; debug mode includes request logging.
+func newGinEngine(releaseMode bool) *gin.Engine {
+	if releaseMode {
+		gin.SetMode(gin.ReleaseMode)
+		r := gin.New()
+		r.Use(gin.Recovery())
+		return r
+	}
+	return gin.Default()
 }
