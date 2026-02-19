@@ -104,6 +104,17 @@ func TestParseRemoteSource_GitHubBrowserURL(t *testing.T) {
 				rawRefAndPath: "main/path/to/runbook",
 			},
 		},
+		{
+			name:  "HTTP URL is accepted and CloneURL is normalized to HTTPS",
+			input: "http://github.com/org/repo/tree/main/path",
+			expected: &ParsedRemoteSource{
+				Host:          "github.com",
+				Owner:         "org",
+				Repo:          "repo",
+				CloneURL:      "https://github.com/org/repo.git",
+				rawRefAndPath: "main/path",
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -170,6 +170,20 @@ func fileRequest(t *testing.T, runbookPath string, rawJSON string) (int, string)
 	return w.Code, w.Body.String()
 }
 
+func TestHandleFileRequest_PermissionError(t *testing.T) {
+	tempDir := t.TempDir()
+	runbookPath := filepath.Join(tempDir, "runbook.mdx")
+
+	unreadableFile := filepath.Join(tempDir, "secret.txt")
+	require.NoError(t, os.WriteFile(unreadableFile, []byte("secret"), 0644))
+	require.NoError(t, os.Chmod(unreadableFile, 0000))
+	t.Cleanup(func() { os.Chmod(unreadableFile, 0644) })
+
+	code, body := fileRequest(t, runbookPath, `{"path": "secret.txt"}`)
+	assert.Equal(t, 500, code)
+	assert.Contains(t, body, "Failed to read file")
+}
+
 func TestResolveRunbookPath(t *testing.T) {
 	t.Run("directory containing runbook.mdx returns the file path", func(t *testing.T) {
 		dir := t.TempDir()

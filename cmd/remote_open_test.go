@@ -6,6 +6,7 @@ import (
 
 	"runbooks/api"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -55,6 +56,54 @@ func TestAuthHintForHost(t *testing.T) {
 			assert.Equal(t, tt.expectedCmd, cliCmd)
 		})
 	}
+}
+
+func TestResolveRemoteSource(t *testing.T) {
+	t.Run("local path passes through unchanged", func(t *testing.T) {
+		localPath, cleanup, isRemote, remoteURL, err := resolveRemoteSource("./my-runbook")
+		assert.NoError(t, err)
+		assert.Equal(t, "./my-runbook", localPath)
+		assert.Nil(t, cleanup)
+		assert.False(t, isRemote)
+		assert.Empty(t, remoteURL)
+	})
+
+	t.Run("absolute path passes through unchanged", func(t *testing.T) {
+		localPath, cleanup, isRemote, remoteURL, err := resolveRemoteSource("/home/user/runbook")
+		assert.NoError(t, err)
+		assert.Equal(t, "/home/user/runbook", localPath)
+		assert.Nil(t, cleanup)
+		assert.False(t, isRemote)
+		assert.Empty(t, remoteURL)
+	})
+
+	t.Run("invalid remote URL returns error", func(t *testing.T) {
+		_, _, _, _, err := resolveRemoteSource("https://github.com/only-owner")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid remote source")
+	})
+}
+
+func TestValidateSourceArg(t *testing.T) {
+	t.Run("no args returns error", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "open"}
+		err := validateSourceArg(cmd, []string{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required argument")
+	})
+
+	t.Run("one arg succeeds", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "open"}
+		err := validateSourceArg(cmd, []string{"./my-runbook"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("multiple args returns error", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "open"}
+		err := validateSourceArg(cmd, []string{"a", "b"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "expected 1 argument")
+	})
 }
 
 func TestClassifyCloneError(t *testing.T) {
