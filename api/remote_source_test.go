@@ -497,7 +497,8 @@ func TestResolveRef_MatchesLongestRef(t *testing.T) {
 				return tt.refs, nil
 			}
 
-			ref, repoPath := ResolveRef("https://fake.com/repo.git", tt.rawRefAndPath, tt.isBlobURL)
+			ref, repoPath, err := ResolveRef("https://fake.com/repo.git", tt.rawRefAndPath, tt.isBlobURL)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedRef, ref, "ref")
 			assert.Equal(t, tt.expectedPath, repoPath, "repoPath")
 		})
@@ -634,7 +635,7 @@ func TestResolve(t *testing.T) {
 			"token should be injected into the clone URL passed to ls-remote")
 	})
 
-	t.Run("ls-remote failure falls back to first path segment as ref", func(t *testing.T) {
+	t.Run("ls-remote failure returns error instead of silently falling back", func(t *testing.T) {
 		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
 			return nil, fmt.Errorf("authentication failed")
 		}
@@ -643,10 +644,10 @@ func TestResolve(t *testing.T) {
 		require.NoError(t, err)
 
 		err = parsed.Resolve("")
-		require.NoError(t, err)
-
-		assert.Equal(t, "v2.0", parsed.Ref, "should fall back to first segment as ref")
-		assert.Equal(t, "deep/nested/path", parsed.Path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "authentication failed")
+		assert.Empty(t, parsed.Ref, "ref should not be set when ls-remote fails")
+		assert.Empty(t, parsed.Path, "path should not be set when ls-remote fails")
 	})
 }
 

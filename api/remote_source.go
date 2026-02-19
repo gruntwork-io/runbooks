@@ -58,7 +58,10 @@ func (p *ParsedRemoteSource) RawRefAndPath() string {
 func (p *ParsedRemoteSource) Resolve(token string) error {
 	if p.NeedsRefResolution() {
 		cloneURL := InjectGitToken(p.CloneURL, token)
-		ref, repoPath := ResolveRef(cloneURL, p.RawRefAndPath(), p.IsBlobURL)
+		ref, repoPath, err := ResolveRef(cloneURL, p.RawRefAndPath(), p.IsBlobURL)
+		if err != nil {
+			return fmt.Errorf("failed to resolve ref for %s/%s: %w", p.Owner, p.Repo, err)
+		}
 		p.Ref = ref
 		p.Path = repoPath
 	} else if p.IsBlobURL && p.Path != "" {
@@ -289,16 +292,16 @@ func extractBrowserAction(segments []string, host, raw string) (action, refAndPa
 // isBlobURL indicates whether the original URL used /blob/ (path points to a file).
 //
 // Returns the resolved ref name and the remaining path within the repo.
-// Always succeeds: if ls-remote fails or no ref matches, falls back to the first path segment.
-func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, repoPath string) {
+// If git ls-remote fails, the error is propagated to the caller.
+// If ls-remote succeeds but no ref matches, falls back to the first path segment.
+func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, repoPath string, err error) {
 	if rawRefAndPath == "" {
-		return "", ""
+		return "", "", nil
 	}
 
-	// Get all refs from the remote
 	refs, err := listRemoteRefsFn(cloneURL)
 	if err != nil {
-		return resolveRefFallback(rawRefAndPath, isBlobURL)
+		return "", "", fmt.Errorf("failed to list remote refs: %w", err)
 	}
 
 	// Sort refs by length descending so we find the longest match first
@@ -309,7 +312,7 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 	// Find the longest ref that matches the beginning of rawRefAndPath
 	for _, r := range refs {
 		if rawRefAndPath == r {
-			return r, ""
+			return r, "", nil
 		}
 		if strings.HasPrefix(rawRefAndPath, r+"/") {
 			remaining := strings.TrimPrefix(rawRefAndPath, r+"/")
@@ -317,11 +320,12 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 			if isBlobURL {
 				remaining = AdjustBlobPath(remaining)
 			}
-			return r, remaining
+			return r, remaining, nil
 		}
 	}
 
-	return resolveRefFallback(rawRefAndPath, isBlobURL)
+	ref, repoPath = resolveRefFallback(rawRefAndPath, isBlobURL)
+	return ref, repoPath, nil
 }
 
 // resolveRefFallback splits rawRefAndPath using the first segment as the ref.
@@ -366,6 +370,13 @@ func listRemoteRefsImpl(cloneURL string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", "--tags", "--refs", cloneURL)
 	output, err := cmd.Output()
 	if err != nil {
+		stderr := ""
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			stderr = SanitizeGitError(strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		if stderr != "" {
+			return nil, fmt.Errorf("git ls-remote failed: %w: %s", err, stderr)
+		}
 		return nil, fmt.Errorf("git ls-remote failed: %w", err)
 	}
 

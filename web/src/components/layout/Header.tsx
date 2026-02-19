@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from 'react';
+import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
 import { ChevronDown, Download, Info, Check, FolderOpen, Copy, type LucideProps } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
@@ -31,18 +31,19 @@ import {
   generateAllLogsZipFilename,
 } from '@/lib/logs';
 
-function CopyButton({ onClick, didCopy, icon: Icon, size, className }: {
-  onClick: () => void;
+function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...props }: {
   didCopy: boolean;
   icon: ComponentType<LucideProps>;
   size: string;
-  className?: string;
-}) {
+} & ComponentPropsWithRef<'button'>) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`flex-shrink-0 rounded transition-colors cursor-pointer ${className ?? ''}`}
       aria-label="Copy local path"
+      {...props}
+      ref={ref}
     >
       {didCopy ? <Check className={`${size} text-green-600`} /> : <Icon className={`${size} text-gray-400`} />}
     </button>

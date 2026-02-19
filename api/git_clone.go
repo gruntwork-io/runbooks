@@ -314,10 +314,10 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			}
 		}
 
-		// Determine if we should inject a GitHub token
+		// Inject a git auth token if one is available for this host
 		cloneURL := req.URL
-		if IsGitHubURL(req.URL) {
-			if token := getGitHubTokenFromSession(sm); token != "" {
+		if parsed, err := url.Parse(req.URL); err == nil {
+			if token := GetTokenForHost(parsed.Hostname()); token != "" {
 				cloneURL = InjectGitToken(req.URL, token)
 			}
 		}
