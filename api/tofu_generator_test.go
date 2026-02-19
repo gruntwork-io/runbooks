@@ -25,28 +25,17 @@ func TestGenerateRunbook_Basic(t *testing.T) {
 
 	mdx := string(mdxContent)
 	assert.Contains(t, mdx, "s3-bucket")
-	assert.Contains(t, mdx, "<Template")
-	assert.Contains(t, mdx, "terragrunt-config")
+	assert.Contains(t, mdx, "<TfModule")
+	assert.Contains(t, mdx, "module-vars")
+	assert.Contains(t, mdx, "<TemplateInline")
+	assert.Contains(t, mdx, "terragrunt.hcl")
+	assert.Contains(t, mdx, "_module.hcl_inputs")
+	assert.Contains(t, mdx, "_module.source")
 
-	// Verify boilerplate.yml was created
+	// Basic template no longer generates supporting files — TfModule parses at runtime
 	dir := filepath.Dir(mdxPath)
-	bpPath := filepath.Join(dir, "templates", "module-inputs", "boilerplate.yml")
-	bpContent, err := os.ReadFile(bpPath)
-	require.NoError(t, err)
-	bp := string(bpContent)
-	assert.Contains(t, bp, "bucket_name")
-	assert.Contains(t, bp, "versioning_enabled")
-	assert.Contains(t, bp, "tags")
-	assert.Contains(t, bp, "Lifecycle") // x-section
-
-	// Verify terragrunt.hcl template was created
-	tgPath := filepath.Join(dir, "templates", "module-inputs", "terragrunt.hcl")
-	tgContent, err := os.ReadFile(tgPath)
-	require.NoError(t, err)
-	tg := string(tgContent)
-	assert.Contains(t, tg, "terraform {")
-	assert.Contains(t, tg, "inputs = {")
-	assert.Contains(t, tg, "bucket_name")
+	_, err = os.Stat(filepath.Join(dir, "templates", "module-inputs", "boilerplate.yml"))
+	assert.True(t, os.IsNotExist(err), "boilerplate.yml should not be generated")
 }
 
 func TestGenerateRunbook_Full(t *testing.T) {
@@ -66,6 +55,8 @@ func TestGenerateRunbook_Full(t *testing.T) {
 	assert.Contains(t, mdx, "<GitClone")
 	assert.Contains(t, mdx, "<GitHubPullRequest")
 	assert.Contains(t, mdx, "deploy-config")
+	assert.Contains(t, mdx, "<TfModule")
+	assert.Contains(t, mdx, "<TemplateInline")
 
 	// Verify copy-to-target.sh was created
 	dir := filepath.Dir(mdxPath)
@@ -111,27 +102,13 @@ func TestGenerateRunbook_ComplexModule(t *testing.T) {
 	require.NotNil(t, cleanup)
 	defer cleanup()
 
-	// Verify boilerplate.yml contains all variables from all .tf files
-	dir := filepath.Dir(mdxPath)
-	bpContent, err := os.ReadFile(filepath.Join(dir, "templates", "module-inputs", "boilerplate.yml"))
+	// Verify MDX references the module path and contains TfModule + TemplateInline
+	mdxContent, err := os.ReadFile(mdxPath)
 	require.NoError(t, err)
-	bp := string(bpContent)
-
-	// Variables from lambda.tf
-	assert.Contains(t, bp, "lambda_function_name")
-	// Variables from s3.tf
-	assert.Contains(t, bp, "bucket_name")
-	// Variables from network.tf
-	assert.Contains(t, bp, "vpc_id")
-	// Variables from common.tf
-	assert.Contains(t, bp, "environment")
-	assert.Contains(t, bp, "notification_config")
-
-	// Verify filename-based section groupings are in the generated YAML
-	assert.Contains(t, bp, "x-section: Common")
-	assert.Contains(t, bp, "x-section: Lambda")
-	assert.Contains(t, bp, "x-section: Network")
-	assert.Contains(t, bp, "x-section: S3")
+	mdx := string(mdxContent)
+	assert.Contains(t, mdx, "<TfModule")
+	assert.Contains(t, mdx, "<TemplateInline")
+	assert.Contains(t, mdx, "lambda-s3-complex")
 }
 
 func TestMarshalBoilerplateConfig(t *testing.T) {

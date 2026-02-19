@@ -38,8 +38,26 @@ The module has **{{ .VariableCount }}** variables organized into:
 The module has **{{ .VariableCount }}** input variables.
 {{ end }}
 
-<Template id="terragrunt-config" path="templates/module-inputs"
-    inputsId="deploy-config" />
+<TfModule id="module-vars" path="{{ .ModuleSource }}" source="{{ .ModuleSource }}" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ "{{" }} ._module.source {{ "}}" }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{ "{{-" }} range $name, $hcl := ._module.hcl_inputs {{ "}}" }}
+  {{ "{{" }} $name {{ "}}" }} = {{ "{{" }} $hcl {{ "}}" }}
+{{ "{{-" }} end {{ "}}" }}
+}
+```
+</TemplateInline>
 
 ## Clone Target Repository
 
@@ -49,7 +67,7 @@ The module has **{{ .VariableCount }}** input variables.
 ## Place Files & Create Pull Request
 
 <Command id="copy-files" path="scripts/copy-to-target.sh"
-    inputsId={["deploy-config", "terragrunt-config"]}
+    inputsId="deploy-config"
     title="Copy generated files to target repository"
     successMessage="Files placed successfully!"
     failMessage="Failed to copy files." />

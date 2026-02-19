@@ -3,7 +3,7 @@
 This runbook was auto-generated from the **{{ .ModuleName }}** OpenTofu module.
 It configures the module's input variables and generates a `terragrunt.hcl` file.
 
-## Configure Module Variables & Generate terragrunt.hcl
+## Configure Module Variables
 
 {{ if .SectionSummary -}}
 The module has **{{ .VariableCount }}** variables organized into:
@@ -12,4 +12,25 @@ The module has **{{ .VariableCount }}** variables organized into:
 The module has **{{ .VariableCount }}** input variables.
 {{ end }}
 
-<Template id="terragrunt-config" path="templates/module-inputs" />
+<TfModule id="module-vars" path="{{ .ModuleSource }}" source="{{ .ModuleSource }}" />
+
+## Generated Configuration
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ "{{" }} ._module.source {{ "}}" }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{ "{{-" }} range $name, $hcl := ._module.hcl_inputs {{ "}}" }}
+  {{ "{{" }} $name {{ "}}" }} = {{ "{{" }} $hcl {{ "}}" }}
+{{ "{{-" }} end {{ "}}" }}
+}
+```
+</TemplateInline>

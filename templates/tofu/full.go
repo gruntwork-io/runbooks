@@ -21,14 +21,11 @@ func (t *FullTemplate) RenderMDX(ctx TemplateContext) (string, error) {
 }
 
 func (t *FullTemplate) GenerateFiles(ctx TemplateContext) (map[string][]byte, error) {
-	// Start with the same files as basic
-	basic := &BasicTemplate{}
-	files, err := basic.GenerateFiles(ctx)
-	if err != nil {
-		return nil, err
-	}
+	files := make(map[string][]byte)
 
-	// Add the copy-to-target script
+	// Only the copy-to-target script is needed as a supporting file.
+	// The boilerplate.yml and terragrunt.hcl template are no longer generated —
+	// <TfModule> parses the module at runtime and <TemplateInline> renders inline.
 	files["scripts/copy-to-target.sh"] = []byte(copyToTargetScript)
 
 	return files, nil
