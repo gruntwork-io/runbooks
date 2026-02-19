@@ -1,0 +1,15 @@
+# Configure {{ .ModuleName }}
+
+This runbook was auto-generated from the **{{ .ModuleName }}** OpenTofu module.
+It configures the module's input variables and generates a `terragrunt.hcl` file.
+
+## Configure Module Variables & Generate terragrunt.hcl
+
+{{ if .SectionSummary -}}
+The module has **{{ .VariableCount }}** variables organized into:
+{{ .SectionSummary }}.
+{{ else -}}
+The module has **{{ .VariableCount }}** input variables.
+{{ end }}
+
+<Template id="terragrunt-config" path="templates/module-inputs" />

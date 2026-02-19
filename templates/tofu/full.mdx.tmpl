@@ -1,0 +1,59 @@
+# Deploy {{ .ModuleName }}
+
+This runbook was auto-generated from the **{{ .ModuleName }}** OpenTofu module.
+It generates a `terragrunt.hcl` file and creates a pull request in your infrastructure repository.
+
+## Configure Deployment Target
+
+<Inputs id="deploy-config">
+```yaml
+variables:
+  - name: TargetRepoUrl
+    type: string
+    description: "Git URL of the infrastructure repository"
+    validations: "required"
+  - name: TargetPath
+    type: string
+    description: "Path within the repo (e.g. prod/us-east-1/{{ .ModuleName }})"
+    validations: "required"
+  - name: BranchName
+    type: string
+    description: "Git branch name for the pull request"
+    default: "add-{{ .ModuleNameSlug }}"
+```
+</Inputs>
+
+## Authenticate to GitHub
+
+<GitHubAuth id="gh-auth"
+    title="Authenticate to GitHub"
+    description="Required for cloning the target repository and creating a pull request." />
+
+## Configure {{ .ModuleName }} & Preview Configuration
+
+{{ if .SectionSummary -}}
+The module has **{{ .VariableCount }}** variables organized into:
+{{ .SectionSummary }}.
+{{ else -}}
+The module has **{{ .VariableCount }}** input variables.
+{{ end }}
+
+<Template id="terragrunt-config" path="templates/module-inputs"
+    inputsId="deploy-config" />
+
+## Clone Target Repository
+
+<GitClone id="clone-target" gitHubAuthId="gh-auth"
+    title="Clone the target infrastructure repository" />
+
+## Place Files & Create Pull Request
+
+<Command id="copy-files" path="scripts/copy-to-target.sh"
+    inputsId={["deploy-config", "terragrunt-config"]}
+    title="Copy generated files to target repository"
+    successMessage="Files placed successfully!"
+    failMessage="Failed to copy files." />
+
+<GitHubPullRequest id="create-pr" githubAuthId="gh-auth"
+    prefilledPullRequestTitle="Add {{ .ModuleName }} Terragrunt unit"
+    prefilledPullRequestDescription="Auto-generated from the {{ .ModuleName }} OpenTofu module by Runbooks." />
