@@ -17,6 +17,7 @@ Blocks are special React components that you can use in your `runbook.mdx` files
 - [Inputs](/authoring/blocks/inputs)
 - [Template](/authoring/blocks/template)
 - [TemplateInline](/authoring/blocks/templateinline)
+- [TfModule](/authoring/blocks/tfmodule)
 
 ## Advanced Topics
 

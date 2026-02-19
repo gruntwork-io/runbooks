@@ -1,0 +1,251 @@
+---
+title: <TfModule>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<TfModule>` block parses an OpenTofu/Terraform module at runtime, dynamically renders a form for all its input variables, and publishes the collected values so `<TemplateInline>` blocks can generate **any** output format — Terragrunt HCL, raw Terraform, YAML configs, or anything else.
+
+## Basic Usage
+
+```mdx
+<TfModule id="vpc-vars" source="../modules/vpc" />
+
+<TemplateInline inputsId="vpc-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+```
+
+## vs. Inputs
+
+Both `<TfModule>` and `<Inputs>` collect user values and publish them to context, but they serve different purposes:
+
+| Feature | `<TfModule>` | `<Inputs>` |
+|---------|-------------|------------|
+| Variable source | Parsed from `.tf` files at runtime | Defined in inline YAML or `boilerplate.yml` |
+| Form rendered | Yes, auto-generated from module variables | Yes, from variable definitions |
+| `_module` namespace | Yes (source, inputs, hcl_inputs) | No |
+| Dynamic iteration | Yes, iterate over all variables with `_module.inputs` / `_module.hcl_inputs` | No (each variable must be referenced by name) |
+| Use case | Generate config files from OpenTofu modules | Collect arbitrary user input |
+
+Use `<TfModule>` when you want to parse an existing OpenTofu module and generate configuration from its variables. Use `<Inputs>` when you want to define custom variables that don't come from a `.tf` module.
+
+## Props
+
+### Required Props
+
+- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `inputsId` to access the collected values.
+- `source` (string) - Path or URL to the OpenTofu module directory containing `.tf` files. See [Supported Source Formats](#supported-source-formats) below.
+
+## Supported Source Formats
+
+The `source` prop accepts the same formats as the `runbooks open` CLI command:
+
+| Format | Example |
+|--------|---------|
+| Local relative path | `../modules/vpc` |
+| GitHub shorthand | `github.com/org/repo//modules/vpc?ref=v1.0.0` |
+| Git prefix | `git::https://github.com/org/repo.git//modules/vpc?ref=v1.0.0` |
+| GitHub browser URL | `https://github.com/org/repo/tree/main/modules/vpc` |
+| GitLab browser URL | `https://gitlab.com/org/repo/-/tree/main/modules/vpc` |
+
+<Aside type="tip">
+For remote sources, use `?ref=v1.0.0` (or a branch/commit) to pin to a specific version. Without a ref, the default branch is used.
+</Aside>
+
+## The `_module` Namespace
+
+When `<TfModule>` registers its values, it injects a `_module` map alongside the individual variable values. This enables both iteration over all variables and direct access to specific ones.
+
+### Structure
+
+```
+_module:
+  source: "github.com/org/repo//modules/vpc?ref=v1.0.0"
+  inputs:
+    vpc_name: "my-vpc"
+    cidr_block: "10.0.0.0/16"
+    enable_flow_logs: true
+  hcl_inputs:
+    vpc_name: "\"my-vpc\""
+    cidr_block: "\"10.0.0.0/16\""
+    enable_flow_logs: "true"
+```
+
+| Key | Description |
+|-----|-------------|
+| `_module.source` | The module source from the `source` prop. Useful for embedding in generated config. |
+| `_module.inputs` | Map of all variable names to their raw values as entered by the user. |
+| `_module.hcl_inputs` | Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. |
+
+### When to Use Which
+
+- **`_module.hcl_inputs`** — Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
+- **`_module.inputs`** — Use when generating non-HCL formats (YAML, JSON, TOML) where you control the formatting.
+- **Individual variables** (e.g., `{{ .vpc_name }}`) — Use when you need to reference specific variables by name rather than iterating.
+
+## Template Patterns
+
+### Terragrunt HCL (Recommended)
+
+The most common pattern — generate a `terragrunt.hcl` file that iterates over all module variables using `_module.hcl_inputs`:
+
+`````mdx
+<TfModule id="module-vars" source="../modules/vpc" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+<Aside type="note">
+The `hcl_inputs` map handles type-aware formatting automatically: strings are quoted (`"value"`), booleans are raw (`true`/`false`), numbers are raw (`42`), and lists/maps are JSON-encoded.
+</Aside>
+
+### YAML Configuration
+
+Generate a YAML config using `_module.inputs` for raw values:
+
+`````mdx
+<TfModule id="module-vars" source="../modules/vpc" />
+
+<TemplateInline inputsId="module-vars" outputPath="config.yaml">
+```yaml
+module:
+  source: "{{ ._module.source }}"
+
+variables:
+{{- range $name, $val := ._module.inputs }}
+  {{ $name }}: {{ $val }}
+{{- end }}
+```
+</TemplateInline>
+`````
+
+### Individual Variable Access
+
+You can reference specific variables by name for targeted output:
+
+`````mdx
+<TfModule id="module-vars" source="../modules/vpc" />
+
+<TemplateInline inputsId="module-vars" outputPath="summary.txt">
+```
+VPC Name: {{ .vpc_name }}
+CIDR Block: {{ .cidr_block }}
+Module Source: {{ ._module.source }}
+```
+</TemplateInline>
+`````
+
+### Multiple Output Files
+
+The same `<TfModule>` can feed multiple `<TemplateInline>` blocks, each producing a different file format:
+
+`````mdx
+<TfModule id="module-vars" source="../modules/s3-bucket" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+
+<TemplateInline inputsId="module-vars" outputPath="config.yaml">
+```yaml
+module:
+  source: "{{ ._module.source }}"
+variables:
+{{- range $name, $val := ._module.inputs }}
+  {{ $name }}: {{ $val }}
+{{- end }}
+```
+</TemplateInline>
+`````
+
+## Best Practices
+
+1. **Use `hcl_inputs` for HCL output.** The pre-formatted values handle quoting correctly — strings get quotes, booleans and numbers don't. Don't use `inputs` for HCL unless you want to handle type formatting yourself.
+
+2. **Use `inputs` for non-HCL formats.** For YAML, JSON, or plain text, use the raw values from `inputs` and apply your own formatting in the template.
+
+3. **Pin remote sources.** Always specify `?ref=v1.0.0` for remote modules so the form doesn't change unexpectedly when the default branch is updated.
+
+4. **Combine with `generateFile={true}`** on the primary output `<TemplateInline>` to save the rendered file to the workspace. Leave it off for preview-only outputs.
+
+5. **Use individual variable access for summaries.** When you need to reference just one or two variables (e.g., in a confirmation message), access them directly by name instead of iterating.
+
+<Aside type="tip" title="See It in Action">
+Check out the [TfModule custom template feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/tf-custom-template) for a complete working example showing HCL generation, YAML output, and individual variable access from a single TfModule.
+</Aside>
+
+## Complete Example
+
+Here's a full runbook that parses a VPC module and generates a Terragrunt configuration:
+
+`````mdx
+# Configure VPC Module
+
+This runbook generates a `terragrunt.hcl` configuration for the VPC module.
+
+## Configure Module Variables
+
+<TfModule id="vpc-config" source="github.com/my-org/infra-modules//modules/vpc?ref=v1.0.0" />
+
+## Preview Generated Configuration
+
+The HCL below is dynamically generated from the module's input variables.
+Change any value above and watch the preview update automatically.
+
+<TemplateInline inputsId="vpc-config" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
