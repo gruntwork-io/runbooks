@@ -75,7 +75,14 @@ func watchRunbook(path string) {
 
 	// Start the API server with watching in a goroutine
 	go func() {
-		errCh <- api.StartServerWithWatch(path, 7825, resolvedWorkDir, outputPath, useExecutableRegistry)
+		errCh <- api.StartServer(api.ServerConfig{
+			RunbookPath:           path,
+			Port:                  7825,
+			WorkingDir:            resolvedWorkDir,
+			OutputPath:            outputPath,
+			IsWatchMode:           true,
+			UseExecutableRegistry: useExecutableRegistry,
+		})
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint

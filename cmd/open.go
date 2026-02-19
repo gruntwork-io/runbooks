@@ -65,7 +65,14 @@ func openRunbook(path string) {
 
 	// Start the API server in a goroutine
 	go func() {
-		errCh <- api.StartServer(path, 7825, resolvedWorkDir, outputPath)
+		errCh <- api.StartServer(api.ServerConfig{
+			RunbookPath:           path,
+			Port:                  7825,
+			WorkingDir:            resolvedWorkDir,
+			OutputPath:            outputPath,
+			UseExecutableRegistry: true,
+			ReleaseMode:           true,
+		})
 	}()
 
 	// Wait for the server to be ready by polling the health endpoint

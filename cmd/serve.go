@@ -53,7 +53,14 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 
 		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
-		if err := api.StartBackendServer(path, 7825, resolvedWorkDir, outputPath); err != nil {
+		if err := api.StartServer(api.ServerConfig{
+			RunbookPath:           path,
+			Port:                  7825,
+			WorkingDir:            resolvedWorkDir,
+			OutputPath:            outputPath,
+			UseExecutableRegistry: true,
+			EnableCORS:            true,
+		}); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}
