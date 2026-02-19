@@ -68,6 +68,8 @@ func TestHandleRunbookRequest(t *testing.T) {
 	})
 
 	t.Run("includes remoteSource when RemoteSourceURL is set", func(t *testing.T) {
+		// RemoteSourceURL is provenance metadata passed through to the response as-is;
+		// the handler never fetches it. The actual remote download happens upstream in remote_open.
 		remoteURL := "https://github.com/org/repo/tree/main/runbooks/setup-vpc"
 		code, resp := runbookRequest(t, RunbookConfig{
 			LocalPath:             testFile,

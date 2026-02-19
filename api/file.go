@@ -119,6 +119,7 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
+		// Remove leading slash if present
 		if requestedPath[0] == '/' {
 			requestedPath = requestedPath[1:]
 		}
