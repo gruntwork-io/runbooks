@@ -4,11 +4,11 @@ title: <TfModule>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<TfModule>` block parses an OpenTofu/Terraform module at runtime, dynamically renders a form for all its input variables, and publishes the collected values so `<TemplateInline>` blocks can generate **any** output format — Terragrunt HCL, raw Terraform, YAML configs, or anything else.
+The `<TfModule>` block parses an OpenTofu/Terraform module at runtime, dynamically renders a form for all its input variables, and publishes the collected values so [`<TemplateInline>`](/authoring/blocks/templateinline/) and [`<Template>`](/authoring/blocks/template/) blocks can generate **any** output format — Terragrunt HCL, raw Terraform, YAML configs, or anything else.
 
 ## Basic Usage
 
-```mdx
+`````mdx
 <TfModule id="vpc-vars" source="../modules/vpc" />
 
 <TemplateInline inputsId="vpc-vars" outputPath="terragrunt.hcl" generateFile={true}>
@@ -24,7 +24,7 @@ inputs = {
 }
 ```
 </TemplateInline>
-```
+`````
 
 ## vs. Inputs
 
@@ -203,6 +203,59 @@ variables:
 ```
 </TemplateInline>
 `````
+
+### Using with Template
+
+You can also use `<TfModule>` with [`<Template>`](/authoring/blocks/template/) when you have a Boilerplate template directory. The Template imports TfModule values via `inputsId`, and the template files get full access to the `_module` namespace.
+
+This is useful when you need multi-file generation from a template directory — for example, generating a `terragrunt.hcl` alongside a `README.md` and a CI config from a single set of module variables.
+
+`````mdx
+<TfModule id="module-vars" source="../modules/vpc" />
+
+<Template id="vpc-scaffold" path="templates/vpc-scaffold" inputsId="module-vars" />
+`````
+
+Inside `templates/vpc-scaffold/terragrunt.hcl`:
+
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+
+Inside `templates/vpc-scaffold/README.md`:
+
+```markdown
+# {{ ._module.readme_title }}
+
+Source: `{{ ._module.source }}`
+
+## Outputs
+
+{{- range ._module.output_names }}
+- `{{ . }}`
+{{- end }}
+```
+
+<Aside type="note">
+When Template imports from TfModule, all TfModule values — including `_module` and every individual variable — become **imported-only** variables. They are passed through to the template engine but are not shown in the Template's form. If the Template's own `boilerplate.yml` defines a variable with the same name as a TfModule variable, it becomes a **shared** variable: read-only in the form and live-synced to the TfModule value.
+</Aside>
+
+### When to Use Template vs. TemplateInline
+
+| | `<TemplateInline>` | `<Template>` |
+|---|---|---|
+| Template source | Inline in the runbook | Separate directory with `boilerplate.yml` |
+| Multi-file generation | One file per block | Multiple files from one directory |
+| Extra variables | None | Can define additional variables in `boilerplate.yml` |
+| Best for | Quick single-file previews and generation | Structured multi-file scaffolding |
 
 ## Best Practices
 
