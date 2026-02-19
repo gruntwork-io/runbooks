@@ -26,43 +26,73 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// shouldUseTmpWorkDir returns true if the working directory should be a temp directory.
-// Remote sources default to a temp dir when no explicit --working-dir is configured.
-func shouldUseTmpWorkDir(isRemote bool) bool {
-	return workingDirTmp || (isRemote && workingDir == "")
+// resolvedRunbook holds the fully resolved configuration for running a runbook.
+// Call Close() (typically via defer) to clean up any temporary directories.
+type resolvedRunbook struct {
+	Path      string // local path to the runbook directory or file
+	WorkDir   string // resolved working directory
+	RemoteURL string // original remote URL; empty for local sources
+	cleanups  []func()
 }
 
-// resolveRunbookSource resolves a runbook source (local path or remote URL) to a local path.
-// If the source is remote, it downloads it to a temp directory. Returns the local path,
-// a cleanup function (nil for local sources), whether the source is remote, and the original remote URL.
-// Exits the process on error.
-func resolveRunbookSource(source string) (localPath string, cleanup func(), isRemote bool, remoteURL string) {
-	localPath, cleanup, remoteURL, err := resolveRemoteSource(source)
+// Close runs all cleanup functions in reverse order of acquisition.
+func (r *resolvedRunbook) Close() {
+	for i := len(r.cleanups) - 1; i >= 0; i-- {
+		r.cleanups[i]()
+	}
+}
+
+// resolveRunbook resolves a runbook source string (local path or remote URL) and
+// working directory into a fully resolved configuration. Exits the process on error.
+func resolveRunbook(source string) *resolvedRunbook {
+	path, pathCleanup, isRemote, remoteURL, err := resolveRemoteSource(source)
 	if err != nil {
 		slog.Error("Failed to fetch remote runbook", "error", err)
 		os.Exit(1)
 	}
-	return localPath, cleanup, cleanup != nil, remoteURL
+	useTmpWorkDir := workingDirTmp || (isRemote && workingDir == "")
+	workDir, workDirCleanup, err := resolveWorkingDir(workingDir, useTmpWorkDir)
+	if err != nil {
+		if pathCleanup != nil {
+			pathCleanup()
+		}
+		slog.Error("Failed to resolve working directory", "error", err)
+		os.Exit(1)
+	}
+
+	var cleanups []func()
+	if workDirCleanup != nil {
+		cleanups = append(cleanups, workDirCleanup)
+	}
+	if pathCleanup != nil {
+		cleanups = append(cleanups, pathCleanup)
+	}
+
+	return &resolvedRunbook{
+		Path:      path,
+		WorkDir:   workDir,
+		RemoteURL: remoteURL,
+		cleanups:  cleanups,
+	}
 }
 
 // resolveRemoteSource checks if the given source is a remote URL.
 // If so, downloads the runbook to a temp directory and returns the local path + cleanup func + original remote URL.
 // If not a remote source, returns the original path unchanged with nil cleanup and empty remoteURL.
-func resolveRemoteSource(source string) (localPath string, cleanup func(), remoteURL string, err error) {
+func resolveRemoteSource(source string) (localPath string, cleanup func(), isRemote bool, remoteURL string, err error) {
 	parsed, err := api.ParseRemoteSource(source)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("invalid remote source %q: %w", source, err)
+		return "", nil, false, "", fmt.Errorf("invalid remote source %q: %w", source, err)
 	}
 	if parsed == nil {
-		// Not a remote source — treat as local path
-		return source, nil, "", nil
+		return source, nil, false, "", nil
 	}
 
 	localPath, cleanup, err = downloadRemoteRunbook(parsed)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, false, "", err
 	}
-	return localPath, cleanup, source, nil
+	return localPath, cleanup, true, source, nil
 }
 
 // downloadRemoteRunbook downloads a runbook from a remote source to a temp directory.

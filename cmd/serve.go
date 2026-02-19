@@ -27,29 +27,14 @@ RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' f
 	GroupID: "other",
 	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Track command usage
 		telemetry.TrackCommand("serve")
 
-		source := args[0]
+		rb := resolveRunbook(args[0])
+		defer rb.Close()
 
-		path, pathCleanup, isRemote, remoteURL := resolveRunbookSource(source)
-		if pathCleanup != nil {
-			defer pathCleanup()
-		}
+		slog.Info("Starting backend server", "workingDir", rb.WorkDir, "outputPath", outputPath)
 
-		useTmpWorkDir := shouldUseTmpWorkDir(isRemote)
-		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, useTmpWorkDir)
-		if err != nil {
-			slog.Error("Failed to resolve working directory", "error", err)
-			os.Exit(1)
-		}
-		if cleanup != nil {
-			defer cleanup()
-		}
-
-		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
-
-		if err := api.StartBackendServer(path, defaultPort, resolvedWorkDir, outputPath, remoteURL); err != nil {
+		if err := api.StartBackendServer(rb.Path, defaultPort, rb.WorkDir, outputPath, rb.RemoteURL); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}
