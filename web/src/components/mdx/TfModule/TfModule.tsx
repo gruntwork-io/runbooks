@@ -20,26 +20,30 @@ import { buildHclInputsMap } from '../_shared/lib/formatHclValue'
  * for all variables, and publishes values to context (including a _module namespace)
  * so <TemplateInline> components can render any output format.
  *
+ * The source prop accepts both local relative paths and remote URLs:
+ * - Local: "../modules/my-vpc"
+ * - GitHub shorthand: "github.com/org/modules//vpc?ref=v1.0"
+ * - Git prefix: "git::https://github.com/org/repo.git//path?ref=v1.0"
+ * - GitHub browser URL: "https://github.com/org/repo/tree/main/modules/vpc"
+ *
  * The _module namespace contains:
- * - source: the module source URL (from props)
- * - path: the module path (from props)
+ * - source: the module source (from props, passed through to templates)
  * - inputs: raw form values for all variables
  * - hcl_inputs: pre-formatted HCL string values for template iteration
  *
  * @param props.id - Unique identifier for this component (required)
- * @param props.path - Path to the .tf module directory, relative to the runbook
- * @param props.source - Remote module source URL (optional, for use in templates)
+ * @param props.source - Module source: local path or remote URL (required)
  *
  * @example
- * <TfModule id="vpc-vars" path="../modules/my-vpc" source="github.com/org/modules//vpc?ref=v1.0" />
+ * <TfModule id="vpc-vars" source="../modules/my-vpc" />
+ * <TfModule id="vpc-vars" source="github.com/org/modules//vpc?ref=v1.0" />
  */
 interface TfModuleProps {
   id: string
-  path: string
-  source?: string
+  source: string
 }
 
-function TfModule({ id, path, source = '' }: TfModuleProps) {
+function TfModule({ id, source }: TfModuleProps) {
   // Register with ID registry to detect duplicates
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TfModule')
 
@@ -68,21 +72,21 @@ function TfModule({ id, path, source = '' }: TfModuleProps) {
         details: "Please provide a unique 'id' for this component instance.",
       }
     }
-    if (!path) {
+    if (!source) {
       return {
-        message: "The <TfModule> component requires a 'path' prop.",
-        details: "Please specify the path to an OpenTofu module directory containing .tf files.",
+        message: "The <TfModule> component requires a 'source' prop.",
+        details: "Provide a local path (e.g., '../modules/vpc') or a remote URL (e.g., 'github.com/org/modules//vpc?ref=v1.0').",
       }
     }
     return null
-  }, [id, path])
+  }, [id, source])
 
   // Load boilerplate config by parsing the OpenTofu module
   const {
     data: boilerplateConfig,
     isLoading,
     error: apiError,
-  } = useApiParseTfModule(path, !validationError)
+  } = useApiParseTfModule(source, !validationError)
 
   // Report errors to the error reporting context
   useEffect(() => {
@@ -151,13 +155,12 @@ function TfModule({ id, path, source = '' }: TfModuleProps) {
         ...formData,
         _module: {
           source,
-          path,
           inputs: { ...formData },
           hcl_inputs: buildHclInputsMap(formData, variableTypes),
         },
       }
     },
-    [source, path, variableTypes]
+    [source, variableTypes]
   )
 
   // Debounce timer ref for auto-updates

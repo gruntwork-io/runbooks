@@ -38,7 +38,7 @@ The module has **{{ .VariableCount }}** variables organized into:
 The module has **{{ .VariableCount }}** input variables.
 {{ end }}
 
-<TfModule id="module-vars" path="{{ .ModuleSource }}" source="{{ .ModuleSource }}" />
+<TfModule id="module-vars" source="{{ .ModuleSource }}" />
 
 <TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
