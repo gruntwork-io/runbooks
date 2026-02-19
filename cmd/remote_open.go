@@ -124,7 +124,7 @@ func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), erro
 	fmt.Fprintf(os.Stderr, "Downloading runbook from %s/%s/%s...\n", parsed.Host, parsed.Owner, parsed.Repo)
 
 	// Clone the repo
-	cloneURL := api.InjectGitHubToken(parsed.CloneURL, token)
+	cloneURL := api.InjectGitToken(parsed.CloneURL, token)
 	if err := cloneRepo(parsed, cloneURL, tempDir, token); err != nil {
 		return "", nil, err
 	}
@@ -203,7 +203,7 @@ func classifyCloneError(cloneErr error, output []byte, token string, parsed *api
 	sanitized := api.SanitizeGitError(errMsg)
 
 	if isAuthError(sanitized) {
-		tokenVar, cliCmd := authHintForHost(parsed.Host)
+		tokenVar, cliCmd := api.AuthHintForHost(parsed.Host)
 		if token == "" {
 			return fmt.Errorf("authentication required for %s/%s/%s: set %s, or run '%s'",
 				parsed.Host, parsed.Owner, parsed.Repo, tokenVar, cliCmd)
@@ -224,16 +224,6 @@ func isAuthError(msg string) bool {
 		strings.Contains(lower, "repository not found") ||
 		strings.Contains(lower, "fatal: could not read") ||
 		strings.Contains(lower, "403")
-}
-
-// authHintForHost returns the environment variable name and CLI command for auth.
-func authHintForHost(host string) (tokenVar, cliCmd string) {
-	switch strings.ToLower(host) {
-	case "gitlab.com":
-		return "GITLAB_TOKEN", "glab auth login"
-	default:
-		return "GITHUB_TOKEN", "gh auth login"
-	}
 }
 
 // warnIfLarge walks a directory and warns to stderr if total size exceeds 50MB.

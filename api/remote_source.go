@@ -57,7 +57,7 @@ func (p *ParsedRemoteSource) RawRefAndPath() string {
 // token is used to authenticate the ls-remote call if non-empty.
 func (p *ParsedRemoteSource) Resolve(token string) error {
 	if p.NeedsRefResolution() {
-		cloneURL := InjectGitHubToken(p.CloneURL, token)
+		cloneURL := InjectGitToken(p.CloneURL, token)
 		ref, repoPath, err := ResolveRef(cloneURL, p.RawRefAndPath(), p.IsBlobURL)
 		if err != nil {
 			return fmt.Errorf("could not resolve branch or tag from URL — verify the URL points to a valid branch or tag: %w", err)

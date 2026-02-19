@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestInjectGitHubToken(t *testing.T) {
+func TestInjectGitToken(t *testing.T) {
 	tests := []struct {
 		name     string
 		rawURL   string
@@ -57,9 +57,9 @@ func TestInjectGitHubToken(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := InjectGitHubToken(tc.rawURL, tc.token)
+			result := InjectGitToken(tc.rawURL, tc.token)
 			if result != tc.expected {
-				t.Errorf("InjectGitHubToken(%q, %q) = %q, want %q", tc.rawURL, tc.token, result, tc.expected)
+				t.Errorf("InjectGitToken(%q, %q) = %q, want %q", tc.rawURL, tc.token, result, tc.expected)
 			}
 		})
 	}

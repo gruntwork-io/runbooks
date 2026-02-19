@@ -318,7 +318,7 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		cloneURL := req.URL
 		if IsGitHubURL(req.URL) {
 			if token := getGitHubTokenFromSession(sm); token != "" {
-				cloneURL = InjectGitHubToken(req.URL, token)
+				cloneURL = InjectGitToken(req.URL, token)
 			}
 		}
 
@@ -908,10 +908,10 @@ func IsGitHubURL(rawURL string) bool {
 	return hostname == "github.com" || strings.HasSuffix(hostname, ".github.com")
 }
 
-// InjectGitHubToken injects a token into a GitHub HTTPS URL for authentication.
-// Converts https://github.com/org/repo.git to https://x-access-token:{token}@github.com/org/repo.git
+// InjectGitToken injects a token into an HTTPS git URL for authentication.
+// Converts https://host/org/repo.git to https://x-access-token:{token}@host/org/repo.git
 // Returns the URL unchanged if token is empty or the URL is not HTTPS.
-func InjectGitHubToken(rawURL, token string) string {
+func InjectGitToken(rawURL, token string) string {
 	if token == "" {
 		return rawURL
 	}

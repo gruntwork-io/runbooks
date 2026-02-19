@@ -50,7 +50,7 @@ func TestAuthHintForHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tokenVar, cliCmd := authHintForHost(tt.host)
+			tokenVar, cliCmd := api.AuthHintForHost(tt.host)
 			assert.Equal(t, tt.expectedVar, tokenVar)
 			assert.Equal(t, tt.expectedCmd, cliCmd)
 		})

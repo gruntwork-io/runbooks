@@ -47,6 +47,17 @@ func getGitLabTokenFromEnv() string {
 	return tokenFromCLI("glab", "auth", "token")
 }
 
+// AuthHintForHost returns the environment variable name and CLI command
+// that a user should use to authenticate with the given git host.
+func AuthHintForHost(host string) (tokenVar, cliCmd string) {
+	switch strings.ToLower(host) {
+	case "gitlab.com":
+		return "GITLAB_TOKEN", "glab auth login"
+	default:
+		return "GITHUB_TOKEN", "gh auth login"
+	}
+}
+
 // tokenFromCLI runs a CLI command and returns the trimmed stdout output.
 // Returns empty string if the command is not found, fails, or returns empty output.
 func tokenFromCLI(name string, args ...string) string {
