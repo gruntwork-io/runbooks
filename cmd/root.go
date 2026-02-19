@@ -93,12 +93,18 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 	}
 
 	// 3. Try as a remote source (GitHub/GitLab URL)
-	localPath, remoteCleanup, isRemote, _, remoteErr := resolveRemoteSource(path)
-	if remoteErr != nil {
-		slog.Error("Failed to fetch remote source", "error", remoteErr)
+	parsed, parseErr := api.ParseRemoteSource(path)
+	if parseErr != nil {
+		slog.Error("Invalid remote source", "error", parseErr)
 		os.Exit(1)
 	}
-	if isRemote {
+	if parsed != nil {
+		localPath, remoteCleanup, dlErr := downloadRemoteSource(parsed)
+		if dlErr != nil {
+			slog.Error("Failed to download remote source", "error", dlErr)
+			os.Exit(1)
+		}
+
 		// Check if the downloaded source is a runbook
 		resolvedPath, rbErr := api.ResolveRunbookPath(localPath)
 		if rbErr == nil {

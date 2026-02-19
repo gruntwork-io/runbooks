@@ -95,8 +95,10 @@ func resolveRemoteSource(source string) (localPath string, cleanup func(), isRem
 	return localPath, cleanup, true, source, nil
 }
 
-// downloadRemoteRunbook downloads a runbook from a remote source to a temp directory.
-func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
+// downloadRemoteSource downloads a remote source to a temp directory.
+// Returns the local path to the target directory (accounting for parsed.Path),
+// a cleanup function, and any error. Does NOT validate what's in the directory.
+func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error) {
 	if err := requireGit(); err != nil {
 		return "", nil, err
 	}
@@ -121,7 +123,7 @@ func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), erro
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "Downloading runbook from %s/%s/%s...\n", parsed.Host, parsed.Owner, parsed.Repo)
+	fmt.Fprintf(os.Stderr, "Downloading from %s/%s/%s...\n", parsed.Host, parsed.Owner, parsed.Repo)
 
 	// Clone the repo
 	cloneURL := api.InjectGitToken(parsed.CloneURL, token)
@@ -129,16 +131,43 @@ func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), erro
 		return "", nil, err
 	}
 
-	// Make sure the directory contains a runbook.mdx
-	runbookDir, err := validateRunbookInDir(tempDir, parsed)
+	// Resolve the target directory within the clone
+	targetDir := tempDir
+	if parsed.Path != "" {
+		if err := api.ValidateRelativePath(parsed.Path); err != nil {
+			return "", nil, fmt.Errorf("invalid path in remote source: %w", err)
+		}
+		targetDir = filepath.Join(tempDir, parsed.Path)
+	}
+
+	warnIfLarge(tempDir)
+
+	success = true
+	return targetDir, cleanup, nil
+}
+
+// downloadRemoteRunbook downloads a runbook from a remote source to a temp directory.
+func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
+	targetDir, cleanup, err := downloadRemoteSource(parsed)
 	if err != nil {
 		return "", nil, err
 	}
 
-	fmt.Fprintf(os.Stderr, "Runbook downloaded successfully.\n")
+	// Make sure the directory contains a runbook.mdx
+	_, rbErr := api.ResolveRunbookPath(targetDir)
+	if rbErr != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		pathDesc := parsed.Path
+		if pathDesc == "" {
+			pathDesc = "(repo root)"
+		}
+		return "", nil, fmt.Errorf("no runbook found at the specified path — expected runbook.mdx in %s", pathDesc)
+	}
 
-	success = true
-	return runbookDir, cleanup, nil
+	fmt.Fprintf(os.Stderr, "Runbook downloaded successfully.\n")
+	return targetDir, cleanup, nil
 }
 
 // requireGit returns an error if git is not available on PATH.
@@ -169,32 +198,6 @@ func cloneRepo(parsed *api.ParsedRemoteSource, cloneURL, tempDir, token string) 
 		return classifyCloneError(cloneErr, output, token, parsed)
 	}
 	return nil
-}
-
-// validateRunbookInDir locates the runbook directory within the cloned repo,
-// verifies it contains a runbook.mdx, and warns if the clone is large.
-func validateRunbookInDir(tempDir string, parsed *api.ParsedRemoteSource) (string, error) {
-	runbookDir := tempDir
-	if parsed.Path != "" {
-		if err := api.ValidateRelativePath(parsed.Path); err != nil {
-			return "", fmt.Errorf("invalid path in remote source: %w", err)
-		}
-		runbookDir = filepath.Join(tempDir, parsed.Path)
-	}
-
-	resolvedPath, err := api.ResolveRunbookPath(runbookDir)
-	if err != nil {
-		pathDesc := parsed.Path
-		if pathDesc == "" {
-			pathDesc = "(repo root)"
-		}
-		return "", fmt.Errorf("no runbook found at the specified path — expected runbook.mdx in %s", pathDesc)
-	}
-
-	warnIfLarge(tempDir)
-	slog.Info("Remote runbook resolved", "path", resolvedPath)
-
-	return runbookDir, nil
 }
 
 // classifyCloneError examines a git clone error and returns a user-friendly message.
