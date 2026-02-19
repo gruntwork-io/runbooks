@@ -26,17 +26,23 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// shouldUseTmpWorkDir returns true if the working directory should be a temp directory.
+// Remote sources default to a temp dir when no explicit --working-dir is configured.
+func shouldUseTmpWorkDir(isRemote bool) bool {
+	return workingDirTmp || (isRemote && workingDir == "")
+}
+
 // resolveRunbookSource resolves a runbook source (local path or remote URL) to a local path.
 // If the source is remote, it downloads it to a temp directory. Returns the local path,
-// a cleanup function (nil for local sources), and the original remote URL.
+// a cleanup function (nil for local sources), whether the source is remote, and the original remote URL.
 // Exits the process on error.
-func resolveRunbookSource(source string) (localPath string, cleanup func(), remoteURL string) {
+func resolveRunbookSource(source string) (localPath string, cleanup func(), isRemote bool, remoteURL string) {
 	localPath, cleanup, remoteURL, err := resolveRemoteSource(source)
 	if err != nil {
 		slog.Error("Failed to fetch remote runbook", "error", err)
 		os.Exit(1)
 	}
-	return localPath, cleanup, remoteURL
+	return localPath, cleanup, cleanup != nil, remoteURL
 }
 
 // resolveRemoteSource checks if the given source is a remote URL.

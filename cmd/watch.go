@@ -47,12 +47,13 @@ func init() {
 
 // watchRunbook opens a runbook with file watching enabled
 func watchRunbook(source string) {
-	path, remoteCleanup, remoteURL := resolveRunbookSource(source)
-	if remoteCleanup != nil {
-		defer remoteCleanup()
+	path, pathCleanup, isRemote, remoteURL := resolveRunbookSource(source)
+	if pathCleanup != nil {
+		defer pathCleanup()
 	}
 
-	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp, remoteCleanup != nil)
+	useTmpWorkDir := shouldUseTmpWorkDir(isRemote)
+	resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, useTmpWorkDir)
 	if err != nil {
 		slog.Error("Failed to resolve working directory", "error", err)
 		os.Exit(1)
