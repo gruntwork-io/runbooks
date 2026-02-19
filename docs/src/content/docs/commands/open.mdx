@@ -6,19 +6,63 @@ import { Aside } from '@astrojs/starlight/components';
 
 # runbooks open
 
-This command is intended for **consumers** of Runbooks.
-
 Use `runbooks open` to open a runbook in your browser and use it.
+
+This command is intended for **consumers** of runbooks.
 
 ## Usage
 
 ```bash
-runbooks open <path-to-runbook> [flags]
+runbooks open RUNBOOK_SOURCE [flags]
 ```
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to a directory containing the `runbook.mdx` file, or to the file itself.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file.
+
+### Local paths
+
+```bash
+runbooks open ./path/to/runbook
+runbooks open /absolute/path/to/runbook
+runbooks open ./path/to/runbook.mdx
+```
+
+### Remote sources
+
+You can open a runbook directly from a GitHub or GitLab URL without cloning the repo first:
+
+```bash
+# GitHub browser URL (copy/paste from your browser)
+runbooks open https://github.com/org/repo/tree/main/runbooks/setup-vpc
+
+# GitLab browser URL
+runbooks open https://gitlab.com/org/repo/-/tree/main/runbooks/setup-vpc
+
+# OpenTofu/Terraform module source format
+runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0
+runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main"
+```
+
+| Format | Example |
+|--------|---------|
+| GitHub browser (dir) | `https://github.com/org/repo/tree/main/runbooks/setup-vpc` |
+| GitHub browser (file) | `https://github.com/org/repo/blob/main/runbooks/setup-vpc/runbook.mdx` |
+| GitLab browser (dir) | `https://gitlab.com/org/repo/-/tree/main/runbooks/setup-vpc` |
+| GitLab browser (file) | `https://gitlab.com/org/repo/-/blob/main/runbooks/setup-vpc/runbook.mdx` |
+| OpenTofu GitHub shorthand | `github.com/org/repo//path?ref=v1.0` |
+| OpenTofu git::https | `git::https://github.com/org/repo.git//path?ref=main` |
+
+<Aside type="note">
+When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir-tmp`). You can override this with `--working-dir` if needed.
+</Aside>
+
+### Authentication for private repos
+
+For public repositories, no authentication is needed. For private repositories, set one of the following:
+
+- **GitHub:** `GITHUB_TOKEN` or `GH_TOKEN` environment variable, or run `gh auth login`
+- **GitLab:** `GITLAB_TOKEN` environment variable, or run `glab auth login`
 
 ## Flags
 
@@ -36,10 +80,11 @@ runbooks open <path-to-runbook> [flags]
 
 When you run `runbooks open`:
 
-1. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
-2. **Launches the Browser** - Opens your default web browser to `http://localhost:7825`
-3. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
-4. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
+1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
+2. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
+3. **Launches the Browser** - Opens your default web browser to `http://localhost:7825`
+4. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
+5. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
 
 ## Troubleshooting
 
@@ -55,3 +100,5 @@ Sometimes, your browser seems to launch, but you don't see the Runbook. The most
 **Runbook not found:**
 Make sure the path points to a valid `runbook.mdx` file.
 
+**Authentication errors for remote runbooks:**
+If you see "authentication required", make sure you have set the appropriate token for the git host. See the Authentication section above.

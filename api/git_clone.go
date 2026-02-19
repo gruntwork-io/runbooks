@@ -25,7 +25,7 @@ var (
 	sshURLPattern          = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./-]+$`)
 	gitHubOwnerPattern     = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
 	gitHubRepoNamePattern  = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-	tokenSanitizePattern   = regexp.MustCompile(`x-access-token:[^@]+@`)
+	tokenSanitizePattern   = regexp.MustCompile(`(?:x-access-token|oauth2):[^@]+@`)
 )
 
 // =============================================================================
@@ -314,11 +314,11 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			}
 		}
 
-		// Determine if we should inject a GitHub token
+		// Inject a git auth token if one is available for this host
 		cloneURL := req.URL
-		if IsGitHubURL(req.URL) {
-			if token := getGitHubTokenFromSession(sm); token != "" {
-				cloneURL = InjectGitHubToken(req.URL, token)
+		if parsed, err := url.Parse(req.URL); err == nil {
+			if token := GetTokenForHost(parsed.Hostname()); token != "" {
+				cloneURL = InjectGitToken(req.URL, token)
 			}
 		}
 
@@ -908,10 +908,14 @@ func IsGitHubURL(rawURL string) bool {
 	return hostname == "github.com" || strings.HasSuffix(hostname, ".github.com")
 }
 
-// InjectGitHubToken injects a token into a GitHub HTTPS URL for authentication.
-// Converts https://github.com/org/repo.git to https://x-access-token:{token}@github.com/org/repo.git
-func InjectGitHubToken(rawURL, token string) string {
-	// Only inject into HTTPS URLs
+// InjectGitToken injects a token into an HTTPS git URL for authentication.
+// The token name varies by host: GitHub uses "x-access-token", GitLab uses "oauth2".
+// Returns the URL unchanged if token is empty or the URL is not HTTPS.
+func InjectGitToken(rawURL, token string) string {
+	if token == "" {
+		return rawURL
+	}
+
 	if !strings.HasPrefix(strings.ToLower(rawURL), "https://") {
 		return rawURL
 	}
@@ -921,8 +925,18 @@ func InjectGitHubToken(rawURL, token string) string {
 		return rawURL
 	}
 
-	parsed.User = url.UserPassword("x-access-token", token)
+	parsed.User = url.UserPassword(tokenUsernameForHost(parsed.Hostname()), token)
 	return parsed.String()
+}
+
+// tokenUsernameForHost returns the HTTP basic-auth username for injecting
+// a token into a git clone URL. GitLab uses "oauth2"; everything else
+// (GitHub, etc.) uses "x-access-token".
+func tokenUsernameForHost(host string) string {
+	if strings.ToLower(host) == "gitlab.com" {
+		return "oauth2"
+	}
+	return "x-access-token"
 }
 
 // ResolveClonePaths computes absolute and relative paths for a clone destination.

@@ -23,5 +23,8 @@ TODO/
 # Ignore taskfile.dev artifacts
 .task/
 
-# Ignore local cursor directorires
+# Ignore local cursor directories
 .cursor*/
+
+# Ignore .claude directory
+.claude/

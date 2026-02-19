@@ -75,7 +75,7 @@ func HandleGeneratedFilesDelete(workingDir string, rawOutputPath string) gin.Han
 		}
 
 		// Delete all contents of the directory (but not the directory itself)
-		err = deleteDirectoryContents(dirInfo.absoluteOutputPath)
+		err = deleteDirectoryContents(dirInfo.absoluteOutputPath, workingDir)
 		if err != nil {
 			slog.Error("Failed to delete directory contents", "error", err, "path", dirInfo.absoluteOutputPath)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -103,8 +103,9 @@ func validateAndGetOutputDirectory(workingDir string, rawOutputPath string) (*ou
 		return nil, fmt.Errorf("failed to resolve output path: %w", err)
 	}
 
-	// Validate the output path
-	if err := ValidateAbsolutePathInCwd(absoluteOutputPath); err != nil {
+	// Validate the output path against the working directory (not process CWD).
+	// For remote runbooks, the working dir is a temp dir, not the process CWD.
+	if err := ValidateAbsolutePathInDir(absoluteOutputPath, workingDir); err != nil {
 		return nil, err
 	}
 
@@ -189,9 +190,9 @@ func countFilesInDirectory(absolutePath string) (int, error) {
 
 // deleteDirectoryContents deletes all files and subdirectories within a directory,
 // but preserves the directory itself
-func deleteDirectoryContents(absolutePath string) error {
+func deleteDirectoryContents(absolutePath string, workingDir string) error {
 	// Just to be sure, validate that the path is safe to delete
-	if err := ValidateAbsolutePathInCwd(absolutePath); err != nil {
+	if err := ValidateAbsolutePathInDir(absolutePath, workingDir); err != nil {
 		return fmt.Errorf("failed to validate output path as safe to delete: %w", err)
 	}
 

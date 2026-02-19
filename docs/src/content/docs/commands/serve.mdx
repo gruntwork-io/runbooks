@@ -6,19 +6,19 @@ import { Aside } from '@astrojs/starlight/components';
 
 # runbooks serve
 
-This command is intended for **developers** of Runbooks.
-
 Use `runbooks serve` to start the backend API server without starting the frontend server or opening the browser.
+
+This command is intended for **developers** of the Runbooks tool itself.
 
 ## Usage
 
 ```bash
-runbooks serve <path-to-runbook> [flags]
+runbooks serve RUNBOOK_SOURCE [flags]
 ```
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to a directory containing the `runbook.mdx` file, or to the file itself.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file. See [runbooks open](/commands/open) for supported remote URL formats.
 
 ## Flags
 

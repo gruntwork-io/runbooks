@@ -6,9 +6,9 @@ import { Aside } from '@astrojs/starlight/components';
 
 # runbooks watch
 
-This command is intended for **authors** of Runbooks.
-
 Use `runbooks watch` to "watch" a `runbook.mdx` file (or its scripts, checks, or template files) for changes and automatically reload the Runbook as needed. 
+
+This command is intended for **authors** of runbooks.
 
 <Aside type="caution">
 When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the _UI_, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to always restart your runbook (re-run `runbooks watch`) when you make a template or script change.
@@ -17,12 +17,16 @@ When you update a `command` property, local template, or local script, the runbo
 ## Usage
 
 ```bash
-runbooks watch <path-to-runbook> [flags]
+runbooks watch RUNBOOK_SOURCE [flags]
 ```
 
 ## Arguments
 
-- `<path-to-runbook>` - Path to a directory containing the `runbook.mdx` file, or to the file itself.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file. See [runbooks open](/commands/open) for supported remote URL formats.
+
+<Aside type="note">
+When watching a remote runbook, file watching operates on the local downloaded copy. Changes to the remote repository will not be detected automatically.
+</Aside>
 
 ## Flags
 

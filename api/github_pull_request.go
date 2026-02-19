@@ -498,7 +498,7 @@ func gitPushWithToken(ctx context.Context, dir, branchName, token string, setUps
 	originalURL := strings.TrimSpace(string(originalURLBytes))
 
 	// Inject token into the URL
-	tokenURL := InjectGitHubToken(originalURL, token)
+	tokenURL := InjectGitToken(originalURL, token)
 	if err := runGitCommandCtx(ctx, dir, "remote", "set-url", "origin", tokenURL); err != nil {
 		return fmt.Errorf("failed to set remote URL: %w", err)
 	}

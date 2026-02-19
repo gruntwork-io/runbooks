@@ -4,8 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
+
+	"runbooks/api"
+	"runbooks/browser"
 )
 
 const (
@@ -18,6 +23,26 @@ const (
 type healthResponse struct {
 	Status      string `json:"status"`
 	RunbookPath string `json:"runbookPath"`
+}
+
+// startServerAndLaunch starts a server in the background, waits for it to become
+// healthy, then opens the browser. This is the shared flow for `open` and `watch`.
+func startServerAndLaunch(rb *resolvedRunbook, startServer func() error) {
+	resolvedPath, err := api.ResolveRunbookPath(rb.Path)
+	if err != nil {
+		slog.Error("Failed to resolve runbook path", "error", err)
+		os.Exit(1)
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- startServer() }()
+
+	if err := waitForServerReady(defaultPort, resolvedPath, errCh); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	browser.LaunchAndWait(defaultPort)
 }
 
 // waitForServerReady polls the health endpoint until the server is ready or an error occurs.

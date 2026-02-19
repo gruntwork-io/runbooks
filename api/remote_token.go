@@ -1,0 +1,104 @@
+package api
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
+)
+
+// GetTokenForHost returns an auth token for the given git host.
+// For github.com: checks GITHUB_TOKEN → GH_TOKEN → `gh auth token` (5s timeout)
+// For gitlab.com: checks GITLAB_TOKEN → `glab auth token` (5s timeout)
+// Returns empty string if no token is found (not an error — repo may be public).
+//
+// The token is only used in-memory for authenticating git operations.
+// It is never written to disk, logged, or included in error messages.
+func GetTokenForHost(host string) string {
+	switch strings.ToLower(host) {
+	case "github.com":
+		return getGitHubTokenFromEnv()
+	case "gitlab.com":
+		return getGitLabTokenFromEnv()
+	default:
+		return ""
+	}
+}
+
+// getGitHubTokenFromEnv checks GITHUB_TOKEN, GH_TOKEN env vars,
+// then falls back to `gh auth token` CLI.
+func getGitHubTokenFromEnv() string {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return token
+	}
+	if token := os.Getenv("GH_TOKEN"); token != "" {
+		return token
+	}
+	return tokenFromCLI("gh", "auth", "token")
+}
+
+// getGitLabTokenFromEnv checks GITLAB_TOKEN env var,
+// then falls back to `glab auth token` CLI.
+func getGitLabTokenFromEnv() string {
+	if token := os.Getenv("GITLAB_TOKEN"); token != "" {
+		return token
+	}
+	return tokenFromCLI("glab", "auth", "token")
+}
+
+// AuthHintForHost returns the environment variable name and CLI command
+// that a user should use to authenticate with the given git host.
+// Returns empty strings for unknown hosts.
+func AuthHintForHost(host string) (tokenVar, cliCmd string) {
+	switch strings.ToLower(host) {
+	case "github.com":
+		return "GITHUB_TOKEN", "gh auth login"
+	case "gitlab.com":
+		return "GITLAB_TOKEN", "glab auth login"
+	default:
+		return "", ""
+	}
+}
+
+var (
+	cliTokenCache   = make(map[string]string)
+	cliTokenCacheMu sync.Mutex
+)
+
+// tokenFromCLI runs a CLI command and returns the trimmed stdout output.
+// Results are cached so repeated calls for the same command don't re-spawn processes.
+// Returns empty string if the command is not found, fails, or returns empty output.
+func tokenFromCLI(name string, args ...string) string {
+	key := name + " " + strings.Join(args, " ")
+
+	cliTokenCacheMu.Lock()
+	if cached, ok := cliTokenCache[key]; ok {
+		cliTokenCacheMu.Unlock()
+		return cached
+	}
+	cliTokenCacheMu.Unlock()
+
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, path, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	token := strings.TrimSpace(string(output))
+
+	cliTokenCacheMu.Lock()
+	cliTokenCache[key] = token
+	cliTokenCacheMu.Unlock()
+
+	return token
+}

@@ -1417,15 +1417,15 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 		if gitHubAuthId != "" {
 			if creds, ok := e.authBlockCredentials[gitHubAuthId]; ok {
 				if token, ok := creds["GITHUB_TOKEN"]; ok && token != "" {
-					effectiveURL = api.InjectGitHubToken(cloneURL, token)
+					effectiveURL = api.InjectGitToken(cloneURL, token)
 				}
 			}
 		} else {
 			// Fallback to session env
 			if token := e.getSessionEnvVar("GITHUB_TOKEN"); token != "" {
-				effectiveURL = api.InjectGitHubToken(cloneURL, token)
+				effectiveURL = api.InjectGitToken(cloneURL, token)
 			} else if token := e.getSessionEnvVar("GH_TOKEN"); token != "" {
-				effectiveURL = api.InjectGitHubToken(cloneURL, token)
+				effectiveURL = api.InjectGitToken(cloneURL, token)
 			}
 		}
 	}

@@ -16,38 +16,34 @@ import (
 
 // serveCmd represents the serve command
 var serveCmd = &cobra.Command{
-	Use:   "serve",
+	Use:   "serve RUNBOOK_SOURCE",
 	Short: "Start the backend API server (for runbook developers)",
-	Long: `This command will start the backend API server on port 7825. You can then access 
-the server at http://localhost:7825.
+	Long: fmt.Sprintf(`This command will start the backend API server on port %d with the runbook located at RUNBOOK_SOURCE. You can then access
+the server at http://localhost:%d.
 
-This is useful for local development on the runbooks tool. Runbook authors and consumers will not find this useful.
-`,
+This command is useful for Runbooks developers; it is of limited value to runbook authors and consumers.
+
+RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.
+`, defaultPort, defaultPort),
 	GroupID: "other",
+	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Track command usage
 		telemetry.TrackCommand("serve")
 
-		if len(args) == 0 {
-			slog.Error("Error: You must specify a path to a runbook file or directory\n")
-			fmt.Fprintf(os.Stderr, "")
-			os.Exit(1)
-		}
-		path := args[0]
+		rb := resolveRunbook(args[0])
+		defer rb.Close()
 
-		// Resolve the working directory
-		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
-		if err != nil {
-			slog.Error("Failed to resolve working directory", "error", err)
-			os.Exit(1)
-		}
-		if cleanup != nil {
-			defer cleanup()
-		}
+		slog.Info("Starting backend server", "workingDir", rb.WorkDir, "outputPath", outputPath)
 
-		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
-
-		if err := api.StartBackendServer(path, 7825, resolvedWorkDir, outputPath); err != nil {
+		if err := api.StartServer(api.ServerConfig{
+			RunbookPath:           rb.Path,
+			Port:                  defaultPort,
+			WorkingDir:            rb.WorkDir,
+			OutputPath:            outputPath,
+			RemoteSourceURL:       rb.RemoteURL,
+			UseExecutableRegistry: true,
+			EnableCORS:            true,
+		}); err != nil {
 			slog.Error("Failed to start backend server", "error", err)
 			os.Exit(1)
 		}
