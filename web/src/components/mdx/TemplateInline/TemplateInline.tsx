@@ -4,7 +4,7 @@ import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDispl
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
 import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
 import { UnmetInputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetInputDependenciesWarning'
-import { useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
+import { useInputs, useAllOutputs, inputsToValues, useRunbookContext } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
@@ -14,6 +14,7 @@ import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
+import { AlertTriangle } from 'lucide-react'
 import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
@@ -58,10 +59,18 @@ function TemplateInline({
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
   const { invalidateTree } = useGitWorkTree();
-  
+
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
   const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
+
+  // Track which inputsId blocks haven't registered values yet (for the waiting message)
+  const { blockInputs } = useRunbookContext();
+  const unmetInputsIds = useMemo(() => {
+    if (!inputsId) return [];
+    const ids = Array.isArray(inputsId) ? inputsId : [inputsId];
+    return ids.filter(id => !blockInputs[id]);
+  }, [inputsId, blockInputs]);
   
   // Get all block outputs to check dependencies and pass to template rendering
   const allOutputs = useAllOutputs();
@@ -236,12 +245,30 @@ function TemplateInline({
   
   // Check if there are any unmet input dependencies
   const hasUnmetInputDependencies = inputDependencies.length > 0 && !hasAllInputDependencies(inputValues);
-  
+
   // Render UI
   return (
     <div>
-      {/* Show warning for unmet input dependencies */}
-      {hasUnmetInputDependencies && (
+      {/* Show warning when waiting for input blocks to submit values */}
+      {hasUnmetInputDependencies && unmetInputsIds.length > 0 && (
+        <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
+          <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <strong>Waiting for inputs from:</strong>{' '}
+            {unmetInputsIds.map((id, i) => (
+              <span key={id}>
+                {i > 0 && ', '}
+                <code className="bg-yellow-100 px-1 rounded text-xs">{id}</code>
+              </span>
+            ))}
+            <div className="text-xs mt-1 text-yellow-600">
+              Submit the above input block(s) to render this template.
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Fall back to variable-level warning when inputsId blocks have registered but specific variables are still missing */}
+      {hasUnmetInputDependencies && unmetInputsIds.length === 0 && (
         <UnmetInputDependenciesWarning
           blockType="template"
           inputDependencies={inputDependencies}
@@ -254,12 +281,12 @@ function TemplateInline({
         <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
       )}
       
-      {renderState === 'waiting' ? (
+      {error ? (
+        <ErrorDisplay error={error} />
+      ) : renderState === 'waiting' ? (
         <LoadingDisplay message="Waiting for template to render..." />
       ) : isRendering ? (
         <LoadingDisplay message="Rendering template..." />
-      ) : error ? (
-        <ErrorDisplay error={error} />
       ) : renderData?.renderedFiles ? (
         <>
           {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (

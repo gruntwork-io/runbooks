@@ -98,8 +98,9 @@ describe('extractTemplateVariables', () => {
       }
     `
     const variables = extractTemplateVariables(template)
-    // Should extract AccountName and Environment, but not Tags, $key, $value (those are loop variables)
-    expect(variables.sort()).toEqual(['AccountName', 'Environment'].sort())
+    // Should extract AccountName, Environment, and Tags (the root variable used in the range).
+    // $key and $value are loop variables (prefixed with $) and should NOT be extracted.
+    expect(variables.sort()).toEqual(['AccountName', 'Environment', 'Tags'].sort())
   })
 
   it('handles React element structure from MDX', () => {
@@ -136,6 +137,48 @@ describe('extractTemplateVariables', () => {
     const template = 'value = "{{ Variable }}" and "{{ .RealVariable }}"'
     const variables = extractTemplateVariables(template)
     expect(variables).toEqual(['RealVariable'])
+  })
+
+  it('extracts root variable name from dotted paths', () => {
+    const template = `
+      terraform {
+        source = "{{ ._module.source }}"
+      }
+      inputs = {
+      {{- range $name, $hcl := ._module.hcl_inputs }}
+        {{ $name }} = {{ $hcl }}
+      {{- end }}
+      }
+    `
+    const variables = extractTemplateVariables(template)
+    // Should extract _module as the root variable (not _module.source or _module.hcl_inputs)
+    expect(variables).toEqual(['_module'])
+  })
+
+  it('extracts both flat and dotted variables', () => {
+    const template = `
+      Bucket Name: {{ .bucket_name }}
+      Versioning: {{ .versioning_enabled }}
+      Source: {{ ._module.source }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables.sort()).toEqual(['_module', 'bucket_name', 'versioning_enabled'].sort())
+  })
+
+  it('handles trimming whitespace markers in Go templates', () => {
+    const template = `
+      {{- range $name, $val := ._module.inputs }}
+        {{ $name }}: {{ $val }}
+      {{- end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['_module'])
+  })
+
+  it('handles deeply nested dotted paths', () => {
+    const template = '{{ ._module.nested.deep.path }}'
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['_module'])
   })
 
   it('handles nested MDX structure', () => {

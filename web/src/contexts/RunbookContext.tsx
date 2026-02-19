@@ -232,17 +232,32 @@ export function RunbookContextProvider({ children, runbookName }: { children: Re
   const getInputs = useCallback((inputsId: string | string[]): InputValue[] => {
     const config = getConfig(inputsId)
     const values = getValues(inputsId)
-    
-    if (!config.variables || config.variables.length === 0) {
-      return []
+
+    // Build inputs array from config variables with name, type, and current value
+    const configVarNames = new Set<string>()
+    const result: InputValue[] = (config.variables || []).map(variable => {
+      configVarNames.add(variable.name)
+      return {
+        name: variable.name,
+        type: variable.type || BoilerplateVariableType.String,
+        value: values[variable.name]
+      }
+    })
+
+    // Also include extra values that aren't in the config (e.g., _module namespace
+    // injected by TfModule). These are passed through as Map type so the backend
+    // can process them as template variables alongside the declared config variables.
+    for (const [name, value] of Object.entries(values)) {
+      if (!configVarNames.has(name)) {
+        result.push({
+          name,
+          type: BoilerplateVariableType.Map,
+          value
+        })
+      }
     }
-    
-    // Build inputs array with name, type, and current value
-    return config.variables.map(variable => ({
-      name: variable.name,
-      type: variable.type || BoilerplateVariableType.String,
-      value: values[variable.name]
-    }))
+
+    return result
   }, [getConfig, getValues])
 
   const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
