@@ -207,10 +207,12 @@ func readFileMetadata(filePath string) (*FileMetadata, error) {
 		return nil, err
 	}
 
+	contentStr := string(content)
+
 	return &FileMetadata{
 		Path:        filePath,
-		Content:     string(content),
-		ContentHash: computeContentHash(string(content)),
+		Content:     contentStr,
+		ContentHash: computeContentHash(contentStr),
 		Language:    getLanguageFromExtension(filepath.Base(filePath)),
 		Size:        fileInfo.Size(),
 	}, nil

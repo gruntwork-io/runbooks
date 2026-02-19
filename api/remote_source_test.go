@@ -497,8 +497,7 @@ func TestResolveRef_MatchesLongestRef(t *testing.T) {
 				return tt.refs, nil
 			}
 
-			ref, repoPath, err := ResolveRef("https://fake.com/repo.git", tt.rawRefAndPath, tt.isBlobURL)
-			require.NoError(t, err)
+			ref, repoPath := ResolveRef("https://fake.com/repo.git", tt.rawRefAndPath, tt.isBlobURL)
 			assert.Equal(t, tt.expectedRef, ref, "ref")
 			assert.Equal(t, tt.expectedPath, repoPath, "repoPath")
 		})

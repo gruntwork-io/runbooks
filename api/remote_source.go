@@ -58,10 +58,7 @@ func (p *ParsedRemoteSource) RawRefAndPath() string {
 func (p *ParsedRemoteSource) Resolve(token string) error {
 	if p.NeedsRefResolution() {
 		cloneURL := InjectGitToken(p.CloneURL, token)
-		ref, repoPath, err := ResolveRef(cloneURL, p.RawRefAndPath(), p.IsBlobURL)
-		if err != nil {
-			return fmt.Errorf("could not resolve branch or tag from URL — verify the URL points to a valid branch or tag: %w", err)
-		}
+		ref, repoPath := ResolveRef(cloneURL, p.RawRefAndPath(), p.IsBlobURL)
 		p.Ref = ref
 		p.Path = repoPath
 	} else if p.IsBlobURL && p.Path != "" {
@@ -96,7 +93,7 @@ func ParseRemoteSource(raw string) (*ParsedRemoteSource, error) {
 	}
 
 	// 2. github.com/ without scheme (OpenTofu GitHub shorthand)
-	if strings.HasPrefix(raw, "github.com/") {
+	if strings.HasPrefix(lowered, "github.com/") {
 		return parseGitHubShorthand(raw)
 	}
 
@@ -292,17 +289,16 @@ func extractBrowserAction(segments []string, host, raw string) (action, refAndPa
 // isBlobURL indicates whether the original URL used /blob/ (path points to a file).
 //
 // Returns the resolved ref name and the remaining path within the repo.
-func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, repoPath string, err error) {
+// Always succeeds: if ls-remote fails or no ref matches, falls back to the first path segment.
+func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, repoPath string) {
 	if rawRefAndPath == "" {
-		return "", "", nil
+		return "", ""
 	}
 
 	// Get all refs from the remote
 	refs, err := listRemoteRefsFn(cloneURL)
 	if err != nil {
-		// If ls-remote fails (e.g., no auth), fall back to first segment as ref
-		ref, repoPath := resolveRefFallback(rawRefAndPath, isBlobURL)
-		return ref, repoPath, nil
+		return resolveRefFallback(rawRefAndPath, isBlobURL)
 	}
 
 	// Sort refs by length descending so we find the longest match first
@@ -313,7 +309,7 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 	// Find the longest ref that matches the beginning of rawRefAndPath
 	for _, r := range refs {
 		if rawRefAndPath == r {
-			return r, "", nil
+			return r, ""
 		}
 		if strings.HasPrefix(rawRefAndPath, r+"/") {
 			remaining := strings.TrimPrefix(rawRefAndPath, r+"/")
@@ -321,13 +317,11 @@ func ResolveRef(cloneURL, rawRefAndPath string, isBlobURL bool) (ref string, rep
 			if isBlobURL {
 				remaining = AdjustBlobPath(remaining)
 			}
-			return r, remaining, nil
+			return r, remaining
 		}
 	}
 
-	// No ref matched — fall back to first segment
-	ref, repoPath = resolveRefFallback(rawRefAndPath, isBlobURL)
-	return ref, repoPath, nil
+	return resolveRefFallback(rawRefAndPath, isBlobURL)
 }
 
 // resolveRefFallback splits rawRefAndPath using the first segment as the ref.

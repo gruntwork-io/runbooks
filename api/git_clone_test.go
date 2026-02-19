@@ -53,6 +53,18 @@ func TestInjectGitToken(t *testing.T) {
 			token:    "ghp_new",
 			expected: "https://x-access-token:ghp_new@github.com/org/repo.git",
 		},
+		{
+			name:     "GitLab URL uses oauth2 username",
+			rawURL:   "https://gitlab.com/org/repo.git",
+			token:    "glpat_abc123",
+			expected: "https://oauth2:glpat_abc123@gitlab.com/org/repo.git",
+		},
+		{
+			name:     "GitLab URL without .git suffix",
+			rawURL:   "https://gitlab.com/org/repo",
+			token:    "glpat_abc123",
+			expected: "https://oauth2:glpat_abc123@gitlab.com/org/repo",
+		},
 	}
 
 	for _, tc := range tests {
@@ -90,6 +102,11 @@ func TestSanitizeGitError(t *testing.T) {
 			name:     "removes multiple tokens in one message",
 			input:    "x-access-token:abc@github.com and x-access-token:def@gitlab.com",
 			expected: "github.com and gitlab.com",
+		},
+		{
+			name:     "removes oauth2 token from GitLab URL",
+			input:    "fatal: unable to access 'https://oauth2:glpat_secret@gitlab.com/org/repo.git/': The requested URL returned error: 403",
+			expected: "fatal: unable to access 'https://gitlab.com/org/repo.git/': The requested URL returned error: 403",
 		},
 	}
 

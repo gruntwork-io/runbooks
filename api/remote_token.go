@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -49,18 +50,36 @@ func getGitLabTokenFromEnv() string {
 
 // AuthHintForHost returns the environment variable name and CLI command
 // that a user should use to authenticate with the given git host.
+// Returns empty strings for unknown hosts.
 func AuthHintForHost(host string) (tokenVar, cliCmd string) {
 	switch strings.ToLower(host) {
+	case "github.com":
+		return "GITHUB_TOKEN", "gh auth login"
 	case "gitlab.com":
 		return "GITLAB_TOKEN", "glab auth login"
 	default:
-		return "GITHUB_TOKEN", "gh auth login"
+		return "", ""
 	}
 }
 
+var (
+	cliTokenCache   = make(map[string]string)
+	cliTokenCacheMu sync.Mutex
+)
+
 // tokenFromCLI runs a CLI command and returns the trimmed stdout output.
+// Results are cached so repeated calls for the same command don't re-spawn processes.
 // Returns empty string if the command is not found, fails, or returns empty output.
 func tokenFromCLI(name string, args ...string) string {
+	key := name + " " + strings.Join(args, " ")
+
+	cliTokenCacheMu.Lock()
+	if cached, ok := cliTokenCache[key]; ok {
+		cliTokenCacheMu.Unlock()
+		return cached
+	}
+	cliTokenCacheMu.Unlock()
+
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return ""
@@ -75,5 +94,11 @@ func tokenFromCLI(name string, args ...string) string {
 		return ""
 	}
 
-	return strings.TrimSpace(string(output))
+	token := strings.TrimSpace(string(output))
+
+	cliTokenCacheMu.Lock()
+	cliTokenCache[key] = token
+	cliTokenCacheMu.Unlock()
+
+	return token
 }

@@ -176,6 +176,9 @@ func cloneRepo(parsed *api.ParsedRemoteSource, cloneURL, tempDir, token string) 
 func validateRunbookInDir(tempDir string, parsed *api.ParsedRemoteSource) (string, error) {
 	runbookDir := tempDir
 	if parsed.Path != "" {
+		if err := api.ValidateRelativePath(parsed.Path); err != nil {
+			return "", fmt.Errorf("invalid path in remote source: %w", err)
+		}
 		runbookDir = filepath.Join(tempDir, parsed.Path)
 	}
 
@@ -204,6 +207,14 @@ func classifyCloneError(cloneErr error, output []byte, token string, parsed *api
 
 	if isAuthError(sanitized) {
 		tokenVar, cliCmd := api.AuthHintForHost(parsed.Host)
+		if tokenVar == "" {
+			if token == "" {
+				return fmt.Errorf("authentication required for %s/%s/%s: provide an access token for %s",
+					parsed.Host, parsed.Owner, parsed.Repo, parsed.Host)
+			}
+			return fmt.Errorf("authentication failed for %s/%s/%s (token may be invalid or expired)",
+				parsed.Host, parsed.Owner, parsed.Repo)
+		}
 		if token == "" {
 			return fmt.Errorf("authentication required for %s/%s/%s: set %s, or run '%s'",
 				parsed.Host, parsed.Owner, parsed.Repo, tokenVar, cliCmd)

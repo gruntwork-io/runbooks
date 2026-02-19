@@ -46,7 +46,7 @@ func TestAuthHintForHost(t *testing.T) {
 		{"GitLab", "gitlab.com", "GITLAB_TOKEN", "glab auth login"},
 		{"GitHub uppercase", "GitHub.com", "GITHUB_TOKEN", "gh auth login"},
 		{"GitLab uppercase", "GitLab.com", "GITLAB_TOKEN", "glab auth login"},
-		{"unknown host defaults to GitHub", "bitbucket.org", "GITHUB_TOKEN", "gh auth login"},
+		{"unknown host returns empty hints", "bitbucket.org", "", ""},
 	}
 
 	for _, tt := range tests {

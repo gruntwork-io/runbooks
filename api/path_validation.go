@@ -296,9 +296,7 @@ func ValidateAbsolutePathInDir(path string, dir string) error {
 		return fmt.Errorf("failed to compute relative path: %w", err)
 	}
 
-	// If rel starts with "..", it's outside the directory
-	// (filepath.Rel always returns a relative path, so no need to check filepath.IsAbs)
-	if len(rel) >= 2 && rel[0] == '.' && rel[1] == '.' {
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path must be within directory (path: %s, dir: %s)", cleanPath, resolvedDir)
 	}
 

@@ -99,7 +99,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
         <div className="absolute left-5 top-1/2 transform -translate-y-1/2">
           <img src="/runbooks-logo-dark-alpha.svg" alt="Gruntwork Runbooks" className="h-8" />
         </div>
-        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-40 mr-4 md:mx-40">
+        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-12 mr-4 md:mx-40">
           <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
             {pathName}
           </div>
