@@ -139,33 +139,11 @@ func wrapText(text string, startColumn, maxWidth int) string {
 
 // formatHelpLine formats a single help line with name and description,
 // wrapping the description if needed.
-// nameWidth is the width allocated for the command name (should be longest command name + 2)
+// nameWidth is the width allocated for the name column (should be longest name + 2)
 func formatHelpLine(name, description string, nameWidth int) string {
-	// Calculate the column where description starts
 	descStartCol := len(commandIndent) + nameWidth
-
-	// Format the name part with padding
 	namePart := fmt.Sprintf("%s%-*s", commandIndent, nameWidth, name)
-
-	// Wrap the description
-	wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
-
-	return namePart + wrappedDesc
-}
-
-// formatFlagLine formats a flag help line with proper wrapping
-// nameWidth is the width allocated for the flag name (should be longest flag + 2)
-func formatFlagLine(flagStr, description string, nameWidth int) string {
-	// Calculate the column where description starts
-	descStartCol := len(commandIndent) + nameWidth
-
-	// Format the flag part with padding
-	namePart := fmt.Sprintf("%s%-*s", commandIndent, nameWidth, flagStr)
-
-	// Wrap the description
-	wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
-
-	return namePart + wrappedDesc
+	return namePart + wrapText(description, descStartCol, maxLineWidth)
 }
 
 // formatFlags formats all flags for a command with proper wrapping
@@ -222,7 +200,7 @@ func formatFlags(cmd *cobra.Command, inherited bool) string {
 	nameWidth := maxLen + 2
 
 	for _, f := range flags {
-		result.WriteString(formatFlagLine(f.name, f.desc, nameWidth))
+		result.WriteString(formatHelpLine(f.name, f.desc, nameWidth))
 		result.WriteString("\n")
 	}
 

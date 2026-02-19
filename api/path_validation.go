@@ -186,27 +186,13 @@ func IsContainedIn(path, container string) bool {
 		return false
 	}
 
-	// Check if path equals container
-	if absPath == absContainer {
-		return true
-	}
-
-	// Check if path is under container
-	// Use filepath.Rel - if result starts with "..", path is outside container
+	// Use filepath.Rel — if result starts with "..", path is outside container
 	relPath, err := filepath.Rel(absContainer, absPath)
 	if err != nil {
 		return false
 	}
 
-	// If relative path starts with "..", it's outside the container
-	if relPath == ".." {
-		return false
-	}
-	if len(relPath) >= 3 && relPath[:3] == ".."+string(filepath.Separator) {
-		return false
-	}
-
-	return true
+	return relPath != ".." && !strings.HasPrefix(relPath, ".."+string(filepath.Separator))
 }
 
 // IsFilesystemRoot checks if a path is the filesystem root.

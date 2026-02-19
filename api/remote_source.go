@@ -169,17 +169,20 @@ func parseGitHubShorthand(raw string) (*ParsedRemoteSource, error) {
 	}, nil
 }
 
+// trimSlashes removes leading and trailing slashes from a path segment.
+func trimSlashes(s string) string {
+	return strings.TrimPrefix(strings.TrimSuffix(s, "/"), "/")
+}
+
 // splitTofuSourcePath extracts owner, repo, and sub-path from a URL path
 // that uses the OpenTofu // separator convention (e.g., /owner/repo.git//sub/path).
 func splitTofuSourcePath(urlPath, rawInput, errHint string) (owner, repo, subPath string, err error) {
-	fullPath := strings.TrimPrefix(urlPath, "/")
-	fullPath = strings.TrimSuffix(fullPath, "/")
+	fullPath := trimSlashes(urlPath)
 
 	var repoPath string
 	if idx := strings.Index(fullPath, "//"); idx >= 0 {
 		repoPath = fullPath[:idx]
-		subPath = strings.TrimPrefix(fullPath[idx+2:], "/")
-		subPath = strings.TrimSuffix(subPath, "/")
+		subPath = trimSlashes(fullPath[idx+2:])
 	} else {
 		repoPath = fullPath
 	}
@@ -212,8 +215,7 @@ func parseBrowserURL(raw string, host string) (*ParsedRemoteSource, error) {
 		return nil, fmt.Errorf("invalid %s URL %q: %w", host, raw, err)
 	}
 
-	pathStr := strings.TrimPrefix(parsed.Path, "/")
-	pathStr = strings.TrimSuffix(pathStr, "/")
+	pathStr := trimSlashes(parsed.Path)
 
 	segments := strings.Split(pathStr, "/")
 	if len(segments) < 2 {
