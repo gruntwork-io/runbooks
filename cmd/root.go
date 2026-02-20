@@ -152,16 +152,7 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 		if api.IsTofuModule(localPath) {
 			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
 			rbPath, srvPath, remoteURL, tofuCleanup := resolveTofuModuleRunbook(localPath, path /* originalSource */)
-			// Combine cleanups: tofu cleanup first, then remote cleanup
-			combinedCleanup := func() {
-				if tofuCleanup != nil {
-					tofuCleanup()
-				}
-				if remoteCleanup != nil {
-					remoteCleanup()
-				}
-			}
-			return rbPath, srvPath, remoteURL, combinedCleanup
+			return rbPath, srvPath, remoteURL, combineCleanups(tofuCleanup, remoteCleanup)
 		}
 
 		// Downloaded but neither a runbook nor a TF module
@@ -174,7 +165,68 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 
 	slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
 	os.Exit(1)
-	return // unreachable, but satisfies compiler
+	return // unreachable
+}
+
+// serverSetup holds the results of resolving paths and preparing for server start.
+// Returned by resolveForServer, which handles the shared setup for open/watch/serve commands.
+type serverSetup struct {
+	runbookPath     string // The resolved runbook file path
+	serverPath      string // The path to pass to ServerConfig (may differ for generated runbooks)
+	remoteSourceURL string // Original URL for $source resolution (empty for local)
+	workingDir      string // Resolved working directory
+	cleanup         func() // Combined cleanup function (nil if no cleanup needed)
+}
+
+// resolveForServer performs the shared setup for all server-launching commands:
+// validates args, resolves working directory, and resolves the runbook or TF module.
+// Returns a serverSetup with all paths and a combined cleanup function.
+// Calls os.Exit(1) on errors.
+func resolveForServer(args []string) serverSetup {
+	if len(args) == 0 {
+		slog.Error("Error: You must specify a path to a runbook file or directory\n")
+		fmt.Fprintf(os.Stderr, "")
+		os.Exit(1)
+	}
+	path := args[0]
+
+	resolvedWorkDir, workDirCleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+	if err != nil {
+		slog.Error("Failed to resolve working directory", "error", err)
+		os.Exit(1)
+	}
+
+	resolvedPath, serverPath, remoteSourceURL, tofuCleanup := resolveRunbookOrTofuModule(path)
+
+	// Combine cleanup functions
+	cleanup := combineCleanups(workDirCleanup, tofuCleanup)
+
+	return serverSetup{
+		runbookPath:     resolvedPath,
+		serverPath:      serverPath,
+		remoteSourceURL: remoteSourceURL,
+		workingDir:      resolvedWorkDir,
+		cleanup:         cleanup,
+	}
+}
+
+// combineCleanups returns a single cleanup function that calls all non-nil cleanups in order.
+// Returns nil if all inputs are nil.
+func combineCleanups(fns ...func()) func() {
+	var active []func()
+	for _, fn := range fns {
+		if fn != nil {
+			active = append(active, fn)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	return func() {
+		for _, fn := range active {
+			fn()
+		}
+	}
 }
 
 // rootCmd represents the base command when called without any subcommands

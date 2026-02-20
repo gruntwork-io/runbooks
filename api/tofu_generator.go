@@ -78,9 +78,7 @@ func GenerateRunbook(modulePath string, originalSource string, templateName stri
 		}
 	}
 	ctx.SectionNames = sectionNames
-	if len(sectionNames) > 0 {
-		ctx.SectionSummary = strings.Join(sectionNames, ", ")
-	}
+	ctx.SectionSummary = strings.Join(sectionNames, ", ")
 
 	// 6. Look up template
 	tmpl, err := tofu.GetTemplate(templateName)

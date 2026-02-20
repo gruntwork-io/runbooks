@@ -38,14 +38,33 @@ interface UseScriptExecutionProps {
 // Re-export for backwards compatibility
 export type { UnmetOutputDependency } from '@/lib/templateUtils'
 
-/** Information about an unmet AWS auth dependency */
-export interface UnmetAwsAuthDependency {
+/** Information about an unmet auth dependency (AWS or GitHub) */
+export interface UnmetAuthDependency {
   blockId: string
 }
 
-/** Information about an unmet GitHub auth dependency */
-export interface UnmetGitHubAuthDependency {
-  blockId: string
+// Keep old names as aliases for backwards compatibility
+export type UnmetAwsAuthDependency = UnmetAuthDependency
+export type UnmetGitHubAuthDependency = UnmetAuthDependency
+
+/**
+ * Pure function: checks whether an auth dependency is satisfied.
+ * Returns null if met (no authId, has env vars, or has __AUTHENTICATED marker),
+ * or { blockId } if unmet.
+ */
+function checkAuthDependency(
+  authId: string | undefined,
+  envVars: Record<string, string> | undefined,
+  allOutputs: Record<string, { values: Record<string, string> }>,
+): UnmetAuthDependency | null {
+  if (!authId) return null
+  if (envVars && Object.keys(envVars).length > 0) return null
+
+  const normalizedId = normalizeBlockId(authId)
+  const blockOutputs = allOutputs[normalizedId]
+  if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
+
+  return { blockId: authId }
 }
 
 interface UseScriptExecutionReturn {
@@ -269,26 +288,10 @@ export function useScriptExecution({
     return envVars
   }, [awsAuthId, allOutputs])
   
-  // Check if AWS auth dependency is met (when awsAuthId is specified)
-  // The dependency is met when the referenced AwsAuth block has registered credentials
-  // OR has registered the __AUTHENTICATED marker (for env-prefilled credentials where
-  // actual credentials are stored server-side in the session environment)
-  const unmetAwsAuthDependency = useMemo((): UnmetAwsAuthDependency | null => {
-    if (!awsAuthId) return null // No dependency specified
-    
-    // If we have credentials to pass, the dependency is met
-    if (awsAuthEnvVars && Object.keys(awsAuthEnvVars).length > 0) return null
-    
-    // Check for the __AUTHENTICATED marker (used by env-prefilled credentials)
-    const normalizedId = normalizeBlockId(awsAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-    if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
-    
-    // Dependency not met - return the original block ID for display
-    return { blockId: awsAuthId }
-  }, [awsAuthId, awsAuthEnvVars, allOutputs])
-  
-  // Boolean flag for easier checks
+  const unmetAwsAuthDependency = useMemo(
+    () => checkAuthDependency(awsAuthId, awsAuthEnvVars, allOutputs),
+    [awsAuthId, awsAuthEnvVars, allOutputs]
+  )
   const hasAwsAuthDependency = unmetAwsAuthDependency === null
   
   // Get GitHub auth credentials from outputs if githubAuthId is specified
@@ -316,26 +319,10 @@ export function useScriptExecution({
     return Object.keys(envVars).length > 0 ? envVars : undefined
   }, [githubAuthId, allOutputs])
   
-  // Check if GitHub auth dependency is met (when githubAuthId is specified)
-  // The dependency is met when the referenced GitHubAuth block has registered credentials
-  // OR has registered the __AUTHENTICATED marker (for env-prefilled credentials where
-  // actual credentials are stored server-side in the session environment)
-  const unmetGitHubAuthDependency = useMemo((): UnmetGitHubAuthDependency | null => {
-    if (!githubAuthId) return null // No dependency specified
-    
-    // If we have credentials to pass, the dependency is met
-    if (githubAuthEnvVars && Object.keys(githubAuthEnvVars).length > 0) return null
-    
-    // Check for the __AUTHENTICATED marker (used by env-prefilled credentials)
-    const normalizedId = normalizeBlockId(githubAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-    if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
-    
-    // Dependency not met - return the original block ID for display
-    return { blockId: githubAuthId }
-  }, [githubAuthId, githubAuthEnvVars, allOutputs])
-  
-  // Boolean flag for easier checks
+  const unmetGitHubAuthDependency = useMemo(
+    () => checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs),
+    [githubAuthId, githubAuthEnvVars, allOutputs]
+  )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
   
   // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})

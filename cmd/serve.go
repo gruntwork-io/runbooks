@@ -4,7 +4,6 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -25,40 +24,21 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 `,
 	GroupID: "other",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Track command usage
 		telemetry.TrackCommand("serve")
 
-		if len(args) == 0 {
-			slog.Error("Error: You must specify a path to a runbook file or directory\n")
-			fmt.Fprintf(os.Stderr, "")
-			os.Exit(1)
-		}
-		path := args[0]
-
-		// Resolve the working directory
-		resolvedWorkDir, cleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
-		if err != nil {
-			slog.Error("Failed to resolve working directory", "error", err)
-			os.Exit(1)
-		}
-		if cleanup != nil {
-			defer cleanup()
+		rb := resolveForServer(args)
+		if rb.cleanup != nil {
+			defer rb.cleanup()
 		}
 
-		// Resolve the runbook path (or generate from OpenTofu module)
-		_, path, remoteSourceURL, tofuCleanup := resolveRunbookOrTofuModule(path)
-		if tofuCleanup != nil {
-			defer tofuCleanup()
-		}
-
-		slog.Info("Starting backend server", "workingDir", resolvedWorkDir, "outputPath", outputPath)
+		slog.Info("Starting backend server", "workingDir", rb.workingDir, "outputPath", outputPath)
 
 		if err := api.StartServer(api.ServerConfig{
-			RunbookPath:           path,
+			RunbookPath:           rb.serverPath,
 			Port:                  7825,
-			WorkingDir:            resolvedWorkDir,
+			WorkingDir:            rb.workingDir,
 			OutputPath:            outputPath,
-			RemoteSourceURL:       remoteSourceURL,
+			RemoteSourceURL:       rb.remoteSourceURL,
 			UseExecutableRegistry: true,
 			EnableCORS:            true,
 		}); err != nil {
