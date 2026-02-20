@@ -167,7 +167,7 @@ _module:
     engine_version: "\"16.3\""
     allocated_storage: "20"
     multi_az: "true"
-  hcl_inputs_non_empty:
+  hcl_inputs_non_default:
     instance_class: "\"db.t3.micro\""
     allocated_storage: "20"
     multi_az: "true"
@@ -180,7 +180,7 @@ _module:
 - **`_module.resource_names`:** List of resource block names as `type.name` (sorted, excludes `data` sources).
 - **`_module.inputs`:** Map of all variable names to their raw values as entered by the user. Use when generating non-HCL formats (YAML, JSON, TOML) where you control the formatting.
 - **`_module.hcl_inputs`:** Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
-- **`_module.hcl_inputs_non_empty`:** Same as `hcl_inputs`, but only includes variables whose current value differs from the module's declared default. Required variables (no default) are always included. Use for idiomatic Terragrunt where you only declare variables that differ from defaults — Terraform/OpenTofu applies defaults automatically for anything omitted.
+- **`_module.hcl_inputs_non_default`:** Same as `hcl_inputs`, but only includes variables whose current value differs from the module's declared default. Required variables (no default) are always included. Use for idiomatic Terragrunt where you only declare variables that differ from defaults — Terraform/OpenTofu applies defaults automatically for anything omitted.
 
 ## Block Outputs
 
@@ -232,9 +232,9 @@ inputs = {
 The `hcl_inputs` map handles type-aware formatting automatically: strings are quoted (`"value"`), booleans are raw (`true`/`false`), numbers are raw (`42`), and lists/maps are JSON-encoded.
 </Aside>
 
-### Non-Empty Inputs
+### Non-Default Inputs
 
-For idiomatic Terragrunt, you typically only declare variables that differ from their module defaults. Use `_module.hcl_inputs_non_empty` to generate a minimal `inputs` block — it excludes any variable whose current value matches the declared default in the `.tf` module, while always including required variables:
+For idiomatic Terragrunt, you typically only declare variables that differ from their module defaults. Use `_module.hcl_inputs_non_default` to generate a minimal `inputs` block — it excludes any variable whose current value matches the declared default in the `.tf` module, while always including required variables:
 
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
@@ -251,7 +251,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs_non_empty }}
+{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

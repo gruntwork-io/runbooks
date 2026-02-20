@@ -49,9 +49,9 @@ inputs = {
 ```
 </TemplateInline>
 
-### Non-Empty Inputs
+### Non-Default Inputs
 
-This template uses `_module.hcl_inputs_non_empty`, which only includes variables whose
+This template uses `_module.hcl_inputs_non_default`, which only includes variables whose
 current value differs from the module's declared default. Required variables are always
 included. With the lambda module defaults, `handler` and `description` are omitted when unchanged.
 
@@ -67,7 +67,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs_non_empty }}
+{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

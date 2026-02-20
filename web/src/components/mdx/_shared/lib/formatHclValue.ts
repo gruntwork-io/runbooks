@@ -51,7 +51,7 @@ export function formatHclValue(value: unknown, type: BoilerplateVariableType): s
  * are always included. This is useful for idiomatic Terragrunt where you only declare
  * variables that differ from module defaults.
  */
-export function buildNonEmptyHclInputsMap(
+export function buildNonDefaultHclInputsMap(
   formData: Record<string, unknown>,
   config: BoilerplateConfig | null
 ): Record<string, string> {
