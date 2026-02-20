@@ -28,3 +28,6 @@ TODO/
 
 # Ignore .claude directory
 .claude/
+
+# Ignore downloaded dependencies
+node_modules/*

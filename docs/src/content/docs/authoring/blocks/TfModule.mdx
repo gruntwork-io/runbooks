@@ -4,33 +4,27 @@ title: <TfModule>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<TfModule>` block parses an OpenTofu/Terraform module at runtime, dynamically renders a form for all its input variables, and publishes the collected values so [`<TemplateInline>`](/authoring/blocks/templateinline/) and [`<Template>`](/authoring/blocks/template/) blocks can generate **any** output format — Terragrunt HCL, raw Terraform, YAML configs, or anything else.
+The `<TfModule>` block parses an OpenTofu/Terraform module and dynamically renders an input form for all the module's variables, and publishes the collected values so [`<Template>`](/authoring/blocks/template/) and [`<TemplateInline>`](/authoring/blocks/templateinline/) blocks can generate **any** output format — Terragrunt HCL, raw Terraform, YAML configs, or anything else.
 
 ## Basic Usage
 
 `````mdx
-<TfModule id="vpc-vars" source="../modules/vpc" />
+<TfModule id="rds-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="vpc-vars" outputPath="terragrunt.hcl" generateFile={true}>
-```hcl
-terraform {
-  source = "{{ ._module.source }}"
-}
-
-inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
-  {{ $name }} = {{ $hcl }}
-{{- end }}
-}
-```
-</TemplateInline>
+<Template id="rds-output" path="templates/rds" inputsId="rds-vars" />
 `````
+
+The `<TfModule>` block parses the module's `.tf` files and renders an input form. The `<Template>` block imports those values via `inputsId` and generates files from the template directory. Because Template is backed by a `boilerplate.yml`, you can easily add more output files, collect extra variables, or reorganize your templates — all without touching the runbook.
+
+<Aside type="tip">
+For quick prototyping you can also use [`<TemplateInline>`](/authoring/blocks/templateinline/) to embed template text directly in the runbook. See [Using TemplateInline](#using-templateinline) below.
+</Aside>
 
 ## vs. Inputs
 
 Both `<TfModule>` and `<Inputs>` collect user values and publish them to context, but they serve different purposes.
 
-**`<TfModule>`** parses `.tf` files at runtime and auto-generates a form from the module's variables. It provides a `_module` namespace with source, metadata, `inputs`, and `hcl_inputs` — enabling dynamic iteration over all variables without knowing their names upfront. Use it when you want to generate config files from an existing OpenTofu module.
+**`<TfModule>`** parses `.tf` files ((OpenTofu/Terraform modules) at runtime and auto-generates an input form from the module's variables. It provides a `_module` namespace with source, metadata, `inputs`, and `hcl_inputs`, enabling dynamic iteration over all variables without knowing their names upfront. Use it when you want to generate config files from an existing OpenTofu module.
 
 **`<Inputs>`** defines variables explicitly in inline YAML or a `boilerplate.yml`. Each variable must be referenced by name in templates. Use it when you want to collect arbitrary user input that doesn't come from a `.tf` module.
 
@@ -47,11 +41,11 @@ The `source` prop accepts the same formats as the `runbooks open` CLI command:
 
 | Format | Example |
 |--------|---------|
-| Local relative path | `../modules/vpc` |
-| GitHub shorthand | `github.com/org/repo//modules/vpc?ref=v1.0.0` |
-| Git prefix | `git::https://github.com/org/repo.git//modules/vpc?ref=v1.0.0` |
-| GitHub browser URL | `https://github.com/org/repo/tree/main/modules/vpc` |
-| GitLab browser URL | `https://gitlab.com/org/repo/-/tree/main/modules/vpc` |
+| Local relative path | `../modules/rds` |
+| GitHub shorthand | `github.com/org/repo//modules/rds?ref=v1.0.0` |
+| Git prefix | `git::https://github.com/org/repo.git//modules/rds?ref=v1.0.0` |
+| GitHub browser URL | `https://github.com/org/repo/tree/main/modules/rds` |
+| GitLab browser URL | `https://gitlab.com/org/repo/-/tree/main/modules/rds` |
 
 <Aside type="tip">
 For remote sources, use `?ref=v1.0.0` (or a branch/commit) to pin to a specific version. Without a ref, the default branch is used.
@@ -59,42 +53,38 @@ For remote sources, use `?ref=v1.0.0` (or a branch/commit) to pin to a specific 
 
 ## The `_module` Namespace
 
-When `<TfModule>` registers its values, it injects a `_module` map alongside the individual variable values. This enables both iteration over all variables and direct access to specific ones.
+When `<TfModule>` registers its values, it outputs a `_module` value that is a map of key-value pairs. This enables both iteration over all variables and direct access to specific ones.
+
+You can access the `_module` value in your templates just like any other value, using the `{{ ._module }}` syntax.
 
 ### Structure
 
 ```
 _module:
-  source: "github.com/org/repo//modules/vpc?ref=v1.0.0"
-  folder_name: "vpc"
-  readme_title: "VPC Module"
-  output_names: ["vpc_id", "subnet_ids", "nat_gateway_ip"]
-  resource_names: ["aws_vpc.this", "aws_subnet.public", "aws_nat_gateway.this"]
+  source: "github.com/org/repo//modules/rds?ref=v1.0.0"
+  folder_name: "rds"
+  readme_title: "RDS Module"
+  output_names: ["db_endpoint", "db_name", "db_port"]
+  resource_names: ["aws_db_instance.this", "aws_db_parameter_group.this", "aws_db_subnet_group.this"]
   inputs:
-    vpc_name: "my-vpc"
-    cidr_block: "10.0.0.0/16"
-    enable_flow_logs: true
+    instance_class: "db.t3.micro"
+    engine_version: "16.3"
+    allocated_storage: 20
+    multi_az: true
   hcl_inputs:
-    vpc_name: "\"my-vpc\""
-    cidr_block: "\"10.0.0.0/16\""
-    enable_flow_logs: "true"
+    instance_class: "\"db.t3.micro\""
+    engine_version: "\"16.3\""
+    allocated_storage: "20"
+    multi_az: "true"
 ```
 
-| Key | Description |
-|-----|-------------|
-| `_module.source` | The module source from the `source` prop. Useful for embedding in generated config. |
-| `_module.folder_name` | Name of the module's containing directory (e.g., `"vpc"`). |
-| `_module.readme_title` | The first `# Heading` from the module's README.md, if present. Empty string otherwise. |
-| `_module.output_names` | List of output block names defined in the module (sorted alphabetically). |
-| `_module.resource_names` | List of resource block names as `type.name` (sorted, excludes `data` sources). |
-| `_module.inputs` | Map of all variable names to their raw values as entered by the user. |
-| `_module.hcl_inputs` | Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. |
-
-### When to Use Which
-
-- **`_module.hcl_inputs`** — Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
-- **`_module.inputs`** — Use when generating non-HCL formats (YAML, JSON, TOML) where you control the formatting.
-- **Individual variables** (e.g., `{{ .vpc_name }}`) — Use when you need to reference specific variables by name rather than iterating.
+- **`_module.source`:** The module source from the `source` prop. Useful for embedding in generated config.
+- **`_module.folder_name`:** Name of the module's containing directory (e.g., `"rds"`).
+- **`_module.readme_title`:** The first `# Heading` from the module's README.md, if present. Empty string otherwise.
+- **`_module.output_names`:** List of output block names defined in the module (sorted alphabetically).
+- **`_module.resource_names`:** List of resource block names as `type.name` (sorted, excludes `data` sources).
+- **`_module.inputs`:** Map of all variable names to their raw values as entered by the user. Use when generating non-HCL formats (YAML, JSON, TOML) where you control the formatting.
+- **`_module.hcl_inputs`:** Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
 
 ## Template Patterns
 
@@ -103,9 +93,13 @@ _module:
 The most common pattern — generate a `terragrunt.hcl` file that iterates over all module variables using `_module.hcl_inputs`:
 
 `````mdx
-<TfModule id="module-vars" source="../modules/vpc" />
+<TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<Template id="rds-output" path="templates/rds" inputsId="module-vars" />
+`````
+
+Inside `templates/rds/terragrunt.hcl`:
+
 ```hcl
 terraform {
   source = "{{ ._module.source }}"
@@ -122,95 +116,22 @@ inputs = {
 {{- end }}
 }
 ```
-</TemplateInline>
-`````
 
 <Aside type="note">
 The `hcl_inputs` map handles type-aware formatting automatically: strings are quoted (`"value"`), booleans are raw (`true`/`false`), numbers are raw (`42`), and lists/maps are JSON-encoded.
 </Aside>
 
-### YAML Configuration
-
-Generate a YAML config using `_module.inputs` for raw values:
-
-`````mdx
-<TfModule id="module-vars" source="../modules/vpc" />
-
-<TemplateInline inputsId="module-vars" outputPath="config.yaml">
-```yaml
-module:
-  source: "{{ ._module.source }}"
-
-variables:
-{{- range $name, $val := ._module.inputs }}
-  {{ $name }}: {{ $val }}
-{{- end }}
-```
-</TemplateInline>
-`````
-
-### Individual Variable Access
-
-You can reference specific variables by name for targeted output:
-
-`````mdx
-<TfModule id="module-vars" source="../modules/vpc" />
-
-<TemplateInline inputsId="module-vars" outputPath="summary.txt">
-```
-VPC Name: {{ .vpc_name }}
-CIDR Block: {{ .cidr_block }}
-Module Source: {{ ._module.source }}
-```
-</TemplateInline>
-`````
-
 ### Multiple Output Files
 
-The same `<TfModule>` can feed multiple `<TemplateInline>` blocks, each producing a different file format:
+A single `<Template>` directory can produce multiple files. This is one of the main advantages over TemplateInline — you add files to the template directory without changing the runbook at all.
 
 `````mdx
-<TfModule id="module-vars" source="../modules/s3-bucket" />
+<TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
-```hcl
-terraform {
-  source = "{{ ._module.source }}"
-}
-
-inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
-  {{ $name }} = {{ $hcl }}
-{{- end }}
-}
-```
-</TemplateInline>
-
-<TemplateInline inputsId="module-vars" outputPath="config.yaml">
-```yaml
-module:
-  source: "{{ ._module.source }}"
-variables:
-{{- range $name, $val := ._module.inputs }}
-  {{ $name }}: {{ $val }}
-{{- end }}
-```
-</TemplateInline>
+<Template id="rds-scaffold" path="templates/rds-scaffold" inputsId="module-vars" />
 `````
 
-### Using with Template
-
-You can also use `<TfModule>` with [`<Template>`](/authoring/blocks/template/) when you have a Boilerplate template directory. The Template imports TfModule values via `inputsId`, and the template files get full access to the `_module` namespace.
-
-This is useful when you need multi-file generation from a template directory — for example, generating a `terragrunt.hcl` alongside a `README.md` and a CI config from a single set of module variables.
-
-`````mdx
-<TfModule id="module-vars" source="../modules/vpc" />
-
-<Template id="vpc-scaffold" path="templates/vpc-scaffold" inputsId="module-vars" />
-`````
-
-Inside `templates/vpc-scaffold/terragrunt.hcl`:
+Inside `templates/rds-scaffold/terragrunt.hcl`:
 
 ```hcl
 terraform {
@@ -224,7 +145,7 @@ inputs = {
 }
 ```
 
-Inside `templates/vpc-scaffold/README.md`:
+Inside `templates/rds-scaffold/README.md`:
 
 ```markdown
 # {{ ._module.readme_title }}
@@ -238,62 +159,25 @@ Source: `{{ ._module.source }}`
 {{- end }}
 ```
 
+### Extra Variables with Template
+
+Because `<Template>` is backed by a `boilerplate.yml`, it renders **its own input form** in addition to the form that `<TfModule>` renders. Any variables defined in `boilerplate.yml` that are *not* provided by TfModule appear as extra editable fields, giving you a way to collect additional user input (e.g., environment name, team owner) that the `.tf` files know nothing about.
+
 <Aside type="note">
-When Template imports from TfModule, all TfModule values — including `_module` and every individual variable — become **imported-only** variables. They are passed through to the template engine but are not shown in the Template's form. If the Template's own `boilerplate.yml` defines a variable with the same name as a TfModule variable, it becomes a **shared** variable: read-only in the form and live-synced to the TfModule value.
+When Template imports from TfModule, variables are classified as **local-only** (Template form only), **imported-only** (pass-through), or **shared** (read-only, live-synced). See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
 </Aside>
 
-### When to Use Template vs. TemplateInline
+### Using TemplateInline
 
-| | `<TemplateInline>` | `<Template>` |
-|---|---|---|
-| Template source | Inline in the runbook | Separate directory with `boilerplate.yml` |
-| Multi-file generation | One file per block | Multiple files from one directory |
-| Extra variables | None | Can define additional variables in `boilerplate.yml` |
-| Best for | Quick single-file previews and generation | Structured multi-file scaffolding |
-
-## Best Practices
-
-1. **Use `hcl_inputs` for HCL output.** The pre-formatted values handle quoting correctly — strings get quotes, booleans and numbers don't. Don't use `inputs` for HCL unless you want to handle type formatting yourself.
-
-2. **Use `inputs` for non-HCL formats.** For YAML, JSON, or plain text, use the raw values from `inputs` and apply your own formatting in the template.
-
-3. **Pin remote sources.** Always specify `?ref=v1.0.0` for remote modules so the form doesn't change unexpectedly when the default branch is updated.
-
-4. **Combine with `generateFile={true}`** on the primary output `<TemplateInline>` to save the rendered file to the workspace. Leave it off for preview-only outputs.
-
-5. **Use individual variable access for summaries.** When you need to reference just one or two variables (e.g., in a confirmation message), access them directly by name instead of iterating.
-
-<Aside type="tip" title="See It in Action">
-Check out the [TfModule custom template feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/tf-custom-template) for a complete working example showing HCL generation, YAML output, and individual variable access from a single TfModule.
-</Aside>
-
-## Complete Example
-
-Here's a full runbook that parses a VPC module and generates a Terragrunt configuration:
+For quick prototyping or simple single-file output, you can use `<TemplateInline>` to embed the template directly in the runbook. This is convenient when you want everything in one file and don't need the overhead of a template directory.
 
 `````mdx
-# Configure VPC Module
+<TfModule id="module-vars" source="../modules/rds" />
 
-This runbook generates a `terragrunt.hcl` configuration for the VPC module.
-
-## Configure Module Variables
-
-<TfModule id="vpc-config" source="github.com/my-org/infra-modules//modules/vpc?ref=v1.0.0" />
-
-## Preview Generated Configuration
-
-The HCL below is dynamically generated from the module's input variables.
-Change any value above and watch the preview update automatically.
-
-<TemplateInline inputsId="vpc-config" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ ._module.source }}"
-}
-
-include "root" {
-  path   = find_in_parent_folders("root.hcl")
-  expose = true
 }
 
 inputs = {
@@ -303,4 +187,51 @@ inputs = {
 }
 ```
 </TemplateInline>
+`````
+
+You can also reference individual variables by name:
+
+`````mdx
+<TfModule id="module-vars" source="../modules/rds" />
+
+<TemplateInline inputsId="module-vars" outputPath="summary.txt">
+```
+Instance Class: {{ .instance_class }}
+Engine Version: {{ .engine_version }}
+Module Source: {{ ._module.source }}
+```
+</TemplateInline>
+`````
+
+### When to Use Template vs. TemplateInline
+
+**`<Template>`** (recommended) points to a separate directory that contains a `boilerplate.yml` file alongside one or more template files. It renders its own input form for any extra variables defined in `boilerplate.yml`, so the user sees both the TfModule form (module variables) and the Template form (project-level variables) in the same runbook. Because it uses Boilerplate's full engine, a single block can scaffold multiple files at once. Use it for anything beyond a quick prototype — it's easy to extend without editing the runbook.
+
+**`<TemplateInline>`** keeps the template text inline in the runbook itself. Each block produces a single file, and the only variables available are those registered by sibling components like `<TfModule>` or `<Inputs>`. Use it for quick single-file previews or when you want a self-contained runbook with no external template directory.
+
+## Examples
+
+### ...
+
+Check out the [TfModule custom template feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/tf-custom-template) for a complete working example showing HCL generation, YAML output, and individual variable access from a single TfModule.
+
+### Full example
+
+Here's a full runbook that parses an RDS module and generates a Terragrunt configuration:
+
+`````mdx
+# Configure RDS Module
+
+This runbook generates a `terragrunt.hcl` configuration for the RDS module.
+
+## Configure Module Variables
+
+<TfModule id="rds-config" source="github.com/my-org/infra-modules//modules/rds?ref=v1.0.0" />
+
+## Preview Generated Configuration
+
+The HCL below is dynamically generated from the module's input variables.
+Change any value above and watch the preview update automatically.
+
+<Template id="rds-output" path="templates/rds" inputsId="rds-config" />
 `````

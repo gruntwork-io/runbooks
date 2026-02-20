@@ -1,0 +1,10 @@
+variables:
+  - name: environment
+    description: Deployment environment
+    type: string
+    default: "dev"
+
+  - name: team_owner
+    description: Team that owns this Lambda function
+    type: string
+    default: "platform"

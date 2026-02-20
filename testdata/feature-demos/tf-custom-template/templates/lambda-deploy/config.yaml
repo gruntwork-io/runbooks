@@ -1,0 +1,10 @@
+environment: {{ .environment }}
+team_owner: {{ .team_owner }}
+
+module:
+  source: "{{ ._module.source }}"
+
+variables:
+{{- range $name, $val := ._module.inputs }}
+  {{ $name }}: {{ $val }}
+{{- end }}

@@ -198,56 +198,9 @@ For full details on template syntax, see [Boilerplate Template Syntax](/authorin
 
 ## Using Block Outputs
 
-TemplateInline can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks that have already run. This allows you to display dynamic values produced by previous steps in your rendered templates.
-
-### Output Syntax
-
-Access block outputs using the `_blocks` namespace:
+TemplateInline can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks using the `_blocks` namespace:
 
 `````mdx
-<TemplateInline inputsId="config" outputPath="backend.tf">
-```hcl
-# Values from the create-account Command
-provider "aws" {
-  region = "{{ ._blocks.create_account.outputs.region }}"
-}
-
-resource "aws_iam_account_alias" "alias" {
-  account_alias = "my-org-{{ ._blocks.create_account.outputs.account_id }}"
-}
-```
-</TemplateInline>
-`````
-
-<Aside type="note">
-**ID Naming:** You can use hyphens or underscores in your block IDs (e.g., `id="create-account"` or `id="create_account"`). 
-In template syntax, always use underscores: `._blocks.create_account`. This is because Go templates interpret hyphens as the subtraction operator.
-
-Note: IDs that would normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same runbook.
-</Aside>
-
-### Output Dependencies
-
-When a TemplateInline component renders, it automatically scans the template content for `{{ ._blocks.*.outputs.* }}` patterns. If those outputs don't exist yet:
-
-1. A warning is displayed showing which blocks need to run first
-2. The template remains in a "waiting" state until the required blocks have executed
-
-### Example: Displaying Command Outputs
-
-`````mdx
-## Step 1: Create Account
-
-<Command 
-  id="create-account" 
-  path="scripts/create-account.sh"
-  title="Create AWS Account"
-/>
-
-## Step 2: View Generated Configuration
-
-This shows what your configuration will look like:
-
 <TemplateInline outputPath="account-info.txt">
 ```txt
 Account ID: {{ ._blocks.create_account.outputs.account_id }}
@@ -256,34 +209,9 @@ Region:     {{ ._blocks.create_account.outputs.region }}
 </TemplateInline>
 `````
 
-### Combining Inputs and Outputs
+Runbooks scans the template content for output references and shows a warning until all upstream blocks have run.
 
-You can use both standard inputs (from `<Inputs>` blocks) and block outputs in the same template:
-
-`````mdx
-<Inputs id="config">
-```yaml
-variables:
-  - name: Environment
-    type: string
-    default: production
-```
-</Inputs>
-
-<TemplateInline inputsId="config" outputPath="config.yaml">
-```yaml
-# From Inputs block
-environment: {{ .Environment }}
-
-# From Command outputs
-account_id: {{ ._blocks.create_account.outputs.account_id }}
-```
-</TemplateInline>
-`````
-
-<Aside type="tip" title="See It in Action">
-Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of TemplateInline blocks that consume outputs from upstream Command blocks, including examples of iterating over lists and maps.
-</Aside>
+For the full guide on producing outputs, consuming them, dependency behavior, and ID naming rules, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
 
 ## Generating Files
 

@@ -127,17 +127,7 @@ variables:
 
 ## Variable Categories
 
-When a Template references external inputs via `inputsId`, variables fall into three categories:
-
-| Category | Description | Form Behavior |
-|----------|-------------|---------------|
-| **Local-only** | Exists only in the template's `boilerplate.yml` | Editable |
-| **Imported-only** | Exists only in imported sources | Not shown, but passed to template |
-| **Shared** | Exists in both template and imported sources | Read-only, live-synced |
-
-<Aside type="note">
-Shared variables are displayed in the form but are read-only and stay synchronized with the values from the imported sources.
-</Aside>
+When a Template imports from another block via `inputsId`, variables are classified as **local-only**, **imported-only**, or **shared** — which determines whether they appear in the Template's form and whether they're editable. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
 
 ## Template File Syntax
 
@@ -164,83 +154,15 @@ resource "aws_flow_log" "main" {
 
 ## Using Block Outputs
 
-Templates can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks that have already run. This allows you to generate files based on dynamic values produced by previous steps.
-
-### Output Syntax
-
-Access block outputs using the `_blocks` namespace:
+Template files can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks using the `_blocks` namespace:
 
 ```hcl
-# In your template file
 account_id = "{{ ._blocks.create_account.outputs.account_id }}"
-region     = "{{ ._blocks.create_account.outputs.region }}"
 ```
 
-<Aside type="note">
-**ID Naming:** You can use hyphens or underscores in your block IDs (e.g., `id="create-account"` or `id="create_account"`). 
-In template syntax, always use underscores: `._blocks.create_account`. This is because Go templates interpret hyphens as the subtraction operator.
+Runbooks scans template files for output references and disables the Generate button until all upstream blocks have run.
 
-Note: IDs that would normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same runbook.
-</Aside>
-
-### Output Dependencies
-
-When a Template loads, Runbooks automatically scans the template files for `{{ ._blocks.*.outputs.* }}` patterns. If those outputs don't exist yet:
-
-1. A warning is displayed showing which blocks need to run first
-2. The "Generate" button is disabled until the required blocks have executed
-
-### Example: Using Command Outputs in a Template
-
-```mdx
-## Step 1: Create Account
-
-<Command 
-  id="create-account" 
-  path="scripts/create-account.sh"
-  title="Create AWS Account"
-/>
-
-## Step 2: Generate Configuration
-
-This template uses the account ID from Step 1:
-
-<Template 
-  id="account-config" 
-  path="templates/account-config" 
-/>
-```
-
-And in `templates/account-config/main.tf`:
-
-```hcl
-# Values populated from the create-account Command's outputs
-locals {
-  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
-  region     = "{{ ._blocks.create_account.outputs.region }}"
-}
-
-resource "aws_iam_account_alias" "alias" {
-  account_alias = "my-org-${local.account_id}"
-}
-```
-
-### Combining Inputs and Outputs
-
-You can use both standard inputs (from `<Inputs>` blocks) and block outputs in the same template:
-
-```hcl
-# Standard inputs from Inputs block
-environment = "{{ .Environment }}"
-owner       = "{{ .Owner }}"
-
-# Block outputs from Command/Check blocks  
-account_id  = "{{ ._blocks.create_account.outputs.account_id }}"
-```
-
-<Aside type="tip" title="See It in Action">
-Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of Template blocks that consume outputs from upstream Command blocks.
-</Aside>
+For the full guide on producing outputs, consuming them, dependency behavior, and ID naming rules, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
 
 ## Common Use Cases
 

@@ -25,6 +25,6 @@ For an initial walkthrough, see [Write Your First Runbook](/intro/write_your_fir
 
 - **[Runbook Structure.](/authoring/runbook-structure/)** Learn the file format and folder organization for Runbooks.
 - **[Markdown.](/authoring/markdown/)** Reference for supported markdown elements.
-- **[Variables.](/authoring/variables/)** How to collect user input and pass it between blocks.
+- **[Inputs & Outputs.](/authoring/inputs-and-outputs/)** How data flows between blocks — collecting user input, wiring it with `inputsId`, and passing runtime outputs downstream.
 - **[Boilerplate Templates.](/authoring/boilerplate/)** Guide to template syntax and `boilerplate.yml` files.
 - **[Blocks.](/authoring/blocks/)** Reference for all interactive block components:
