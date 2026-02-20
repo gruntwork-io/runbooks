@@ -13,11 +13,10 @@ import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/ex
 import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -246,15 +245,10 @@ export function useScriptExecution({
     return extractTemplateVariables(rawScriptContent)
   }, [rawScriptContent])
   
-  // Check if we have all input dependencies satisfied
-  const hasAllInputDependencies = useMemo(() => {
-    if (inputDependencies.length === 0) return true // No variables needed
-    
-    return inputDependencies.every(varName => {
-      const value = inputValues[varName]
-      return value !== undefined && value !== null && value !== ''
-    })
-  }, [inputDependencies, inputValues])
+  const hasAllInputDependencies = useMemo(
+    () => allDependenciesSatisfied(inputDependencies, inputValues),
+    [inputDependencies, inputValues]
+  )
   
   // Get all block outputs from context to check dependencies
   const allOutputs = useAllOutputs()
@@ -495,20 +489,8 @@ export function useScriptExecution({
       return
     }
     
-    // Build inputs array for the API:
-    // 1. Include input variables (with proper types for JSON-to-Go conversion)
-    // 2. Add _blocks namespace as a map type for block output references
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
-    for (const [blockId, data] of Object.entries(allOutputs)) {
-      blocksNamespace[blockId] = { outputs: data.values }
-    }
-    
-    const inputsForRender: InputValue[] = [
-      // Filter out any input named "_blocks" since that's a reserved system namespace
-      ...inputs.filter(i => i.name !== '_blocks'),
-      // Add _blocks as a map type containing all block outputs
-      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace },
-    ]
+    // Build inputs with _blocks namespace for block output references
+    const inputsForRender = buildInputsWithBlocks(inputs, allOutputs)
     
     // Check if inputs actually changed
     const inputsKey = JSON.stringify(inputsForRender)

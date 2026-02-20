@@ -44,29 +44,48 @@ type TofuValidation struct {
 	ErrorMessage string
 }
 
-// ParseTofuModule reads all .tf files in moduleDir and returns parsed variables.
-func ParseTofuModule(moduleDir string) ([]TofuVariable, error) {
+// tfFileContent holds raw source bytes and filename for a single .tf file,
+// used to avoid re-reading files from disk when multiple parse passes are needed.
+type tfFileContent struct {
+	name string
+	src  []byte
+}
+
+// readTFFiles reads all .tf files from moduleDir and returns their contents.
+func readTFFiles(moduleDir string) ([]tfFileContent, error) {
 	entries, err := os.ReadDir(moduleDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read module directory: %w", err)
 	}
 
-	var variables []TofuVariable
-
+	var files []tfFileContent
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".tf" {
 			continue
 		}
-
 		filePath := filepath.Join(moduleDir, entry.Name())
 		src, err := os.ReadFile(filePath)
 		if err != nil {
 			slog.Warn("Failed to read .tf file", "file", entry.Name(), "error", err)
 			continue
 		}
-		fileVars, err := parseTFFile(src, entry.Name())
+		files = append(files, tfFileContent{name: entry.Name(), src: src})
+	}
+	return files, nil
+}
+
+// ParseTofuModule reads all .tf files in moduleDir and returns parsed variables.
+func ParseTofuModule(moduleDir string) ([]TofuVariable, error) {
+	files, err := readTFFiles(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var variables []TofuVariable
+	for _, f := range files {
+		fileVars, err := parseTFFile(f.src, f.name)
 		if err != nil {
-			slog.Warn("Failed to parse .tf file", "file", entry.Name(), "error", err)
+			slog.Warn("Failed to parse .tf file", "file", f.name, "error", err)
 			continue
 		}
 		variables = append(variables, fileVars...)
@@ -86,26 +105,15 @@ func ParseTofuModuleMetadata(moduleDir string) TofuModuleMetadata {
 		FolderName: filepath.Base(moduleDir),
 	}
 
-	// Extract README title
 	meta.ReadmeTitle = extractReadmeTitle(moduleDir)
 
-	// Extract outputs and resources from .tf files
-	entries, err := os.ReadDir(moduleDir)
+	files, err := readTFFiles(moduleDir)
 	if err != nil {
 		return meta
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".tf" {
-			continue
-		}
-
-		filePath := filepath.Join(moduleDir, entry.Name())
-		src, err := os.ReadFile(filePath)
-		if err != nil {
-			continue
-		}
-		outputs, resources := extractOutputsAndResources(src, entry.Name())
+	for _, f := range files {
+		outputs, resources := extractOutputsAndResources(f.src, f.name)
 		meta.OutputNames = append(meta.OutputNames, outputs...)
 		meta.ResourceNames = append(meta.ResourceNames, resources...)
 	}
@@ -114,6 +122,44 @@ func ParseTofuModuleMetadata(moduleDir string) TofuModuleMetadata {
 	sort.Strings(meta.ResourceNames)
 
 	return meta
+}
+
+// ParseTofuModuleFull reads all .tf files once and returns both variables and metadata.
+// Use this instead of calling ParseTofuModule + ParseTofuModuleMetadata separately
+// to avoid reading and parsing the same files twice.
+func ParseTofuModuleFull(moduleDir string) ([]TofuVariable, TofuModuleMetadata, error) {
+	meta := TofuModuleMetadata{
+		FolderName: filepath.Base(moduleDir),
+	}
+	meta.ReadmeTitle = extractReadmeTitle(moduleDir)
+
+	files, err := readTFFiles(moduleDir)
+	if err != nil {
+		return nil, meta, err
+	}
+
+	var variables []TofuVariable
+	for _, f := range files {
+		fileVars, err := parseTFFile(f.src, f.name)
+		if err != nil {
+			slog.Warn("Failed to parse .tf file", "file", f.name, "error", err)
+			continue
+		}
+		variables = append(variables, fileVars...)
+
+		outputs, resources := extractOutputsAndResources(f.src, f.name)
+		meta.OutputNames = append(meta.OutputNames, outputs...)
+		meta.ResourceNames = append(meta.ResourceNames, resources...)
+	}
+
+	sort.Strings(meta.OutputNames)
+	sort.Strings(meta.ResourceNames)
+
+	if len(variables) == 0 {
+		return nil, meta, fmt.Errorf("no variables found in %s", moduleDir)
+	}
+
+	return variables, meta, nil
 }
 
 // extractReadmeTitle looks for a README.md (case-insensitive) in the directory
@@ -403,6 +449,67 @@ func ctyToGo(val cty.Value) interface{} {
 	}
 }
 
+// mapTofuVariable converts a single TofuVariable to a BoilerplateVariable.
+func mapTofuVariable(v TofuVariable) BoilerplateVariable {
+	bv := BoilerplateVariable{
+		Name:        v.Name,
+		Description: v.Description,
+		Type:        MapTofuType(v.Type),
+		Default:     v.Default,
+		Required:    !v.HasDefault && !v.Nullable,
+	}
+
+	// Process validations
+	validations, options, descSuffix := processValidations(v)
+
+	if len(options) > 0 {
+		bv.Type = VarTypeEnum
+		bv.Options = options
+		// If no explicit default, default to the first option so the
+		// dropdown doesn't start blank and trigger required validation.
+		if !v.HasDefault && len(options) > 0 {
+			bv.Default = options[0]
+		}
+	}
+
+	if descSuffix != "" {
+		if bv.Description != "" {
+			bv.Description += " " + descSuffix
+		} else {
+			bv.Description = descSuffix
+		}
+	}
+
+	// Add required validation if no default and not nullable
+	if bv.Required {
+		validations = append([]ValidationRule{{
+			Type:    ValidationRequired,
+			Message: "This field is required",
+		}}, validations...)
+	}
+
+	if len(validations) > 0 {
+		bv.Validations = validations
+	}
+
+	// Handle x-schema for object types
+	if schema := extractObjectSchema(v.Type); schema != nil {
+		bv.Schema = schema
+	}
+
+	// Set section name from group comment
+	if v.GroupComment != "" {
+		bv.SectionName = v.GroupComment
+	}
+
+	// Handle tuple type: extract element types as schema with numeric keys
+	if tupleSchema := extractTupleSchema(v.Type); tupleSchema != nil {
+		bv.Schema = tupleSchema
+	}
+
+	return bv
+}
+
 // MapToBoilerplateConfig converts OpenTofu variables to a BoilerplateConfig.
 func MapToBoilerplateConfig(vars []TofuVariable) *BoilerplateConfig {
 	config := &BoilerplateConfig{
@@ -410,72 +517,21 @@ func MapToBoilerplateConfig(vars []TofuVariable) *BoilerplateConfig {
 	}
 
 	for _, v := range vars {
-		bv := BoilerplateVariable{
-			Name:        v.Name,
-			Description: v.Description,
-			Type:        MapTofuType(v.Type),
-			Default:     v.Default,
-			Required:    !v.HasDefault && !v.Nullable,
-		}
-
-		// Process validations
-		validations, options, descSuffix := processValidations(v)
-
-		if len(options) > 0 {
-			bv.Type = VarTypeEnum
-			bv.Options = options
-			// If no explicit default, default to the first option so the
-			// dropdown doesn't start blank and trigger required validation.
-			if !v.HasDefault && len(options) > 0 {
-				bv.Default = options[0]
-			}
-		}
-
-		if descSuffix != "" {
-			if bv.Description != "" {
-				bv.Description += " " + descSuffix
-			} else {
-				bv.Description = descSuffix
-			}
-		}
-
-		// Add required validation if no default and not nullable
-		if bv.Required {
-			validations = append([]ValidationRule{{
-				Type:    ValidationRequired,
-				Message: "This field is required",
-			}}, validations...)
-		}
-
-		if len(validations) > 0 {
-			bv.Validations = validations
-		}
-
-		// Handle x-schema for object types
-		if schema := extractObjectSchema(v.Type); schema != nil {
-			bv.Schema = schema
-		}
-
-		// Set section name from group comment
-		if v.GroupComment != "" {
-			bv.SectionName = v.GroupComment
-		}
-
-		// Handle tuple type: extract element types as schema with numeric keys
-		if tupleSchema := extractTupleSchema(v.Type); tupleSchema != nil {
-			bv.Schema = tupleSchema
-		}
-
-		config.Variables = append(config.Variables, bv)
+		config.Variables = append(config.Variables, mapTofuVariable(v))
 	}
 
 	// Build sections and back-propagate section names to variables
 	config.Sections = buildSections(vars)
+	applySectionNames(config)
 
-	// Populate SectionName on each variable from the computed sections.
-	// This ensures x-section is written to boilerplate.yml even for
-	// filename-based and prefix-based groupings (not just @group comments).
-	sectionByVar := make(map[string]string)
+	return config
+}
+
+// applySectionNames populates SectionName on each variable from the computed sections.
+// This ensures x-section is written to boilerplate.yml even for filename-based and
+// prefix-based groupings (not just @group comments).
+func applySectionNames(config *BoilerplateConfig) {
+	sectionByVar := make(map[string]string, len(config.Variables))
 	for _, s := range config.Sections {
 		for _, varName := range s.Variables {
 			sectionByVar[varName] = s.Name
@@ -486,8 +542,6 @@ func MapToBoilerplateConfig(vars []TofuVariable) *BoilerplateConfig {
 			config.Variables[i].SectionName = name
 		}
 	}
-
-	return config
 }
 
 // MapTofuType converts an OpenTofu type expression to a BoilerplateVarType.
@@ -513,23 +567,33 @@ func MapTofuType(typeExpr string) BoilerplateVarType {
 	}
 }
 
-// extractTupleSchema parses a tuple([T1, T2, ...]) type expression into a schema map
-// with numeric keys: {"0": "string", "1": "number"}.
-// Returns nil if the type is not a tuple or has no elements.
-func extractTupleSchema(typeExpr string) map[string]string {
+// unwrapTypeExpr strips a type wrapper like "tuple([...])" or "object({...})" and returns
+// the inner content. prefix is e.g. "tuple(", open/close are the inner delimiters (e.g. '['/']').
+// Returns the inner string and true, or ("", false) if the expression doesn't match.
+func unwrapTypeExpr(typeExpr string, prefix string, open byte, close byte) (string, bool) {
 	typeExpr = strings.TrimSpace(typeExpr)
-	if !strings.HasPrefix(typeExpr, "tuple(") {
-		return nil
+	if !strings.HasPrefix(typeExpr, prefix) {
+		return "", false
 	}
 
-	// Extract inner content: tuple([string, number]) → string, number
-	inner := typeExpr[len("tuple("):]
+	inner := typeExpr[len(prefix):]
 	if len(inner) > 0 && inner[len(inner)-1] == ')' {
 		inner = inner[:len(inner)-1]
 	}
 	inner = strings.TrimSpace(inner)
-	if len(inner) >= 2 && inner[0] == '[' && inner[len(inner)-1] == ']' {
-		inner = inner[1 : len(inner)-1]
+	if len(inner) < 2 || inner[0] != open || inner[len(inner)-1] != close {
+		return "", false
+	}
+	return inner[1 : len(inner)-1], true
+}
+
+// extractTupleSchema parses a tuple([T1, T2, ...]) type expression into a schema map
+// with numeric keys: {"0": "string", "1": "number"}.
+// Returns nil if the type is not a tuple or has no elements.
+func extractTupleSchema(typeExpr string) map[string]string {
+	inner, ok := unwrapTypeExpr(typeExpr, "tuple(", '[', ']')
+	if !ok {
+		return nil
 	}
 	inner = strings.TrimSpace(inner)
 	if inner == "" {
@@ -553,21 +617,10 @@ func extractTupleSchema(typeExpr string) map[string]string {
 
 // extractObjectSchema parses an object({k=T, ...}) type expression into a schema map.
 func extractObjectSchema(typeExpr string) map[string]string {
-	typeExpr = strings.TrimSpace(typeExpr)
-	if !strings.HasPrefix(typeExpr, "object(") {
+	inner, ok := unwrapTypeExpr(typeExpr, "object(", '{', '}')
+	if !ok {
 		return nil
 	}
-
-	// Extract the inner content between object({ and })
-	inner := typeExpr[len("object("):]
-	if len(inner) > 0 && inner[len(inner)-1] == ')' {
-		inner = inner[:len(inner)-1]
-	}
-	inner = strings.TrimSpace(inner)
-	if len(inner) < 2 || inner[0] != '{' || inner[len(inner)-1] != '}' {
-		return nil
-	}
-	inner = inner[1 : len(inner)-1]
 
 	schema := make(map[string]string)
 	// Simple field parsing — handles key = type patterns
@@ -766,15 +819,16 @@ func extractNumericRange(cond string) (string, string, bool) {
 // singleBoundComparisonRe matches simple single-bound comparisons (e.g. var.x > 0).
 var singleBoundComparisonRe = regexp.MustCompile(`var\.\w+\s*[<>]\s*[0-9.]+$`)
 
+var tier2Patterns = []string{
+	"can(tonumber(", "can(tostring(",
+	"can(cidrhost(", "can(cidrsubnet(",
+	"startswith(", "endswith(",
+	"can(formatdate(",
+	"alltrue(", "anytrue(",
+}
+
 // isTier2Pattern checks if a condition matches a Tier 2 (description-enriched) pattern.
 func isTier2Pattern(cond string) bool {
-	tier2Patterns := []string{
-		"can(tonumber(", "can(tostring(",
-		"can(cidrhost(", "can(cidrsubnet(",
-		"startswith(", "endswith(",
-		"can(formatdate(",
-		"alltrue(", "anytrue(",
-	}
 	for _, p := range tier2Patterns {
 		if strings.Contains(cond, p) {
 			return true

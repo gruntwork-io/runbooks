@@ -202,7 +202,6 @@ type serverSetup struct {
 func resolveForServer(args []string) serverSetup {
 	if len(args) == 0 {
 		slog.Error("Error: You must specify a path to a runbook file or directory\n")
-		fmt.Fprintf(os.Stderr, "")
 		os.Exit(1)
 	}
 	path := args[0]

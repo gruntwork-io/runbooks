@@ -678,7 +678,7 @@ func TestExtractSectionGroupings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sections := extractSectionGroupings(tt.yaml)
+			sections := extractSectionGroupings(parseRawXVariables(tt.yaml))
 			assert.Equal(t, tt.expectedSections, sections)
 		})
 	}

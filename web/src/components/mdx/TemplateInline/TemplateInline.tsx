@@ -6,7 +6,6 @@ import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/compone
 import { UnmetInputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetInputDependenciesWarning'
 import { useInputs, useAllOutputs, inputsToValues, useRunbookContext } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import { extractOutputDependencies, extractOutputDependenciesFromString } from './lib/extractOutputDependencies'
@@ -15,7 +14,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
-import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies } from '@/lib/templateUtils'
 import { normalizeBlockId } from '@/lib/utils'
 
 interface TemplateInlineProps {
@@ -131,18 +130,10 @@ function TemplateInline({
     return extractTemplateFiles(children, resolvedOutputPath);
   }, [children, resolvedOutputPath]);
   
-  // Helper to check if all input dependencies are satisfied
-  const hasAllInputDependencies = useCallback((vars: Record<string, unknown>): boolean => {
-    if (inputDependencies.length === 0) return true;
-    
-    return inputDependencies.every(varName => {
-      const value = vars[varName];
-      return value !== undefined && value !== null && value !== '';
-    });
-  }, [inputDependencies]);
-  
-  // Build the _blocks namespace for template rendering
-  const blocksNamespace = useCallback(() => buildBlocksNamespace(allOutputs), [allOutputs]);
+  const hasAllInputDependencies = useCallback(
+    (vars: Record<string, unknown>): boolean => allDependenciesSatisfied(inputDependencies, vars),
+    [inputDependencies]
+  );
   
   // Core render function that calls the API
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
@@ -151,12 +142,9 @@ function TemplateInline({
       setIsRendering(true);
     }
     setError(null);
-    
+
     // Build inputs array including _blocks namespace for output access
-    const inputsWithBlocks = [
-      ...inputs.filter(i => i.name !== '_blocks'),
-      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace() }
-    ];
+    const inputsWithBlocks = buildInputsWithBlocks(inputs, allOutputs);
     
     try {
       const response = await fetch('/api/boilerplate/render-inline', {
@@ -204,7 +192,7 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, inputs, generateFile, blocksNamespace, target]);
+  }, [templateFiles, inputs, generateFile, allOutputs, target]);
   
   // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);

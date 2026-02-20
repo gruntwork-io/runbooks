@@ -26,56 +26,6 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolvedRunbook holds the fully resolved configuration for running a runbook.
-// Call Close() (typically via defer) to clean up any temporary directories.
-type resolvedRunbook struct {
-	Path      string // local path to the runbook directory or file
-	WorkDir   string // resolved working directory
-	RemoteURL string // original remote URL; empty for local sources
-	cleanups  []func()
-}
-
-// Close runs all cleanup functions in reverse order of acquisition.
-func (r *resolvedRunbook) Close() {
-	for i := len(r.cleanups) - 1; i >= 0; i-- {
-		r.cleanups[i]()
-	}
-}
-
-// resolveRunbook resolves a runbook source string (local path or remote URL) and
-// working directory into a fully resolved configuration. Exits the process on error.
-func resolveRunbook(source string) *resolvedRunbook {
-	path, pathCleanup, isRemote, remoteURL, err := resolveRemoteSource(source)
-	if err != nil {
-		slog.Error("Failed to fetch remote runbook", "error", err)
-		os.Exit(1)
-	}
-	useTmpWorkDir := isWorkingDirTmp() || (isRemote && workingDir == "")
-	workDir, workDirCleanup, err := resolveWorkingDir(workingDir, useTmpWorkDir)
-	if err != nil {
-		if pathCleanup != nil {
-			pathCleanup()
-		}
-		slog.Error("Failed to resolve working directory", "error", err)
-		os.Exit(1)
-	}
-
-	var cleanups []func()
-	if workDirCleanup != nil {
-		cleanups = append(cleanups, workDirCleanup)
-	}
-	if pathCleanup != nil {
-		cleanups = append(cleanups, pathCleanup)
-	}
-
-	return &resolvedRunbook{
-		Path:      path,
-		WorkDir:   workDir,
-		RemoteURL: remoteURL,
-		cleanups:  cleanups,
-	}
-}
-
 // resolveRemoteSource checks if the given source is a remote URL.
 // If so, downloads the runbook to a temp directory and returns the local path + cleanup func + original remote URL.
 // If not a remote source, returns the original path unchanged with nil cleanup and empty remoteURL.

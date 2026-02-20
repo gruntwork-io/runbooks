@@ -45,6 +45,7 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { normalizeBlockId } from '@/lib/utils'
+import { buildBlocksNamespace } from '@/lib/templateUtils'
 
 /**
  * Data stored for each registered Inputs block.
@@ -293,13 +294,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
     // because Go templates interpret hyphens as subtraction operators in dot notation.
     // e.g., {{ ._blocks.create-account.outputs.x }} would fail, but
     //       {{ ._blocks.create_account.outputs.x }} works correctly.
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
-    for (const [blockId, data] of Object.entries(blockOutputs)) {
-      blocksNamespace[blockId] = {
-        outputs: data.values
-      }
-    }
-    vars._blocks = blocksNamespace
+    vars._blocks = buildBlocksNamespace(blockOutputs)
     
     return vars
   }, [getValues, blockOutputs])

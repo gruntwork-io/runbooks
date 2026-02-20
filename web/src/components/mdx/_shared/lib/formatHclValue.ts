@@ -45,6 +45,41 @@ export function formatHclValue(value: unknown, type: BoilerplateVariableType): s
   }
 }
 
+import type { BoilerplateVariable } from '@/types/boilerplateVariable'
+
+/** Pre-builds a name→variable lookup map to avoid O(n) scans per variable. */
+function buildVarLookup(config: BoilerplateConfig | null): Map<string, BoilerplateVariable> {
+  return new Map(config?.variables.map(v => [v.name, v]) ?? [])
+}
+
+/**
+ * Core implementation: builds a map of variable name → HCL-formatted string value.
+ * When skipDefaults is true, excludes variables whose current value matches their
+ * declared default (useful for idiomatic Terragrunt configs).
+ */
+function buildHclInputsCore(
+  formData: Record<string, unknown>,
+  config: BoilerplateConfig | null,
+  skipDefaults: boolean
+): Record<string, string> {
+  const varMap = buildVarLookup(config)
+  const hclInputs: Record<string, string> = {}
+
+  for (const [name, value] of Object.entries(formData)) {
+    const varDef = varMap.get(name)
+    const type = varDef?.type ?? BoilerplateVariableType.String
+    const hclValue = formatHclValue(value, type)
+
+    if (skipDefaults && varDef != null && !varDef.required) {
+      const hclDefault = formatHclValue(varDef.default, type)
+      if (hclValue === hclDefault) continue
+    }
+
+    hclInputs[name] = hclValue
+  }
+  return hclInputs
+}
+
 /**
  * Builds a map of variable name → HCL-formatted string value, excluding variables
  * whose current value matches their declared default. Required variables (no default)
@@ -55,27 +90,7 @@ export function buildNonDefaultHclInputsMap(
   formData: Record<string, unknown>,
   config: BoilerplateConfig | null
 ): Record<string, string> {
-  const hclInputs: Record<string, string> = {}
-  for (const [name, value] of Object.entries(formData)) {
-    const varDef = config?.variables.find(v => v.name === name)
-    const type = varDef?.type ?? BoilerplateVariableType.String
-
-    // Always include required variables (no default declared)
-    if (varDef?.required) {
-      hclInputs[name] = formatHclValue(value, type)
-      continue
-    }
-
-    // Compare formatted HCL value against formatted default
-    const hclValue = formatHclValue(value, type)
-    if (varDef != null) {
-      const hclDefault = formatHclValue(varDef.default, type)
-      if (hclValue === hclDefault) continue // skip — matches default
-    }
-
-    hclInputs[name] = hclValue
-  }
-  return hclInputs
+  return buildHclInputsCore(formData, config, true)
 }
 
 /**
@@ -87,11 +102,5 @@ export function buildHclInputsMap(
   formData: Record<string, unknown>,
   config: BoilerplateConfig | null
 ): Record<string, string> {
-  const hclInputs: Record<string, string> = {}
-  for (const [name, value] of Object.entries(formData)) {
-    const varDef = config?.variables.find(v => v.name === name)
-    const type = varDef?.type ?? BoilerplateVariableType.String
-    hclInputs[name] = formatHclValue(value, type)
-  }
-  return hclInputs
+  return buildHclInputsCore(formData, config, false)
 }

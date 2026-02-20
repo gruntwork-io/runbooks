@@ -177,7 +177,7 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 	// Parse raw YAML once to extract all Runbooks x- extension fields
 	rawVars := parseRawXVariables(boilerplateYamlContent)
 	schemas, schemaInstanceLabels, variableToSection := extractXFields(rawVars)
-	sections := extractSectionGroupings(boilerplateYamlContent)
+	sections := extractSectionGroupings(rawVars)
 
 	// Convert to our JSON structure
 	result := &BoilerplateConfig{
@@ -310,28 +310,13 @@ func extractVariablesToSectionMap(yamlContent string) map[string]string {
 	return sections
 }
 
-// extractSectionGroupings parses the raw YAML to build an ordered list of section groupings.
+// extractSectionGroupings builds an ordered list of section groupings from pre-parsed raw variables.
 // Returns an ordered slice of Section structs for UI rendering (e.g., rendering collapsible sections).
 // Each Section contains the section name and the list of variable names in that section.
 // Variables without a section use "" (empty string) as the section name.
 // The unnamed section ("") is always placed first if it exists.
-// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
-func extractSectionGroupings(yamlContent string) []Section {
-	type rawVariable struct {
-		Name    string `yaml:"name"`
-		Section string `yaml:"x-section"`
-	}
-	type rawConfig struct {
-		Variables []rawVariable `yaml:"variables"`
-	}
-
-	var config rawConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for x-section extraction", "error", err)
-		return []Section{}
-	}
-
-	return groupIntoSections(config.Variables, func(v rawVariable) (string, string) {
+func extractSectionGroupings(rawVars []rawXVariable) []Section {
+	return groupIntoSections(rawVars, func(v rawXVariable) (string, string) {
 		return v.Name, v.Section
 	})
 }

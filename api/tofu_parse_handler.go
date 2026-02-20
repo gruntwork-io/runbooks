@@ -76,8 +76,8 @@ func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
-		// Parse the OpenTofu module
-		vars, err := ParseTofuModule(modulePath)
+		// Parse the OpenTofu module (single pass for both variables and metadata)
+		vars, metadata, err := ParseTofuModuleFull(modulePath)
 		if err != nil {
 			slog.Error("Failed to parse OpenTofu module", "path", modulePath, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -87,9 +87,7 @@ func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
-		// Convert to BoilerplateConfig and extract module metadata
 		config := MapToBoilerplateConfig(vars)
-		metadata := ParseTofuModuleMetadata(modulePath)
 
 		slog.Info("Successfully parsed OpenTofu module",
 			"source", req.Source,
