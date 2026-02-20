@@ -1,0 +1,21 @@
+# Configure Module
+
+This runbook generates a `main.tf` file from an OpenTofu module's input variables.
+
+## Configure Module Variables
+
+<TfModule id="module-vars" source="::source" />
+
+## Generated Configuration
+
+<TemplateInline inputsId="module-vars" outputPath="main.tf" generateFile={true}>
+```hcl
+module "this" {
+  source = "{{ ._module.source }}"
+
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>

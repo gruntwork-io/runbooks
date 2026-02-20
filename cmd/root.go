@@ -37,7 +37,7 @@ var (
 	noTelemetry bool
 
 	// Global flag for OpenTofu module runbook/template selection
-	tfRunbook string // --tf-runbook: ::keyword (::basic, ::full) or path to a custom runbook directory
+	tfRunbook string // --tf-runbook: ::keyword (::terragrunt, ::tofu) or path to a custom runbook directory
 )
 
 // getVersionString returns the full version information
@@ -81,19 +81,30 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 	return cwd, nil, nil
 }
 
-// isTfRunbookKeyword returns true if the value is a reserved ::keyword (e.g. "::basic", "::full").
+// isTfRunbookKeyword returns true if the value is a reserved ::keyword (e.g. "::terragrunt", "::tofu").
 func isTfRunbookKeyword(value string) bool {
 	return strings.HasPrefix(value, "::")
 }
 
 // resolveTofuModuleRunbook resolves a TF module to a runbook, using --tf-runbook if set,
 // or falling back to the default auto-generated template.
-// When --tf-runbook is a ::keyword (e.g., "::basic", "::full"), it selects a built-in template.
+// When --tf-runbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it selects a built-in template.
 // When it's a path (e.g., "./my-runbook", "path/to/runbook"), it uses the custom runbook.
 // modulePath is the local path to the TF module. originalSource is the original URL
 // for remote modules (empty for local). Returns the runbook path, server path,
 // remote source URL (for ::source resolution), and a cleanup function.
 func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+	// Compute the module source URL so ::source resolves at runtime
+	moduleSourceURL := originalSource
+	if moduleSourceURL == "" {
+		absPath, err := filepath.Abs(modulePath)
+		if err != nil {
+			slog.Error("Failed to resolve module path", "path", modulePath, "error", err)
+			os.Exit(1)
+		}
+		moduleSourceURL = absPath
+	}
+
 	// If --tf-runbook is a path, use the custom runbook
 	if tfRunbook != "" && !isTfRunbookKeyword(tfRunbook) {
 		customRunbookPath, err := api.ResolveRunbookPath(tfRunbook)
@@ -101,29 +112,18 @@ func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolve
 			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
 			os.Exit(1)
 		}
-		// The remote source URL is the TF module source, so ::source resolves to it
-		moduleSourceURL := originalSource
-		if moduleSourceURL == "" {
-			// For local modules, use the absolute path
-			absPath, err := filepath.Abs(modulePath)
-			if err != nil {
-				slog.Error("Failed to resolve module path", "path", modulePath, "error", err)
-				os.Exit(1)
-			}
-			moduleSourceURL = absPath
-		}
 		slog.Info("Using custom runbook for OpenTofu module", "runbook", tfRunbook, "module", moduleSourceURL)
 		return customRunbookPath, tfRunbook, moduleSourceURL, nil
 	}
 
-	// Otherwise, auto-generate a runbook using the ::keyword as template name (defaults to "::basic")
-	templateName := tfRunbook // ::keyword like "::basic", "::full", or "" for default
-	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(modulePath, originalSource, templateName)
+	// Otherwise, auto-generate a runbook from the built-in template
+	templateName := tfRunbook // ::keyword like "::terragrunt", "::tofu", or "" for default
+	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(templateName)
 	if genErr != nil {
 		slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
 		os.Exit(1)
 	}
-	return generatedPath, generatedPath, "", tofuCleanup
+	return generatedPath, generatedPath, moduleSourceURL, tofuCleanup
 }
 
 // resolveRunbookOrTofuModule attempts to resolve a runbook at the given path.
@@ -486,7 +486,7 @@ func init() {
 
 	// Add OpenTofu module runbook flag (handles both ::keywords and custom paths)
 	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
-		"Built-in template (::basic, ::full) or path to a custom runbook for OpenTofu/Terraform modules")
+		"Built-in template (::terragrunt, ::tofu) or path to a custom runbook for OpenTofu/Terraform modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

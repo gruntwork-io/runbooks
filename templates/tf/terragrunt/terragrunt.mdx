@@ -1,0 +1,28 @@
+# Configure Module
+
+This runbook generates a `terragrunt.hcl` file from an OpenTofu module's input variables.
+
+## Configure Module Variables
+
+<TfModule id="module-vars" source="::source" />
+
+## Generated Configuration
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>

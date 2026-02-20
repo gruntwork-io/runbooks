@@ -8,85 +8,20 @@ import (
 	"regexp"
 	"strings"
 
-	"runbooks/templates/tofu"
+	tofutmpl "runbooks/templates/tf"
 
 	"gopkg.in/yaml.v3"
 )
 
-// GenerateRunbook parses a tofu module and generates a complete runbook directory.
-// modulePath is the local path to parse. originalSource is the source string to embed
-// in the generated <TfModule source="..."> — when empty, defaults to modulePath.
-// This distinction matters for remote modules: modulePath is the temp directory clone,
-// but originalSource is the original URL (e.g., "github.com/org/repo//modules/vpc").
-// templateName selects a built-in template ("" = "::basic"). Returns the path to the
-// generated runbook.mdx and a cleanup function for the temp directory.
-func GenerateRunbook(modulePath string, originalSource string, templateName string) (string, func(), error) {
-	// 1. Parse the module
-	absPath, err := filepath.Abs(modulePath)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to resolve module path: %w", err)
-	}
-
-	vars, err := ParseTofuModule(absPath)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to parse OpenTofu module: %w", err)
-	}
-
-	slog.Info("Parsed OpenTofu module", "path", absPath, "variableCount", len(vars))
-
-	// 2. Convert to boilerplate config
-	config := MapToBoilerplateConfig(vars)
-
-	// 3. Marshal boilerplate config to YAML for the template
-	bpYAML, err := marshalBoilerplateConfig(config)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to marshal boilerplate config: %w", err)
-	}
-
-	// 4. Convert variables to template-safe format
-	templateVars := make([]tofu.TemplateVariable, len(vars))
-	for i, v := range vars {
-		templateVars[i] = tofu.TemplateVariable{
-			Name:       v.Name,
-			Type:       string(MapTofuType(v.Type)),
-			HasDefault: v.HasDefault,
-		}
-	}
-
-	// 5. Build template context
-	// Use originalSource for the MDX template if provided, otherwise fall back to absPath.
-	// This preserves the remote URL for generated <TfModule source="..."> tags.
-	moduleSource := absPath
-	if originalSource != "" {
-		moduleSource = originalSource
-	}
-	moduleName := filepath.Base(absPath)
-	ctx := tofu.TemplateContext{
-		ModuleName:     moduleName,
-		ModuleNameSlug: slugify(moduleName),
-		ModuleSource:   moduleSource,
-		VariableCount:  len(vars),
-		Variables:      templateVars,
-		Config:         tofu.TemplateConfig{BoilerplateYAML: bpYAML},
-	}
-
-	// Build section summary
-	var sectionNames []string
-	for _, s := range config.Sections {
-		if s.Name != "" {
-			sectionNames = append(sectionNames, s.Name)
-		}
-	}
-	ctx.SectionNames = sectionNames
-	ctx.SectionSummary = strings.Join(sectionNames, ", ")
-
-	// 6. Look up template
-	tmpl, err := tofu.GetTemplate(templateName)
+// GenerateRunbook writes a static MDX runbook from a built-in template.
+// templateName selects a built-in template ("" = "terragrunt").
+// Returns the path to runbook.mdx and a cleanup function for the temp directory.
+func GenerateRunbook(templateName string) (string, func(), error) {
+	tmpl, err := tofutmpl.GetTemplate(templateName)
 	if err != nil {
 		return "", nil, err
 	}
 
-	// 7. Create temp directory
 	tmpDir, err := os.MkdirTemp("", "runbooks-tofu-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
@@ -98,43 +33,15 @@ func GenerateRunbook(modulePath string, originalSource string, templateName stri
 		}
 	}
 
-	// 8. Render MDX
-	mdxContent, err := tmpl.RenderMDX(ctx)
-	if err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("failed to render MDX: %w", err)
-	}
-
 	mdxPath := filepath.Join(tmpDir, "runbook.mdx")
-	if err := os.WriteFile(mdxPath, []byte(mdxContent), 0644); err != nil {
+	if err := os.WriteFile(mdxPath, []byte(tmpl.MDXContent()), 0644); err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("failed to write runbook.mdx: %w", err)
 	}
 
-	// 9. Generate supporting files
-	files, err := tmpl.GenerateFiles(ctx)
-	if err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("failed to generate files: %w", err)
-	}
-
-	for relPath, content := range files {
-		fullPath := filepath.Join(tmpDir, relPath)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("failed to create directory for %s: %w", relPath, err)
-		}
-		if err := os.WriteFile(fullPath, content, 0644); err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("failed to write %s: %w", relPath, err)
-		}
-	}
-
-	slog.Info("Generated runbook from OpenTofu module",
-		"modulePath", absPath,
+	slog.Info("Generated runbook from template",
 		"template", tmpl.Name(),
 		"outputDir", tmpDir,
-		"fileCount", len(files)+1,
 	)
 
 	return mdxPath, cleanup, nil
