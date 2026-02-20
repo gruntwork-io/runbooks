@@ -25,9 +25,7 @@ runbooks serve RUNBOOK_SOURCE [flags]
 - `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
   - All relative paths are resolved from this directory
   - Can be absolute or relative to current directory
-- `--working-dir-tmp` - Use a temporary working directory (automatically cleaned up on exit)
-  - Useful for isolated testing or sandboxed execution
-  - Overrides `--working-dir` if both are specified
+  - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.

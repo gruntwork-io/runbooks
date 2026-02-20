@@ -43,8 +43,8 @@ describe('TfModule', () => {
     })
   })
 
-  describe('$source resolution', () => {
-    it('resolves $source to remoteSource from context', () => {
+  describe('::source resolution', () => {
+    it('resolves ::source to remoteSource from context', () => {
       mockUseApiParseTfModule.mockReturnValue({
         data: null,
         isLoading: true,
@@ -53,7 +53,7 @@ describe('TfModule', () => {
 
       render(
         <TestWrapper remoteSource="https://github.com/org/module">
-          <TfModule id="test" source="$source" />
+          <TfModule id="test" source="::source" />
         </TestWrapper>
       )
 
@@ -64,18 +64,18 @@ describe('TfModule', () => {
       )
     })
 
-    it('shows missing-remote-source banner when $source used without remoteSource', () => {
+    it('shows missing-remote-source banner when ::source used without remoteSource', () => {
       render(
         <TestWrapper>
-          <TfModule id="test" source="$source" />
+          <TfModule id="test" source="::source" />
         </TestWrapper>
       )
 
       expect(screen.getByText('No remote module source available')).toBeInTheDocument()
-      expect(screen.getByText(/source="\$source"/)).toBeInTheDocument()
+      expect(screen.getByText(/source="::source"/)).toBeInTheDocument()
     })
 
-    it('uses literal source string when source is not $source', () => {
+    it('uses literal source string when source is not ::source', () => {
       render(
         <TestWrapper>
           <TfModule id="test" source="../modules/vpc" />
@@ -95,7 +95,7 @@ describe('TfModule', () => {
         </TestWrapper>
       )
 
-      // Should NOT use remoteSource — only $source triggers that
+      // Should NOT use remoteSource — only ::source triggers that
       expect(mockUseApiParseTfModule).toHaveBeenCalledWith(
         './local-module',
         true,
@@ -220,7 +220,7 @@ describe('TfModule', () => {
       // Render succeeds — the form appears
       const { container } = render(
         <TestWrapper remoteSource="https://github.com/org/module">
-          <TfModule id="module-vars" source="$source" />
+          <TfModule id="module-vars" source="::source" />
         </TestWrapper>
       )
 

@@ -18,7 +18,7 @@ import (
 // in the generated <TfModule source="..."> — when empty, defaults to modulePath.
 // This distinction matters for remote modules: modulePath is the temp directory clone,
 // but originalSource is the original URL (e.g., "github.com/org/repo//modules/vpc").
-// templateName selects a built-in template ("" = "basic"). Returns the path to the
+// templateName selects a built-in template ("" = "::basic"). Returns the path to the
 // generated runbook.mdx and a cleanup function for the temp directory.
 func GenerateRunbook(modulePath string, originalSource string, templateName string) (string, func(), error) {
 	// 1. Parse the module

@@ -237,7 +237,7 @@ func ValidateAbsolutePathInCwd(path string) error {
 // - You're about to perform file operations (read, write, delete)
 //
 // This is used by generated files validation where the working directory may differ
-// from the process CWD (e.g., when using --working-dir-tmp or remote runbooks).
+// from the process CWD (e.g., when using --working-dir=::tmp or remote runbooks).
 //
 // Checks performed:
 // 1. Path is not empty

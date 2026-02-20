@@ -50,7 +50,7 @@ func resolveRunbook(source string) *resolvedRunbook {
 		slog.Error("Failed to fetch remote runbook", "error", err)
 		os.Exit(1)
 	}
-	useTmpWorkDir := workingDirTmp || (isRemote && workingDir == "")
+	useTmpWorkDir := isWorkingDirTmp() || (isRemote && workingDir == "")
 	workDir, workDirCleanup, err := resolveWorkingDir(workingDir, useTmpWorkDir)
 	if err != nil {
 		if pathCleanup != nil {

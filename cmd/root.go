@@ -30,15 +30,14 @@ var (
 	// Global flag for output path used by server commands
 	outputPath string
 
-	// Global flags for working directory
-	workingDir    string
-	workingDirTmp bool
+	// Global flag for working directory
+	workingDir string
 
 	// Global flag to disable telemetry
 	noTelemetry bool
 
 	// Global flag for OpenTofu module runbook/template selection
-	tfRunbook string // --tf-runbook: built-in keyword (basic, full) or path to a custom runbook directory
+	tfRunbook string // --tf-runbook: ::keyword (::basic, ::full) or path to a custom runbook directory
 )
 
 // getVersionString returns the full version information
@@ -46,10 +45,21 @@ func getVersionString() string {
 	return fmt.Sprintf("%s (Commit: %s)", Version, GitCommit)
 }
 
+// workingDirKeyword is the reserved keyword for --working-dir that creates
+// a temporary directory, automatically cleaned up on exit.
+const workingDirKeyword = "::tmp"
+
+// isWorkingDirTmp returns true when the user requested a temporary working directory,
+// either explicitly via --working-dir=::tmp or implicitly (remote runbook with no --working-dir).
+func isWorkingDirTmp() bool {
+	return workingDir == workingDirKeyword
+}
+
 // resolveWorkingDir determines the final working directory based on CLI flags.
+// The special keyword "::tmp" creates a temporary directory (cleaned up on exit).
 // Returns the directory path, a cleanup function (nil if no cleanup needed), and an error.
 func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(), error) {
-	if useTempDir {
+	if useTempDir || configuredWorkDir == workingDirKeyword {
 		dir, err := os.MkdirTemp("", "runbook-workdir-*")
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to create temp working directory: %w", err)
@@ -71,21 +81,18 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 	return cwd, nil, nil
 }
 
-// isTfRunbookKeyword returns true if the value looks like a built-in template keyword
-// (a bare word with no path separators or relative-path prefixes). Users who have a
-// custom runbook directory with the same name as a keyword can disambiguate by using
-// a path prefix, e.g. "./basic" instead of "basic".
+// isTfRunbookKeyword returns true if the value is a reserved ::keyword (e.g. "::basic", "::full").
 func isTfRunbookKeyword(value string) bool {
-	return !strings.Contains(value, "/") && !strings.Contains(value, string(filepath.Separator))
+	return strings.HasPrefix(value, "::")
 }
 
 // resolveTofuModuleRunbook resolves a TF module to a runbook, using --tf-runbook if set,
 // or falling back to the default auto-generated template.
-// When --tf-runbook is a bare keyword (e.g., "basic", "full"), it selects a built-in template.
+// When --tf-runbook is a ::keyword (e.g., "::basic", "::full"), it selects a built-in template.
 // When it's a path (e.g., "./my-runbook", "path/to/runbook"), it uses the custom runbook.
 // modulePath is the local path to the TF module. originalSource is the original URL
 // for remote modules (empty for local). Returns the runbook path, server path,
-// remote source URL (for $source resolution), and a cleanup function.
+// remote source URL (for ::source resolution), and a cleanup function.
 func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
 	// If --tf-runbook is a path, use the custom runbook
 	if tfRunbook != "" && !isTfRunbookKeyword(tfRunbook) {
@@ -94,7 +101,7 @@ func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolve
 			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
 			os.Exit(1)
 		}
-		// The remote source URL is the TF module source, so $source resolves to it
+		// The remote source URL is the TF module source, so ::source resolves to it
 		moduleSourceURL := originalSource
 		if moduleSourceURL == "" {
 			// For local modules, use the absolute path
@@ -109,8 +116,8 @@ func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolve
 		return customRunbookPath, tfRunbook, moduleSourceURL, nil
 	}
 
-	// Otherwise, auto-generate a runbook using the keyword as template name (defaults to "basic")
-	templateName := tfRunbook // bare keyword like "basic", "full", or "" for default
+	// Otherwise, auto-generate a runbook using the ::keyword as template name (defaults to "::basic")
+	templateName := tfRunbook // ::keyword like "::basic", "::full", or "" for default
 	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(modulePath, originalSource, templateName)
 	if genErr != nil {
 		slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
@@ -124,7 +131,7 @@ func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolve
 // runbook from the module. Also handles remote URLs — downloads the source first,
 // then checks for a runbook or OpenTofu module.
 // Returns the resolved runbook path, the (possibly updated) server path,
-// the original remote URL (for $source resolution in TfModule), and a
+// the original remote URL (for ::source resolution in TfModule), and a
 // cleanup function for any generated temp files. Calls os.Exit(1) on errors.
 func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
 	// 1. Try as a local runbook
@@ -183,7 +190,7 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 type serverSetup struct {
 	runbookPath     string // The resolved runbook file path
 	serverPath      string // The path to pass to ServerConfig (may differ for generated runbooks)
-	remoteSourceURL string // Original URL for $source resolution (empty for local)
+	remoteSourceURL string // Original URL for ::source resolution (empty for local)
 	workingDir      string // Resolved working directory
 	cleanup         func() // Combined cleanup function (nil if no cleanup needed)
 }
@@ -200,7 +207,7 @@ func resolveForServer(args []string) serverSetup {
 	}
 	path := args[0]
 
-	resolvedWorkDir, workDirCleanup, err := resolveWorkingDir(workingDir, workingDirTmp)
+	resolvedWorkDir, workDirCleanup, err := resolveWorkingDir(workingDir, false)
 	if err != nil {
 		slog.Error("Failed to resolve working directory", "error", err)
 		os.Exit(1)
@@ -471,18 +478,15 @@ func init() {
 		"Path where generated files will be rendered (relative to working directory)")
 
 	rootCmd.PersistentFlags().StringVar(&workingDir, "working-dir", "",
-		"Working directory for script execution (default: current directory)")
-
-	rootCmd.PersistentFlags().BoolVar(&workingDirTmp, "working-dir-tmp", false,
-		"Use a temporary working directory (cleaned up on exit)")
+		"Working directory for script execution, or ::tmp for a temporary directory (default: current directory)")
 
 	// Add telemetry opt-out flag
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,
 		"Disable anonymous telemetry (can also set RUNBOOKS_TELEMETRY_DISABLE=1)")
 
-	// Add OpenTofu module runbook flag (handles both built-in keywords and custom paths)
+	// Add OpenTofu module runbook flag (handles both ::keywords and custom paths)
 	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
-		"Built-in template keyword (basic, full) or path to a custom runbook for OpenTofu/Terraform modules")
+		"Built-in template (::basic, ::full) or path to a custom runbook for OpenTofu/Terraform modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

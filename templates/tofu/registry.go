@@ -55,19 +55,19 @@ func renderMDXTemplate(name, content string, ctx TemplateContext) (string, error
 }
 
 var templates = map[string]RunbookTemplate{
-	"basic": &BasicTemplate{},
-	"full":  &FullTemplate{},
+	"::basic": &BasicTemplate{},
+	"::full":  &FullTemplate{},
 }
 
 // GetTemplate returns a RunbookTemplate by name.
-// An empty name returns the basic template.
+// An empty name returns the ::basic template.
 func GetTemplate(name string) (RunbookTemplate, error) {
 	if name == "" {
-		name = "basic"
+		name = "::basic"
 	}
 	t, ok := templates[name]
 	if !ok {
-		return nil, fmt.Errorf("unknown template: %q (available keywords: basic, full; for a custom runbook use a path like ./%s)", name, name)
+		return nil, fmt.Errorf("unknown template: %q (available: ::basic, ::full)", name)
 	}
 	return t, nil
 }

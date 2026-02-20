@@ -1,10 +1,10 @@
 # Configure OpenTofu Module
 
-This runbook uses `source="$source"` to dynamically load whatever OpenTofu module URL was passed to the `runbooks open` command.
+This runbook uses `source="::source"` to dynamically load whatever OpenTofu module URL was passed to the `runbooks open` command.
 
 ## Configure Module Variables
 
-<TfModule id="module-vars" source="$source" />
+<TfModule id="module-vars" source="::source" />
 
 ## Preview Generated Configuration
 

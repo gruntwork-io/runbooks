@@ -54,7 +54,7 @@ runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main
 | OpenTofu git::https | `git::https://github.com/org/repo.git//path?ref=main` |
 
 <Aside type="note">
-When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir-tmp`). You can override this with `--working-dir` if needed.
+When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir=::tmp`). You can override this with `--working-dir` if needed.
 </Aside>
 
 ### Authentication for private repos
@@ -69,9 +69,7 @@ For public repositories, no authentication is needed. For private repositories, 
 - `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
   - All relative paths are resolved from this directory
   - Can be absolute or relative to current directory
-- `--working-dir-tmp` - Use a temporary working directory (automatically cleaned up on exit)
-  - Useful for isolated testing or sandboxed execution
-  - Overrides `--working-dir` if both are specified
+  - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.

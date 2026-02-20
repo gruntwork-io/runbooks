@@ -87,7 +87,7 @@ The [`<TfModule>`](/authoring/blocks/tfmodule/) block parses an OpenTofu/Terrafo
 <TfModule id="rds-vars" source="../modules/rds" />
 ```
 
-In the above example, there is an OpenTofu or Terraform module at `../modules/rds`. TfModule also supports `source="."` for [colocated runbooks](/authoring/blocks/tfmodule/#colocated-runbooks-source) (runbook lives alongside the `.tf` files) and `source="$source"` for [generic runbooks](/authoring/blocks/tfmodule/#dynamic-source-from-cli-source) that accept any module URL from the CLI.
+In the above example, there is an OpenTofu or Terraform module at `../modules/rds`. TfModule also supports `source="."` for [colocated runbooks](/authoring/blocks/tfmodule/#colocated-runbooks-source) (runbook lives alongside the `.tf` files) and `source="::source"` for [generic runbooks](/authoring/blocks/tfmodule/#dynamic-source-from-cli-source) that accept any module URL from the CLI.
 
 ## Wiring Blocks with `inputsId`
 
