@@ -50,7 +50,7 @@ You can pre-populate the PR title, description, labels, and branch name. Users c
 
 ### Template Expressions
 
-The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, and `prefilledBranchName` props support template expressions that reference outputs from other blocks:
+The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, and `prefilledBranchName` props support template expressions that reference outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line PR descriptions:
 
 ```mdx
 <GitHubPullRequest
@@ -72,7 +72,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `description` | `string` | No | Description text below the title. Supports inline markdown. |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the PR title field. Supports template expressions. |
-| `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions and markdown. |
+| `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
 | `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
 

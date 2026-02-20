@@ -4,7 +4,7 @@ title: <DirPicker>
 
 The `<DirPicker>` block provides cascading directory dropdowns for picking a path within a cloned repository. It scans the directory structure and lets users compose a target path interactively or by typing directly.
 
-The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ ._blocks.<id>.outputs.selected_path }}` syntax.
+The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ ._blocks.<id>.outputs.path }}` syntax.
 
 ### Basic Usage
 
@@ -30,12 +30,12 @@ If the user drills deeper than the number of labels provided, extra levels fall 
 
 ### Using Outputs in Templates
 
-The DirPicker outputs `selected_path`, which can be referenced in a `<TemplateInline>` block's `outputPath` prop:
+The DirPicker outputs `path`, which can be referenced in a `<TemplateInline>` block's `outputPath` prop:
 
 ```mdx
 <TemplateInline
   inputsId="module-vars"
-  outputPath="{{ ._blocks.target_path.outputs.selected_path }}/terragrunt.hcl"
+  outputPath="{{ ._blocks.target_path.outputs.path }}/terragrunt.hcl"
   generateFile={true}
   target="worktree"
 >
@@ -60,7 +60,7 @@ The `outputPath` resolves `{{ ._blocks.*.outputs.* }}` expressions client-side u
 
 | Output | Description |
 |--------|-------------|
-| `selected_path` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. |
+| `path` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. |
 
 ### How It Works
 
@@ -68,6 +68,6 @@ The `outputPath` resolves `{{ ._blocks.*.outputs.* }}` expressions client-side u
 2. It fetches the immediate subdirectories via `GET /api/workspace/dirs`.
 3. Each dropdown selection triggers a fetch for the next level's subdirectories, building a cascading drill-down.
 4. An editable text input below the dropdowns shows the composed path. Users can edit this directly for full control.
-5. On every change (dropdown or manual edit), the block registers `selected_path` as an output.
+5. On every change (dropdown or manual edit), the block registers `path` as an output.
 
 Hidden directories (those starting with `.`) are excluded from the dropdown options.

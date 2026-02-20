@@ -127,7 +127,7 @@ export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions)
   // Register outputs whenever the path changes
   useEffect(() => {
     if (manualPath) {
-      registerOutputs(id, { selected_path: manualPath })
+      registerOutputs(id, { path: manualPath })
     }
   }, [id, manualPath, registerOutputs])
 
@@ -137,7 +137,7 @@ export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions)
     // When manually editing, clear dropdown state since it may no longer match
     if (path !== composedPath) {
       // Keep levels for display but register the manual path
-      registerOutputs(id, { selected_path: path })
+      registerOutputs(id, { path: path })
     }
   }, [id, composedPath, registerOutputs])
 

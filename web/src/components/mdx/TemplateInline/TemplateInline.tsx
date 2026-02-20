@@ -100,7 +100,7 @@ function TemplateInline({
   }, [children, outputPath]);
 
   // Resolve {{ ._blocks.*.outputs.* }} expressions in outputPath using block outputs.
-  // This enables dynamic file paths like "{{ ._blocks.target_path.outputs.selected_path }}/terragrunt.hcl".
+  // This enables dynamic file paths like "{{ ._blocks.target_path.outputs.path }}/terragrunt.hcl".
   const resolvedOutputPath = useMemo(() => {
     if (!outputPath) return outputPath;
     return outputPath.replace(

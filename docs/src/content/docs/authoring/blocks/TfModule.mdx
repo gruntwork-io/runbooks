@@ -194,7 +194,7 @@ In addition to the `_module` namespace (which is available via `inputsId`), `<Tf
 For example, the `::terragrunt-github` template uses `module_name` to compose the output path:
 
 ```
-outputPath="{{ ._blocks.target_path.outputs.selected_path }}/{{ ._blocks.module_vars.outputs.module_name }}/terragrunt.hcl"
+outputPath="{{ ._blocks.target_path.outputs.path }}/{{ ._blocks.module_vars.outputs.module_name }}/terragrunt.hcl"
 ```
 
 ## Template Patterns

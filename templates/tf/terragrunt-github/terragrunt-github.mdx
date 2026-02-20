@@ -23,7 +23,7 @@ generates a `terragrunt.hcl` file at a chosen path, and opens a pull request.
 
 <TemplateInline
   inputsId="module-vars"
-  outputPath="{{ ._blocks.target_path.outputs.selected_path }}/{{ ._blocks.module_vars.outputs.module_name }}/terragrunt.hcl"
+  outputPath="{{ ._blocks.target_path.outputs.path }}/{{ ._blocks.module_vars.outputs.module_name }}/terragrunt.hcl"
   generateFile={true}
   target="worktree"
 >
@@ -49,7 +49,7 @@ inputs = {
 
 <GitHubPullRequest
   workspaceId="clone-repo" 
-  prefilledPullRequestTitle="Update {{ ._blocks.target_path.outputs.MODULE_NAME }} module"
-  prefilledBranchName="feature/{{ ._blocks.target_path.outputs.MODULE_NAME }}"
-  prefilledPullRequestDescription="## Changes\n\n- Added a new terragrunt.hcl file at {{ ._blocks.target_path.outputs.TARGET_PATH }}"
+  prefilledPullRequestTitle="Update {{ ._blocks.module_vars.outputs.module_name }} module"
+  prefilledBranchName="feature/{{ ._blocks.module_vars.outputs.module_name }}"
+  prefilledPullRequestDescription="## Changes\n\n- Added a new terragrunt.hcl file at {{ ._blocks.target_path.outputs.path }}"
 />
