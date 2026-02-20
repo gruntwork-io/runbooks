@@ -46,7 +46,7 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 		}
 
 		// Resolve the runbook path (or generate from OpenTofu module)
-		_, path, tofuCleanup := resolveRunbookOrTofuModule(path)
+		_, path, remoteSourceURL, tofuCleanup := resolveRunbookOrTofuModule(path)
 		if tofuCleanup != nil {
 			defer tofuCleanup()
 		}
@@ -58,6 +58,7 @@ This is useful for local development on the runbooks tool. Runbook authors and c
 			Port:                  7825,
 			WorkingDir:            resolvedWorkDir,
 			OutputPath:            outputPath,
+			RemoteSourceURL:       remoteSourceURL,
 			UseExecutableRegistry: true,
 			EnableCORS:            true,
 		}); err != nil {

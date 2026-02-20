@@ -55,7 +55,7 @@ func openRunbook(path string) {
 	slog.Info("Opening runbook", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath)
 
 	// Resolve the runbook path (or generate from OpenTofu module)
-	resolvedPath, path, tofuCleanup := resolveRunbookOrTofuModule(path)
+	resolvedPath, path, remoteSourceURL, tofuCleanup := resolveRunbookOrTofuModule(path)
 	if tofuCleanup != nil {
 		defer tofuCleanup()
 	}
@@ -70,6 +70,7 @@ func openRunbook(path string) {
 			Port:                  7825,
 			WorkingDir:            resolvedWorkDir,
 			OutputPath:            outputPath,
+			RemoteSourceURL:       remoteSourceURL,
 			UseExecutableRegistry: true,
 			ReleaseMode:           true,
 		})

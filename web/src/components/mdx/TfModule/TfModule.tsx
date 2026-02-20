@@ -7,6 +7,14 @@ import type { AppError } from '@/types/error'
 import { useApiParseTfModule } from '@/hooks/useApiParseTfModule'
 import { useInputRegistration } from '../_shared/hooks/useInputRegistration'
 import { buildHclInputsMap } from '../_shared/lib/formatHclValue'
+import { useRunbookContext } from '@/contexts/useRunbook'
+
+/**
+ * Special keyword for the source prop that resolves to the remote URL
+ * passed to the `runbooks open` CLI command. This enables generic runbooks
+ * that work with any OpenTofu module URL.
+ */
+const SOURCE_KEYWORD = '$source'
 
 /**
  * TfModule component - parses an OpenTofu module at runtime and collects user input.
@@ -17,12 +25,14 @@ import { buildHclInputsMap } from '../_shared/lib/formatHclValue'
  *
  * The source prop accepts both local relative paths and remote URLs:
  * - Local: "../modules/my-vpc"
+ * - Colocated: "." (same directory as the runbook)
+ * - Dynamic: "$source" (resolved from the `runbooks open` CLI invocation)
  * - GitHub shorthand: "github.com/org/modules//vpc?ref=v1.0"
  * - Git prefix: "git::https://github.com/org/repo.git//path?ref=v1.0"
  * - GitHub browser URL: "https://github.com/org/repo/tree/main/modules/vpc"
  *
  * @param props.id - Unique identifier for this component (required)
- * @param props.source - Module source: local path or remote URL (required)
+ * @param props.source - Module source: local path, remote URL, ".", or "$source" (required)
  */
 interface TfModuleProps {
   id: string
@@ -30,29 +40,43 @@ interface TfModuleProps {
 }
 
 function TfModule({ id, source }: TfModuleProps) {
+  const { remoteSource } = useRunbookContext()
+
+  // Resolve $source keyword to the remote URL from the CLI invocation
+  const resolvedSource = useMemo(() => {
+    if (source === SOURCE_KEYWORD) {
+      return remoteSource || null // null signals missing remote source
+    }
+    return source
+  }, [source, remoteSource])
+
+  // Track whether $source keyword is missing a remote source
+  const isMissingRemoteSource = source === SOURCE_KEYWORD && !resolvedSource
+
   // Validate props
   const validationError = useMemo((): AppError | null => {
+    if (isMissingRemoteSource) return null // handled by dedicated UI below
     if (!id) {
       return {
         message: "The <TfModule> component requires a non-empty 'id' prop.",
         details: "Please provide a unique 'id' for this component instance.",
       }
     }
-    if (!source) {
+    if (!resolvedSource) {
       return {
         message: "The <TfModule> component requires a 'source' prop.",
         details: "Provide a local path (e.g., '../modules/vpc') or a remote URL (e.g., 'github.com/org/modules//vpc?ref=v1.0').",
       }
     }
     return null
-  }, [id, source])
+  }, [id, resolvedSource, isMissingRemoteSource])
 
   // Load boilerplate config by parsing the OpenTofu module
   const {
     data: boilerplateConfig,
     isLoading,
     error: apiError,
-  } = useApiParseTfModule(source, !validationError)
+  } = useApiParseTfModule(resolvedSource ?? undefined, !validationError)
 
   // Build enriched form data with _module namespace
   const metadata = boilerplateConfig?.metadata
@@ -60,7 +84,7 @@ function TfModule({ id, source }: TfModuleProps) {
     (formData: Record<string, unknown>) => ({
       ...formData,
       _module: {
-        source,
+        source: resolvedSource,
         inputs: { ...formData },
         hcl_inputs: buildHclInputsMap(formData, boilerplateConfig),
         folder_name: metadata?.folder_name ?? '',
@@ -69,7 +93,7 @@ function TfModule({ id, source }: TfModuleProps) {
         resource_names: metadata?.resource_names ?? [],
       },
     }),
-    [source, boilerplateConfig, metadata]
+    [resolvedSource, boilerplateConfig, metadata]
   )
 
   // Shared registration logic (ID registry, error reporting, telemetry, form state, debouncing)
@@ -90,6 +114,28 @@ function TfModule({ id, source }: TfModuleProps) {
     enrichFormData,
   })
 
+  // Show friendly message when $source is used but no remote source is available
+  if (isMissingRemoteSource) {
+    return (
+      <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg">
+        <div className="text-amber-800 font-semibold mb-2">
+          No remote module source available
+        </div>
+        <div className="text-amber-700 text-sm">
+          <p className="mb-2">
+            This runbook uses <code className="bg-amber-100 px-1 rounded">source="$source"</code>,
+            which expects a remote OpenTofu/Terraform module URL from the <code className="bg-amber-100 px-1 rounded">runbooks open</code> command.
+          </p>
+          <p>
+            To use this runbook, run it with a remote module URL:
+          </p>
+          <pre className="mt-2 bg-amber-100 p-2 rounded text-xs">
+            runbooks open --tf-runbook . https://github.com/org/repo/tree/main/modules/my-module
+          </pre>
+        </div>
+      </div>
+    )
+  }
   if (isDuplicate) {
     return <DuplicateIdError id={id} isNormalizedCollision={isNormalizedCollision} collidingId={collidingId} />
   }

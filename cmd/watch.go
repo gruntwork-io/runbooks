@@ -65,7 +65,7 @@ func watchRunbook(path string) {
 	slog.Info("Opening runbook with file watching", "path", path, "workingDir", resolvedWorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
 	// Resolve the runbook path (or generate from OpenTofu module)
-	resolvedPath, path, tofuCleanup := resolveRunbookOrTofuModule(path)
+	resolvedPath, path, remoteSourceURL, tofuCleanup := resolveRunbookOrTofuModule(path)
 	if tofuCleanup != nil {
 		defer tofuCleanup()
 	}
@@ -80,6 +80,7 @@ func watchRunbook(path string) {
 			Port:                  7825,
 			WorkingDir:            resolvedWorkDir,
 			OutputPath:            outputPath,
+			RemoteSourceURL:       remoteSourceURL,
 			IsWatchMode:           true,
 			UseExecutableRegistry: useExecutableRegistry,
 		})

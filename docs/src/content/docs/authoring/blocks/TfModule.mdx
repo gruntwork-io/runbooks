@@ -4,17 +4,27 @@ title: <TfModule>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<TfModule>` block parses an OpenTofu/Terraform module and dynamically renders an input form for all the module's variables, and publishes the collected values so [`<Template>`](/authoring/blocks/template/) and [`<TemplateInline>`](/authoring/blocks/templateinline/) blocks can generate **any** output format — Terragrunt HCL, raw Terraform, YAML configs, or anything else.
+The `<TfModule>` block parses an OpenTofu/Terraform module, dynamically renders a web form to collect values for all the module's variables, and publishes the collected values to the runbooks global context.
+
+This is useful because blocks like [`<Template>`](/authoring/blocks/template/) and [`<TemplateInline>`](/authoring/blocks/templateinline/) can read these values to generate any output format, such as a Terragrunt HCL file, Helm chart YAML file, CloudFormation template, or anything else.
+
+You can also use the `runbooks open` (or `watch` or `serve`) commands to open a URL containing an OpenTofu/Terraform module and dynamically render a web form within a customizable runbook to collect values for the module's variables. For example:
+
+```bash
+runbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/test-fixtures/tofu-modules/s3-bucket
+```
+
+Effectively, this means you can define a runbook that unblocks a web-based self-service experience for your entire existing collection of OpenTofu/Terraform modules.
 
 ## Basic Usage
 
 `````mdx
 <TfModule id="rds-vars" source="../modules/rds" />
 
-<Template id="rds-output" path="templates/rds" inputsId="rds-vars" />
+<Template id="rds-output" inputsId="rds-vars" path="templates/rds" />
 `````
 
-The `<TfModule>` block parses the module's `.tf` files and renders an input form. The `<Template>` block imports those values via `inputsId` and generates files from the template directory. Because Template is backed by a `boilerplate.yml`, you can easily add more output files, collect extra variables, or reorganize your templates — all without touching the runbook.
+The `<TfModule>` block parses the `.tf` files at `../modules/rds` and renders a web form based on them. The `<Template>` block imports those values via `inputsId` and generates files based on the the template located at `templates/rds`.
 
 <Aside type="tip">
 For quick prototyping you can also use [`<TemplateInline>`](/authoring/blocks/templateinline/) to embed template text directly in the runbook. See [Using TemplateInline](#using-templateinline) below.
@@ -24,9 +34,8 @@ For quick prototyping you can also use [`<TemplateInline>`](/authoring/blocks/te
 
 Both `<TfModule>` and `<Inputs>` collect user values and publish them to context, but they serve different purposes.
 
-**`<TfModule>`** parses `.tf` files ((OpenTofu/Terraform modules) at runtime and auto-generates an input form from the module's variables. It provides a `_module` namespace with source, metadata, `inputs`, and `hcl_inputs`, enabling dynamic iteration over all variables without knowing their names upfront. Use it when you want to generate config files from an existing OpenTofu module.
-
-**`<Inputs>`** defines variables explicitly in inline YAML or a `boilerplate.yml`. Each variable must be referenced by name in templates. Use it when you want to collect arbitrary user input that doesn't come from a `.tf` module.
+- **`<TfModule>`** parses `.tf` files (OpenTofu/Terraform modules) at runtime and auto-generates an input form from the module's variables. It provides a `_module` namespace with source, metadata, `inputs`, and `hcl_inputs`, enabling dynamic iteration over all variables without knowing their names upfront. Use it when you want to generate files from an existing OpenTofu/Terraform module.
+- **`<Inputs>`** defines variables explicitly in inline YAML or a `boilerplate.yml`. Each variable must be referenced by name in templates. Use it when you want to collect arbitrary user input that doesn't come from a `.tf` module.
 
 ## Props
 
@@ -42,6 +51,8 @@ The `source` prop accepts the same formats as the `runbooks open` CLI command:
 | Format | Example |
 |--------|---------|
 | Local relative path | `../modules/rds` |
+| Colocated (same directory) | `.` |
+| Dynamic from CLI | `$source` |
 | GitHub shorthand | `github.com/org/repo//modules/rds?ref=v1.0.0` |
 | Git prefix | `git::https://github.com/org/repo.git//modules/rds?ref=v1.0.0` |
 | GitHub browser URL | `https://github.com/org/repo/tree/main/modules/rds` |
@@ -49,6 +60,86 @@ The `source` prop accepts the same formats as the `runbooks open` CLI command:
 
 <Aside type="tip">
 For remote sources, use `?ref=v1.0.0` (or a branch/commit) to pin to a specific version. Without a ref, the default branch is used.
+</Aside>
+
+### Colocated Runbooks (`source="."`)
+
+When a module author places a `runbook.mdx` alongside their `.tf` files, they can use `source="."` to reference the module in the same directory. When someone runs `runbooks open` pointing at that directory (locally or via a remote URL), the CLI detects the colocated `runbook.mdx` and serves it instead of auto-generating a basic one.
+
+This lets module authors ship a custom, polished runbook experience alongside their module code:
+
+```
+modules/rds/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+└── runbook.mdx        ← custom runbook
+```
+
+Inside `runbook.mdx`:
+
+`````mdx
+# Configure RDS
+
+<TfModule id="rds-vars" source="." />
+
+<TemplateInline inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+Anyone can then run this module's custom runbook:
+
+```bash
+runbooks open https://github.com/my-org/infra-modules/tree/main/modules/rds
+```
+
+### Dynamic Source from CLI (`source="$source"`)
+
+The `$source` keyword resolves to whatever URL was passed to the `runbooks open` CLI command. This enables a **generic runbook** that works with any OpenTofu module without hardcoding a specific module path.
+
+Use the `--tf-runbook` flag to tell the CLI to use your custom runbook when opening a TF module:
+
+```bash
+runbooks open --tf-runbook ./my-custom-runbook/ https://github.com/org/repo/tree/main/modules/rds
+```
+
+Inside `my-custom-runbook/runbook.mdx`:
+
+`````mdx
+# Configure Module
+
+<TfModule id="module-vars" source="$source" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+If the runbook is opened without a remote module URL, `<TfModule>` renders a message explaining how to run the runbook with a module URL.
+
+<Aside type="note">
+You can also select a built-in template with `--tf-template` (e.g., `--tf-template full`) instead of providing a custom runbook. The `--tf-runbook` flag takes precedence if both are set.
 </Aside>
 
 ## The `_module` Namespace

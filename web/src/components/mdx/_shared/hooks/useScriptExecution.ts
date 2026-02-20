@@ -560,15 +560,16 @@ export function useScriptExecution({
     // Get merged template variables (inputs at root + _blocks namespace)
     const templateVars = getTemplateVariables(allInputsIds.length > 0 ? allInputsIds : undefined)
     
-    // Convert input variables to strings, but preserve _blocks structure as-is
+    // Convert input variables to strings, but preserve objects/maps as-is
     // for nested template access like {{ ._blocks.create-account.outputs.account_id }}
+    // or {{ ._module.source }}
     const processedVariables: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(templateVars)) {
-      if (key === '_blocks') {
-        // Keep _blocks as nested object for Go template engine
+      if (value !== null && typeof value === 'object') {
+        // Keep objects/maps as nested structures for Go template engine
         processedVariables[key] = value
       } else {
-        // Convert other values to strings
+        // Convert primitive values to strings
         processedVariables[key] = String(value)
       }
     }

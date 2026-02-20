@@ -66,11 +66,11 @@ inputs = {
 
 ## Place Files & Create Pull Request
 
-<Command id="copy-files" path="scripts/copy-to-target.sh"
-    inputsId="deploy-config"
-    title="Copy generated files to target repository"
+<Command id="place-files" path="scripts/place-in-repo.sh"
+    inputsId={["deploy-config", "module-vars"]}
+    title="Place terragrunt.hcl in target repository"
     successMessage="Files placed successfully!"
-    failMessage="Failed to copy files." />
+    failMessage="Failed to place files." />
 
 <GitHubPullRequest id="create-pr" githubAuthId="gh-auth"
     prefilledPullRequestTitle="Add {{ .ModuleName }} Terragrunt unit"

@@ -114,8 +114,11 @@ func resolveModuleSource(source string, runbookPath string) (localPath string, c
 		return "", nil, fmt.Errorf("invalid module source %q: %w", source, err)
 	}
 
-	// Local path — resolve relative to the runbook directory
+	// Local path — resolve relative to the runbook directory (unless already absolute)
 	if parsed == nil {
+		if filepath.IsAbs(source) {
+			return source, nil, nil
+		}
 		runbookDir := filepath.Dir(runbookPath)
 		return filepath.Join(runbookDir, source), nil, nil
 	}

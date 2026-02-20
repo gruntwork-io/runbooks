@@ -36,6 +36,10 @@ var (
 
 	// Global flag to disable telemetry
 	noTelemetry bool
+
+	// Global flags for OpenTofu module template selection
+	tfTemplate string // --tf-template: built-in template name (basic, full)
+	tfRunbook  string // --tf-runbook: path to a custom runbook directory
 )
 
 // getVersionString returns the full version information
@@ -68,28 +72,61 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 	return cwd, nil, nil
 }
 
+// resolveTofuModuleRunbook resolves a TF module to a runbook, using the --tf-runbook
+// or --tf-template flags if set, or falling back to the default auto-generated template.
+// modulePath is the local path to the TF module. originalSource is the original URL
+// for remote modules (empty for local). Returns the runbook path, server path,
+// remote source URL (for $source resolution), and a cleanup function.
+func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+	// If --tf-runbook is set, use the custom runbook instead of auto-generating
+	if tfRunbook != "" {
+		customRunbookPath, err := api.ResolveRunbookPath(tfRunbook)
+		if err != nil {
+			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
+			os.Exit(1)
+		}
+		// The remote source URL is the TF module source, so $source resolves to it
+		moduleSourceURL := originalSource
+		if moduleSourceURL == "" {
+			// For local modules, use the absolute path
+			absPath, err := filepath.Abs(modulePath)
+			if err != nil {
+				slog.Error("Failed to resolve module path", "path", modulePath, "error", err)
+				os.Exit(1)
+			}
+			moduleSourceURL = absPath
+		}
+		slog.Info("Using custom runbook for OpenTofu module", "runbook", tfRunbook, "module", moduleSourceURL)
+		return customRunbookPath, tfRunbook, moduleSourceURL, nil
+	}
+
+	// Otherwise, auto-generate a runbook using the template name (defaults to "basic")
+	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(modulePath, originalSource, tfTemplate)
+	if genErr != nil {
+		slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
+		os.Exit(1)
+	}
+	return generatedPath, generatedPath, "", tofuCleanup
+}
+
 // resolveRunbookOrTofuModule attempts to resolve a runbook at the given path.
 // If no runbook is found but the path is an OpenTofu module, it generates a
 // runbook from the module. Also handles remote URLs — downloads the source first,
 // then checks for a runbook or OpenTofu module.
-// Returns the resolved runbook path, the (possibly updated) server path, and a
+// Returns the resolved runbook path, the (possibly updated) server path,
+// the original remote URL (for $source resolution in TfModule), and a
 // cleanup function for any generated temp files. Calls os.Exit(1) on errors.
-func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath string, cleanup func()) {
+func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
 	// 1. Try as a local runbook
 	resolvedPath, err := api.ResolveRunbookPath(path)
 	if err == nil {
-		return resolvedPath, path, nil
+		return resolvedPath, path, "", nil
 	}
 
 	// 2. Try as a local OpenTofu module
 	if api.IsTofuModule(path) {
 		slog.Info("Detected OpenTofu module, generating runbook", "path", path)
-		generatedPath, tofuCleanup, genErr := api.GenerateRunbook(path, "" /* originalSource */, "" /* default template */)
-		if genErr != nil {
-			slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
-			os.Exit(1)
-		}
-		return generatedPath, generatedPath, tofuCleanup
+		return resolveTofuModuleRunbook(path, "" /* originalSource */)
 	}
 
 	// 3. Try as a remote source (GitHub/GitLab URL)
@@ -108,20 +145,13 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 		// Check if the downloaded source is a runbook
 		resolvedPath, rbErr := api.ResolveRunbookPath(localPath)
 		if rbErr == nil {
-			return resolvedPath, localPath, remoteCleanup
+			return resolvedPath, localPath, path, remoteCleanup
 		}
 
 		// Check if the downloaded source is an OpenTofu module
 		if api.IsTofuModule(localPath) {
 			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
-			generatedPath, tofuCleanup, genErr := api.GenerateRunbook(localPath, path /* originalSource */, "" /* default template */)
-			if genErr != nil {
-				if remoteCleanup != nil {
-					remoteCleanup()
-				}
-				slog.Error("Failed to generate runbook from remote OpenTofu module", "error", genErr)
-				os.Exit(1)
-			}
+			rbPath, srvPath, remoteURL, tofuCleanup := resolveTofuModuleRunbook(localPath, path /* originalSource */)
 			// Combine cleanups: tofu cleanup first, then remote cleanup
 			combinedCleanup := func() {
 				if tofuCleanup != nil {
@@ -131,7 +161,7 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 					remoteCleanup()
 				}
 			}
-			return generatedPath, generatedPath, combinedCleanup
+			return rbPath, srvPath, remoteURL, combinedCleanup
 		}
 
 		// Downloaded but neither a runbook nor a TF module
@@ -387,6 +417,13 @@ func init() {
 	// Add telemetry opt-out flag
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,
 		"Disable anonymous telemetry (can also set RUNBOOKS_TELEMETRY_DISABLE=1)")
+
+	// Add OpenTofu module template flags
+	rootCmd.PersistentFlags().StringVar(&tfTemplate, "tf-template", "",
+		"Built-in template for OpenTofu modules (basic, full)")
+
+	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
+		"Path to a custom runbook to use for OpenTofu modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

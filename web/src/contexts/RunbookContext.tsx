@@ -116,6 +116,10 @@ export interface RunbookContextType {
   /** The runbook name derived from its directory path (e.g., "github-pull-request") */
   runbookName: string | undefined
 
+  /** The original remote URL when the runbook was opened from a remote source (e.g., GitHub URL).
+   * Used by TfModule's source="$source" keyword to resolve the module source dynamically. */
+  remoteSource: string | undefined
+
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
 
@@ -164,7 +168,7 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ ._blocks.create_account.outputs.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children, runbookName }: { children: ReactNode, runbookName?: string }) {
+export function RunbookContextProvider({ children, runbookName, remoteSource }: { children: ReactNode, runbookName?: string, remoteSource?: string }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
@@ -302,6 +306,7 @@ export function RunbookContextProvider({ children, runbookName }: { children: Re
 
   const contextValue = useMemo(() => ({
     runbookName,
+    remoteSource,
     blockInputs,
     registerInputs,
     getInputs,
@@ -309,7 +314,7 @@ export function RunbookContextProvider({ children, runbookName }: { children: Re
     registerOutputs,
     getOutputs,
     getTemplateVariables,
-  }), [runbookName, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
+  }), [runbookName, remoteSource, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
 
   return (
     <RunbookContext.Provider value={contextValue}>

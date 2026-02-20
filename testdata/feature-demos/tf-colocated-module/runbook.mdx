@@ -1,0 +1,30 @@
+# Deploy Compute Instance
+
+This is a **colocated runbook** — it lives alongside the module's `.tf` files and uses `source="."` to reference the module in the same directory.
+
+When someone runs `runbooks open` pointing at this directory (locally or via a remote URL), this custom runbook is served instead of an auto-generated one.
+
+## Configure Module Variables
+
+<TfModule id="instance-vars" source="." />
+
+## Preview Generated Configuration
+
+<TemplateInline inputsId="instance-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>

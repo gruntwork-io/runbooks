@@ -57,12 +57,13 @@ func TestGenerateRunbook_Full(t *testing.T) {
 	assert.Contains(t, mdx, "deploy-config")
 	assert.Contains(t, mdx, "<TfModule")
 	assert.Contains(t, mdx, "<TemplateInline")
+	assert.Contains(t, mdx, "place-in-repo.sh")
 
-	// Verify copy-to-target.sh was created
+	// Verify place-in-repo.sh was created
 	dir := filepath.Dir(mdxPath)
-	scriptPath := filepath.Join(dir, "scripts", "copy-to-target.sh")
+	scriptPath := filepath.Join(dir, "scripts", "place-in-repo.sh")
 	_, err = os.Stat(scriptPath)
-	assert.NoError(t, err, "copy-to-target.sh should exist")
+	assert.NoError(t, err, "place-in-repo.sh should exist")
 }
 
 func TestGenerateRunbook_DefaultTemplate(t *testing.T) {
