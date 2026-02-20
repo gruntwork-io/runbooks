@@ -3,7 +3,7 @@ export interface BoilerplateVariable {
   name: string;
   description: string;
   type: BoilerplateVariableType;
-  default: string;
+  default: unknown;
   required: boolean;
   options?: string[];
   validations?: ValidationRule[];

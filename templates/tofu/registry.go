@@ -67,7 +67,7 @@ func GetTemplate(name string) (RunbookTemplate, error) {
 	}
 	t, ok := templates[name]
 	if !ok {
-		return nil, fmt.Errorf("unknown template: %q (available: basic, full)", name)
+		return nil, fmt.Errorf("unknown template: %q (available keywords: basic, full; for a custom runbook use a path like ./%s)", name, name)
 	}
 	return t, nil
 }

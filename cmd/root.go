@@ -37,9 +37,8 @@ var (
 	// Global flag to disable telemetry
 	noTelemetry bool
 
-	// Global flags for OpenTofu module template selection
-	tfTemplate string // --tf-template: built-in template name (basic, full)
-	tfRunbook  string // --tf-runbook: path to a custom runbook directory
+	// Global flag for OpenTofu module runbook/template selection
+	tfRunbook string // --tf-runbook: built-in keyword (basic, full) or path to a custom runbook directory
 )
 
 // getVersionString returns the full version information
@@ -72,14 +71,24 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 	return cwd, nil, nil
 }
 
-// resolveTofuModuleRunbook resolves a TF module to a runbook, using the --tf-runbook
-// or --tf-template flags if set, or falling back to the default auto-generated template.
+// isTfRunbookKeyword returns true if the value looks like a built-in template keyword
+// (a bare word with no path separators or relative-path prefixes). Users who have a
+// custom runbook directory with the same name as a keyword can disambiguate by using
+// a path prefix, e.g. "./basic" instead of "basic".
+func isTfRunbookKeyword(value string) bool {
+	return !strings.Contains(value, "/") && !strings.Contains(value, string(filepath.Separator))
+}
+
+// resolveTofuModuleRunbook resolves a TF module to a runbook, using --tf-runbook if set,
+// or falling back to the default auto-generated template.
+// When --tf-runbook is a bare keyword (e.g., "basic", "full"), it selects a built-in template.
+// When it's a path (e.g., "./my-runbook", "path/to/runbook"), it uses the custom runbook.
 // modulePath is the local path to the TF module. originalSource is the original URL
 // for remote modules (empty for local). Returns the runbook path, server path,
 // remote source URL (for $source resolution), and a cleanup function.
 func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
-	// If --tf-runbook is set, use the custom runbook instead of auto-generating
-	if tfRunbook != "" {
+	// If --tf-runbook is a path, use the custom runbook
+	if tfRunbook != "" && !isTfRunbookKeyword(tfRunbook) {
 		customRunbookPath, err := api.ResolveRunbookPath(tfRunbook)
 		if err != nil {
 			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
@@ -100,8 +109,9 @@ func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolve
 		return customRunbookPath, tfRunbook, moduleSourceURL, nil
 	}
 
-	// Otherwise, auto-generate a runbook using the template name (defaults to "basic")
-	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(modulePath, originalSource, tfTemplate)
+	// Otherwise, auto-generate a runbook using the keyword as template name (defaults to "basic")
+	templateName := tfRunbook // bare keyword like "basic", "full", or "" for default
+	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(modulePath, originalSource, templateName)
 	if genErr != nil {
 		slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
 		os.Exit(1)
@@ -470,12 +480,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,
 		"Disable anonymous telemetry (can also set RUNBOOKS_TELEMETRY_DISABLE=1)")
 
-	// Add OpenTofu module template flags
-	rootCmd.PersistentFlags().StringVar(&tfTemplate, "tf-template", "",
-		"Built-in template for OpenTofu modules (basic, full)")
-
+	// Add OpenTofu module runbook flag (handles both built-in keywords and custom paths)
 	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
-		"Path to a custom runbook to use for OpenTofu modules")
+		"Built-in template keyword (basic, full) or path to a custom runbook for OpenTofu/Terraform modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

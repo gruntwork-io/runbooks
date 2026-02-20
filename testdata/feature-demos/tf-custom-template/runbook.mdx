@@ -49,6 +49,31 @@ inputs = {
 ```
 </TemplateInline>
 
+### Non-Empty Inputs
+
+This template uses `_module.hcl_inputs_non_empty`, which only includes variables whose
+current value differs from the module's declared default. Required variables are always
+included. With the lambda module defaults, `handler` and `description` are omitted when unchanged.
+
+<TemplateInline inputsId="lambda-vars" outputPath="terragrunt-minimal.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs_non_empty }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+
 ### Individual Variable Access
 
 You can also access specific variables by name (not just through iteration).

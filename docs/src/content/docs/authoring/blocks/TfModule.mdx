@@ -139,7 +139,7 @@ inputs = {
 If the runbook is opened without a remote module URL, `<TfModule>` renders a message explaining how to run the runbook with a module URL.
 
 <Aside type="note">
-You can also select a built-in template with `--tf-template` (e.g., `--tf-template full`) instead of providing a custom runbook. The `--tf-runbook` flag takes precedence if both are set.
+You can also select a built-in template by passing a keyword instead of a path: `--tf-runbook full`. Available keywords: `basic` (default), `full`. To use a custom runbook directory that has the same name as a keyword, use a path prefix: `--tf-runbook ./full`.
 </Aside>
 
 ## The `_module` Namespace
@@ -167,6 +167,10 @@ _module:
     engine_version: "\"16.3\""
     allocated_storage: "20"
     multi_az: "true"
+  hcl_inputs_non_empty:
+    instance_class: "\"db.t3.micro\""
+    allocated_storage: "20"
+    multi_az: "true"
 ```
 
 - **`_module.source`:** The module source from the `source` prop. Useful for embedding in generated config.
@@ -176,6 +180,7 @@ _module:
 - **`_module.resource_names`:** List of resource block names as `type.name` (sorted, excludes `data` sources).
 - **`_module.inputs`:** Map of all variable names to their raw values as entered by the user. Use when generating non-HCL formats (YAML, JSON, TOML) where you control the formatting.
 - **`_module.hcl_inputs`:** Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
+- **`_module.hcl_inputs_non_empty`:** Same as `hcl_inputs`, but only includes variables whose current value differs from the module's declared default. Required variables (no default) are always included. Use for idiomatic Terragrunt where you only declare variables that differ from defaults — Terraform/OpenTofu applies defaults automatically for anything omitted.
 
 ## Template Patterns
 
@@ -211,6 +216,33 @@ inputs = {
 <Aside type="note">
 The `hcl_inputs` map handles type-aware formatting automatically: strings are quoted (`"value"`), booleans are raw (`true`/`false`), numbers are raw (`42`), and lists/maps are JSON-encoded.
 </Aside>
+
+### Non-Empty Inputs
+
+For idiomatic Terragrunt, you typically only declare variables that differ from their module defaults. Use `_module.hcl_inputs_non_empty` to generate a minimal `inputs` block — it excludes any variable whose current value matches the declared default in the `.tf` module, while always including required variables:
+
+`````mdx
+<TfModule id="module-vars" source="../modules/rds" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs_non_empty }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
 
 ### Multiple Output Files
 

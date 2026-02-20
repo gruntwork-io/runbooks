@@ -6,7 +6,7 @@ import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
 import type { AppError } from '@/types/error'
 import { useApiParseTfModule } from '@/hooks/useApiParseTfModule'
 import { useInputRegistration } from '../_shared/hooks/useInputRegistration'
-import { buildHclInputsMap } from '../_shared/lib/formatHclValue'
+import { buildHclInputsMap, buildNonEmptyHclInputsMap } from '../_shared/lib/formatHclValue'
 import { useRunbookContext } from '@/contexts/useRunbook'
 
 /**
@@ -87,6 +87,7 @@ function TfModule({ id, source }: TfModuleProps) {
         source: resolvedSource,
         inputs: { ...formData },
         hcl_inputs: buildHclInputsMap(formData, boilerplateConfig),
+        hcl_inputs_non_empty: buildNonEmptyHclInputsMap(formData, boilerplateConfig),
         folder_name: metadata?.folder_name ?? '',
         readme_title: metadata?.readme_title ?? '',
         output_names: metadata?.output_names ?? [],

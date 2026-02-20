@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatHclValue, buildHclInputsMap } from './formatHclValue'
+import { formatHclValue, buildHclInputsMap, buildNonEmptyHclInputsMap } from './formatHclValue'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 
@@ -256,6 +256,129 @@ describe('buildHclInputsMap', () => {
       cidrs: '["10.0.0.0/16"]',
       port: '443',
       debug: 'false',
+    })
+  })
+})
+
+describe('buildNonEmptyHclInputsMap', () => {
+  const makeConfigWithDefaults = (
+    vars: Array<{ name: string; type: BoilerplateVariableType; default: unknown; required: boolean }>
+  ): BoilerplateConfig => ({
+    variables: vars.map(v => ({
+      name: v.name,
+      type: v.type,
+      description: '',
+      default: v.default,
+      required: v.required,
+    })),
+  })
+
+  it('filters string matching default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'description', type: BoilerplateVariableType.String, default: '', required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ description: '' }, config)
+    expect(result).toEqual({})
+  })
+
+  it('includes string differing from default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'description', type: BoilerplateVariableType.String, default: '', required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ description: 'My func' }, config)
+    expect(result).toEqual({ description: '"My func"' })
+  })
+
+  it('filters map matching default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'tags', type: BoilerplateVariableType.Map, default: {}, required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ tags: {} }, config)
+    expect(result).toEqual({})
+  })
+
+  it('includes map differing from default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'tags', type: BoilerplateVariableType.Map, default: {}, required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ tags: { env: 'prod' } }, config)
+    expect(result).toEqual({ tags: '{"env":"prod"}' })
+  })
+
+  it('filters bool matching default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'enabled', type: BoilerplateVariableType.Bool, default: true, required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ enabled: true }, config)
+    expect(result).toEqual({})
+  })
+
+  it('includes bool differing from default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'enabled', type: BoilerplateVariableType.Bool, default: true, required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ enabled: false }, config)
+    expect(result).toEqual({ enabled: 'false' })
+  })
+
+  it('filters number matching default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'days', type: BoilerplateVariableType.Int, default: 0, required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ days: 0 }, config)
+    expect(result).toEqual({})
+  })
+
+  it('includes number differing from default', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'days', type: BoilerplateVariableType.Int, default: 0, required: false },
+    ])
+    const result = buildNonEmptyHclInputsMap({ days: 90 }, config)
+    expect(result).toEqual({ days: '90' })
+  })
+
+  it('always includes required variables regardless of value', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'function_name', type: BoilerplateVariableType.String, default: '', required: true },
+    ])
+    // Even though the value matches what would be default, required vars are always included
+    const result = buildNonEmptyHclInputsMap({ function_name: '' }, config)
+    expect(result).toEqual({ function_name: '""' })
+  })
+
+  it('handles null config (all variables included)', () => {
+    const formData = { name: 'value', count: 42 }
+    const result = buildNonEmptyHclInputsMap(formData, null)
+    // With null config, no varDef found, so all variables are included (treated as string)
+    expect(result).toEqual({
+      name: '"value"',
+      count: '"42"',
+    })
+  })
+
+  it('mixed scenario with realistic module variables', () => {
+    const config = makeConfigWithDefaults([
+      { name: 'function_name', type: BoilerplateVariableType.String, default: '', required: true },
+      { name: 'runtime', type: BoilerplateVariableType.Enum, default: 'python3.11', required: false },
+      { name: 'handler', type: BoilerplateVariableType.String, default: 'index.handler', required: false },
+      { name: 'description', type: BoilerplateVariableType.String, default: '', required: false },
+      { name: 'tags', type: BoilerplateVariableType.Map, default: {}, required: false },
+      { name: 'timeout', type: BoilerplateVariableType.Int, default: 30, required: false },
+    ])
+    const formData = {
+      function_name: 'my-lambda',   // required — always included
+      runtime: 'python3.11',         // matches default — excluded
+      handler: 'index.handler',      // matches default — excluded
+      description: '',                // matches default — excluded
+      tags: { env: 'prod' },         // differs from default {} — included
+      timeout: 30,                    // matches default — excluded
+    }
+
+    const result = buildNonEmptyHclInputsMap(formData, config)
+
+    expect(result).toEqual({
+      function_name: '"my-lambda"',
+      tags: '{"env":"prod"}',
     })
   })
 })

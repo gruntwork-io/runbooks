@@ -46,6 +46,39 @@ export function formatHclValue(value: unknown, type: BoilerplateVariableType): s
 }
 
 /**
+ * Builds a map of variable name → HCL-formatted string value, excluding variables
+ * whose current value matches their declared default. Required variables (no default)
+ * are always included. This is useful for idiomatic Terragrunt where you only declare
+ * variables that differ from module defaults.
+ */
+export function buildNonEmptyHclInputsMap(
+  formData: Record<string, unknown>,
+  config: BoilerplateConfig | null
+): Record<string, string> {
+  const hclInputs: Record<string, string> = {}
+  for (const [name, value] of Object.entries(formData)) {
+    const varDef = config?.variables.find(v => v.name === name)
+    const type = varDef?.type ?? BoilerplateVariableType.String
+
+    // Always include required variables (no default declared)
+    if (varDef?.required) {
+      hclInputs[name] = formatHclValue(value, type)
+      continue
+    }
+
+    // Compare formatted HCL value against formatted default
+    const hclValue = formatHclValue(value, type)
+    if (varDef != null) {
+      const hclDefault = formatHclValue(varDef.default, type)
+      if (hclValue === hclDefault) continue // skip — matches default
+    }
+
+    hclInputs[name] = hclValue
+  }
+  return hclInputs
+}
+
+/**
  * Builds a map of variable name → HCL-formatted string value.
  * Used to populate _module.hcl_inputs for template iteration.
  * Accepts a BoilerplateConfig to look up variable types.
