@@ -118,6 +118,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.DELETE("/git/branch", HandleGitDeleteBranch())
 		// Workspace endpoints for file tree, file content, and git changes
 		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
+		protectedAPI.GET("/workspace/dirs", HandleWorkspaceDirs())
 		protectedAPI.GET("/workspace/file", HandleWorkspaceFile())
 		protectedAPI.GET("/workspace/changes", HandleWorkspaceChanges())
 		protectedAPI.POST("/workspace/register", HandleWorkspaceRegister(sessionManager))

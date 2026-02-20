@@ -1,0 +1,73 @@
+---
+title: <DirPicker>
+---
+
+The `<DirPicker>` block provides cascading directory dropdowns for picking a path within a cloned repository. It scans the directory structure and lets users compose a target path interactively or by typing directly.
+
+The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ ._blocks.<id>.outputs.selected_path }}` syntax.
+
+### Basic Usage
+
+The DirPicker block is typically paired with a `<GitClone>` block. The `gitCloneId` prop references the GitClone block that provides the root directory.
+
+```mdx
+<GitClone id="clone-repo" title="Clone Repository" />
+
+<DirPicker
+  id="target-path"
+  gitCloneId="clone-repo"
+  dirLabels={['Account', 'Region', 'Category']}
+  title="Select deployment path"
+  description="Choose where to place the generated configuration"
+/>
+```
+
+### Directory-Level Labels
+
+The required `dirLabels` prop assigns meaningful names to each cascading directory level. Each entry in the array labels the corresponding depth of the directory tree. Each dropdown shows a labelled header (e.g. "Account") and its placeholder reads "Select account...".
+
+If the user drills deeper than the number of labels provided, extra levels fall back to "Level N".
+
+### Using Outputs in Templates
+
+The DirPicker outputs `selected_path`, which can be referenced in a `<TemplateInline>` block's `outputPath` prop:
+
+```mdx
+<TemplateInline
+  inputsId="module-vars"
+  outputPath="{{ ._blocks.target_path.outputs.selected_path }}/terragrunt.hcl"
+  generateFile={true}
+  target="worktree"
+>
+```
+
+The `outputPath` resolves `{{ ._blocks.*.outputs.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected.
+
+### Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
+| `gitCloneId` | `string` | No | ID of a `<GitClone>` block whose clone path provides the root directory. When set, the block waits for the clone to complete before loading directories. |
+| `title` | `string` | No | Display title. Supports inline markdown. Defaults to "Select Directory". |
+| `description` | `string` | No | Description text below the title. Supports inline markdown. Defaults to "Choose a target directory". |
+| `dirLabels` | `string[]` | Yes | Ordered labels for each directory level (e.g., `['Account', 'Region']`). Also caps the number of dropdowns to `dirLabels.length` unless `dirLabelsExtra` is true. |
+| `dirLabelsExtra` | `boolean` | No | When `true`, allow navigating deeper than `dirLabels.length`. Extra levels are labelled "Level N". Defaults to `false`. |
+| `pathLabel` | `string` | No | Label for the editable path text input. Defaults to "Target Path". |
+| `pathLabelDescription` | `string` | No | Description text shown below the path label. Supports inline markdown. |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `selected_path` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. |
+
+### How It Works
+
+1. When the referenced `<GitClone>` block completes, DirPicker reads the `CLONE_PATH` output to determine the root directory.
+2. It fetches the immediate subdirectories via `GET /api/workspace/dirs`.
+3. Each dropdown selection triggers a fetch for the next level's subdirectories, building a cascading drill-down.
+4. An editable text input below the dropdowns shows the composed path. Users can edit this directly for full control.
+5. On every change (dropdown or manual edit), the block registers `selected_path` as an output.
+
+Hidden directories (those starting with `.`) are excluded from the dropdown options.

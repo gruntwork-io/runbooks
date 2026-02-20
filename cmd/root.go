@@ -37,7 +37,7 @@ var (
 	noTelemetry bool
 
 	// Global flag for OpenTofu module runbook/template selection
-	tfRunbook string // --tf-runbook: ::keyword (::terragrunt, ::tofu) or path to a custom runbook directory
+	tfRunbook string // --tf-runbook: ::keyword (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom runbook directory
 )
 
 // getVersionString returns the full version information
@@ -486,7 +486,7 @@ func init() {
 
 	// Add OpenTofu module runbook flag (handles both ::keywords and custom paths)
 	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
-		"Built-in template (::terragrunt, ::tofu) or path to a custom runbook for OpenTofu/Terraform modules")
+		"Built-in template (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom runbook for OpenTofu/Terraform modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

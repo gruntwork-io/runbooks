@@ -139,7 +139,7 @@ inputs = {
 If the runbook is opened without a remote module URL, `<TfModule>` renders a message explaining how to run the runbook with a module URL.
 
 <Aside type="note">
-You can also select a built-in template by passing a `::keyword` instead of a path: `--tf-runbook=::tofu`. Available keywords: `::terragrunt` (default), `::tofu`.
+You can also select a built-in template by passing a `::keyword` instead of a path: `--tf-runbook=::tofu`. Available keywords: `::terragrunt` (default), `::terragrunt-github`, `::tofu`.
 </Aside>
 
 ## The `_module` Namespace
@@ -181,6 +181,21 @@ _module:
 - **`_module.inputs`:** Map of all variable names to their raw values as entered by the user. Use when generating non-HCL formats (YAML, JSON, TOML) where you control the formatting.
 - **`_module.hcl_inputs`:** Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
 - **`_module.hcl_inputs_non_empty`:** Same as `hcl_inputs`, but only includes variables whose current value differs from the module's declared default. Required variables (no default) are always included. Use for idiomatic Terragrunt where you only declare variables that differ from defaults — Terraform/OpenTofu applies defaults automatically for anything omitted.
+
+## Block Outputs
+
+In addition to the `_module` namespace (which is available via `inputsId`), `<TfModule>` also registers block outputs that can be referenced by downstream blocks using the `{{ ._blocks.<id>.outputs.<key> }}` syntax.
+
+| Output | Description |
+|--------|-------------|
+| `module_name` | The module's folder name (same as `_module.folder_name`). Useful in `outputPath` expressions for naming generated directories. |
+| `source` | The resolved module source URL. |
+
+For example, the `::terragrunt-github` template uses `module_name` to compose the output path:
+
+```
+outputPath="{{ ._blocks.target_path.outputs.selected_path }}/{{ ._blocks.module_vars.outputs.module_name }}/terragrunt.hcl"
+```
 
 ## Template Patterns
 

@@ -9,13 +9,14 @@ import type { AppError } from '@/types/error'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import { extractOutputDependencies } from './lib/extractOutputDependencies'
+import { extractOutputDependencies, extractOutputDependenciesFromString } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
 import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
+import { normalizeBlockId } from '@/lib/utils'
 
 interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
@@ -81,26 +82,54 @@ function TemplateInline({
   }, [children]);
   
   // Extract output dependencies from template content ({{ ._blocks.*.outputs.* }} patterns)
+  // Also extract from outputPath so TemplateInline waits for those outputs before rendering.
   const outputDependencies = useMemo(() => {
-    return extractOutputDependencies(children);
-  }, [children]);
-  
+    const childDeps = extractOutputDependencies(children);
+    const pathDeps = outputPath ? extractOutputDependenciesFromString(outputPath) : [];
+    if (pathDeps.length === 0) return childDeps;
+    // Deduplicate by fullPath
+    const seen = new Set(childDeps.map(d => d.fullPath));
+    const merged = [...childDeps];
+    for (const dep of pathDeps) {
+      if (!seen.has(dep.fullPath)) {
+        seen.add(dep.fullPath);
+        merged.push(dep);
+      }
+    }
+    return merged;
+  }, [children, outputPath]);
+
+  // Resolve {{ ._blocks.*.outputs.* }} expressions in outputPath using block outputs.
+  // This enables dynamic file paths like "{{ ._blocks.target_path.outputs.selected_path }}/terragrunt.hcl".
+  const resolvedOutputPath = useMemo(() => {
+    if (!outputPath) return outputPath;
+    return outputPath.replace(
+      /\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)\s*\}\}/g,
+      (_match, blockId, outputName) => {
+        const nid = normalizeBlockId(blockId);
+        const blockData = allOutputs[nid];
+        return blockData?.values?.[outputName] ?? '';
+      }
+    );
+  }, [outputPath, allOutputs]);
+
   // Compute unmet output dependencies
   const unmetOutputDependencies = useMemo(
     () => computeUnmetOutputDependencies(outputDependencies, allOutputs),
     [outputDependencies, allOutputs]
   );
-  
+
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
-  
+
   // Extract template content from children
   // MDX compiles code blocks into a nested React element structure (pre > code > text),
   // so we need to traverse it to extract the actual content. Returns a Record because
   // the Boilerplate API expects a files map (filename → content), even for a single file.
+  // Uses resolvedOutputPath so dynamic expressions are resolved before file naming.
   const templateFiles = useMemo(() => {
-    return extractTemplateFiles(children, outputPath);
-  }, [children, outputPath]);
+    return extractTemplateFiles(children, resolvedOutputPath);
+  }, [children, resolvedOutputPath]);
   
   // Helper to check if all input dependencies are satisfied
   const hasAllInputDependencies = useCallback((vars: Record<string, unknown>): boolean => {

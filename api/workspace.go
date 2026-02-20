@@ -168,6 +168,48 @@ func HandleWorkspaceTree() gin.HandlerFunc {
 	}
 }
 
+// HandleWorkspaceDirs returns only the immediate subdirectory names of a given path.
+// Designed for lightweight cascading dropdown UIs (e.g., DirPicker).
+// GET /api/workspace/dirs?path=<abs_path>
+func HandleWorkspaceDirs() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		dirPath, ok := requirePathQuery(c)
+		if !ok {
+			return
+		}
+
+		if ContainsPathTraversal(dirPath) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
+			return
+		}
+
+		info, ok := statPathOrFail(c, dirPath, "directory")
+		if !ok {
+			return
+		}
+		if !info.IsDir() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "path is not a directory", "path": dirPath})
+			return
+		}
+
+		entries, err := os.ReadDir(dirPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read directory: %v", err)})
+			return
+		}
+
+		dirs := []string{}
+		for _, entry := range entries {
+			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+				dirs = append(dirs, entry.Name())
+			}
+		}
+
+		sort.Strings(dirs)
+		c.JSON(http.StatusOK, gin.H{"dirs": dirs})
+	}
+}
+
 // HandleWorkspaceFile returns the content of a single file.
 // GET /api/workspace/file?path=<abs_path>
 func HandleWorkspaceFile() gin.HandlerFunc {

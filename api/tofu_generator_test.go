@@ -45,6 +45,29 @@ func TestGenerateRunbook_Tofu(t *testing.T) {
 	assert.Len(t, dir, 1)
 }
 
+func TestGenerateRunbook_TerragruntGitHub(t *testing.T) {
+	mdxPath, cleanup, err := GenerateRunbook("::terragrunt-github")
+	require.NoError(t, err)
+	require.NotNil(t, cleanup)
+	defer cleanup()
+
+	mdxContent, err := os.ReadFile(mdxPath)
+	require.NoError(t, err)
+
+	mdx := string(mdxContent)
+	assert.Contains(t, mdx, "<GitHubAuth")
+	assert.Contains(t, mdx, "<GitClone")
+	assert.Contains(t, mdx, "<DirPicker")
+	assert.Contains(t, mdx, "<TfModule")
+	assert.Contains(t, mdx, "::source")
+	assert.Contains(t, mdx, "<TemplateInline")
+	assert.Contains(t, mdx, "terragrunt.hcl")
+	assert.Contains(t, mdx, "<GitHubPullRequest")
+	assert.Contains(t, mdx, "target=\"worktree\"")
+	assert.Contains(t, mdx, "._blocks.target_path.outputs.selected_path")
+	assert.Contains(t, mdx, "._blocks.module_vars.outputs.module_name")
+}
+
 func TestGenerateRunbook_DefaultTemplate(t *testing.T) {
 	// Empty string should use terragrunt template
 	mdxPath, cleanup, err := GenerateRunbook("")

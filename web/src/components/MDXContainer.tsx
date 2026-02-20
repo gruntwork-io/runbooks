@@ -18,6 +18,7 @@ import { GitHubAuth } from '@/components/mdx/GitHubAuth'
 import { GitClone } from '@/components/mdx/GitClone'
 import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
 import { TfModule } from '@/components/mdx/TfModule'
+import { DirPicker } from '@/components/mdx/DirPicker'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
 
@@ -255,6 +256,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       Template,
       TemplateInline,
       TfModule,
+      DirPicker,
       // Script execution components
       Check,
       Command,

@@ -40,7 +40,7 @@ interface TfModuleProps {
 }
 
 function TfModule({ id, source }: TfModuleProps) {
-  const { remoteSource } = useRunbookContext()
+  const { remoteSource, registerOutputs } = useRunbookContext()
 
   // Resolve ::source keyword to the remote URL from the CLI invocation
   const resolvedSource = useMemo(() => {
@@ -115,6 +115,26 @@ function TfModule({ id, source }: TfModuleProps) {
     enrichFormData,
   })
 
+  // Register block outputs so downstream blocks can reference module metadata
+  // via {{ ._blocks.<id>.outputs.module_name }} and {{ ._blocks.<id>.outputs.source }}
+  const handleSubmitWithOutputs = useCallback(async (formData: Record<string, unknown>) => {
+    await handleSubmit(formData)
+    registerOutputs(id, {
+      module_name: metadata?.folder_name ?? '',
+      source: resolvedSource ?? '',
+    })
+  }, [handleSubmit, id, registerOutputs, metadata, resolvedSource])
+
+  const handleAutoUpdateWithOutputs = useCallback((formData: Record<string, unknown>) => {
+    handleAutoUpdate(formData)
+    if (hasSubmitted) {
+      registerOutputs(id, {
+        module_name: metadata?.folder_name ?? '',
+        source: resolvedSource ?? '',
+      })
+    }
+  }, [handleAutoUpdate, hasSubmitted, id, registerOutputs, metadata, resolvedSource])
+
   // Show friendly message when ::source is used but no remote source is available
   if (isMissingRemoteSource) {
     return (
@@ -155,8 +175,8 @@ function TfModule({ id, source }: TfModuleProps) {
       id={id}
       boilerplateConfig={boilerplateConfig}
       initialData={initialData}
-      onAutoRender={handleAutoUpdate}
-      onGenerate={handleSubmit}
+      onAutoRender={handleAutoUpdateWithOutputs}
+      onGenerate={handleSubmitWithOutputs}
       isGenerating={false}
       isAutoRendering={false}
       enableAutoRender={true}

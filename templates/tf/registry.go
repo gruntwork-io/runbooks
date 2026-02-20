@@ -5,6 +5,7 @@ import (
 
 	"runbooks/templates/tf/opentofu"
 	"runbooks/templates/tf/terragrunt"
+	terragruntgithub "runbooks/templates/tf/terragrunt-github"
 )
 
 // RunbookTemplate defines a built-in runbook template backed by a static MDX file.
@@ -14,8 +15,9 @@ type RunbookTemplate interface {
 }
 
 var templates = map[string]RunbookTemplate{
-	"::terragrunt": &terragrunt.Template{},
-	"::tofu":       &opentofu.Template{},
+	"::terragrunt":        &terragrunt.Template{},
+	"::terragrunt-github": &terragruntgithub.Template{},
+	"::tofu":              &opentofu.Template{},
 }
 
 // GetTemplate returns a RunbookTemplate by name.
@@ -26,7 +28,7 @@ func GetTemplate(name string) (RunbookTemplate, error) {
 	}
 	t, ok := templates[name]
 	if !ok {
-		return nil, fmt.Errorf("unknown template: %q (available: ::terragrunt, ::tofu)", name)
+		return nil, fmt.Errorf("unknown template: %q (available: ::terragrunt, ::terragrunt-github, ::tofu)", name)
 	}
 	return t, nil
 }
