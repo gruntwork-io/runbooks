@@ -52,7 +52,7 @@ export type UnmetGitHubAuthDependency = UnmetAuthDependency
  * Returns null if met (no authId, has env vars, or has __AUTHENTICATED marker),
  * or { blockId } if unmet.
  */
-function checkAuthDependency(
+export function checkAuthDependency(
   authId: string | undefined,
   envVars: Record<string, string> | undefined,
   allOutputs: Record<string, { values: Record<string, string> }>,

@@ -1,12 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -333,75 +337,126 @@ func TestConvertToJSONSerializable(t *testing.T) {
 	}
 }
 
+// boilerplateRequest is a test helper that creates a gin router with HandleBoilerplateRequest,
+// fires a POST /api/boilerplate/variables, and returns the status code and raw body.
+func boilerplateRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
+
+	jsonBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest("POST", "/api/boilerplate/variables", bytes.NewBuffer(jsonBody))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	return w.Code, w.Body.Bytes()
+}
+
 func TestHandleBoilerplateRequest(t *testing.T) {
-	// Create a temporary directory for test files
+	// Create a temporary directory with a boilerplate.yml for templatePath tests
 	tempDir := t.TempDir()
 
-	// Create a test boilerplate file
-	testFile := filepath.Join(tempDir, "test-boilerplate.yml")
-	testContent := `variables:
+	boilerplateYML := filepath.Join(tempDir, "boilerplate.yml")
+	err := os.WriteFile(boilerplateYML, []byte(`variables:
   - name: TestVar
     description: Test variable
     type: string
     default: "test value"
     validations: "required"
-`
-	err := os.WriteFile(testFile, []byte(testContent), 0644)
+`), 0644)
 	require.NoError(t, err)
 
-	// Create an invalid boilerplate file
-	invalidFile := filepath.Join(tempDir, "invalid-boilerplate.yml")
-	invalidContent := `variables:
-  - name: InvalidVar
-    description: Invalid variable
-    type: unsupported_type
-    default: "this should fail"
-    invalid: yaml: syntax
-    missing_quote: "unclosed string
-`
-	err = os.WriteFile(invalidFile, []byte(invalidContent), 0644)
-	require.NoError(t, err)
+	// runbookPath is in the same directory so templatePath="." resolves there
+	runbookPath := filepath.Join(tempDir, "runbook.mdx")
 
-	tests := []struct {
-		name           string
-		path           string
-		expectedStatus int
-		expectError    bool
-	}{
-		{
-			name:           "valid boilerplate file",
-			path:           "test-boilerplate.yml",
-			expectedStatus: 200,
-			expectError:    false,
-		},
-		{
-			name:           "missing path parameter",
-			path:           "",
-			expectedStatus: 400,
-			expectError:    true,
-		},
-		{
-			name:           "non-existent file",
-			path:           "non-existent.yml",
-			expectedStatus: 404,
-			expectError:    true,
-		},
-		{
-			name:           "invalid boilerplate file",
-			path:           "invalid-boilerplate.yml",
-			expectedStatus: 400,
-			expectError:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// This would require setting up a Gin test context
-			// For now, we'll test the core parsing logic separately
-			// The HTTP handler testing would require additional setup
-			t.Skip("HTTP handler testing requires Gin test setup")
+	t.Run("valid boilerplate via templatePath", func(t *testing.T) {
+		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+			TemplatePath: ".",
 		})
-	}
+
+		assert.Equal(t, http.StatusOK, code)
+
+		var resp BoilerplateConfig
+		require.NoError(t, json.Unmarshal(body, &resp))
+		require.Len(t, resp.Variables, 1)
+		assert.Equal(t, "TestVar", resp.Variables[0].Name)
+		assert.Equal(t, VarTypeString, resp.Variables[0].Type)
+	})
+
+	t.Run("valid boilerplate via boilerplateContent", func(t *testing.T) {
+		content := `variables:
+  - name: InlineVar
+    description: Inline variable
+    type: int
+    default: "42"
+`
+		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+			BoilerplateContent: content,
+		})
+
+		assert.Equal(t, http.StatusOK, code)
+
+		var resp BoilerplateConfig
+		require.NoError(t, json.Unmarshal(body, &resp))
+		require.Len(t, resp.Variables, 1)
+		assert.Equal(t, "InlineVar", resp.Variables[0].Name)
+		assert.Equal(t, VarTypeInt, resp.Variables[0].Type)
+	})
+
+	t.Run("missing both templatePath and boilerplateContent returns 400", func(t *testing.T) {
+		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{})
+
+		assert.Equal(t, http.StatusBadRequest, code)
+
+		var resp map[string]interface{}
+		require.NoError(t, json.Unmarshal(body, &resp))
+		assert.Equal(t, "Either templatePath or boilerplateContent must be provided", resp["error"])
+	})
+
+	t.Run("non-existent templatePath returns 404", func(t *testing.T) {
+		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+			TemplatePath: "non-existent-dir",
+		})
+
+		assert.Equal(t, http.StatusNotFound, code)
+
+		var resp map[string]interface{}
+		require.NoError(t, json.Unmarshal(body, &resp))
+		assert.Equal(t, "boilerplate.yml file not found", resp["error"])
+	})
+
+	t.Run("invalid YAML in boilerplateContent returns 500", func(t *testing.T) {
+		code, _ := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+			BoilerplateContent: `not: valid: yaml: [unclosed`,
+		})
+
+		assert.Equal(t, http.StatusInternalServerError, code)
+	})
+
+	t.Run("invalid JSON request body returns 400", func(t *testing.T) {
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		router.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
+
+		req, err := http.NewRequest("POST", "/api/boilerplate/variables", bytes.NewBufferString("not json"))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		var resp map[string]interface{}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Equal(t, "Invalid request body", resp["error"])
+	})
 }
 
 // Additional test for enum variables
