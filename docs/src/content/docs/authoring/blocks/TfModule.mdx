@@ -164,7 +164,7 @@ Source: `{{ ._module.source }}`
 Because `<Template>` is backed by a `boilerplate.yml`, it renders **its own input form** in addition to the form that `<TfModule>` renders. Any variables defined in `boilerplate.yml` that are *not* provided by TfModule appear as extra editable fields, giving you a way to collect additional user input (e.g., environment name, team owner) that the `.tf` files know nothing about.
 
 <Aside type="note">
-When Template imports from TfModule, variables are classified as **local-only** (Template form only), **imported-only** (pass-through), or **shared** (read-only, live-synced). See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
+Since both TfModule and Template can define variables, Runbooks merges the two sets — Template-only variables stay editable, TfModule-only variables (including `_module.*`) pass through invisibly, and overlapping variables become read-only. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
 </Aside>
 
 ### Using TemplateInline

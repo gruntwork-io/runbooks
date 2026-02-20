@@ -127,7 +127,7 @@ variables:
 
 ## Variable Categories
 
-When a Template imports from another block via `inputsId`, variables are classified as **local-only**, **imported-only**, or **shared** — which determines whether they appear in the Template's form and whether they're editable. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
+Because a Template has its own `boilerplate.yml` *and* can import variables via `inputsId`, Runbooks needs to decide what happens when both sides define a variable. The result depends on where each variable is defined — Template-only variables are editable, provider-only variables pass through invisibly, and variables defined in both places become read-only. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
 
 ## Template File Syntax
 
