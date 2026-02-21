@@ -185,4 +185,5 @@ jobs:
           gh pr merge "$PR_URL" \
             --repo gruntwork-io/homebrew-tap \
             --auto \
-            --merge
+            --merge \
+            --delete-branch
