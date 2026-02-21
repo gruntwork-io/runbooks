@@ -19,14 +19,14 @@ variable "tags" {
   description = "Tags to apply"
 }
 
-# @group "Lifecycle"
+# @runbooks:group "Lifecycle"
 variable "expiration_days" {
   type        = number
   default     = 0
   description = "Days before expiration"
 }
 
-# @group "Lifecycle"
+# @runbooks:group "Lifecycle"
 variable "transition_to_glacier_days" {
   type        = number
   default     = 0

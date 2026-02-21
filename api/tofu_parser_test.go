@@ -100,12 +100,12 @@ func TestParseTofuModule_S3Bucket(t *testing.T) {
 	assert.Contains(t, tags.Type, "map(string)")
 	assert.True(t, tags.HasDefault)
 
-	// expiration_days: has @group "Lifecycle"
+	// expiration_days: has @runbooks:group "Lifecycle"
 	expiration, ok := varMap["expiration_days"]
 	require.True(t, ok, "expiration_days variable not found")
 	assert.Equal(t, "Lifecycle", expiration.GroupComment)
 
-	// transition_to_glacier_days: has @group "Lifecycle"
+	// transition_to_glacier_days: has @runbooks:group "Lifecycle"
 	glacier, ok := varMap["transition_to_glacier_days"]
 	require.True(t, ok, "transition_to_glacier_days variable not found")
 	assert.Equal(t, "Lifecycle", glacier.GroupComment)
@@ -133,7 +133,7 @@ func TestParseTofuModule_LambdaFunction(t *testing.T) {
 	require.Len(t, runtime.Validations, 1)
 	assert.Contains(t, runtime.Validations[0].Condition, "contains")
 
-	// memory_size from settings.tf: has @group "Advanced Settings"
+	// memory_size from settings.tf: has @runbooks:group "Advanced Settings"
 	memSize, ok := varMap["memory_size"]
 	require.True(t, ok)
 	assert.Equal(t, "Advanced Settings", memSize.GroupComment)

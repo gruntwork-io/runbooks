@@ -197,6 +197,48 @@ For example, the `::terragrunt-github` template uses `module_name` to compose th
 outputPath="{{ ._blocks.target_path.outputs.path }}/{{ ._blocks.module_vars.outputs.module_name }}/terragrunt.hcl"
 ```
 
+## Variable Grouping
+
+When `<TfModule>` renders the input form, it automatically "groups" variables into collapsible sections. Grouping is purely a UI feature that organizes a set of variables together under a common heading to help reduce cognitive load on the end user. This is especially useful when a module has many variables and would otherwise render as an endless of form fields. Grouping has no effect on the generated output or template behavior.
+
+So how does Runbooks know which variables to group together? The grouping strategy follows a priority order:
+
+1. **`@runbooks:group` comments:** explicit groups defined in the `.tf` source
+2. **Filename-based:** variables grouped by which `.tf` file they're defined in
+3. **Prefix-based:** variables grouped by shared name prefixes (e.g., `db_*`, `vpc_*`)
+4. **Required vs. Optional:** fallback grouping
+
+### `@runbooks:group` Comments
+
+Module authors can explicitly control grouping by adding `# @runbooks:group "Group Name"` comments directly above variable blocks in their `.tf` files:
+
+```hcl
+variable "bucket_name" {
+  type        = string
+  description = "Name of the S3 bucket"
+}
+
+# @runbooks:group "Lifecycle"
+variable "expiration_days" {
+  type        = number
+  default     = 0
+  description = "Days before expiration"
+}
+
+# @runbooks:group "Lifecycle"
+variable "transition_to_glacier_days" {
+  type        = number
+  default     = 0
+  description = "Days before Glacier transition"
+}
+```
+
+In this example, the two lifecycle variables are grouped together under a "Lifecycle" section. The `bucket_name` variable (with no annotation) appears in an unnamed default section.
+
+<Aside type="tip">
+The `@runbooks:group` annotation is the recommended way to control variable grouping. It's explicit, portable (lives in the module source), and takes priority over all automatic grouping strategies.
+</Aside>
+
 ## Template Patterns
 
 ### Terragrunt HCL (Recommended)
