@@ -8,8 +8,12 @@
 name: Update Homebrew Formula
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: 'The release tag (e.g. v1.2.3)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -36,7 +40,7 @@ jobs:
         id: download
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ inputs.tag }}
         run: |
           TOOL_NAME="${GITHUB_REPOSITORY#*/}"
           mkdir -p /tmp/binaries
@@ -66,7 +70,7 @@ jobs:
 
       - name: Generate formulae
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ inputs.tag }}
           TOOL_NAME: ${{ steps.download.outputs.tool_name }}
           SHA_DARWIN_ARM64: ${{ steps.checksums.outputs.sha_darwin_arm64 }}
           SHA_DARWIN_AMD64: ${{ steps.checksums.outputs.sha_darwin_amd64 }}
@@ -137,7 +141,7 @@ jobs:
       - name: Open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ inputs.tag }}
           TOOL_NAME: ${{ steps.download.outputs.tool_name }}
         run: |
           cd /tmp/homebrew-tap
@@ -181,4 +185,5 @@ jobs:
           gh pr merge "$PR_URL" \
             --repo gruntwork-io/homebrew-tap \
             --auto \
-            --merge
+            --merge \
+            --delete-branch
