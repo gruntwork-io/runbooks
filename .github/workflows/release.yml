@@ -202,3 +202,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: create-release
+    uses: ./.github/workflows/update-homebrew.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
+
