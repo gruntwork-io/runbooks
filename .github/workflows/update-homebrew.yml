@@ -145,22 +145,38 @@ jobs:
 
           git checkout -b "$BRANCH"
           git add Formula/
+
+          # If the formulae already match main (e.g., a previous run's PR was merged),
+          # there is nothing left to do.
+          if git diff --cached --quiet; then
+            echo "Formula is already up to date on main — nothing to do."
+            exit 0
+          fi
+
           git \
             -c user.name="gruntwork-homebrew-tap[bot]" \
             -c user.email="gruntwork-homebrew-tap[bot]@users.noreply.github.com" \
             commit -m "Update ${TOOL_NAME} to ${TAG}"
-          git push origin "$BRANCH"
+          git push --force-with-lease origin "$BRANCH"
 
-          PR_URL=$(gh pr create \
+          # Re-use an existing PR if one was already opened for this branch.
+          EXISTING_PR=$(gh pr list \
             --repo gruntwork-io/homebrew-tap \
-            --base main \
             --head "$BRANCH" \
-            --title "Update ${TOOL_NAME} to ${TAG}" \
-            --body "Automated formula update for **${TOOL_NAME}** to [\`${TAG}\`](https://github.com/gruntwork-io/${TOOL_NAME}/releases/tag/${TAG}).")
+            --json url \
+            --jq '.[0].url // empty')
 
-          gh pr review "$PR_URL" \
-            --repo gruntwork-io/homebrew-tap \
-            --approve
+          if [[ -n "$EXISTING_PR" ]]; then
+            PR_URL="$EXISTING_PR"
+            echo "PR already exists: ${PR_URL}"
+          else
+            PR_URL=$(gh pr create \
+              --repo gruntwork-io/homebrew-tap \
+              --base main \
+              --head "$BRANCH" \
+              --title "Update ${TOOL_NAME} to ${TAG}" \
+              --body "Automated formula update for **${TOOL_NAME}** to [\`${TAG}\`](https://github.com/gruntwork-io/${TOOL_NAME}/releases/tag/${TAG}).")
+          fi
 
           gh pr merge "$PR_URL" \
             --repo gruntwork-io/homebrew-tap \
