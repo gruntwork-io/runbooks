@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIsTofuModule(t *testing.T) {
+func TestIsTfModule(t *testing.T) {
 	tests := []struct {
 		name     string
 		files    map[string]string
@@ -49,30 +49,30 @@ func TestIsTofuModule(t *testing.T) {
 				err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644)
 				require.NoError(t, err)
 			}
-			assert.Equal(t, tt.expected, IsTofuModule(dir))
+			assert.Equal(t, tt.expected, IsTfModule(dir))
 		})
 	}
 
 	t.Run("nonexistent path", func(t *testing.T) {
-		assert.False(t, IsTofuModule("/nonexistent/path"))
+		assert.False(t, IsTfModule("/nonexistent/path"))
 	})
 
 	t.Run("file path not directory", func(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "main.tf")
 		err := os.WriteFile(f, []byte(""), 0644)
 		require.NoError(t, err)
-		assert.False(t, IsTofuModule(f))
+		assert.False(t, IsTfModule(f))
 	})
 }
 
-func TestParseTofuModule_S3Bucket(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
-	vars, err := ParseTofuModule(fixtureDir)
+func TestParseTfModule_S3Bucket(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/s3-bucket"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, vars)
 
 	// Find specific variables
-	varMap := make(map[string]TofuVariable)
+	varMap := make(map[string]TfVariable)
 	for _, v := range vars {
 		varMap[v.Name] = v
 	}
@@ -111,12 +111,12 @@ func TestParseTofuModule_S3Bucket(t *testing.T) {
 	assert.Equal(t, "Lifecycle", glacier.GroupComment)
 }
 
-func TestParseTofuModule_LambdaFunction(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
-	vars, err := ParseTofuModule(fixtureDir)
+func TestParseTfModule_LambdaFunction(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-function"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
-	varMap := make(map[string]TofuVariable)
+	varMap := make(map[string]TfVariable)
 	for _, v := range vars {
 		varMap[v.Name] = v
 	}
@@ -145,12 +145,12 @@ func TestParseTofuModule_LambdaFunction(t *testing.T) {
 	assert.True(t, reserved.Nullable)
 }
 
-func TestParseTofuModule_Complex(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-s3-complex"
-	vars, err := ParseTofuModule(fixtureDir)
+func TestParseTfModule_Complex(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
-	varMap := make(map[string]TofuVariable)
+	varMap := make(map[string]TfVariable)
 	for _, v := range vars {
 		varMap[v.Name] = v
 	}
@@ -188,8 +188,8 @@ func TestParseTofuModule_Complex(t *testing.T) {
 }
 
 func TestMapToBoilerplateConfig_S3Bucket(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
-	vars, err := ParseTofuModule(fixtureDir)
+	fixtureDir := "../testdata/test-fixtures/tf-modules/s3-bucket"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
 	config := MapToBoilerplateConfig(vars)
@@ -247,8 +247,8 @@ func TestMapToBoilerplateConfig_S3Bucket(t *testing.T) {
 }
 
 func TestMapToBoilerplateConfig_ContainsToEnum(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
-	vars, err := ParseTofuModule(fixtureDir)
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-function"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
 	config := MapToBoilerplateConfig(vars)
@@ -265,8 +265,8 @@ func TestMapToBoilerplateConfig_ContainsToEnum(t *testing.T) {
 }
 
 func TestMapToBoilerplateConfig_ObjectSchema(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-s3-complex"
-	vars, err := ParseTofuModule(fixtureDir)
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
 	config := MapToBoilerplateConfig(vars)
@@ -285,8 +285,8 @@ func TestMapToBoilerplateConfig_ObjectSchema(t *testing.T) {
 }
 
 func TestMapToBoilerplateConfig_TupleNote(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-s3-complex"
-	vars, err := ParseTofuModule(fixtureDir)
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
 	config := MapToBoilerplateConfig(vars)
@@ -304,7 +304,7 @@ func TestMapToBoilerplateConfig_TupleNote(t *testing.T) {
 	assert.Equal(t, "number", priority.Schema["1"])
 }
 
-func TestMapTofuType(t *testing.T) {
+func TestMapTfType(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected BoilerplateVarType
@@ -325,7 +325,7 @@ func TestMapTofuType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.expected, MapTofuType(tt.input))
+			assert.Equal(t, tt.expected, MapTfType(tt.input))
 		})
 	}
 }
@@ -375,7 +375,7 @@ func TestExtractContainsOptions(t *testing.T) {
 }
 
 func TestBuildSectionsFromGroups(t *testing.T) {
-	vars := []TofuVariable{
+	vars := []TfVariable{
 		{Name: "a", GroupComment: ""},
 		{Name: "b", GroupComment: "Network"},
 		{Name: "c", GroupComment: "Network"},
@@ -393,7 +393,7 @@ func TestBuildSectionsFromGroups(t *testing.T) {
 }
 
 func TestBuildSectionsFromFilenames(t *testing.T) {
-	vars := []TofuVariable{
+	vars := []TfVariable{
 		{Name: "a", SourceFile: "variables.tf"},
 		{Name: "b", SourceFile: "network.tf"},
 		{Name: "c", SourceFile: "network.tf"},
@@ -407,7 +407,7 @@ func TestBuildSectionsFromFilenames(t *testing.T) {
 }
 
 func TestBuildSectionsFromPrefixes(t *testing.T) {
-	vars := []TofuVariable{
+	vars := []TfVariable{
 		{Name: "vpc_id"},
 		{Name: "vpc_cidr"},
 		{Name: "subnet_id"},
@@ -481,10 +481,10 @@ func TestExtractTupleSchema(t *testing.T) {
 	})
 }
 
-func TestParseTofuModuleMetadata(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/s3-bucket"
+func TestParseTfModuleMetadata(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/s3-bucket"
 
-	meta := ParseTofuModuleMetadata(fixtureDir)
+	meta := ParseTfModuleMetadata(fixtureDir)
 
 	assert.Equal(t, "s3-bucket", meta.FolderName)
 	assert.Equal(t, "S3 Bucket Module", meta.ReadmeTitle)
@@ -492,19 +492,19 @@ func TestParseTofuModuleMetadata(t *testing.T) {
 	assert.Equal(t, []string{"aws_s3_bucket.this", "aws_s3_bucket_versioning.this"}, meta.ResourceNames)
 }
 
-func TestParseTofuModuleMetadata_NoReadme(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
+func TestParseTfModuleMetadata_NoReadme(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-function"
 
-	meta := ParseTofuModuleMetadata(fixtureDir)
+	meta := ParseTfModuleMetadata(fixtureDir)
 
 	assert.Equal(t, "lambda-function", meta.FolderName)
 	assert.Empty(t, meta.ReadmeTitle)
 }
 
-func TestParseTofuModuleMetadata_NoOutputsOrResources(t *testing.T) {
-	fixtureDir := "../testdata/test-fixtures/tofu-modules/lambda-function"
+func TestParseTfModuleMetadata_NoOutputsOrResources(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-function"
 
-	meta := ParseTofuModuleMetadata(fixtureDir)
+	meta := ParseTfModuleMetadata(fixtureDir)
 
 	assert.Nil(t, meta.OutputNames)
 	assert.Nil(t, meta.ResourceNames)

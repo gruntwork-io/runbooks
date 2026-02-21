@@ -60,7 +60,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath, sessionManager))
 
 	// API endpoint to parse OpenTofu module variables into a BoilerplateConfig
-	r.POST("/api/tofu/parse", HandleTofuModuleParse(runbookPath))
+	r.POST("/api/tf/parse", HandleTfModuleParse(runbookPath))
 
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))

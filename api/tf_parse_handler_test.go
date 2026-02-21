@@ -14,18 +14,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tofuParseRequest is a test helper that creates a gin router with HandleTofuModuleParse,
-// fires a POST /api/tofu/parse with the given body, and returns the status code and raw body.
-func tofuParseRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
+// tfParseRequest is a test helper that creates a gin router with HandleTfModuleParse,
+// fires a POST /api/tf/parse with the given body, and returns the status code and raw body.
+func tfParseRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/api/tofu/parse", HandleTofuModuleParse(runbookPath))
+	router.POST("/api/tf/parse", HandleTfModuleParse(runbookPath))
 
 	jsonBody, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	req, err := http.NewRequest("POST", "/api/tofu/parse", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBuffer(jsonBody))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -35,21 +35,21 @@ func tofuParseRequest(t *testing.T, runbookPath string, body interface{}) (int, 
 	return w.Code, w.Body.Bytes()
 }
 
-func TestHandleTofuModuleParse_LocalPath(t *testing.T) {
+func TestHandleTfModuleParse_LocalPath(t *testing.T) {
 	// Use the real s3-bucket fixture
-	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tofu-modules/s3-bucket")
+	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/s3-bucket")
 	require.NoError(t, err)
 
 	// The runbook path is used for relative path resolution — use the fixture parent
 	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: fixtureDir,
 	})
 
 	assert.Equal(t, http.StatusOK, code)
 
-	var resp TofuParseResponse
+	var resp TfParseResponse
 	require.NoError(t, json.Unmarshal(body, &resp))
 
 	// Should have parsed variables from the fixture
@@ -59,50 +59,50 @@ func TestHandleTofuModuleParse_LocalPath(t *testing.T) {
 	assert.Equal(t, "s3-bucket", resp.Metadata.FolderName)
 }
 
-func TestHandleTofuModuleParse_RelativePath(t *testing.T) {
+func TestHandleTfModuleParse_RelativePath(t *testing.T) {
 	// Test that relative paths resolve correctly against runbook directory
-	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tofu-modules")
+	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules")
 	require.NoError(t, err)
 
-	// Place the "runbook" in the tofu-modules parent directory
+	// Place the "runbook" in the tf-modules parent directory
 	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: "s3-bucket",
 	})
 
 	assert.Equal(t, http.StatusOK, code)
 
-	var resp TofuParseResponse
+	var resp TfParseResponse
 	require.NoError(t, json.Unmarshal(body, &resp))
 	assert.Greater(t, len(resp.Variables), 0, "should have parsed variables from relative path")
 	assert.Equal(t, "s3-bucket", resp.Metadata.FolderName)
 }
 
-func TestHandleTofuModuleParse_DotPath(t *testing.T) {
+func TestHandleTfModuleParse_DotPath(t *testing.T) {
 	// Test source="." (colocated module) — resolves to the runbook's own directory
-	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tofu-modules/s3-bucket")
+	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/s3-bucket")
 	require.NoError(t, err)
 
 	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: ".",
 	})
 
 	assert.Equal(t, http.StatusOK, code)
 
-	var resp TofuParseResponse
+	var resp TfParseResponse
 	require.NoError(t, json.Unmarshal(body, &resp))
 	assert.Greater(t, len(resp.Variables), 0, "should have parsed variables from '.' path")
 }
 
-func TestHandleTofuModuleParse_InvalidJSON(t *testing.T) {
+func TestHandleTfModuleParse_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/api/tofu/parse", HandleTofuModuleParse("/fake/runbook.mdx"))
+	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/runbook.mdx"))
 
-	req, err := http.NewRequest("POST", "/api/tofu/parse", bytes.NewBufferString("not json"))
+	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBufferString("not json"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -116,14 +116,14 @@ func TestHandleTofuModuleParse_InvalidJSON(t *testing.T) {
 	assert.Equal(t, "Invalid request body", resp["error"])
 }
 
-func TestHandleTofuModuleParse_MissingSource(t *testing.T) {
+func TestHandleTfModuleParse_MissingSource(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/api/tofu/parse", HandleTofuModuleParse("/fake/runbook.mdx"))
+	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/runbook.mdx"))
 
 	// Empty source should fail validation (binding:"required")
 	body, _ := json.Marshal(map[string]string{})
-	req, err := http.NewRequest("POST", "/api/tofu/parse", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBuffer(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -133,10 +133,10 @@ func TestHandleTofuModuleParse_MissingSource(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestHandleTofuModuleParse_NonExistentPath(t *testing.T) {
+func TestHandleTfModuleParse_NonExistentPath(t *testing.T) {
 	runbookPath := filepath.Join(t.TempDir(), "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: "/nonexistent/path/to/module",
 	})
 
@@ -147,7 +147,7 @@ func TestHandleTofuModuleParse_NonExistentPath(t *testing.T) {
 	assert.Equal(t, "Module directory not found", resp["error"])
 }
 
-func TestHandleTofuModuleParse_FileNotDirectory(t *testing.T) {
+func TestHandleTfModuleParse_FileNotDirectory(t *testing.T) {
 	// Create a regular file (not a directory) and try to parse it
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "not-a-directory.tf")
@@ -155,7 +155,7 @@ func TestHandleTofuModuleParse_FileNotDirectory(t *testing.T) {
 
 	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: filePath,
 	})
 
@@ -166,20 +166,20 @@ func TestHandleTofuModuleParse_FileNotDirectory(t *testing.T) {
 	assert.Equal(t, "Path is not a directory", resp["error"])
 }
 
-func TestHandleTofuModuleParse_ComplexModule(t *testing.T) {
+func TestHandleTfModuleParse_ComplexModule(t *testing.T) {
 	// Use the complex fixture to verify full pipeline with many variables
-	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tofu-modules/lambda-s3-complex")
+	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/lambda-s3-complex")
 	require.NoError(t, err)
 
 	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: fixtureDir,
 	})
 
 	assert.Equal(t, http.StatusOK, code)
 
-	var resp TofuParseResponse
+	var resp TfParseResponse
 	require.NoError(t, json.Unmarshal(body, &resp))
 
 	// Complex module should have many variables (spread across multiple .tf files)
@@ -202,20 +202,20 @@ func TestHandleTofuModuleParse_ComplexModule(t *testing.T) {
 	assert.Contains(t, resp.Metadata.ResourceNames, "aws_s3_bucket_notification.this")
 }
 
-func TestHandleTofuModuleParse_ModuleWithOutputsAndResources(t *testing.T) {
+func TestHandleTfModuleParse_ModuleWithOutputsAndResources(t *testing.T) {
 	// Use s3-bucket fixture which has outputs and resources
-	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tofu-modules/s3-bucket")
+	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/s3-bucket")
 	require.NoError(t, err)
 
 	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
 
-	code, body := tofuParseRequest(t, runbookPath, TofuParseRequest{
+	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
 		Source: fixtureDir,
 	})
 
 	assert.Equal(t, http.StatusOK, code)
 
-	var resp TofuParseResponse
+	var resp TfParseResponse
 	require.NoError(t, json.Unmarshal(body, &resp))
 
 	assert.Equal(t, "s3-bucket", resp.Metadata.FolderName)

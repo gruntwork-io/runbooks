@@ -86,14 +86,14 @@ func isTfRunbookKeyword(value string) bool {
 	return strings.HasPrefix(value, "::")
 }
 
-// resolveTofuModuleRunbook resolves a TF module to a runbook, using --tf-runbook if set,
+// resolveTfModuleRunbook resolves a TF module to a runbook, using --tf-runbook if set,
 // or falling back to the default auto-generated template.
 // When --tf-runbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it selects a built-in template.
 // When it's a path (e.g., "./my-runbook", "path/to/runbook"), it uses the custom runbook.
 // modulePath is the local path to the TF module. originalSource is the original URL
 // for remote modules (empty for local). Returns the runbook path, server path,
 // remote source URL (for ::source resolution), and a cleanup function.
-func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+func resolveTfModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
 	// Compute the module source URL so ::source resolves at runtime
 	moduleSourceURL := originalSource
 	if moduleSourceURL == "" {
@@ -118,22 +118,22 @@ func resolveTofuModuleRunbook(modulePath string, originalSource string) (resolve
 
 	// Otherwise, auto-generate a runbook from the built-in template
 	templateName := tfRunbook // ::keyword like "::terragrunt", "::tofu", or "" for default
-	generatedPath, tofuCleanup, genErr := api.GenerateRunbook(templateName)
+	generatedPath, tfCleanup, genErr := api.GenerateRunbook(templateName)
 	if genErr != nil {
 		slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
 		os.Exit(1)
 	}
-	return generatedPath, generatedPath, moduleSourceURL, tofuCleanup
+	return generatedPath, generatedPath, moduleSourceURL, tfCleanup
 }
 
-// resolveRunbookOrTofuModule attempts to resolve a runbook at the given path.
+// resolveRunbookOrTfModule attempts to resolve a runbook at the given path.
 // If no runbook is found but the path is an OpenTofu module, it generates a
 // runbook from the module. Also handles remote URLs — downloads the source first,
 // then checks for a runbook or OpenTofu module.
 // Returns the resolved runbook path, the (possibly updated) server path,
 // the original remote URL (for ::source resolution in TfModule), and a
 // cleanup function for any generated temp files. Calls os.Exit(1) on errors.
-func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
 	// 1. Try as a local runbook
 	resolvedPath, err := api.ResolveRunbookPath(path)
 	if err == nil {
@@ -141,9 +141,9 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 	}
 
 	// 2. Try as a local OpenTofu module
-	if api.IsTofuModule(path) {
+	if api.IsTfModule(path) {
 		slog.Info("Detected OpenTofu module, generating runbook", "path", path)
-		return resolveTofuModuleRunbook(path, "" /* originalSource */)
+		return resolveTfModuleRunbook(path, "" /* originalSource */)
 	}
 
 	// 3. Try as a remote source (GitHub/GitLab URL)
@@ -166,10 +166,10 @@ func resolveRunbookOrTofuModule(path string) (resolvedPath string, serverPath st
 		}
 
 		// Check if the downloaded source is an OpenTofu module
-		if api.IsTofuModule(localPath) {
+		if api.IsTfModule(localPath) {
 			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
-			rbPath, srvPath, remoteURL, tofuCleanup := resolveTofuModuleRunbook(localPath, path /* originalSource */)
-			return rbPath, srvPath, remoteURL, combineCleanups(tofuCleanup, remoteCleanup)
+			rbPath, srvPath, remoteURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* originalSource */)
+			return rbPath, srvPath, remoteURL, combineCleanups(tfCleanup, remoteCleanup)
 		}
 
 		// Downloaded but neither a runbook nor a TF module
@@ -212,10 +212,10 @@ func resolveForServer(args []string) serverSetup {
 		os.Exit(1)
 	}
 
-	resolvedPath, serverPath, remoteSourceURL, tofuCleanup := resolveRunbookOrTofuModule(path)
+	resolvedPath, serverPath, remoteSourceURL, tfCleanup := resolveRunbookOrTfModule(path)
 
 	// Combine cleanup functions
-	cleanup := combineCleanups(workDirCleanup, tofuCleanup)
+	cleanup := combineCleanups(workDirCleanup, tfCleanup)
 
 	return serverSetup{
 		runbookPath:     resolvedPath,

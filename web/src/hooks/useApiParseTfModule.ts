@@ -5,7 +5,7 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig';
 
 /**
  * Hook to parse an OpenTofu module and return a BoilerplateConfig.
- * Calls POST /api/tofu/parse with the module source.
+ * Calls POST /api/tf/parse with the module source.
  *
  * The source can be a local relative path (e.g., "../modules/vpc") or a remote
  * URL in any supported format (GitHub shorthand, git:: prefix, browser URLs).
@@ -22,7 +22,7 @@ export function useApiParseTfModule(
   }, [source, shouldFetch]);
 
   return useApi<BoilerplateConfig>(
-    shouldFetch && source ? '/api/tofu/parse' : '',
+    shouldFetch && source ? '/api/tf/parse' : '',
     'POST',
     requestBody
   );

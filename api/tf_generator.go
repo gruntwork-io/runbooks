@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	tofutmpl "runbooks/templates/tf"
+	tftmpl "runbooks/templates/tf"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,12 +17,12 @@ import (
 // templateName selects a built-in template ("" = "terragrunt").
 // Returns the path to runbook.mdx and a cleanup function for the temp directory.
 func GenerateRunbook(templateName string) (string, func(), error) {
-	tmpl, err := tofutmpl.GetTemplate(templateName)
+	tmpl, err := tftmpl.GetTemplate(templateName)
 	if err != nil {
 		return "", nil, err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "runbooks-tofu-*")
+	tmpDir, err := os.MkdirTemp("", "runbooks-tf-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}

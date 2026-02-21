@@ -12,31 +12,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TofuParseRequest is the request body for POST /api/tofu/parse.
-type TofuParseRequest struct {
+// TfParseRequest is the request body for POST /api/tf/parse.
+type TfParseRequest struct {
 	// Source can be a local relative path (e.g., "../modules/vpc") or a remote URL
 	// in any format supported by ParseRemoteSource (GitHub shorthand, git:: prefix,
 	// GitHub/GitLab browser URLs).
 	Source string `json:"source" binding:"required"`
 }
 
-// TofuParseResponse extends BoilerplateConfig with module-level metadata.
+// TfParseResponse extends BoilerplateConfig with module-level metadata.
 // The variables, sections, and outputDependencies fields come from BoilerplateConfig.
 // The module metadata fields are additional.
-type TofuParseResponse struct {
+type TfParseResponse struct {
 	*BoilerplateConfig
-	Metadata TofuModuleMetadata `json:"metadata"`
+	Metadata TfModuleMetadata `json:"metadata"`
 }
 
-// HandleTofuModuleParse parses a .tf module directory and returns a BoilerplateConfig JSON
+// HandleTfModuleParse parses a .tf module directory and returns a BoilerplateConfig JSON
 // with additional module metadata (folder name, README title, outputs, resources).
 // The source can be a local path (resolved relative to the runbook directory) or a remote
 // git URL (cloned to a temp directory, parsed, then cleaned up).
-func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
+func HandleTfModuleParse(runbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req TofuParseRequest
+		var req TfParseRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			slog.Error("Failed to parse tofu parse request", "error", err)
+			slog.Error("Failed to parse tf parse request", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
 				"details": err.Error(),
@@ -77,7 +77,7 @@ func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
 		}
 
 		// Parse the OpenTofu module (single pass for both variables and metadata)
-		vars, metadata, err := ParseTofuModuleFull(modulePath)
+		vars, metadata, err := ParseTfModuleFull(modulePath)
 		if err != nil {
 			slog.Error("Failed to parse OpenTofu module", "path", modulePath, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -96,7 +96,7 @@ func HandleTofuModuleParse(runbookPath string) gin.HandlerFunc {
 			"outputCount", len(metadata.OutputNames),
 			"resourceCount", len(metadata.ResourceNames),
 		)
-		c.JSON(http.StatusOK, TofuParseResponse{
+		c.JSON(http.StatusOK, TfParseResponse{
 			BoilerplateConfig: config,
 			Metadata:          metadata,
 		})

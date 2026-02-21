@@ -18,8 +18,8 @@ export interface OutputDependency {
   fullPath: string;   // The full template reference (e.g., "_blocks.create-account.outputs.account_id")
 }
 
-// TofuModuleMetadata contains additional metadata extracted from an OpenTofu module directory.
-export interface TofuModuleMetadata {
+// TfModuleMetadata contains additional metadata extracted from an OpenTofu module directory.
+export interface TfModuleMetadata {
   folder_name: string;     // Name of the containing directory (e.g., "lambda-edge")
   readme_title: string;    // First h1 heading from README.md, or empty string
   output_names: string[];  // Names of output blocks (sorted)
@@ -37,5 +37,5 @@ export interface BoilerplateConfig {
   // The Template component uses this to show warnings when dependent blocks haven't been executed.
   outputDependencies?: OutputDependency[];
   // Module metadata (only present for TfModule parse responses)
-  metadata?: TofuModuleMetadata;
+  metadata?: TfModuleMetadata;
 }

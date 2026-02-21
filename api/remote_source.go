@@ -131,7 +131,7 @@ func parseGitPrefixURL(raw string) (*ParsedRemoteSource, error) {
 		return nil, fmt.Errorf("invalid git URL %q: missing host", raw)
 	}
 
-	owner, repo, subPath, err := splitTofuSourcePath(parsed.Path, raw, "expected owner/repo in path")
+	owner, repo, subPath, err := splitTfSourcePath(parsed.Path, raw, "expected owner/repo in path")
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func parseGitHubShorthand(raw string) (*ParsedRemoteSource, error) {
 		return nil, fmt.Errorf("invalid GitHub source %q: %w", raw, err)
 	}
 
-	owner, repo, subPath, err := splitTofuSourcePath(parsed.Path, raw, "expected github.com/owner/repo")
+	owner, repo, subPath, err := splitTfSourcePath(parsed.Path, raw, "expected github.com/owner/repo")
 	if err != nil {
 		return nil, err
 	}
@@ -174,9 +174,9 @@ func trimSlashes(s string) string {
 	return strings.TrimPrefix(strings.TrimSuffix(s, "/"), "/")
 }
 
-// splitTofuSourcePath extracts owner, repo, and sub-path from a URL path
+// splitTfSourcePath extracts owner, repo, and sub-path from a URL path
 // that uses the OpenTofu // separator convention (e.g., /owner/repo.git//sub/path).
-func splitTofuSourcePath(urlPath, rawInput, errHint string) (owner, repo, subPath string, err error) {
+func splitTfSourcePath(urlPath, rawInput, errHint string) (owner, repo, subPath string, err error) {
 	fullPath := trimSlashes(urlPath)
 
 	var repoPath string

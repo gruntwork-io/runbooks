@@ -16,16 +16,16 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// TofuModuleMetadata holds additional metadata extracted from a TF module directory.
-type TofuModuleMetadata struct {
+// TfModuleMetadata holds additional metadata extracted from a TF module directory.
+type TfModuleMetadata struct {
 	FolderName    string   `json:"folder_name"`    // Name of the containing directory
 	ReadmeTitle   string   `json:"readme_title"`   // First h1 heading from README.md, if present
 	OutputNames   []string `json:"output_names"`   // Names of output blocks
 	ResourceNames []string `json:"resource_names"` // Names of resource blocks (excluding data sources)
 }
 
-// TofuVariable represents a parsed OpenTofu variable block.
-type TofuVariable struct {
+// TfVariable represents a parsed OpenTofu variable block.
+type TfVariable struct {
 	Name         string
 	Type         string           // Raw type expression (e.g. "string", "list(string)")
 	Description  string
@@ -33,13 +33,13 @@ type TofuVariable struct {
 	HasDefault   bool
 	Sensitive    bool
 	Nullable     bool
-	Validations  []TofuValidation
+	Validations  []TfValidation
 	SourceFile   string
 	GroupComment string           // From # @runbooks:group "Name" comments
 }
 
-// TofuValidation represents a validation block within an OpenTofu variable.
-type TofuValidation struct {
+// TfValidation represents a validation block within an OpenTofu variable.
+type TfValidation struct {
 	Condition    string
 	ErrorMessage string
 }
@@ -74,14 +74,14 @@ func readTFFiles(moduleDir string) ([]tfFileContent, error) {
 	return files, nil
 }
 
-// ParseTofuModule reads all .tf files in moduleDir and returns parsed variables.
-func ParseTofuModule(moduleDir string) ([]TofuVariable, error) {
+// ParseTfModule reads all .tf files in moduleDir and returns parsed variables.
+func ParseTfModule(moduleDir string) ([]TfVariable, error) {
 	files, err := readTFFiles(moduleDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var variables []TofuVariable
+	var variables []TfVariable
 	for _, f := range files {
 		fileVars, err := parseTFFile(f.src, f.name)
 		if err != nil {
@@ -98,10 +98,10 @@ func ParseTofuModule(moduleDir string) ([]TofuVariable, error) {
 	return variables, nil
 }
 
-// ParseTofuModuleMetadata extracts module-level metadata from a TF module directory:
+// ParseTfModuleMetadata extracts module-level metadata from a TF module directory:
 // folder name, README.md h1 title, output names, and resource names (excluding data sources).
-func ParseTofuModuleMetadata(moduleDir string) TofuModuleMetadata {
-	meta := TofuModuleMetadata{
+func ParseTfModuleMetadata(moduleDir string) TfModuleMetadata {
+	meta := TfModuleMetadata{
 		FolderName: filepath.Base(moduleDir),
 	}
 
@@ -124,11 +124,11 @@ func ParseTofuModuleMetadata(moduleDir string) TofuModuleMetadata {
 	return meta
 }
 
-// ParseTofuModuleFull reads all .tf files once and returns both variables and metadata.
-// Use this instead of calling ParseTofuModule + ParseTofuModuleMetadata separately
+// ParseTfModuleFull reads all .tf files once and returns both variables and metadata.
+// Use this instead of calling ParseTfModule + ParseTfModuleMetadata separately
 // to avoid reading and parsing the same files twice.
-func ParseTofuModuleFull(moduleDir string) ([]TofuVariable, TofuModuleMetadata, error) {
-	meta := TofuModuleMetadata{
+func ParseTfModuleFull(moduleDir string) ([]TfVariable, TfModuleMetadata, error) {
+	meta := TfModuleMetadata{
 		FolderName: filepath.Base(moduleDir),
 	}
 	meta.ReadmeTitle = extractReadmeTitle(moduleDir)
@@ -138,7 +138,7 @@ func ParseTofuModuleFull(moduleDir string) ([]TofuVariable, TofuModuleMetadata, 
 		return nil, meta, err
 	}
 
-	var variables []TofuVariable
+	var variables []TfVariable
 	for _, f := range files {
 		fileVars, err := parseTFFile(f.src, f.name)
 		if err != nil {
@@ -229,7 +229,7 @@ func extractOutputsAndResources(src []byte, fileName string) (outputs []string, 
 }
 
 // parseTFFile parses HCL source and returns its variable blocks.
-func parseTFFile(src []byte, fileName string) ([]TofuVariable, error) {
+func parseTFFile(src []byte, fileName string) ([]TfVariable, error) {
 	file, diags := hclsyntax.ParseConfig(src, fileName, hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("failed to parse HCL in %s: %s", fileName, diags.Error())
@@ -243,14 +243,14 @@ func parseTFFile(src []byte, fileName string) ([]TofuVariable, error) {
 	// Pre-scan for @runbooks:group comments
 	groupComments := extractGroupComments(src)
 
-	var variables []TofuVariable
+	var variables []TfVariable
 
 	for _, block := range body.Blocks {
 		if block.Type != "variable" || len(block.Labels) == 0 {
 			continue
 		}
 
-		v := TofuVariable{
+		v := TfVariable{
 			Name:       block.Labels[0],
 			SourceFile: fileName,
 			Nullable:   false, // default
@@ -304,7 +304,7 @@ func parseTFFile(src []byte, fileName string) ([]TofuVariable, error) {
 			if subBlock.Type != "validation" {
 				continue
 			}
-			tv := TofuValidation{}
+			tv := TfValidation{}
 			if attr, exists := subBlock.Body.Attributes["condition"]; exists {
 				tv.Condition = extractSourceRange(src, attr.Expr.Range())
 			}
@@ -449,12 +449,12 @@ func ctyToGo(val cty.Value) interface{} {
 	}
 }
 
-// mapTofuVariable converts a single TofuVariable to a BoilerplateVariable.
-func mapTofuVariable(v TofuVariable) BoilerplateVariable {
+// mapTfVariable converts a single TfVariable to a BoilerplateVariable.
+func mapTfVariable(v TfVariable) BoilerplateVariable {
 	bv := BoilerplateVariable{
 		Name:        v.Name,
 		Description: v.Description,
-		Type:        MapTofuType(v.Type),
+		Type:        MapTfType(v.Type),
 		Default:     v.Default,
 		Required:    !v.HasDefault && !v.Nullable,
 	}
@@ -511,13 +511,13 @@ func mapTofuVariable(v TofuVariable) BoilerplateVariable {
 }
 
 // MapToBoilerplateConfig converts OpenTofu variables to a BoilerplateConfig.
-func MapToBoilerplateConfig(vars []TofuVariable) *BoilerplateConfig {
+func MapToBoilerplateConfig(vars []TfVariable) *BoilerplateConfig {
 	config := &BoilerplateConfig{
 		Variables: make([]BoilerplateVariable, 0, len(vars)),
 	}
 
 	for _, v := range vars {
-		config.Variables = append(config.Variables, mapTofuVariable(v))
+		config.Variables = append(config.Variables, mapTfVariable(v))
 	}
 
 	// Build sections and back-propagate section names to variables
@@ -544,8 +544,8 @@ func applySectionNames(config *BoilerplateConfig) {
 	}
 }
 
-// MapTofuType converts an OpenTofu type expression to a BoilerplateVarType.
-func MapTofuType(typeExpr string) BoilerplateVarType {
+// MapTfType converts an OpenTofu type expression to a BoilerplateVarType.
+func MapTfType(typeExpr string) BoilerplateVarType {
 	typeExpr = strings.TrimSpace(typeExpr)
 
 	switch {
@@ -561,7 +561,7 @@ func MapTofuType(typeExpr string) BoilerplateVarType {
 		return VarTypeMap
 	case strings.HasPrefix(typeExpr, "optional("):
 		inner := typeExpr[len("optional(") : len(typeExpr)-1]
-		return MapTofuType(inner)
+		return MapTfType(inner)
 	default:
 		return VarTypeString
 	}
@@ -673,9 +673,9 @@ func splitObjectFields(s string) []string {
 	return fields
 }
 
-// processValidations converts TofuValidation blocks into boilerplate ValidationRules.
+// processValidations converts TfValidation blocks into boilerplate ValidationRules.
 // Returns (validations, enum options if contains() was found, description suffix for enrichment).
-func processValidations(v TofuVariable) ([]ValidationRule, []string, string) {
+func processValidations(v TfVariable) ([]ValidationRule, []string, string) {
 	var validations []ValidationRule
 	var options []string
 	var descSuffix string
@@ -845,7 +845,7 @@ func appendSuffix(existing, new string) string {
 }
 
 // buildSections groups variables into sections based on the priority order described in the plan.
-func buildSections(vars []TofuVariable) []Section {
+func buildSections(vars []TfVariable) []Section {
 	// Priority 1: @runbooks:group comments
 	if sections := buildSectionsFromGroups(vars); len(sections) >= 2 {
 		return sections
@@ -867,22 +867,22 @@ func buildSections(vars []TofuVariable) []Section {
 
 // collectSections groups variables into sections using sectionFn to derive the
 // section name for each variable. The unnamed section ("") is always placed first.
-func collectSections(vars []TofuVariable, sectionFn func(TofuVariable) string) []Section {
-	return groupIntoSections(vars, func(v TofuVariable) (string, string) {
+func collectSections(vars []TfVariable, sectionFn func(TfVariable) string) []Section {
+	return groupIntoSections(vars, func(v TfVariable) (string, string) {
 		return v.Name, sectionFn(v)
 	})
 }
 
 // buildSectionsFromGroups uses @runbooks:group comments to build sections.
-func buildSectionsFromGroups(vars []TofuVariable) []Section {
-	return collectSections(vars, func(v TofuVariable) string {
+func buildSectionsFromGroups(vars []TfVariable) []Section {
+	return collectSections(vars, func(v TfVariable) string {
 		return v.GroupComment
 	})
 }
 
 // buildSectionsFromFilenames groups variables by their source .tf filename.
-func buildSectionsFromFilenames(vars []TofuVariable) []Section {
-	sections := collectSections(vars, func(v TofuVariable) string {
+func buildSectionsFromFilenames(vars []TfVariable) []Section {
+	sections := collectSections(vars, func(v TfVariable) string {
 		return filenameToSectionName(v.SourceFile)
 	})
 	// Sort named sections for determinism (unnamed "" stays first via collectSections)
@@ -929,7 +929,7 @@ func filenameToSectionName(filename string) string {
 }
 
 // buildSectionsFromPrefixes groups variables by common name prefixes.
-func buildSectionsFromPrefixes(vars []TofuVariable) []Section {
+func buildSectionsFromPrefixes(vars []TfVariable) []Section {
 	// Count prefix occurrences (using first segment before _)
 	prefixCount := make(map[string]int)
 	prefixVars := make(map[string][]string)
@@ -991,7 +991,7 @@ func buildSectionsFromPrefixes(vars []TofuVariable) []Section {
 }
 
 // buildSectionsRequiredOptional splits variables into "Required" and "Optional" sections.
-func buildSectionsRequiredOptional(vars []TofuVariable) []Section {
+func buildSectionsRequiredOptional(vars []TfVariable) []Section {
 	var required, optional []string
 	for _, v := range vars {
 		if !v.HasDefault && !v.Nullable {

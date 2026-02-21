@@ -180,7 +180,7 @@ func TestParseRemoteSource_GitLabBrowserURL(t *testing.T) {
 	}
 }
 
-func TestParseRemoteSource_TofuGitHubShorthand(t *testing.T) {
+func TestParseRemoteSource_TfGitHubShorthand(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -245,7 +245,7 @@ func TestParseRemoteSource_TofuGitHubShorthand(t *testing.T) {
 	}
 }
 
-func TestParseRemoteSource_TofuGitPrefix(t *testing.T) {
+func TestParseRemoteSource_TfGitPrefix(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -369,7 +369,7 @@ func TestParseRemoteSource_InvalidURLs(t *testing.T) {
 			errContains: "expected owner/repo",
 		},
 		{
-			name:        "Tofu shorthand missing repo",
+			name:        "TF shorthand missing repo",
 			input:       "github.com/onlyowner",
 			errContains: "expected github.com/owner/repo",
 		},
@@ -596,7 +596,7 @@ func TestResolve(t *testing.T) {
 		assert.Equal(t, "runbooks/vpc", parsed.Path)
 	})
 
-	t.Run("Tofu URL with ref already set is a no-op", func(t *testing.T) {
+	t.Run("TF URL with ref already set is a no-op", func(t *testing.T) {
 		parsed, err := ParseRemoteSource("github.com/org/repo//infra/vpc?ref=v1.0")
 		require.NoError(t, err)
 
