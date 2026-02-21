@@ -337,25 +337,10 @@ func TestConvertToJSONSerializable(t *testing.T) {
 	}
 }
 
-// boilerplateRequest is a test helper that creates a gin router with HandleBoilerplateRequest,
-// fires a POST /api/boilerplate/variables, and returns the status code and raw body.
+// boilerplateRequest is a test helper that fires a POST /api/boilerplate/variables with the given body.
 func boilerplateRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
-
-	jsonBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	req, err := http.NewRequest("POST", "/api/boilerplate/variables", bytes.NewBuffer(jsonBody))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	return w.Code, w.Body.Bytes()
+	return postJSON(t, "/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath), body)
 }
 
 func TestHandleBoilerplateRequest(t *testing.T) {

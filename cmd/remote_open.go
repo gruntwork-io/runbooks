@@ -158,25 +158,26 @@ func classifyCloneError(cloneErr error, output []byte, token string, parsed *api
 	}
 	sanitized := api.SanitizeGitError(errMsg)
 
-	if isAuthError(sanitized) {
-		tokenVar, cliCmd := api.AuthHintForHost(parsed.Host)
-		if tokenVar == "" {
-			if token == "" {
-				return fmt.Errorf("authentication required for %s/%s/%s: provide an access token for %s",
-					parsed.Host, parsed.Owner, parsed.Repo, parsed.Host)
-			}
-			return fmt.Errorf("authentication failed for %s/%s/%s (token may be invalid or expired)",
-				parsed.Host, parsed.Owner, parsed.Repo)
-		}
-		if token == "" {
-			return fmt.Errorf("authentication required for %s/%s/%s: set %s, or run '%s'",
-				parsed.Host, parsed.Owner, parsed.Repo, tokenVar, cliCmd)
-		}
-		return fmt.Errorf("authentication failed for %s/%s/%s (token may be invalid or expired): verify %s, or re-run '%s'",
-			parsed.Host, parsed.Owner, parsed.Repo, tokenVar, cliCmd)
+	if !isAuthError(sanitized) {
+		return fmt.Errorf("failed to download runbook: %s", sanitized)
 	}
 
-	return fmt.Errorf("failed to download runbook: %s", sanitized)
+	repo := fmt.Sprintf("%s/%s/%s", parsed.Host, parsed.Owner, parsed.Repo)
+	tokenVar, cliCmd := api.AuthHintForHost(parsed.Host)
+
+	if token == "" {
+		// No token provided — tell user how to authenticate
+		if tokenVar == "" {
+			return fmt.Errorf("authentication required for %s: provide an access token for %s", repo, parsed.Host)
+		}
+		return fmt.Errorf("authentication required for %s: set %s, or run '%s'", repo, tokenVar, cliCmd)
+	}
+
+	// Token was provided but failed
+	if tokenVar == "" {
+		return fmt.Errorf("authentication failed for %s (token may be invalid or expired)", repo)
+	}
+	return fmt.Errorf("authentication failed for %s (token may be invalid or expired): verify %s, or re-run '%s'", repo, tokenVar, cliCmd)
 }
 
 // isAuthError checks if a git error message indicates an authentication failure.

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { formatHclValue, buildHclInputsMap, buildNonDefaultHclInputsMap } from './formatHclValue'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
+import { makeConfig } from '@/test/make-config'
 
 describe('formatHclValue', () => {
   describe('Bool type', () => {
@@ -174,16 +175,6 @@ describe('formatHclValue', () => {
 })
 
 describe('buildHclInputsMap', () => {
-  const makeConfig = (vars: Array<{ name: string; type: BoilerplateVariableType }>): BoilerplateConfig => ({
-    variables: vars.map(v => ({
-      name: v.name,
-      type: v.type,
-      description: '',
-      default: '',
-      required: false,
-    })),
-  })
-
   it('builds map from form data using config types', () => {
     const config = makeConfig([
       { name: 'region', type: BoilerplateVariableType.String },

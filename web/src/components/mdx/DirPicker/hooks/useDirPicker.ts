@@ -117,7 +117,7 @@ export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions)
         { path: nextAbsPath, selected: '', dirs: childDirs, loading: false },
       ])
     }
-  }, [rootPath, levels, fetchDirs])
+  }, [rootPath, levels, fetchDirs, maxLevels])
 
   // Sync manualPath with composed path from dropdowns
   useEffect(() => {

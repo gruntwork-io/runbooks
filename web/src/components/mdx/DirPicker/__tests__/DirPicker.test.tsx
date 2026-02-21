@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
 import DirPicker from '../DirPicker'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
-import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
-import { ErrorReportingProvider } from '@/contexts/ErrorReportingContext'
-import { TelemetryProvider } from '@/contexts/TelemetryContext'
+import { TestWrapper } from '@/test/test-utils'
 
 // Mock useSession
 vi.mock('@/contexts/useSession', () => ({
@@ -15,21 +11,6 @@ vi.mock('@/contexts/useSession', () => ({
     isReady: true,
   }),
 }))
-
-// Wrapper with all required context providers
-function TestWrapper({ children }: { children: ReactNode }) {
-  return (
-    <TelemetryProvider>
-      <ErrorReportingProvider>
-        <ComponentIdRegistryProvider>
-          <RunbookContextProvider runbookName="test">
-            {children}
-          </RunbookContextProvider>
-        </ComponentIdRegistryProvider>
-      </ErrorReportingProvider>
-    </TelemetryProvider>
-  )
-}
 
 describe('DirPicker', () => {
   beforeEach(() => {

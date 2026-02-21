@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { RunbookContextProvider } from './RunbookContext'
 import { useRunbookContext } from './useRunbook'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
+import { makeConfig } from '@/test/make-config'
 
 function createWrapper(props?: { remoteSource?: string; runbookName?: string }) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -18,16 +18,6 @@ function createWrapper(props?: { remoteSource?: string; runbookName?: string }) 
     )
   }
 }
-
-const makeConfig = (vars: Array<{ name: string; type: BoilerplateVariableType }>): BoilerplateConfig => ({
-  variables: vars.map(v => ({
-    name: v.name,
-    type: v.type,
-    description: '',
-    default: '',
-    required: false,
-  })),
-})
 
 describe('RunbookContext', () => {
   describe('remoteSource', () => {

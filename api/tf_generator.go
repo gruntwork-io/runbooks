@@ -100,8 +100,6 @@ func validationsToList(rules []ValidationRule) []string {
 	var parts []string
 	for _, r := range rules {
 		switch r.Type {
-		case ValidationRequired:
-			parts = append(parts, "required")
 		case ValidationRegex:
 			if len(r.Args) > 0 {
 				parts = append(parts, fmt.Sprintf("regex(%v)", r.Args[0]))
@@ -110,20 +108,10 @@ func validationsToList(rules []ValidationRule) []string {
 			if len(r.Args) >= 2 {
 				parts = append(parts, fmt.Sprintf("length-%v-%v", r.Args[0], r.Args[1]))
 			}
-		case ValidationURL:
-			parts = append(parts, "url")
-		case ValidationEmail:
-			parts = append(parts, "email")
-		case ValidationAlpha:
-			parts = append(parts, "alpha")
-		case ValidationDigit:
-			parts = append(parts, "digit")
-		case ValidationAlphanumeric:
-			parts = append(parts, "alphanumeric")
-		case ValidationSemver:
-			parts = append(parts, "semver")
-		case ValidationCountryCode2:
-			parts = append(parts, "countrycode2")
+		default:
+			// Simple validations: the type string is the validation keyword
+			// (e.g. ValidationRequired="required", ValidationURL="url", etc.)
+			parts = append(parts, string(r.Type))
 		}
 	}
 

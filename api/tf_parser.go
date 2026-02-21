@@ -76,26 +76,8 @@ func readTFFiles(moduleDir string) ([]tfFileContent, error) {
 
 // ParseTfModule reads all .tf files in moduleDir and returns parsed variables.
 func ParseTfModule(moduleDir string) ([]TfVariable, error) {
-	files, err := readTFFiles(moduleDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var variables []TfVariable
-	for _, f := range files {
-		fileVars, err := parseTFFile(f.src, f.name)
-		if err != nil {
-			slog.Warn("Failed to parse .tf file", "file", f.name, "error", err)
-			continue
-		}
-		variables = append(variables, fileVars...)
-	}
-
-	if len(variables) == 0 {
-		return nil, fmt.Errorf("no variables found in %s", moduleDir)
-	}
-
-	return variables, nil
+	vars, _, err := ParseTfModuleFull(moduleDir)
+	return vars, err
 }
 
 // ParseTfModuleMetadata extracts module-level metadata from a TF module directory:

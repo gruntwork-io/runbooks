@@ -1,11 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
 import TfModule from './TfModule'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
-import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
-import { ErrorReportingProvider } from '@/contexts/ErrorReportingContext'
-import { TelemetryProvider } from '@/contexts/TelemetryContext'
+import { TestWrapper } from '@/test/test-utils'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 // Mock the API hook — we don't want actual HTTP calls
@@ -17,44 +13,27 @@ vi.mock('@/hooks/useApiParseTfModule', () => ({
 import { useApiParseTfModule } from '@/hooks/useApiParseTfModule'
 const mockUseApiParseTfModule = vi.mocked(useApiParseTfModule)
 
-// Wrapper providing all required context providers
-function TestWrapper({ children, remoteSource }: { children: ReactNode; remoteSource?: string }) {
-  return (
-    <TelemetryProvider>
-      <ErrorReportingProvider>
-        <ComponentIdRegistryProvider>
-          <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
-            {children}
-          </RunbookContextProvider>
-        </ComponentIdRegistryProvider>
-      </ErrorReportingProvider>
-    </TelemetryProvider>
-  )
+/** Creates a mock return value for useApiParseTfModule with sensible defaults. */
+function mockApiResponse(overrides: Partial<ReturnType<typeof useApiParseTfModule>> = {}) {
+  return {
+    data: null,
+    isLoading: true,
+    error: null,
+    refetch: vi.fn(),
+    silentRefetch: vi.fn(),
+    ...overrides,
+  }
 }
 
 describe('TfModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Default: loading state
-    mockUseApiParseTfModule.mockReturnValue({
-      data: null,
-      isLoading: true,
-      error: null,
-      refetch: vi.fn(),
-      silentRefetch: vi.fn(),
-    })
+    mockUseApiParseTfModule.mockReturnValue(mockApiResponse())
   })
 
   describe('::source resolution', () => {
     it('resolves ::source to remoteSource from context', () => {
-      mockUseApiParseTfModule.mockReturnValue({
-        data: null,
-        isLoading: true,
-        error: null,
-        refetch: vi.fn(),
-        silentRefetch: vi.fn(),
-      })
-
       render(
         <TestWrapper remoteSource="https://github.com/org/module">
           <TfModule id="test" source="::source" />
@@ -125,14 +104,6 @@ describe('TfModule', () => {
 
   describe('loading state', () => {
     it('shows loading display while parsing module', () => {
-      mockUseApiParseTfModule.mockReturnValue({
-        data: null,
-        isLoading: true,
-        error: null,
-        refetch: vi.fn(),
-        silentRefetch: vi.fn(),
-      })
-
       render(
         <TestWrapper>
           <TfModule id="test" source="../modules/vpc" />
@@ -145,13 +116,10 @@ describe('TfModule', () => {
 
   describe('API error handling', () => {
     it('shows error display when API returns an error', () => {
-      mockUseApiParseTfModule.mockReturnValue({
-        data: null,
+      mockUseApiParseTfModule.mockReturnValue(mockApiResponse({
         isLoading: false,
         error: { message: 'Module not found', details: 'Could not find module at: ../missing' },
-        refetch: vi.fn(),
-        silentRefetch: vi.fn(),
-      })
+      }))
 
       render(
         <TestWrapper>
@@ -165,7 +133,7 @@ describe('TfModule', () => {
 
   describe('successful render', () => {
     it('renders form when module is successfully parsed', () => {
-      mockUseApiParseTfModule.mockReturnValue({
+      mockUseApiParseTfModule.mockReturnValue(mockApiResponse({
         data: {
           variables: [
             {
@@ -184,10 +152,7 @@ describe('TfModule', () => {
           },
         },
         isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-        silentRefetch: vi.fn(),
-      })
+      }))
 
       render(
         <TestWrapper>
@@ -205,7 +170,7 @@ describe('TfModule', () => {
       // This test verifies the enrichFormData callback structure by inspecting
       // what the API hook receives. We test the actual data flow through
       // RunbookContext separately (in RunbookContext.test.tsx).
-      mockUseApiParseTfModule.mockReturnValue({
+      mockUseApiParseTfModule.mockReturnValue(mockApiResponse({
         data: {
           variables: [
             {
@@ -224,10 +189,7 @@ describe('TfModule', () => {
           },
         },
         isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-        silentRefetch: vi.fn(),
-      })
+      }))
 
       // Render succeeds — the form appears
       const { container } = render(

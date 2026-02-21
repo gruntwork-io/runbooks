@@ -65,17 +65,31 @@ func TestIsTfModule(t *testing.T) {
 	})
 }
 
+// tfVarsByName converts a TfVariable slice to a map keyed by variable name.
+func tfVarsByName(vars []TfVariable) map[string]TfVariable {
+	m := make(map[string]TfVariable, len(vars))
+	for _, v := range vars {
+		m[v.Name] = v
+	}
+	return m
+}
+
+// bpVarsByName converts a BoilerplateVariable slice to a map keyed by variable name.
+func bpVarsByName(vars []BoilerplateVariable) map[string]BoilerplateVariable {
+	m := make(map[string]BoilerplateVariable, len(vars))
+	for _, v := range vars {
+		m[v.Name] = v
+	}
+	return m
+}
+
 func TestParseTfModule_S3Bucket(t *testing.T) {
 	fixtureDir := "../testdata/test-fixtures/tf-modules/s3-bucket"
 	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, vars)
 
-	// Find specific variables
-	varMap := make(map[string]TfVariable)
-	for _, v := range vars {
-		varMap[v.Name] = v
-	}
+	varMap := tfVarsByName(vars)
 
 	// bucket_name: required string with regex validation
 	bucketName, ok := varMap["bucket_name"]
@@ -116,10 +130,7 @@ func TestParseTfModule_LambdaFunction(t *testing.T) {
 	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
-	varMap := make(map[string]TfVariable)
-	for _, v := range vars {
-		varMap[v.Name] = v
-	}
+	varMap := tfVarsByName(vars)
 
 	// function_name: required string (no default)
 	fn, ok := varMap["function_name"]
@@ -150,10 +161,7 @@ func TestParseTfModule_Complex(t *testing.T) {
 	vars, err := ParseTfModule(fixtureDir)
 	require.NoError(t, err)
 
-	varMap := make(map[string]TfVariable)
-	for _, v := range vars {
-		varMap[v.Name] = v
-	}
+	varMap := tfVarsByName(vars)
 
 	// environment: contains() validation
 	env, ok := varMap["environment"]
@@ -195,10 +203,7 @@ func TestMapToBoilerplateConfig_S3Bucket(t *testing.T) {
 	config := MapToBoilerplateConfig(vars)
 	require.NotNil(t, config)
 
-	varMap := make(map[string]BoilerplateVariable)
-	for _, v := range config.Variables {
-		varMap[v.Name] = v
-	}
+	varMap := bpVarsByName(config.Variables)
 
 	// bucket_name: should have required + regex validations
 	bucketName := varMap["bucket_name"]
@@ -253,10 +258,7 @@ func TestMapToBoilerplateConfig_ContainsToEnum(t *testing.T) {
 
 	config := MapToBoilerplateConfig(vars)
 
-	varMap := make(map[string]BoilerplateVariable)
-	for _, v := range config.Variables {
-		varMap[v.Name] = v
-	}
+	varMap := bpVarsByName(config.Variables)
 
 	// runtime with contains() should become enum
 	runtime := varMap["runtime"]
@@ -271,10 +273,7 @@ func TestMapToBoilerplateConfig_ObjectSchema(t *testing.T) {
 
 	config := MapToBoilerplateConfig(vars)
 
-	varMap := make(map[string]BoilerplateVariable)
-	for _, v := range config.Variables {
-		varMap[v.Name] = v
-	}
+	varMap := bpVarsByName(config.Variables)
 
 	// notification_config: object → map with x-schema
 	notif := varMap["notification_config"]
@@ -291,10 +290,7 @@ func TestMapToBoilerplateConfig_TupleNote(t *testing.T) {
 
 	config := MapToBoilerplateConfig(vars)
 
-	varMap := make(map[string]BoilerplateVariable)
-	for _, v := range config.Variables {
-		varMap[v.Name] = v
-	}
+	varMap := bpVarsByName(config.Variables)
 
 	// priority_order: tuple → list with schema for element types
 	priority := varMap["priority_order"]

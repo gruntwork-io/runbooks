@@ -14,25 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tfParseRequest is a test helper that creates a gin router with HandleTfModuleParse,
-// fires a POST /api/tf/parse with the given body, and returns the status code and raw body.
+// tfParseRequest is a test helper that fires a POST /api/tf/parse with the given body.
 func tfParseRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.POST("/api/tf/parse", HandleTfModuleParse(runbookPath))
-
-	jsonBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBuffer(jsonBody))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	return w.Code, w.Body.Bytes()
+	return postJSON(t, "/api/tf/parse", HandleTfModuleParse(runbookPath), body)
 }
 
 func TestHandleTfModuleParse_LocalPath(t *testing.T) {
@@ -117,20 +102,9 @@ func TestHandleTfModuleParse_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleTfModuleParse_MissingSource(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/runbook.mdx"))
-
 	// Empty source should fail validation (binding:"required")
-	body, _ := json.Marshal(map[string]string{})
-	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBuffer(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	code, _ := tfParseRequest(t, "/fake/runbook.mdx", map[string]string{})
+	assert.Equal(t, http.StatusBadRequest, code)
 }
 
 func TestHandleTfModuleParse_NonExistentPath(t *testing.T) {

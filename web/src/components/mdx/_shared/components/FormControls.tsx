@@ -235,12 +235,16 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
   const schemaFields = Object.keys(schema)
   const instanceLabel = variable.schemaInstanceLabel || 'Entry name' // Use custom label or default
 
+  const resetEntryForm = () => {
+    setIsAddingEntry(false)
+    setEntryKey('')
+    setEntryFields({})
+  }
+
   const addEntry = () => {
     if (entryKey.trim()) {
       onChange({ ...currentMap, [entryKey.trim()]: entryFields })
-      setEntryKey('')
-      setEntryFields({})
-      setIsAddingEntry(false)
+      resetEntryForm()
     }
   }
 
@@ -276,11 +280,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => {
-                setIsAddingEntry(false)
-                setEntryKey('')
-                setEntryFields({})
-              }}
+              onClick={resetEntryForm}
               className="text-gray-500 hover:text-gray-700"
             >
               Cancel

@@ -86,16 +86,8 @@ function TemplateInline({
     const childDeps = extractOutputDependencies(children);
     const pathDeps = outputPath ? extractOutputDependenciesFromString(outputPath) : [];
     if (pathDeps.length === 0) return childDeps;
-    // Deduplicate by fullPath
-    const seen = new Set(childDeps.map(d => d.fullPath));
-    const merged = [...childDeps];
-    for (const dep of pathDeps) {
-      if (!seen.has(dep.fullPath)) {
-        seen.add(dep.fullPath);
-        merged.push(dep);
-      }
-    }
-    return merged;
+    // Deduplicate by fullPath — later entries (pathDeps) don't override earlier ones (childDeps)
+    return [...new Map([...childDeps, ...pathDeps].map(d => [d.fullPath, d])).values()];
   }, [children, outputPath]);
 
   // Resolve {{ ._blocks.*.outputs.* }} expressions in outputPath using block outputs.
