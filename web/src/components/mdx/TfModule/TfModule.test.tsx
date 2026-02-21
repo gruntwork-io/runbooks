@@ -20,7 +20,7 @@ const mockUseApiParseTfModule = vi.mocked(useApiParseTfModule)
 // Wrapper providing all required context providers
 function TestWrapper({ children, remoteSource }: { children: ReactNode; remoteSource?: string }) {
   return (
-    <TelemetryProvider runbookName="test" isEnabled={false}>
+    <TelemetryProvider>
       <ErrorReportingProvider>
         <ComponentIdRegistryProvider>
           <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
@@ -40,6 +40,8 @@ describe('TfModule', () => {
       data: null,
       isLoading: true,
       error: null,
+      refetch: vi.fn(),
+      silentRefetch: vi.fn(),
     })
   })
 
@@ -49,6 +51,8 @@ describe('TfModule', () => {
         data: null,
         isLoading: true,
         error: null,
+        refetch: vi.fn(),
+        silentRefetch: vi.fn(),
       })
 
       render(
@@ -125,6 +129,8 @@ describe('TfModule', () => {
         data: null,
         isLoading: true,
         error: null,
+        refetch: vi.fn(),
+        silentRefetch: vi.fn(),
       })
 
       render(
@@ -143,6 +149,8 @@ describe('TfModule', () => {
         data: null,
         isLoading: false,
         error: { message: 'Module not found', details: 'Could not find module at: ../missing' },
+        refetch: vi.fn(),
+        silentRefetch: vi.fn(),
       })
 
       render(
@@ -177,6 +185,8 @@ describe('TfModule', () => {
         },
         isLoading: false,
         error: null,
+        refetch: vi.fn(),
+        silentRefetch: vi.fn(),
       })
 
       render(
@@ -215,6 +225,8 @@ describe('TfModule', () => {
         },
         isLoading: false,
         error: null,
+        refetch: vi.fn(),
+        silentRefetch: vi.fn(),
       })
 
       // Render succeeds — the form appears

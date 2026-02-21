@@ -19,7 +19,7 @@ vi.mock('@/contexts/useSession', () => ({
 // Wrapper with all required context providers
 function TestWrapper({ children }: { children: ReactNode }) {
   return (
-    <TelemetryProvider runbookName="test" isEnabled={false}>
+    <TelemetryProvider>
       <ErrorReportingProvider>
         <ComponentIdRegistryProvider>
           <RunbookContextProvider runbookName="test">
