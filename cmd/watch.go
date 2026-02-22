@@ -16,11 +16,21 @@ var disableLiveFileReload bool
 
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
-	Use:   "watch PATH",
+	Use:   "watch RUNBOOK_SOURCE",
 	Short: "Open a runbook and auto-reload changes (for runbook authors)",
-	Long: `Open the runbook located at PATH, or the runbook contained in the PATH directory.
-The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
-By default, script changes take effect immediately without server restart (live-file-reload mode).`,
+	Long: `Open the runbook at RUNBOOK_SOURCE with live-reloading enabled.
+
+The runbook will automatically reload when changes are detected to
+the underlying runbook.mdx file. By default, script changes take
+effect immediately without server restart (live-file-reload mode).
+
+RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
+module directory.
+
+Examples:
+  runbooks watch ./path/to/runbook
+  runbooks watch https://github.com/org/repo/tree/main/runbooks/rds`,
 	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		telemetry.TrackCommand("watch")

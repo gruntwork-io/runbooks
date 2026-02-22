@@ -201,7 +201,7 @@ type serverSetup struct {
 // Calls os.Exit(1) on errors.
 func resolveForServer(args []string) serverSetup {
 	if len(args) == 0 {
-		slog.Error("Error: You must specify a path to a runbook file or directory\n")
+		slog.Error("Error: You must specify a RUNBOOK_SOURCE (local path, remote URL, or OpenTofu/Terraform module directory)\n")
 		os.Exit(1)
 	}
 	path := args[0]

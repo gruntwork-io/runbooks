@@ -14,9 +14,18 @@ import (
 
 // openCmd represents the open command
 var openCmd = &cobra.Command{
-	Use:     "open PATH",
-	Short:   "Open a runbook (for runbook consumers)",
-	Long:    `Open the runbook located at PATH, or the runbook contained in the PATH directory.`,
+	Use:   "open RUNBOOK_SOURCE",
+	Short: "Open a runbook (for runbook consumers)",
+	Long: `Open the runbook at RUNBOOK_SOURCE in your browser.
+
+RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
+module directory.
+
+Examples:
+  runbooks open ./path/to/runbook
+  runbooks open https://github.com/org/repo/tree/main/runbooks/rds
+  runbooks open github.com/org/repo//modules/rds?ref=v1.0`,
 	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		telemetry.TrackCommand("open")

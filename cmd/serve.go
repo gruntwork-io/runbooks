@@ -15,13 +15,16 @@ import (
 
 // serveCmd represents the serve command
 var serveCmd = &cobra.Command{
-	Use:   "serve",
+	Use:   "serve RUNBOOK_SOURCE",
 	Short: "Start the backend API server (for runbook developers)",
-	Long: `This command will start the backend API server on port 7825. You can then access 
-the server at http://localhost:7825.
+	Long: `Start the backend API server for RUNBOOK_SOURCE on port 7825.
 
-This is useful for local development on the runbooks tool. Runbook authors and consumers will not find this useful.
-`,
+This is useful for local development on the Runbooks tool itself.
+Runbook authors and consumers should use 'open' or 'watch' instead.
+
+RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
+module directory.`,
 	GroupID: "other",
 	Run: func(cmd *cobra.Command, args []string) {
 		telemetry.TrackCommand("serve")
