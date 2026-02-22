@@ -20,7 +20,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

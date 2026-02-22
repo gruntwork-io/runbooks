@@ -45,11 +45,11 @@ variable "transition_to_glacier_days" {
 }
 ```
 
-Into this runbook:
+Into this runbook input form:
 
 ![Rendered TfModule form](../../../../assets/screenshots/blocks/tf-module-form.webp)
 
-Note that the OpenTofu/Terraform author can annotate some variables with `# @runbooks:group "Group Name"` comments to group them together under a common heading.
+Note that the OpenTofu/Terraform author can annotate some variables with `# @runbooks:group "Group Name"` comments to group them together under a common heading, in this case "Lifecycle".
 
 ### Why use TfModule?
 
@@ -61,11 +61,11 @@ runbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/test-f
 
 This means that every OpenTofu/Terraform module you've already defined can be used to generate a runbook that will collect values for the module's variables and then generate any file output format, such as a Terragrunt HCL file, Helm chart YAML file, CloudFormation template, or anything else.
 
-The TfModule is a critical building block for this use case. To learn more about opening runbooks based on OpenTofu/Terraform modules, see the [Opening Runbooks](/authoring/opening-runbooks/) docs.
+The TfModule is a core building block for this use case, but you can also define a custom runbook that will be used to open the module. To learn more about opening runbooks based on OpenTofu/Terraform modules, see the [Opening Runbooks](/authoring/opening-runbooks/) docs.
 
 ## Basic Usage
 
-The most common pattern is a **generic runbook** that accepts any module URL from the CLI using `::cli_runbook_source`:
+The most common pattern for TfModule is a **generic runbook** that accepts any module URL from the CLI using `::cli_runbook_source`:
 
 `````mdx
 <TfModule id="module-vars" source="::cli_runbook_source" />

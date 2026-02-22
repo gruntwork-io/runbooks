@@ -13,7 +13,7 @@ This runbook generates a `main.tf` file from an OpenTofu module's input variable
 module "this" {
   source = "{{ ._module.source }}"
 
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
