@@ -1,0 +1,255 @@
+---
+title: Opening Runbooks
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+# Opening Runbooks from OpenTofu/Terraform Modules
+
+The `runbooks open` command can open any OpenTofu/Terraform module and render a web form for its variables. This page explains how that works and how to customize the experience.
+
+## Quick Start
+
+Point the CLI at any directory containing `.tf` files:
+
+```bash
+# Local module
+runbooks open ./modules/rds
+
+# Remote module (GitHub URL)
+runbooks open https://github.com/org/repo/tree/main/modules/rds
+
+# Remote module (OpenTofu shorthand)
+runbooks open github.com/org/repo//modules/rds?ref=v1.0
+```
+
+Runbooks auto-detects the `.tf` files, parses the variables, and renders a form. When the user fills in values, it generates a `terragrunt.hcl` file.
+
+## How It Works
+
+When you run `runbooks open` on an OpenTofu/Terraform module, Runbooks:
+
+1. **Detects the module** by checking for `.tf` files in the directory
+2. **Selects a template** to use as the runbook (defaults to `::terragrunt`)
+3. **Serves the runbook** in your browser, where [`<TfModule>`](/authoring/blocks/tfmodule/) parses the module and renders the form
+
+If the directory already contains a `runbook.mdx`, Runbooks serves that instead of generating one. This is how [colocated runbooks](#colocated-runbooks) work.
+
+## Built-in Templates
+
+Use the `--tf-runbook` flag to select which template Runbooks uses:
+
+```bash
+runbooks open --tf-runbook=::terragrunt ./modules/rds
+```
+
+| Template | What it generates | When to use |
+|----------|-------------------|-------------|
+| `::terragrunt` (default) | `terragrunt.hcl` with all inputs | Standard Terragrunt workflows |
+| `::terragrunt-github` | `terragrunt.hcl` + GitHub PR | GitOps: clone a repo, pick a directory, generate config, open a PR |
+| `::tofu` | `main.tf` with a `module` block | Plain OpenTofu/Terraform (no Terragrunt) |
+
+<Aside type="tip">
+The `::terragrunt` template uses `hcl_inputs` (all variables). The `::terragrunt-github` template uses `hcl_inputs_non_default` (only variables that differ from defaults) for idiomatic Terragrunt. See [`_module` namespace](/authoring/blocks/tfmodule/#the-_module-namespace) for details.
+</Aside>
+
+## Custom Templates
+
+If the built-in templates don't fit your needs, create your own. A custom template is a directory containing a `runbook.mdx` that uses `<TfModule>` with `source="::cli_runbook_source"`:
+
+```
+my-custom-template/
+  runbook.mdx
+```
+
+The `runbook.mdx` is a normal runbook — the `::cli_runbook_source` keyword resolves to whatever module URL is passed on the command line. You generate output using either `<TemplateInline>` or `<Template>`.
+
+## Using `<TemplateInline>`
+
+[`<TemplateInline>`](/authoring/blocks/templateinline/) embeds the template directly in the runbook. It's the ideal choice for generating a single file — everything is visible and editable in one place with no external files needed.
+
+`````mdx title="my-custom-template/runbook.mdx"
+# Configure Module
+
+<TfModule id="module-vars" source="::cli_runbook_source" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+Run it with:
+
+```bash
+runbooks open --tf-runbook ./my-custom-template/ https://github.com/org/repo/tree/main/modules/rds
+```
+
+### Multiple `<TemplateInline>` blocks
+
+You can use multiple `<TemplateInline>` blocks in the same runbook to generate several files. Because it's a normal runbook, you can also add markdown documentation and additional blocks between them:
+
+`````mdx title="my-custom-template/runbook.mdx"
+# Deploy Module
+
+This runbook generates a Terragrunt configuration and a README for the module.
+
+## Configure Module Variables
+
+<TfModule id="module-vars" source="::cli_runbook_source" />
+
+## Terragrunt Configuration
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+
+## Module README
+
+<TemplateInline inputsId="module-vars" outputPath="README.md" generateFile={true}>
+```markdown
+# {{ ._module.readme_title }}
+
+Source: `{{ ._module.source }}`
+
+## Outputs
+
+{{- range ._module.output_names }}
+- `{{ . }}`
+{{- end }}
+```
+</TemplateInline>
+`````
+
+## Using `<Template>`
+
+[`<Template>`](/authoring/blocks/template/) points to a separate directory containing a `boilerplate.yml` and one or more template files. Use it when you need:
+
+- **Multi-file scaffolding** — add files to the template directory without changing the runbook
+- **Extra variables** — any variables defined in `boilerplate.yml` that aren't provided by `<TfModule>` appear as additional input fields, letting you collect project-level values (e.g., environment name, team owner) alongside the module variables
+
+`````mdx title="my-custom-template/runbook.mdx"
+# Deploy Module
+
+<TfModule id="module-vars" source="::cli_runbook_source" />
+
+<Template id="output" path="templates/scaffold" inputsId="module-vars" />
+`````
+
+See [`<TfModule>` — Extra Variables with Template](/authoring/blocks/tfmodule/#extra-variables-with-template) for details on how module variables and template variables are merged.
+
+## When to Use `<TemplateInline>` vs `<Template>`
+
+| | `<TemplateInline>` | `<Template>` |
+|---|---|---|
+| **Best for** | Single-file output | Multi-file scaffolding |
+| **Template location** | Inline in the runbook | Separate directory with `boilerplate.yml` |
+| **Extra variables** | No — only variables from sibling blocks (`<TfModule>`, `<Inputs>`, etc.) | Yes — define additional variables in `boilerplate.yml` |
+| **Adding files** | Add another `<TemplateInline>` block to the runbook | Add a file to the template directory |
+
+Start with `<TemplateInline>` — it's simpler and keeps everything in one place. Move to `<Template>` when you need extra variables or find yourself managing many output files.
+
+## What `::cli_runbook_source` Resolves To
+
+The keyword resolves to the `RUNBOOK_SOURCE` argument you pass on the command line:
+
+| Command | `::cli_runbook_source` resolves to |
+|---------|------------------------------------|
+| `runbooks open --tf-runbook ./tpl/ ./modules/rds` | Absolute path to `./modules/rds` |
+| `runbooks open --tf-runbook ./tpl/ https://github.com/org/repo/tree/main/modules/rds` | `https://github.com/org/repo/tree/main/modules/rds` |
+| `runbooks open --tf-runbook ./tpl/ github.com/org/repo//modules/rds?ref=v1.0` | `github.com/org/repo//modules/rds?ref=v1.0` |
+
+If the runbook is opened without a module URL (e.g., `runbooks open --tf-runbook ./tpl/`), `<TfModule>` renders a message explaining how to provide one.
+
+## Colocated Runbooks
+
+Module authors can ship a custom runbook alongside their `.tf` files by placing a `runbook.mdx` in the module directory:
+
+```
+modules/rds/
+  main.tf
+  variables.tf
+  outputs.tf
+  runbook.mdx        <-- custom runbook
+```
+
+When someone runs `runbooks open` on this directory, the colocated `runbook.mdx` is served instead of generating one from a template. Inside, use `source="."` to reference the module in the same directory:
+
+`````mdx title="modules/rds/runbook.mdx"
+# Configure RDS
+
+<TfModule id="rds-vars" source="." />
+
+<TemplateInline inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+This works with both local and remote modules:
+
+```bash
+# Local
+runbooks open ./modules/rds
+
+# Remote — still serves the colocated runbook.mdx
+runbooks open https://github.com/org/repo/tree/main/modules/rds
+```
+
+## Variable Grouping with `@runbooks:group`
+
+Module authors can control how variables are grouped in the form by adding `@runbooks:group` comments in their `.tf` files:
+
+```hcl
+variable "instance_class" {
+  type        = string
+  description = "RDS instance class"
+}
+
+# @runbooks:group "Networking"
+variable "subnet_ids" {
+  type        = list(string)
+  description = "Subnet IDs for the DB subnet group"
+}
+
+# @runbooks:group "Networking"
+variable "vpc_security_group_ids" {
+  type        = list(string)
+  description = "Security group IDs"
+}
+```
+
+Variables with the same group name are displayed together under a collapsible heading. Variables without an annotation appear in an ungrouped section. See [`<TfModule>` — Variable Grouping](/authoring/blocks/tfmodule/#variable-grouping) for the full grouping behavior.

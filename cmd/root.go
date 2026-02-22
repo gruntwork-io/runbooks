@@ -180,7 +180,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 		os.Exit(1)
 	}
 
-	slog.Error("No runbook or OpenTofu module found", "path", path, "error", err)
+	slog.Error("No runbook or OpenTofu/Terraform module found", "path", path, "error", err)
 	os.Exit(1)
 	return // unreachable
 }

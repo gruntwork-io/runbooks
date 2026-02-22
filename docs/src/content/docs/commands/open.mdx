@@ -18,7 +18,7 @@ runbooks open RUNBOOK_SOURCE [flags]
 
 ## Arguments
 
-- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, the directory containing a `runbook.mdx` file, or an OpenTofu/Terraform module directory.
 
 ### Local paths
 
@@ -57,6 +57,23 @@ runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main
 When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir=::tmp`). You can override this with `--working-dir` if needed.
 </Aside>
 
+### OpenTofu/Terraform modules
+
+If `RUNBOOK_SOURCE` points to a directory containing `.tf` files (but no `runbook.mdx`), Runbooks auto-detects it as an OpenTofu/Terraform module. It generates a temporary runbook that parses the module's variables and renders a web form for them.
+
+```bash
+# Local module directory
+runbooks open ./modules/rds
+
+# Remote module via GitHub URL
+runbooks open https://github.com/org/repo/tree/main/modules/rds
+
+# Remote module via OpenTofu shorthand
+runbooks open github.com/org/repo//modules/rds?ref=v1.0
+```
+
+By default, the auto-generated runbook uses the `::terragrunt` template. Use `--tf-runbook` to choose a different built-in template or provide your own custom runbook. See [Flags](#flags) below.
+
 ### Authentication for private repos
 
 For public repositories, no authentication is needed. For private repositories, set one of the following:
@@ -72,6 +89,11 @@ For public repositories, no authentication is needed. For private repositories, 
   - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
+- `--tf-runbook <keyword-or-path>` - Select a built-in template or provide a custom runbook for OpenTofu/Terraform modules. Built-in templates:
+  - `::terragrunt` (default) — Generates a `terragrunt.hcl` file
+  - `::terragrunt-github` — Full GitOps workflow: GitHub auth, clone, directory picker, generate `terragrunt.hcl`, and open a pull request
+  - `::tofu` — Generates a plain `main.tf` file
+  - Or pass a path to a custom runbook directory (e.g., `--tf-runbook ./my-runbook/`)
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
@@ -79,10 +101,11 @@ For public repositories, no authentication is needed. For private repositories, 
 When you run `runbooks open`:
 
 1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
-2. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
-3. **Launches the Browser** - Opens your default web browser to `http://localhost:7825`
-4. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
-5. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
+2. **Auto-detects (if TF module)** - If the target is an OpenTofu/Terraform module directory (contains `.tf` files but no `runbook.mdx`), generates a temporary runbook using the selected template
+3. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
+4. **Launches the Browser** - Opens your default web browser to `http://localhost:7825`
+5. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
+6. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
 
 ## Troubleshooting
 

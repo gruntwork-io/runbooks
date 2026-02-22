@@ -18,7 +18,7 @@ runbooks serve RUNBOOK_SOURCE [flags]
 
 ## Arguments
 
-- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file. See [runbooks open](/commands/open) for supported remote URL formats.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, the directory containing a `runbook.mdx` file, or an OpenTofu/Terraform module directory. See [runbooks open](/commands/open) for supported remote URL formats and OpenTofu/Terraform module auto-detection.
 
 ## Flags
 
@@ -28,6 +28,7 @@ runbooks serve RUNBOOK_SOURCE [flags]
   - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
+- `--tf-runbook <keyword-or-path>` - Select a built-in template or provide a custom runbook for OpenTofu/Terraform modules. See [runbooks open](/commands/open/#flags) for available templates.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does

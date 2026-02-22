@@ -22,7 +22,7 @@ runbooks watch RUNBOOK_SOURCE [flags]
 
 ## Arguments
 
-- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, or the directory containing a `runbook.mdx` file. See [runbooks open](/commands/open) for supported remote URL formats.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, the directory containing a `runbook.mdx` file, or an OpenTofu/Terraform module directory. See [runbooks open](/commands/open) for supported remote URL formats and OpenTofu/Terraform module auto-detection.
 
 <Aside type="note">
 When watching a remote runbook, file watching operates on the local downloaded copy. Changes to the remote repository will not be detected automatically.
@@ -36,6 +36,7 @@ When watching a remote runbook, file watching operates on the local downloaded c
   - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
+- `--tf-runbook <keyword-or-path>` - Select a built-in template or provide a custom runbook for OpenTofu/Terraform modules. See [runbooks open](/commands/open/#flags) for available templates.
 - `--disable-live-file-reload` - Enable executable registry validation. Scripts will not reload from disk when they are updated; instead, you must re-run the `runbooks` command to apply script changes. This trades lower convenience for higher security. See [Execution Security Model](/security/execution-model) for details.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
