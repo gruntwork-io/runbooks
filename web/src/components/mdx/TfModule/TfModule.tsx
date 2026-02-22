@@ -14,7 +14,7 @@ import { useRunbookContext } from '@/contexts/useRunbook'
  * passed to the `runbooks open` CLI command. This enables generic runbooks
  * that work with any OpenTofu module URL.
  */
-const SOURCE_KEYWORD = '::source'
+const SOURCE_KEYWORD = '::cli_runbook_source'
 
 /**
  * TfModule component - parses an OpenTofu module at runtime and collects user input.
@@ -26,13 +26,13 @@ const SOURCE_KEYWORD = '::source'
  * The source prop accepts both local relative paths and remote URLs:
  * - Local: "../modules/my-vpc"
  * - Colocated: "." (same directory as the runbook)
- * - Dynamic: "::source" (resolved from the `runbooks open` CLI invocation)
+ * - Dynamic: "::cli_runbook_source" (resolved from the `runbooks open` CLI invocation)
  * - GitHub shorthand: "github.com/org/modules//vpc?ref=v1.0"
  * - Git prefix: "git::https://github.com/org/repo.git//path?ref=v1.0"
  * - GitHub browser URL: "https://github.com/org/repo/tree/main/modules/vpc"
  *
  * @param props.id - Unique identifier for this component (required)
- * @param props.source - Module source: local path, remote URL, ".", or "::source" (required)
+ * @param props.source - Module source: local path, remote URL, ".", or "::cli_runbook_source" (required)
  */
 interface TfModuleProps {
   id: string
@@ -42,7 +42,7 @@ interface TfModuleProps {
 function TfModule({ id, source }: TfModuleProps) {
   const { remoteSource, registerOutputs } = useRunbookContext()
 
-  // Resolve ::source keyword to the remote URL from the CLI invocation
+  // Resolve ::cli_runbook_source keyword to the remote URL from the CLI invocation
   const resolvedSource = useMemo(() => {
     if (source === SOURCE_KEYWORD) {
       return remoteSource || null // null signals missing remote source
@@ -50,7 +50,7 @@ function TfModule({ id, source }: TfModuleProps) {
     return source
   }, [source, remoteSource])
 
-  // Track whether ::source keyword is missing a remote source
+  // Track whether ::cli_runbook_source keyword is missing a remote source
   const isMissingRemoteSource = source === SOURCE_KEYWORD && !resolvedSource
 
   // Validate props
@@ -135,7 +135,7 @@ function TfModule({ id, source }: TfModuleProps) {
     }
   }, [handleAutoUpdate, hasSubmitted, id, registerOutputs, metadata, resolvedSource])
 
-  // Show friendly message when ::source is used but no remote source is available
+  // Show friendly message when ::cli_runbook_source is used but no remote source is available
   if (isMissingRemoteSource) {
     return (
       <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg">
@@ -144,7 +144,7 @@ function TfModule({ id, source }: TfModuleProps) {
         </div>
         <div className="text-amber-700 text-sm">
           <p className="mb-2">
-            This runbook uses <code className="bg-amber-100 px-1 rounded">source="::source"</code>,
+            This runbook uses <code className="bg-amber-100 px-1 rounded">source="::cli_runbook_source"</code>,
             which expects a remote OpenTofu/Terraform module URL from the <code className="bg-amber-100 px-1 rounded">runbooks open</code> command.
           </p>
           <p>

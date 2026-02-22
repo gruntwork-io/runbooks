@@ -92,9 +92,9 @@ func isTfRunbookKeyword(value string) bool {
 // When it's a path (e.g., "./my-runbook", "path/to/runbook"), it uses the custom runbook.
 // modulePath is the local path to the TF module. originalSource is the original URL
 // for remote modules (empty for local). Returns the runbook path, server path,
-// remote source URL (for ::source resolution), and a cleanup function.
+// remote source URL (for ::cli_runbook_source resolution), and a cleanup function.
 func resolveTfModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
-	// Compute the module source URL so ::source resolves at runtime
+	// Compute the module source URL so ::cli_runbook_source resolves at runtime
 	moduleSourceURL := originalSource
 	if moduleSourceURL == "" {
 		absPath, err := filepath.Abs(modulePath)
@@ -131,7 +131,7 @@ func resolveTfModuleRunbook(modulePath string, originalSource string) (resolvedP
 // runbook from the module. Also handles remote URLs — downloads the source first,
 // then checks for a runbook or OpenTofu module.
 // Returns the resolved runbook path, the (possibly updated) server path,
-// the original remote URL (for ::source resolution in TfModule), and a
+// the original remote URL (for ::cli_runbook_source resolution in TfModule), and a
 // cleanup function for any generated temp files. Calls os.Exit(1) on errors.
 func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
 	// 1. Try as a local runbook
@@ -190,7 +190,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 type serverSetup struct {
 	runbookPath     string // The resolved runbook file path
 	serverPath      string // The path to pass to ServerConfig (may differ for generated runbooks)
-	remoteSourceURL string // Original URL for ::source resolution (empty for local)
+	remoteSourceURL string // Original URL for ::cli_runbook_source resolution (empty for local)
 	workingDir      string // Resolved working directory
 	cleanup         func() // Combined cleanup function (nil if no cleanup needed)
 }

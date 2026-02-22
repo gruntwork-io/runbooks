@@ -42,7 +42,7 @@ Both `<TfModule>` and `<Inputs>` collect user values and publish them to context
 ### Required Props
 
 - `id` (string) - Unique identifier for this component. Other blocks reference this ID via `inputsId` to access the collected values.
-- `source` (string) - Path or URL to the OpenTofu module directory containing `.tf` files. See [Supported Source Formats](#supported-source-formats) below.
+- `source` (string) - Path or URL to the OpenTofu/Terraform module directory containing `.tf` files. See [Supported Source Formats](#supported-source-formats) below.
 
 ## Supported Source Formats
 
@@ -52,7 +52,7 @@ The `source` prop accepts the same formats as the `runbooks open` CLI command:
 |--------|---------|
 | Local relative path | `../modules/rds` |
 | Colocated (same directory) | `.` |
-| Dynamic from CLI | `::source` |
+| Dynamic from CLI | `::cli_runbook_source` |
 | GitHub shorthand | `github.com/org/repo//modules/rds?ref=v1.0.0` |
 | Git prefix | `git::https://github.com/org/repo.git//modules/rds?ref=v1.0.0` |
 | GitHub browser URL | `https://github.com/org/repo/tree/main/modules/rds` |
@@ -104,9 +104,9 @@ Anyone can then run this module's custom runbook:
 runbooks open https://github.com/my-org/infra-modules/tree/main/modules/rds
 ```
 
-### Dynamic Source from CLI (`source="::source"`)
+### Dynamic Source from CLI (`source="::cli_runbook_source"`)
 
-The `::source` keyword resolves to whatever URL was passed to the `runbooks open` CLI command. This enables a **generic runbook** that works with any OpenTofu module without hardcoding a specific module path.
+The `::cli_runbook_source` keyword resolves to whatever URL was passed to the `runbooks open` CLI command (or `runbooks watch` or `runbooks serve`). This enables a **generic runbook** that works with any OpenTofu/Terraform module without hardcoding a specific module path.
 
 Use the `--tf-runbook` flag to tell the CLI to use your custom runbook when opening a TF module:
 
@@ -119,7 +119,7 @@ Inside `my-custom-runbook/runbook.mdx`:
 `````mdx
 # Configure Module
 
-<TfModule id="module-vars" source="::source" />
+<TfModule id="module-vars" source="::cli_runbook_source" />
 
 <TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
@@ -139,7 +139,11 @@ inputs = {
 If the runbook is opened without a remote module URL, `<TfModule>` renders a message explaining how to run the runbook with a module URL.
 
 <Aside type="note">
-You can also select a built-in template by passing a `::keyword` instead of a path: `--tf-runbook=::tofu`. Available keywords: `::terragrunt` (default), `::terragrunt-github`, `::tofu`.
+You can also select a built-in template by passing a `::keyword` instead of a path: `--tf-runbook=::tofu`. Available keywords:
+
+- **`::terragrunt`** (default) — Generates a `terragrunt.hcl` file with a `terraform.source` block, an `include "root"` block, and all module variables as inputs.
+- **`::terragrunt-github`** — A full GitOps workflow: authenticates to GitHub, clones a repo, lets the user pick a target directory, generates a `terragrunt.hcl` (with only non-default inputs), and opens a pull request.
+- **`::tofu`** — Generates a plain `main.tf` file with a `module "this"` block for use with OpenTofu/Terraform directly (without Terragrunt).
 </Aside>
 
 ## The `_module` Namespace

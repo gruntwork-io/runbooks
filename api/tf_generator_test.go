@@ -20,7 +20,7 @@ func TestGenerateRunbook_Terragrunt(t *testing.T) {
 	require.NoError(t, err)
 
 	mdx := string(mdxContent)
-	assert.Contains(t, mdx, "::source")
+	assert.Contains(t, mdx, "::cli_runbook_source")
 	assert.Contains(t, mdx, "<TfModule")
 	assert.Contains(t, mdx, "<TemplateInline")
 	assert.Contains(t, mdx, "terragrunt.hcl")
@@ -36,7 +36,7 @@ func TestGenerateRunbook_Tofu(t *testing.T) {
 	require.NoError(t, err)
 
 	mdx := string(mdxContent)
-	assert.Contains(t, mdx, "::source")
+	assert.Contains(t, mdx, "::cli_runbook_source")
 	assert.Contains(t, mdx, "<TfModule")
 	assert.Contains(t, mdx, "main.tf")
 
@@ -59,7 +59,7 @@ func TestGenerateRunbook_TerragruntGitHub(t *testing.T) {
 	assert.Contains(t, mdx, "<GitClone")
 	assert.Contains(t, mdx, "<DirPicker")
 	assert.Contains(t, mdx, "<TfModule")
-	assert.Contains(t, mdx, "::source")
+	assert.Contains(t, mdx, "::cli_runbook_source")
 	assert.Contains(t, mdx, "<TemplateInline")
 	assert.Contains(t, mdx, "terragrunt.hcl")
 	assert.Contains(t, mdx, "<GitHubPullRequest")

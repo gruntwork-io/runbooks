@@ -32,11 +32,11 @@ describe('TfModule', () => {
     mockUseApiParseTfModule.mockReturnValue(mockApiResponse())
   })
 
-  describe('::source resolution', () => {
-    it('resolves ::source to remoteSource from context', () => {
+  describe('::cli_runbook_source resolution', () => {
+    it('resolves ::cli_runbook_source to remoteSource from context', () => {
       render(
         <TestWrapper remoteSource="https://github.com/org/module">
-          <TfModule id="test" source="::source" />
+          <TfModule id="test" source="::cli_runbook_source" />
         </TestWrapper>
       )
 
@@ -47,18 +47,18 @@ describe('TfModule', () => {
       )
     })
 
-    it('shows missing-remote-source banner when ::source used without remoteSource', () => {
+    it('shows missing-remote-source banner when ::cli_runbook_source used without remoteSource', () => {
       render(
         <TestWrapper>
-          <TfModule id="test" source="::source" />
+          <TfModule id="test" source="::cli_runbook_source" />
         </TestWrapper>
       )
 
       expect(screen.getByText('No remote module source available')).toBeInTheDocument()
-      expect(screen.getByText(/source="::source"/)).toBeInTheDocument()
+      expect(screen.getByText(/source="::cli_runbook_source"/)).toBeInTheDocument()
     })
 
-    it('uses literal source string when source is not ::source', () => {
+    it('uses literal source string when source is not ::cli_runbook_source', () => {
       render(
         <TestWrapper>
           <TfModule id="test" source="../modules/vpc" />
@@ -78,7 +78,7 @@ describe('TfModule', () => {
         </TestWrapper>
       )
 
-      // Should NOT use remoteSource — only ::source triggers that
+      // Should NOT use remoteSource — only ::cli_runbook_source triggers that
       expect(mockUseApiParseTfModule).toHaveBeenCalledWith(
         './local-module',
         true,
@@ -194,7 +194,7 @@ describe('TfModule', () => {
       // Render succeeds — the form appears
       const { container } = render(
         <TestWrapper remoteSource="https://github.com/org/module">
-          <TfModule id="module-vars" source="::source" />
+          <TfModule id="module-vars" source="::cli_runbook_source" />
         </TestWrapper>
       )
 

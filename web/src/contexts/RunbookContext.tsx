@@ -118,7 +118,7 @@ export interface RunbookContextType {
   runbookName: string | undefined
 
   /** The original remote URL when the runbook was opened from a remote source (e.g., GitHub URL).
-   * Used by TfModule's source="::source" keyword to resolve the module source dynamically. */
+   * Used by TfModule's source="::cli_runbook_source" keyword to resolve the module source dynamically. */
   remoteSource: string | undefined
 
   /** All registered inputs data, keyed by Inputs block ID */
