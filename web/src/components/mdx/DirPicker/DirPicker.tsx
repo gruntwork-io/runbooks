@@ -9,6 +9,7 @@ import type { DirPickerProps } from "./types"
 
 function DirPicker({
   id,
+  rootDir,
   gitCloneId,
   title = "Select Directory",
   description = "Choose a target directory",
@@ -42,7 +43,9 @@ function DirPicker({
     isWorkspaceReady,
     selectDir,
     setPath,
-  } = useDirPicker({ id, gitCloneId, maxLevels })
+  } = useDirPicker({ id, rootDir, gitCloneId, maxLevels })
+
+  const missingRootConfig = !rootDir && !gitCloneId
 
   // Report configuration errors
   useEffect(() => {
@@ -60,21 +63,30 @@ function DirPicker({
         severity: 'error',
         message: `DirPicker ID "${id}" collides with "${collidingId}" after normalization`,
       })
+    } else if (missingRootConfig) {
+      reportError({
+        componentId: id,
+        componentType: 'DirPicker',
+        severity: 'error',
+        message: `DirPicker "${id}" requires either a rootDir or gitCloneId prop`,
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
+  }, [id, isDuplicate, isNormalizedCollision, collidingId, missingRootConfig, reportError, clearError])
 
   // Don't render if duplicate
   if (isDuplicate || isNormalizedCollision) {
     return null
   }
 
-  const statusClasses = error
+  const hasError = error || missingRootConfig
+
+  const statusClasses = hasError
     ? 'bg-red-50 border-red-200'
     : 'bg-white border-gray-200'
 
-  const iconColor = error
+  const iconColor = hasError
     ? 'text-red-600'
     : 'text-gray-400'
 
@@ -99,6 +111,16 @@ function DirPicker({
           <div className="text-md text-gray-600 mb-3">
             <InlineMarkdown>{description}</InlineMarkdown>
           </div>
+
+          {/* Missing configuration: neither rootDir nor gitCloneId */}
+          {missingRootConfig && (
+            <div className="text-sm text-red-600 flex items-start gap-2">
+              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+              <span>
+                DirPicker requires either a <code className="bg-red-100 px-1 rounded text-xs">rootDir</code> or <code className="bg-red-100 px-1 rounded text-xs">gitCloneId</code> prop.
+              </span>
+            </div>
+          )}
 
           {/* Unmet dependency: waiting for GitClone block */}
           {!isWorkspaceReady && gitCloneId && (

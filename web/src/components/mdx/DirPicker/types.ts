@@ -2,7 +2,9 @@
 export interface DirPickerProps {
   /** Unique block identifier (required). */
   id: string
-  /** ID of a GitClone block whose clone path provides the root directory. If omitted, uses the active workspace root. */
+  /** Absolute path to the root directory to browse. At least one of `rootDir` or `gitCloneId` must be provided. */
+  rootDir?: string
+  /** Syntactic sugar: resolves to the `CLONE_PATH` output of the referenced GitClone block. Equivalent to setting `rootDir` to the clone path. */
   gitCloneId?: string
   /** Display title (supports inline markdown). */
   title?: string

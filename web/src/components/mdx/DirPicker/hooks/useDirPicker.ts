@@ -5,6 +5,7 @@ import { normalizeBlockId } from '@/lib/utils'
 
 interface UseDirPickerOptions {
   id: string
+  rootDir?: string
   gitCloneId?: string
   /** Maximum number of dropdown levels to show. */
   maxLevels?: number
@@ -21,7 +22,7 @@ interface DirLevel {
   loading: boolean
 }
 
-export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions) {
+export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPickerOptions) {
   const { getAuthHeader, isReady: sessionReady } = useSession()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
@@ -32,16 +33,17 @@ export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions)
   // Track whether we've already initialized the root level
   const initializedRootRef = useRef<string | null>(null)
 
-  // Resolve the root path from the GitClone block's outputs
+  // Resolve the root path: prefer explicit rootDir, fall back to GitClone output
   const rootPath = useMemo((): string | null => {
+    if (rootDir) return rootDir
     if (!gitCloneId) return null
     const normalizedId = normalizeBlockId(gitCloneId)
     const blockData = allOutputs[normalizedId]
     return blockData?.values?.CLONE_PATH ?? null
-  }, [gitCloneId, allOutputs])
+  }, [rootDir, gitCloneId, allOutputs])
 
-  // Whether the GitClone dependency is met
-  const isWorkspaceReady = !gitCloneId || rootPath !== null
+  // Whether the root directory is available (immediately if rootDir is set, otherwise when GitClone completes)
+  const isWorkspaceReady = !!rootDir || !gitCloneId || rootPath !== null
 
   // Fetch subdirectories for a given absolute path
   const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
@@ -127,7 +129,7 @@ export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions)
   // Register outputs whenever the path changes
   useEffect(() => {
     if (manualPath) {
-      registerOutputs(id, { path: manualPath })
+      registerOutputs(id, { PATH: manualPath })
     }
   }, [id, manualPath, registerOutputs])
 
@@ -137,7 +139,7 @@ export function useDirPicker({ id, gitCloneId, maxLevels }: UseDirPickerOptions)
     // When manually editing, clear dropdown state since it may no longer match
     if (path !== composedPath) {
       // Keep levels for display but register the manual path
-      registerOutputs(id, { path: path })
+      registerOutputs(id, { PATH: path })
     }
   }, [id, composedPath, registerOutputs])
 

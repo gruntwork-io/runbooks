@@ -51,15 +51,27 @@ describe('DirPicker', () => {
     expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
   })
 
-  it('renders without gitCloneId (no waiting state when no dependency)', () => {
+  it('shows error when neither rootDir nor gitCloneId is provided', () => {
     render(
       <TestWrapper>
         <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} />
       </TestWrapper>
     )
 
-    // Should not show waiting message since there's no gitCloneId dependency
+    expect(screen.getByText(/requires either a/)).toBeDefined()
     expect(screen.queryByText('Complete the GitClone block above to browse directories.')).toBeNull()
+  })
+
+  it('renders without waiting state when rootDir is provided', () => {
+    render(
+      <TestWrapper>
+        <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} rootDir="/tmp/test-dir" />
+      </TestWrapper>
+    )
+
+    // Should not show waiting message or missing-config error
+    expect(screen.queryByText('Complete the GitClone block above to browse directories.')).toBeNull()
+    expect(screen.queryByText(/requires either a/)).toBeNull()
   })
 
   it('renders custom pathLabel', () => {

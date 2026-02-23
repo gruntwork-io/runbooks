@@ -116,12 +116,12 @@ function TfModule({ id, source }: TfModuleProps) {
   })
 
   // Register block outputs so downstream blocks can reference module metadata
-  // via {{ ._blocks.<id>.outputs.module_name }} and {{ ._blocks.<id>.outputs.source }}
+  // via {{ ._blocks.<id>.outputs.MODULE_NAME }} and {{ ._blocks.<id>.outputs.SOURCE }}
   const handleSubmitWithOutputs = useCallback(async (formData: Record<string, unknown>) => {
     await handleSubmit(formData)
     registerOutputs(id, {
-      module_name: metadata?.folder_name ?? '',
-      source: resolvedSource ?? '',
+      MODULE_NAME: metadata?.folder_name ?? '',
+      SOURCE: resolvedSource ?? '',
     })
   }, [handleSubmit, id, registerOutputs, metadata, resolvedSource])
 
@@ -129,8 +129,8 @@ function TfModule({ id, source }: TfModuleProps) {
     handleAutoUpdate(formData)
     if (hasSubmitted) {
       registerOutputs(id, {
-        module_name: metadata?.folder_name ?? '',
-        source: resolvedSource ?? '',
+        MODULE_NAME: metadata?.folder_name ?? '',
+        SOURCE: resolvedSource ?? '',
       })
     }
   }, [handleAutoUpdate, hasSubmitted, id, registerOutputs, metadata, resolvedSource])
