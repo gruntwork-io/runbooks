@@ -89,7 +89,7 @@ func HandleTfModuleParse(runbookPath string) gin.HandlerFunc {
 
 		config := MapToBoilerplateConfig(vars)
 
-		slog.Info("Successfully parsed OpenTofu module",
+		slog.Info("Successfully parsed OpenTofu/Terraform module",
 			"source", req.Source,
 			"resolvedPath", modulePath,
 			"variableCount", len(config.Variables),

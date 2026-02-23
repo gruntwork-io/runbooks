@@ -86,16 +86,24 @@ func isTfRunbookKeyword(value string) bool {
 	return strings.HasPrefix(value, "::")
 }
 
-// resolveTfModuleRunbook resolves a TF module to a runbook, using --tf-runbook if set,
-// or falling back to the default auto-generated template.
-// When --tf-runbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it selects a built-in template.
-// When it's a path (e.g., "./my-runbook", "path/to/runbook"), it uses the custom runbook.
-// modulePath is the local path to the TF module. originalSource is the original URL
-// for remote modules (empty for local). Returns the runbook path, server path,
-// remote source URL (for ::cli_runbook_source resolution), and a cleanup function.
-func resolveTfModuleRunbook(modulePath string, originalSource string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+// resolveTfModuleRunbook picks (or generates) a runbook for a TF module.
+//
+// It reads the package-level tfRunbook flag (--tf-runbook) to decide what to do:
+//   - If --tf-runbook is a local path (e.g., "./my-runbook"), it uses that custom runbook.
+//     Remote URLs are rejected with a clear error message.
+//   - If --tf-runbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it generates a
+//     runbook from the corresponding built-in template.
+//   - If --tf-runbook is unset, it generates a runbook from the default template.
+//
+// modulePath is always a local filesystem path to the TF module directory. For remote
+// modules (e.g., a GitHub URL), the caller (resolveRunbookOrTfModule) downloads the
+// source first and passes the local download path here.
+//
+// remoteSourceURL is the original URL the user provided on the CLI (empty for local
+// modules), propagated for ::cli_runbook_source resolution.
+func resolveTfModuleRunbook(modulePath string, remoteSourceURL string) (resolvedPath string, serverPath string, moduleSourceURL string, cleanup func()) {
 	// Compute the module source URL so ::cli_runbook_source resolves at runtime
-	moduleSourceURL := originalSource
+	moduleSourceURL = remoteSourceURL
 	if moduleSourceURL == "" {
 		absPath, err := filepath.Abs(modulePath)
 		if err != nil {
@@ -105,14 +113,20 @@ func resolveTfModuleRunbook(modulePath string, originalSource string) (resolvedP
 		moduleSourceURL = absPath
 	}
 
-	// If --tf-runbook is a path, use the custom runbook
+	// If --tf-runbook is a local path, use the custom runbook
 	if tfRunbook != "" && !isTfRunbookKeyword(tfRunbook) {
+		parsed, _ := api.ParseRemoteSource(tfRunbook)
+		if parsed != nil {
+			slog.Error("--tf-runbook does not support remote URLs. Use a local path or a built-in template (e.g., ::terragrunt, ::tofu).",
+				"value", tfRunbook)
+			os.Exit(1)
+		}
 		customRunbookPath, err := api.ResolveRunbookPath(tfRunbook)
 		if err != nil {
 			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
 			os.Exit(1)
 		}
-		slog.Info("Using custom runbook for OpenTofu module", "runbook", tfRunbook, "module", moduleSourceURL)
+		slog.Info("Using custom runbook for OpenTofu/Terraform module", "runbook", tfRunbook, "module", moduleSourceURL)
 		return customRunbookPath, tfRunbook, moduleSourceURL, nil
 	}
 
@@ -143,7 +157,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 	// 2. Try as a local OpenTofu module
 	if api.IsBareTfModule(path) {
 		slog.Info("Detected OpenTofu module, generating runbook", "path", path)
-		return resolveTfModuleRunbook(path, "" /* originalSource */)
+		return resolveTfModuleRunbook(path, "" /* local module, no remote source URL */)
 	}
 
 	// 3. Try as a remote source (GitHub/GitLab URL)
@@ -168,8 +182,8 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 		// Check if the downloaded source is an OpenTofu module
 		if api.IsBareTfModule(localPath) {
 			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
-			rbPath, srvPath, remoteURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* originalSource */)
-			return rbPath, srvPath, remoteURL, combineCleanups(tfCleanup, remoteCleanup)
+			rbPath, srvPath, srcURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* original remote source URL */)
+			return rbPath, srvPath, srcURL, combineCleanups(tfCleanup, remoteCleanup)
 		}
 
 		// Downloaded but neither a runbook nor a TF module
