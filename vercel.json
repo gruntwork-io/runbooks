@@ -8,7 +8,7 @@
     {
       "source": "/",
       "destination": "/intro/overview/",
-      "permanent": true
+      "permanent": false
     }
   ]
 }
