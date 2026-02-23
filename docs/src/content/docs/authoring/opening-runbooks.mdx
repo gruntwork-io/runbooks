@@ -68,7 +68,11 @@ All three built-in templates use `hcl_inputs_non_default`, which only includes v
 
 ### Custom Templates
 
-If the built-in templates don't fit your needs, create your own. A custom template is a directory containing a `runbook.mdx` that uses [`<TfModule>`](/authoring/blocks/tfmodule/) with `source="::cli_runbook_source"`:
+If the built-in templates don't fit your needs, create your own. A custom template is a **local** directory containing a `runbook.mdx` that uses [`<TfModule>`](/authoring/blocks/tfmodule/) with `source="::cli_runbook_source"`.
+
+<Aside type="caution">
+`--tf-runbook` only accepts local paths — remote URLs are not supported. This is a security measure: a custom template is a full runbook that can execute arbitrary scripts on your machine, and fetching one from a remote URL could silently introduce untrusted code. Download and review any third-party template before using it.
+</Aside>
 
 ```
 my-custom-template/
