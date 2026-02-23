@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// IsTfModule checks if a directory contains .tf files (and no runbook.mdx/md).
+// IsBareTfModule checks if a directory contains .tf files (and no runbook.mdx/md).
 // This is used to detect OpenTofu modules so we can auto-generate a runbook.
-func IsTfModule(path string) bool {
+func IsBareTfModule(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		return false

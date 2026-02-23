@@ -9,35 +9,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIsTfModule(t *testing.T) {
+type fakeFile struct {
+	name    string
+	content string
+}
+
+func TestIsBareTfModule(t *testing.T) {
 	tests := []struct {
 		name     string
-		files    map[string]string
+		files    []fakeFile
 		expected bool
 	}{
 		{
-			name:     "directory with .tf files",
-			files:    map[string]string{"main.tf": "variable \"x\" {}"},
+			name:     "directory with only .tf files",
+			files:    []fakeFile{{name: "main.tf", content: "variable \"x\" {}"}},
 			expected: true,
 		},
 		{
-			name:     "directory with runbook.mdx",
-			files:    map[string]string{"main.tf": "", "runbook.mdx": "# Hello"},
+			name:     "directory with .tf files and runbook.mdx",
+			files:    []fakeFile{{name: "main.tf"}, {name: "runbook.mdx", content: "# Hello"}},
 			expected: false,
 		},
 		{
 			name:     "directory with runbook.md",
-			files:    map[string]string{"main.tf": "", "runbook.md": "# Hello"},
+			files:    []fakeFile{{name: "main.tf"}, {name: "runbook.md", content: "# Hello"}},
 			expected: false,
 		},
 		{
 			name:     "empty directory",
-			files:    map[string]string{},
+			files:    nil,
 			expected: false,
 		},
 		{
-			name:     "directory without .tf files",
-			files:    map[string]string{"readme.md": "# Hello"},
+			name:     "directory without .tf or runbook files",
+			files:    []fakeFile{{name: "readme.md", content: "# Hello"}},
 			expected: false,
 		},
 	}
@@ -45,23 +50,23 @@ func TestIsTfModule(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			for name, content := range tt.files {
-				err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644)
+			for _, f := range tt.files {
+				err := os.WriteFile(filepath.Join(dir, f.name), []byte(f.content), 0644)
 				require.NoError(t, err)
 			}
-			assert.Equal(t, tt.expected, IsTfModule(dir))
+			assert.Equal(t, tt.expected, IsBareTfModule(dir))
 		})
 	}
 
 	t.Run("nonexistent path", func(t *testing.T) {
-		assert.False(t, IsTfModule("/nonexistent/path"))
+		assert.False(t, IsBareTfModule("/nonexistent/path"))
 	})
 
 	t.Run("file path not directory", func(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "main.tf")
 		err := os.WriteFile(f, []byte(""), 0644)
 		require.NoError(t, err)
-		assert.False(t, IsTfModule(f))
+		assert.False(t, IsBareTfModule(f))
 	})
 }
 

@@ -141,7 +141,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 	}
 
 	// 2. Try as a local OpenTofu module
-	if api.IsTfModule(path) {
+	if api.IsBareTfModule(path) {
 		slog.Info("Detected OpenTofu module, generating runbook", "path", path)
 		return resolveTfModuleRunbook(path, "" /* originalSource */)
 	}
@@ -166,7 +166,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 		}
 
 		// Check if the downloaded source is an OpenTofu module
-		if api.IsTfModule(localPath) {
+		if api.IsBareTfModule(localPath) {
 			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
 			rbPath, srvPath, remoteURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* originalSource */)
 			return rbPath, srvPath, remoteURL, combineCleanups(tfCleanup, remoteCleanup)
