@@ -6,14 +6,14 @@ import { Aside } from '@astrojs/starlight/components';
 
 Every runbook has a **global context,** which is the shared collection of key-value pairs that blocks use to communicate. The keys are variables. Blocks can write values to the global context, or read values from the global context.
 
-There are two ways values are added to the global context:
+There are two ways values are written to the global context:
 
-- **Inputs** — [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
-- **Outputs** — Blocks that execute scripts (like `<Command>` and `<Check>`) can publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
+- **Inputs:** [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
+- **Outputs:** Blocks that execute scripts (like `<Command>` and `<Check>`) can publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
 
 ## Variables
 
-Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .VarName }}` syntax:
+Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .VarName }}` syntax. For example:
 
 ```mdx
 <Command
