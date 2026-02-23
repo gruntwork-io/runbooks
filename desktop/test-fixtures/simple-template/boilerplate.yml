@@ -1,0 +1,41 @@
+variables:
+  - name: ProjectName
+    description: Name of the project
+    type: string
+    default: my-project
+    validations: "required"
+
+  - name: Author
+    description: Author name
+    type: string
+
+  - name: Description
+    description: Project description
+    type: string
+    default: "A {{ .ProjectName }} project by {{ .Author }}"
+
+  - name: Language
+    type: enum
+    description: Programming language
+    options:
+      - typescript
+      - python
+      - go
+    default: typescript
+
+  - name: EnableTests
+    type: bool
+    description: Whether to include test configuration
+    default: true
+
+  - name: Port
+    type: int
+    description: Default server port
+    default: 3000
+
+  - name: Tags
+    type: map
+    description: Project tags
+    default:
+      env: development
+      team: platform
