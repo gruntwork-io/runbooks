@@ -2,7 +2,13 @@
 title: <DirPicker>
 ---
 
-The `<DirPicker>` block provides cascading directory dropdowns for picking a path within a cloned repository. It scans the directory structure and lets users compose a target path interactively or by typing directly.
+The `<DirPicker>` block provides a cascading set of dropdowns for picking a path within a cloned repository. 
+
+![DirPicker block with Account and Region dropdowns and an editable Target Path field](../../../../assets/screenshots/blocks/dir-picker-form.webp)
+
+Authors specify an ordered array of labels to assign to each cascading directory level. For example, `['Account', 'Region']` will create a two-level dropdown with labels "Account" and "Region". DirPicker then scans the directory structure and lets users compose a target path interactively by selecting the desired folder from each level.
+
+Users can also type a path directly into an auto-populated and editable text input below the dropdowns.
 
 The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ ._blocks.<id>.outputs.path }}` syntax.
 
@@ -21,6 +27,25 @@ The DirPicker block is typically paired with a `<GitClone>` block. The `gitClone
   description="Choose where to place the generated configuration"
 />
 ```
+
+### Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
+| `gitCloneId` | `string` | No | ID of a `<GitClone>` block whose clone path provides the root directory. When set, the block waits for the clone to complete before loading directories. |
+| `title` | `string` | No | Display title. Supports inline markdown. Defaults to "Select Directory". |
+| `description` | `string` | No | Description text below the title. Supports inline markdown. Defaults to "Choose a target directory". |
+| `dirLabels` | `string[]` | Yes | Ordered labels for each directory level (e.g., `['Account', 'Region']`). Also caps the number of dropdowns to `dirLabels.length` unless `dirLabelsExtra` is true. |
+| `dirLabelsExtra` | `boolean` | No | When `true`, allow navigating deeper than `dirLabels.length`. Extra levels are labelled "Level N". Defaults to `false`. |
+| `pathLabel` | `string` | No | Label for the editable path text input. Defaults to "Target Path". |
+| `pathLabelDescription` | `string` | No | Description text shown below the path label. Supports inline markdown. |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `path` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. |
 
 ### Directory-Level Labels
 
@@ -42,25 +67,6 @@ The DirPicker outputs `path`, which can be referenced in a `<TemplateInline>` bl
 ```
 
 The `outputPath` resolves `{{ ._blocks.*.outputs.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected.
-
-### Props
-
-| Prop | Type | Required | Description |
-|------|------|----------|-------------|
-| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
-| `gitCloneId` | `string` | No | ID of a `<GitClone>` block whose clone path provides the root directory. When set, the block waits for the clone to complete before loading directories. |
-| `title` | `string` | No | Display title. Supports inline markdown. Defaults to "Select Directory". |
-| `description` | `string` | No | Description text below the title. Supports inline markdown. Defaults to "Choose a target directory". |
-| `dirLabels` | `string[]` | Yes | Ordered labels for each directory level (e.g., `['Account', 'Region']`). Also caps the number of dropdowns to `dirLabels.length` unless `dirLabelsExtra` is true. |
-| `dirLabelsExtra` | `boolean` | No | When `true`, allow navigating deeper than `dirLabels.length`. Extra levels are labelled "Level N". Defaults to `false`. |
-| `pathLabel` | `string` | No | Label for the editable path text input. Defaults to "Target Path". |
-| `pathLabelDescription` | `string` | No | Description text shown below the path label. Supports inline markdown. |
-
-### Outputs
-
-| Output | Description |
-|--------|-------------|
-| `path` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. |
 
 ### How It Works
 

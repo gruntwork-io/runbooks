@@ -4,27 +4,25 @@ title: Inputs & Outputs
 
 import { Aside } from '@astrojs/starlight/components';
 
-Blocks in a runbook communicate through **inputs** and **outputs**.
+Every runbook has a **global context** — a shared collection of key-value pairs that blocks use to communicate. The keys are variables. Blocks publish values into the global context, and other blocks read from it.
 
-- Inputs let you collect values from human users and share them between blocks.
-- Outputs let blocks pass results to downstream blocks.
+There are two ways values enter the global context:
 
-This page explains both mechanisms and how they work together.
+- **Inputs** — [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
+- **Outputs** — Blocks that execute scripts (like `<Command>` and `<Check>`) can publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
 
 ## Variables
 
-To understand how inputs and outputs work, we first need to understand variables.
-
-In a runbook, we have scripts, templates, and blocks that all need to reference specific data from other parts of the runbook and render it. For example, consider the following block:
+Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .VarName }}` syntax:
 
 ```mdx
 <Command
   id="create-account"
-  command="aws organizations create-account --email {{ .Email }} --account-name {{ .AccountName }}" 
+  command="aws organizations create-account --email {{ .Email }} --account-name {{ .AccountName }}"
 />
 ```
 
-This block creates an AWS account with the given email and account name. The `{{ .Email }}` and `{{ .AccountName }}` expressions are variables that are referenced in the command. Runbooks will pull values for these variables from end user inputs or from other blocks, so that the final command might look like this:
+When this block runs, Runbooks resolves `{{ .Email }}` and `{{ .AccountName }}` from the global context, producing a command like:
 
 ```bash
 aws organizations create-account --email alice@example.com --account-name my-account
@@ -32,7 +30,7 @@ aws organizations create-account --email alice@example.com --account-name my-acc
 
 ### Boilerplate variables
 
-Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables in a runbook work exactly like Boilerplate variables. Runbooks uses:
+Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables work exactly like Boilerplate variables:
 
 - The same `{{ .VarName }}` syntax
 - The same types (`string`, `int`, `bool`, `enum`, `list`, `map`)
@@ -41,14 +39,6 @@ Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) a
 - The full library of Boilerplate helper functions and pipe modifiers (`upper`, `lower`, `snakeCase`, `camelCase`, `fromJson`, conditionals, loops, and more)
 
 If you've used Boilerplate before, everything you know carries over directly. If you haven't, the [Boilerplate Templates](/authoring/boilerplate/) page covers the full syntax, including variable definitions, template rendering, helper functions, and how to test templates locally with the Boilerplate CLI.
-
-### How runbook variables get their values
-
-Runbook variables can get their values from three sources:
-
-1. **User input:** An [input provider](#input-providers) (like `<Inputs>` or `<TfModule>`) renders a form, the user fills it in, and the values are published to the runbook's "global context." Other blocks specify an [`inputsId` prop](#wiring-blocks-with-inputsid) so they can then pull in those variable values.
-2. **Another block's variables:** A `<Template>` can define its own variables in a `boilerplate.yml` file it references and also import variables from a separate input provider. See [Variable Categories](#variable-categories) for how these merge.
-3. **Block outputs:** A `<Command>` or `<Check>` that has already run can publish output values. Downstream blocks reference them with a different syntax: `{{ ._blocks.<id>.outputs.<key> }}`. See [Block Outputs](#block-outputs) below.
 
 ## Input Providers
 
