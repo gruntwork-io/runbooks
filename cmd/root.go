@@ -134,7 +134,7 @@ func resolveTfModuleRunbook(modulePath string, remoteSourceURL string) (resolved
 	templateName := tfRunbook // ::keyword like "::terragrunt", "::tofu", or "" for default
 	generatedPath, tfCleanup, genErr := api.GenerateRunbook(templateName)
 	if genErr != nil {
-		slog.Error("Failed to generate runbook from OpenTofu module", "error", genErr)
+		slog.Error("Failed to generate runbook from OpenTofu/Terraform module", "error", genErr)
 		os.Exit(1)
 	}
 	return generatedPath, generatedPath, moduleSourceURL, tfCleanup
@@ -156,7 +156,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 
 	// 2. Try as a local OpenTofu module
 	if api.IsBareTfModule(path) {
-		slog.Info("Detected OpenTofu module, generating runbook", "path", path)
+		slog.Info("Detected OpenTofu/Terraform module, generating runbook", "path", path)
 		return resolveTfModuleRunbook(path, "" /* local module, no remote source URL */)
 	}
 
@@ -181,7 +181,7 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 
 		// Check if the downloaded source is an OpenTofu module
 		if api.IsBareTfModule(localPath) {
-			slog.Info("Detected remote OpenTofu module, generating runbook", "url", path)
+			slog.Info("Detected remote OpenTofu/Terraform module, generating runbook", "url", path)
 			rbPath, srvPath, srcURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* original remote source URL */)
 			return rbPath, srvPath, srcURL, combineCleanups(tfCleanup, remoteCleanup)
 		}

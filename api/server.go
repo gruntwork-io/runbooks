@@ -59,9 +59,6 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	// API endpoint to render boilerplate templates from inline template files
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath, sessionManager))
 
-	// API endpoint to parse OpenTofu module variables into a BoilerplateConfig
-	r.POST("/api/tf/parse", HandleTfModuleParse(runbookPath))
-
 	// API endpoint to get registered executables
 	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
 
@@ -116,6 +113,8 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.POST("/git/pull-request", HandleGitPullRequest(sessionManager))
 		protectedAPI.POST("/git/push", HandleGitPush(sessionManager))
 		protectedAPI.DELETE("/git/branch", HandleGitDeleteBranch())
+		// OpenTofu module parsing (reads local files and may clone remote repos with user tokens)
+		protectedAPI.POST("/tf/parse", HandleTfModuleParse(runbookPath))
 		// Workspace endpoints for file tree, file content, and git changes
 		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
 		protectedAPI.GET("/workspace/dirs", HandleWorkspaceDirs())

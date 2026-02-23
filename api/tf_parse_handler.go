@@ -12,6 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// tfRemoteCloneSem limits concurrent remote git clones for TF module parsing
+// to prevent disk/network exhaustion from many simultaneous requests.
+var tfRemoteCloneSem = make(chan struct{}, 3)
+
 // TfParseRequest is the request body for POST /api/tf/parse.
 type TfParseRequest struct {
 	// Source can be a local relative path (e.g., "../modules/vpc") or a remote URL
@@ -112,7 +116,10 @@ func resolveModuleSource(source string, runbookPath string) (localPath string, c
 		return "", nil, fmt.Errorf("invalid module source %q: %w", source, err)
 	}
 
-	// Local path — resolve relative to the runbook directory (unless already absolute)
+	// Local path — resolve relative to the runbook directory (unless already absolute).
+	// Paths with ".." (e.g., "../modules/vpc") are intentionally allowed: the source value
+	// comes from trusted runbook content, and this endpoint requires session auth, which
+	// already grants access to arbitrary command execution via /api/exec.
 	if parsed == nil {
 		if filepath.IsAbs(source) {
 			return source, nil, nil
@@ -121,17 +128,30 @@ func resolveModuleSource(source string, runbookPath string) (localPath string, c
 		return filepath.Join(runbookDir, source), nil, nil
 	}
 
-	// Remote URL — clone to temp directory
+	// Remote URL — acquire concurrency slot, then clone to temp directory
+	select {
+	case tfRemoteCloneSem <- struct{}{}:
+		// acquired
+	default:
+		return "", nil, fmt.Errorf("too many concurrent remote module clones; try again shortly")
+	}
+	releaseSem := func() { <-tfRemoteCloneSem }
+
 	token := GetTokenForHost(parsed.Host)
 	if err := parsed.Resolve(token); err != nil {
+		releaseSem()
 		return "", nil, fmt.Errorf("failed to resolve remote ref: %w", err)
 	}
 
 	tempDir, err := os.MkdirTemp("", "tfmodule-remote-*")
 	if err != nil {
+		releaseSem()
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	cleanup = func() { os.RemoveAll(tempDir) }
+	cleanup = func() {
+		os.RemoveAll(tempDir)
+		releaseSem()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
