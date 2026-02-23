@@ -198,6 +198,25 @@ func TestParseTfModule_Complex(t *testing.T) {
 	monitoring, ok := varMap["enable_monitoring"]
 	require.True(t, ok)
 	assert.True(t, monitoring.Sensitive)
+
+	// description: length validation
+	desc, ok := varMap["description"]
+	require.True(t, ok)
+	require.Len(t, desc.Validations, 1)
+	assert.Contains(t, desc.Validations[0].Condition, "length")
+
+	// cidr_block: non-empty validation
+	cidr, ok := varMap["cidr_block"]
+	require.True(t, ok)
+	require.Len(t, cidr.Validations, 1)
+	assert.Contains(t, cidr.Validations[0].Condition, `!= ""`)
+
+	// max_connections: numeric range validation
+	maxConn, ok := varMap["max_connections"]
+	require.True(t, ok)
+	assert.Equal(t, "number", maxConn.Type)
+	assert.True(t, maxConn.HasDefault)
+	require.Len(t, maxConn.Validations, 1)
 }
 
 func TestMapToBoilerplateConfig_S3Bucket(t *testing.T) {
@@ -305,6 +324,88 @@ func TestMapToBoilerplateConfig_TupleNote(t *testing.T) {
 	assert.Equal(t, "number", priority.Schema["1"])
 }
 
+func TestMapToBoilerplateConfig_LengthValidation(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
+	require.NoError(t, err)
+
+	config := MapToBoilerplateConfig(vars)
+
+	varMap := bpVarsByName(config.Variables)
+
+	// description: length(var.x) >= 3 && length(var.x) <= 256 → ValidationLength
+	desc := varMap["description"]
+	assert.Equal(t, VarTypeString, desc.Type)
+	assert.True(t, desc.Required)
+
+	hasLength := false
+	for _, v := range desc.Validations {
+		if v.Type == ValidationLength {
+			hasLength = true
+			require.Len(t, v.Args, 2)
+			assert.Equal(t, 3, v.Args[0])
+			assert.Equal(t, 256, v.Args[1])
+		}
+	}
+	assert.True(t, hasLength, "description should have length validation")
+}
+
+func TestMapToBoilerplateConfig_NonEmptyValidation(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
+	require.NoError(t, err)
+
+	config := MapToBoilerplateConfig(vars)
+
+	varMap := bpVarsByName(config.Variables)
+
+	// cidr_block: var.cidr_block != "" → ValidationRequired from non-empty check
+	cidr := varMap["cidr_block"]
+	assert.Equal(t, VarTypeString, cidr.Type)
+	assert.True(t, cidr.Required)
+
+	hasRequired := false
+	for _, v := range cidr.Validations {
+		if v.Type == ValidationRequired {
+			hasRequired = true
+		}
+	}
+	assert.True(t, hasRequired, "cidr_block should have required validation")
+}
+
+func TestMapToBoilerplateConfig_NumericRangeDescription(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
+	require.NoError(t, err)
+
+	config := MapToBoilerplateConfig(vars)
+
+	varMap := bpVarsByName(config.Variables)
+
+	// max_connections: var.x >= 1 && var.x <= 10000 → description suffix
+	maxConn := varMap["max_connections"]
+	assert.Equal(t, VarTypeInt, maxConn.Type)
+	assert.False(t, maxConn.Required)
+	assert.Contains(t, maxConn.Description, "(Must be between 1 and 10000)")
+}
+
+func TestMapToBoilerplateConfig_EnumAutoDefault(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
+	require.NoError(t, err)
+
+	config := MapToBoilerplateConfig(vars)
+
+	varMap := bpVarsByName(config.Variables)
+
+	// environment: contains(["dev", "staging", "prod"], var.environment) with no default
+	// should auto-default to first option "dev"
+	env := varMap["environment"]
+	assert.Equal(t, VarTypeEnum, env.Type)
+	assert.Equal(t, []string{"dev", "staging", "prod"}, env.Options)
+	assert.Equal(t, "dev", env.Default)
+}
+
 func TestMapTfType(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -371,6 +472,74 @@ func TestExtractContainsOptions(t *testing.T) {
 		t.Run(tt.condition, func(t *testing.T) {
 			result := extractContainsOptions(tt.condition)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractLengthBounds(t *testing.T) {
+	tests := []struct {
+		condition   string
+		expectedMin int
+		expectedMax int
+		expectedOK  bool
+	}{
+		{`length(var.name) >= 3 && length(var.name) <= 256`, 3, 256, true},
+		{`length(var.desc) >= 1 && length(var.desc) <= 50`, 1, 50, true},
+		{`var.name != ""`, 0, 0, false},
+		{`length(var.name) > 0`, 0, 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.condition, func(t *testing.T) {
+			min, max, ok := extractLengthBounds(tt.condition)
+			assert.Equal(t, tt.expectedOK, ok)
+			if ok {
+				assert.Equal(t, tt.expectedMin, min)
+				assert.Equal(t, tt.expectedMax, max)
+			}
+		})
+	}
+}
+
+func TestIsNonEmptyCheck(t *testing.T) {
+	tests := []struct {
+		condition string
+		expected  bool
+	}{
+		{`var.name != ""`, true},
+		{`length(var.name) > 0`, true},
+		{`var.name == "foo"`, false},
+		{`can(regex("^[a-z]+$", var.name))`, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.condition, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isNonEmptyCheck(tt.condition))
+		})
+	}
+}
+
+func TestExtractNumericRange(t *testing.T) {
+	tests := []struct {
+		condition   string
+		expectedMin string
+		expectedMax string
+		expectedOK  bool
+	}{
+		{`var.count >= 1 && var.count <= 10000`, "1", "10000", true},
+		{`var.ratio >= 0.5 && var.ratio <= 99.9`, "0.5", "99.9", true},
+		{`length(var.name) > 0`, "", "", false},
+		{`var.name != ""`, "", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.condition, func(t *testing.T) {
+			min, max, ok := extractNumericRange(tt.condition)
+			assert.Equal(t, tt.expectedOK, ok)
+			if ok {
+				assert.Equal(t, tt.expectedMin, min)
+				assert.Equal(t, tt.expectedMax, max)
+			}
 		})
 	}
 }

@@ -89,7 +89,7 @@ This is useful when you're writing a runbook for a known module. The `<TfModule>
 For quick prototyping you can also use [`<TemplateInline>`](/authoring/blocks/templateinline/) to embed template text directly in the runbook. See [Using TemplateInline](#using-templateinline) below.
 </Aside>
 
-## vs. Inputs
+### vs. Inputs
 
 Both `<TfModule>` and `<Inputs>` collect user values and publish them to context, but they serve different purposes.
 
@@ -98,12 +98,12 @@ Both `<TfModule>` and `<Inputs>` collect user values and publish them to context
 
 ## Props
 
-### Required Props
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier for this component.<br />Other blocks reference this ID via `inputsId` to access the collected values. |
+| `source` | `string` | Yes | Path or URL to the OpenTofu/Terraform module directory containing `.tf` files.<br />See [Supported Source Formats](#supported-source-formats) below. |
 
-- `id` (string) - Unique identifier for this component. Other blocks reference this ID via `inputsId` to access the collected values.
-- `source` (string) - Path or URL to the OpenTofu/Terraform module directory containing `.tf` files. See [Supported Source Formats](#supported-source-formats) below.
-
-## Supported Source Formats
+### Supported Source Formats
 
 The `source` prop accepts the same formats as the `runbooks open` CLI command:
 
@@ -177,13 +177,29 @@ If the runbook is opened without a module URL, `<TfModule>` renders a message ex
 For details on built-in templates (`::terragrunt`, `::tofu`, `::terragrunt-github`), custom templates, and the `--tf-runbook` flag, see [Opening Runbooks](/authoring/opening-runbooks/).
 </Aside>
 
-## The `_module` Namespace
+## Block Outputs
+
+`<TfModule>` publishes outputs that downstream blocks can consume. The `_module` namespace is accessed via `inputsId` in templates; the uppercase outputs are accessed via `{{ ._blocks.<id>.outputs.<key> }}`.
+
+| Output | Access | Description |
+|--------|--------|-------------|
+| `_module` | `inputsId` | Map containing module metadata, user inputs, and HCL-formatted values. See [structure](#structure) below. |
+| `MODULE_NAME` | `._blocks` | The module's folder name (same as `_module.folder_name`). <br/>Useful in `outputPath` expressions for naming generated directories. |
+| `SOURCE` | `._blocks` | The resolved module source URL. |
+
+For example, the `::terragrunt-github` template uses `MODULE_NAME` to compose the output path:
+
+```
+outputPath="{{ ._blocks.target_path.outputs.PATH }}/{{ ._blocks.module_vars.outputs.MODULE_NAME }}/terragrunt.hcl"
+```
+
+### The `_module` Namespace
 
 When `<TfModule>` registers its values, it outputs a `_module` value that is a map of key-value pairs. This enables both iteration over all variables and direct access to specific ones.
 
 You can access the `_module` value in your templates just like any other value, using the `{{ ._module }}` syntax.
 
-### Structure
+#### Structure
 
 ```
 _module:
@@ -217,20 +233,34 @@ _module:
 - **`hcl_inputs`:** Map of all variable names to HCL-formatted string values: strings are quoted, booleans and numbers are raw, lists and maps are JSON-encoded. Use when generating HCL files (Terragrunt, Terraform). Values are pre-formatted with correct HCL quoting.
 - **`hcl_inputs_non_default`:** Same as `hcl_inputs`, but only includes variables whose current value differs from the module's declared default. Required variables (no default) are always included.
 
-## Block Outputs
+## What Gets Parsed
 
-In addition to the `_module` namespace (which is available via `inputsId`), `<TfModule>` also registers block outputs that can be referenced by downstream blocks using the `{{ ._blocks.<id>.outputs.<key> }}` syntax.
+`<TfModule>` reads every `.tf` file in the module directory and extracts the following from each `variable` block:
 
-| Output | Description |
-|--------|-------------|
-| `MODULE_NAME` | The module's folder name (same as `_module.folder_name`). Useful in `outputPath` expressions for naming generated directories. |
-| `SOURCE` | The resolved module source URL. |
+| Property | HCL Attribute | How It's Used |
+|----------|--------------|---------------|
+| **Name** | `variable "name"` | Becomes the form field name and the key in `_module.inputs`. |
+| **Type** | `type` | Mapped to a form widget: <br/>`string` → text input <br/>`number` → numeric input <br/>`bool` → toggle <br/>`list` / `set` → list editor <br/>`map` / `object` → key-value editor <br/>`any` or empty → string <br/>`optional(T)` → unwraps to `T` |
+| **Description** | `description` | Displayed as help text below the form field. May be enriched with validation context (see below). |
+| **Default** | `default` | Pre-populates the field. Variables without a default are marked **required**. |
+| **Sensitive** | `sensitive` | Sensitive variables are masked in the form. |
+| **Nullable** | `nullable` | Nullable variables are treated as optional even when they lack a default. |
+| **Source file** | *(derived)* | Which `.tf` file the variable was defined in. Used for filename-based grouping. |
+| **Group comment** | `# @runbooks:group "Name"` | A comment placed directly above a variable block. Used for explicit grouping (see [Variable Grouping](#variable-grouping)). |
 
-For example, the `::terragrunt-github` template uses `MODULE_NAME` to compose the output path:
+### Validation Mapping
 
-```
-outputPath="{{ ._blocks.target_path.outputs.PATH }}/{{ ._blocks.module_vars.outputs.MODULE_NAME }}/terragrunt.hcl"
-```
+`<TfModule>` also reads `validation` blocks and maps recognized patterns to client-side form validations, so the user gets instant feedback without submitting the form.
+
+| HCL Pattern | Form Behavior |
+|-------------|---------------|
+| `can(regex("pattern", var.x))` | Validates the input against the regex pattern. |
+| `contains(["a", "b", "c"], var.x)` | Renders a dropdown instead of a text input, populated with the listed options. <br/>If no `default`, the first option is auto-selected. |
+| `length(var.x) >= N && length(var.x) <= M` | Enforces minimum and maximum character length. |
+| `var.x != ""` or `length(var.x) > 0` | Marks the field as required. |
+| `var.x >= N && var.x <= M` | Appends "(Must be between N and M)" to the description. |
+
+Validation blocks that don't match any of the patterns above still contribute: if the block has an `error_message`, it is appended to the field's description as a constraint hint.
 
 ## Variable Grouping
 

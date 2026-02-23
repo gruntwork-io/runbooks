@@ -100,6 +100,10 @@ task docs:linkcheck
 - Test files follow Go convention: `*_test.go` alongside the file they test
 - Frontend tests use `.test.ts` / `.test.tsx` suffix
 
+### Documentation Tables
+
+When a markdown table row is too wide to read without horizontal scrolling, break the content using `<br/>` tags within the cell to keep each line scannable. If a single cell contains a list of items (e.g., type mappings), put one item per line using `<br/>`. Prefer shorter phrasing in table cells and move lengthy explanations to prose below the table.
+
 ### Commit and PR Conventions
 
 - Keep commits focused on a single logical change
