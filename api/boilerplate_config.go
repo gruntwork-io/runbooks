@@ -140,7 +140,12 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 	config, err := parseBoilerplateConfig(content)
 	if err != nil {
 		slog.Error("Error parsing boilerplate config", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
+		// Client-provided content parse errors are 400; file-based parse errors are 500
+		status := http.StatusInternalServerError
+		if req.BoilerplateContent != "" {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{
 			"error":   "Invalid boilerplate configuration",
 			"details": err.Error(),
 		})

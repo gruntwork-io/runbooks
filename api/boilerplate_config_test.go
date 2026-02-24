@@ -414,12 +414,12 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 		assert.Equal(t, "boilerplate.yml file not found", resp["error"])
 	})
 
-	t.Run("invalid YAML in boilerplateContent returns 500", func(t *testing.T) {
+	t.Run("invalid YAML in boilerplateContent returns 400", func(t *testing.T) {
 		code, _ := boilerplateRequest(t, runbookPath, BoilerplateRequest{
 			BoilerplateContent: `not: valid: yaml: [unclosed`,
 		})
 
-		assert.Equal(t, http.StatusInternalServerError, code)
+		assert.Equal(t, http.StatusBadRequest, code)
 	})
 
 	t.Run("invalid JSON request body returns 400", func(t *testing.T) {
