@@ -91,7 +91,7 @@ func marshalBoilerplateConfig(config *BoilerplateConfig) ([]byte, error) {
 // validationsToList converts ValidationRules to a list of boilerplate validation strings.
 // Each rule becomes a separate list item so that boilerplate's YAML list parser handles
 // each rule individually (including regex patterns with special characters).
-// e.g., []string{"required", "regex(^vpc-[0-9a-f]{8,17}$)"} or []string{"required", "length-3-50"}
+// Uses boilerplate v0.12.0 formats: regex("pattern") with quoted patterns and length(min, max).
 func validationsToList(rules []ValidationRule) []string {
 	if len(rules) == 0 {
 		return nil
@@ -102,15 +102,13 @@ func validationsToList(rules []ValidationRule) []string {
 		switch r.Type {
 		case ValidationRegex:
 			if len(r.Args) > 0 {
-				parts = append(parts, fmt.Sprintf("regex(%v)", r.Args[0]))
+				parts = append(parts, fmt.Sprintf(`regex("%v")`, r.Args[0]))
 			}
 		case ValidationLength:
 			if len(r.Args) >= 2 {
-				parts = append(parts, fmt.Sprintf("length-%v-%v", r.Args[0], r.Args[1]))
+				parts = append(parts, fmt.Sprintf("length(%v, %v)", r.Args[0], r.Args[1]))
 			}
 		default:
-			// Simple validations: the type string is the validation keyword
-			// (e.g. ValidationRequired="required", ValidationURL="url", etc.)
 			parts = append(parts, string(r.Type))
 		}
 	}

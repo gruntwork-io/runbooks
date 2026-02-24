@@ -3,7 +3,8 @@ variables:
     description: Name for the AWS account
     type: string
     default: "My account"
-    validations: "required"
+    validations:
+      - required
     
   - name: Environment
     description: Deployment environment
@@ -23,7 +24,8 @@ variables:
     description: Number of instances to deploy
     type: int
     default: 1
-    validations: "required"
+    validations:
+      - required
     
   - name: Tags
     description: Additional tags to apply
@@ -39,16 +41,19 @@ variables:
     description: Contact email for notifications
     type: string
     default: ""
-    validations: "email"
+    validations:
+      - email
     
   - name: WebsiteURL
     description: Website URL for the application
     type: string
     default: ""
-    validations: "url"
+    validations:
+      - url
     
   - name: ProjectName
     description: Project name (alphanumeric only)
     type: string
     default: ""
-    validations: "alphanumeric"
+    validations:
+      - alphanumeric

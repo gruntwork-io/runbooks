@@ -104,6 +104,10 @@ task docs:linkcheck
 
 When a markdown table row is too wide to read without horizontal scrolling, break the content using `<br/>` tags within the cell to keep each line scannable. If a single cell contains a list of items (e.g., type mappings), put one item per line using `<br/>`. Prefer shorter phrasing in table cells and move lengthy explanations to prose below the table.
 
+### Markdown with Nested Code Fences
+
+When the user asks you to output markdown that itself contains code fences (e.g., a prompt template, a README draft, or any markdown document with embedded code blocks), **write it to a file** instead of rendering it inline. Triple-backtick code fences cannot be nested in a chat message — the inner fences close the outer fence, breaking the formatting. Writing to a file avoids this entirely and lets the user view the rendered result in the editor.
+
 ### Commit and PR Conventions
 
 - Keep commits focused on a single logical change

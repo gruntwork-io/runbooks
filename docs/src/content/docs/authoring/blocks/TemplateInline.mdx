@@ -264,7 +264,8 @@ variables:
   - name: ServiceName
     type: string
     description: Name of your service
-    validations: "required"
+    validations:
+      - required
   - name: Port
     type: int
     description: Port to expose

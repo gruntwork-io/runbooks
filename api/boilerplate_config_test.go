@@ -51,12 +51,9 @@ func TestParseBoilerplateConfig(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:                  "invalid validations",
-			filename:              "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
-			wantErr:               false, // Boilerplate library is permissive and parses these as custom validations
-			expectedVariableCount: 4,     // Should parse successfully with 4 variables
-			expectedTypes:         []string{"string", "string", "string", "string"},
-			expectedValidations:   map[string][]BoilerplateValidationType{},
+			name:    "invalid validations",
+			filename: "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
+			wantErr: true, // Boilerplate v0.12.0 rejects unrecognized validation types
 		},
 		{
 			name:     "invalid yaml syntax",
@@ -353,7 +350,8 @@ func TestHandleBoilerplateRequest(t *testing.T) {
     description: Test variable
     type: string
     default: "test value"
-    validations: "required"
+    validations:
+      - required
 `), 0644)
 	require.NoError(t, err)
 
@@ -516,7 +514,7 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 		{
 			name:          "invalid validations",
 			filename:      "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
-			expectedError: "", // This should actually succeed - boilerplate is permissive
+			expectedError: "failed to parse boilerplate config", // Boilerplate v0.12.0 rejects unrecognized validation types
 		},
 		{
 			name:          "invalid yaml syntax",
@@ -1035,87 +1033,6 @@ func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
 						"FullPath mismatch at index %d", i)
 				}
 			}
-		})
-	}
-}
-
-func TestParseValidationString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []ValidationRule
-	}{
-		{
-			name:  "required only",
-			input: "required",
-			expected: []ValidationRule{
-				{Type: ValidationRequired, Message: "This field is required"},
-			},
-		},
-		{
-			name:  "required with regex (comma-delimited legacy)",
-			input: "required,regex(^vpc-[0-9a-f]{8,17}$)",
-			expected: []ValidationRule{
-				{Type: ValidationRequired, Message: "This field is required"},
-				{Type: ValidationRegex, Args: []interface{}{"^vpc-[0-9a-f]{8,17}$"}},
-			},
-		},
-		{
-			name:  "required with regex (space-delimited boilerplate native)",
-			input: "required regex(^vpc-[0-9a-f]{8,17}$)",
-			expected: []ValidationRule{
-				{Type: ValidationRequired, Message: "This field is required"},
-				{Type: ValidationRegex, Args: []interface{}{"^vpc-[0-9a-f]{8,17}$"}},
-			},
-		},
-		{
-			name:  "length legacy format",
-			input: "length(3,50)",
-			expected: []ValidationRule{
-				{Type: ValidationLength, Args: []interface{}{"3", "50"}},
-			},
-		},
-		{
-			name:  "length boilerplate native format",
-			input: "length-3-50",
-			expected: []ValidationRule{
-				{Type: ValidationLength, Args: []interface{}{"3", "50"}},
-			},
-		},
-		{
-			name:  "multiple simple validators (comma-delimited)",
-			input: "required,url",
-			expected: []ValidationRule{
-				{Type: ValidationRequired, Message: "This field is required"},
-				{Type: ValidationURL},
-			},
-		},
-		{
-			name:  "multiple simple validators (space-delimited)",
-			input: "required url",
-			expected: []ValidationRule{
-				{Type: ValidationRequired, Message: "This field is required"},
-				{Type: ValidationURL},
-			},
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: nil,
-		},
-		{
-			name:  "single regex rule (as list item)",
-			input: "regex(^[a-z]+$)",
-			expected: []ValidationRule{
-				{Type: ValidationRegex, Args: []interface{}{"^[a-z]+$"}},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := parseValidationString(tt.input)
-			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

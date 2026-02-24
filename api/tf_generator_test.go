@@ -116,7 +116,7 @@ func TestMarshalBoilerplateConfig(t *testing.T) {
 	assert.Contains(t, yaml, "test_var")
 	// Validations are emitted as a YAML list, not a string
 	assert.Contains(t, yaml, "- required")
-	assert.Contains(t, yaml, "- regex(^[a-z]+$)")
+	assert.Contains(t, yaml, `- regex("^[a-z]+$")`)
 	assert.Contains(t, yaml, "x-section: Testing")
 	assert.Contains(t, yaml, "enum_var")
 	assert.Contains(t, yaml, "options:")
@@ -144,14 +144,14 @@ func TestValidationsToList(t *testing.T) {
 				{Type: ValidationRequired},
 				{Type: ValidationRegex, Args: []interface{}{"^[a-z]+$"}},
 			},
-			expected: []string{"required", "regex(^[a-z]+$)"},
+			expected: []string{"required", `regex("^[a-z]+$")`},
 		},
 		{
 			name: "length",
 			rules: []ValidationRule{
 				{Type: ValidationLength, Args: []interface{}{3, 50}},
 			},
-			expected: []string{"length-3-50"},
+			expected: []string{"length(3, 50)"},
 		},
 	}
 

@@ -60,10 +60,11 @@ func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boile
 // - BoilerplateVariable (simplified)
 // - BoilerplateValidationType (repeated)
 // - ValidationRule (simplified)
-// - extractValidations, determineValidationType, isVariableRequired (repeated)
+// - extractValidations, isVariableRequired (uses reflection to inspect ozzo-validation rule types)
 //
-// We want to leverage as much from Boilerplate as possible, so ideally, in the future we could expose a public function
-// in the Boilerplate package to replace our repeated ones here.
+// Boilerplate PR #281 re-exported CustomValidationRule from the variables package and added an Args field
+// that exposes structured arguments for parameterized rules (regex patterns, length bounds). This eliminated
+// the need to re-parse raw YAML to extract validation arguments.
 //
 // Also note that Boilerplate has a TON of indirect dependencies that we don't need; our two humble boilerplate imports
 // above bring in 100+ indirect dependencies!
@@ -185,22 +186,15 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 		Sections:  sections,
 	}
 
-	// Extract raw validation strings from YAML (catches validations the boilerplate library doesn't understand)
-	rawValidations := extractValidationsFromYAML(boilerplateYamlContent)
-
 	for _, variable := range boilerplateConfig.Variables {
 		// Convert default value to JSON-serializable format
 		defaultValue := convertToJSONSerializable(variable.Default())
 
-		// Extract validations from the boilerplate library's parsed rules
+		// Extract validations from the boilerplate library's parsed rules.
+		// As of boilerplate v0.12.1 (PR #281), CustomValidationRule exposes an Args field
+		// with structured arguments for parameterized rules (regex patterns, length bounds).
 		validations := extractValidations(variable.Validations())
 		isRequired := isVariableRequired(variable.Validations())
-
-		// Merge in any validations from raw YAML that the boilerplate library didn't parse
-		// (e.g., regex(...) patterns that boilerplate doesn't natively support)
-		if rawRules, exists := rawValidations[variable.Name()]; exists {
-			validations, isRequired = mergeRawValidations(validations, isRequired, rawRules)
-		}
 
 		slog.Debug("Variable validation info", "name", variable.Name(), "validationCount", len(variable.Validations()), "required", isRequired)
 
@@ -358,179 +352,10 @@ func groupIntoSections[T any](items []T, extractFn func(T) (string, string)) []S
 	return sections
 }
 
-// extractValidationsFromYAML parses the raw YAML to extract validation strings for variables.
-// This catches validations that the boilerplate library doesn't natively understand (e.g., regex patterns).
-// Supports both YAML formats that boilerplate accepts:
-//
-//	validations: "required url"          # string format (space-delimited)
-//	validations:                          # list format
-//	  - required
-//	  - "regex(^[a-z]+$)"
-//
-// Returns a map of variable name to a list of parsed ValidationRules.
-func extractValidationsFromYAML(yamlContent string) map[string][]ValidationRule {
-	type rawVariable struct {
-		Name        string      `yaml:"name"`
-		Validations interface{} `yaml:"validations"`
-	}
-	type rawConfig struct {
-		Variables []rawVariable `yaml:"variables"`
-	}
-
-	var config rawConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for validation extraction", "error", err)
-		return map[string][]ValidationRule{}
-	}
-
-	result := make(map[string][]ValidationRule)
-	for _, variable := range config.Variables {
-		if variable.Validations == nil {
-			continue
-		}
-
-		var rules []ValidationRule
-
-		switch v := variable.Validations.(type) {
-		case string:
-			// String format: "required url" or "required regex(^[a-z]+$)"
-			if v != "" {
-				rules = parseValidationString(v)
-			}
-		case []interface{}:
-			// List format: ["required", "regex(^[a-z]+$)"]
-			for _, item := range v {
-				if s, ok := item.(string); ok && s != "" {
-					// Each list item is a single rule — parse it individually
-					itemRules := parseValidationString(s)
-					rules = append(rules, itemRules...)
-				}
-			}
-		}
-
-		if len(rules) > 0 {
-			result[variable.Name] = rules
-		}
-	}
-
-	return result
-}
-
-// validationTokenRe splits a validation string into tokens, respecting parenthesized arguments.
-// Handles both space-delimited (boilerplate native) and comma-delimited (legacy) formats.
-// Also matches length-min-max format (e.g., "length-3-50").
-// e.g., "required regex(^vpc-[0-9a-f]{8,17}$)" → ["required", "regex(^vpc-[0-9a-f]{8,17}$)"]
-var validationTokenRe = regexp.MustCompile(`([a-zA-Z]+(?:-\d+-\d+|\([^)]*\))?)`)
-
-// parseValidationString parses a validation string into ValidationRules.
-// Supports both space-delimited (boilerplate native) and comma-delimited formats.
-// Understands: required, regex(pattern), length-min-max, length(min,max), url, email, alpha, digit, alphanumeric, semver, countrycode2.
-func parseValidationString(s string) []ValidationRule {
-	tokens := validationTokenRe.FindAllString(s, -1)
-	var rules []ValidationRule
-
-	for _, token := range tokens {
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-
-		switch {
-		case token == "required":
-			rules = append(rules, ValidationRule{Type: ValidationRequired, Message: "This field is required"})
-		case strings.HasPrefix(token, "regex(") && strings.HasSuffix(token, ")"):
-			pattern := token[6 : len(token)-1]
-			rules = append(rules, ValidationRule{Type: ValidationRegex, Args: []interface{}{pattern}})
-		// Boilerplate native format: length-min-max (e.g., "length-3-50")
-		case strings.HasPrefix(token, "length-"):
-			inner := token[7:]
-			parts := strings.SplitN(inner, "-", 2)
-			if len(parts) == 2 {
-				rules = append(rules, ValidationRule{
-					Type: ValidationLength,
-					Args: []interface{}{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])},
-				})
-			}
-		// Legacy format: length(min,max) (e.g., "length(3,50)")
-		case strings.HasPrefix(token, "length(") && strings.HasSuffix(token, ")"):
-			inner := token[7 : len(token)-1]
-			parts := strings.SplitN(inner, ",", 2)
-			if len(parts) == 2 {
-				rules = append(rules, ValidationRule{
-					Type: ValidationLength,
-					Args: []interface{}{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])},
-				})
-			}
-		case token == "url":
-			rules = append(rules, ValidationRule{Type: ValidationURL})
-		case token == "email":
-			rules = append(rules, ValidationRule{Type: ValidationEmail})
-		case token == "alpha":
-			rules = append(rules, ValidationRule{Type: ValidationAlpha})
-		case token == "digit":
-			rules = append(rules, ValidationRule{Type: ValidationDigit})
-		case token == "alphanumeric":
-			rules = append(rules, ValidationRule{Type: ValidationAlphanumeric})
-		case token == "semver":
-			rules = append(rules, ValidationRule{Type: ValidationSemver})
-		case token == "countrycode2":
-			rules = append(rules, ValidationRule{Type: ValidationCountryCode2})
-		}
-	}
-
-	return rules
-}
-
-// mergeRawValidations merges raw YAML-extracted validations with those from the boilerplate library.
-// Raw validations fill in gaps where the boilerplate library doesn't support certain validation types.
-// When a raw rule has Args (e.g., regex pattern) and the existing one doesn't, the raw rule replaces it.
-// Returns the merged validations and the updated isRequired flag.
-func mergeRawValidations(existing []ValidationRule, isRequired bool, rawRules []ValidationRule) ([]ValidationRule, bool) {
-	// Build a map of existing validation types for deduplication, tracking index
-	existingByType := make(map[BoilerplateValidationType]int)
-	for i, r := range existing {
-		existingByType[r.Type] = i
-	}
-
-	for _, raw := range rawRules {
-		if raw.Type == ValidationRequired {
-			isRequired = true
-			// Only add if not already present
-			if _, exists := existingByType[ValidationRequired]; !exists {
-				existing = append([]ValidationRule{raw}, existing...)
-				// Shift all indices by 1 since we prepended
-				for k, v := range existingByType {
-					existingByType[k] = v + 1
-				}
-				existingByType[ValidationRequired] = 0
-			}
-			continue
-		}
-
-		if idx, exists := existingByType[raw.Type]; exists {
-			// If the raw rule has Args but the existing one doesn't, replace it
-			// (e.g., boilerplate parsed regex into MatchRule but we need the pattern string)
-			if len(raw.Args) > 0 && len(existing[idx].Args) == 0 {
-				existing[idx] = raw
-			}
-		} else {
-			// Add new rule type
-			existingByType[raw.Type] = len(existing)
-			existing = append(existing, raw)
-		}
-	}
-
-	return existing, isRequired
-}
-
-// Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate
-// uses to validate the variables to extract the validation rules. The better approach here is to update Boilerplate
-// to expose the validation functions directly.
-// TODO: Update Boilerplate to expose the validation functions directly.
-//
-// extractValidations converts boilerplate validation rules to our JSON format
-// This function maps boilerplate's CustomValidationRule to our ValidationRule format
-// by inspecting the actual ozzo-validation rules used by boilerplate
+// extractValidations converts boilerplate validation rules to our JSON format.
+// It inspects the ozzo-validation rules that Boilerplate wraps to determine their type
+// (required, regex, url, etc.) and extracts structured Args from the rule (available
+// since boilerplate PR #281).
 func extractValidations(validationRules []bpVariables.CustomValidationRule) []ValidationRule {
 	validations := make([]ValidationRule, 0, len(validationRules))
 
@@ -539,9 +364,42 @@ func extractValidations(validationRules []bpVariables.CustomValidationRule) []Va
 			Message: rule.DescriptionText(),
 		}
 
-		// Determine validation type by inspecting the ozzo-validation rule
-		validationType := determineValidationType(rule)
-		validation.Type = validationType
+		validatorType := fmt.Sprintf("%T", rule.Validator)
+
+		switch {
+		case strings.Contains(validatorType, "required"):
+			validation.Type = ValidationRequired
+		case strings.Contains(validatorType, "MatchRule"):
+			validation.Type = ValidationRegex
+		case strings.Contains(validatorType, "StringRule"):
+			message := rule.DescriptionText()
+			switch {
+			case strings.Contains(strings.ToLower(message), "email"):
+				validation.Type = ValidationEmail
+			case strings.Contains(strings.ToLower(message), "url"):
+				validation.Type = ValidationURL
+			case strings.Contains(strings.ToLower(message), "alpha"):
+				validation.Type = ValidationAlpha
+			case strings.Contains(strings.ToLower(message), "digit"):
+				validation.Type = ValidationDigit
+			case strings.Contains(strings.ToLower(message), "alphanumeric"):
+				validation.Type = ValidationAlphanumeric
+			case strings.Contains(strings.ToLower(message), "country"):
+				validation.Type = ValidationCountryCode2
+			case strings.Contains(strings.ToLower(message), "semver"):
+				validation.Type = ValidationSemver
+			case strings.Contains(strings.ToLower(message), "length"):
+				validation.Type = ValidationLength
+			default:
+				validation.Type = ValidationCustom
+			}
+		default:
+			validation.Type = ValidationCustom
+		}
+
+		if len(rule.Args) > 0 {
+			validation.Args = rule.Args
+		}
 
 		validations = append(validations, validation)
 	}
@@ -549,58 +407,9 @@ func extractValidations(validationRules []bpVariables.CustomValidationRule) []Va
 	return validations
 }
 
-// Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate
-// uses to validate the variables to extract the validation rules. The better approach here is to update Boilerplate
-// to expose the validation functions directly.
-// TODO: Update Boilerplate to expose the validation functions directly.
-//
-// determineValidationType inspects a CustomValidationRule to determine its type
-// This uses reflection to examine the underlying ozzo-validation rule
-func determineValidationType(rule bpVariables.CustomValidationRule) BoilerplateValidationType {
-	// Get the underlying ozzo-validation rule
-	validator := rule.Validator
-
-	// Use reflection to determine the type of validator
-	validatorType := fmt.Sprintf("%T", validator)
-
-	// If Boilerplate adds a new validation type, add it here!
-	switch {
-	case strings.Contains(validatorType, "required"):
-		return ValidationRequired
-	case strings.Contains(validatorType, "MatchRule"):
-		return ValidationRegex
-	case strings.Contains(validatorType, "StringRule"):
-		// For StringRule, we need to check the message to determine the specific validation type
-		message := rule.DescriptionText()
-		switch {
-		case strings.Contains(strings.ToLower(message), "email"):
-			return ValidationEmail
-		case strings.Contains(strings.ToLower(message), "url"):
-			return ValidationURL
-		case strings.Contains(strings.ToLower(message), "alpha"):
-			return ValidationAlpha
-		case strings.Contains(strings.ToLower(message), "digit"):
-			return ValidationDigit
-		case strings.Contains(strings.ToLower(message), "alphanumeric"):
-			return ValidationAlphanumeric
-		case strings.Contains(strings.ToLower(message), "country"):
-			return ValidationCountryCode2
-		case strings.Contains(strings.ToLower(message), "semver"):
-			return ValidationSemver
-		case strings.Contains(strings.ToLower(message), "length"):
-			return ValidationLength
-		default:
-			return ValidationCustom
-		}
-	default:
-		return ValidationCustom
-	}
-}
-
-// isVariableRequired determines if a variable is required based on its validation rules
+// isVariableRequired determines if a variable is required based on its validation rules.
 func isVariableRequired(validationRules []bpVariables.CustomValidationRule) bool {
 	for _, rule := range validationRules {
-		// Use the same reflection approach to check if this is a Required validator
 		validatorType := fmt.Sprintf("%T", rule.Validator)
 		if strings.Contains(validatorType, "required") {
 			return true

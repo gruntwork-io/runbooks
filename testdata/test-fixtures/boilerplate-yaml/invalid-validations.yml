@@ -8,7 +8,8 @@ variables:
     description: A variable with invalid validation syntax
     type: string
     default: "test"
-    validations: "invalid_validation_type"
+    validations:
+      - "invalid_validation_type"
     
   - name: MalformedValidation
     description: A variable with malformed validation
@@ -23,4 +24,3 @@ variables:
     description: A variable with empty validation
     type: string
     default: "test"
-    validations: ""

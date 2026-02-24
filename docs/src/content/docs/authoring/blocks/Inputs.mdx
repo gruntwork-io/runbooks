@@ -13,7 +13,8 @@ variables:
   - name: ProjectName
     type: string
     description: Name of your project
-    validations: "required"
+    validations:
+      - required
 ```
 </Inputs>
 `````
@@ -67,7 +68,8 @@ variables:
   - name: Username
     type: string
     description: Your username
-    validations: "required"
+    validations:
+      - required
   - name: NotifyByEmail
     type: bool
     description: Receive email notifications
@@ -182,7 +184,8 @@ You can embed Inputs directly inside a Command or Check block:
       - name: Name
         type: string
         description: Your name
-        validations: "required"
+        validations:
+          - required
     ```
     </Inputs>
 </Command>
@@ -247,11 +250,13 @@ variables:
   - name: OrgName
     type: string
     description: GitHub organization name
-    validations: "required"
+    validations:
+      - required
   - name: RepoName
     type: string
     description: Repository name
-    validations: "required"
+    validations:
+      - required
   - name: Visibility
     type: enum
     description: Repository visibility
