@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { renderHook } from '@testing-library/react'
+import { act, type ReactNode } from 'react'
 import { RunbookContextProvider } from './RunbookContext'
 import { useRunbookContext } from './useRunbook'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
@@ -37,7 +37,7 @@ describe('RunbookContext', () => {
   })
 
   describe('registerInputs and getInputs', () => {
-    it('registers and retrieves inputs with correct types', () => {
+    it('registers and retrieves inputs with correct types', async () => {
       const config = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
         { name: 'count', type: BoilerplateVariableType.Int },
@@ -46,7 +46,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('test-form', { region: 'us-west-2', count: 3 }, config)
       })
 
@@ -57,7 +57,7 @@ describe('RunbookContext', () => {
       ])
     })
 
-    it('includes extra values not in config as Map type', () => {
+    it('includes extra values not in config as Map type', async () => {
       const config = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
       ])
@@ -69,7 +69,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs(
           'module-vars',
           { region: 'us-west-2', _module: moduleData },
@@ -94,7 +94,7 @@ describe('RunbookContext', () => {
       expect(moduleInput!.value).toEqual(moduleData)
     })
 
-    it('extra values do not override config variables', () => {
+    it('extra values do not override config variables', async () => {
       const config = makeConfig([
         { name: 'name', type: BoilerplateVariableType.String },
       ])
@@ -102,7 +102,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('form', { name: 'hello', extra: 'world' }, config)
       })
 
@@ -119,7 +119,7 @@ describe('RunbookContext', () => {
   })
 
   describe('getInputs with multiple inputsIds', () => {
-    it('merges inputs from multiple blocks', () => {
+    it('merges inputs from multiple blocks', async () => {
       const config1 = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
       ])
@@ -130,7 +130,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('form-a', { region: 'us-west-2' }, config1)
         result.current.registerInputs('form-b', { count: 5 }, config2)
       })
@@ -140,7 +140,7 @@ describe('RunbookContext', () => {
       expect(names).toEqual(['count', 'region'])
     })
 
-    it('later IDs override earlier ones for same variable', () => {
+    it('later IDs override earlier ones for same variable', async () => {
       const config = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
       ])
@@ -148,7 +148,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('form-a', { region: 'us-east-1' }, config)
         result.current.registerInputs('form-b', { region: 'us-west-2' }, config)
       })
@@ -160,7 +160,7 @@ describe('RunbookContext', () => {
   })
 
   describe('getTemplateVariables', () => {
-    it('spreads input values at root level', () => {
+    it('spreads input values at root level', async () => {
       const config = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
       ])
@@ -168,7 +168,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('form', { region: 'us-west-2' }, config)
       })
 
@@ -176,7 +176,7 @@ describe('RunbookContext', () => {
       expect(vars.region).toBe('us-west-2')
     })
 
-    it('includes _module namespace in template variables', () => {
+    it('includes _module namespace in template variables', async () => {
       const config = makeConfig([
         { name: 'bucket_name', type: BoilerplateVariableType.String },
       ])
@@ -188,7 +188,7 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs(
           'module-vars',
           { bucket_name: 'my-bucket', _module: moduleData },
@@ -201,13 +201,13 @@ describe('RunbookContext', () => {
       expect(vars._module).toEqual(moduleData)
     })
 
-    it('includes _blocks namespace with block outputs', () => {
+    it('includes _blocks namespace with block outputs', async () => {
       const config = makeConfig([])
       const { result } = renderHook(() => useRunbookContext(), {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('form', {}, config)
         result.current.registerOutputs('create-account', { account_id: '123' })
       })
@@ -222,7 +222,7 @@ describe('RunbookContext', () => {
   })
 
   describe('registerInputs change detection', () => {
-    it('does not trigger re-render when values are unchanged', () => {
+    it('does not trigger re-render when values are unchanged', async () => {
       const config = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
       ])
@@ -230,14 +230,13 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
 
-      act(() => {
+      await act(async () => {
         result.current.registerInputs('form', { region: 'us-west-2' }, config)
       })
 
       const blockInputsBefore = result.current.blockInputs
 
-      act(() => {
-        // Register same values again
+      await act(async () => {
         result.current.registerInputs('form', { region: 'us-west-2' }, config)
       })
 

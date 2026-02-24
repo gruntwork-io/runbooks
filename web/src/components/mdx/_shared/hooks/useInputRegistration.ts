@@ -1,3 +1,12 @@
+/**
+ * Shared hook for input-collecting MDX blocks (Inputs, TfModule).
+ *
+ * These blocks follow the same lifecycle — register a unique ID, fetch or
+ * receive a BoilerplateConfig, render a form, and submit the collected values
+ * back to the runbook context. This hook extracts that common lifecycle so each
+ * block only needs to supply its specific config and optional data transforms.
+ */
+
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { AppError } from '@/types/error'
@@ -7,15 +16,23 @@ import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
 
+/**
+ * Options accepted by {@link useInputRegistration}.
+ */
 interface UseInputRegistrationOptions {
+  /** Unique component ID used for registration, error reporting, and form submission. */
   id: string
+  /** Block type identifier (e.g. "Inputs", "TfModule") for telemetry and the ID registry. */
   componentType: BlockComponentType
+  /** Parsed variable definitions that drive form state; null while still loading. */
   boilerplateConfig: BoilerplateConfig | null
+  /** Error from prop/config validation (reported to the global error banner). */
   validationError: AppError | null
+  /** Error returned by a backend API call (reported to the global error banner). */
   apiError: AppError | null
-  /** Additional errors to report (e.g., inline content errors in Inputs) */
+  /** Additional error to report (e.g., inline content parsing failures in Inputs). */
   extraError?: AppError | null
-  /** Optional transform applied to formData before calling registerInputs */
+  /** Transform applied to raw form data before it is registered with the runbook context. */
   enrichFormData?: (formData: Record<string, unknown>) => Record<string, unknown>
 }
 
