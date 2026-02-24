@@ -11,6 +11,7 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { CloneResultDisplay } from "./components/CloneResult"
+import { CollapsibleToggle } from "@/components/mdx/GitHubPullRequest/components/CollapsibleToggle"
 import type { GitCloneProps } from "./types"
 
 /** Parse org and repo from a GitHub URL */
@@ -81,6 +82,9 @@ function GitClone({
   const [repoPath, setRepoPath] = useState(prefilledRepoPath)
   const [localPath, setLocalPath] = useState(prefilledLocalPath)
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
+  const [showAdditionalSettings, setShowAdditionalSettings] = useState(
+    !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
+  )
 
   const handleCopyPath = useCallback(async (key: string, value: string) => {
     const ok = await copyTextToClipboard(value)
@@ -294,117 +298,127 @@ function GitClone({
                 />
               )}
 
-              {/* Ref (branch/tag) */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  Ref <span className="font-normal text-gray-400">(optional)</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
-                        <Info className="size-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[280px]">
-                      The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
-                      {tokenChecked && hasGitHubToken && (
-                        <>
-                          <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
-                        </>
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                </label>
-                <input
-                  type="text"
-                  value={ref}
-                  onChange={(e) => setRef(e.target.value)}
-                  placeholder="Defaults to default branch"
-                  disabled={isFormDisabled}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
-                />
-              </div>
-
-              {/* Repo Path (sparse checkout) */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  Repo Path <span className="font-normal text-gray-400">(optional)</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
-                        <Info className="size-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[280px]">
-                      Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
-                    </TooltipContent>
-                  </Tooltip>
-                </label>
-                <input
-                  type="text"
-                  value={repoPath}
-                  onChange={(e) => setRepoPath(e.target.value)}
-                  placeholder="e.g., modules/vpc"
-                  disabled={isFormDisabled}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
-                />
-              </div>
-
-              {/* Local Path (destination) */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  Local Path <span className="font-normal text-gray-400">(optional)</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
-                        <Info className="size-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[280px]">
-                      The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
-                    </TooltipContent>
-                  </Tooltip>
-                </label>
-                <input
-                  type="text"
-                  value={localPath}
-                  onChange={(e) => setLocalPath(e.target.value)}
-                  placeholder="Defaults to repo name"
-                  disabled={isFormDisabled}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
-                />
-                {pathPreview && (
-                  <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-400">Relative:</span>
-                      <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.relative}</code>
-                      <button
-                        onClick={() => handleCopyPath('relative', pathPreview.relative)}
-                        className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                      >
-                        {copiedPathKey === 'relative' ? (
-                          <Check className="size-3 text-green-600" />
-                        ) : (
-                          <Copy className="size-3" />
-                        )}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-400">Absolute:</span>
-                      <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.absolute}</code>
-                      <button
-                        onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
-                        className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                      >
-                        {copiedPathKey === 'absolute' ? (
-                          <Check className="size-3 text-green-600" />
-                        ) : (
-                          <Copy className="size-3" />
-                        )}
-                      </button>
-                    </div>
+              {/* Additional Settings (Ref, Repo Path, Local Path) */}
+              <CollapsibleToggle
+                expanded={showAdditionalSettings}
+                onToggle={() => setShowAdditionalSettings(prev => !prev)}
+                label="Additional Settings"
+                disabled={isFormDisabled}
+              >
+                <div className="space-y-3 mt-3">
+                  {/* Ref (branch/tag) */}
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                      Ref <span className="font-normal text-gray-400">(optional)</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                            <Info className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
+                          {tokenChecked && hasGitHubToken && (
+                            <>
+                              <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
+                            </>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </label>
+                    <input
+                      type="text"
+                      value={ref}
+                      onChange={(e) => setRef(e.target.value)}
+                      placeholder="Defaults to default branch"
+                      disabled={isFormDisabled}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                    />
                   </div>
-                )}
-              </div>
+
+                  {/* Repo Path (sparse checkout) */}
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                      Repo Path <span className="font-normal text-gray-400">(optional)</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                            <Info className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                        </TooltipContent>
+                      </Tooltip>
+                    </label>
+                    <input
+                      type="text"
+                      value={repoPath}
+                      onChange={(e) => setRepoPath(e.target.value)}
+                      placeholder="e.g., modules/vpc"
+                      disabled={isFormDisabled}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                    />
+                  </div>
+
+                  {/* Local Path (destination) */}
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                      Local Path <span className="font-normal text-gray-400">(optional)</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                            <Info className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
+                        </TooltipContent>
+                      </Tooltip>
+                    </label>
+                    <input
+                      type="text"
+                      value={localPath}
+                      onChange={(e) => setLocalPath(e.target.value)}
+                      placeholder="Defaults to repo name"
+                      disabled={isFormDisabled}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                    />
+                    {pathPreview && (
+                      <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-400">Relative:</span>
+                          <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.relative}</code>
+                          <button
+                            onClick={() => handleCopyPath('relative', pathPreview.relative)}
+                            className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                          >
+                            {copiedPathKey === 'relative' ? (
+                              <Check className="size-3 text-green-600" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-400">Absolute:</span>
+                          <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.absolute}</code>
+                          <button
+                            onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
+                            className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                          >
+                            {copiedPathKey === 'absolute' ? (
+                              <Check className="size-3 text-green-600" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CollapsibleToggle>
 
               {/* Error message */}
               {errorMessage && cloneStatus === 'fail' && (
