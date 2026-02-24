@@ -268,6 +268,19 @@ variables:
 | `alphanumeric` | Only letters and numbers allowed |
 | `countrycode2` | Must be a valid two-letter country code (ISO 3166-1 alpha-2) |
 | `semver` | Must be a valid semantic version (e.g., `1.0.0`, `2.1.3-beta`) |
+| `length` | Value must satisfy a length constraint (args specify min/max) |
+| `regex` | Value must match a regular expression pattern (args specify the pattern) |
+
+#### Regex Example
+
+```yaml
+  - name: ProjectSlug
+    type: string
+    validations:
+      - type: regex
+        args: ["^[a-z][a-z0-9-]+$"]
+        message: Must start with a letter and contain only lowercase letters, numbers, and hyphens
+```
 
 ## Template Syntax
 

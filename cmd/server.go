@@ -30,12 +30,12 @@ func startServerAndOpen(rb serverSetup, config api.ServerConfig) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- api.StartServer(config) }()
 
-	if err := waitForServerReady(defaultPort, rb.runbookPath, errCh); err != nil {
+	if err := waitForServerReady(config.Port, rb.runbookPath, errCh); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	browser.LaunchAndWait(defaultPort)
+	browser.LaunchAndWait(config.Port)
 }
 
 // waitForServerReady polls the health endpoint until the server is ready or an error occurs.

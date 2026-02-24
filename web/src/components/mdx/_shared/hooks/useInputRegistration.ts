@@ -65,7 +65,7 @@ export function useInputRegistration({
   componentType,
   boilerplateConfig,
   validationError,
-  apiError,
+  // apiError is intentionally not destructured — it is rendered inline by ErrorDisplay, not reported to the global banner.
   extraError,
   enrichFormData,
 }: UseInputRegistrationOptions): UseInputRegistrationReturn {
@@ -102,7 +102,8 @@ export function useInputRegistration({
     }, {} as Record<string, unknown>)
   }, [formState])
 
-  // 5. Error effect — report the first applicable error or clear
+  // 5. Error effect — report config/setup issues to the global banner.
+  // apiError is intentionally omitted here; it is rendered inline by the component (e.g., ErrorDisplay).
   useEffect(() => {
     if (isDuplicate) {
       reportError({ componentId: id, componentType, severity: 'error', message: `Duplicate component ID: ${id}` })
@@ -110,12 +111,10 @@ export function useInputRegistration({
       reportError({ componentId: id, componentType, severity: 'error', message: validationError.message })
     } else if (extraError) {
       reportError({ componentId: id, componentType, severity: 'error', message: extraError.message })
-    } else if (apiError) {
-      reportError({ componentId: id, componentType, severity: 'error', message: apiError.message })
     } else {
       clearError(id)
     }
-  }, [id, componentType, isDuplicate, validationError, extraError, apiError, reportError, clearError])
+  }, [id, componentType, isDuplicate, validationError, extraError, reportError, clearError])
 
   // 6. Auto-update debouncing
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)

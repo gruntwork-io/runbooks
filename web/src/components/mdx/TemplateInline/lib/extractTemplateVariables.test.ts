@@ -201,6 +201,47 @@ describe('extractTemplateVariables', () => {
     const variables = extractTemplateVariables(nestedMdx)
     expect(variables.sort()).toEqual(['Var1', 'Var2'].sort())
   })
+
+  it('extracts variables inside if conditionals', () => {
+    const template = `
+      {{ if .EnableMonitoring }}
+      monitoring = true
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['EnableMonitoring'])
+  })
+
+  it('extracts variables inside if eq comparisons', () => {
+    const template = `
+      {{ if eq .Environment "prod" }}
+      replicas = 3
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['Environment'])
+  })
+
+  it('extracts variables inside with blocks', () => {
+    const template = `
+      {{ with .Config }}
+      name = {{ .Name }}
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables.sort()).toEqual(['Config', 'Name'].sort())
+  })
+
+  it('does not extract local variable fields like $var.field', () => {
+    const template = `
+      {{ range $item := .Items }}
+      {{ $item.name }}
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    // Should extract Items but NOT name (which is a field on $item)
+    expect(variables).toEqual(['Items'])
+  })
 })
 
 

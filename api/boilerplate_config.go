@@ -372,23 +372,23 @@ func extractValidations(validationRules []bpVariables.CustomValidationRule) []Va
 		case strings.Contains(validatorType, "MatchRule"):
 			validation.Type = ValidationRegex
 		case strings.Contains(validatorType, "StringRule"):
-			message := rule.DescriptionText()
+			msg := strings.ToLower(rule.DescriptionText())
 			switch {
-			case strings.Contains(strings.ToLower(message), "email"):
+			case strings.Contains(msg, "email"):
 				validation.Type = ValidationEmail
-			case strings.Contains(strings.ToLower(message), "url"):
+			case strings.Contains(msg, "url"):
 				validation.Type = ValidationURL
-			case strings.Contains(strings.ToLower(message), "alpha"):
-				validation.Type = ValidationAlpha
-			case strings.Contains(strings.ToLower(message), "digit"):
-				validation.Type = ValidationDigit
-			case strings.Contains(strings.ToLower(message), "alphanumeric"):
+			case strings.Contains(msg, "alphanumeric"):
 				validation.Type = ValidationAlphanumeric
-			case strings.Contains(strings.ToLower(message), "country"):
+			case strings.Contains(msg, "alpha"):
+				validation.Type = ValidationAlpha
+			case strings.Contains(msg, "digit"):
+				validation.Type = ValidationDigit
+			case strings.Contains(msg, "country"):
 				validation.Type = ValidationCountryCode2
-			case strings.Contains(strings.ToLower(message), "semver"):
+			case strings.Contains(msg, "semver"):
 				validation.Type = ValidationSemver
-			case strings.Contains(strings.ToLower(message), "length"):
+			case strings.Contains(msg, "length"):
 				validation.Type = ValidationLength
 			default:
 				validation.Type = ValidationCustom

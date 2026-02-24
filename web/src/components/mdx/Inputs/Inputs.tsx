@@ -91,7 +91,9 @@ function Inputs({
       ...boilerplateConfig,
       variables: boilerplateConfig.variables.map(variable => ({
         ...variable,
-        default: prefilledVariables[variable.name] ? String(prefilledVariables[variable.name]) : variable.default
+        default: Object.prototype.hasOwnProperty.call(prefilledVariables, variable.name)
+          ? prefilledVariables[variable.name]
+          : variable.default
       }))
     }
   }, [boilerplateConfig, prefilledVariables])
@@ -119,6 +121,7 @@ function Inputs({
   useEffect(() => {
     if (variant === 'embedded' &&
         boilerplateConfig &&
+        Object.keys(initialData).length > 0 &&
         !hasTriggeredInitialSubmit.current &&
         !hasSubmitted) {
       hasTriggeredInitialSubmit.current = true;

@@ -13,6 +13,12 @@ variable "instance_type" {
   }
 }
 
+variable "api_key" {
+  type        = string
+  description = "API key for the monitoring service"
+  sensitive   = true
+}
+
 variable "enable_monitoring" {
   type        = bool
   default     = true

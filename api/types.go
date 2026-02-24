@@ -164,6 +164,7 @@ type BoilerplateVariable struct {
 	Required            bool              `json:"required"`
 	Options             []string          `json:"options,omitempty"`
 	Validations         []ValidationRule  `json:"validations,omitempty"`
+	Sensitive           bool              `json:"sensitive,omitempty"`
 
 	// Schema is a field not known to boilerplate itself, but we use it to allow users to define a schema for structured maps.
 	// For example, a user could specify a schema for an AWS account map with the fields "email", "environment", and "id".

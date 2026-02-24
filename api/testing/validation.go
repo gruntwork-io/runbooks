@@ -323,6 +323,7 @@ var KnownBlockTypes = map[string]bool{
 	"GitClone":            true,
 	"GitHubPullRequest":   true,
 	"TfModule":            true,
+	"DirPicker":           true,
 	"Admonition":          true, // Decorative block - validated but not executed
 }
 

@@ -20,20 +20,20 @@ export function extractTemplateVariables(children: ReactNode): string[] {
   const variables = new Set<string>();
 
   const extractFromString = (text: string) => {
-    // Match {{ .VariableName }} or {{ .VariableName.nested.path }} patterns
-    // Also handles pipe functions like {{ .VariableName | UpperCase }}
-    // Captures only the root name (first segment before any dot)
-    const directRegex = /\{\{-?\s*\.(\w+)(?:\.\w+)*(?:\s*\|[^}]*)?\s*-?\}\}/g;
-    let match;
-    while ((match = directRegex.exec(text)) !== null) {
-      variables.add(match[1]);
-    }
-
-    // Match range/with/assignment patterns: {{ range $k, $v := .VarName.sub }}
-    // These use := to assign from a dotted path
-    const assignRegex = /\{\{-?\s*(?:range|with)\s+[^:]*:=\s*\.(\w+)(?:\.\w+)*\s*-?\}\}/g;
-    while ((match = assignRegex.exec(text)) !== null) {
-      variables.add(match[1]);
+    // Iterate over each {{ ... }} template block, then scan for dot-prefixed
+    // identifiers within. This catches variables in all positions: direct access
+    // ({{ .Var }}), conditionals ({{ if .Var }}), comparisons ({{ if eq .Var "x" }}),
+    // and range/with blocks ({{ range $k, $v := .Var }}).
+    // Only matches .Name preceded by whitespace or := (not $var.field).
+    const blockRegex = /\{\{-?([\s\S]*?)-?\}\}/g;
+    const varRegex = /(?:^|\s|:=)\.(\w+)/g;
+    let blockMatch;
+    while ((blockMatch = blockRegex.exec(text)) !== null) {
+      const blockContent = blockMatch[1];
+      let varMatch;
+      while ((varMatch = varRegex.exec(blockContent)) !== null) {
+        variables.add(varMatch[1]);
+      }
     }
   };
   

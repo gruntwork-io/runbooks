@@ -36,7 +36,7 @@ export function formatHclValue(value: unknown, type: BoilerplateVariableType): s
           return JSON.stringify(value)
         }
       }
-      return JSON.stringify(value)
+      return JSON.stringify(value ?? null)
 
     case BoilerplateVariableType.String:
     case BoilerplateVariableType.Enum:

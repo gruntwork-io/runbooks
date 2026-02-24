@@ -145,6 +145,10 @@ describe('formatHclValue', () => {
     it('handles null', () => {
       expect(formatHclValue(null, BoilerplateVariableType.List)).toBe('null')
     })
+
+    it('handles undefined as null', () => {
+      expect(formatHclValue(undefined, BoilerplateVariableType.List)).toBe('null')
+    })
   })
 
   describe('Map type', () => {
@@ -163,6 +167,10 @@ describe('formatHclValue', () => {
     it('handles nested objects', () => {
       const nested = { a: { b: 'c' } }
       expect(formatHclValue(nested, BoilerplateVariableType.Map)).toBe('{"a":{"b":"c"}}')
+    })
+
+    it('handles undefined as null', () => {
+      expect(formatHclValue(undefined, BoilerplateVariableType.Map)).toBe('null')
     })
   })
 

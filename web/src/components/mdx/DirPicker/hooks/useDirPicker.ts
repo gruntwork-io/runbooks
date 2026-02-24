@@ -87,9 +87,13 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     init()
   }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
 
+  // Monotonic stamp to discard stale fetch results from superseded selectDir calls
+  const selectVersionRef = useRef(0)
+
   // Handle selection at a given dropdown level
   const selectDir = useCallback(async (levelIndex: number, dirName: string) => {
     setError(null)
+    const version = ++selectVersionRef.current
 
     setLevels(prev => {
       // Trim levels after the current one and update selection
@@ -113,6 +117,8 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
 
     // Fetch children and add a new level
     const childDirs = await fetchDirs(nextAbsPath)
+    // Discard if a newer selectDir call has been made while we were fetching
+    if (selectVersionRef.current !== version) return
     if (childDirs.length > 0) {
       setLevels(prev => [
         ...prev,

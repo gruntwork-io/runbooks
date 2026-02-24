@@ -95,7 +95,7 @@ function TemplateInline({
   const resolvedOutputPath = useMemo(() => {
     if (!outputPath) return outputPath;
     return outputPath.replace(
-      /\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)\s*\}\}/g,
+      /\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}/g,
       (_match, blockId, outputName) => {
         const nid = normalizeBlockId(blockId);
         const blockData = allOutputs[nid];

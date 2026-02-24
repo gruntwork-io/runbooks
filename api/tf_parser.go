@@ -439,6 +439,7 @@ func mapTfVariable(v TfVariable) BoilerplateVariable {
 		Type:        MapTfType(v.Type),
 		Default:     v.Default,
 		Required:    !v.HasDefault && !v.Nullable,
+		Sensitive:   v.Sensitive,
 	}
 
 	// Process validations

@@ -697,3 +697,20 @@ func TestSlugify(t *testing.T) {
 		})
 	}
 }
+
+func TestMapToBoilerplateConfig_Sensitive(t *testing.T) {
+	fixtureDir := "../testdata/test-fixtures/tf-modules/lambda-s3-complex"
+	vars, err := ParseTfModule(fixtureDir)
+	require.NoError(t, err)
+
+	config := MapToBoilerplateConfig(vars)
+	varMap := bpVarsByName(config.Variables)
+
+	// enable_monitoring has sensitive = true in the fixture
+	monitoring := varMap["enable_monitoring"]
+	assert.True(t, monitoring.Sensitive, "Sensitive flag should be propagated through MapToBoilerplateConfig")
+
+	// environment does not have sensitive set
+	env := varMap["environment"]
+	assert.False(t, env.Sensitive, "Non-sensitive variables should have Sensitive = false")
+}

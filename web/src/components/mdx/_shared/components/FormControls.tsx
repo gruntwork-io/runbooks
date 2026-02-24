@@ -1,5 +1,5 @@
 import React from 'react'
-import { X } from 'lucide-react'
+import { X, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
@@ -42,17 +42,44 @@ const getInputClassName = (error?: string, additionalClasses = '', disabled = fa
  * Text input component for string variables
  * Renders a standard text input field with validation error styling
  */
-export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => (
-  <input
-    type="text"
-    id={`${id}-${variable.name}`}
-    value={String(value || '')}
-    onChange={(e) => onChange(e.target.value)}
-    onBlur={onBlur}
-    disabled={disabled}
-    className={getInputClassName(error, 'w-full', disabled)}
-  />
-)
+export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+  const [showSensitive, setShowSensitive] = React.useState(false)
+
+  if (variable.sensitive) {
+    return (
+      <div className="relative">
+        <input
+          type={showSensitive ? 'text' : 'password'}
+          id={`${id}-${variable.name}`}
+          value={String(value || '')}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          disabled={disabled}
+          className={getInputClassName(error, 'w-full pr-10', disabled)}
+        />
+        <button
+          type="button"
+          onClick={() => setShowSensitive(!showSensitive)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+        >
+          {showSensitive ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <input
+      type="text"
+      id={`${id}-${variable.name}`}
+      value={String(value || '')}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      disabled={disabled}
+      className={getInputClassName(error, 'w-full', disabled)}
+    />
+  )
+}
 
 /**
  * Number input component for integer and float variables
@@ -527,21 +554,22 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
         const index = Number(key)
         const elemType = schema[key]
         const elemValue = currentTuple[index] ?? ''
-        const elemLabel = elemType === 'number' ? 'Enter a number'
+        const isNumeric = elemType === 'number' || elemType === 'int' || elemType === 'float'
+        const elemLabel = isNumeric ? `Enter ${elemType === 'int' ? 'an integer' : elemType === 'float' ? 'a float' : 'a number'}`
           : elemType === 'bool' ? 'Enter a boolean'
           : `Enter a ${elemType}`
 
         return (
           <div key={key} className="flex-1 min-w-24">
             <label className="block text-xs text-gray-500 mb-1">{elemLabel}</label>
-            {elemType === 'number' ? (
+            {isNumeric ? (
               <input
                 type="number"
                 id={`${id}-${variable.name}-${key}`}
                 value={elemValue === '' ? '' : String(elemValue)}
                 onChange={(e) => {
                   const raw = e.target.value
-                  updateElement(index, raw === '' ? '' : parseFloat(raw))
+                  updateElement(index, raw === '' ? '' : elemType === 'int' ? parseInt(raw, 10) : parseFloat(raw))
                 }}
                 onBlur={onBlur}
                 disabled={disabled}
