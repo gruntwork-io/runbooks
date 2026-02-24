@@ -1095,7 +1095,7 @@ func (e *TestExecutor) executeTemplateInline(step TestStep, block *TemplateInlin
 	if err != nil {
 		result.Passed = false
 		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("failed to render template: %v", err)
+		result.Error = improveTemplateError(err)
 		result.Duration = time.Since(start)
 		if e.verbose {
 			fmt.Printf("--- Result: ✗ error ---\n")
@@ -1231,7 +1231,7 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 	if err != nil {
 		result.Passed = false
 		result.ActualStatus = "error"
-		result.Error = fmt.Sprintf("failed to render template: %v", err)
+		result.Error = improveTemplateError(err)
 		result.Duration = time.Since(start)
 		if e.verbose {
 			fmt.Printf("--- Result: ✗ error ---\n")
@@ -1915,7 +1915,7 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	vars := e.buildTemplateVars()
 	rendered, err := api.RenderBoilerplateContent(scriptContent, vars)
 	if err != nil {
-		return "error", -1, nil, "", fmt.Errorf("failed to render template: %w", err)
+		return "error", -1, nil, "", fmt.Errorf("%s", improveTemplateError(err))
 	}
 	scriptContent = rendered
 
@@ -2050,6 +2050,40 @@ func (e *TestExecutor) getSessionToken() string {
 		return token
 	}
 	return ""
+}
+
+// improveTemplateError rewrites raw Go template errors into actionable messages.
+// For example, `map has no entry for key "_module"` becomes a message explaining
+// that _module is provided by TfModule blocks and suggesting what to check.
+func improveTemplateError(err error) string {
+	errStr := err.Error()
+
+	// Detect "map has no entry for key" errors from Go's text/template
+	re := regexp.MustCompile(`map has no entry for key "([^"]+)"`)
+	match := re.FindStringSubmatch(errStr)
+	if match == nil {
+		// Not a missing-key error — return as-is
+		return fmt.Sprintf("failed to render template: %v", err)
+	}
+
+	missingKey := match[1]
+
+	switch missingKey {
+	case "_module":
+		return fmt.Sprintf("template references {{._module}} but no TfModule data is available. "+
+			"The _module namespace (source, hcl_inputs, etc.) is provided by <TfModule> blocks. "+
+			"Common causes:\n"+
+			"  - The TfModule source path points to a module that doesn't exist (check the relative path)\n"+
+			"  - The TfModule block's inputsId is not correctly referenced by this template\n"+
+			"  - `runbooks test` does not yet support TfModule for this runbook")
+	case "_blocks":
+		return fmt.Sprintf("template references {{._blocks}} but no block outputs are available. "+
+			"Make sure the blocks that produce outputs run before this template in your test steps")
+	default:
+		return fmt.Sprintf("template references {{.%s}} but that variable is not defined. "+
+			"Check that the variable name matches an input in your test config (inputs section of runbook_test.yml) "+
+			"or is provided by an upstream block", missingKey)
+	}
 }
 
 // findMissingOutputDependencies checks the script content for {{ ._blocks.x.outputs.y }} references
