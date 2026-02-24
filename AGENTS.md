@@ -283,3 +283,25 @@ If code or a feature was created on a feature branch, do not prioritize backward
 - **Don't re-implement codebase logic in tests** — reference the source of truth
 - **Don't skip pre-commit hooks** — if spellcheck fails, fix the spelling
 - When working in a feature branch, do not attempt to preserve backward compatibility with a feature or interface introduced in the feature branch itself. 
+
+## Cursor Cloud specific instructions
+
+### System dependencies
+
+The environment requires **Go 1.25.6**, **Bun 1.3.3**, and **Task (Taskfile.dev) 3.x**. These are installed by the VM snapshot; the update script only refreshes project-level dependencies.
+
+### Running services for development
+
+See `Taskfile.yml` for all available commands (`task --list`). The two key dev commands are:
+
+- **Backend:** `task dev:backend RUNBOOK_PATH=testdata/sample-runbooks/my-first-runbook` (port 7825)
+- **Frontend:** `task dev:frontend` (port 5173, proxies `/api` to backend)
+
+Run backend first, then frontend in a separate shell. The `RUNBOOK_PATH` must point to a directory containing a `runbook.mdx` file.
+
+### Gotchas
+
+- **Go backend tests require a built frontend.** The Go binary embeds `web/dist/` via `web/embed.go`. Before running `go test ./...` or `task test:backend`, you must run `bun run build` in `web/` (or `task build:frontend`). Otherwise, tests will fail with embed errors.
+- **Runbook integration tests (`task test:runbooks`) require a full binary build** (`task build`) since they invoke `./runbooks test ./testdata/...`.
+- **Some runbook tests need AWS/GitHub credentials** (see CI workflow). These will be skipped or fail in environments without those credentials set; this is expected.
+- **Docs tests (`task test:docs`)** run spellcheck via `cspell` and link checking. If spellcheck fails after docs changes, update `docs/cspell.json` with new words or fix the spelling.
