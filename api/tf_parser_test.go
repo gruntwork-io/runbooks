@@ -194,10 +194,10 @@ func TestParseTfModule_Complex(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, priority.Type, "tuple(")
 
-	// enable_monitoring: sensitive
-	monitoring, ok := varMap["enable_monitoring"]
+	// api_key: sensitive
+	apiKey, ok := varMap["api_key"]
 	require.True(t, ok)
-	assert.True(t, monitoring.Sensitive)
+	assert.True(t, apiKey.Sensitive)
 
 	// description: length validation
 	desc, ok := varMap["description"]
@@ -706,9 +706,9 @@ func TestMapToBoilerplateConfig_Sensitive(t *testing.T) {
 	config := MapToBoilerplateConfig(vars)
 	varMap := bpVarsByName(config.Variables)
 
-	// enable_monitoring has sensitive = true in the fixture
-	monitoring := varMap["enable_monitoring"]
-	assert.True(t, monitoring.Sensitive, "Sensitive flag should be propagated through MapToBoilerplateConfig")
+	// api_key has sensitive = true in the fixture
+	apiKey := varMap["api_key"]
+	assert.True(t, apiKey.Sensitive, "Sensitive flag should be propagated through MapToBoilerplateConfig")
 
 	// environment does not have sensitive set
 	env := varMap["environment"]

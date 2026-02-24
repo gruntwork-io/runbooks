@@ -140,7 +140,12 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 	config, err := parseBoilerplateConfig(content)
 	if err != nil {
 		slog.Error("Error parsing boilerplate config", "error", err)
-		// Client-provided content parse errors are 400; file-based parse errors are 500
+		// We're already inside a parse-error branch (err != nil). The status code
+		// depends on where the content came from:
+		//   - req.BoilerplateContent != "" → the client sent raw YAML inline, so a
+		//     parse failure is a client error (400).
+		//   - Otherwise the YAML was read from a file on disk, so a parse failure
+		//     is an internal server error (500).
 		status := http.StatusInternalServerError
 		if req.BoilerplateContent != "" {
 			status = http.StatusBadRequest

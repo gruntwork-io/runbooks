@@ -35,5 +35,10 @@ variable "enable_monitoring" {
   type        = bool
   default     = true
   description = "Enable CloudWatch monitoring"
+}
+
+variable "api_key" {
+  type        = string
+  description = "API key for the monitoring service"
   sensitive   = true
 }
