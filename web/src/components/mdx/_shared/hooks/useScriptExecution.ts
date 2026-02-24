@@ -572,10 +572,10 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
+      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
+      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty)
     }
   }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, githubAuthEnvVars, usePty])
 

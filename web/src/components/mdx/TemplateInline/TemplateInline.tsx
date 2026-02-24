@@ -55,6 +55,9 @@ function TemplateInline({
   
   // Debounce timer ref for auto-updates
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Monotonic counter to discard stale render responses
+  const renderVersionRef = useRef(0);
   
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
@@ -127,8 +130,12 @@ function TemplateInline({
     [inputDependencies]
   );
   
-  // Core render function that calls the API
+  // Core render function that calls the API.
+  // Each call increments renderVersionRef; when the response arrives we check
+  // that no newer render has been kicked off before applying state updates.
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
+    const version = ++renderVersionRef.current;
+
     // Only show loading state for initial renders, not auto-updates
     if (!isAutoUpdate) {
       setIsRendering(true);
@@ -137,12 +144,12 @@ function TemplateInline({
 
     // Build inputs array including _blocks namespace for output access
     const inputsWithBlocks = buildInputsWithBlocks(inputs, allOutputs);
-    
+
     try {
       const response = await fetch('/api/boilerplate/render-inline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           templateFiles,
           // Send inputs with name, type, and value for proper type conversion
           // Includes _blocks namespace for output access
@@ -155,28 +162,34 @@ function TemplateInline({
         }),
       });
 
+      // A newer render was started while this one was in flight — discard.
+      if (version !== renderVersionRef.current) return [];
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         const appError: AppError = {
           message: errorData?.error || 'Failed to render template',
           details: errorData?.details || 'The server returned an error'
         };
-        
+
         setError(appError);
         setIsRendering(false);
         return [];
       }
 
       const responseData = await response.json();
-      
+
       setRenderData(responseData);
       setRenderState('rendered');
       setIsRendering(false);
-      
+
       return responseData.fileTree || [];
     } catch (err) {
+      // Discard errors from superseded requests
+      if (version !== renderVersionRef.current) return [];
+
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      
+
       setError({
         message: 'Failed to render template',
         details: errorMessage
@@ -228,11 +241,15 @@ function TemplateInline({
     const delay = isInitialRender ? 0 : 300;
     
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = combinedKey;
       hasTriggeredInitialRender.current = true;
-      
+
       renderTemplate(!isInitialRender)
         .then(newFileTree => {
+          // Only mark as rendered after a successful response.
+          // On failure renderTemplate returns [] without updating state,
+          // so the next effect cycle will retry with the same inputs.
+          lastRenderedVariablesRef.current = combinedKey;
+
           if (!generateFile) return;
           // When target is worktree, output went to the git repo — do NOT update Generated tab
           // (that would show the whole worktree including .git). Instead refresh the All files tree.
