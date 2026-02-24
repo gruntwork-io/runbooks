@@ -307,13 +307,6 @@ func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
 	return labels
 }
 
-// extractVariablesToSectionMap returns a map of variable name -> section name.
-// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
-func extractVariablesToSectionMap(yamlContent string) map[string]string {
-	_, _, sections := extractXFields(parseRawXVariables(yamlContent))
-	return sections
-}
-
 // extractSectionGroupings builds an ordered list of section groupings from pre-parsed raw variables.
 // Returns an ordered slice of Section structs for UI rendering (e.g., rendering collapsible sections).
 // Each Section contains the section name and the list of variable names in that section.

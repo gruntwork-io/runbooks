@@ -111,7 +111,6 @@ function TfModule({ id, source }: TfModuleProps) {
     componentType: 'TfModule',
     boilerplateConfig,
     validationError,
-    apiError,
     enrichFormData,
   })
 

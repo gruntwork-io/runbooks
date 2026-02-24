@@ -112,7 +112,6 @@ function Inputs({
     componentType: 'Inputs',
     boilerplateConfig: boilerplateConfigWithPrefilledVariables,
     validationError,
-    apiError,
     extraError: inlineContentError,
   })
 

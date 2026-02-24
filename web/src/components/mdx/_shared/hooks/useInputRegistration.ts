@@ -28,8 +28,6 @@ interface UseInputRegistrationOptions {
   boilerplateConfig: BoilerplateConfig | null
   /** Error from prop/config validation (reported to the global error banner). */
   validationError: AppError | null
-  /** Error returned by a backend API call (reported to the global error banner). */
-  apiError: AppError | null
   /** Additional error to report (e.g., inline content parsing failures in Inputs). */
   extraError?: AppError | null
   /** Transform applied to raw form data before it is registered with the runbook context. */
@@ -65,7 +63,6 @@ export function useInputRegistration({
   componentType,
   boilerplateConfig,
   validationError,
-  // apiError is intentionally not destructured — it is rendered inline by ErrorDisplay, not reported to the global banner.
   extraError,
   enrichFormData,
 }: UseInputRegistrationOptions): UseInputRegistrationReturn {

@@ -53,7 +53,7 @@ func TestParseBoilerplateConfig(t *testing.T) {
 		{
 			name:    "invalid validations",
 			filename: "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
-			wantErr: true, // Boilerplate v0.12.0 rejects unrecognized validation types
+			wantErr: true, // Boilerplate v0.12+ rejects unrecognized validation types
 		},
 		{
 			name:     "invalid yaml syntax",
@@ -514,7 +514,7 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 		{
 			name:          "invalid validations",
 			filename:      "../testdata/test-fixtures/boilerplate-yaml/invalid-validations.yml",
-			expectedError: "failed to parse boilerplate config", // Boilerplate v0.12.0 rejects unrecognized validation types
+			expectedError: "failed to parse boilerplate config", // Boilerplate v0.12+ rejects unrecognized validation types
 		},
 		{
 			name:          "invalid yaml syntax",

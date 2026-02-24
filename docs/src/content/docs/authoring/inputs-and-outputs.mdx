@@ -9,7 +9,7 @@ Every runbook has a **global context,** which is the shared collection of key-va
 There are two ways values are written to the global context:
 
 - **Inputs:** [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
-- **Outputs:** Blocks that execute scripts (like `<Command>` and `<Check>`) can publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
+- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<TfModule>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
 
 ## Variables
 

@@ -60,6 +60,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
         <button
           type="button"
           onClick={() => setShowSensitive(!showSensitive)}
+          aria-label={showSensitive ? 'Hide sensitive input' : 'Show sensitive input'}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
         >
           {showSensitive ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
