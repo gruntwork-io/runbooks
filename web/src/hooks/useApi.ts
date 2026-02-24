@@ -30,6 +30,13 @@ export function useApi<T>(
   const extraHeadersRef = useRef(extraHeaders);
   extraHeadersRef.current = extraHeaders;
 
+  // Use a ref for body so changing object identity (same content, new reference)
+  // doesn't trigger re-fetches. Content changes are detected via bodyKey below.
+  const bodyRef = useRef(body);
+  bodyRef.current = body;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const bodyKey = useMemo(() => JSON.stringify(body), [JSON.stringify(body)]);
+
   // Memoize the full URL to prevent unnecessary re-renders
   const fullUrl = useMemo(() => {
     return endpoint.startsWith('http') || endpoint.startsWith('https')
@@ -97,15 +104,15 @@ export function useApi<T>(
   const refetch = useCallback(() => {
     setIsLoading(true);
     setError(null);
-    performFetch(body);
-  }, [performFetch, body]);
+    performFetch(bodyRef.current);
+  }, [performFetch]);
 
   // Silent refetch function - refetches without showing loading state (for hot reloading)
   const silentRefetch = useCallback(() => {
     // Don't set isLoading to true - keep existing content visible
     setError(null);
-    performFetch(body);
-  }, [performFetch, body]);
+    performFetch(bodyRef.current);
+  }, [performFetch]);
 
   useEffect(() => {
     if (!endpoint) {
@@ -118,7 +125,7 @@ export function useApi<T>(
     setError(null);
 
     // Use the shared fetch function
-    performFetch(body);
+    performFetch(bodyRef.current);
 
     // Cleanup function
     return () => {
@@ -126,7 +133,7 @@ export function useApi<T>(
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [endpoint, performFetch, body]);
+  }, [endpoint, performFetch, bodyKey]);
 
   return { data, isLoading, error, debouncedRequest, refetch, silentRefetch };
 }
