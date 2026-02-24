@@ -14,10 +14,11 @@ export interface UseApiReturn<T> {
 }
 
 export function useApi<T>(
-  endpoint: string, 
-  method: HttpMethod = 'GET', 
+  endpoint: string,
+  method: HttpMethod = 'GET',
   body?: Record<string, unknown>,
-  debounceTimeout?: number
+  debounceTimeout?: number,
+  extraHeaders?: Record<string, string>
 ): UseApiReturn<T> {
   const [data, setData] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,6 +39,7 @@ export function useApi<T>(
         method,
         headers: {
           'Content-Type': 'application/json',
+          ...extraHeaders,
         },
       };
 
@@ -71,7 +73,7 @@ export function useApi<T>(
         `Failed to connect to runbook server at ${fullUrl}`
       ));
     }
-  }, [endpoint, method, fullUrl]);
+  }, [endpoint, method, fullUrl, extraHeaders]);
 
   // Debounced request function
   const debouncedRequest = useCallback((newBody?: Record<string, unknown>) => {

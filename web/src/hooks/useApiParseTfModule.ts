@@ -2,6 +2,7 @@ import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo } from 'react';
 import type { BoilerplateConfig } from '@/types/boilerplateConfig';
+import { useSession } from '@/contexts/useSession';
 
 /**
  * Hook to parse an OpenTofu module and return a BoilerplateConfig.
@@ -14,6 +15,8 @@ export function useApiParseTfModule(
   source?: string,
   shouldFetch: boolean = true
 ): UseApiReturn<BoilerplateConfig> {
+  const { getAuthHeader } = useSession();
+
   const requestBody = useMemo(() => {
     if (!shouldFetch || !source) {
       return undefined;
@@ -24,6 +27,8 @@ export function useApiParseTfModule(
   return useApi<BoilerplateConfig>(
     shouldFetch && source ? '/api/tf/parse' : '',
     'POST',
-    requestBody
+    requestBody,
+    undefined,
+    getAuthHeader() as Record<string, string>
   );
 }
