@@ -43,6 +43,21 @@ export function buildInputsWithBlocks(
 }
 
 /**
+ * Check if any numeric input has an empty string value.
+ * This only applies to Int and Float types — when the user clears a number
+ * field before typing a new value, the value is briefly "". Sending that to
+ * render-inline causes a backend error (strconv.Atoi("") / ParseFloat("")).
+ *
+ * String types are NOT checked because "" is a valid string value.
+ * Bool, List, Map, and Enum never produce empty strings from their controls.
+ */
+export function hasEmptyNumericInputs(inputs: InputValue[]): boolean {
+  return inputs.some(
+    i => (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) && i.value === ''
+  )
+}
+
+/**
  * Check if all input dependencies have non-empty values.
  * Returns true when deps is empty (no dependencies to satisfy).
  */

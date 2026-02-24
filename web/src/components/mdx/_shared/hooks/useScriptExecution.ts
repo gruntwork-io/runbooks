@@ -13,7 +13,7 @@ import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/ex
 import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs, type UnmetOutputDependency } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -488,7 +488,14 @@ export function useScriptExecution({
       // Input dependencies not available yet
       return
     }
-    
+
+    // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
+    // a number field before typing a new value). Sending "" to the backend would
+    // cause type-conversion errors like strconv.Atoi("").
+    if (hasEmptyNumericInputs(inputs)) {
+      return
+    }
+
     // Build inputs with _blocks namespace for block output references
     const inputsForRender = buildInputsWithBlocks(inputs, allOutputs)
     

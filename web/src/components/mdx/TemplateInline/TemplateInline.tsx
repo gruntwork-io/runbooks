@@ -14,7 +14,7 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
-import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies } from '@/lib/templateUtils'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs } from '@/lib/templateUtils'
 import { normalizeBlockId } from '@/lib/utils'
 
 interface TemplateInlineProps {
@@ -199,7 +199,14 @@ function TemplateInline({
     if (!hasAllOutputDependencies) {
       return;
     }
-    
+
+    // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
+    // a number field before typing a new value). Sending "" to the backend would
+    // cause type-conversion errors like strconv.Atoi("").
+    if (hasEmptyNumericInputs(inputs)) {
+      return;
+    }
+
     // Check if inputs actually changed (includes both values and types)
     const valuesKey = JSON.stringify(inputs);
     const outputsKey = JSON.stringify(allOutputs);
