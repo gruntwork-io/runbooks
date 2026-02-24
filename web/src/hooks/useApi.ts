@@ -24,6 +24,11 @@ export function useApi<T>(
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<AppError | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Use a ref for extraHeaders so changing the object identity doesn't trigger
+  // re-fetches. Headers are config, not a fetch trigger — the latest value is
+  // always read when a fetch actually happens.
+  const extraHeadersRef = useRef(extraHeaders);
+  extraHeadersRef.current = extraHeaders;
 
   // Memoize the full URL to prevent unnecessary re-renders
   const fullUrl = useMemo(() => {
@@ -39,7 +44,7 @@ export function useApi<T>(
         method,
         headers: {
           'Content-Type': 'application/json',
-          ...extraHeaders,
+          ...extraHeadersRef.current,
         },
       };
 
@@ -73,7 +78,7 @@ export function useApi<T>(
         `Failed to connect to runbook server at ${fullUrl}`
       ));
     }
-  }, [endpoint, method, fullUrl, extraHeaders]);
+  }, [endpoint, method, fullUrl]);
 
   // Debounced request function
   const debouncedRequest = useCallback((newBody?: Record<string, unknown>) => {
