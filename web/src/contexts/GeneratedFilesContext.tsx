@@ -10,7 +10,10 @@ interface GeneratedFilesProviderProps {
 export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ children }) => {
   const [fileTree, setFileTree] = useState<FileTreeNode[] | null>(null)
   const [localPath, setLocalPath] = useState<string | null>(null)
-  
+  // Start disabled until the generated files check resolves (prevents TemplateInline
+  // from regenerating files before the user decides to keep/delete existing ones)
+  const [renderingEnabled, setRenderingEnabled] = useState(false)
+
   // Stable reference to prevent unnecessary re-renders in consuming components
   // Support both direct values and functional updates
   const stableSetFileTree = useCallback((newFileTree: FileTreeNode[] | null | ((prevFileTree: FileTreeNode[] | null) => FileTreeNode[] | null)) => {
@@ -21,8 +24,12 @@ export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ 
     setLocalPath(path)
   }, [])
 
+  const stableSetRenderingEnabled = useCallback((enabled: boolean) => {
+    setRenderingEnabled(enabled)
+  }, [])
+
   return (
-    <GeneratedFilesContext.Provider value={{ fileTree, setFileTree: stableSetFileTree, localPath, setLocalPath: stableSetLocalPath }}>
+    <GeneratedFilesContext.Provider value={{ fileTree, setFileTree: stableSetFileTree, localPath, setLocalPath: stableSetLocalPath, renderingEnabled, setRenderingEnabled: stableSetRenderingEnabled }}>
       {children}
     </GeneratedFilesContext.Provider>
   )

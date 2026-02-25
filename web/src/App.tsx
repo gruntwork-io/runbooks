@@ -12,6 +12,7 @@ import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
 import { useFileTree } from './hooks/useFileTree'
+import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
@@ -57,6 +58,7 @@ function App() {
   
   // Get file tree state to detect when files are generated
   const { fileTree, setFileTree } = useFileTree()
+  const { setRenderingEnabled } = useGeneratedFiles()
   const hasFiles = hasGeneratedFiles(fileTree)
   
   // Get git worktree state to detect when a repo is cloned
@@ -123,6 +125,33 @@ function App() {
     generatedFilesCheck.isLoading,
     generatedFilesCheck.data?.hasFiles,
     alertDismissedThisSession,
+  ]);
+
+  // Enable file-generating template rendering once the generated files check resolves
+  // and either no files exist or the alert won't be shown (dismissed / "don't ask again").
+  // This prevents TemplateInline components from regenerating files before the user
+  // decides to keep or delete existing ones.
+  useEffect(() => {
+    if (generatedFilesCheck.isLoading) return;
+    // No existing files → safe to render immediately
+    if (!generatedFilesCheck.data?.hasFiles) {
+      setRenderingEnabled(true);
+      return;
+    }
+    // Files exist but user previously chose "don't ask again"
+    if (!shouldShowGeneratedFilesAlert()) {
+      setRenderingEnabled(true);
+      return;
+    }
+    // Files exist and alert has been dismissed this session (keep or delete)
+    if (alertDismissedThisSession) {
+      setRenderingEnabled(true);
+    }
+  }, [
+    generatedFilesCheck.isLoading,
+    generatedFilesCheck.data?.hasFiles,
+    alertDismissedThisSession,
+    setRenderingEnabled,
   ]);
   
   // Extract commonly used values

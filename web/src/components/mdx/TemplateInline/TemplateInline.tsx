@@ -11,6 +11,7 @@ import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import { extractOutputDependencies, extractOutputDependenciesFromString } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
+import { useGeneratedFiles } from '@/hooks/useGeneratedFiles'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
@@ -62,6 +63,8 @@ function TemplateInline({
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
   const { invalidateTree } = useGitWorkTree();
+  // Check if file-generating rendering is allowed (blocked while "delete existing files" alert is pending)
+  const { renderingEnabled } = useGeneratedFiles();
 
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
@@ -203,11 +206,17 @@ function TemplateInline({
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
+    // When generateFile is true, wait until the "Existing Generated Files" alert
+    // is resolved so we don't regenerate files the user just deleted.
+    if (generateFile && !renderingEnabled) {
+      return;
+    }
+
     // Check if we have all input dependencies
     if (!hasAllInputDependencies(inputValues)) {
       return;
     }
-    
+
     // Check if we have all output dependencies
     if (!hasAllOutputDependencies) {
       return;
@@ -224,22 +233,22 @@ function TemplateInline({
     const valuesKey = JSON.stringify(inputs);
     const outputsKey = JSON.stringify(allOutputs);
     const combinedKey = `${valuesKey}|${outputsKey}`;
-    
+
     if (combinedKey === lastRenderedVariablesRef.current) {
       return;
     }
-    
+
     // Clear existing timer
     if (autoUpdateTimerRef.current) {
       clearTimeout(autoUpdateTimerRef.current);
     }
-    
+
     // Determine if this is initial render or auto-update
     const isInitialRender = !hasTriggeredInitialRender.current;
-    
+
     // Debounce for auto-updates, immediate for initial render
     const delay = isInitialRender ? 0 : 300;
-    
+
     autoUpdateTimerRef.current = setTimeout(() => {
       hasTriggeredInitialRender.current = true;
 
@@ -265,7 +274,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree, renderingEnabled]);
   
   // Cleanup timer on unmount
   useEffect(() => {
