@@ -1,0 +1,47 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  deploy-preview:
+    if: github.event_name == 'pull_request'
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: {{ "${{ secrets.VERCEL_TOKEN }}" }}
+          vercel-org-id: {{ "${{ secrets.VERCEL_ORG_ID }}" }}
+          vercel-project-id: {{ "${{ secrets.VERCEL_PROJECT_ID }}" }}
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: {{ "${{ secrets.VERCEL_TOKEN }}" }}
+          vercel-org-id: {{ "${{ secrets.VERCEL_ORG_ID }}" }}
+          vercel-project-id: {{ "${{ secrets.VERCEL_PROJECT_ID }}" }}
+          vercel-args: '--prod'
