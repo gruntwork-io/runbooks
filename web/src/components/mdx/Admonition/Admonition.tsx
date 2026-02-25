@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 
-type AdmonitionType = "note" | "info" | "warning" | "danger"
+export type AdmonitionType = "note" | "info" | "warning" | "danger"
+
+const VALID_ADMONITION_TYPES: AdmonitionType[] = ["note", "info", "warning", "danger"]
 
 interface AdmonitionProps {
   type: AdmonitionType
@@ -111,7 +113,29 @@ export function Admonition({
   // Hide the admonition when not visible or when closed
   if (!isVisible) return null
 
-  const config = admonitionConfig[type]
+  const config = admonitionConfig[type as AdmonitionType]
+
+  if (!config) {
+    const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
+    return (
+      <div
+        className={cn(
+          "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
+          "bg-red-50 border-red-200 text-red-700"
+        )}
+      >
+        <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-500" />
+        <div>
+          <div className="text-md font-bold mb-1">Invalid Admonition Type</div>
+          <p>
+            Unknown type <code className="bg-red-100 px-1 rounded">"{String(type)}"</code>.
+            Valid types are: {validTypes}.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const Icon = config.icon
   const displayTitle = title || config.defaultTitle
 
