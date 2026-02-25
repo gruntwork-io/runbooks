@@ -229,6 +229,9 @@ describe('extractTemplateVariables', () => {
       {{ end }}
     `
     const variables = extractTemplateVariables(template)
+    // In real Go templates, .Name inside {{ with .Config }} refers to Config.Name,
+    // not a top-level Name variable. Our regex can't distinguish this without a full
+    // AST parse, so we intentionally over-extract — safer than missing a dependency.
     expect(variables.sort()).toEqual(['Config', 'Name'].sort())
   })
 
@@ -241,6 +244,18 @@ describe('extractTemplateVariables', () => {
     const variables = extractTemplateVariables(template)
     // Should extract Items but NOT name (which is a field on $item)
     expect(variables).toEqual(['Items'])
+  })
+
+  it('excludes _blocks namespace (handled by output dependency system)', () => {
+    const template = `
+      account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+      region     = "{{ ._blocks.create_account.outputs.region }}"
+      name       = "{{ .ProjectName }}"
+    `
+    const variables = extractTemplateVariables(template)
+    // _blocks is a system namespace for block outputs, tracked separately
+    // by extractOutputDependencies — it should not appear as an input dependency.
+    expect(variables).toEqual(['ProjectName'])
   })
 })
 

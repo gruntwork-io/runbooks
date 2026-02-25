@@ -513,26 +513,42 @@ func isBinaryFile(path string) (bool, error) {
 	return false, nil
 }
 
-// OutputDependencyRegex matches {{ ._blocks.blockId.outputs.outputName }} patterns
-// with optional whitespace and pipe functions.
+// Two regexes for output dependency extraction. We use a two-pass approach:
+// blockRegex finds all {{ }} template blocks, then depRegex scans within each
+// block for ._blocks.X.outputs.Y references. This correctly handles references
+// inside function calls (e.g., fromJson) while ignoring occurrences outside
+// template delimiters (e.g., in comments).
 //
 // IMPORTANT: Keep in sync with the TypeScript implementation in:
-//   web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
+//
+//	web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
 //
 // Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
 // to ensure they produce identical results. Run tests in both languages after any changes.
-var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
+var (
+	outputDepBlockRegex = regexp.MustCompile(`\{\{-?([\s\S]*?)-?\}\}`)
+	outputDepRegex      = regexp.MustCompile(`\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+)
 
 // ExtractOutputDependenciesFromContent extracts output dependencies from string content.
 // This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
-// It finds all {{ ._blocks.blockId.outputs.outputName }} patterns in the content.
+// It finds ._blocks.blockId.outputs.outputName references inside {{ }} template blocks.
 func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 	var dependencies []OutputDependency
 	seen := make(map[string]bool)
 
-	matches := OutputDependencyRegex.FindAllStringSubmatch(content, -1)
-	for _, match := range matches {
-		if len(match) >= 3 {
+	blockMatches := outputDepBlockRegex.FindAllStringSubmatch(content, -1)
+	for _, blockMatch := range blockMatches {
+		if len(blockMatch) < 2 {
+			continue
+		}
+		blockContent := blockMatch[1]
+
+		depMatches := outputDepRegex.FindAllStringSubmatch(blockContent, -1)
+		for _, match := range depMatches {
+			if len(match) < 3 {
+				continue
+			}
 			originalBlockID := match[1]
 			normalizedBlockID := normalizeBlockID(originalBlockID)
 			outputName := match[2]

@@ -13,8 +13,11 @@ import type { ReactNode } from 'react'
  * For dotted paths like `._module.source`, only the root name (`_module`) is extracted,
  * since that's the top-level key in the input values map.
  *
+ * The `_blocks` namespace is excluded because block outputs are tracked separately
+ * by the output dependency system (extractOutputDependencies), not the input system.
+ *
  * @param children - React children nodes containing the template content
- * @returns Array of unique root variable names found in the template
+ * @returns Array of unique root variable names found in the template (excluding `_blocks`)
  */
 export function extractTemplateVariables(children: ReactNode): string[] {
   const variables = new Set<string>();
@@ -54,6 +57,12 @@ export function extractTemplateVariables(children: ReactNode): string[] {
   };
   
   traverse(children);
+
+  // _blocks is a system namespace for block outputs, handled separately by the
+  // output dependency system (extractOutputDependencies). Exclude it so callers
+  // don't treat it as a missing input from an <Inputs> component.
+  variables.delete('_blocks');
+
   return Array.from(variables);
 }
 
