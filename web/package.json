@@ -11,6 +11,7 @@
     "start": "bun run dev",
     "test": "bun run vitest run",
     "test:watch": "bun run vitest",
+    "test:e2e": "bunx playwright test",
     "type-check": "bun run tsc --noEmit",
     "clean": "rm -rf node_modules"
   },
@@ -53,6 +54,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@playwright/test": "1.56.1",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.0.0",
