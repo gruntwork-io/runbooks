@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useId } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
 
 export type AdmonitionType = "note" | "info" | "warning" | "danger"
 
@@ -80,6 +81,8 @@ export function Admonition({
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isFadingOut, setIsFadingOut] = useState(false)
   const [dontShowAgain, setDontShowAgain] = useState(false)
+  const componentId = useId()
+  const { reportError, clearError } = useErrorReporting()
 
   // Check localStorage on mount to see if user has permanently hidden this
   useEffect(() => {
@@ -89,6 +92,21 @@ export function Admonition({
       }
     }
   }, [allowPermanentHide, storageKey])
+
+  // Report invalid admonition type to error tracking
+  useEffect(() => {
+    if (!admonitionConfig[type]) {
+      const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
+      reportError({
+        componentId,
+        componentType: 'Admonition',
+        severity: 'error',
+        message: `Invalid admonition type "${String(type)}". Valid types are: ${validTypes}.`,
+      })
+    } else {
+      clearError(componentId)
+    }
+  }, [type, componentId, reportError, clearError])
 
   // Handle checkbox change with delayed fade-out
   const handleConfirmationChange = (checked: boolean) => {
@@ -113,7 +131,7 @@ export function Admonition({
   // Hide the admonition when not visible or when closed
   if (!isVisible) return null
 
-  const config = admonitionConfig[type as AdmonitionType]
+  const config = admonitionConfig[type]
 
   if (!config) {
     const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
