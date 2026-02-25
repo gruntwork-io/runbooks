@@ -8,11 +8,27 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useTemplateVariables } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { CollapsibleToggle } from "@/components/mdx/GitHubPullRequest/components/CollapsibleToggle"
 import type { GitCloneProps } from "./types"
+
+/** Resolve template expressions like {{ .VarName }} using template variables from inputs.
+ *  Returns empty string when any expression is unresolved. */
+function resolveTemplateString(template: string, vars: Record<string, unknown>): string {
+  let allResolved = true
+  const result = template.replace(/\{\{\s*\.(\w+)\s*\}\}/g, (_match, varName) => {
+    const value = vars[varName]
+    if (value === undefined || value === null || value === '') {
+      allResolved = false
+      return ''
+    }
+    return String(value)
+  })
+  return allResolved ? result : ''
+}
 
 /** Parse org and repo from a GitHub URL */
 function parseGitHubURL(url: string): { org: string; repo: string } | null {
@@ -32,6 +48,7 @@ function GitClone({
   title = "Clone Repository",
   description = "Enter a git URL to clone a repository",
   gitHubAuthId,
+  inputsId,
   prefilledUrl = '',
   prefilledRef = '',
   prefilledRepoPath = '',
@@ -50,6 +67,9 @@ function GitClone({
 
   // Git worktree context for registering cloned repos with the workspace
   const { registerWorkTree } = useGitWorkTree()
+
+  // Template variables from inputs (and block outputs) for resolving prefilled props
+  const templateVars = useTemplateVariables(inputsId)
 
   // Track render
   useEffect(() => {
@@ -76,15 +96,64 @@ function GitClone({
     fetchRefs,
   } = useGitClone({ id, gitHubAuthId })
 
+  // Resolve prefilled values with block output template expressions
+  const resolvedPrefilledUrl = useMemo(() =>
+    prefilledUrl ? resolveTemplateString(prefilledUrl, templateVars) : '',
+    [prefilledUrl, templateVars]
+  )
+  const resolvedPrefilledRef = useMemo(() =>
+    prefilledRef ? resolveTemplateString(prefilledRef, templateVars) : '',
+    [prefilledRef, templateVars]
+  )
+  const resolvedPrefilledRepoPath = useMemo(() =>
+    prefilledRepoPath ? resolveTemplateString(prefilledRepoPath, templateVars) : '',
+    [prefilledRepoPath, templateVars]
+  )
+  const resolvedPrefilledLocalPath = useMemo(() =>
+    prefilledLocalPath ? resolveTemplateString(prefilledLocalPath, templateVars) : '',
+    [prefilledLocalPath, templateVars]
+  )
+
   // Form state
-  const [gitUrl, setGitUrl] = useState(prefilledUrl)
-  const [ref, setRef] = useState(prefilledRef)
-  const [repoPath, setRepoPath] = useState(prefilledRepoPath)
-  const [localPath, setLocalPath] = useState(prefilledLocalPath)
+  const [gitUrl, setGitUrl] = useState(resolvedPrefilledUrl)
+  const [ref, setRef] = useState(resolvedPrefilledRef)
+  const [repoPath, setRepoPath] = useState(resolvedPrefilledRepoPath)
+  const [localPath, setLocalPath] = useState(resolvedPrefilledLocalPath)
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
   )
+
+  // Track whether the user has manually edited each field
+  const [userEditedUrl, setUserEditedUrl] = useState(false)
+  const [userEditedRef, setUserEditedRef] = useState(false)
+  const [userEditedRepoPath, setUserEditedRepoPath] = useState(false)
+  const [userEditedLocalPath, setUserEditedLocalPath] = useState(false)
+
+  // Update form state when resolved template values change (unless user has edited)
+  useEffect(() => {
+    if (!userEditedUrl && resolvedPrefilledUrl) {
+      setGitUrl(resolvedPrefilledUrl)
+    }
+  }, [resolvedPrefilledUrl, userEditedUrl])
+
+  useEffect(() => {
+    if (!userEditedRef && resolvedPrefilledRef) {
+      setRef(resolvedPrefilledRef)
+    }
+  }, [resolvedPrefilledRef, userEditedRef])
+
+  useEffect(() => {
+    if (!userEditedRepoPath && resolvedPrefilledRepoPath) {
+      setRepoPath(resolvedPrefilledRepoPath)
+    }
+  }, [resolvedPrefilledRepoPath, userEditedRepoPath])
+
+  useEffect(() => {
+    if (!userEditedLocalPath && resolvedPrefilledLocalPath) {
+      setLocalPath(resolvedPrefilledLocalPath)
+    }
+  }, [resolvedPrefilledLocalPath, userEditedLocalPath])
 
   const handleCopyPath = useCallback(async (key: string, value: string) => {
     const ok = await copyTextToClipboard(value)
@@ -169,11 +238,12 @@ function GitClone({
 
   // Determine if the GitHub browser should be pre-opened
   const prefilledGitHub = useMemo(() => {
-    if (prefilledUrl) {
-      return parseGitHubURL(prefilledUrl)
+    const url = resolvedPrefilledUrl || prefilledUrl
+    if (url) {
+      return parseGitHubURL(url)
     }
     return null
-  }, [prefilledUrl])
+  }, [resolvedPrefilledUrl, prefilledUrl])
 
   // Overwrite confirmation state
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
@@ -191,12 +261,14 @@ function GitClone({
   // Handle repo selected from GitHub browser
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
+    setUserEditedUrl(true)
     setShowOverwriteConfirm(false)
   }, [])
 
   // Handle ref selected from GitHub browser
   const handleRefSelected = useCallback((selectedRef: string) => {
     setRef(selectedRef)
+    setUserEditedRef(true)
   }, [])
 
   // Handle clone again
@@ -276,7 +348,7 @@ function GitClone({
                 <input
                   type="text"
                   value={gitUrl}
-                  onChange={(e) => setGitUrl(e.target.value)}
+                  onChange={(e) => { setGitUrl(e.target.value); setUserEditedUrl(true) }}
                   placeholder="https://github.com/org/repo.git"
                   disabled={isFormDisabled}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
@@ -329,7 +401,7 @@ function GitClone({
                     <input
                       type="text"
                       value={ref}
-                      onChange={(e) => setRef(e.target.value)}
+                      onChange={(e) => { setRef(e.target.value); setUserEditedRef(true) }}
                       placeholder="Defaults to default branch"
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
@@ -354,7 +426,7 @@ function GitClone({
                     <input
                       type="text"
                       value={repoPath}
-                      onChange={(e) => setRepoPath(e.target.value)}
+                      onChange={(e) => { setRepoPath(e.target.value); setUserEditedRepoPath(true) }}
                       placeholder="e.g., modules/vpc"
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
@@ -379,7 +451,7 @@ function GitClone({
                     <input
                       type="text"
                       value={localPath}
-                      onChange={(e) => setLocalPath(e.target.value)}
+                      onChange={(e) => { setLocalPath(e.target.value); setUserEditedLocalPath(true) }}
                       placeholder="Defaults to repo name"
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"

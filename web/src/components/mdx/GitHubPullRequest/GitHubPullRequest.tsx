@@ -26,7 +26,7 @@ const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; i
 /** Resolve template expressions like {{ ._blocks.X.outputs.Y }} and process escape sequences (\n → newline). */
 function resolveTemplateString(template: string, blockOutputs: Record<string, { values: Record<string, string> }>): string {
   return template
-    .replace(/\{\{\s*\._blocks\.(\w+)\.outputs\.(\w+)\s*\}\}/g, (_match, blockId, outputName) => {
+    .replace(/\{\{\s*\._blocks\.([\w-]+)\.outputs\.([\w-]+)\s*\}\}/g, (_match, blockId, outputName) => {
       const normalizedId = normalizeBlockId(blockId)
       const value = blockOutputs[normalizedId]?.values?.[outputName]
       return value ?? _match // Leave unresolved patterns as-is

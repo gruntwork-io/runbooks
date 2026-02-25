@@ -8,7 +8,9 @@ export interface GitCloneProps {
   description?: string
   /** Reference to a GitHubAuth block for token */
   gitHubAuthId?: string
-  /** Pre-fill the Git URL input */
+  /** Reference to one or more Inputs blocks for template variable resolution in prefilled props */
+  inputsId?: string | string[]
+  /** Pre-fill the Git URL input (supports {{ .VarName }} template expressions) */
   prefilledUrl?: string
   /** Pre-fill the ref (branch or tag) to clone */
   prefilledRef?: string
