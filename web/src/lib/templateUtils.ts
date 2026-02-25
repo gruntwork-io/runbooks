@@ -3,7 +3,8 @@
  * Used by Template, TemplateInline, and useScriptExecution.
  */
 
-import type { BlockOutputs } from '@/contexts/RunbookContext'
+import type { BlockOutputs, InputValue } from '@/contexts/RunbookContext'
+import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { groupDependenciesByBlock } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { normalizeBlockId } from '@/lib/utils'
@@ -25,6 +26,50 @@ export function buildBlocksNamespace(
     blocksNamespace[blockId] = { outputs: data.values }
   }
   return blocksNamespace
+}
+
+/**
+ * Build an inputs array with the _blocks namespace appended.
+ * Replaces any existing _blocks entry in the inputs.
+ */
+export function buildInputsWithBlocks(
+  inputs: InputValue[],
+  allOutputs: Record<string, BlockOutputs>
+): InputValue[] {
+  return [
+    ...inputs.filter(i => i.name !== '_blocks'),
+    { name: '_blocks', type: BoilerplateVariableType.Map, value: buildBlocksNamespace(allOutputs) },
+  ]
+}
+
+/**
+ * Check if any numeric input has an empty string value.
+ * This only applies to Int and Float types — when the user clears a number
+ * field before typing a new value, the value is briefly "". Sending that to
+ * render-inline causes a backend error (strconv.Atoi("") / ParseFloat("")).
+ *
+ * String types are NOT checked because "" is a valid string value.
+ * Bool, List, Map, and Enum never produce empty strings from their controls.
+ */
+export function hasEmptyNumericInputs(inputs: InputValue[]): boolean {
+  return inputs.some(
+    i => (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) && i.value === ''
+  )
+}
+
+/**
+ * Check if all input dependencies have non-empty values.
+ * Returns true when deps is empty (no dependencies to satisfy).
+ */
+export function allDependenciesSatisfied(
+  deps: string[],
+  values: Record<string, unknown>
+): boolean {
+  if (deps.length === 0) return true
+  return deps.every(name => {
+    const value = values[name]
+    return value !== undefined && value !== null && value !== ''
+  })
 }
 
 /**

@@ -98,8 +98,9 @@ describe('extractTemplateVariables', () => {
       }
     `
     const variables = extractTemplateVariables(template)
-    // Should extract AccountName and Environment, but not Tags, $key, $value (those are loop variables)
-    expect(variables.sort()).toEqual(['AccountName', 'Environment'].sort())
+    // Should extract AccountName, Environment, and Tags (the root variable used in the range).
+    // $key and $value are loop variables (prefixed with $) and should NOT be extracted.
+    expect(variables.sort()).toEqual(['AccountName', 'Environment', 'Tags'].sort())
   })
 
   it('handles React element structure from MDX', () => {
@@ -138,6 +139,48 @@ describe('extractTemplateVariables', () => {
     expect(variables).toEqual(['RealVariable'])
   })
 
+  it('extracts root variable name from dotted paths', () => {
+    const template = `
+      terraform {
+        source = "{{ ._module.source }}"
+      }
+      inputs = {
+      {{- range $name, $hcl := ._module.hcl_inputs }}
+        {{ $name }} = {{ $hcl }}
+      {{- end }}
+      }
+    `
+    const variables = extractTemplateVariables(template)
+    // Should extract _module as the root variable (not _module.source or _module.hcl_inputs)
+    expect(variables).toEqual(['_module'])
+  })
+
+  it('extracts both flat and dotted variables', () => {
+    const template = `
+      Bucket Name: {{ .bucket_name }}
+      Versioning: {{ .versioning_enabled }}
+      Source: {{ ._module.source }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables.sort()).toEqual(['_module', 'bucket_name', 'versioning_enabled'].sort())
+  })
+
+  it('handles trimming whitespace markers in Go templates', () => {
+    const template = `
+      {{- range $name, $val := ._module.inputs }}
+        {{ $name }}: {{ $val }}
+      {{- end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['_module'])
+  })
+
+  it('handles deeply nested dotted paths', () => {
+    const template = '{{ ._module.nested.deep.path }}'
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['_module'])
+  })
+
   it('handles nested MDX structure', () => {
     const nestedMdx = {
       props: {
@@ -157,6 +200,62 @@ describe('extractTemplateVariables', () => {
     } as ReactNode
     const variables = extractTemplateVariables(nestedMdx)
     expect(variables.sort()).toEqual(['Var1', 'Var2'].sort())
+  })
+
+  it('extracts variables inside if conditionals', () => {
+    const template = `
+      {{ if .EnableMonitoring }}
+      monitoring = true
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['EnableMonitoring'])
+  })
+
+  it('extracts variables inside if eq comparisons', () => {
+    const template = `
+      {{ if eq .Environment "prod" }}
+      replicas = 3
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    expect(variables).toEqual(['Environment'])
+  })
+
+  it('extracts variables inside with blocks', () => {
+    const template = `
+      {{ with .Config }}
+      name = {{ .Name }}
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    // In real Go templates, .Name inside {{ with .Config }} refers to Config.Name,
+    // not a top-level Name variable. Our regex can't distinguish this without a full
+    // AST parse, so we intentionally over-extract — safer than missing a dependency.
+    expect(variables.sort()).toEqual(['Config', 'Name'].sort())
+  })
+
+  it('does not extract local variable fields like $var.field', () => {
+    const template = `
+      {{ range $item := .Items }}
+      {{ $item.name }}
+      {{ end }}
+    `
+    const variables = extractTemplateVariables(template)
+    // Should extract Items but NOT name (which is a field on $item)
+    expect(variables).toEqual(['Items'])
+  })
+
+  it('excludes _blocks namespace (handled by output dependency system)', () => {
+    const template = `
+      account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+      region     = "{{ ._blocks.create_account.outputs.region }}"
+      name       = "{{ .ProjectName }}"
+    `
+    const variables = extractTemplateVariables(template)
+    // _blocks is a system namespace for block outputs, tracked separately
+    // by extractOutputDependencies — it should not appear as an input dependency.
+    expect(variables).toEqual(['ProjectName'])
   })
 })
 

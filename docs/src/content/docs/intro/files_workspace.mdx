@@ -104,11 +104,11 @@ runbooks open my-runbook --working-dir /path/to/project
 runbooks open my-runbook --output-path ./infrastructure
 
 # Use an isolated temporary directory (auto-cleaned on exit)
-runbooks open my-runbook --working-dir-tmp
+runbooks open my-runbook --working-dir=::tmp
 ```
 
 <Aside type="tip">
-The `--working-dir-tmp` flag is useful for sandboxed execution where you don't want generated files to persist after you close the runbook.
+The `--working-dir=::tmp` keyword is useful for sandboxed execution where you don't want generated files to persist after you close the runbook.
 </Aside>
 
 ### Subdirectories within templates

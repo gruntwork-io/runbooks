@@ -9,4 +9,5 @@ variables:
     order: 2
     description: The version of Terragrunt to use
     type: string
-    validations: "required"
+    validations:
+      - required

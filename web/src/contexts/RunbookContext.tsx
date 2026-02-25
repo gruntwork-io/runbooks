@@ -45,6 +45,7 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { normalizeBlockId } from '@/lib/utils'
+import { buildBlocksNamespace } from '@/lib/templateUtils'
 
 /**
  * Data stored for each registered Inputs block.
@@ -116,6 +117,10 @@ export interface RunbookContextType {
   /** The runbook name derived from its directory path (e.g., "github-pull-request") */
   runbookName: string | undefined
 
+  /** The original remote URL when the runbook was opened from a remote source (e.g., GitHub URL).
+   * Used by TfModule's source="::cli_runbook_source" keyword to resolve the module source dynamically. */
+  remoteSource: string | undefined
+
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
 
@@ -164,7 +169,7 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ ._blocks.create_account.outputs.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children, runbookName }: { children: ReactNode, runbookName?: string }) {
+export function RunbookContextProvider({ children, runbookName, remoteSource }: { children: ReactNode, runbookName?: string, remoteSource?: string }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
@@ -232,17 +237,32 @@ export function RunbookContextProvider({ children, runbookName }: { children: Re
   const getInputs = useCallback((inputsId: string | string[]): InputValue[] => {
     const config = getConfig(inputsId)
     const values = getValues(inputsId)
-    
-    if (!config.variables || config.variables.length === 0) {
-      return []
+
+    // Build inputs array from config variables with name, type, and current value
+    const configVarNames = new Set<string>()
+    const result: InputValue[] = (config.variables || []).map(variable => {
+      configVarNames.add(variable.name)
+      return {
+        name: variable.name,
+        type: variable.type || BoilerplateVariableType.String,
+        value: values[variable.name]
+      }
+    })
+
+    // Also include extra values that aren't in the config (e.g., _module namespace
+    // injected by TfModule). These are passed through as Map type so the backend
+    // can process them as template variables alongside the declared config variables.
+    for (const [name, value] of Object.entries(values)) {
+      if (!configVarNames.has(name)) {
+        result.push({
+          name,
+          type: BoilerplateVariableType.Map,
+          value
+        })
+      }
     }
-    
-    // Build inputs array with name, type, and current value
-    return config.variables.map(variable => ({
-      name: variable.name,
-      type: variable.type || BoilerplateVariableType.String,
-      value: values[variable.name]
-    }))
+
+    return result
   }, [getConfig, getValues])
 
   const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
@@ -274,19 +294,14 @@ export function RunbookContextProvider({ children, runbookName }: { children: Re
     // because Go templates interpret hyphens as subtraction operators in dot notation.
     // e.g., {{ ._blocks.create-account.outputs.x }} would fail, but
     //       {{ ._blocks.create_account.outputs.x }} works correctly.
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
-    for (const [blockId, data] of Object.entries(blockOutputs)) {
-      blocksNamespace[blockId] = {
-        outputs: data.values
-      }
-    }
-    vars._blocks = blocksNamespace
+    vars._blocks = buildBlocksNamespace(blockOutputs)
     
     return vars
   }, [getValues, blockOutputs])
 
   const contextValue = useMemo(() => ({
     runbookName,
+    remoteSource,
     blockInputs,
     registerInputs,
     getInputs,
@@ -294,7 +309,7 @@ export function RunbookContextProvider({ children, runbookName }: { children: Re
     registerOutputs,
     getOutputs,
     getTemplateVariables,
-  }), [runbookName, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
+  }), [runbookName, remoteSource, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
 
   return (
     <RunbookContext.Provider value={contextValue}>

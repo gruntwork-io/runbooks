@@ -1,5 +1,5 @@
 import React from 'react'
-import { X } from 'lucide-react'
+import { X, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
@@ -42,17 +42,45 @@ const getInputClassName = (error?: string, additionalClasses = '', disabled = fa
  * Text input component for string variables
  * Renders a standard text input field with validation error styling
  */
-export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => (
-  <input
-    type="text"
-    id={`${id}-${variable.name}`}
-    value={String(value || '')}
-    onChange={(e) => onChange(e.target.value)}
-    onBlur={onBlur}
-    disabled={disabled}
-    className={getInputClassName(error, 'w-full', disabled)}
-  />
-)
+export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+  const [showSensitive, setShowSensitive] = React.useState(false)
+
+  if (variable.sensitive) {
+    return (
+      <div className="relative">
+        <input
+          type={showSensitive ? 'text' : 'password'}
+          id={`${id}-${variable.name}`}
+          value={String(value || '')}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          disabled={disabled}
+          className={getInputClassName(error, 'w-full pr-10', disabled)}
+        />
+        <button
+          type="button"
+          onClick={() => setShowSensitive(!showSensitive)}
+          aria-label={showSensitive ? 'Hide sensitive input' : 'Show sensitive input'}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+        >
+          {showSensitive ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <input
+      type="text"
+      id={`${id}-${variable.name}`}
+      value={String(value || '')}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      disabled={disabled}
+      className={getInputClassName(error, 'w-full', disabled)}
+    />
+  )
+}
 
 /**
  * Number input component for integer and float variables
@@ -134,7 +162,8 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
  */
 export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onBlur, disabled }) => {
   const currentList = Array.isArray(value) ? value : []
-  
+  const inputRef = React.useRef<HTMLInputElement>(null)
+
   const addItem = (newItem: string) => {
     if (newItem.trim()) {
       onChange([...currentList, newItem.trim()])
@@ -156,10 +185,9 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
   }
 
   const handleAddClick = () => {
-    const input = document.querySelector(`input[placeholder*="Type an entry"]`) as HTMLInputElement
-    if (input) {
-      addItem(input.value)
-      input.value = ''
+    if (inputRef.current) {
+      addItem(inputRef.current.value)
+      inputRef.current.value = ''
     }
   }
 
@@ -169,6 +197,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
       {!disabled && (
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             placeholder="Type an entry and press Enter..."
             className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
@@ -178,14 +207,14 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
           <Button
             type="button"
             variant="secondary"
-            className="translate translate-y-0.75"
+            className="translate translate-y-0.75 text-secondary-foreground"
             onClick={handleAddClick}
           >
             Add
           </Button>
         </div>
       )}
-      
+
       {/* List items */}
       {currentList.length > 0 && (
         <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
@@ -234,12 +263,16 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
   const schemaFields = Object.keys(schema)
   const instanceLabel = variable.schemaInstanceLabel || 'Entry name' // Use custom label or default
 
+  const resetEntryForm = () => {
+    setIsAddingEntry(false)
+    setEntryKey('')
+    setEntryFields({})
+  }
+
   const addEntry = () => {
     if (entryKey.trim()) {
       onChange({ ...currentMap, [entryKey.trim()]: entryFields })
-      setEntryKey('')
-      setEntryFields({})
-      setIsAddingEntry(false)
+      resetEntryForm()
     }
   }
 
@@ -262,6 +295,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
         <Button
           type="button"
           variant="secondary"
+          className="text-secondary-foreground"
           onClick={() => setIsAddingEntry(true)}
         >
           Add
@@ -274,11 +308,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => {
-                setIsAddingEntry(false)
-                setEntryKey('')
-                setEntryFields({})
-              }}
+              onClick={resetEntryForm}
               className="text-gray-500 hover:text-gray-700"
             >
               Cancel
@@ -456,14 +486,14 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
           <Button
             type="button"
             variant="secondary"
-            className="translate translate-y-0.75"
+            className="translate translate-y-0.75 text-secondary-foreground"
             onClick={handleAddClick}
           >
             Add
           </Button>
         </div>
       )}
-      
+
       {/* Map entries */}
       {entries.length > 0 ? (
         <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
@@ -503,12 +533,86 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 }
 
 /**
+ * Tuple input component for fixed-length typed arrays (e.g. tuple([string, number]))
+ * Renders one input per element with the appropriate type based on the schema.
+ * Schema keys are numeric indices ("0", "1", ...) mapping to element types.
+ */
+export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+  const schema = variable.schema || {}
+  // Sort keys numerically to preserve element order
+  const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
+  const currentTuple = Array.isArray(value) ? value : new Array(elementKeys.length).fill('')
+
+  const updateElement = (index: number, newValue: unknown) => {
+    const updated = [...currentTuple]
+    updated[index] = newValue
+    onChange(updated)
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2 items-end">
+      {elementKeys.map((key) => {
+        const index = Number(key)
+        const elemType = schema[key]
+        const elemValue = currentTuple[index] ?? ''
+        const isNumeric = elemType === 'number' || elemType === 'int' || elemType === 'float'
+        const elemLabel = isNumeric ? `Enter ${elemType === 'int' ? 'an integer' : elemType === 'float' ? 'a float' : 'a number'}`
+          : elemType === 'bool' ? 'Enter a boolean'
+          : `Enter a ${elemType}`
+
+        return (
+          <div key={key} className="flex-1 min-w-24">
+            <label className="block text-xs text-gray-500 mb-1">{elemLabel}</label>
+            {isNumeric ? (
+              <input
+                type="number"
+                id={`${id}-${variable.name}-${key}`}
+                value={elemValue === '' ? '' : String(elemValue)}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  updateElement(index, raw === '' ? '' : elemType === 'int' ? parseInt(raw, 10) : parseFloat(raw))
+                }}
+                onBlur={onBlur}
+                disabled={disabled}
+                className={getInputClassName(error, 'w-full', disabled)}
+              />
+            ) : elemType === 'bool' ? (
+              <select
+                id={`${id}-${variable.name}-${key}`}
+                value={String(elemValue || 'false')}
+                onChange={(e) => updateElement(index, e.target.value === 'true')}
+                onBlur={onBlur}
+                disabled={disabled}
+                className={getInputClassName(error, 'w-full', disabled)}
+              >
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            ) : (
+              <input
+                type="text"
+                id={`${id}-${variable.name}-${key}`}
+                value={String(elemValue || '')}
+                onChange={(e) => updateElement(index, e.target.value)}
+                onBlur={onBlur}
+                disabled={disabled}
+                className={getInputClassName(error, 'w-full', disabled)}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
  * Main form control component that renders the appropriate input type
  * based on the variable type. Acts as a factory for different input components.
  */
 export const FormControl: React.FC<BaseFormControlProps> = (props) => {
   const { variable } = props
-  
+
   switch (variable.type) {
     case BoilerplateVariableType.String:
       return <StringInput {...props} />
@@ -520,11 +624,14 @@ export const FormControl: React.FC<BaseFormControlProps> = (props) => {
     case BoilerplateVariableType.Enum:
       return <EnumSelect {...props} />
     case BoilerplateVariableType.List:
-      return <ListInput {...props} />
+      // Use tuple input if schema is defined (numeric keys = fixed-length typed array)
+      return variable.schema && Object.keys(variable.schema).length > 0
+        ? <TupleInput {...props} />
+        : <ListInput {...props} />
     case BoilerplateVariableType.Map:
       // Use structured input if schema is defined, otherwise use simple key-value input
-      return variable.schema && Object.keys(variable.schema).length > 0 
-        ? <StructuredMapInput {...props} /> 
+      return variable.schema && Object.keys(variable.schema).length > 0
+        ? <StructuredMapInput {...props} />
         : <MapInput {...props} />
     default:
       return <StringInput {...props} />

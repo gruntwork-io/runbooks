@@ -13,11 +13,10 @@ import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/ex
 import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { computeUnmetOutputDependencies, type UnmetOutputDependency } from '@/lib/templateUtils'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs, type UnmetOutputDependency } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -38,14 +37,33 @@ interface UseScriptExecutionProps {
 // Re-export for backwards compatibility
 export type { UnmetOutputDependency } from '@/lib/templateUtils'
 
-/** Information about an unmet AWS auth dependency */
-export interface UnmetAwsAuthDependency {
+/** Information about an unmet auth dependency (AWS or GitHub) */
+export interface UnmetAuthDependency {
   blockId: string
 }
 
-/** Information about an unmet GitHub auth dependency */
-export interface UnmetGitHubAuthDependency {
-  blockId: string
+// Keep old names as aliases for backwards compatibility
+export type UnmetAwsAuthDependency = UnmetAuthDependency
+export type UnmetGitHubAuthDependency = UnmetAuthDependency
+
+/**
+ * Pure function: checks whether an auth dependency is satisfied.
+ * Returns null if met (no authId, has env vars, or has __AUTHENTICATED marker),
+ * or { blockId } if unmet.
+ */
+export function checkAuthDependency(
+  authId: string | undefined,
+  envVars: Record<string, string> | undefined,
+  allOutputs: Record<string, { values: Record<string, string> }>,
+): UnmetAuthDependency | null {
+  if (!authId) return null
+  if (envVars && Object.keys(envVars).length > 0) return null
+
+  const normalizedId = normalizeBlockId(authId)
+  const blockOutputs = allOutputs[normalizedId]
+  if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
+
+  return { blockId: authId }
 }
 
 interface UseScriptExecutionReturn {
@@ -227,15 +245,10 @@ export function useScriptExecution({
     return extractTemplateVariables(rawScriptContent)
   }, [rawScriptContent])
   
-  // Check if we have all input dependencies satisfied
-  const hasAllInputDependencies = useMemo(() => {
-    if (inputDependencies.length === 0) return true // No variables needed
-    
-    return inputDependencies.every(varName => {
-      const value = inputValues[varName]
-      return value !== undefined && value !== null && value !== ''
-    })
-  }, [inputDependencies, inputValues])
+  const hasAllInputDependencies = useMemo(
+    () => allDependenciesSatisfied(inputDependencies, inputValues),
+    [inputDependencies, inputValues]
+  )
   
   // Get all block outputs from context to check dependencies
   const allOutputs = useAllOutputs()
@@ -269,26 +282,10 @@ export function useScriptExecution({
     return envVars
   }, [awsAuthId, allOutputs])
   
-  // Check if AWS auth dependency is met (when awsAuthId is specified)
-  // The dependency is met when the referenced AwsAuth block has registered credentials
-  // OR has registered the __AUTHENTICATED marker (for env-prefilled credentials where
-  // actual credentials are stored server-side in the session environment)
-  const unmetAwsAuthDependency = useMemo((): UnmetAwsAuthDependency | null => {
-    if (!awsAuthId) return null // No dependency specified
-    
-    // If we have credentials to pass, the dependency is met
-    if (awsAuthEnvVars && Object.keys(awsAuthEnvVars).length > 0) return null
-    
-    // Check for the __AUTHENTICATED marker (used by env-prefilled credentials)
-    const normalizedId = normalizeBlockId(awsAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-    if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
-    
-    // Dependency not met - return the original block ID for display
-    return { blockId: awsAuthId }
-  }, [awsAuthId, awsAuthEnvVars, allOutputs])
-  
-  // Boolean flag for easier checks
+  const unmetAwsAuthDependency = useMemo(
+    () => checkAuthDependency(awsAuthId, awsAuthEnvVars, allOutputs),
+    [awsAuthId, awsAuthEnvVars, allOutputs]
+  )
   const hasAwsAuthDependency = unmetAwsAuthDependency === null
   
   // Get GitHub auth credentials from outputs if githubAuthId is specified
@@ -316,26 +313,10 @@ export function useScriptExecution({
     return Object.keys(envVars).length > 0 ? envVars : undefined
   }, [githubAuthId, allOutputs])
   
-  // Check if GitHub auth dependency is met (when githubAuthId is specified)
-  // The dependency is met when the referenced GitHubAuth block has registered credentials
-  // OR has registered the __AUTHENTICATED marker (for env-prefilled credentials where
-  // actual credentials are stored server-side in the session environment)
-  const unmetGitHubAuthDependency = useMemo((): UnmetGitHubAuthDependency | null => {
-    if (!githubAuthId) return null // No dependency specified
-    
-    // If we have credentials to pass, the dependency is met
-    if (githubAuthEnvVars && Object.keys(githubAuthEnvVars).length > 0) return null
-    
-    // Check for the __AUTHENTICATED marker (used by env-prefilled credentials)
-    const normalizedId = normalizeBlockId(githubAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-    if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
-    
-    // Dependency not met - return the original block ID for display
-    return { blockId: githubAuthId }
-  }, [githubAuthId, githubAuthEnvVars, allOutputs])
-  
-  // Boolean flag for easier checks
+  const unmetGitHubAuthDependency = useMemo(
+    () => checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs),
+    [githubAuthId, githubAuthEnvVars, allOutputs]
+  )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
   
   // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
@@ -507,21 +488,16 @@ export function useScriptExecution({
       // Input dependencies not available yet
       return
     }
-    
-    // Build inputs array for the API:
-    // 1. Include input variables (with proper types for JSON-to-Go conversion)
-    // 2. Add _blocks namespace as a map type for block output references
-    const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
-    for (const [blockId, data] of Object.entries(allOutputs)) {
-      blocksNamespace[blockId] = { outputs: data.values }
+
+    // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
+    // a number field before typing a new value). Sending "" to the backend would
+    // cause type-conversion errors like strconv.Atoi("").
+    if (hasEmptyNumericInputs(inputs)) {
+      return
     }
-    
-    const inputsForRender: InputValue[] = [
-      // Filter out any input named "_blocks" since that's a reserved system namespace
-      ...inputs.filter(i => i.name !== '_blocks'),
-      // Add _blocks as a map type containing all block outputs
-      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace },
-    ]
+
+    // Build inputs with _blocks namespace for block output references
+    const inputsForRender = buildInputsWithBlocks(inputs, allOutputs)
     
     // Check if inputs actually changed
     const inputsKey = JSON.stringify(inputsForRender)
@@ -560,15 +536,16 @@ export function useScriptExecution({
     // Get merged template variables (inputs at root + _blocks namespace)
     const templateVars = getTemplateVariables(allInputsIds.length > 0 ? allInputsIds : undefined)
     
-    // Convert input variables to strings, but preserve _blocks structure as-is
+    // Convert input variables to strings, but preserve objects/maps as-is
     // for nested template access like {{ ._blocks.create-account.outputs.account_id }}
+    // or {{ ._module.source }}
     const processedVariables: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(templateVars)) {
-      if (key === '_blocks') {
-        // Keep _blocks as nested object for Go template engine
+      if (value !== null && typeof value === 'object') {
+        // Keep objects/maps as nested structures for Go template engine
         processedVariables[key] = value
       } else {
-        // Convert other values to strings
+        // Convert primitive values to strings
         processedVariables[key] = String(value)
       }
     }
@@ -595,10 +572,10 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
+      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables as Record<string, string>, mergedAuthEnvVars, usePty)
+      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty)
     }
   }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, githubAuthEnvVars, usePty])
 

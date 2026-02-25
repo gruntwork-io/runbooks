@@ -19,12 +19,14 @@ variables:
     type: string
     description: The GitHub organization name where the repository is hosted
     default: "gruntwork-io"
-    validations: "required"
+    validations:
+      - required
   - name: GithubRepoName
     type: string
     description: The name of the GitHub repository for infrastructure code
     default: "runbooks-infrastructure-live-example"
-    validations: "required"
+    validations:
+      - required
 ```
 </Inputs>
 
@@ -82,7 +84,8 @@ variables:
     type: string
     description: Name of the project
     default: "my-awesome-project"
-    validations: "required"
+    validations:
+      - required
   - name: AuthorName
     type: string
     description: Name of the author

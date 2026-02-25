@@ -28,6 +28,7 @@ export function cn(...inputs: ClassValue[]) {
  * @returns The normalized ID with hyphens replaced by underscores
  */
 export function normalizeBlockId(id: string): string {
+  if (!id) return ''
   return id.replace(/-/g, '_')
 }
 

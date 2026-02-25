@@ -23,13 +23,15 @@ const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; i
   ready:    { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
 }
 
-/** Resolve template expressions like {{ ._blocks.X.outputs.Y }} */
+/** Resolve template expressions like {{ ._blocks.X.outputs.Y }} and process escape sequences (\n → newline). */
 function resolveTemplateString(template: string, blockOutputs: Record<string, { values: Record<string, string> }>): string {
-  return template.replace(/\{\{\s*\._blocks\.(\w+)\.outputs\.(\w+)\s*\}\}/g, (_match, blockId, outputName) => {
-    const normalizedId = normalizeBlockId(blockId)
-    const value = blockOutputs[normalizedId]?.values?.[outputName]
-    return value ?? _match // Leave unresolved patterns as-is
-  })
+  return template
+    .replace(/\{\{\s*\._blocks\.(\w+)\.outputs\.(\w+)\s*\}\}/g, (_match, blockId, outputName) => {
+      const normalizedId = normalizeBlockId(blockId)
+      const value = blockOutputs[normalizedId]?.values?.[outputName]
+      return value ?? _match // Leave unresolved patterns as-is
+    })
+    .replace(/\\n/g, '\n')
 }
 
 function GitHubPullRequest({
@@ -265,7 +267,7 @@ function GitHubPullRequest({
         <div className="flex-1 space-y-2">
           {/* Title and description */}
           <div className="flex items-center gap-1 text-md font-bold text-gray-700">
-            <GitHubLogo className="size-5 text-gray-800" />
+            <GitHubLogo className="size-6 text-gray-800" />
             <InlineMarkdown>{title}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">

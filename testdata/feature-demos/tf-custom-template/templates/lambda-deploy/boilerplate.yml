@@ -1,0 +1,14 @@
+variables:
+  - name: environment
+    description: Deployment environment
+    type: enum
+    options:
+      - dev
+      - stage
+      - prod
+    default: dev
+
+  - name: team_owner
+    description: Team that owns this Lambda function
+    type: string
+    default: "platform"

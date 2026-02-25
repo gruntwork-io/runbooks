@@ -1,26 +1,42 @@
 import type { ReactNode } from 'react'
 
 /**
- * Extracts variable names from a boilerplate template by finding {{ .VariableName }} patterns.
- * 
+ * Extracts root variable names from a boilerplate template by finding {{ .VariableName }} patterns.
+ *
  * Supports various template syntax variations:
  * - {{.VariableName}} (no spaces)
  * - {{ .VariableName }} (with spaces)
  * - {{ .VariableName | UpperCase }} (with pipe functions)
- * 
+ * - {{ ._module.source }} (dotted paths — extracts root name "_module")
+ * - {{- range $name, $val := ._module.inputs }} (range/assignment patterns)
+ *
+ * For dotted paths like `._module.source`, only the root name (`_module`) is extracted,
+ * since that's the top-level key in the input values map.
+ *
+ * The `_blocks` namespace is excluded because block outputs are tracked separately
+ * by the output dependency system (extractOutputDependencies), not the input system.
+ *
  * @param children - React children nodes containing the template content
- * @returns Array of unique variable names found in the template
+ * @returns Array of unique root variable names found in the template (excluding `_blocks`)
  */
 export function extractTemplateVariables(children: ReactNode): string[] {
   const variables = new Set<string>();
-  
+
   const extractFromString = (text: string) => {
-    // Match {{ .VariableName }} or {{.VariableName}} patterns
-    // Also handles pipe functions like {{ .VariableName | UpperCase }}
-    const regex = /\{\{\s*\.(\w+)(?:\s*\|[^}]*)?\s*\}\}/g;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      variables.add(match[1]);
+    // Iterate over each {{ ... }} template block, then scan for dot-prefixed
+    // identifiers within. This catches variables in all positions: direct access
+    // ({{ .Var }}), conditionals ({{ if .Var }}), comparisons ({{ if eq .Var "x" }}),
+    // and range/with blocks ({{ range $k, $v := .Var }}).
+    // Only matches .Name preceded by whitespace or := (not $var.field).
+    const blockRegex = /\{\{-?([\s\S]*?)-?\}\}/g;
+    const varRegex = /(?:^|\s|:=)\.(\w+)/g;
+    let blockMatch;
+    while ((blockMatch = blockRegex.exec(text)) !== null) {
+      const blockContent = blockMatch[1];
+      let varMatch;
+      while ((varMatch = varRegex.exec(blockContent)) !== null) {
+        variables.add(varMatch[1]);
+      }
     }
   };
   
@@ -41,6 +57,12 @@ export function extractTemplateVariables(children: ReactNode): string[] {
   };
   
   traverse(children);
+
+  // _blocks is a system namespace for block outputs, handled separately by the
+  // output dependency system (extractOutputDependencies). Exclude it so callers
+  // don't treat it as a missing input from an <Inputs> component.
+  variables.delete('_blocks');
+
   return Array.from(variables);
 }
 

@@ -103,6 +103,37 @@
         { "blockId": "setup", "outputName": "id" },
         { "blockId": "setup", "outputName": "name" }
       ]
+    },
+    {
+      "name": "inside fromJson function call",
+      "input": "{{- range (fromJson ._blocks.list_users.outputs.users) }}\n- {{ . }}\n{{- end }}",
+      "expected": [
+        { "blockId": "list_users", "outputName": "users" }
+      ]
+    },
+    {
+      "name": "inside fromJson with range assignment",
+      "input": "{{- range $k, $v := (fromJson ._blocks.list_users.outputs.teams) }}\n{{ $k }}\n{{- end }}",
+      "expected": [
+        { "blockId": "list_users", "outputName": "teams" }
+      ]
+    },
+    {
+      "name": "reference outside template delimiters should not match",
+      "input": "# This comment mentions ._blocks.setup.outputs.id but is not inside {{ }}",
+      "expected": []
+    },
+    {
+      "name": "reference in plain text between template blocks should not match",
+      "input": "{{ .SomeVar }} then ._blocks.setup.outputs.id appears outside {{ .OtherVar }}",
+      "expected": []
+    },
+    {
+      "name": "mixed: one inside delimiters, one outside should only match the inside one",
+      "input": "._blocks.outside.outputs.nope {{ ._blocks.inside.outputs.yes }}",
+      "expected": [
+        { "blockId": "inside", "outputName": "yes" }
+      ]
     }
   ]
 }

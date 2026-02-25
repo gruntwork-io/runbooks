@@ -31,35 +31,39 @@ export function extractOutputDependenciesFromString(content: string): OutputDepe
   const dependencies: OutputDependency[] = []
   const seen = new Set<string>()
   
-  // Output dependency regex - matches {{ ._blocks.blockId.outputs.outputName }} patterns
-  // 
+  // Two-pass extraction: first find all {{ }} template blocks, then scan each
+  // block for ._blocks.X.outputs.Y references. This correctly handles references
+  // inside function calls (e.g., fromJson) while ignoring occurrences outside
+  // template delimiters (e.g., in comments).
+  //
   // IMPORTANT: Keep in sync with the Go implementation in:
-  //   api/boilerplate_config.go (OutputDependencyRegex)
-  // 
+  //   api/boilerplate_config.go (ExtractOutputDependenciesFromContent)
+  //
   // Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
   // to ensure they produce identical results. Run tests in both languages after any changes.
-  //
-  // The pattern captures:
-  // - blockId: The ID of the block (alphanumeric, hyphens, underscores)
-  // - outputName: The output variable name (alphanumeric, underscores)
-  const regex = /\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}/g
-  
-  let match
-  while ((match = regex.exec(content)) !== null) {
-    const originalBlockId = match[1]
-    const normalizedBlockId = normalizeBlockId(originalBlockId)
-    const outputName = match[2]
-    // fullPath uses normalized ID for consistent lookups in Go templates
-    const fullPath = `_blocks.${normalizedBlockId}.outputs.${outputName}`
-    
-    // Deduplicate using normalized fullPath
-    if (!seen.has(fullPath)) {
-      seen.add(fullPath)
-      dependencies.push({ 
-        blockId: originalBlockId, // Preserve original for display/reference
-        outputName, 
-        fullPath 
-      })
+  const blockRegex = /\{\{-?([\s\S]*?)-?\}\}/g
+  const depRegex = /\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)/g
+
+  let blockMatch
+  while ((blockMatch = blockRegex.exec(content)) !== null) {
+    const blockContent = blockMatch[1]
+    let depMatch
+    while ((depMatch = depRegex.exec(blockContent)) !== null) {
+      const originalBlockId = depMatch[1]
+      const normalizedBlockId = normalizeBlockId(originalBlockId)
+      const outputName = depMatch[2]
+      // fullPath uses normalized ID for consistent lookups in Go templates
+      const fullPath = `_blocks.${normalizedBlockId}.outputs.${outputName}`
+
+      // Deduplicate using normalized fullPath
+      if (!seen.has(fullPath)) {
+        seen.add(fullPath)
+        dependencies.push({
+          blockId: originalBlockId, // Preserve original for display/reference
+          outputName,
+          fullPath
+        })
+      }
     }
   }
   

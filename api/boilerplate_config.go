@@ -60,10 +60,11 @@ func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boile
 // - BoilerplateVariable (simplified)
 // - BoilerplateValidationType (repeated)
 // - ValidationRule (simplified)
-// - extractValidations, determineValidationType, isVariableRequired (repeated)
+// - extractValidations, isVariableRequired (uses reflection to inspect ozzo-validation rule types)
 //
-// We want to leverage as much from Boilerplate as possible, so ideally, in the future we could expose a public function
-// in the Boilerplate package to replace our repeated ones here.
+// Boilerplate PR #281 re-exported CustomValidationRule from the variables package and added an Args field
+// that exposes structured arguments for parameterized rules (regex patterns, length bounds). This eliminated
+// the need to re-parse raw YAML to extract validation arguments.
 //
 // Also note that Boilerplate has a TON of indirect dependencies that we don't need; our two humble boilerplate imports
 // above bring in 100+ indirect dependencies!
@@ -139,7 +140,17 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 	config, err := parseBoilerplateConfig(content)
 	if err != nil {
 		slog.Error("Error parsing boilerplate config", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
+		// We're already inside a parse-error branch (err != nil). The status code
+		// depends on where the content came from:
+		//   - req.BoilerplateContent != "" → the client sent raw YAML inline, so a
+		//     parse failure is a client error (400).
+		//   - Otherwise the YAML was read from a file on disk, so a parse failure
+		//     is an internal server error (500).
+		status := http.StatusInternalServerError
+		if req.BoilerplateContent != "" {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{
 			"error":   "Invalid boilerplate configuration",
 			"details": err.Error(),
 		})
@@ -174,13 +185,10 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 
 	slog.Info("Boilerplate config parsed successfully", "variableCount", len(boilerplateConfig.Variables))
 
-	// Parse raw YAML to extract custom fields (Runbooks extensions with x- prefix)
-	schemas := extractSchemasFromYAML(boilerplateYamlContent)
-	schemaInstanceLabels := extractSchemaInstanceLabelsFromYAML(boilerplateYamlContent)
-	// Extract section groupings: an ordered list of sections, each with the associated variable names.
-	sections := extractSectionGroupings(boilerplateYamlContent)
-	// Extract variable-to-section mapping: a lookup table from variable name -> section name.
-	variableToSection := extractVariablesToSectionMap(boilerplateYamlContent)
+	// Parse raw YAML once to extract all Runbooks x- extension fields
+	rawVars := parseRawXVariables(boilerplateYamlContent)
+	schemas, schemaInstanceLabels, variableToSection := extractXFields(rawVars)
+	sections := extractSectionGroupings(rawVars)
 
 	// Convert to our JSON structure
 	result := &BoilerplateConfig{
@@ -192,7 +200,9 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 		// Convert default value to JSON-serializable format
 		defaultValue := convertToJSONSerializable(variable.Default())
 
-		// Extract validations and determine if required
+		// Extract validations from the boilerplate library's parsed rules.
+		// As of boilerplate v0.12.1 (PR #281), CustomValidationRule exposes an Args field
+		// with structured arguments for parameterized rules (regex patterns, length bounds).
 		validations := extractValidations(variable.Validations())
 		isRequired := isVariableRequired(variable.Validations())
 
@@ -236,137 +246,96 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 	return result, nil
 }
 
-// extractSchemasFromYAML parses the raw YAML to extract schema definitions for variables
-// Returns a map of variable name to schema (field name -> type)
-// YAML property: x-schema (Runbooks extension, ignored by Boilerplate)
-func extractSchemasFromYAML(yamlContent string) map[string]map[string]string {
-	// Define a structure that matches the boilerplate.yml format
-	type rawVariable struct {
-		Name   string            `yaml:"name"`
-		Schema map[string]string `yaml:"x-schema"`
-	}
-	type rawConfig struct {
-		Variables []rawVariable `yaml:"variables"`
-	}
+// rawXVariable holds all Runbooks-specific x- extensions from boilerplate.yml.
+// A single struct avoids re-parsing YAML multiple times for different fields.
+type rawXVariable struct {
+	Name                string            `yaml:"name"`
+	Schema              map[string]string `yaml:"x-schema"`
+	SchemaInstanceLabel string            `yaml:"x-schema-instance-label"`
+	Section             string            `yaml:"x-section"`
+}
 
+// parseRawXVariables parses the raw YAML once and returns the x-extension fields.
+func parseRawXVariables(yamlContent string) []rawXVariable {
+	type rawConfig struct {
+		Variables []rawXVariable `yaml:"variables"`
+	}
 	var config rawConfig
 	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for schema extraction", "error", err)
-		return map[string]map[string]string{}
+		slog.Warn("Failed to parse YAML for x-field extraction", "error", err)
+		return nil
 	}
+	return config.Variables
+}
 
-	schemas := make(map[string]map[string]string)
-	for _, variable := range config.Variables {
-		if len(variable.Schema) > 0 {
-			schemas[variable.Name] = variable.Schema
+// extractXFields extracts all x- extension fields from pre-parsed raw variables in a single pass.
+// Returns schemas, schema instance labels, and variable-to-section mappings.
+func extractXFields(rawVars []rawXVariable) (
+	schemas map[string]map[string]string,
+	schemaInstanceLabels map[string]string,
+	variableToSection map[string]string,
+) {
+	schemas = make(map[string]map[string]string)
+	schemaInstanceLabels = make(map[string]string)
+	variableToSection = make(map[string]string)
+
+	for _, v := range rawVars {
+		if len(v.Schema) > 0 {
+			schemas[v.Name] = v.Schema
+		}
+		if v.SchemaInstanceLabel != "" {
+			schemaInstanceLabels[v.Name] = v.SchemaInstanceLabel
+		}
+		if v.Section != "" {
+			variableToSection[v.Name] = v.Section
 		}
 	}
+	return
+}
 
+// extractSchemasFromYAML returns a map of variable name to schema (field name -> type).
+// YAML property: x-schema (Runbooks extension, ignored by Boilerplate)
+func extractSchemasFromYAML(yamlContent string) map[string]map[string]string {
+	schemas, _, _ := extractXFields(parseRawXVariables(yamlContent))
 	return schemas
 }
 
-// extractSchemaInstanceLabelsFromYAML parses the raw YAML to extract x-schema-instance-label definitions for map variables
-// Returns a map of variable name to schema instance label string
+// extractSchemaInstanceLabelsFromYAML returns a map of variable name to schema instance label.
 // YAML property: x-schema-instance-label (Runbooks extension, ignored by Boilerplate)
 func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
-	// Define a structure that matches the boilerplate.yml format
-	type rawVariable struct {
-		Name                string `yaml:"name"`
-		SchemaInstanceLabel string `yaml:"x-schema-instance-label"`
-	}
-	type rawConfig struct {
-		Variables []rawVariable `yaml:"variables"`
-	}
-
-	var config rawConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for x-schema-instance-label extraction", "error", err)
-		return map[string]string{}
-	}
-
-	schemaInstanceLabels := make(map[string]string)
-	for _, variable := range config.Variables {
-		if variable.SchemaInstanceLabel != "" {
-			schemaInstanceLabels[variable.Name] = variable.SchemaInstanceLabel
-		}
-	}
-
-	return schemaInstanceLabels
+	_, labels, _ := extractXFields(parseRawXVariables(yamlContent))
+	return labels
 }
 
-// extractVariablesToSectionMap parses the raw YAML to extract x-section for each variable.
-// Returns a map of variable name -> section name (for attaching to individual variables).
-// This is used to populate BoilerplateVariable.SectionName.
-// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
-func extractVariablesToSectionMap(yamlContent string) map[string]string {
-	// Define a structure that matches the boilerplate.yml format
-	type rawVariable struct {
-		Name    string `yaml:"name"`
-		Section string `yaml:"x-section"`
-	}
-	type rawConfig struct {
-		Variables []rawVariable `yaml:"variables"`
-	}
-
-	var config rawConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for x-section extraction", "error", err)
-		return map[string]string{}
-	}
-
-	variableToSection := make(map[string]string)
-	for _, variable := range config.Variables {
-		if variable.Section != "" {
-			variableToSection[variable.Name] = variable.Section
-		}
-	}
-
-	return variableToSection
-}
-
-// extractSectionGroupings parses the raw YAML to build an ordered list of section groupings.
+// extractSectionGroupings builds an ordered list of section groupings from pre-parsed raw variables.
 // Returns an ordered slice of Section structs for UI rendering (e.g., rendering collapsible sections).
 // Each Section contains the section name and the list of variable names in that section.
 // Variables without a section use "" (empty string) as the section name.
 // The unnamed section ("") is always placed first if it exists.
-// YAML property: x-section (Runbooks extension, ignored by Boilerplate)
-func extractSectionGroupings(yamlContent string) []Section {
-	// Define a structure that matches the boilerplate.yml format
-	type rawVariable struct {
-		Name    string `yaml:"name"`
-		Section string `yaml:"x-section"`
-	}
-	type rawConfig struct {
-		Variables []rawVariable `yaml:"variables"`
-	}
+func extractSectionGroupings(rawVars []rawXVariable) []Section {
+	return groupIntoSections(rawVars, func(v rawXVariable) (string, string) {
+		return v.Name, v.Section
+	})
+}
 
-	var config rawConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
-		slog.Warn("Failed to parse YAML for x-section extraction", "error", err)
-		return []Section{}
-	}
-
-	// Use a map to collect variables per section, and track order of first occurrence
+// groupIntoSections collects items into ordered sections, with the unnamed
+// section ("") always placed first. extractFn returns (variableName, sectionName).
+func groupIntoSections[T any](items []T, extractFn func(T) (string, string)) []Section {
 	sectionVars := make(map[string][]string)
 	var sectionOrder []string
-	seenSections := make(map[string]bool)
+	seen := make(map[string]bool)
 
-	for _, variable := range config.Variables {
-		sectionName := variable.Section // Empty string if not specified
-
-		// Add variable to its section
-		sectionVars[sectionName] = append(sectionVars[sectionName], variable.Name)
-
-		// Track section order (first occurrence)
-		if !seenSections[sectionName] {
-			seenSections[sectionName] = true
+	for _, item := range items {
+		varName, sectionName := extractFn(item)
+		sectionVars[sectionName] = append(sectionVars[sectionName], varName)
+		if !seen[sectionName] {
+			seen[sectionName] = true
 			sectionOrder = append(sectionOrder, sectionName)
 		}
 	}
 
-	// Ensure "" (unnamed section) is always first if it exists
-	if seenSections[""] && len(sectionOrder) > 0 && sectionOrder[0] != "" {
-		// Find and move "" to the front
+	// Ensure "" is first
+	if seen[""] && len(sectionOrder) > 0 && sectionOrder[0] != "" {
 		newOrder := []string{""}
 		for _, s := range sectionOrder {
 			if s != "" {
@@ -376,7 +345,6 @@ func extractSectionGroupings(yamlContent string) []Section {
 		sectionOrder = newOrder
 	}
 
-	// Build the result slice
 	sections := make([]Section, 0, len(sectionOrder))
 	for _, name := range sectionOrder {
 		sections = append(sections, Section{
@@ -384,18 +352,13 @@ func extractSectionGroupings(yamlContent string) []Section {
 			Variables: sectionVars[name],
 		})
 	}
-
 	return sections
 }
 
-// Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate
-// uses to validate the variables to extract the validation rules. The better approach here is to update Boilerplate
-// to expose the validation functions directly.
-// TODO: Update Boilerplate to expose the validation functions directly.
-//
-// extractValidations converts boilerplate validation rules to our JSON format
-// This function maps boilerplate's CustomValidationRule to our ValidationRule format
-// by inspecting the actual ozzo-validation rules used by boilerplate
+// extractValidations converts boilerplate validation rules to our JSON format.
+// It inspects the ozzo-validation rules that Boilerplate wraps to determine their type
+// (required, regex, url, etc.) and extracts structured Args from the rule (available
+// since boilerplate PR #281).
 func extractValidations(validationRules []bpVariables.CustomValidationRule) []ValidationRule {
 	validations := make([]ValidationRule, 0, len(validationRules))
 
@@ -404,9 +367,42 @@ func extractValidations(validationRules []bpVariables.CustomValidationRule) []Va
 			Message: rule.DescriptionText(),
 		}
 
-		// Determine validation type by inspecting the ozzo-validation rule
-		validationType := determineValidationType(rule)
-		validation.Type = validationType
+		validatorType := fmt.Sprintf("%T", rule.Validator)
+
+		switch {
+		case strings.Contains(validatorType, "required"):
+			validation.Type = ValidationRequired
+		case strings.Contains(validatorType, "MatchRule"):
+			validation.Type = ValidationRegex
+		case strings.Contains(validatorType, "StringRule"):
+			msg := strings.ToLower(rule.DescriptionText())
+			switch {
+			case strings.Contains(msg, "email"):
+				validation.Type = ValidationEmail
+			case strings.Contains(msg, "url"):
+				validation.Type = ValidationURL
+			case strings.Contains(msg, "alphanumeric"):
+				validation.Type = ValidationAlphanumeric
+			case strings.Contains(msg, "alpha"):
+				validation.Type = ValidationAlpha
+			case strings.Contains(msg, "digit"):
+				validation.Type = ValidationDigit
+			case strings.Contains(msg, "country"):
+				validation.Type = ValidationCountryCode2
+			case strings.Contains(msg, "semver"):
+				validation.Type = ValidationSemver
+			case strings.Contains(msg, "length"):
+				validation.Type = ValidationLength
+			default:
+				validation.Type = ValidationCustom
+			}
+		default:
+			validation.Type = ValidationCustom
+		}
+
+		if len(rule.Args) > 0 {
+			validation.Args = rule.Args
+		}
 
 		validations = append(validations, validation)
 	}
@@ -414,56 +410,9 @@ func extractValidations(validationRules []bpVariables.CustomValidationRule) []Va
 	return validations
 }
 
-// Unfortunately, Boilerplate doesn't expose its validation functions. So we use the same Library that Boilerplate
-// uses to validate the variables to extract the validation rules. The better approach here is to update Boilerplate
-// to expose the validation functions directly.
-// TODO: Update Boilerplate to expose the validation functions directly.
-//
-// determineValidationType inspects a CustomValidationRule to determine its type
-// This uses reflection to examine the underlying ozzo-validation rule
-func determineValidationType(rule bpVariables.CustomValidationRule) BoilerplateValidationType {
-	// Get the underlying ozzo-validation rule
-	validator := rule.Validator
-
-	// Use reflection to determine the type of validator
-	validatorType := fmt.Sprintf("%T", validator)
-
-	// If Boilerplate adds a new validation type, add it here!
-	switch {
-	case strings.Contains(validatorType, "required"):
-		return ValidationRequired
-	case strings.Contains(validatorType, "StringRule"):
-		// For StringRule, we need to check the message to determine the specific validation type
-		message := rule.DescriptionText()
-		switch {
-		case strings.Contains(strings.ToLower(message), "email"):
-			return ValidationEmail
-		case strings.Contains(strings.ToLower(message), "url"):
-			return ValidationURL
-		case strings.Contains(strings.ToLower(message), "alpha"):
-			return ValidationAlpha
-		case strings.Contains(strings.ToLower(message), "digit"):
-			return ValidationDigit
-		case strings.Contains(strings.ToLower(message), "alphanumeric"):
-			return ValidationAlphanumeric
-		case strings.Contains(strings.ToLower(message), "country"):
-			return ValidationCountryCode2
-		case strings.Contains(strings.ToLower(message), "semver"):
-			return ValidationSemver
-		case strings.Contains(strings.ToLower(message), "length"):
-			return ValidationLength
-		default:
-			return ValidationCustom
-		}
-	default:
-		return ValidationCustom
-	}
-}
-
-// isVariableRequired determines if a variable is required based on its validation rules
+// isVariableRequired determines if a variable is required based on its validation rules.
 func isVariableRequired(validationRules []bpVariables.CustomValidationRule) bool {
 	for _, rule := range validationRules {
-		// Use the same reflection approach to check if this is a Required validator
 		validatorType := fmt.Sprintf("%T", rule.Validator)
 		if strings.Contains(validatorType, "required") {
 			return true
@@ -564,26 +513,42 @@ func isBinaryFile(path string) (bool, error) {
 	return false, nil
 }
 
-// OutputDependencyRegex matches {{ ._blocks.blockId.outputs.outputName }} patterns
-// with optional whitespace and pipe functions.
+// Two regexes for output dependency extraction. We use a two-pass approach:
+// blockRegex finds all {{ }} template blocks, then depRegex scans within each
+// block for ._blocks.X.outputs.Y references. This correctly handles references
+// inside function calls (e.g., fromJson) while ignoring occurrences outside
+// template delimiters (e.g., in comments).
 //
 // IMPORTANT: Keep in sync with the TypeScript implementation in:
-//   web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
+//
+//	web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
 //
 // Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
 // to ensure they produce identical results. Run tests in both languages after any changes.
-var OutputDependencyRegex = regexp.MustCompile(`\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}`)
+var (
+	outputDepBlockRegex = regexp.MustCompile(`\{\{-?([\s\S]*?)-?\}\}`)
+	outputDepRegex      = regexp.MustCompile(`\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+)
 
 // ExtractOutputDependenciesFromContent extracts output dependencies from string content.
 // This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
-// It finds all {{ ._blocks.blockId.outputs.outputName }} patterns in the content.
+// It finds ._blocks.blockId.outputs.outputName references inside {{ }} template blocks.
 func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 	var dependencies []OutputDependency
 	seen := make(map[string]bool)
 
-	matches := OutputDependencyRegex.FindAllStringSubmatch(content, -1)
-	for _, match := range matches {
-		if len(match) >= 3 {
+	blockMatches := outputDepBlockRegex.FindAllStringSubmatch(content, -1)
+	for _, blockMatch := range blockMatches {
+		if len(blockMatch) < 2 {
+			continue
+		}
+		blockContent := blockMatch[1]
+
+		depMatches := outputDepRegex.FindAllStringSubmatch(blockContent, -1)
+		for _, match := range depMatches {
+			if len(match) < 3 {
+				continue
+			}
 			originalBlockID := match[1]
 			normalizedBlockID := normalizeBlockID(originalBlockID)
 			outputName := match[2]

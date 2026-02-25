@@ -61,7 +61,8 @@ export default defineConfig({
 					'authoring/overview',
 					'authoring/runbook-structure',
 					'authoring/markdown',
-					'authoring/variables',
+					'authoring/inputs-and-outputs',
+					'authoring/opening-runbooks',
 					'authoring/boilerplate',
 					'authoring/testing',
 					{

@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"runbooks/api"
 	"runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
@@ -28,12 +30,14 @@ var (
 	// Global flag for output path used by server commands
 	outputPath string
 
-	// Global flags for working directory
-	workingDir    string
-	workingDirTmp bool
+	// Global flag for working directory
+	workingDir string
 
 	// Global flag to disable telemetry
 	noTelemetry bool
+
+	// Global flag for OpenTofu module runbook/template selection
+	tfRunbook string // --tf-runbook: ::keyword (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom runbook directory
 )
 
 // getVersionString returns the full version information
@@ -41,10 +45,21 @@ func getVersionString() string {
 	return fmt.Sprintf("%s (Commit: %s)", Version, GitCommit)
 }
 
+// workingDirKeyword is the reserved keyword for --working-dir that creates
+// a temporary directory, automatically cleaned up on exit.
+const workingDirKeyword = "::tmp"
+
+// isWorkingDirTmp returns true when the user requested a temporary working directory,
+// either explicitly via --working-dir=::tmp or implicitly (remote runbook with no --working-dir).
+func isWorkingDirTmp() bool {
+	return workingDir == workingDirKeyword
+}
+
 // resolveWorkingDir determines the final working directory based on CLI flags.
+// The special keyword "::tmp" creates a temporary directory (cleaned up on exit).
 // Returns the directory path, a cleanup function (nil if no cleanup needed), and an error.
 func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(), error) {
-	if useTempDir {
+	if useTempDir || configuredWorkDir == workingDirKeyword {
 		dir, err := os.MkdirTemp("", "runbook-workdir-*")
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to create temp working directory: %w", err)
@@ -64,6 +79,184 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 		return "", nil, fmt.Errorf("failed to get current working directory: %w", err)
 	}
 	return cwd, nil, nil
+}
+
+// isTfRunbookKeyword returns true if the value is a reserved ::keyword (e.g. "::terragrunt", "::tofu").
+func isTfRunbookKeyword(value string) bool {
+	return strings.HasPrefix(value, "::")
+}
+
+// resolveTfModuleRunbook picks (or generates) a runbook for a TF module.
+//
+// It reads the package-level tfRunbook flag (--tf-runbook) to decide what to do:
+//   - If --tf-runbook is a local path (e.g., "./my-runbook"), it uses that custom runbook.
+//     Remote URLs are rejected with a clear error message.
+//   - If --tf-runbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it generates a
+//     runbook from the corresponding built-in template.
+//   - If --tf-runbook is unset, it generates a runbook from the default template.
+//
+// modulePath is always a local filesystem path to the TF module directory. For remote
+// modules (e.g., a GitHub URL), the caller (resolveRunbookOrTfModule) downloads the
+// source first and passes the local download path here.
+//
+// remoteSourceURL is the original URL the user provided on the CLI (empty for local
+// modules), propagated for ::cli_runbook_source resolution.
+func resolveTfModuleRunbook(modulePath string, remoteSourceURL string) (resolvedPath string, serverPath string, moduleSourceURL string, cleanup func()) {
+	// Compute the module source URL so ::cli_runbook_source resolves at runtime
+	moduleSourceURL = remoteSourceURL
+	if moduleSourceURL == "" {
+		absPath, err := filepath.Abs(modulePath)
+		if err != nil {
+			slog.Error("Failed to resolve module path", "path", modulePath, "error", err)
+			os.Exit(1)
+		}
+		moduleSourceURL = absPath
+	}
+
+	// If --tf-runbook is a local path, use the custom runbook
+	if tfRunbook != "" && !isTfRunbookKeyword(tfRunbook) {
+		parsed, _ := api.ParseRemoteSource(tfRunbook)
+		if parsed != nil {
+			slog.Error("--tf-runbook does not support remote URLs. Use a local path or a built-in template (e.g., ::terragrunt, ::tofu).",
+				"value", tfRunbook)
+			os.Exit(1)
+		}
+		customRunbookPath, err := api.ResolveRunbookPath(tfRunbook)
+		if err != nil {
+			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Using custom runbook for OpenTofu/Terraform module", "runbook", tfRunbook, "module", moduleSourceURL)
+		return customRunbookPath, tfRunbook, moduleSourceURL, nil
+	}
+
+	// Otherwise, auto-generate a runbook from the built-in template
+	templateName := tfRunbook // ::keyword like "::terragrunt", "::tofu", or "" for default
+	generatedPath, tfCleanup, genErr := api.GenerateRunbook(templateName)
+	if genErr != nil {
+		slog.Error("Failed to generate runbook from OpenTofu/Terraform module", "error", genErr)
+		os.Exit(1)
+	}
+	return generatedPath, generatedPath, moduleSourceURL, tfCleanup
+}
+
+// resolveRunbookOrTfModule attempts to resolve a runbook at the given path.
+// If no runbook is found but the path is an OpenTofu module, it generates a
+// runbook from the module. Also handles remote URLs — downloads the source first,
+// then checks for a runbook or OpenTofu module.
+// Returns the resolved runbook path, the (possibly updated) server path,
+// the original remote URL (for ::cli_runbook_source resolution in TfModule), and a
+// cleanup function for any generated temp files. Calls os.Exit(1) on errors.
+func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+	// 1. Try as a local runbook
+	resolvedPath, err := api.ResolveRunbookPath(path)
+	if err == nil {
+		return resolvedPath, path, "", nil
+	}
+
+	// 2. Try as a local OpenTofu module
+	if api.IsBareTfModule(path) {
+		slog.Info("Detected OpenTofu/Terraform module, generating runbook", "path", path)
+		return resolveTfModuleRunbook(path, "" /* local module, no remote source URL */)
+	}
+
+	// 3. Try as a remote source (GitHub/GitLab URL)
+	parsed, parseErr := api.ParseRemoteSource(path)
+	if parseErr != nil {
+		slog.Error("Invalid remote source", "error", parseErr)
+		os.Exit(1)
+	}
+	if parsed != nil {
+		localPath, remoteCleanup, dlErr := downloadRemoteSource(parsed)
+		if dlErr != nil {
+			slog.Error("Failed to download remote source", "error", dlErr)
+			os.Exit(1)
+		}
+
+		// Check if the downloaded source is a runbook
+		resolvedPath, rbErr := api.ResolveRunbookPath(localPath)
+		if rbErr == nil {
+			return resolvedPath, localPath, path, remoteCleanup
+		}
+
+		// Check if the downloaded source is an OpenTofu module
+		if api.IsBareTfModule(localPath) {
+			slog.Info("Detected remote OpenTofu/Terraform module, generating runbook", "url", path)
+			rbPath, srvPath, srcURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* original remote source URL */)
+			return rbPath, srvPath, srcURL, combineCleanups(tfCleanup, remoteCleanup)
+		}
+
+		// Downloaded but neither a runbook nor a TF module
+		if remoteCleanup != nil {
+			remoteCleanup()
+		}
+		slog.Error("Remote source is not a runbook or OpenTofu module", "url", path)
+		os.Exit(1)
+	}
+
+	slog.Error("No runbook or OpenTofu/Terraform module found", "path", path, "error", err)
+	os.Exit(1)
+	return // unreachable
+}
+
+// serverSetup holds the results of resolving paths and preparing for server start.
+// Returned by resolveForServer, which handles the shared setup for open/watch/serve commands.
+type serverSetup struct {
+	runbookPath     string // The resolved runbook file path
+	serverPath      string // The path to pass to ServerConfig (may differ for generated runbooks)
+	remoteSourceURL string // Original URL for ::cli_runbook_source resolution (empty for local)
+	workingDir      string // Resolved working directory
+	cleanup         func() // Combined cleanup function (nil if no cleanup needed)
+}
+
+// resolveForServer performs the shared setup for all server-launching commands:
+// validates args, resolves working directory, and resolves the runbook or TF module.
+// Returns a serverSetup with all paths and a combined cleanup function.
+// Calls os.Exit(1) on errors.
+func resolveForServer(args []string) serverSetup {
+	if len(args) == 0 {
+		slog.Error("Error: You must specify a RUNBOOK_SOURCE (local path, remote URL, or OpenTofu/Terraform module directory)\n")
+		os.Exit(1)
+	}
+	path := args[0]
+
+	resolvedWorkDir, workDirCleanup, err := resolveWorkingDir(workingDir, false)
+	if err != nil {
+		slog.Error("Failed to resolve working directory", "error", err)
+		os.Exit(1)
+	}
+
+	resolvedPath, serverPath, remoteSourceURL, tfCleanup := resolveRunbookOrTfModule(path)
+
+	// Combine cleanup functions
+	cleanup := combineCleanups(workDirCleanup, tfCleanup)
+
+	return serverSetup{
+		runbookPath:     resolvedPath,
+		serverPath:      serverPath,
+		remoteSourceURL: remoteSourceURL,
+		workingDir:      resolvedWorkDir,
+		cleanup:         cleanup,
+	}
+}
+
+// combineCleanups returns a single cleanup function that calls all non-nil cleanups in order.
+// Returns nil if all inputs are nil.
+func combineCleanups(fns ...func()) func() {
+	var active []func()
+	for _, fn := range fns {
+		if fn != nil {
+			active = append(active, fn)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	return func() {
+		for _, fn := range active {
+			fn()
+		}
+	}
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -139,33 +332,11 @@ func wrapText(text string, startColumn, maxWidth int) string {
 
 // formatHelpLine formats a single help line with name and description,
 // wrapping the description if needed.
-// nameWidth is the width allocated for the command name (should be longest command name + 2)
+// nameWidth is the width allocated for the name column (should be longest name + 2)
 func formatHelpLine(name, description string, nameWidth int) string {
-	// Calculate the column where description starts
 	descStartCol := len(commandIndent) + nameWidth
-
-	// Format the name part with padding
 	namePart := fmt.Sprintf("%s%-*s", commandIndent, nameWidth, name)
-
-	// Wrap the description
-	wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
-
-	return namePart + wrappedDesc
-}
-
-// formatFlagLine formats a flag help line with proper wrapping
-// nameWidth is the width allocated for the flag name (should be longest flag + 2)
-func formatFlagLine(flagStr, description string, nameWidth int) string {
-	// Calculate the column where description starts
-	descStartCol := len(commandIndent) + nameWidth
-
-	// Format the flag part with padding
-	namePart := fmt.Sprintf("%s%-*s", commandIndent, nameWidth, flagStr)
-
-	// Wrap the description
-	wrappedDesc := wrapText(description, descStartCol, maxLineWidth)
-
-	return namePart + wrappedDesc
+	return namePart + wrapText(description, descStartCol, maxLineWidth)
 }
 
 // formatFlags formats all flags for a command with proper wrapping
@@ -222,7 +393,7 @@ func formatFlags(cmd *cobra.Command, inherited bool) string {
 	nameWidth := maxLen + 2
 
 	for _, f := range flags {
-		result.WriteString(formatFlagLine(f.name, f.desc, nameWidth))
+		result.WriteString(formatHelpLine(f.name, f.desc, nameWidth))
 		result.WriteString("\n")
 	}
 
@@ -320,14 +491,15 @@ func init() {
 		"Path where generated files will be rendered (relative to working directory)")
 
 	rootCmd.PersistentFlags().StringVar(&workingDir, "working-dir", "",
-		"Working directory for script execution (default: current directory)")
-
-	rootCmd.PersistentFlags().BoolVar(&workingDirTmp, "working-dir-tmp", false,
-		"Use a temporary working directory (cleaned up on exit)")
+		"Working directory for script execution, or ::tmp for a temporary directory (default: current directory)")
 
 	// Add telemetry opt-out flag
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,
 		"Disable anonymous telemetry (can also set RUNBOOKS_TELEMETRY_DISABLE=1)")
+
+	// Add OpenTofu module runbook flag (handles both ::keywords and custom paths)
+	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
+		"Built-in template (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom runbook for OpenTofu/Terraform modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

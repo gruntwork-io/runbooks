@@ -18,20 +18,42 @@ var disableLiveFileReload bool
 var watchCmd = &cobra.Command{
 	Use:   "watch RUNBOOK_SOURCE",
 	Short: "Open a runbook and auto-reload changes (for runbook authors)",
-	Long: `Open the runbook located at RUNBOOK_SOURCE, or the runbook contained in the RUNBOOK_SOURCE directory.
-The runbook will automatically reload when changes are detected to the underlying runbook.mdx file.
-By default, script changes take effect immediately without server restart (live-file-reload mode).
+	Long: `Open the runbook at RUNBOOK_SOURCE with live-reloading enabled.
 
-RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.
+The runbook will automatically reload when changes are detected to
+the underlying runbook.mdx file. By default, script changes take
+effect immediately without server restart (live-file-reload mode).
 
-This command is intended for runbook authors and will be less useful for runbook consumers.`,
+RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
+module directory.
+
+Examples:
+  runbooks watch ./path/to/runbook
+  runbooks watch https://github.com/org/repo/tree/main/runbooks/rds`,
 	GroupID: "main",
-	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Track command usage
 		telemetry.TrackCommand("watch")
 
-		watchRunbook(args[0])
+		rb := resolveForServer(args)
+		if rb.cleanup != nil {
+			defer rb.cleanup()
+		}
+
+		// By default, watch mode uses live-file-reload (no registry) for better UX.
+		// If --disable-live-file-reload is true, use the executable registry for better security.
+		useExecutableRegistry := disableLiveFileReload
+		slog.Info("Opening runbook with file watching", "path", rb.serverPath, "workingDir", rb.workingDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
+
+		startServerAndOpen(rb, api.ServerConfig{
+			RunbookPath:           rb.serverPath,
+			Port:                  defaultPort,
+			WorkingDir:            rb.workingDir,
+			OutputPath:            outputPath,
+			RemoteSourceURL:       rb.remoteSourceURL,
+			IsWatchMode:           true,
+			UseExecutableRegistry: useExecutableRegistry,
+		})
 	},
 }
 
@@ -40,25 +62,4 @@ func init() {
 
 	watchCmd.Flags().BoolVar(&disableLiveFileReload, "disable-live-file-reload", false,
 		"Enable executable registry validation (requires server restart for script changes)")
-}
-
-// watchRunbook opens a runbook with file watching enabled
-func watchRunbook(source string) {
-	rb := resolveRunbook(source)
-	defer rb.Close()
-
-	useExecutableRegistry := disableLiveFileReload
-	slog.Info("Opening runbook with file watching", "path", rb.Path, "workingDir", rb.WorkDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
-
-	startServerAndLaunch(rb, func() error {
-		return api.StartServer(api.ServerConfig{
-			RunbookPath:           rb.Path,
-			Port:                  defaultPort,
-			WorkingDir:            rb.WorkDir,
-			OutputPath:            outputPath,
-			RemoteSourceURL:       rb.RemoteURL,
-			UseExecutableRegistry: useExecutableRegistry,
-			IsWatchMode:           true,
-		})
-	})
 }

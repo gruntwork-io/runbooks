@@ -21,6 +21,7 @@ func setupWorkspaceTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/workspace/tree", HandleWorkspaceTree())
+	r.GET("/api/workspace/dirs", HandleWorkspaceDirs())
 	r.GET("/api/workspace/file", HandleWorkspaceFile())
 	r.GET("/api/workspace/changes", HandleWorkspaceChanges())
 	return r
@@ -580,5 +581,137 @@ func TestWorkspaceChangesDeletedFile(t *testing.T) {
 	}
 	if !found {
 		t.Error("README.md not found in changes after deletion")
+	}
+}
+
+// =============================================================================
+// HandleWorkspaceDirs tests
+// =============================================================================
+
+func TestWorkspaceDirsReturnsSubdirectories(t *testing.T) {
+	dir := createTempDirWithFiles(t) // has src/, docs/ subdirs + README.md file
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/dirs?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Dirs []string `json:"dirs"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Should contain src and docs but NOT README.md (file, not dir)
+	expected := []string{"docs", "src"}
+	if len(resp.Dirs) != len(expected) {
+		t.Fatalf("expected %d dirs, got %d: %v", len(expected), len(resp.Dirs), resp.Dirs)
+	}
+	for i, name := range expected {
+		if resp.Dirs[i] != name {
+			t.Errorf("expected dirs[%d] = %q, got %q", i, name, resp.Dirs[i])
+		}
+	}
+}
+
+func TestWorkspaceDirsEmptyDirectory(t *testing.T) {
+	dir := t.TempDir() // empty dir
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/dirs?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Dirs []string `json:"dirs"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Dirs) != 0 {
+		t.Errorf("expected empty dirs, got %v", resp.Dirs)
+	}
+}
+
+func TestWorkspaceDirsFilesOnlyDirectory(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("a"), 0644)
+	os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("b"), 0644)
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/dirs?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Dirs []string `json:"dirs"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if len(resp.Dirs) != 0 {
+		t.Errorf("expected empty dirs for files-only dir, got %v", resp.Dirs)
+	}
+}
+
+func TestWorkspaceDirsHiddenDirectoriesExcluded(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.MkdirAll(filepath.Join(dir, ".terraform"), 0755)
+	os.MkdirAll(filepath.Join(dir, "visible"), 0755)
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/dirs?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Dirs []string `json:"dirs"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if len(resp.Dirs) != 1 || resp.Dirs[0] != "visible" {
+		t.Errorf("expected [visible], got %v", resp.Dirs)
+	}
+}
+
+func TestWorkspaceDirsPathTraversal(t *testing.T) {
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/dirs?path=/tmp/../etc", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for path traversal, got %d", w.Code)
+	}
+}
+
+func TestWorkspaceDirsMissingPath(t *testing.T) {
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/dirs", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing path, got %d", w.Code)
 	}
 }

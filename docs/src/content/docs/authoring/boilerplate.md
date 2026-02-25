@@ -97,7 +97,8 @@ variables:
     type: string
     description: What would you like to call your project?
     default: my-project
-    validations: "required"
+    validations:
+      - required
 
   - name: Environment
     type: enum
@@ -205,27 +206,33 @@ Add validation rules to ensure user input meets requirements:
 ```yaml
 - name: ProjectName
   type: string
-  validations: "required"
+  validations:
+    - required
 
 - name: ContactEmail
   type: string
-  validations: "email"
+  validations:
+    - email
 
 - name: WebsiteURL
   type: string
-  validations: "url"
+  validations:
+    - url
 
 - name: Identifier
   type: string
-  validations: "alphanumeric"
+  validations:
+    - alphanumeric
 
 - name: CountryCode
   type: string
-  validations: "countrycode2"
+  validations:
+    - countrycode2
 
 - name: Version
   type: string
-  validations: "semver"
+  validations:
+    - semver
 
 - name: ManyValidations
   type: string
@@ -261,6 +268,22 @@ variables:
 | `alphanumeric` | Only letters and numbers allowed |
 | `countrycode2` | Must be a valid two-letter country code (ISO 3166-1 alpha-2) |
 | `semver` | Must be a valid semantic version (e.g., `1.0.0`, `2.1.3-beta`) |
+| `length(min, max)` | Value must be between `min` and `max` characters long |
+| `regex("pattern")` | Value must match the given regular expression pattern |
+
+#### Parameterized Validation Examples
+
+```yaml
+  - name: ProjectSlug
+    type: string
+    validations:
+      - regex("^[a-z][a-z0-9-]+$")
+
+  - name: Description
+    type: string
+    validations:
+      - length(0, 256)
+```
 
 ## Template Syntax
 
@@ -491,7 +514,8 @@ variables:
   - name: FunctionName
     type: string
     description: Name for the Lambda function
-    validations: "required"
+    validations:
+      - required
     x-section: Basic Settings
 
   - name: Runtime

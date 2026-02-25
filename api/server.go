@@ -113,8 +113,11 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.POST("/git/pull-request", HandleGitPullRequest(sessionManager))
 		protectedAPI.POST("/git/push", HandleGitPush(sessionManager))
 		protectedAPI.DELETE("/git/branch", HandleGitDeleteBranch())
+		// OpenTofu module parsing (reads local files and may clone remote repos with user tokens)
+		protectedAPI.POST("/tf/parse", HandleTfModuleParse(runbookPath))
 		// Workspace endpoints for file tree, file content, and git changes
 		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
+		protectedAPI.GET("/workspace/dirs", HandleWorkspaceDirs())
 		protectedAPI.GET("/workspace/file", HandleWorkspaceFile())
 		protectedAPI.GET("/workspace/changes", HandleWorkspaceChanges())
 		protectedAPI.POST("/workspace/register", HandleWorkspaceRegister(sessionManager))

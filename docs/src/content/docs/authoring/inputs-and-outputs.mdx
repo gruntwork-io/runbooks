@@ -1,0 +1,229 @@
+---
+title: Inputs & Outputs
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every runbook has a **global context,** which is the shared collection of key-value pairs that blocks use to communicate. The keys are variables. Blocks can write values to the global context, or read values from the global context.
+
+There are two ways values are written to the global context:
+
+- **Inputs:** [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
+- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<TfModule>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
+
+## Variables
+
+Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .VarName }}` syntax. For example:
+
+```mdx
+<Command
+  id="create-account"
+  command="aws organizations create-account --email {{ .Email }} --account-name {{ .AccountName }}"
+/>
+```
+
+When this block runs, Runbooks resolves `{{ .Email }}` and `{{ .AccountName }}` from the global context, producing a command like:
+
+```bash
+aws organizations create-account --email alice@example.com --account-name my-account
+```
+
+### Boilerplate variables
+
+Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables work exactly like Boilerplate variables:
+
+- The same `{{ .VarName }}` syntax
+- The same types (`string`, `int`, `bool`, `enum`, `list`, `map`)
+- The same validation rules (`required`, `email`, `url`, `alpha`, `digit`, `alphanumeric`, `countrycode2`, `semver`, `regex`)
+- The same `boilerplate.yml` format for defining them
+- The full library of Boilerplate helper functions and pipe modifiers (`upper`, `lower`, `snakeCase`, `camelCase`, `fromJson`, conditionals, loops, and more)
+
+If you've used Boilerplate before, everything you know carries over directly. If you haven't, the [Boilerplate Templates](/authoring/boilerplate/) page covers the full syntax, including variable definitions, template rendering, helper functions, and how to test templates locally with the Boilerplate CLI.
+
+## Input Providers
+
+An **input provider** is a block that collects variable values and makes them available to other blocks. Let's look at the input providers that are available in Runbooks.
+
+### \<Inputs\>
+
+The [`<Inputs>`](/authoring/blocks/inputs/) block collects variable values from end users via a web form that is dynamically generated based on the contents of a `boilerplate.yml` file. For example, this `boilerplate.yml` file is defined inline and declares a single variable called `ProjectName`:
+
+`````mdx
+<Inputs id="config">
+```yaml
+variables:
+  - name: ProjectName
+    type: string
+    description: Name for your project
+```
+</Inputs>
+`````
+
+### \<Template\>
+
+The [`<Template>`](/authoring/blocks/template/) block generates files from a Boilerplate template directory. When it references a template that contains a `boilerplate.yml` file, it also acts as an input provider by rendering a web form based on the variables defined in the `boilerplate.yml` file.
+
+```mdx
+<Template id="infra" path="templates/rds" />
+```
+
+In the above example, there is a local `boilerplate.yml` file at `templates/rds/boilerplate.yml`.
+
+### \<TfModule\>
+
+The [`<TfModule>`](/authoring/blocks/tfmodule/) block parses an OpenTofu/Terraform module's `.tf` files at runtime and auto-generates a web form from the module's variables. It also publishes a `_module` namespace with metadata about the module. See the [TfModule docs](/authoring/blocks/tfmodule/#the-_module-namespace) for the full namespace reference.
+
+```mdx
+<TfModule id="rds-vars" source="../modules/rds" />
+```
+
+In the above example, there is an OpenTofu or Terraform module at `../modules/rds`. TfModule also supports `source="."` for [colocated runbooks](/authoring/blocks/tfmodule/#colocated-runbooks-source) (runbook lives alongside the `.tf` files) and `source="::cli_runbook_source"` for [generic runbooks](/authoring/blocks/tfmodule/#dynamic-source-from-cli-source) that accept any module URL from the CLI.
+
+## Wiring Blocks with `inputsId`
+
+You can take the values collected from an input provider and use them in other blocks that consume variables. Any block that consumes variables (e.g. `<Command>`, `<Check>`, `<Template>`, `<TemplateInline>`) accepts an `inputsId` prop that references an input provider by its `id`:
+
+For example, you can use the values collected from the `<Inputs>` block in a `<Command>` block:
+
+`````mdx
+<Inputs id="config">
+```yaml
+variables:
+  - name: ProjectName
+    type: string
+```
+</Inputs>
+
+<Command inputsId="config" command="mkdir {{ .ProjectName }}" />
+`````
+
+### Multiple Sources
+
+Pass an array of IDs to `inputsId` to merge variables from more than one input provider. Variables are merged in order, so in the event of a name conflict, later IDs override earlier ones.
+
+In this example, the Command will use the variables collected from the `<Inputs>` blocks with the IDs `global-config` and `local-config`.
+
+```mdx
+<Command
+  inputsId={["global-config", "local-config"]}
+  command="deploy --env {{ .Environment }} --name {{ .AppName }}"
+/>
+```
+
+### Embedded Inputs
+
+You can nest an `<Inputs>` block directly inside a `<Command>` or `<Check>`. The variables are automatically available to the parent without needing `inputsId`:
+
+`````mdx
+<Command command='echo "Hello, {{ .Name }}!"'>
+  <Inputs id="greeting">
+  ```yaml
+  variables:
+    - name: Name
+      type: string
+  ```
+  </Inputs>
+</Command>
+`````
+
+The embedded Inputs can still be referenced by other blocks via `inputsId="greeting"`.
+
+## When Variables Overlap
+
+When you wire blocks together with `inputsId`, the consuming block receives all the variables from the input provider. For `<Command>`, `<Check>`, and `<TemplateInline>`, this is straightforward: every imported variable is available in the template.
+
+It gets more interesting with `<Template>`, because a Template has its own `boilerplate.yml` that can *also* define variables. When a Template imports from an input provider, Runbooks compares the two sets of variables and handles each one based on where it's defined:
+
+- **If only the Template defines it:**  the variable appears as an editable field in the Template's form. This is how you collect extra inputs (like an environment name or team owner) that the input provider doesn't know about.
+- **If only the input provider defines it:** the variable is passed through to the template engine but doesn't appear in the Template's form. This includes namespaced values like `_module.*` from `<TfModule>`.
+- **If both define it:** the variable appears in the Template's form but is read-only, staying live-synced to the input provider's value. This prevents the two forms from getting out of sync.
+
+## Block Outputs
+
+Inputs flow from user forms into blocks. **Outputs** flow in the other direction, from blocks that have already run into downstream blocks. This enables multi-step workflows where each step builds on results from previous steps.
+
+### Producing Outputs
+
+[`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks produce outputs by writing `key=value` pairs to the file specified by the `$RUNBOOK_OUTPUT` environment variable:
+
+```bash
+#!/bin/bash
+ACCOUNT_ID=$(aws organizations create-account ...)
+
+echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+echo "region=us-west-2" >> "$RUNBOOK_OUTPUT"
+```
+
+For complex data (lists, maps), serialize as JSON:
+
+```bash
+echo 'users=["alice","bob","charlie"]' >> "$RUNBOOK_OUTPUT"
+```
+
+You don't need to define the `$RUNBOOK_OUTPUT` environment variable in your script. Runbooks will automatically create it for you.
+
+### Consuming Outputs
+
+Downstream blocks reference outputs using the `_blocks` namespace:
+
+```
+{{ ._blocks.<block-id>.outputs.<output-name> }}
+```
+
+For example, a Command whose `id` is `create-account` that outputs `account_id` is referenced as:
+
+```
+{{ ._blocks.create_account.outputs.account_id }}
+```
+
+This syntax works in `<Command>` and `<Check>` scripts, `<Template>` files, and `<TemplateInline>` content.
+
+<Aside type="note">
+**ID naming:** Block IDs can use hyphens or underscores (e.g., `id="create-account"` or `id="create_account"`). In template syntax, always use underscores. Go templates interpret hyphens as subtraction. IDs that normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same runbook.
+</Aside>
+
+### Iterating Over Complex Outputs
+
+Use `fromJson` to parse JSON output values, then `range` to iterate:
+
+```
+{{- range (fromJson ._blocks.list_users.outputs.users) }}
+- {{ . }}
+{{- end }}
+```
+
+### Output Dependencies
+
+If a block references outputs from another block that hasn't run yet:
+
+1. A **warning message** shows which blocks need to run first
+2. The **Run / Generate button is disabled** until the upstream block executes
+3. The template shows the raw syntax until outputs are available
+
+After a block runs, you can click **"View Outputs"** below the log viewer to inspect its outputs in a table.
+
+<Aside type="note">
+Block outputs are stored in browser memory and cleared on page refresh.
+</Aside>
+
+### Combining Inputs and Outputs
+
+You can use both standard inputs and block outputs in the same template:
+
+```hcl
+# From an Inputs block (via inputsId)
+environment = "{{ .Environment }}"
+
+# From a Command block's outputs
+account_id  = "{{ ._blocks.create_account.outputs.account_id }}"
+```
+
+## Example
+
+Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of inputs and outputs flowing between Command, Check, Template, and TemplateInline blocks.
+
+To run it directly:
+
+```bash
+runbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs
+```

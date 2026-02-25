@@ -1,0 +1,166 @@
+---
+title: Opening Runbooks
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `runbooks open` command opens a runbook in the browser. It accepts two kinds of sources:
+
+1. A **runbook** (a directory containing `runbook.mdx`), or
+2. An **OpenTofu/Terraform module** (a directory containing `.tf` files).
+
+Either source can be local or remote.
+
+See the [`open` command reference](/commands/open/) for the full list of flags and supported URL formats.
+
+## Opening a Runbook
+
+Point the CLI at a directory containing a `runbook.mdx`:
+
+```bash
+# Local
+runbooks open ./runbooks/deploy-rds
+
+# Remote (GitHub URL)
+runbooks open https://github.com/org/repo/tree/main/runbooks/deploy-rds
+```
+
+Runbooks serves the `runbook.mdx` in the browser. For remote sources, it downloads just the runbook directory via sparse git clone.
+
+## Opening an OpenTofu/Terraform Module
+
+Point the CLI at a directory containing `.tf` files:
+
+```bash
+# Local
+runbooks open ./modules/rds
+
+# Remote (GitHub URL)
+runbooks open https://github.com/org/repo/tree/main/modules/rds
+
+# Remote (OpenTofu shorthand)
+runbooks open github.com/org/repo//modules/rds?ref=v1.0
+```
+
+When Runbooks detects `.tf` files (and no `runbook.mdx`), it uses a **tf-runbook template** to auto-generate a runbook that:
+
+1. Parses the module's variables from the `.tf` files
+2. Renders a web form for those variables
+3. Generates output (e.g., a `terragrunt.hcl` file) using the template
+
+By default, the `::terragrunt` built-in template is used. Use the `--tf-runbook` flag to select a different [built-in template](#built-in-templates) or [custom template](#custom-templates).
+
+### Built-in Templates
+
+```bash
+runbooks open --tf-runbook=::terragrunt ./modules/rds
+```
+
+| Template | What it generates | When to use |
+|----------|-------------------|-------------|
+| `::terragrunt` (default) | `terragrunt.hcl` with non-default inputs | Standard Terragrunt workflows |
+| `::terragrunt-github` | `terragrunt.hcl` + GitHub PR | GitOps: clone a repo, pick a directory, generate config, open a PR |
+| `::tofu` | `main.tf` with a `module` block | Plain OpenTofu/Terraform (no Terragrunt) |
+
+<Aside type="tip">
+All three built-in templates use `hcl_inputs_non_default`, which only includes variables whose values differ from the declared defaults. See [`_module` namespace](/authoring/blocks/tfmodule/#the-_module-namespace) for details on `hcl_inputs_non_default` vs `hcl_inputs`.
+</Aside>
+
+### Custom Templates
+
+If the built-in templates don't fit your needs, create your own. A custom template is a **local** directory containing a `runbook.mdx` that uses [`<TfModule>`](/authoring/blocks/tfmodule/) with `source="::cli_runbook_source"`.
+
+<Aside type="caution">
+`--tf-runbook` only accepts local paths — remote URLs are not supported. This is a security measure: a custom template is a full runbook that can execute arbitrary scripts on your machine, and fetching one from a remote URL could silently introduce untrusted code. Download and review any third-party template before using it.
+</Aside>
+
+```
+my-custom-template/
+  runbook.mdx
+```
+
+Inside `runbook.mdx`, the `::cli_runbook_source` keyword resolves to whatever module URL was passed on the command line:
+
+`````mdx title="my-custom-template/runbook.mdx"
+# Configure Module
+
+<TfModule id="module-vars" source="::cli_runbook_source" />
+
+<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+Run it with:
+
+```bash
+runbooks open --tf-runbook ./my-custom-template/ https://github.com/org/repo/tree/main/modules/rds
+```
+
+This example uses `<TemplateInline>` for simplicity, but custom templates can use `<Template>` for multi-file scaffolding and extra variables. See [`<TfModule>` — Template Patterns](/authoring/blocks/tfmodule/#template-patterns) for details.
+
+### What `::cli_runbook_source` Resolves To
+
+The keyword resolves to the `RUNBOOK_SOURCE` argument you pass on the command line:
+
+| Command | `::cli_runbook_source` resolves to |
+|---------|------------------------------------|
+| `runbooks open --tf-runbook ./tpl/ ./modules/rds` | Absolute path to `./modules/rds` |
+| `runbooks open --tf-runbook ./tpl/ https://github.com/org/repo/tree/main/modules/rds` | `https://github.com/org/repo/tree/main/modules/rds` |
+| `runbooks open --tf-runbook ./tpl/ github.com/org/repo//modules/rds?ref=v1.0` | `github.com/org/repo//modules/rds?ref=v1.0` |
+
+If the runbook is opened without a module URL (e.g., `runbooks open --tf-runbook ./tpl/`), `<TfModule>` renders a message explaining how to provide one.
+
+### Colocated Runbooks
+
+Module authors can ship a custom runbook alongside their `.tf` files by placing a `runbook.mdx` in the module directory:
+
+```
+modules/rds/
+  main.tf
+  variables.tf
+  outputs.tf
+  runbook.mdx        <-- custom runbook
+```
+
+When someone runs `runbooks open` on this directory, the colocated `runbook.mdx` is served instead of generating one from a template. Inside, use `source="."` to reference the module in the same directory:
+
+`````mdx title="modules/rds/runbook.mdx"
+# Configure RDS
+
+<TfModule id="rds-vars" source="." />
+
+<TemplateInline inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+This works with both local and remote modules:
+
+```bash
+# Local
+runbooks open ./modules/rds
+
+# Remote — still serves the colocated runbook.mdx
+runbooks open https://github.com/org/repo/tree/main/modules/rds
+```

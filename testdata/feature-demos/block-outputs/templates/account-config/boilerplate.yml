@@ -3,7 +3,8 @@ variables:
     description: Name for this configuration
     type: string
     default: "account-config"
-    validations: "required"
+    validations:
+      - required
 
   - name: description
     description: Description of this configuration

@@ -76,14 +76,16 @@ variables:
       - eu-west-2
     description: The AWS region to deploy the Lambda function to
     default: "us-west-2"
-    validations: "required"
+    validations:
+      - required
     x-section: Deployment Settings
 
   - name: FunctionName
     type: string
     description: Name for your Lambda function (will be suffixed with environment)
     default: example-lambda
-    validations: "required"
+    validations:
+      - required
     x-section: Function Settings
 
   - name: Description

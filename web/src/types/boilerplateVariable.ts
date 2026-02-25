@@ -3,10 +3,11 @@ export interface BoilerplateVariable {
   name: string;
   description: string;
   type: BoilerplateVariableType;
-  default: string;
+  default: unknown;
   required: boolean;
   options?: string[];
   validations?: ValidationRule[];
+  sensitive?: boolean;
   // Runbooks extensions (x- prefixed in YAML, ignored by Boilerplate)
   schema?: Record<string, string>; // For structured maps: field name -> type mapping (YAML: x-schema)
   schemaInstanceLabel?: string; // Custom label for schema instances (YAML: x-schema-instance-label)
@@ -42,5 +43,6 @@ export enum BoilerplateValidationType {
   CountryCode2 = "countrycode2",
   Semver = "semver",
   Length = "length",
+  Regex = "regex",
   Custom = "custom"
 }

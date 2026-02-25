@@ -79,6 +79,27 @@ describe('formatVariableLabel', () => {
     })
   })
 
+  describe('snake_case conversion', () => {
+    it('should convert snake_case to readable format', () => {
+      expect(formatVariableLabel('project_name')).toBe('Project Name')
+      expect(formatVariableLabel('bucket_name')).toBe('Bucket Name')
+      expect(formatVariableLabel('lambda_function_name')).toBe('Lambda Function Name')
+      expect(formatVariableLabel('enable_monitoring')).toBe('Enable Monitoring')
+    })
+
+    it('should handle snake_case with IT acronyms', () => {
+      expect(formatVariableLabel('vpc_id')).toBe('VPC ID')
+      expect(formatVariableLabel('aws_region')).toBe('AWS Region')
+      expect(formatVariableLabel('api_endpoint_url')).toBe('API Endpoint URL')
+      expect(formatVariableLabel('s3_bucket_name')).toBe('S3 Bucket Name')
+    })
+
+    it('should handle snake_case with numbers', () => {
+      expect(formatVariableLabel('ec2_instance_type')).toBe('EC2 Instance Type')
+      expect(formatVariableLabel('lambda_memory_size')).toBe('Lambda Memory Size')
+    })
+  })
+
   describe('preserving existing capitalization', () => {
     it('should preserve proper nouns and special cases', () => {
       expect(formatVariableLabel('MysqlDatabase')).toBe('MySQL Database')

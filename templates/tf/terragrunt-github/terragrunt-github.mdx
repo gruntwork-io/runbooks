@@ -1,0 +1,55 @@
+# Deploy Module via GitHub PR
+
+This runbook clones a GitHub repository, configures an OpenTofu or Terraform module,
+generates a `terragrunt.hcl` file at a chosen path, and opens a pull request.
+
+## Authenticate to GitHub
+
+<GitHubAuth id="gh-auth" title="Connect to GitHub" />
+
+## Clone Repository
+
+<GitClone id="clone-repo" gitHubAuthId="gh-auth" title="Clone your infrastructure repo" />
+
+## Choose Target Directory
+
+<DirPicker id="target-path" gitCloneId="clone-repo" dirLabels={['Account', 'Region']} title="Select deployment path" pathLabelDescription="The path where your terragrunt.hcl file will be generated. Edit as needed." />
+
+## Configure Module Variables
+
+<TfModule id="module-vars" source="::cli_runbook_source" />
+
+## Generated Configuration
+
+<TemplateInline
+  inputsId="module-vars"
+  outputPath="{{ ._blocks.target_path.outputs.PATH }}/{{ ._blocks.module_vars.outputs.MODULE_NAME }}/terragrunt.hcl"
+  generateFile={true}
+  target="worktree"
+>
+```hcl
+terraform {
+  source = "{{ ._module.source }}"
+}
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+inputs = {
+{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+
+## Create Pull Request
+
+<GitHubPullRequest
+  workspaceId="clone-repo" 
+  prefilledPullRequestTitle="Update {{ ._blocks.module_vars.outputs.MODULE_NAME }} module"
+  prefilledBranchName="feature/{{ ._blocks.module_vars.outputs.MODULE_NAME }}"
+  prefilledPullRequestDescription="## Changes\n\n- Added a new terragrunt.hcl file at {{ ._blocks.target_path.outputs.PATH }}"
+/>

@@ -53,8 +53,15 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
     const stringValue = value === undefined || value === null ? '' : String(value)
 
     // Required field validation (checked first)
-    if (variable.required && (value === undefined || value === null || value === '')) {
-      return `${formatVariableLabel(variable.name)} is required`
+    if (variable.required) {
+      const isEmpty = value === undefined || value === null || value === ''
+        // For arrays (list/tuple), check if empty or all elements are empty
+        || (Array.isArray(value) && (value.length === 0 || value.every(v => v === '' || v === undefined || v === null)))
+        // For objects (map), check if no keys
+        || (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0)
+      if (isEmpty) {
+        return `${formatVariableLabel(variable.name)} is required`
+      }
     }
 
     // Apply additional validation rules from the variable definition

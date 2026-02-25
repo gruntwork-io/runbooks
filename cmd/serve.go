@@ -4,7 +4,6 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -18,29 +17,31 @@ import (
 var serveCmd = &cobra.Command{
 	Use:   "serve RUNBOOK_SOURCE",
 	Short: "Start the backend API server (for runbook developers)",
-	Long: fmt.Sprintf(`This command will start the backend API server on port %d with the runbook located at RUNBOOK_SOURCE. You can then access
-the server at http://localhost:%d.
+	Long: `Start the backend API server for RUNBOOK_SOURCE on port 7825.
 
-This command is useful for Runbooks developers; it is of limited value to runbook authors and consumers.
+This is useful for local development on the Runbooks tool itself.
+Runbook authors and consumers should use 'open' or 'watch' instead.
 
-RUNBOOK_SOURCE can be a local path or a remote URL. See 'runbooks open --help' for supported remote formats.
-`, defaultPort, defaultPort),
+RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
+module directory.`,
 	GroupID: "other",
-	Args: validateSourceArg,
 	Run: func(cmd *cobra.Command, args []string) {
 		telemetry.TrackCommand("serve")
 
-		rb := resolveRunbook(args[0])
-		defer rb.Close()
+		rb := resolveForServer(args)
+		if rb.cleanup != nil {
+			defer rb.cleanup()
+		}
 
-		slog.Info("Starting backend server", "workingDir", rb.WorkDir, "outputPath", outputPath)
+		slog.Info("Starting backend server", "workingDir", rb.workingDir, "outputPath", outputPath)
 
 		if err := api.StartServer(api.ServerConfig{
-			RunbookPath:           rb.Path,
-			Port:                  defaultPort,
-			WorkingDir:            rb.WorkDir,
+			RunbookPath:           rb.serverPath,
+			Port:                  7825,
+			WorkingDir:            rb.workingDir,
 			OutputPath:            outputPath,
-			RemoteSourceURL:       rb.RemoteURL,
+			RemoteSourceURL:       rb.remoteSourceURL,
 			UseExecutableRegistry: true,
 			EnableCORS:            true,
 		}); err != nil {

@@ -61,9 +61,7 @@ export function PRForm({
   onSubmit,
   onCancel,
 }: PRFormProps) {
-  const [commitMessageExpanded, setCommitMessageExpanded] = useState(
-    commitMessage !== defaultCommitMessage || !branchName.startsWith("runbook/")
-  )
+  const [commitMessageExpanded, setCommitMessageExpanded] = useState(false)
   const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
   const [showNoChangesConfirm, setShowNoChangesConfirm] = useState(false)
 

@@ -260,7 +260,7 @@ func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[str
 	opts.Vars = convertedVariables
 
 	// Create an empty dependency for the root template
-	emptyDep := bpVariables.Dependency{}
+	emptyDep := &bpVariables.Dependency{}
 
 	slog.Info("Processing boilerplate template directly", "templatePath", templatePath, "outputDir", outputDir)
 

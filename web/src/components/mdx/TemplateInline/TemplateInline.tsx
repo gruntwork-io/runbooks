@@ -4,17 +4,18 @@ import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDispl
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
 import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
 import { UnmetInputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetInputDependenciesWarning'
-import { useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
+import { useInputs, useAllOutputs, inputsToValues, useRunbookContext } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import { extractOutputDependencies } from './lib/extractOutputDependencies'
+import { extractOutputDependencies, extractOutputDependenciesFromString } from './lib/extractOutputDependencies'
 import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
-import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
+import { AlertTriangle } from 'lucide-react'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs } from '@/lib/templateUtils'
+import { normalizeBlockId } from '@/lib/utils'
 
 interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
@@ -54,14 +55,25 @@ function TemplateInline({
   
   // Debounce timer ref for auto-updates
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Monotonic counter to discard stale render responses
+  const renderVersionRef = useRef(0);
   
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
   const { invalidateTree } = useGitWorkTree();
-  
+
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
   const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
+
+  // Track which inputsId blocks haven't registered values yet (for the waiting message)
+  const { blockInputs } = useRunbookContext();
+  const unmetInputsIds = useMemo(() => {
+    if (!inputsId) return [];
+    const ids = Array.isArray(inputsId) ? inputsId : [inputsId];
+    return ids.filter(id => !blockInputs[id]);
+  }, [inputsId, blockInputs]);
   
   // Get all block outputs to check dependencies and pass to template rendering
   const allOutputs = useAllOutputs();
@@ -72,59 +84,72 @@ function TemplateInline({
   }, [children]);
   
   // Extract output dependencies from template content ({{ ._blocks.*.outputs.* }} patterns)
+  // Also extract from outputPath so TemplateInline waits for those outputs before rendering.
   const outputDependencies = useMemo(() => {
-    return extractOutputDependencies(children);
-  }, [children]);
-  
+    const childDeps = extractOutputDependencies(children);
+    const pathDeps = outputPath ? extractOutputDependenciesFromString(outputPath) : [];
+    if (pathDeps.length === 0) return childDeps;
+    // Deduplicate by fullPath — later entries (pathDeps) don't override earlier ones (childDeps)
+    return [...new Map([...childDeps, ...pathDeps].map(d => [d.fullPath, d])).values()];
+  }, [children, outputPath]);
+
+  // Resolve {{ ._blocks.*.outputs.* }} expressions in outputPath using block outputs.
+  // This enables dynamic file paths like "{{ ._blocks.target_path.outputs.PATH }}/terragrunt.hcl".
+  const resolvedOutputPath = useMemo(() => {
+    if (!outputPath) return outputPath;
+    return outputPath.replace(
+      /\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}/g,
+      (_match, blockId, outputName) => {
+        const nid = normalizeBlockId(blockId);
+        const blockData = allOutputs[nid];
+        return blockData?.values?.[outputName] ?? '';
+      }
+    );
+  }, [outputPath, allOutputs]);
+
   // Compute unmet output dependencies
   const unmetOutputDependencies = useMemo(
     () => computeUnmetOutputDependencies(outputDependencies, allOutputs),
     [outputDependencies, allOutputs]
   );
-  
+
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
-  
+
   // Extract template content from children
   // MDX compiles code blocks into a nested React element structure (pre > code > text),
   // so we need to traverse it to extract the actual content. Returns a Record because
   // the Boilerplate API expects a files map (filename → content), even for a single file.
+  // Uses resolvedOutputPath so dynamic expressions are resolved before file naming.
   const templateFiles = useMemo(() => {
-    return extractTemplateFiles(children, outputPath);
-  }, [children, outputPath]);
+    return extractTemplateFiles(children, resolvedOutputPath);
+  }, [children, resolvedOutputPath]);
   
-  // Helper to check if all input dependencies are satisfied
-  const hasAllInputDependencies = useCallback((vars: Record<string, unknown>): boolean => {
-    if (inputDependencies.length === 0) return true;
-    
-    return inputDependencies.every(varName => {
-      const value = vars[varName];
-      return value !== undefined && value !== null && value !== '';
-    });
-  }, [inputDependencies]);
+  const hasAllInputDependencies = useCallback(
+    (vars: Record<string, unknown>): boolean => allDependenciesSatisfied(inputDependencies, vars),
+    [inputDependencies]
+  );
   
-  // Build the _blocks namespace for template rendering
-  const blocksNamespace = useCallback(() => buildBlocksNamespace(allOutputs), [allOutputs]);
-  
-  // Core render function that calls the API
+  // Core render function that calls the API.
+  // Each call increments renderVersionRef; when the response arrives we check
+  // that no newer render has been kicked off before applying state updates.
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
+    const version = ++renderVersionRef.current;
+
     // Only show loading state for initial renders, not auto-updates
     if (!isAutoUpdate) {
       setIsRendering(true);
     }
     setError(null);
-    
+
     // Build inputs array including _blocks namespace for output access
-    const inputsWithBlocks = [
-      ...inputs.filter(i => i.name !== '_blocks'),
-      { name: '_blocks', type: BoilerplateVariableType.Map, value: blocksNamespace() }
-    ];
-    
+    const inputsWithBlocks = buildInputsWithBlocks(inputs, allOutputs);
+
     try {
       const response = await fetch('/api/boilerplate/render-inline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           templateFiles,
           // Send inputs with name, type, and value for proper type conversion
           // Includes _blocks namespace for output access
@@ -137,28 +162,34 @@ function TemplateInline({
         }),
       });
 
+      // A newer render was started while this one was in flight — discard.
+      if (version !== renderVersionRef.current) return [];
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         const appError: AppError = {
           message: errorData?.error || 'Failed to render template',
           details: errorData?.details || 'The server returned an error'
         };
-        
+
         setError(appError);
         setIsRendering(false);
         return [];
       }
 
       const responseData = await response.json();
-      
+
       setRenderData(responseData);
       setRenderState('rendered');
       setIsRendering(false);
-      
+
       return responseData.fileTree || [];
     } catch (err) {
+      // Discard errors from superseded requests
+      if (version !== renderVersionRef.current) return [];
+
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      
+
       setError({
         message: 'Failed to render template',
         details: errorMessage
@@ -166,7 +197,7 @@ function TemplateInline({
       setIsRendering(false);
       return [];
     }
-  }, [templateFiles, inputs, generateFile, blocksNamespace, target]);
+  }, [templateFiles, inputs, generateFile, allOutputs, target]);
   
   // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
@@ -181,7 +212,14 @@ function TemplateInline({
     if (!hasAllOutputDependencies) {
       return;
     }
-    
+
+    // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
+    // a number field before typing a new value). Sending "" to the backend would
+    // cause type-conversion errors like strconv.Atoi("").
+    if (hasEmptyNumericInputs(inputs)) {
+      return;
+    }
+
     // Check if inputs actually changed (includes both values and types)
     const valuesKey = JSON.stringify(inputs);
     const outputsKey = JSON.stringify(allOutputs);
@@ -203,11 +241,15 @@ function TemplateInline({
     const delay = isInitialRender ? 0 : 300;
     
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = combinedKey;
       hasTriggeredInitialRender.current = true;
-      
+
       renderTemplate(!isInitialRender)
         .then(newFileTree => {
+          // Only mark as rendered after a successful response.
+          // On failure renderTemplate returns [] without updating state,
+          // so the next effect cycle will retry with the same inputs.
+          lastRenderedVariablesRef.current = combinedKey;
+
           if (!generateFile) return;
           // When target is worktree, output went to the git repo — do NOT update Generated tab
           // (that would show the whole worktree including .git). Instead refresh the All files tree.
@@ -236,12 +278,30 @@ function TemplateInline({
   
   // Check if there are any unmet input dependencies
   const hasUnmetInputDependencies = inputDependencies.length > 0 && !hasAllInputDependencies(inputValues);
-  
+
   // Render UI
   return (
     <div>
-      {/* Show warning for unmet input dependencies */}
-      {hasUnmetInputDependencies && (
+      {/* Show warning when waiting for input blocks to submit values */}
+      {hasUnmetInputDependencies && unmetInputsIds.length > 0 && (
+        <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
+          <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <strong>Waiting for inputs from:</strong>{' '}
+            {unmetInputsIds.map((id, i) => (
+              <span key={id}>
+                {i > 0 && ', '}
+                <code className="bg-yellow-100 px-1 rounded text-xs">{id}</code>
+              </span>
+            ))}
+            <div className="text-xs mt-1 text-yellow-600">
+              Submit the above input block(s) to render this template.
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Fall back to variable-level warning when inputsId blocks have registered but specific variables are still missing */}
+      {hasUnmetInputDependencies && unmetInputsIds.length === 0 && (
         <UnmetInputDependenciesWarning
           blockType="template"
           inputDependencies={inputDependencies}
@@ -254,12 +314,12 @@ function TemplateInline({
         <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
       )}
       
-      {renderState === 'waiting' ? (
+      {error ? (
+        <ErrorDisplay error={error} />
+      ) : renderState === 'waiting' ? (
         <LoadingDisplay message="Waiting for template to render..." />
       ) : isRendering ? (
         <LoadingDisplay message="Rendering template..." />
-      ) : error ? (
-        <ErrorDisplay error={error} />
       ) : renderData?.renderedFiles ? (
         <>
           {Object.entries(renderData.renderedFiles).map(([filename, fileData]) => (

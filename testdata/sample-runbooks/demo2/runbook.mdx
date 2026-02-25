@@ -57,12 +57,14 @@ Now let's create the `infrastructure-live-root` repo.
     - name: GithubOrgName
       type: string
       description: The GitHub org where we'll create the repo.
-      validations: "required"
+      validations:
+        - required
     - name: GithubRepoName
       type: string
       description: The name of your `infrastructure-live-root` repo
       default: "infrastructure-live-root"
-      validations: "required"
+      validations:
+        - required
     ```
     </Inputs>
 </Command>
@@ -105,7 +107,8 @@ variables:
   order: 1
   description: Your name
   type: string
-  validations: required
+  validations:
+    - required
 ```
 </Inputs>
 

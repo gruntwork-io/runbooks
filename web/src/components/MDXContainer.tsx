@@ -17,6 +17,8 @@ import { AwsAuth } from '@/components/mdx/AwsAuth'
 import { GitHubAuth } from '@/components/mdx/GitHubAuth'
 import { GitClone } from '@/components/mdx/GitClone'
 import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
+import { TfModule } from '@/components/mdx/TfModule'
+import { DirPicker } from '@/components/mdx/DirPicker'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
 
@@ -37,9 +39,10 @@ interface MDXContainerProps {
   content: string
   className?: string
   runbookPath?: string
+  remoteSource?: string
 }
 
-function MDXContainer({ content, runbookPath, className }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, remoteSource, className }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -93,7 +96,7 @@ function MDXContainer({ content, runbookPath, className }: MDXContainerProps) {
   return (
     <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName}>
+        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -252,6 +255,8 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       Inputs,
       Template,
       TemplateInline,
+      TfModule,
+      DirPicker,
       // Script execution components
       Check,
       Command,

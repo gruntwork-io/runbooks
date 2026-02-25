@@ -57,7 +57,8 @@ Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest
       - name: BucketName
         type: string
         description: Name of the S3 bucket to check
-        validations: "required"
+        validations:
+          - required
     \```
     </Inputs>
 </Check>
@@ -234,7 +235,8 @@ The Check command collects input values directly. These values can be shared wit
       - name: KmsKeyId
         type: string
         description: KMS Key ID to validate
-        validations: "required"
+        validations:
+          - required
     \```
     </Inputs>
 </Check>

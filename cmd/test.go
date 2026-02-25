@@ -13,7 +13,6 @@ import (
 
 	runbooktesting "runbooks/api/testing"
 
-	bpUtil "github.com/gruntwork-io/boilerplate/util"
 	"github.com/spf13/cobra"
 )
 
@@ -405,9 +404,6 @@ func reportResults(suites []runbooktesting.RunbookTestSuite) {
 // suppressBoilerplateLogs disables output from the boilerplate library's loggers.
 // This keeps the output clean while still allowing script output to be shown.
 func suppressBoilerplateLogs() {
-	// Suppress boilerplate library's custom logger
-	bpUtil.Logger.SetOutput(io.Discard)
-
 	// Suppress slog output (used by boilerplate rendering)
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
