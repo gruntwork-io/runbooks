@@ -1,12 +1,19 @@
-import { useState, useRef, useMemo, useCallback, forwardRef } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect, forwardRef } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
-import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode } from 'lucide-react'
+import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+
+/** Maximum number of files to render in the code pane at once */
+const MAX_DISPLAYED_FILES = 100
+/** When the number of files exceeds this, all files start collapsed */
+const AUTO_COLLAPSE_THRESHOLD = 25
+/** How many additional files to show each time "Show more" is clicked */
+const SHOW_MORE_INCREMENT = 50
 
 
 interface CodeFileCollectionProps {
@@ -25,6 +32,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAYED_FILES);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isPathVisible, setIsPathVisible] = useState(false);
   const { didCopy: didCopyPath, copy: copyPath } = useCopyToClipboard();
@@ -32,7 +40,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
     const files: FileTreeNode[] = [];
-    
+
     const traverse = (items: FileTreeNode[]) => {
       items.forEach(item => {
         if (item.type === 'file' && item.file) {
@@ -43,10 +51,32 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
         }
       });
     };
-    
+
     traverse(data);
     return files;
   }, [data]);
+
+  // Auto-collapse all files when there are many to avoid rendering
+  // expensive syntax-highlighted content for every file at once.
+  const prevFileCountRef = useRef(0);
+  useEffect(() => {
+    if (fileItems.length > AUTO_COLLAPSE_THRESHOLD && prevFileCountRef.current !== fileItems.length) {
+      setCollapsedFiles(new Set(fileItems.map(f => f.id)));
+    }
+    prevFileCountRef.current = fileItems.length;
+  }, [fileItems]);
+
+  // Reset display limit when file list changes substantially
+  useEffect(() => {
+    setDisplayLimit(MAX_DISPLAYED_FILES);
+  }, [fileItems.length]);
+
+  // Slice files to the display limit
+  const displayedFiles = useMemo(
+    () => fileItems.slice(0, displayLimit),
+    [fileItems, displayLimit]
+  );
+  const hasMoreFiles = fileItems.length > displayLimit;
 
   // Handle file tree item clicks - jump to file
   const handleFileTreeClick = (item: FileTreeNode) => {
@@ -58,11 +88,18 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
         next.delete(item.id);
         return next;
       });
-      // Jump to the file (no smooth scroll)
-      const fileEl = fileRefs.current.get(item.id);
-      if (fileEl) {
-        fileEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+      // If the file is beyond the display limit, extend it
+      const fileIndex = fileItems.findIndex(f => f.id === item.id);
+      if (fileIndex >= displayLimit) {
+        setDisplayLimit(fileIndex + 1);
       }
+      // Jump to the file (deferred to let React render the new limit)
+      requestAnimationFrame(() => {
+        const fileEl = fileRefs.current.get(item.id);
+        if (fileEl) {
+          fileEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }
+      });
     }
   };
 
@@ -77,6 +114,11 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
       }
       return next;
     });
+  };
+
+  // Show more files
+  const handleShowMore = () => {
+    setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT);
   };
 
   // Register file ref
@@ -197,12 +239,12 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
           <ResizeHandle onMouseDown={handleMouseDown} />
 
           {/* All Files View */}
-          <div 
+          <div
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto p-3"
           >
             <div className="flex flex-col gap-3">
-              {fileItems.map((fileItem) => (
+              {displayedFiles.map((fileItem) => (
                 <CollapsibleCodeFile
                   key={fileItem.id}
                   fileItem={fileItem}
@@ -212,6 +254,21 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                   ref={(el) => setFileRef(fileItem.id, el)}
                 />
               ))}
+              {/* Show more / truncation banner */}
+              {hasMoreFiles && (
+                <div className="flex items-center gap-2 px-3 py-3 bg-amber-50 border border-amber-200 rounded-md">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                  <span className="text-sm text-amber-800 flex-1">
+                    Showing {displayedFiles.length} of {fileItems.length} generated files.
+                  </span>
+                  <button
+                    onClick={handleShowMore}
+                    className="px-3 py-1 text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md cursor-pointer transition-colors"
+                  >
+                    Show {Math.min(SHOW_MORE_INCREMENT, fileItems.length - displayLimit)} more
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -238,12 +295,21 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
     const filePath = fileItem.file?.path || fileItem.name;
     const code = fileItem.file?.content || '';
     const language = fileItem.file?.language || 'text';
-    const lineCount = code.split('\n').length;
-    
+    const isTruncated = fileItem.file?.isTruncated === true;
+    const lineCount = code ? code.split('\n').length : 0;
+
+    // Format file size for display
+    const fileSize = fileItem.file?.size ?? 0;
+    const fileSizeLabel = fileSize > 1024 * 1024
+      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+      : fileSize > 1024
+        ? `${(fileSize / 1024).toFixed(1)} KB`
+        : `${fileSize} B`;
+
     const handleCopyPath = () => copy(filePath);
-    
+
     return (
-      <div 
+      <div
         ref={ref}
         className={cn(
           "border border-gray-300 rounded-md overflow-hidden bg-white",
@@ -280,33 +346,39 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
           </button>
           <div className="flex-1" />
           <span className="text-xs text-gray-500 flex-shrink-0">
-            {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+            {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}
           </span>
         </div>
-        
+
         {/* File Content */}
         {!isCollapsed && (
-          <SyntaxHighlighter 
-            language={language}
-            style={coy}
-            showLineNumbers={true}
-            customStyle={{
-              fontSize: '12px',
-              margin: 0,
-              borderRadius: 0,
-              border: 'none',
-              padding: '14px 0px'
-            }}
-            lineNumberStyle={{
-              color: '#999',
-              fontSize: '11px',
-              paddingRight: '12px',
-              borderRight: '1px solid #eee',
-              marginRight: '8px'
-            }}
-          >
-            {code}
-          </SyntaxHighlighter>
+          isTruncated ? (
+            <div className="p-4 text-center text-sm text-gray-500">
+              File too large to display inline ({fileSizeLabel}).
+            </div>
+          ) : (
+            <SyntaxHighlighter
+              language={language}
+              style={coy}
+              showLineNumbers={true}
+              customStyle={{
+                fontSize: '12px',
+                margin: 0,
+                borderRadius: 0,
+                border: 'none',
+                padding: '14px 0px'
+              }}
+              lineNumberStyle={{
+                color: '#999',
+                fontSize: '11px',
+                paddingRight: '12px',
+                borderRight: '1px solid #eee',
+                marginRight: '8px'
+              }}
+            >
+              {code}
+            </SyntaxHighlighter>
+          )
         )}
       </div>
     );

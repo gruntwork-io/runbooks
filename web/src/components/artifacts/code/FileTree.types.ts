@@ -15,12 +15,14 @@ export const FileSchema = z.object({
   name: z.string(),
   /** Full path of the file */
   path: z.string(),
-  /** File content */
+  /** File content (empty string when isTruncated is true) */
   content: z.string(),
   /** Programming language for syntax highlighting */
   language: z.string(),
   /** File size in bytes */
   size: z.number(),
+  /** True when content was omitted because the file is too large */
+  isTruncated: z.boolean().optional(),
 })
 
 /**

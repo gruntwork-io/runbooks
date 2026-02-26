@@ -1,0 +1,143 @@
+package api
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestBuildFileTreeBasic(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "src"), 0755)
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Hello\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\n"), 0644)
+
+	result, err := buildFileTreeWithRoot(dir, "")
+	if err != nil {
+		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+	}
+
+	if result.TotalFiles != 2 {
+		t.Errorf("expected 2 total files, got %d", result.TotalFiles)
+	}
+	if result.TruncatedTree {
+		t.Error("expected TruncatedTree=false for small directory")
+	}
+
+	// Verify file content is included
+	for _, node := range result.Tree {
+		if node.Type == "file" && node.File != nil {
+			if node.File.Content == "" {
+				t.Errorf("expected non-empty content for %s", node.Name)
+			}
+		}
+	}
+}
+
+func TestBuildFileTreeTruncatesWhenTooManyFiles(t *testing.T) {
+	orig := maxFileTreeFiles
+	maxFileTreeFiles = 5
+	t.Cleanup(func() { maxFileTreeFiles = orig })
+
+	dir := t.TempDir()
+	for i := 0; i < maxFileTreeFiles+3; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.txt", i)), []byte("x"), 0644)
+	}
+
+	result, err := buildFileTreeWithRoot(dir, "")
+	if err != nil {
+		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+	}
+
+	if !result.TruncatedTree {
+		t.Error("expected TruncatedTree=true when file count exceeds limit")
+	}
+	if result.TotalFiles != maxFileTreeFiles+3 {
+		t.Errorf("expected totalFiles=%d, got %d", maxFileTreeFiles+3, result.TotalFiles)
+	}
+
+	// Count files in tree (should be capped at the limit)
+	fileCount := 0
+	var countFiles func(nodes []FileTreeNode)
+	countFiles = func(nodes []FileTreeNode) {
+		for _, n := range nodes {
+			if n.Type == "file" {
+				fileCount++
+			}
+			if n.Children != nil {
+				countFiles(n.Children)
+			}
+		}
+	}
+	countFiles(result.Tree)
+
+	if fileCount > maxFileTreeFiles {
+		t.Errorf("expected at most %d files in tree, got %d", maxFileTreeFiles, fileCount)
+	}
+}
+
+func TestBuildFileTreeSkipsHeavyDirs(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
+	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("module.exports = {};\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "index.js"), []byte("const app = require('express')();\n"), 0644)
+
+	result, err := buildFileTreeWithRoot(dir, "")
+	if err != nil {
+		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+	}
+
+	// Should only contain index.js, not anything from node_modules
+	if result.TotalFiles != 1 {
+		t.Errorf("expected 1 file (node_modules should be skipped), got %d", result.TotalFiles)
+	}
+
+	// Verify node_modules is not in the tree
+	for _, node := range result.Tree {
+		if node.Name == "node_modules" {
+			t.Error("node_modules should be excluded from file tree")
+		}
+	}
+}
+
+func TestBuildFileTreeTruncatesLargeFiles(t *testing.T) {
+	orig := maxFileTreeFileSize
+	maxFileTreeFileSize = 64
+	t.Cleanup(func() { maxFileTreeFileSize = orig })
+
+	dir := t.TempDir()
+	largeContent := make([]byte, int(maxFileTreeFileSize)+1)
+	for i := range largeContent {
+		largeContent[i] = 'x'
+	}
+	os.WriteFile(filepath.Join(dir, "large.txt"), largeContent, 0644)
+	os.WriteFile(filepath.Join(dir, "small.txt"), []byte("small\n"), 0644)
+
+	result, err := buildFileTreeWithRoot(dir, "")
+	if err != nil {
+		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+	}
+
+	for _, node := range result.Tree {
+		if node.File == nil {
+			continue
+		}
+		if node.Name == "large.txt" {
+			if !node.File.IsTruncated {
+				t.Error("expected IsTruncated=true for large file")
+			}
+			if node.File.Content != "" {
+				t.Error("expected empty content for truncated file")
+			}
+		}
+		if node.Name == "small.txt" {
+			if node.File.IsTruncated {
+				t.Error("expected IsTruncated=false for small file")
+			}
+			if node.File.Content != "small\n" {
+				t.Errorf("expected content 'small\\n', got %q", node.File.Content)
+			}
+		}
+	}
+}

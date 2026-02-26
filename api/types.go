@@ -10,11 +10,12 @@ import (
 
 // File represents a file with its content and metadata
 type File struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	Language string `json:"language"`
-	Size     int64  `json:"size"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Content     string `json:"content"`
+	Language    string `json:"language"`
+	Size        int64  `json:"size"`
+	IsTruncated bool   `json:"isTruncated,omitempty"` // True when content was omitted because the file is too large
 }
 
 // FileTreeNode represents a file or folder in the generated file tree
@@ -56,6 +57,11 @@ type RenderResponse struct {
 	OutputDir    string         `json:"outputDir"`
 	TemplatePath string         `json:"templatePath"`
 	FileTree     []FileTreeNode `json:"fileTree"`
+	// TotalFiles is the total number of files discovered in the output directory.
+	// When this exceeds the file tree limit, FileTree contains a truncated subset.
+	TotalFiles   int    `json:"totalFiles"`
+	// TruncatedTree is true when the file tree was capped at the display limit.
+	TruncatedTree bool  `json:"truncatedTree,omitempty"`
 	// Cleanup statistics (only populated when TemplateID is provided in request)
 	DeletedFiles  []string `json:"deletedFiles,omitempty"`  // Files that were deleted (orphaned from previous render)
 	CreatedFiles  []string `json:"createdFiles,omitempty"`  // Files that were newly created
@@ -148,6 +154,10 @@ type RenderInlineResponse struct {
 	Message       string                           `json:"message"`
 	RenderedFiles map[string]File                  `json:"renderedFiles"` // Map of file paths to file metadata
 	FileTree      []FileTreeNode                   `json:"fileTree"`
+	// TotalFiles is the total number of files discovered in the output directory.
+	TotalFiles    int                              `json:"totalFiles"`
+	// TruncatedTree is true when the file tree was capped at the display limit.
+	TruncatedTree bool                             `json:"truncatedTree,omitempty"`
 }
 
 // Boilerplate configuration types
