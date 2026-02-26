@@ -1,12 +1,13 @@
 import { GitPullRequest, CheckCircle, XCircle, Loader2, AlertTriangle, Trash2 } from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel, UnmetDependenciesWarning } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext, useTemplateContext } from "@/contexts/useRunbook"
-import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
+import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies } from "@/lib/templateUtils"
+import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
 import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
@@ -54,6 +55,30 @@ function GitHubPullRequest({
   // Runbook context for metadata; template context for resolving expressions
   const { runbookName } = useRunbookContext()
   const templateCtx = useTemplateContext(inputsId)
+  const rawOutputs = useAllOutputs()
+
+  // Extract and check template dependencies from all props that support template expressions
+  const allDeps = useMemo(() => [
+    ...extractTemplateDependenciesFromString(title ?? ''),
+    ...extractTemplateDependenciesFromString(description ?? ''),
+    ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ''),
+    ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ''),
+    ...extractTemplateDependenciesFromString(prefilledBranchName ?? ''),
+  ], [title, description, prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName])
+
+  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+
+  const unmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(inputDeps, templateCtx.inputs),
+    [inputDeps, templateCtx.inputs]
+  )
+
+  const unmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(outputDeps, rawOutputs),
+    [outputDeps, rawOutputs]
+  )
+
+  const hasAllDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
   // Track render
   useEffect(() => {
@@ -241,7 +266,7 @@ function GitHubPullRequest({
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
-  const isFormDisabled = !githubAuthMet || !activeWorkTree
+  const isFormDisabled = !githubAuthMet || !activeWorkTree || !hasAllDependencies
 
   // Block outputs for ViewOutputs
   const outputValues = useMemo(() => {
@@ -302,6 +327,17 @@ function GitHubPullRequest({
                   Clone a repository using a GitClone block first.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Template dependency warnings */}
+          {!hasAllDependencies && (
+            <div className="mb-4">
+              <UnmetDependenciesWarning
+                blockType="pull request"
+                unmetInputDeps={unmetInputDeps}
+                unmetOutputDeps={unmetOutputDeps}
+              />
             </div>
           )}
 

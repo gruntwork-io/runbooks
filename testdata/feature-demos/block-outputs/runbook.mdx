@@ -248,3 +248,80 @@ This check validates that everything was set up correctly.
   successMessage="All resources created and verified!"
   failMessage="Verification failed - check the outputs above"
 />
+
+---
+
+## Testing: Other Blocks with Template Expression Support
+
+This section tests template expression support across all blocks. While primarily for testing purposes, it also serves as a demonstration of how different blocks handle inputs and outputs.
+
+### DirPicker with Template Expressions
+
+The `<DirPicker>` block supports template expressions in its display props (`title`, `description`, `pathLabel`, `pathLabelDescription`):
+
+<DirPicker
+  id="select-dir"
+  inputsId="tagging-inputs"
+  rootDir="."
+  title="Select Directory for {{ .inputs.environment }}"
+  description="Choose a directory in account {{ .outputs.create_account.account_id }}"
+  pathLabel="Target Path"
+  pathLabelDescription="Resources will be deployed to the {{ .inputs.environment }} environment"
+  dirLabels={["Category", "Subcategory"]}
+/>
+
+### GitHubPullRequest with Template Expressions
+
+**Note:** This example demonstrates template expression support but won't actually create a PR since this runbook doesn't include GitHub authentication or repository cloning.
+
+The `<GitHubPullRequest>` block supports template expressions in:
+- Display props: `title`, `description`
+- Functional props: `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBranchName`
+
+```mdx
+<GitHubPullRequest
+  id="create-pr-demo"
+  inputsId="tagging-inputs"
+  title="Create PR for {{ .inputs.environment }}"
+  description="Open a pull request with changes for account {{ .outputs.create_account.account_id }}"
+  prefilledPullRequestTitle="Deploy to {{ .inputs.environment }} (Account: {{ .outputs.create_account.account_id }})"
+  prefilledPullRequestDescription="## Changes\n- Environment: {{ .inputs.environment }}\n- Account ID: {{ .outputs.create_account.account_id }}\n- Region: {{ .outputs.create_account.region }}\n- Owner: {{ .inputs.owner }}"
+  prefilledBranchName="deploy/{{ .inputs.environment }}/{{ .outputs.create_account.account_id }}"
+/>
+```
+
+### TfModule with Template Expressions
+
+The `<TfModule>` block supports template expressions in its display props:
+
+```mdx
+<TfModule
+  id="vpc-module-demo"
+  inputsId="tagging-inputs"
+  source="../modules/vpc"
+  title="Configure VPC for {{ .inputs.environment }}"
+  description="Deploy VPC in account {{ .outputs.create_account.account_id }}, region {{ .outputs.create_account.region }}"
+/>
+```
+
+### AwsAuth and GitHubAuth
+
+These blocks support template expressions only in display props (`title`, `description`), which are used for customizing the authentication UI:
+
+```mdx
+<AwsAuth
+  id="aws-auth-demo"
+  inputsId="tagging-inputs"
+  title="Authenticate to {{ .inputs.environment }} Environment"
+  description="Connect to AWS account {{ .outputs.create_account.account_id }}"
+/>
+
+<GitHubAuth
+  id="gh-auth-demo"
+  inputsId="tagging-inputs"
+  title="Authenticate for {{ .inputs.environment }} Deployment"
+  description="Connect to GitHub to deploy to {{ .inputs.environment }}"
+/>
+```
+
+**Note:** Since these only affect display text, unmet output dependencies don't block authentication - they just show the raw template syntax until dependencies are satisfied.
