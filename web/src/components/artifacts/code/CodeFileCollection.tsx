@@ -259,7 +259,9 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                       {truncationInfo.heavyDir && (
                         <p className="mt-1.5">
                           The <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDir}/</code> directory
-                          contains {truncationInfo.heavyDirFileCount?.toLocaleString()} files and may be the cause.
+                          {typeof truncationInfo.heavyDirFileCount === "number"
+                            ? <> contains {truncationInfo.heavyDirFileCount.toLocaleString()} files and</>
+                            : <></>} may be the cause.
                         </p>
                       )}
                     </div>
