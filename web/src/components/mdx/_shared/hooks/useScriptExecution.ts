@@ -130,7 +130,7 @@ export function useScriptExecution({
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
   
   // Get file tree context for updating when files are captured
-  const { setFileTree } = useFileTree()
+  const { updateFileTree } = useFileTree()
 
   // Get worktree context for triggering immediate changelog refresh
   const { invalidateTree } = useGitWorkTree()
@@ -145,10 +145,10 @@ export function useScriptExecution({
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
     // Update the file tree with the new tree from the backend
     // The fileTree is already validated by Zod in useApiExec
-    setFileTree(event.fileTree)
+    updateFileTree({ fileTree: event.fileTree })
     // Trigger immediate changelog refresh so changes appear without waiting for next poll
     invalidateTree()
-  }, [setFileTree, invalidateTree])
+  }, [updateFileTree, invalidateTree])
   
   // Callback to handle outputs captured from script execution
   const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {

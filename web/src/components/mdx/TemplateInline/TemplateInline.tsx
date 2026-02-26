@@ -9,7 +9,8 @@ import type { AppError } from '@/types/error'
 import { extractTemplateVariables } from './lib/extractTemplateVariables'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import { extractOutputDependencies, extractOutputDependenciesFromString } from './lib/extractOutputDependencies'
-import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
+import type { File } from '@/components/artifacts/code/FileTree'
+import type { FileTreeResponse } from '@/contexts/GeneratedFilesContext.types'
 import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
@@ -60,7 +61,7 @@ function TemplateInline({
   const renderVersionRef = useRef(0);
   
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
-  const { setFileTree, setTruncationInfo } = useFileTree();
+  const { updateFileTree } = useFileTree();
   const { invalidateTree } = useGitWorkTree();
 
   // Get inputs for API requests and derive values map for lookups
@@ -133,8 +134,7 @@ function TemplateInline({
   // Core render function that calls the API.
   // Each call increments renderVersionRef; when the response arrives we check
   // that no newer render has been kicked off before applying state updates.
-  interface RenderResult { fileTree: FileTreeNode[], truncatedTree?: boolean, totalFiles?: number, heavyDir?: string, heavyDirFileCount?: number }
-  const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<RenderResult> => {
+  const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeResponse | null> => {
     const version = ++renderVersionRef.current;
 
     // Only show loading state for initial renders, not auto-updates
@@ -164,7 +164,7 @@ function TemplateInline({
       });
 
       // A newer render was started while this one was in flight — discard.
-      if (version !== renderVersionRef.current) return { fileTree: [] };
+      if (version !== renderVersionRef.current) return null;
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
@@ -175,7 +175,7 @@ function TemplateInline({
 
         setError(appError);
         setIsRendering(false);
-        return { fileTree: [] };
+        return null;
       }
 
       const responseData = await response.json();
@@ -193,7 +193,7 @@ function TemplateInline({
       };
     } catch (err) {
       // Discard errors from superseded requests
-      if (version !== renderVersionRef.current) return { fileTree: [] };
+      if (version !== renderVersionRef.current) return null;
 
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
@@ -202,7 +202,7 @@ function TemplateInline({
         details: errorMessage
       });
       setIsRendering(false);
-      return { fileTree: [] };
+      return null;
     }
   }, [templateFiles, inputs, generateFile, allOutputs, target]);
   
@@ -253,8 +253,9 @@ function TemplateInline({
       renderTemplate(!isInitialRender)
         .then(result => {
           // Only mark as rendered after a successful response.
-          // On failure renderTemplate returns empty fileTree without updating state,
+          // On failure renderTemplate returns null without updating state,
           // so the next effect cycle will retry with the same inputs.
+          if (!result) return;
           lastRenderedVariablesRef.current = combinedKey;
 
           if (!generateFile) return;
@@ -263,18 +264,7 @@ function TemplateInline({
           if (target === 'worktree') {
             invalidateTree();
           } else {
-            setFileTree(result.fileTree);
-            // Store truncation metadata so the UI can show .gitignore recommendations
-            if (result.truncatedTree) {
-              setTruncationInfo({
-                truncatedTree: true,
-                totalFiles: result.totalFiles ?? 0,
-                heavyDir: result.heavyDir,
-                heavyDirFileCount: result.heavyDirFileCount,
-              });
-            } else {
-              setTruncationInfo(null);
-            }
+            updateFileTree(result);
             // Trigger immediate changelog refresh so changes appear without waiting for next poll
             invalidateTree();
           }
@@ -283,7 +273,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, setTruncationInfo, generateFile, target, invalidateTree]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, updateFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {

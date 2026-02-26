@@ -9,19 +9,16 @@ interface BoilerplateRenderResult {
   message:      string,
   outputDir:    string,
   templatePath: string,
-  fileTree:     FileTree,
+  fileTree:     FileTreeNode[],
   totalFiles?:  number,
   truncatedTree?: boolean,
   heavyDir?: string,
   heavyDirFileCount?: number,
-  // Cleanup information from manifest-based rendering
-  deletedFiles?:  string[], // Files deleted due to orphaning
-  createdFiles?:  string[], // Newly created files
-  modifiedFiles?: string[], // Files with changed content
-  skippedFiles?:  string[], // Files unchanged (no write needed)
+  deletedFiles?:  string[],
+  createdFiles?:  string[],
+  modifiedFiles?: string[],
+  skippedFiles?:  string[],
 }
-
-type FileTree = FileTreeNode[]
 
 // Enhanced return type that includes auto-rendering functionality
 interface UseApiBoilerplateRenderResult extends UseApiReturn<BoilerplateRenderResult> {
@@ -49,7 +46,7 @@ export function useApiBoilerplateRender(
   shouldFetch: boolean = true,
   target?: 'generated' | 'worktree'
 ): UseApiBoilerplateRenderResult {
-  const { setFileTree, setTruncationInfo } = useFileTree();  // The FileTree is where we render the list of generated files
+  const { updateFileTree } = useFileTree();
   const { invalidateTree } = useGitWorkTree();
 
   // Build the request body - both templatePath and templateId are required
@@ -81,24 +78,12 @@ export function useApiBoilerplateRender(
   useEffect(() => {
     if (target === 'worktree') return;
     const data = apiResult.data;
-    const fileTreeData = data?.fileTree;
-    if (fileTreeData && Array.isArray(fileTreeData)) {
-      setFileTree(fileTreeData);
-      // Store truncation metadata so the UI can show a warning banner
-      if (data?.truncatedTree) {
-        setTruncationInfo({
-          truncatedTree: true,
-          totalFiles: data.totalFiles ?? 0,
-          heavyDir: data.heavyDir,
-          heavyDirFileCount: data.heavyDirFileCount,
-        });
-      } else {
-        setTruncationInfo(null);
-      }
+    if (data?.fileTree && Array.isArray(data.fileTree)) {
+      updateFileTree(data);
       // Trigger immediate changelog refresh so changes appear without waiting for next poll
       invalidateTree();
     }
-  }, [apiResult.data?.fileTree, apiResult.data?.truncatedTree, setFileTree, setTruncationInfo, target, invalidateTree]);
+  }, [apiResult.data?.fileTree, apiResult.data?.truncatedTree, updateFileTree, target, invalidateTree]);
 
   return {
     ...apiResult,

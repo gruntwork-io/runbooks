@@ -13,13 +13,26 @@ export interface TruncationInfo {
   heavyDirFileCount?: number
 }
 
+/**
+ * Shape accepted by updateFileTree. Includes the file tree itself plus optional
+ * truncation metadata returned by the backend. When truncation fields are
+ * absent the stored TruncationInfo is automatically cleared.
+ */
+export interface FileTreeResponse {
+  fileTree: FileTreeNode[]
+  truncatedTree?: boolean
+  totalFiles?: number
+  heavyDir?: string
+  heavyDirFileCount?: number
+}
+
 export interface GeneratedFilesContextType {
   fileTree: FileTreeNode[] | null
-  setFileTree: (fileTree: FileTreeNode[] | null | ((prevFileTree: FileTreeNode[] | null) => FileTreeNode[] | null)) => void
+  truncationInfo: TruncationInfo | null
   localPath: string | null
   setLocalPath: (path: string | null) => void
-  truncationInfo: TruncationInfo | null
-  setTruncationInfo: (info: TruncationInfo | null) => void
+  /** Single setter for file tree + truncation metadata. Pass null to clear. */
+  updateFileTree: (response: FileTreeResponse | null) => void
 }
 
 export const GeneratedFilesContext = createContext<GeneratedFilesContextType | undefined>(undefined)

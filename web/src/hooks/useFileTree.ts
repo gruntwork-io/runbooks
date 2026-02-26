@@ -5,12 +5,11 @@ import type { GeneratedFilesContextType } from '../contexts/GeneratedFilesContex
 // Wrap useGeneratedFiles to return the old interface shape (without localPath)
 export const useFileTree = (): {
   fileTree: GeneratedFilesContextType['fileTree'],
-  setFileTree: GeneratedFilesContextType['setFileTree'],
   truncationInfo: GeneratedFilesContextType['truncationInfo'],
-  setTruncationInfo: GeneratedFilesContextType['setTruncationInfo'],
+  updateFileTree: GeneratedFilesContextType['updateFileTree'],
 } => {
-  const { fileTree, setFileTree, truncationInfo, setTruncationInfo } = useGeneratedFiles()
-  return { fileTree, setFileTree, truncationInfo, setTruncationInfo }
+  const { fileTree, truncationInfo, updateFileTree } = useGeneratedFiles()
+  return { fileTree, truncationInfo, updateFileTree }
 }
 
 // Re-export the context for backward compatibility
