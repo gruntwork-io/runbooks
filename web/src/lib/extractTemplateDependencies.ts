@@ -8,6 +8,7 @@
  * template expressions its props/content contain.
  */
 
+import type { ReactNode } from 'react'
 import { normalizeBlockId } from '@/lib/utils'
 import type { InputName, BlockId, OutputName } from '@/lib/templateUtils'
 
@@ -137,4 +138,52 @@ export function splitDependencies(deps: TemplateDependency[]): {
   }
 
   return { inputs, outputs }
+}
+
+/**
+ * Extract template dependencies from React children nodes.
+ *
+ * MDX compiles code blocks into nested React elements (`<pre>` → `<code>` → text).
+ * This function walks the React element tree to collect all text strings, then
+ * feeds each to extractTemplateDependenciesFromString.
+ *
+ * Used by TemplateInline where template content arrives as React children,
+ * not as a string prop.
+ *
+ * @param children - React children nodes containing template content
+ * @returns Array of TemplateDependency objects found in the template
+ */
+export function extractTemplateDependencies(children: ReactNode): TemplateDependency[] {
+  const allDeps: TemplateDependency[] = []
+  const seen = new Set<string>()
+
+  const collectFromString = (text: string) => {
+    const deps = extractTemplateDependenciesFromString(text)
+    for (const dep of deps) {
+      const key = dep.type === 'input' ? `input:${dep.name}` : dep.fullPath
+      if (!seen.has(key)) {
+        seen.add(key)
+        allDeps.push(dep)
+      }
+    }
+  }
+
+  const traverse = (node: ReactNode): void => {
+    if (typeof node === 'string') {
+      collectFromString(node)
+    } else if (Array.isArray(node)) {
+      node.forEach(traverse)
+    } else if (node && typeof node === 'object' && 'props' in node) {
+      const element = node as { props?: { children?: ReactNode; value?: string } }
+      if (element.props?.value) {
+        collectFromString(element.props.value)
+      }
+      if (element.props?.children) {
+        traverse(element.props.children)
+      }
+    }
+  }
+
+  traverse(children)
+  return allDeps
 }

@@ -354,10 +354,10 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	return blocks, nil
 }
 
-// extractOutputDependencies extracts {{ ._blocks.blockId.outputs.outputName }} patterns from content
+// extractOutputDependencies extracts {{ .outputs.blockId.outputName }} patterns from content
 func extractOutputDependencies(content string) []outputDependency {
-	// Match patterns like {{ ._blocks.list_users.outputs.users }}
-	re := regexp.MustCompile(`\{\{\s*-?\s*(?:range\s+[^}]*)?\.?_blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+	// Match patterns like {{ .outputs.list_users.users }}
+	re := regexp.MustCompile(`\{\{\s*-?\s*(?:range\s+[^}]*)?\.?outputs\.([a-zA-Z0-9_-]+)\.(\w+)`)
 	matches := re.FindAllStringSubmatch(content, -1)
 
 	seen := make(map[string]bool)
@@ -606,7 +606,7 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 	// This ensures new blocks added to the runbook are automatically included in tests.
 	sb.WriteString("    steps:\n")
 	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
-	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n")
+	sb.WriteString("      # blocks that consume them via {{ .outputs.x.y }}\n")
 	sb.WriteString("      # All blocks below are commented out, so this test runs all blocks\n")
 	sb.WriteString("      # in document order. Uncomment specific blocks to run only those.\n\n")
 

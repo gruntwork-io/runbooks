@@ -5,8 +5,8 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext } from "@/contexts/useRunbook"
-import { normalizeBlockId } from "@/lib/utils"
+import { useRunbookContext, useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
 import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
@@ -23,15 +23,9 @@ const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; i
   ready:    { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
 }
 
-/** Resolve template expressions like {{ ._blocks.X.outputs.Y }} and process escape sequences (\n → newline). */
-function resolveTemplateString(template: string, blockOutputs: Record<string, { values: Record<string, string> }>): string {
-  return template
-    .replace(/\{\{\s*\._blocks\.(\w+)\.outputs\.(\w+)\s*\}\}/g, (_match, blockId, outputName) => {
-      const normalizedId = normalizeBlockId(blockId)
-      const value = blockOutputs[normalizedId]?.values?.[outputName]
-      return value ?? _match // Leave unresolved patterns as-is
-    })
-    .replace(/\\n/g, '\n')
+/** Resolve template expressions and process escape sequences (\n → newline). */
+function resolveAndUnescape(template: string, ctx: import('@/lib/templateUtils').TemplateContext): string {
+  return resolveTemplateReferences(template, ctx).replace(/\\n/g, '\n')
 }
 
 function GitHubPullRequest({
@@ -42,6 +36,7 @@ function GitHubPullRequest({
   prefilledPullRequestDescription = '',
   prefilledPullRequestLabels = [],
   prefilledBranchName = '',
+  inputsId,
   githubAuthId,
 }: GitHubPullRequestProps) {
   // Check for duplicate component IDs
@@ -56,8 +51,9 @@ function GitHubPullRequest({
   // Git worktree context
   const { activeWorkTree } = useGitWorkTree()
 
-  // Runbook context for template resolution and metadata
-  const { blockOutputs: allOutputs, runbookName } = useRunbookContext()
+  // Runbook context for metadata; template context for resolving expressions
+  const { runbookName } = useRunbookContext()
+  const templateCtx = useTemplateContext(inputsId)
 
   // Track render
   useEffect(() => {
@@ -97,18 +93,28 @@ function GitHubPullRequest({
     }
   }, [workspaceChanges])
 
-  // Resolve prefilled values with template expressions
+  // Resolve prefilled values with template expressions ({{ .inputs.X }} and {{ .outputs.X.Y }})
   const resolvedTitle = useMemo(() =>
-    prefilledPullRequestTitle ? resolveTemplateString(prefilledPullRequestTitle, allOutputs) : '',
-    [prefilledPullRequestTitle, allOutputs]
+    prefilledPullRequestTitle ? resolveAndUnescape(prefilledPullRequestTitle, templateCtx) : '',
+    [prefilledPullRequestTitle, templateCtx]
   )
   const resolvedDescription = useMemo(() =>
-    prefilledPullRequestDescription ? resolveTemplateString(prefilledPullRequestDescription, allOutputs) : '',
-    [prefilledPullRequestDescription, allOutputs]
+    prefilledPullRequestDescription ? resolveAndUnescape(prefilledPullRequestDescription, templateCtx) : '',
+    [prefilledPullRequestDescription, templateCtx]
   )
   const resolvedBranchName = useMemo(() =>
-    prefilledBranchName ? resolveTemplateString(prefilledBranchName, allOutputs) : '',
-    [prefilledBranchName, allOutputs]
+    prefilledBranchName ? resolveAndUnescape(prefilledBranchName, templateCtx) : '',
+    [prefilledBranchName, templateCtx]
+  )
+
+  // Resolve display props (title and description support template expressions too)
+  const resolvedDisplayTitle = useMemo(() =>
+    title ? resolveTemplateReferences(title, templateCtx) : title,
+    [title, templateCtx]
+  )
+  const resolvedDisplayDescription = useMemo(() =>
+    description ? resolveTemplateReferences(description, templateCtx) : description,
+    [description, templateCtx]
   )
 
   // Default commit message includes the runbook name when available
@@ -268,10 +274,10 @@ function GitHubPullRequest({
           {/* Title and description */}
           <div className="flex items-center gap-1 text-md font-bold text-gray-700">
             <GitHubLogo className="size-6 text-gray-800" />
-            <InlineMarkdown>{title}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDisplayTitle}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">
-            <InlineMarkdown>{description}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDisplayDescription}</InlineMarkdown>
           </div>
 
           {/* Dependency warnings */}

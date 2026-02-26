@@ -105,7 +105,7 @@ tests:
 
     steps:
       # Note: Order matters! Blocks that produce outputs must run before
-      # blocks that consume them via {{ ._blocks.x.outputs.y }}
+      # blocks that consume them via {{ .outputs.x.y }}
       # If no blocks are listed, the test runs all blocks in document order.
 
       # - block: test1

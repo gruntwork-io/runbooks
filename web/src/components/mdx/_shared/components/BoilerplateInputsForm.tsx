@@ -7,7 +7,7 @@ import { FormControl } from './FormControls'
 import { useFormState } from '../hooks/useFormState'
 import { useFormValidation } from '../hooks/useFormValidation'
 import { FormStatus } from './FormStatus'
-import { UnmetOutputDependenciesWarning } from './UnmetOutputDependenciesWarning'
+import { UnmetDependenciesWarning } from './UnmetDependenciesWarning'
 import { BlockIdLabel } from './BlockIdLabel'
 import type { BlockOutput } from '@/lib/templateUtils'
 
@@ -345,7 +345,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 {/* Show warning for unmet output dependencies below the button */}
                 {unmetOutputDependencies.length > 0 && (
                   <div className="mt-3 -mb-3">
-                    <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+                    <UnmetDependenciesWarning blockType="template" unmetInputDeps={[]} unmetOutputDeps={unmetOutputDependencies} />
                   </div>
                 )}
               </>

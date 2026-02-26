@@ -56,8 +56,8 @@ The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, and `prefill
 <GitHubPullRequest
   id="create-pr"
   githubAuthId="gh-auth"
-  prefilledPullRequestTitle="Add {{ ._blocks.config.outputs.MODULE_NAME }} module"
-  prefilledBranchName="feature/{{ ._blocks.config.outputs.MODULE_NAME }}"
+  prefilledPullRequestTitle="Add {{ .outputs.config.MODULE_NAME }} module"
+  prefilledBranchName="feature/{{ .outputs.config.MODULE_NAME }}"
 />
 ```
 
@@ -91,7 +91,7 @@ Reference outputs in downstream blocks using template variables:
 <Command
   id="notify"
   title="Post PR Link"
-  command="echo 'PR created: {{ ._blocks.create_pr.outputs.PR_URL }}'"
+  command="echo 'PR created: {{ .outputs.create_pr.PR_URL }}'"
 />
 ```
 

@@ -250,7 +250,10 @@ func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[str
 		return fmt.Errorf("failed to load boilerplate config: %w", err)
 	}
 
-	// Convert variables to the correct types based on the boilerplate config
+	// Convert variables to the correct types based on the boilerplate config.
+	// Variables arrive flat (e.g., { region: "us-west-2", outputs: {...} }).
+	// The boilerplate engine resolves declared variables by name from this map.
+	// Block outputs are available under the "outputs" key ({{ .outputs.block_id.key }}).
 	convertedVariables, err := convertVariablesToCorrectTypes(variables, boilerplateConfig.GetVariablesMap())
 	if err != nil {
 		return fmt.Errorf("failed to convert variables to correct types: %w", err)
@@ -553,7 +556,7 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 }
 
 // RenderBoilerplateContent renders boilerplate template content with variables and returns the rendered string.
-// Variables can be simple strings or nested structures (like _blocks for block outputs).
+// Variables can be simple strings or nested structures (like outputs for block outputs).
 // This function is exported for use by the testing package.
 func RenderBoilerplateContent(content string, variables map[string]any) (string, error) {
 	// Create a temporary directory for the template

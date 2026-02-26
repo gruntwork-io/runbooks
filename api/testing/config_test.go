@@ -242,7 +242,7 @@ tests:
       - block: create-resources
         expect: blocked
         missing_outputs:
-          - _blocks.create_account.outputs.account_id
+          - outputs.create_account.account_id
 `
 
 	config, err := ParseConfig([]byte(yaml))
@@ -251,7 +251,7 @@ tests:
 	step := config.Tests[0].Steps[0]
 	assert.Equal(t, StatusBlocked, step.Expect)
 	require.Len(t, step.MissingOutputs, 1)
-	assert.Equal(t, "_blocks.create_account.outputs.account_id", step.MissingOutputs[0])
+	assert.Equal(t, "outputs.create_account.account_id", step.MissingOutputs[0])
 }
 
 func TestParseConfig_ValidationErrors(t *testing.T) {

@@ -3,10 +3,9 @@
  * Used by Template, TemplateInline, useScriptExecution, GitClone, and other blocks.
  */
 
-import type { BlockOutputs, InputValue } from '@/contexts/RunbookContext'
+import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import type { OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
-import { groupDependenciesByBlock } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
+import type { OutputDependency } from '@/lib/extractTemplateDependencies'
 import { normalizeBlockId } from '@/lib/utils'
 
 // --- Shared types for the new inputs/outputs architecture ---
@@ -45,30 +44,14 @@ export interface BlockOutput {
 }
 
 /**
- * Build the _blocks namespace for template rendering.
- * Transforms block outputs into the format expected by boilerplate templates.
+ * Build the TemplateValue[] payload for /api/boilerplate/render-inline.
+ * Wraps both namespaces as Map-typed entries — the Go template engine navigates them
+ * via {{ .inputs.X }} and {{ .outputs.X.Y }}.
  */
-export function buildBlocksNamespace(
-  allOutputs: Record<string, BlockOutputs>
-): Record<string, { outputs: Record<string, string> }> {
-  const blocksNamespace: Record<string, { outputs: Record<string, string> }> = {}
-  for (const [blockId, data] of Object.entries(allOutputs)) {
-    blocksNamespace[blockId] = { outputs: data.values }
-  }
-  return blocksNamespace
-}
-
-/**
- * Build an inputs array with the _blocks namespace appended.
- * Replaces any existing _blocks entry in the inputs.
- */
-export function buildInputsWithBlocks(
-  inputs: InputValue[],
-  allOutputs: Record<string, BlockOutputs>
-): InputValue[] {
+export function buildTemplatePayload(ctx: TemplateContext): TemplateValue[] {
   return [
-    ...inputs.filter(i => i.name !== '_blocks'),
-    { name: '_blocks', type: BoilerplateVariableType.Map, value: buildBlocksNamespace(allOutputs) },
+    { name: 'inputs', type: BoilerplateVariableType.Map, value: ctx.inputs },
+    { name: 'outputs', type: BoilerplateVariableType.Map, value: ctx.outputs },
   ]
 }
 
@@ -81,25 +64,10 @@ export function buildInputsWithBlocks(
  * String types are NOT checked because "" is a valid string value.
  * Bool, List, Map, and Enum never produce empty strings from their controls.
  */
-export function hasEmptyNumericInputs(inputs: InputValue[]): boolean {
+export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
   return inputs.some(
     i => (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) && i.value === ''
   )
-}
-
-/**
- * Check if all input dependencies have non-empty values.
- * Returns true when deps is empty (no dependencies to satisfy).
- */
-export function allDependenciesSatisfied(
-  deps: string[],
-  values: Record<string, unknown>
-): boolean {
-  if (deps.length === 0) return true
-  return deps.every(name => {
-    const value = values[name]
-    return value !== undefined && value !== null && value !== ''
-  })
 }
 
 /**
@@ -193,4 +161,23 @@ export function resolveTemplateReferences(
       return ''
     }
   )
+}
+
+// --- Internal helpers ---
+
+/**
+ * Group output dependencies by block ID.
+ */
+function groupDependenciesByBlock(dependencies: OutputDependency[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>()
+
+  for (const dep of dependencies) {
+    const existing = grouped.get(dep.blockId) || []
+    if (!existing.includes(dep.outputName)) {
+      existing.push(dep.outputName)
+    }
+    grouped.set(dep.blockId, existing)
+  }
+
+  return grouped
 }

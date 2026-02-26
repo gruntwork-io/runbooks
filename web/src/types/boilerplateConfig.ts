@@ -10,12 +10,12 @@ export interface Section {
 }
 
 // OutputDependency represents a reference to another block's output found in a template file.
-// These are {{ ._blocks.blockId.outputs.outputName }} patterns that the Template component
+// These are {{ .outputs.blockId.outputName }} patterns that the Template component
 // uses to show warnings when dependent Check/Command blocks haven't been executed yet.
 export interface OutputDependency {
   blockId: string;    // The block ID that produces the output (e.g., "create-account")
   outputName: string; // The output name (e.g., "account_id")
-  fullPath: string;   // The full template reference (e.g., "_blocks.create-account.outputs.account_id")
+  fullPath: string;   // The full template reference (e.g., "outputs.create-account.account_id")
 }
 
 // TfModuleMetadata contains additional metadata extracted from an OpenTofu module directory.
@@ -33,7 +33,7 @@ export interface BoilerplateConfig {
   // Each Section contains a name and the list of variable names in that section.
   // Note: Individual variables also have a sectionName field for direct lookup.
   sections?: Section[];
-  // Output dependencies found by scanning template files for {{ ._blocks.*.outputs.* }} patterns.
+  // Output dependencies found by scanning template files for {{ .outputs.*.* }} patterns.
   // The Template component uses this to show warnings when dependent blocks haven't been executed.
   outputDependencies?: OutputDependency[];
   // Module metadata (only present for TfModule parse responses)

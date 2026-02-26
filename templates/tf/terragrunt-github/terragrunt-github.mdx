@@ -23,13 +23,13 @@ generates a `terragrunt.hcl` file at a chosen path, and opens a pull request.
 
 <TemplateInline
   inputsId="module-vars"
-  outputPath="{{ ._blocks.target_path.outputs.PATH }}/{{ ._blocks.module_vars.outputs.MODULE_NAME }}/terragrunt.hcl"
+  outputPath="{{ .outputs.target_path.PATH }}/{{ .outputs.module_vars.MODULE_NAME }}/terragrunt.hcl"
   generateFile={true}
   target="worktree"
 >
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -38,7 +38,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -48,8 +48,9 @@ inputs = {
 ## Create Pull Request
 
 <GitHubPullRequest
-  workspaceId="clone-repo" 
-  prefilledPullRequestTitle="Update {{ ._blocks.module_vars.outputs.MODULE_NAME }} module"
-  prefilledBranchName="feature/{{ ._blocks.module_vars.outputs.MODULE_NAME }}"
-  prefilledPullRequestDescription="## Changes\n\n- Added a new terragrunt.hcl file at {{ ._blocks.target_path.outputs.PATH }}"
+  workspaceId="clone-repo"
+  inputsId="module-vars"
+  prefilledPullRequestTitle="Update {{ .outputs.module_vars.MODULE_NAME }} module"
+  prefilledBranchName="feature/{{ .outputs.module_vars.MODULE_NAME }}"
+  prefilledPullRequestDescription="## Changes\n\n- Added a new terragrunt.hcl file at {{ .outputs.target_path.PATH }}"
 />

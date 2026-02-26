@@ -1,9 +1,13 @@
 import { FolderOpen, AlertTriangle } from "lucide-react"
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
+import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
+import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
+import { computeUnmetInputDependencies, computeUnmetOutputDependencies, resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import type { DirPickerProps } from "./types"
 
@@ -17,7 +21,36 @@ function DirPicker({
   dirLabelsExtra = false,
   pathLabel = "Target Path",
   pathLabelDescription,
+  inputsId,
 }: DirPickerProps) {
+  // Resolve template expressions in display props
+  const templateCtx = useTemplateContext(inputsId)
+  const rawOutputs = useAllOutputs()
+
+  // Extract and check template dependencies
+  const allDeps = useMemo(() => [
+    ...extractTemplateDependenciesFromString(title ?? ''),
+    ...extractTemplateDependenciesFromString(description ?? ''),
+    ...extractTemplateDependenciesFromString(pathLabel ?? ''),
+    ...extractTemplateDependenciesFromString(pathLabelDescription ?? ''),
+  ], [title, description, pathLabel, pathLabelDescription])
+  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+  const unmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(inputDeps, templateCtx.inputs),
+    [inputDeps, templateCtx.inputs]
+  )
+  const unmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(outputDeps, rawOutputs),
+    [outputDeps, rawOutputs]
+  )
+  const hasAllDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
+
+  // Resolve display props
+  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
+  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+  const resolvedPathLabel = useMemo(() => pathLabel ? resolveTemplateReferences(pathLabel, templateCtx) : pathLabel, [pathLabel, templateCtx])
+  const resolvedPathLabelDescription = useMemo(() => pathLabelDescription ? resolveTemplateReferences(pathLabelDescription, templateCtx) : pathLabelDescription, [pathLabelDescription, templateCtx])
+
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'DirPicker')
 
@@ -106,11 +139,20 @@ function DirPicker({
         <div className="flex-1 space-y-2">
           {/* Title and description */}
           <div className="text-md font-bold text-gray-700">
-            <InlineMarkdown>{title}</InlineMarkdown>
+            <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">
-            <InlineMarkdown>{description}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
+
+          {/* Unmet template dependencies */}
+          {!hasAllDependencies && (
+            <UnmetDependenciesWarning
+              blockType="directory picker"
+              unmetInputDeps={unmetInputDeps}
+              unmetOutputDeps={unmetOutputDeps}
+            />
+          )}
 
           {/* Missing configuration: neither rootDir nor gitCloneId */}
           {missingRootConfig && (
@@ -142,7 +184,7 @@ function DirPicker({
           )}
 
           {/* Cascading directory dropdowns (vertical, full width) */}
-          {isWorkspaceReady && levels.length > 0 && (
+          {isWorkspaceReady && hasAllDependencies && levels.length > 0 && (
             <div className="space-y-2">
               {levels.map((level, index) => {
                 const levelLabel = dirLabels[index] ?? `Level ${index + 1}`
@@ -171,11 +213,11 @@ function DirPicker({
               {/* Editable path input — visually separated from dropdowns */}
               <div className="border-t border-gray-200 pt-3 mt-3">
                 <label className="text-sm font-semibold text-gray-800 mb-0.5 block">
-                  {pathLabel}
+                  {resolvedPathLabel}
                 </label>
-                {pathLabelDescription && (
+                {resolvedPathLabelDescription && (
                   <p className="text-xs text-gray-500 mb-1.5 m-0">
-                    <InlineMarkdown>{pathLabelDescription}</InlineMarkdown>
+                    <InlineMarkdown>{resolvedPathLabelDescription}</InlineMarkdown>
                   </p>
                 )}
                 <input

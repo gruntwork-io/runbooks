@@ -14,6 +14,8 @@ export interface GitHubPullRequestProps {
   prefilledPullRequestLabels?: string[]
   /** Pre-populated branch name (supports template expressions) */
   prefilledBranchName?: string
+  /** Reference to one or more Inputs by ID for template expressions in props */
+  inputsId?: string | string[]
   /** Reference to a GitHubAuth block for token */
   githubAuthId?: string
 }

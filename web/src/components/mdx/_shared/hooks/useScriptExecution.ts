@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
-import { useInputs, useRunbookContext, useAllOutputs, inputsToValues, type InputValue } from '@/contexts/useRunbook'
+import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type TemplateValue } from '@/contexts/useRunbook'
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
@@ -9,11 +9,10 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
-import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/extractTemplateVariables'
-import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
+import { extractTemplateDependenciesFromString, splitDependencies, type OutputDependency } from '@/lib/extractTemplateDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs, type BlockOutput } from '@/lib/templateUtils'
+import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -78,14 +77,20 @@ interface UseScriptExecutionReturn {
   
   // Variables
   inputValues: Record<string, unknown>
+  /** All input dependency names found in the script (for "missing config" detection) */
   inputDependencies: string[]
+  /** Input dependencies that don't have values yet */
+  unmetInputDependencies: string[]
   hasAllInputDependencies: boolean
   inlineInputsId: string | null
-  
+
   // Output dependencies
   outputDependencies: OutputDependency[]
   unmetOutputDependencies: BlockOutput[]
   hasAllOutputDependencies: boolean
+
+  // Template context for prop resolution by callers
+  templateContext: TemplateContext
   
   // AWS Auth dependency
   unmetAwsAuthDependency: UnmetAwsAuthDependency | null
@@ -140,8 +145,8 @@ export function useScriptExecution({
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
   
-  // Get runbook context for registering outputs and getting template variables
-  const { registerOutputs, getTemplateVariables } = useRunbookContext()
+  // Get runbook context for registering outputs and getting template context
+  const { registerOutputs, getTemplateContext } = useRunbookContext()
   
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
@@ -240,17 +245,18 @@ export function useScriptExecution({
   
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(allInputsIds.length > 0 ? allInputsIds : undefined)
-  const inputValues = useMemo(() => inputsToValues(inputs), [inputs])
+  const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
   
-  // Extract template variables from script content (input dependencies)
-  const inputDependencies = useMemo(() => {
-    return extractTemplateVariables(rawScriptContent)
-  }, [rawScriptContent])
-  
-  const hasAllInputDependencies = useMemo(
-    () => allDependenciesSatisfied(inputDependencies, inputValues),
-    [inputDependencies, inputValues]
+  // Extract all template dependencies (inputs + outputs) from script content
+  const allDeps = useMemo(() => extractTemplateDependenciesFromString(rawScriptContent), [rawScriptContent])
+  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+
+  // Check which input dependencies are not yet satisfied
+  const unmetInputDependencies = useMemo(
+    () => computeUnmetInputDependencies(inputDeps, inputValues),
+    [inputDeps, inputValues]
   )
+  const hasAllInputDependencies = unmetInputDependencies.length === 0
   
   // Get all block outputs from context to check dependencies
   const allOutputs = useAllOutputs()
@@ -321,15 +327,10 @@ export function useScriptExecution({
   )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
   
-  // Extract output dependencies from script content (e.g., {{ ._blocks.create-account.outputs.account_id }})
-  const outputDependencies = useMemo(() => {
-    return extractOutputDependenciesFromString(rawScriptContent)
-  }, [rawScriptContent])
-  
   // Check which output dependencies are not yet satisfied
   const unmetOutputDependencies = useMemo(
-    () => computeUnmetOutputDependencies(outputDependencies, allOutputs),
-    [outputDependencies, allOutputs]
+    () => computeUnmetOutputDependencies(outputDeps, allOutputs),
+    [outputDeps, allOutputs]
   )
   
   // Check if all output dependencies are satisfied
@@ -402,7 +403,7 @@ export function useScriptExecution({
   }, [status, invalidateTree])
 
   // Function to render script with inputs
-  const renderScript = useCallback(async (inputs: InputValue[]) => {
+  const renderScript = useCallback(async (inputs: TemplateValue[]) => {
     // Cancel any pending render request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -418,7 +419,7 @@ export function useScriptExecution({
     // Build template files object with just the script content
     // For Command/Check, we only need simple variable substitution - we don't need the full
     // boilerplate.yml config (which may include dependencies that aren't relevant here).
-    // We just need to render {{ .VarName }} templates with the variable values.
+    // We just need to render {{ .inputs.VarName }} / {{ .outputs.X.Y }} templates with the variable values.
     const templateFiles: Record<string, string> = {
       // 'script.sh' is just a filename identifier for the API request/response
       // Each API call is isolated, so no risk of collision between components
@@ -477,15 +478,24 @@ export function useScriptExecution({
     }
   }, [rawScriptContent])
   
+  // Compute flattened outputs for template context (used by render and prop resolution)
+  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])
+
+  // Template context for prop resolution by callers (Command/Check resolve display string props)
+  const templateContext = useMemo(
+    () => ({ inputs: inputValues, outputs: flattenedOutputs }),
+    [inputValues, flattenedOutputs]
+  )
+
   // Auto-update when variables change (debounced)
   useEffect(() => {
-    // Only render if we have template variables and all input dependencies are available
-    if (inputDependencies.length === 0) {
-      // No template variables, use raw script
+    // Only render if we have template dependencies and all input dependencies are available
+    if (allDeps.length === 0) {
+      // No template dependencies, use raw script
       setRenderedScript(null)
       return
     }
-    
+
     if (!hasAllInputDependencies) {
       // Input dependencies not available yet
       return
@@ -498,8 +508,8 @@ export function useScriptExecution({
       return
     }
 
-    // Build inputs with _blocks namespace for block output references
-    const inputsForRender = buildInputsWithBlocks(inputs, allOutputs)
+    // Build payload with inputs and outputs namespaces
+    const inputsForRender = buildTemplatePayload(templateContext)
     
     // Check if inputs actually changed
     const inputsKey = JSON.stringify(inputsForRender)
@@ -528,28 +538,21 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, inputDependencies.length, hasAllInputDependencies, renderScript])
+  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, templateContext, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {
     // Clear any previous registry error
     setRegistryError(null)
-    
-    // Get merged template variables (inputs at root + _blocks namespace)
-    const templateVars = getTemplateVariables(allInputsIds.length > 0 ? allInputsIds : undefined)
-    
-    // Convert input variables to strings, but preserve objects/maps as-is
-    // for nested template access like {{ ._blocks.create-account.outputs.account_id }}
-    // or {{ ._module.source }}
-    const processedVariables: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(templateVars)) {
-      if (value !== null && typeof value === 'object') {
-        // Keep objects/maps as nested structures for Go template engine
-        processedVariables[key] = value
-      } else {
-        // Convert primitive values to strings
-        processedVariables[key] = String(value)
-      }
+
+    // Get the full template context with inputs and outputs namespaces
+    const ctx = getTemplateContext(allInputsIds.length > 0 ? allInputsIds : undefined)
+
+    // The execution API expects template_var_values as a nested map matching the
+    // Go template dot context: { inputs: { region: "us-west-2" }, outputs: { ... } }
+    const processedVariables: Record<string, unknown> = {
+      inputs: ctx.inputs,
+      outputs: ctx.outputs,
     }
     
     // Merge AWS and GitHub auth env vars
@@ -579,7 +582,7 @@ export function useScriptExecution({
       // Live reload mode: Send component ID directly
       executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateVariables, awsAuthEnvVars, githubAuthEnvVars, usePty])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, usePty])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
@@ -611,14 +614,18 @@ export function useScriptExecution({
     
     // Variables
     inputValues,
-    inputDependencies,
+    inputDependencies: inputDeps,
+    unmetInputDependencies,
     hasAllInputDependencies,
     inlineInputsId,
-    
+
     // Output dependencies
-    outputDependencies,
+    outputDependencies: outputDeps,
     unmetOutputDependencies,
     hasAllOutputDependencies,
+
+    // Template context for prop resolution
+    templateContext,
     
     // AWS Auth dependency
     unmetAwsAuthDependency,

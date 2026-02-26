@@ -2,37 +2,37 @@
 
 /**
  * RunbookContext - Shared State Management for Runbook Blocks
- * 
+ *
  * This context enables communication between different block components in a runbook.
  * It solves the problem of passing data between independently-authored MDX components
  * without requiring explicit prop drilling or global state management.
- * 
+ *
  * ## Key Concepts
- * 
+ *
  * **Inputs**: User-provided values from `<Inputs>` components. These are form fields
  * that collect configuration (e.g., AWS region, account name). Each Inputs component
  * registers its values and boilerplate config schema under a unique ID.
- * 
+ *
  * **Outputs**: Key-value pairs produced by `<Check>` and `<Command>` blocks after
  * execution. Scripts can write to $RUNBOOK_OUTPUT to expose values (e.g., account IDs,
  * resource ARNs) that downstream blocks can consume.
- * 
+ *
  * ## Data Flow
- * 
+ *
  * 1. `<Inputs id="config">` registers user values → context stores them under "config"
  * 2. `<Command id="create-account" inputsId="config">` executes with those values
  * 3. Script writes `account_id=123` to $RUNBOOK_OUTPUT
  * 4. Command registers outputs → context stores them under "create_account"
- * 5. Later blocks access via `{{ ._blocks.create_account.outputs.account_id }}`
- * 
+ * 5. Later blocks access via `{{ .outputs.create_account.account_id }}`
+ *
  * ## Usage in Components
- * 
+ *
  * ```tsx
  * const { registerInputs, getInputs } = useRunbookContext()
- * 
+ *
  * // Register form values
  * registerInputs("my-form", { region: "us-west-2" }, boilerplateConfig)
- * 
+ *
  * // Get inputs for API requests
  * const inputs = getInputs("my-form")
  * // → [{ name: "region", type: "string", value: "us-west-2" }]
@@ -45,7 +45,8 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { normalizeBlockId } from '@/lib/utils'
-import { buildBlocksNamespace } from '@/lib/templateUtils'
+import { flattenBlockOutputs } from '@/lib/templateUtils'
+import type { TemplateContext } from '@/lib/templateUtils'
 
 /**
  * Data stored for each registered Inputs block.
@@ -61,11 +62,11 @@ export interface BlockInputs {
 }
 
 /**
- * An input value with its name, type, and value - used for API requests.
- * This format is sent to the backend so it can properly convert JSON values
- * to the correct Go types (e.g., JSON numbers to int).
+ * A named, typed value for the Go template engine.
+ * Used to send both inputs and outputs to the backend — each entry is a named,
+ * typed value that the backend can properly convert to Go types.
  */
-export interface InputValue {
+export interface TemplateValue {
   name: string
   type: BoilerplateVariableType
   value: unknown
@@ -91,15 +92,12 @@ export interface BlockOutputs {
 }
 
 /**
- * Flatten InputValue[] to a plain key-value map.
+ * Flatten TemplateValue[] to a plain key-value map.
  * Strips the { name, type, value } wrapper — parallel to flattenBlockOutputs.
  */
-export function flattenInputs(inputs: InputValue[]): Record<string, unknown> {
+export function flattenInputs(inputs: TemplateValue[]): Record<string, unknown> {
   return Object.fromEntries(inputs.map(i => [i.name, i.value]))
 }
-
-/** @deprecated Use flattenInputs instead */
-export const inputsToValues = flattenInputs
 
 /**
  * Helper function to convert a values map to OutputValue[].
@@ -111,7 +109,7 @@ export function valuesToOutputs(values: Record<string, string>): OutputValue[] {
 
 /**
  * Context interface for sharing state between blocks.
- * 
+ *
  * - Inputs components register their values and config.
  * - Check/Command blocks register their outputs after execution.
  * - TemplateInline, Command, and Check components consume inputs for API requests.
@@ -135,7 +133,7 @@ export interface RunbookContextType {
    * Returns an array of { name, type, value } objects suitable for sending to the backend.
    * The backend uses the type information to properly convert JSON values to Go types.
    */
-  getInputs: (inputsId: string | string[]) => InputValue[]
+  getInputs: (inputsId: string | string[]) => TemplateValue[]
 
   /** All registered block outputs, keyed by Command/Check block ID */
   blockOutputs: Record<string, BlockOutputs>
@@ -147,14 +145,25 @@ export interface RunbookContextType {
   getOutputs: (blockId: string) => OutputValue[] | undefined
 
   /**
-   * Get template variables for rendering.
-   * Returns input values spread at root level, plus _blocks namespace with all block outputs.
+   * Get the full template context for rendering.
+   *
+   * Returns a `TemplateContext` with two namespaces:
+   * - `inputs`: merged input values from the specified `inputsId` block(s)
+   * - `outputs`: flattened outputs from ALL blocks (outputs are global — any block
+   *   can reference any other block's outputs regardless of `inputsId`)
+   *
+   * The `inputsId` parameter controls **input scoping only** — it determines which
+   * Inputs blocks contribute to the `inputs` namespace. Outputs are always global
+   * because output producers (Command/Check) and consumers are independent.
+   *
+   * @param inputsId - One or more Inputs block IDs to read input values from
+   * @returns TemplateContext with { inputs, outputs } namespaces
    *
    * @example
-   * // Returns: { region: "us-west-2", _blocks: { "create_account": { outputs: { account_id: "123" } } } }
-   * getTemplateVariables("aws-config")
+   * getTemplateContext("aws-config")
+   * // → { inputs: { region: "us-west-2" }, outputs: { create_account: { account_id: "123" } } }
    */
-  getTemplateVariables: (inputsId?: string | string[]) => Record<string, unknown>
+  getTemplateContext: (inputsId?: string | string[]) => TemplateContext
 }
 
 export const RunbookContext = createContext<RunbookContextType | undefined>(undefined)
@@ -163,13 +172,13 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  * Provider component that enables state sharing between blocks.
  * - Inputs register their values
  * - Check/Command blocks register their outputs
- * - Templates consume both via getTemplateVariables
- * 
+ * - Templates consume both via getTemplateContext
+ *
  * @example
  * <RunbookContextProvider>
  *   <Inputs id="config-a">...</Inputs>
  *   <Command id="create-account" ... />
- *   <Command inputsId="config-a" command="echo {{ ._blocks.create_account.outputs.account_id }}" />
+ *   <Command inputsId="config-a" command="echo {{ .outputs.create_account.account_id }}" />
  * </RunbookContextProvider>
  */
 export function RunbookContextProvider({ children, runbookName, remoteSource }: { children: ReactNode, runbookName?: string, remoteSource?: string }) {
@@ -179,22 +188,22 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
   const registerInputs = useCallback((id: string, values: Record<string, unknown>, config: BoilerplateConfig) => {
     setBlockInputs(prev => {
       const existing = prev[id]
-      
+
       // Check if values actually changed (shallow comparison of values object)
       if (existing) {
         const existingKeys = Object.keys(existing.values)
         const newKeys = Object.keys(values)
-        
+
         // Same number of keys and all values equal
         const valuesUnchanged = existingKeys.length === newKeys.length &&
           existingKeys.every(key => existing.values[key] === values[key])
-        
+
         if (valuesUnchanged) {
           // No change, return previous state to avoid re-render
           return prev
         }
       }
-      
+
       console.log(`[RunbookContext] registerInputs updating [${id}]:`, { values, config })
       return {
         ...prev,
@@ -206,7 +215,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
   // Internal helper to get merged config (used by getInputs)
   const getConfig = useCallback((inputsId: string | string[]): BoilerplateConfig => {
     const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
-    
+
     // Collect all variables from all configs
     const allVariables: BoilerplateVariable[] = []
     for (const id of ids) {
@@ -215,19 +224,19 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
         allVariables.push(...data.config.variables)
       }
     }
-    
+
     // Dedupe by variable name, keeping the last occurrence (later IDs win)
     const variableMap = new Map<string, BoilerplateVariable>()
     for (const variable of allVariables) {
       variableMap.set(variable.name, variable)
     }
-    
+
     return {
       variables: Array.from(variableMap.values())
     }
   }, [blockInputs])
 
-  // Internal helper to get merged values (used by getInputs and getTemplateVariables)
+  // Internal helper to get merged values (used by getInputs and getTemplateContext)
   const getValues = useCallback((inputsId: string | string[]): Record<string, unknown> => {
     const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
     // Merge values from all inputsIds, later IDs override earlier ones
@@ -237,13 +246,13 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
     }, {} as Record<string, unknown>)
   }, [blockInputs])
 
-  const getInputs = useCallback((inputsId: string | string[]): InputValue[] => {
+  const getInputs = useCallback((inputsId: string | string[]): TemplateValue[] => {
     const config = getConfig(inputsId)
     const values = getValues(inputsId)
 
     // Build inputs array from config variables with name, type, and current value
     const configVarNames = new Set<string>()
-    const result: InputValue[] = (config.variables || []).map(variable => {
+    const result: TemplateValue[] = (config.variables || []).map(variable => {
       configVarNames.add(variable.name)
       return {
         name: variable.name,
@@ -286,20 +295,10 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
     return data ? valuesToOutputs(data.values) : undefined
   }, [blockOutputs])
 
-  const getTemplateVariables = useCallback((inputsId?: string | string[]): Record<string, unknown> => {
-    // 1. Spread input values at root level (backward compatible)
-    const vars: Record<string, unknown> = inputsId 
-      ? getValues(inputsId) 
-      : {}
-    
-    // 2. Build _blocks namespace with all block outputs
-    // Note: Block IDs are already normalized when stored (hyphens → underscores)
-    // because Go templates interpret hyphens as subtraction operators in dot notation.
-    // e.g., {{ ._blocks.create-account.outputs.x }} would fail, but
-    //       {{ ._blocks.create_account.outputs.x }} works correctly.
-    vars._blocks = buildBlocksNamespace(blockOutputs)
-    
-    return vars
+  const getTemplateContext = useCallback((inputsId?: string | string[]): TemplateContext => {
+    const inputs = inputsId ? getValues(inputsId) : {}
+    const outputs = flattenBlockOutputs(blockOutputs)
+    return { inputs, outputs }
   }, [getValues, blockOutputs])
 
   const contextValue = useMemo(() => ({
@@ -311,8 +310,8 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
     blockOutputs,
     registerOutputs,
     getOutputs,
-    getTemplateVariables,
-  }), [runbookName, remoteSource, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateVariables])
+    getTemplateContext,
+  }), [runbookName, remoteSource, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateContext])
 
   return (
     <RunbookContext.Provider value={contextValue}>

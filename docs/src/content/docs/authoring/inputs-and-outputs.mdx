@@ -9,20 +9,20 @@ Every runbook has a **global context,** which is the shared collection of key-va
 There are two ways values are written to the global context:
 
 - **Inputs:** [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
-- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<TfModule>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`_blocks` namespace](#block-outputs).
+- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<TfModule>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`outputs` namespace](#block-outputs).
 
 ## Variables
 
-Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .VarName }}` syntax. For example:
+Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .inputs.VarName }}` syntax (for blocks on the render-inline path like `<Command>`, `<Check>`, and `<TemplateInline>`) or `{{ .VarName }}` (for blocks on the full render path like `<Template>`). For example:
 
 ```mdx
 <Command
   id="create-account"
-  command="aws organizations create-account --email {{ .Email }} --account-name {{ .AccountName }}"
+  command="aws organizations create-account --email {{ .inputs.Email }} --account-name {{ .inputs.AccountName }}"
 />
 ```
 
-When this block runs, Runbooks resolves `{{ .Email }}` and `{{ .AccountName }}` from the global context, producing a command like:
+When this block runs, Runbooks resolves `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` from the global context, producing a command like:
 
 ```bash
 aws organizations create-account --email alice@example.com --account-name my-account
@@ -32,7 +32,7 @@ aws organizations create-account --email alice@example.com --account-name my-acc
 
 Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables work exactly like Boilerplate variables:
 
-- The same `{{ .VarName }}` syntax
+- The same `{{ .VarName }}` / `{{ .inputs.VarName }}` syntax
 - The same types (`string`, `int`, `bool`, `enum`, `list`, `map`)
 - The same validation rules (`required`, `email`, `url`, `alpha`, `digit`, `alphanumeric`, `countrycode2`, `semver`, `regex`)
 - The same `boilerplate.yml` format for defining them
@@ -94,7 +94,7 @@ variables:
 ```
 </Inputs>
 
-<Command inputsId="config" command="mkdir {{ .ProjectName }}" />
+<Command inputsId="config" command="mkdir {{ .inputs.ProjectName }}" />
 `````
 
 ### Multiple Sources
@@ -106,7 +106,7 @@ In this example, the Command will use the variables collected from the `<Inputs>
 ```mdx
 <Command
   inputsId={["global-config", "local-config"]}
-  command="deploy --env {{ .Environment }} --name {{ .AppName }}"
+  command="deploy --env {{ .inputs.Environment }} --name {{ .inputs.AppName }}"
 />
 ```
 
@@ -115,7 +115,7 @@ In this example, the Command will use the variables collected from the `<Inputs>
 You can nest an `<Inputs>` block directly inside a `<Command>` or `<Check>`. The variables are automatically available to the parent without needing `inputsId`:
 
 `````mdx
-<Command command='echo "Hello, {{ .Name }}!"'>
+<Command command='echo "Hello, {{ .inputs.Name }}!"'>
   <Inputs id="greeting">
   ```yaml
   variables:
@@ -164,16 +164,16 @@ You don't need to define the `$RUNBOOK_OUTPUT` environment variable in your scri
 
 ### Consuming Outputs
 
-Downstream blocks reference outputs using the `_blocks` namespace:
+Downstream blocks reference outputs using the `outputs` namespace:
 
 ```
-{{ ._blocks.<block-id>.outputs.<output-name> }}
+{{ .outputs.<block-id>.<output-name> }}
 ```
 
 For example, a Command whose `id` is `create-account` that outputs `account_id` is referenced as:
 
 ```
-{{ ._blocks.create_account.outputs.account_id }}
+{{ .outputs.create_account.account_id }}
 ```
 
 This syntax works in `<Command>` and `<Check>` scripts, `<Template>` files, and `<TemplateInline>` content.
@@ -187,7 +187,7 @@ This syntax works in `<Command>` and `<Check>` scripts, `<Template>` files, and 
 Use `fromJson` to parse JSON output values, then `range` to iterate:
 
 ```
-{{- range (fromJson ._blocks.list_users.outputs.users) }}
+{{- range (fromJson .outputs.list_users.users) }}
 - {{ . }}
 {{- end }}
 ```
@@ -215,7 +215,7 @@ You can use both standard inputs and block outputs in the same template:
 environment = "{{ .Environment }}"
 
 # From a Command block's outputs
-account_id  = "{{ ._blocks.create_account.outputs.account_id }}"
+account_id  = "{{ .outputs.create_account.account_id }}"
 ```
 
 ## Example
