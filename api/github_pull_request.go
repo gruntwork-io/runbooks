@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -192,9 +193,22 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		// Step 0: Handle empty repository (no commits yet).
 		// When a repo has no commits, there's no base branch to open a PR against.
 		// We initialize the default branch with an empty commit so the PR has a valid base.
-		if !gitHasCommits(ctx, req.LocalPath) {
+		hasCommits, err := gitHasCommits(ctx, req.LocalPath)
+		if err != nil {
+			sse.fail(fmt.Sprintf("Failed to inspect repository: %s", SanitizeGitError(err.Error())))
+			return
+		}
+		if !hasCommits {
 			baseBranch := getBaseBranch(ctx, req.LocalPath, token, owner, repo)
 			sse.log(fmt.Sprintf("Repository has no commits. Initializing default branch (%s)...", baseBranch))
+
+			// Point HEAD at the target branch before the first commit. The local
+			// unborn branch (from init.defaultBranch) may not match the remote's
+			// default branch (e.g., "master" locally vs "main" on GitHub).
+			if err := runGitCommandCtx(ctx, req.LocalPath, "symbolic-ref", "HEAD", "refs/heads/"+baseBranch); err != nil {
+				sse.fail(fmt.Sprintf("Failed to set branch to %s: %s", baseBranch, SanitizeGitError(err.Error())))
+				return
+			}
 
 			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", "Initial commit"); err != nil {
 				sse.fail(fmt.Sprintf("Failed to initialize repository: %s", SanitizeGitError(err.Error())))
@@ -484,10 +498,22 @@ func getCurrentBranch(ctx context.Context, dir string) (string, error) {
 // =============================================================================
 
 // gitHasCommits returns true if the repository at dir has at least one commit.
-func gitHasCommits(ctx context.Context, dir string) bool {
+// It distinguishes an unborn HEAD (exit code 128 → false, nil) from operational
+// failures like a missing git binary or bad directory (false, err).
+func gitHasCommits(ctx context.Context, dir string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD")
 	cmd.Dir = dir
-	return cmd.Run() == nil
+	if err := cmd.Run(); err != nil {
+		// Exit 128 is git's "fatal" status — here it means HEAD doesn't resolve
+		// because the repo has no commits yet (unborn branch). Any other error
+		// (e.g., git not installed, bad directory) is a real operational failure.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 128 {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // runGitCommandCtx runs a git command in the specified directory with context and returns any error.
