@@ -189,6 +189,26 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 		defer cancel()
 
+		// Step 0: Handle empty repository (no commits yet).
+		// When a repo has no commits, there's no base branch to open a PR against.
+		// We initialize the default branch with an empty commit so the PR has a valid base.
+		if !gitHasCommits(ctx, req.LocalPath) {
+			baseBranch := getBaseBranch(ctx, req.LocalPath, token, owner, repo)
+			sse.log(fmt.Sprintf("Repository has no commits. Initializing default branch (%s)...", baseBranch))
+
+			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", "Initial commit"); err != nil {
+				sse.fail(fmt.Sprintf("Failed to initialize repository: %s", SanitizeGitError(err.Error())))
+				return
+			}
+
+			if err := gitPushWithToken(ctx, req.LocalPath, baseBranch, token, true); err != nil {
+				sse.fail(fmt.Sprintf("Failed to push initial commit: %s", SanitizeGitError(err.Error())))
+				return
+			}
+
+			sse.log(fmt.Sprintf("Default branch %s initialized with empty commit", baseBranch))
+		}
+
 		// Step 1: Create branch
 		sse.log(fmt.Sprintf("Creating branch %s...", req.BranchName))
 		if err := runGitCommandCtx(ctx, req.LocalPath, "checkout", "-b", req.BranchName); err != nil {
@@ -462,6 +482,13 @@ func getCurrentBranch(ctx context.Context, dir string) (string, error) {
 // =============================================================================
 // Git Helpers
 // =============================================================================
+
+// gitHasCommits returns true if the repository at dir has at least one commit.
+func gitHasCommits(ctx context.Context, dir string) bool {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD")
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
 
 // runGitCommandCtx runs a git command in the specified directory with context and returns any error.
 func runGitCommandCtx(ctx context.Context, dir string, args ...string) error {
