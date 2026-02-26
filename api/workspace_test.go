@@ -584,6 +584,87 @@ func TestWorkspaceChangesDeletedFile(t *testing.T) {
 	}
 }
 
+func TestWorkspaceChangesTooManySkipsDiffContent(t *testing.T) {
+	// Override the limit to a small value so we can test the too-many-changes path.
+	orig := maxChangedFiles
+	maxChangedFiles = 3
+	t.Cleanup(func() { maxChangedFiles = orig })
+
+	dir := createTempGitRepo(t)
+
+	// Create more untracked files than the limit
+	for i := 0; i < maxChangedFiles+1; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("extra_%d.txt", i)), []byte(fmt.Sprintf("content %d\n", i)), 0644)
+	}
+
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if !resp.TooManyChanges {
+		t.Fatal("expected tooManyChanges: true")
+	}
+	if resp.TotalChanges <= maxChangedFiles {
+		t.Errorf("expected totalChanges > %d, got %d", maxChangedFiles, resp.TotalChanges)
+	}
+	// When tooManyChanges is true, changes should be nil (not sent to client)
+	if resp.Changes != nil {
+		t.Errorf("expected nil changes when tooManyChanges is true, got %d entries", len(resp.Changes))
+	}
+}
+
+func TestWorkspaceChangesTooManyNoFileContent(t *testing.T) {
+	// Verify that in lightweight mode, getAllChanges doesn't populate file content.
+	// This is the performance-critical behavior: no disk I/O for file content.
+	orig := maxChangedFiles
+	maxChangedFiles = 2
+	t.Cleanup(func() { maxChangedFiles = orig })
+
+	dir := createTempGitRepo(t)
+
+	// Create more untracked files than the limit
+	for i := 0; i < maxChangedFiles+1; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.go", i)), []byte("package main\n"), 0644)
+	}
+
+	changes, err := getAllChanges(dir)
+	if err != nil {
+		t.Fatalf("getAllChanges failed: %v", err)
+	}
+
+	if len(changes) <= maxChangedFiles {
+		t.Fatalf("expected more than %d changes, got %d", maxChangedFiles, len(changes))
+	}
+
+	// Verify NO file content was loaded (lightweight mode)
+	for _, c := range changes {
+		if c.OriginalContent != "" {
+			t.Errorf("expected empty OriginalContent in lightweight mode for %s", c.Path)
+		}
+		if c.NewContent != "" {
+			t.Errorf("expected empty NewContent in lightweight mode for %s", c.Path)
+		}
+		// But metadata should still be populated
+		if c.Path == "" {
+			t.Error("expected non-empty Path in lightweight mode")
+		}
+		if c.Language == "" {
+			t.Error("expected non-empty Language in lightweight mode")
+		}
+	}
+}
+
 // =============================================================================
 // HandleWorkspaceDirs tests
 // =============================================================================

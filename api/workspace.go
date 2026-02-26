@@ -514,7 +514,27 @@ func getGitInfo(dirPath string) *WorkspaceGitInfo {
 	}
 }
 
+// parseStatusLines parses git status porcelain output into individual status lines.
+// Returns the total count and the parsed lines (each at least 4 characters).
+func parseStatusLines(statusOutput string) []string {
+	trimmed := strings.TrimRight(statusOutput, "\n\r ")
+	if trimmed == "" {
+		return nil
+	}
+	var valid []string
+	for _, line := range strings.Split(trimmed, "\n") {
+		if len(line) >= 4 {
+			valid = append(valid, line)
+		}
+	}
+	return valid
+}
+
 // getAllChanges returns all changed files in a git workspace with inline diffs.
+// When the number of changed files exceeds maxChangedFiles, it returns only
+// lightweight metadata (path, changeType, language) without reading file
+// contents from disk—avoiding expensive I/O for massive changesets like
+// npm install.
 func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 	// Run git status --porcelain with --untracked-files=all to list individual
 	// untracked files rather than directory summaries (e.g. "docs/account.hcl"
@@ -524,19 +544,19 @@ func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
 
-	trimmedOutput := strings.TrimRight(statusOutput, "\n\r ")
-	if trimmedOutput == "" {
+	lines := parseStatusLines(statusOutput)
+	if len(lines) == 0 {
 		return nil, nil
 	}
 
 	var changes []WorkspaceFileChange
 
-	lines := strings.Split(trimmedOutput, "\n")
-	for _, line := range lines {
-		if len(line) < 4 {
-			continue
-		}
+	// Short-circuit: when there are too many changes, build a lightweight
+	// list without reading any file content from disk.  The handler will
+	// set tooManyChanges=true and the frontend will show a summary banner.
+	lightweight := len(lines) > maxChangedFiles
 
+	for _, line := range lines {
 		// Parse git status porcelain format: XY filename
 		statusCode := line[:2]
 		filePath := strings.TrimSpace(line[3:])
@@ -556,6 +576,12 @@ func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 			ChangeType: changeType,
 			Language:   getLanguageFromExtension(filePath),
 			IsBinary:   isBinary,
+		}
+
+		// In lightweight mode, skip all file I/O — just collect metadata.
+		if lightweight {
+			changes = append(changes, change)
+			continue
 		}
 
 		// Skip diff content for binary files
