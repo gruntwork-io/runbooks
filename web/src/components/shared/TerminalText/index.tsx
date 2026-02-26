@@ -10,13 +10,15 @@ interface TerminalTextProps {
 
 /**
  * Strip non-color ANSI sequences that ansi-to-react doesn't handle.
- * This includes character set designation sequences like ESC(B from tput sgr0.
+ * This includes character set designations (ESC(B from tput sgr0) and
+ * OSC sequences (ESC ] ... BEL/ST, e.g. background color queries from gh CLI).
  */
 function stripNonColorAnsi(text: string): string {
-  // Strip character set designation: ESC ( X, ESC ) X, ESC * X, ESC + X
-  // These are used by tput sgr0 and similar commands
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b[()*/+-].?/g, '')
+  /* eslint-disable no-control-regex */
+  const CHARSET_RE = /\x1b[()*/+-].?/g
+  const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g
+  /* eslint-enable no-control-regex */
+  return text.replace(CHARSET_RE, '').replace(OSC_RE, '')
 }
 
 /**
