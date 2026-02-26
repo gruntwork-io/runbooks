@@ -140,6 +140,11 @@ line3 {{ .inputs.env }}`
     )
     expect(deps).toEqual([])
   })
+
+  it('should ignore output references without an output name', () => {
+    const deps = extractTemplateDependenciesFromString('{{ .outputs.block_only }}')
+    expect(deps).toEqual([])
+  })
 })
 
 describe('splitDependencies', () => {

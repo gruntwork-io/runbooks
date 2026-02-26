@@ -4,6 +4,8 @@ import {
   computeUnmetInputDependencies,
   resolveTemplateReferences,
 } from './templateUtils'
+import type { TemplateContext } from './templateUtils'
+import { extractTemplateDependenciesFromString } from './extractTemplateDependencies'
 import type { BlockOutputs } from '@/contexts/RunbookContext'
 
 describe('flattenBlockOutputs', () => {
@@ -139,5 +141,56 @@ describe('resolveTemplateReferences', () => {
     expect(
       resolveTemplateReferences('{{ ._blocks.create_account.outputs.account_id }}', ctx)
     ).toBe('{{ ._blocks.create_account.outputs.account_id }}')
+  })
+
+  it('should coerce non-string input values via String()', () => {
+    const numCtx: TemplateContext = {
+      inputs: { count: 0, enabled: false, pi: 3.14 },
+      outputs: {},
+    }
+    expect(resolveTemplateReferences('{{ .inputs.count }}', numCtx)).toBe('0')
+    expect(resolveTemplateReferences('{{ .inputs.enabled }}', numCtx)).toBe('false')
+    expect(resolveTemplateReferences('{{ .inputs.pi }}', numCtx)).toBe('3.14')
+  })
+
+  it('should replace output reference without output name with empty string', () => {
+    const outCtx: TemplateContext = {
+      inputs: {},
+      outputs: { block_only: { key: 'val' } },
+    }
+    expect(resolveTemplateReferences('{{ .outputs.block_only }}', outCtx)).toBe('')
+  })
+})
+
+describe('extract → resolve contract', () => {
+  it('should resolve all simple expressions that the extractor finds', () => {
+    const template = 'url: {{ .inputs.region }}, acct: {{ .outputs.create_account.account_id }}'
+    const deps = extractTemplateDependenciesFromString(template)
+
+    expect(deps).toHaveLength(2)
+
+    const ctx: TemplateContext = {
+      inputs: { region: 'us-east-1' },
+      outputs: { create_account: { account_id: '999' } },
+    }
+
+    const resolved = resolveTemplateReferences(template, ctx)
+    expect(resolved).toBe('url: us-east-1, acct: 999')
+    expect(resolved).not.toMatch(/\{\{/)
+  })
+
+  it('should leave complex expressions (function calls) unresolved', () => {
+    const template = '{{- range (fromJson .outputs.block.data) -}}item{{ end }}'
+    const deps = extractTemplateDependenciesFromString(template)
+
+    expect(deps).toHaveLength(1)
+    expect(deps[0]).toMatchObject({ type: 'output', blockId: 'block', outputName: 'data' })
+
+    const ctx: TemplateContext = {
+      inputs: {},
+      outputs: { block: { data: '["a","b"]' } },
+    }
+    const resolved = resolveTemplateReferences(template, ctx)
+    expect(resolved).toContain('fromJson')
   })
 })
