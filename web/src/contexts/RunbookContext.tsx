@@ -91,12 +91,15 @@ export interface BlockOutputs {
 }
 
 /**
- * Helper function to convert InputValue[] to a values map.
- * Useful when you need to look up values by name.
+ * Flatten InputValue[] to a plain key-value map.
+ * Strips the { name, type, value } wrapper — parallel to flattenBlockOutputs.
  */
-export function inputsToValues(inputs: InputValue[]): Record<string, unknown> {
+export function flattenInputs(inputs: InputValue[]): Record<string, unknown> {
   return Object.fromEntries(inputs.map(i => [i.name, i.value]))
 }
+
+/** @deprecated Use flattenInputs instead */
+export const inputsToValues = flattenInputs
 
 /**
  * Helper function to convert a values map to OutputValue[].

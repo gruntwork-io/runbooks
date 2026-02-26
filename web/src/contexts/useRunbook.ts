@@ -45,7 +45,7 @@ import { useContext, useMemo, useRef } from 'react'
 import { RunbookContext, type RunbookContextType, type InputValue, type OutputValue, type BlockOutputs } from './RunbookContext'
 
 // Re-export types and helpers for convenience
-export { type InputValue, type OutputValue, type BlockInputs, type BlockOutputs, inputsToValues, valuesToOutputs } from './RunbookContext'
+export { type InputValue, type OutputValue, type BlockInputs, type BlockOutputs, flattenInputs, inputsToValues, valuesToOutputs } from './RunbookContext'
 
 // Stable empty arrays to avoid creating new references
 const EMPTY_INPUTS: InputValue[] = []
@@ -67,7 +67,7 @@ export function useRunbookContext(): RunbookContextType {
  * Hook to get inputs from one or more inputsIds.
  * Returns an array of { name, type, value } objects suitable for API requests.
  * 
- * Use `inputsToValues(inputs)` if you need a key-value map for lookups.
+ * Use `flattenInputs(inputs)` if you need a key-value map for lookups.
  * 
  * @param inputsId - One or more IDs to get inputs from
  * @returns Array of Input objects (merged, later IDs override earlier)

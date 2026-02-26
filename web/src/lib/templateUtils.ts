@@ -1,6 +1,6 @@
 /**
  * Shared utility functions for template rendering and output dependency tracking.
- * Used by Template, TemplateInline, and useScriptExecution.
+ * Used by Template, TemplateInline, useScriptExecution, GitClone, and other blocks.
  */
 
 import type { BlockOutputs, InputValue } from '@/contexts/RunbookContext'
@@ -9,9 +9,39 @@ import type { OutputDependency } from '@/components/mdx/TemplateInline/lib/extra
 import { groupDependenciesByBlock } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { normalizeBlockId } from '@/lib/utils'
 
-export interface UnmetOutputDependency {
-  blockId: string
-  outputNames: string[]
+// --- Shared types for the new inputs/outputs architecture ---
+
+/** A variable name from an Inputs block (e.g., "region", "env") */
+export type InputName = string
+
+/** The resolved value of an input variable (string, number, boolean, etc.) */
+export type TemplateInputValue = unknown
+
+/** A normalized block ID (e.g., "create_account") */
+export type BlockId = string
+
+/** An output key produced by a Command/Check block (e.g., "account_id") */
+export type OutputName = string
+
+/** The string value of a block output (always string — parsed from stdout key=value) */
+export type OutputValue = string
+
+/** Flattened input values. Matches {{ .inputs.<InputName> }} */
+export type TemplateInputs = Record<InputName, TemplateInputValue>
+
+/** Flattened output values. Matches {{ .outputs.<BlockId>.<OutputName> }} */
+export type TemplateOutputs = Record<BlockId, Record<OutputName, OutputValue>>
+
+/** The template data context — mirrors the Go template engine's dot context */
+export interface TemplateContext {
+  inputs: TemplateInputs
+  outputs: TemplateOutputs
+}
+
+/** A block and the specific outputs referenced from it */
+export interface BlockOutput {
+  blockId: BlockId
+  outputNames: OutputName[]
 }
 
 /**
@@ -80,11 +110,11 @@ export function allDependenciesSatisfied(
 export function computeUnmetOutputDependencies(
   outputDependencies: OutputDependency[],
   allOutputs: Record<string, BlockOutputs>
-): UnmetOutputDependency[] {
+): BlockOutput[] {
   if (outputDependencies.length === 0) return []
 
   const byBlock = groupDependenciesByBlock(outputDependencies)
-  const unmet: UnmetOutputDependency[] = []
+  const unmet: BlockOutput[] = []
 
   for (const [blockId, outputNames] of byBlock) {
     const normalizedId = normalizeBlockId(blockId)
@@ -102,4 +132,65 @@ export function computeUnmetOutputDependencies(
   }
 
   return unmet
+}
+
+/**
+ * Flatten block outputs by stripping the .values wrapper.
+ * Transforms Record<string, BlockOutputs> → TemplateOutputs.
+ * Used inside useTemplateDependencies to provide callers with the flat format
+ * matching {{ .outputs.*.* }} template expressions.
+ */
+export function flattenBlockOutputs(
+  allOutputs: Record<string, BlockOutputs>
+): TemplateOutputs {
+  const result: TemplateOutputs = {}
+  for (const [blockId, data] of Object.entries(allOutputs)) {
+    result[blockId] = data.values
+  }
+  return result
+}
+
+/**
+ * Returns input dependency names that don't have values yet.
+ * Mirrors computeUnmetOutputDependencies — same pattern, same naming.
+ * Returns an empty array when deps is empty (no dependencies to check).
+ */
+export function computeUnmetInputDependencies(
+  deps: InputName[],
+  inputs: TemplateInputs
+): InputName[] {
+  return deps.filter(name => {
+    const value = inputs[name]
+    return value === undefined || value === null || value === ''
+  })
+}
+
+/**
+ * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
+ * Client-side string resolver for blocks that don't go through the Go template engine
+ * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
+ */
+export function resolveTemplateReferences(
+  text: string,
+  ctx: TemplateContext
+): string {
+  if (!text) return text
+  return text.replace(
+    /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g,
+    (_match, namespace, path) => {
+      if (namespace === 'inputs') {
+        const value = ctx.inputs[path]
+        return value != null ? String(value) : ''
+      }
+      if (namespace === 'outputs') {
+        const dotIdx = path.indexOf('.')
+        if (dotIdx > 0) {
+          const blockId = path.slice(0, dotIdx)
+          const outputName = path.slice(dotIdx + 1)
+          return ctx.outputs[blockId]?.[outputName] ?? ''
+        }
+      }
+      return ''
+    }
+  )
 }

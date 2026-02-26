@@ -13,7 +13,7 @@ import { extractTemplateVariables } from '@/components/mdx/TemplateInline/lib/ex
 import { extractOutputDependenciesFromString, type OutputDependency } from '@/components/mdx/TemplateInline/lib/extractOutputDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs, type UnmetOutputDependency } from '@/lib/templateUtils'
+import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs, type BlockOutput } from '@/lib/templateUtils'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -35,7 +35,9 @@ interface UseScriptExecutionProps {
 }
 
 // Re-export for backwards compatibility
-export type { UnmetOutputDependency } from '@/lib/templateUtils'
+export type { BlockOutput } from '@/lib/templateUtils'
+/** @deprecated Use BlockOutput instead */
+export type UnmetOutputDependency = BlockOutput
 
 /** Information about an unmet auth dependency (AWS or GitHub) */
 export interface UnmetAuthDependency {
@@ -82,7 +84,7 @@ interface UseScriptExecutionReturn {
   
   // Output dependencies
   outputDependencies: OutputDependency[]
-  unmetOutputDependencies: UnmetOutputDependency[]
+  unmetOutputDependencies: BlockOutput[]
   hasAllOutputDependencies: boolean
   
   // AWS Auth dependency

@@ -1,8 +1,8 @@
 import { AlertTriangle } from 'lucide-react'
-import type { UnmetOutputDependency } from '../hooks/useScriptExecution'
+import type { BlockOutput } from '@/lib/templateUtils'
 
 interface UnmetOutputDependenciesWarningProps {
-  unmetOutputDependencies: UnmetOutputDependency[]
+  unmetOutputDependencies: BlockOutput[]
 }
 
 /**

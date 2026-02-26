@@ -12,6 +12,10 @@ import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { CollapsibleToggle } from "@/components/mdx/GitHubPullRequest/components/CollapsibleToggle"
+import { extractTemplateDependenciesFromString } from "@/lib/extractTemplateDependencies"
+import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import type { GitCloneProps } from "./types"
 
 /** Parse org and repo from a GitHub URL */
@@ -31,6 +35,7 @@ function GitClone({
   id,
   title = "Clone Repository",
   description = "Enter a git URL to clone a repository",
+  inputsId,
   gitHubAuthId,
   prefilledUrl = '',
   prefilledRef = '',
@@ -39,6 +44,29 @@ function GitClone({
   usePty,
   showFileTree = true,
 }: GitCloneProps) {
+  // --- Template dependency resolution (resolve inputs/outputs expressions) ---
+
+  // 1. EXTRACT — discover dependencies from all template-capable props
+  const deps = useMemo(() => extractTemplateDependenciesFromString(
+    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, title, description]
+      .filter(Boolean).join('\n')
+  ), [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, title, description])
+
+  // 2. RESOLVE — check context for each dependency
+  const { hasAllDependencies, unmetInputDeps, unmetOutputDeps, inputs, outputs } =
+    useTemplateDependencies(deps, inputsId)
+
+  // 3. Resolve template expressions client-side
+  const ctx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
+  const resolvedUrl = useMemo(() => resolveTemplateReferences(prefilledUrl, ctx), [prefilledUrl, ctx])
+  const resolvedRef = useMemo(() => resolveTemplateReferences(prefilledRef, ctx), [prefilledRef, ctx])
+  const resolvedRepoPath = useMemo(() => resolveTemplateReferences(prefilledRepoPath, ctx), [prefilledRepoPath, ctx])
+  const resolvedLocalPath = useMemo(() => resolveTemplateReferences(prefilledLocalPath, ctx), [prefilledLocalPath, ctx])
+  const resolvedTitle = useMemo(() => resolveTemplateReferences(title ?? 'Clone Repository', ctx), [title, ctx])
+  const resolvedDescription = useMemo(() => resolveTemplateReferences(description ?? 'Enter a git URL to clone a repository', ctx), [description, ctx])
+
+  // --- End template dependency resolution ---
+
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitClone')
 
@@ -76,15 +104,23 @@ function GitClone({
     fetchRefs,
   } = useGitClone({ id, gitHubAuthId })
 
-  // Form state
-  const [gitUrl, setGitUrl] = useState(prefilledUrl)
-  const [ref, setRef] = useState(prefilledRef)
-  const [repoPath, setRepoPath] = useState(prefilledRepoPath)
-  const [localPath, setLocalPath] = useState(prefilledLocalPath)
+  // Form state — initialized from resolved values
+  const [gitUrl, setGitUrl] = useState(resolvedUrl)
+  const [ref, setRef] = useState(resolvedRef)
+  const [repoPath, setRepoPath] = useState(resolvedRepoPath)
+  const [localPath, setLocalPath] = useState(resolvedLocalPath)
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
   )
+
+  // Reactive sync: keep form state in sync with resolved template values.
+  // Only needed for fields backed by useState (user-editable inputs).
+  // Title and description are rendered directly from useMemo — no sync needed.
+  useEffect(() => { setGitUrl(resolvedUrl) }, [resolvedUrl])
+  useEffect(() => { setRef(resolvedRef) }, [resolvedRef])
+  useEffect(() => { setRepoPath(resolvedRepoPath) }, [resolvedRepoPath])
+  useEffect(() => { setLocalPath(resolvedLocalPath) }, [resolvedLocalPath])
 
   const handleCopyPath = useCallback(async (key: string, value: string) => {
     const ok = await copyTextToClipboard(value)
@@ -169,11 +205,11 @@ function GitClone({
 
   // Determine if the GitHub browser should be pre-opened
   const prefilledGitHub = useMemo(() => {
-    if (prefilledUrl) {
-      return parseGitHubURL(prefilledUrl)
+    if (resolvedUrl) {
+      return parseGitHubURL(resolvedUrl)
     }
     return null
-  }, [prefilledUrl])
+  }, [resolvedUrl])
 
   // Overwrite confirmation state
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
@@ -216,7 +252,7 @@ function GitClone({
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
 
-  const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet
+  const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet || !hasAllDependencies
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
 
   // If configuration error, don't render the block
@@ -240,14 +276,23 @@ function GitClone({
         <div className="flex-1 space-y-2">
           {/* Title and description */}
           <div className="text-md font-bold text-gray-700">
-            <InlineMarkdown>{title}</InlineMarkdown>
+            <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">
-            <InlineMarkdown>{description}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
 
+          {/* Unmet template dependencies */}
+          {!hasAllDependencies && (
+            <UnmetDependenciesWarning
+              blockType="git-clone"
+              unmetInputDeps={unmetInputDeps}
+              unmetOutputDeps={unmetOutputDeps}
+            />
+          )}
+
           {/* Blocked state: waiting for GitHubAuth */}
-          {!gitHubAuthMet && (
+          {hasAllDependencies && !gitHubAuthMet && (
             <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
               <div>
