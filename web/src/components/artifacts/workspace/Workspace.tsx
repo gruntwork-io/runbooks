@@ -63,7 +63,7 @@ export const Workspace = ({
 
   // Git worktree data
   const { workTrees, activeWorkTree, activeWorkTreeId, setActiveWorkTree } = useGitWorkTree()
-  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree } = useWorkspaceTree()
+  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree, fetchSubtree } = useWorkspaceTree()
   const { changes, totalChanges, tooManyChanges, isLoading: changesLoading, fetchFileDiff } = useWorkspaceChanges()
 
   // Determine what's available
@@ -255,6 +255,7 @@ export const Workspace = ({
             isLoading={treeLoading}
             error={treeError}
             onRetry={refetchTree}
+            onLazyExpand={fetchSubtree}
             className="h-full"
           />
         )}

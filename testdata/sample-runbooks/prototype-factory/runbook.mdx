@@ -81,7 +81,7 @@ variables:
 
 <Command
     id="create-github-repo"
-    command="gh repo create gruntwork-test/{{ .ProjectName }} --private --description '{{ .ProjectDescription }}' && echo Repo created: https://github.com/gruntwork-test/{{ .ProjectName }}"
+    command="echo 'Creating repository on GitHub...' && gh repo create gruntwork-test/{{ .ProjectName }} --private --description '{{ .ProjectDescription }}' && echo Repo created: https://github.com/gruntwork-test/{{ .ProjectName }}"
     inputsId="prototype-config"
     title="Create the GitHub repository"
     description="Creates a new private repository in your GitHub organization."

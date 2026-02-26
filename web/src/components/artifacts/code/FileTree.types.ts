@@ -45,6 +45,10 @@ export interface FileTreeNode {
   children?: FileTreeNode[];
   /** File data (only present for files) */
   file?: File;
+  /** Whether this file/folder is gitignored */
+  isIgnored?: boolean;
+  /** Whether this folder's children should be loaded on demand */
+  isLazyLoad?: boolean;
 }
 
 /**
@@ -63,6 +67,10 @@ export const FileTreeNodeSchema: z.ZodType<FileTreeNode> = z.lazy(() =>
     children: z.array(FileTreeNodeSchema).optional(),
     /** File data (only present for files) */
     file: FileSchema.optional(),
+    /** Whether this file/folder is gitignored */
+    isIgnored: z.boolean().optional(),
+    /** Whether this folder's children should be loaded on demand */
+    isLazyLoad: z.boolean().optional(),
   })
 )
 

@@ -28,6 +28,8 @@ interface RepositoryFileBrowserProps {
   error: string | null;
   /** Callback to retry loading */
   onRetry: () => void;
+  /** Callback to lazy-load a folder's children by node ID */
+  onLazyExpand?: (nodeId: string) => void;
   /** Additional CSS classes */
   className?: string;
 }
@@ -37,6 +39,7 @@ export const RepositoryFileBrowser = ({
   isLoading,
   error,
   onRetry,
+  onLazyExpand,
   className = "",
 }: RepositoryFileBrowserProps) => {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
@@ -144,9 +147,11 @@ export const RepositoryFileBrowser = ({
         <FileTree
           items={fileTreeData}
           onItemClick={(item) => {
+            if (item.type === 'folder' && item.isLazyLoad && !item.children?.length) {
+              onLazyExpand?.(item.id)
+            }
             if (item.type === 'file') {
               setSelectedFilePath(item.id)
-              // Construct absolute path from worktree root + relative path
               if (activeWorkTree?.localPath) {
                 const absPath = `${activeWorkTree.localPath}/${item.id}`
                 fetchFileContent(absPath)
@@ -316,11 +321,12 @@ function convertToFileTreeNodes(nodes: WorkspaceTreeNode[]): FileTreeNode[] {
     name: node.name,
     type: node.type,
     children: node.children ? convertToFileTreeNodes(node.children) : undefined,
-    // Store the path as a file property so we can fetch content on click
+    isIgnored: node.isIgnored,
+    isLazyLoad: node.isLazyLoad,
     file: node.type === 'file' ? {
       name: node.name,
-      path: node.id, // Relative path used as ID
-      content: '', // Content loaded lazily
+      path: node.id,
+      content: '',
       language: node.language || 'text',
       size: node.size || 0,
     } : undefined,

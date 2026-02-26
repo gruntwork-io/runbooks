@@ -28,6 +28,7 @@ import {
   Lock,
   ChevronRight, 
   ChevronDown,
+  Loader2,
   type LucideIcon
 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
@@ -349,6 +350,7 @@ export const FileTree = ({
     const isExpanded = expandedItems.has(item.id);
     const isSelected = selectedItem === item.id;
     const isFolder = item.type === 'folder';
+    const isIgnored = item.isIgnored ?? false;
     const FileIcon = !isFolder ? getFileIcon(item.name) : null;
 
     return (
@@ -356,7 +358,10 @@ export const FileTree = ({
         <button
           role="treeitem"
           onClick={() => handleItemClick(item)}
-          className="min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer text-gray-700"
+          className={cn(
+            "min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer",
+            isIgnored ? "text-gray-400" : "text-gray-700",
+          )}
           style={{
             paddingLeft: `${8 + level * indent}px`,
             backgroundColor: isSelected ? '#e5e7eb' : undefined,
@@ -371,33 +376,41 @@ export const FileTree = ({
         >
           {isFolder ? (
             <>
-              {/* Folder: chevron + icon (gray) */}
               {isExpanded ? (
-                <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <ChevronDown className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-400")} />
               ) : (
-                <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <ChevronRight className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-400")} />
               )}
               {isExpanded ? (
-                <FolderOpen className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <FolderOpen className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-500")} />
               ) : (
-                <Folder className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <Folder className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-500")} />
               )}
             </>
           ) : (
-            /* File: spacer (same width as chevron) + icon to align with folder icons */
             <>
               <span className="w-4 flex-shrink-0" />
-              {FileIcon && <FileIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />}
+              {FileIcon && <FileIcon className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-500")} />}
             </>
           )}
           
           <span className="whitespace-nowrap ml-1">{item.name}</span>
         </button>
         
-        {isFolder && isExpanded && item.children && (
-          <div className="w-max min-w-full">
-            {item.children.map(child => renderItem(child, level + 1))}
-          </div>
+        {isFolder && isExpanded && (
+          item.children && item.children.length > 0 ? (
+            <div className="w-max min-w-full">
+              {item.children.map(child => renderItem(child, level + 1))}
+            </div>
+          ) : item.isLazyLoad ? (
+            <div
+              className="flex items-center gap-1.5 py-1 text-xs text-gray-400"
+              style={{ paddingLeft: `${8 + (level + 1) * indent}px` }}
+            >
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Loading...
+            </div>
+          ) : null
         )}
       </div>
     );

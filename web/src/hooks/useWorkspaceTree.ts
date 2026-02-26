@@ -12,6 +12,8 @@ export interface WorkspaceTreeNode {
   size?: number
   language?: string
   isBinary?: boolean
+  isIgnored?: boolean
+  isLazyLoad?: boolean
   children?: WorkspaceTreeNode[]
 }
 
@@ -33,6 +35,8 @@ interface UseWorkspaceTreeResult {
   error: string | null
   totalFiles: number
   refetch: () => void
+  /** Fetch children for a lazy-loaded folder and merge them into the tree. */
+  fetchSubtree: (nodeId: string) => Promise<void>
 }
 
 /**
@@ -74,7 +78,7 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || `Failed to load file tree (${response.status})`)
+        throw new Error(data.details || data.error || `Failed to load file tree (${response.status})`)
       }
 
       const data: WorkspaceTreeResponse = await response.json()
@@ -122,5 +126,57 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
     }
   }, [activeWorkTree, fetchTree])
 
-  return { tree, isLoading, error, totalFiles, refetch }
+  const fetchSubtree = useCallback(async (nodeId: string) => {
+    if (!activeWorkTree) return
+    const absolutePath = `${activeWorkTree.localPath}/${nodeId}`
+
+    const response = await fetch(
+      `/api/workspace/tree?path=${encodeURIComponent(absolutePath)}`,
+      { headers: { ...getAuthHeader() } }
+    )
+
+    if (!response.ok) return
+
+    const data: WorkspaceTreeResponse = await response.json()
+    const prefixed = prefixTreeIds(data.tree, nodeId)
+
+    setTree(prev => {
+      if (!prev) return prev
+      return mergeSubtree(prev, nodeId, prefixed)
+    })
+  }, [activeWorkTree, getAuthHeader])
+
+  return { tree, isLoading, error, totalFiles, refetch, fetchSubtree }
+}
+
+/**
+ * Recursively find a node by ID and replace its children, clearing isLazyLoad.
+ */
+function mergeSubtree(
+  nodes: WorkspaceTreeNode[],
+  targetId: string,
+  children: WorkspaceTreeNode[]
+): WorkspaceTreeNode[] {
+  return nodes.map(node => {
+    if (node.id === targetId) {
+      return { ...node, children, isLazyLoad: false }
+    }
+    if (node.children) {
+      return { ...node, children: mergeSubtree(node.children, targetId, children) }
+    }
+    return node
+  })
+}
+
+/**
+ * Prefix all node IDs in a subtree so they're relative to the repo root.
+ * The tree endpoint returns IDs relative to the queried directory, but the
+ * main tree uses IDs relative to the repo root.
+ */
+function prefixTreeIds(nodes: WorkspaceTreeNode[], prefix: string): WorkspaceTreeNode[] {
+  return nodes.map(node => ({
+    ...node,
+    id: `${prefix}/${node.id}`,
+    children: node.children ? prefixTreeIds(node.children, prefix) : undefined,
+  }))
 }
