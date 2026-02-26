@@ -19,20 +19,6 @@ var (
 	maxFileTreeFileSize = int64(512 * 1024) // 512 KB
 )
 
-// heavyDirs are directories that are known to contain huge numbers of files
-// and should be skipped when building file trees for template output.
-var heavyDirs = map[string]bool{
-	"node_modules":    true,
-	".terraform":      true,
-	"__pycache__":     true,
-	".venv":           true,
-	"vendor":          true,
-	"dist":            true,
-	"build":           true,
-	".next":           true,
-	".nuxt":           true,
-}
-
 // getLanguageFromExtension determines the language/type based on file extension
 func getLanguageFromExtension(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
@@ -147,14 +133,20 @@ func getLanguageFromExtension(filename string) string {
 
 // fileTreeStats tracks cumulative statistics during a file tree build.
 type fileTreeStats struct {
-	totalFiles int // total files discovered (including those beyond the limit)
+	totalFiles    int            // total files discovered (including those beyond the limit)
+	dirFileCounts map[string]int // file count per top-level subdirectory
+	gitignore     *gitignoreRules
 }
 
 // buildFileTree recursively builds a file tree structure from a directory.
 // It enforces limits on the number of files and per-file content size to
 // prevent OOM crashes when the output directory is very large.
+// It respects .gitignore rules found in the root directory.
 func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error) {
-	stats := &fileTreeStats{}
+	stats := &fileTreeStats{
+		dirFileCounts: make(map[string]int),
+		gitignore:     loadGitignore(rootPath),
+	}
 	tree, err := buildFileTreeRecursive(rootPath, relativePath, stats)
 	if err != nil {
 		return nil, err
@@ -185,11 +177,17 @@ func buildFileTreeRecursive(rootPath string, relativePath string, stats *fileTre
 	for _, entry := range entries {
 		entryName := entry.Name()
 
-		// Skip VCS directories and known heavy directories
-		if entry.IsDir() && (entryName == ".git" || entryName == ".svn" || entryName == ".hg" || heavyDirs[entryName]) {
-			if heavyDirs[entryName] {
-				slog.Debug("Skipping heavy directory in file tree", "dir", entryName, "path", filepath.Join(relativePath, entryName))
-			}
+		// Always skip VCS metadata directories
+		if entry.IsDir() && (entryName == ".git" || entryName == ".svn" || entryName == ".hg") {
+			continue
+		}
+
+		// Use slash-separated relative path for gitignore matching (consistent cross-platform)
+		parentRelPath := filepath.ToSlash(relativePath)
+
+		// Skip entries matched by .gitignore
+		if stats.gitignore.isIgnored(entryName, entry.IsDir(), parentRelPath) {
+			slog.Debug("Skipping gitignored entry in file tree", "entry", entryName, "path", filepath.Join(relativePath, entryName))
 			continue
 		}
 
@@ -211,6 +209,12 @@ func buildFileTreeRecursive(rootPath string, relativePath string, stats *fileTre
 		} else {
 			item.Type = "file"
 			stats.totalFiles++
+
+			// Track file counts per top-level subdirectory for heavy dir detection
+			if relativePath != "" {
+				topDir := strings.SplitN(filepath.ToSlash(entryRelativePath), "/", 2)[0]
+				stats.dirFileCounts[topDir]++
+			}
 
 			// If we've exceeded the file limit, still count but don't read content.
 			// The caller uses stats.totalFiles to report truncation.
@@ -263,23 +267,48 @@ type FileTreeResult struct {
 	Tree          []FileTreeNode
 	TotalFiles    int
 	TruncatedTree bool
+	// HeavyDir is the name of the top-level subdirectory containing the most files,
+	// populated only when the tree is truncated to help users add a .gitignore directive.
+	HeavyDir string
+	// HeavyDirFileCount is the number of files found in HeavyDir.
+	HeavyDirFileCount int
 }
 
 // buildFileTreeWithRoot returns the file tree directly without wrapping in a root folder.
 // It also returns metadata about truncation so callers can inform the frontend.
+// It respects .gitignore rules found in the root directory.
 func buildFileTreeWithRoot(rootPath string, relativePath string) (*FileTreeResult, error) {
-	stats := &fileTreeStats{}
+	stats := &fileTreeStats{
+		dirFileCounts: make(map[string]int),
+		gitignore:     loadGitignore(rootPath),
+	}
 	tree, err := buildFileTreeRecursive(rootPath, relativePath, stats)
 	if err != nil {
 		return nil, err
 	}
 	truncated := stats.totalFiles > maxFileTreeFiles
-	if truncated {
-		slog.Warn("File tree truncated", "totalFiles", stats.totalFiles, "limit", maxFileTreeFiles, "rootPath", rootPath)
-	}
-	return &FileTreeResult{
+	result := &FileTreeResult{
 		Tree:          tree,
 		TotalFiles:    stats.totalFiles,
 		TruncatedTree: truncated,
-	}, nil
+	}
+	if truncated {
+		slog.Warn("File tree truncated", "totalFiles", stats.totalFiles, "limit", maxFileTreeFiles, "rootPath", rootPath)
+		// Identify the top-level directory with the most files to recommend a .gitignore entry
+		var heavyDir string
+		var heavyCount int
+		for dir, count := range stats.dirFileCounts {
+			if count > heavyCount {
+				heavyDir = dir
+				heavyCount = count
+			}
+		}
+		// Only recommend if the heavy directory has a substantial share of total files
+		if heavyCount > stats.totalFiles/2 {
+			result.HeavyDir = heavyDir
+			result.HeavyDirFileCount = heavyCount
+			slog.Warn("Heavy directory detected", "dir", heavyDir, "files", heavyCount, "totalFiles", stats.totalFiles)
+		}
+	}
+	return result, nil
 }

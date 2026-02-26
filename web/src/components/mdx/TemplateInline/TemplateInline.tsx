@@ -60,7 +60,7 @@ function TemplateInline({
   const renderVersionRef = useRef(0);
   
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
-  const { setFileTree } = useFileTree();
+  const { setFileTree, setTruncationInfo } = useFileTree();
   const { invalidateTree } = useGitWorkTree();
 
   // Get inputs for API requests and derive values map for lookups
@@ -133,7 +133,8 @@ function TemplateInline({
   // Core render function that calls the API.
   // Each call increments renderVersionRef; when the response arrives we check
   // that no newer render has been kicked off before applying state updates.
-  const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
+  interface RenderResult { fileTree: FileTreeNode[], truncatedTree?: boolean, totalFiles?: number, heavyDir?: string, heavyDirFileCount?: number }
+  const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<RenderResult> => {
     const version = ++renderVersionRef.current;
 
     // Only show loading state for initial renders, not auto-updates
@@ -163,7 +164,7 @@ function TemplateInline({
       });
 
       // A newer render was started while this one was in flight — discard.
-      if (version !== renderVersionRef.current) return [];
+      if (version !== renderVersionRef.current) return { fileTree: [] };
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
@@ -174,7 +175,7 @@ function TemplateInline({
 
         setError(appError);
         setIsRendering(false);
-        return [];
+        return { fileTree: [] };
       }
 
       const responseData = await response.json();
@@ -183,10 +184,16 @@ function TemplateInline({
       setRenderState('rendered');
       setIsRendering(false);
 
-      return responseData.fileTree || [];
+      return {
+        fileTree: responseData.fileTree || [],
+        truncatedTree: responseData.truncatedTree,
+        totalFiles: responseData.totalFiles,
+        heavyDir: responseData.heavyDir,
+        heavyDirFileCount: responseData.heavyDirFileCount,
+      };
     } catch (err) {
       // Discard errors from superseded requests
-      if (version !== renderVersionRef.current) return [];
+      if (version !== renderVersionRef.current) return { fileTree: [] };
 
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
@@ -195,7 +202,7 @@ function TemplateInline({
         details: errorMessage
       });
       setIsRendering(false);
-      return [];
+      return { fileTree: [] };
     }
   }, [templateFiles, inputs, generateFile, allOutputs, target]);
   
@@ -244,9 +251,9 @@ function TemplateInline({
       hasTriggeredInitialRender.current = true;
 
       renderTemplate(!isInitialRender)
-        .then(newFileTree => {
+        .then(result => {
           // Only mark as rendered after a successful response.
-          // On failure renderTemplate returns [] without updating state,
+          // On failure renderTemplate returns empty fileTree without updating state,
           // so the next effect cycle will retry with the same inputs.
           lastRenderedVariablesRef.current = combinedKey;
 
@@ -256,7 +263,18 @@ function TemplateInline({
           if (target === 'worktree') {
             invalidateTree();
           } else {
-            setFileTree(newFileTree);
+            setFileTree(result.fileTree);
+            // Store truncation metadata so the UI can show .gitignore recommendations
+            if (result.truncatedTree) {
+              setTruncationInfo({
+                truncatedTree: true,
+                totalFiles: result.totalFiles ?? 0,
+                heavyDir: result.heavyDir,
+                heavyDirFileCount: result.heavyDirFileCount,
+              });
+            } else {
+              setTruncationInfo(null);
+            }
             // Trigger immediate changelog refresh so changes appear without waiting for next poll
             invalidateTree();
           }
@@ -265,7 +283,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, setFileTree, setTruncationInfo, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {

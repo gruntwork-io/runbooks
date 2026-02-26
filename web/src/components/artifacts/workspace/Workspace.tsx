@@ -28,10 +28,13 @@ import { useWorkspaceTree } from '@/hooks/useWorkspaceTree'
 import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import type { FileTreeNode } from '../code/FileTree'
 import type { WorkspaceTab, WorkspaceContext } from '@/types/workspace'
+import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
 
 interface WorkspaceProps {
   /** Generated files tree (from GeneratedFilesContext) */
   generatedFiles: FileTreeNode[];
+  /** Truncation metadata from the backend (when file tree exceeds limits) */
+  truncationInfo?: TruncationInfo | null;
   /** Additional CSS classes */
   className?: string;
   /** Callback to hide the workspace */
@@ -46,6 +49,7 @@ interface WorkspaceProps {
 
 export const Workspace = ({
   generatedFiles,
+  truncationInfo,
   className = "",
   onHide,
   hideContent = false,
@@ -241,6 +245,7 @@ export const Workspace = ({
             absoluteOutputPath={absoluteOutputPath}
             relativeOutputPath={relativeOutputPath}
             hideHeader={true}
+            truncationInfo={truncationInfo}
           />
         )}
 

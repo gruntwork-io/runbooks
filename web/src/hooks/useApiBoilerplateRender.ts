@@ -10,6 +10,10 @@ interface BoilerplateRenderResult {
   outputDir:    string,
   templatePath: string,
   fileTree:     FileTree,
+  totalFiles?:  number,
+  truncatedTree?: boolean,
+  heavyDir?: string,
+  heavyDirFileCount?: number,
   // Cleanup information from manifest-based rendering
   deletedFiles?:  string[], // Files deleted due to orphaning
   createdFiles?:  string[], // Newly created files
@@ -45,7 +49,7 @@ export function useApiBoilerplateRender(
   shouldFetch: boolean = true,
   target?: 'generated' | 'worktree'
 ): UseApiBoilerplateRenderResult {
-  const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
+  const { setFileTree, setTruncationInfo } = useFileTree();  // The FileTree is where we render the list of generated files
   const { invalidateTree } = useGitWorkTree();
 
   // Build the request body - both templatePath and templateId are required
@@ -76,13 +80,25 @@ export function useApiBoilerplateRender(
   // When target is worktree, output went to the git repo — do not overwrite Generated with worktree tree
   useEffect(() => {
     if (target === 'worktree') return;
-    const fileTreeData = apiResult.data?.fileTree;
+    const data = apiResult.data;
+    const fileTreeData = data?.fileTree;
     if (fileTreeData && Array.isArray(fileTreeData)) {
       setFileTree(fileTreeData);
+      // Store truncation metadata so the UI can show .gitignore recommendations
+      if (data?.truncatedTree) {
+        setTruncationInfo({
+          truncatedTree: true,
+          totalFiles: data.totalFiles ?? 0,
+          heavyDir: data.heavyDir,
+          heavyDirFileCount: data.heavyDirFileCount,
+        });
+      } else {
+        setTruncationInfo(null);
+      }
       // Trigger immediate changelog refresh so changes appear without waiting for next poll
       invalidateTree();
     }
-  }, [apiResult.data?.fileTree, setFileTree, target, invalidateTree]);
+  }, [apiResult.data?.fileTree, apiResult.data?.truncatedTree, setFileTree, setTruncationInfo, target, invalidateTree]);
 
   return {
     ...apiResult,

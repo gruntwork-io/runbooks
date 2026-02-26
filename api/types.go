@@ -62,6 +62,11 @@ type RenderResponse struct {
 	TotalFiles   int    `json:"totalFiles"`
 	// TruncatedTree is true when the file tree was capped at the display limit.
 	TruncatedTree bool  `json:"truncatedTree,omitempty"`
+	// HeavyDir is the top-level subdirectory containing the most files (only set when truncated).
+	// The frontend can use this to recommend adding a .gitignore directive.
+	HeavyDir string `json:"heavyDir,omitempty"`
+	// HeavyDirFileCount is the number of files in HeavyDir.
+	HeavyDirFileCount int `json:"heavyDirFileCount,omitempty"`
 	// Cleanup statistics (only populated when TemplateID is provided in request)
 	DeletedFiles  []string `json:"deletedFiles,omitempty"`  // Files that were deleted (orphaned from previous render)
 	CreatedFiles  []string `json:"createdFiles,omitempty"`  // Files that were newly created
@@ -158,6 +163,10 @@ type RenderInlineResponse struct {
 	TotalFiles    int                              `json:"totalFiles"`
 	// TruncatedTree is true when the file tree was capped at the display limit.
 	TruncatedTree bool                             `json:"truncatedTree,omitempty"`
+	// HeavyDir is the top-level subdirectory containing the most files (only set when truncated).
+	HeavyDir string                                `json:"heavyDir,omitempty"`
+	// HeavyDirFileCount is the number of files in HeavyDir.
+	HeavyDirFileCount int                          `json:"heavyDirFileCount,omitempty"`
 }
 
 // Boilerplate configuration types

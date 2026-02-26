@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
 
 /** Maximum number of files to render in the code pane at once */
 const MAX_DISPLAYED_FILES = 100
@@ -25,9 +26,11 @@ interface CodeFileCollectionProps {
   relativeOutputPath?: string;
   /** When true, hides the header (used when embedded in Workspace) */
   hideHeader?: boolean;
+  /** Backend truncation metadata (heavy dir recommendation) */
+  truncationInfo?: TruncationInfo | null;
 }
 
-export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false }: CodeFileCollectionProps) => {
+export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false, truncationInfo }: CodeFileCollectionProps) => {
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel();
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
@@ -244,6 +247,27 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
             className="flex-1 overflow-y-auto p-3"
           >
             <div className="flex flex-col gap-3">
+              {/* Backend truncation banner with .gitignore recommendation */}
+              {truncationInfo?.truncatedTree && (
+                <div className="px-3 py-3 bg-amber-50 border border-amber-200 rounded-md">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-amber-800">
+                      <p>
+                        Too many files to display ({truncationInfo.totalFiles.toLocaleString()} found). Only the first {fileItems.length.toLocaleString()} files are shown.
+                      </p>
+                      {truncationInfo.heavyDir && (
+                        <p className="mt-1.5">
+                          The <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDir}/</code> directory
+                          contains {truncationInfo.heavyDirFileCount?.toLocaleString()} files.
+                          Consider adding <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDir}/</code> to
+                          your template's <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">.gitignore</code> to exclude it.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               {displayedFiles.map((fileItem) => (
                 <CollapsibleCodeFile
                   key={fileItem.id}
@@ -254,7 +278,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                   ref={(el) => setFileRef(fileItem.id, el)}
                 />
               ))}
-              {/* Show more / truncation banner */}
+              {/* Show more / pagination banner */}
               {hasMoreFiles && (
                 <div className="flex items-center gap-2 px-3 py-3 bg-amber-50 border border-amber-200 rounded-md">
                   <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
