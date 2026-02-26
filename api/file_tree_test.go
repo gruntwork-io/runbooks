@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-func TestBuildFileTreeBasic(t *testing.T) {
+func TestBuildFileTreeWithContentBasic(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "src"), 0755)
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Hello\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\n"), 0644)
 
-	result, err := buildFileTreeWithRoot(dir, "")
+	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+		t.Fatalf("buildFileTreeWithContentResult failed: %v", err)
 	}
 
 	if result.TotalFiles != 2 {
@@ -35,7 +35,7 @@ func TestBuildFileTreeBasic(t *testing.T) {
 	}
 }
 
-func TestBuildFileTreeTruncatesWhenTooManyFiles(t *testing.T) {
+func TestBuildFileTreeWithContentTruncatesWhenTooManyFiles(t *testing.T) {
 	orig := maxFileTreeFiles
 	maxFileTreeFiles = 5
 	t.Cleanup(func() { maxFileTreeFiles = orig })
@@ -45,9 +45,9 @@ func TestBuildFileTreeTruncatesWhenTooManyFiles(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.txt", i)), []byte("x"), 0644)
 	}
 
-	result, err := buildFileTreeWithRoot(dir, "")
+	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+		t.Fatalf("buildFileTreeWithContentResult failed: %v", err)
 	}
 
 	if !result.TruncatedTree {
@@ -77,98 +77,46 @@ func TestBuildFileTreeTruncatesWhenTooManyFiles(t *testing.T) {
 	}
 }
 
-func TestBuildFileTreeRespectsGitignore(t *testing.T) {
+func TestBuildFileTreeWithContentDoesNotFilterGitignored(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a .gitignore that excludes node_modules
-	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("node_modules/\n"), 0644)
-
-	// Create node_modules with files
-	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
-	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("module.exports = {};\n"), 0644)
-
-	// Create a normal file
-	os.WriteFile(filepath.Join(dir, "index.js"), []byte("const app = require('express')();\n"), 0644)
-
-	result, err := buildFileTreeWithRoot(dir, "")
-	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
-	}
-
-	// Should contain index.js and .gitignore, but not node_modules
-	if result.TotalFiles != 2 {
-		t.Errorf("expected 2 files (.gitignore + index.js, node_modules should be skipped), got %d", result.TotalFiles)
-	}
-
-	// Verify node_modules is not in the tree
-	for _, node := range result.Tree {
-		if node.Name == "node_modules" {
-			t.Error("node_modules should be excluded from file tree when in .gitignore")
-		}
-	}
-}
-
-func TestBuildFileTreeWithoutGitignoreIncludesAllDirs(t *testing.T) {
-	dir := t.TempDir()
-
-	// No .gitignore — node_modules should be included
+	// Even with a .gitignore present, the generated files tree should
+	// include all files — the output directory is not a git repo.
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("node_modules/\n*.pyc\n"), 0644)
 	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
 	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("module.exports = {};\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "index.js"), []byte("const app = require('express')();\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "app.pyc"), []byte("bytecode"), 0644)
 
-	result, err := buildFileTreeWithRoot(dir, "")
+	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+		t.Fatalf("buildFileTreeWithContentResult failed: %v", err)
 	}
 
-	// Both files should be counted
-	if result.TotalFiles != 2 {
-		t.Errorf("expected 2 files (no .gitignore, all dirs included), got %d", result.TotalFiles)
+	// All 4 files should be counted: .gitignore, index.js, app.pyc, node_modules/express/index.js
+	if result.TotalFiles != 4 {
+		t.Errorf("expected 4 files (gitignore rules should not filter), got %d", result.TotalFiles)
 	}
 
-	// Verify node_modules IS in the tree
 	foundNodeModules := false
+	foundPyc := false
 	for _, node := range result.Tree {
 		if node.Name == "node_modules" {
 			foundNodeModules = true
 		}
+		if node.Name == "app.pyc" {
+			foundPyc = true
+		}
 	}
 	if !foundNodeModules {
-		t.Error("node_modules should be included when there is no .gitignore")
+		t.Error("node_modules should be included — output directory is not a git repo")
+	}
+	if !foundPyc {
+		t.Error("app.pyc should be included — output directory is not a git repo")
 	}
 }
 
-func TestBuildFileTreeGitignoreGlobPattern(t *testing.T) {
-	dir := t.TempDir()
-
-	// Gitignore with glob pattern
-	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.pyc\n__pycache__/\n"), 0644)
-	os.MkdirAll(filepath.Join(dir, "__pycache__"), 0755)
-	os.WriteFile(filepath.Join(dir, "__pycache__", "module.cpython-311.pyc"), []byte("bytecode"), 0644)
-	os.WriteFile(filepath.Join(dir, "app.py"), []byte("print('hello')\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "app.pyc"), []byte("bytecode"), 0644)
-
-	result, err := buildFileTreeWithRoot(dir, "")
-	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
-	}
-
-	// Should contain .gitignore and app.py only
-	if result.TotalFiles != 2 {
-		t.Errorf("expected 2 files (.gitignore + app.py), got %d", result.TotalFiles)
-	}
-
-	for _, node := range result.Tree {
-		if node.Name == "__pycache__" {
-			t.Error("__pycache__ should be excluded via .gitignore")
-		}
-		if node.Name == "app.pyc" {
-			t.Error("*.pyc files should be excluded via .gitignore glob pattern")
-		}
-	}
-}
-
-func TestBuildFileTreeDetectsHeavyDir(t *testing.T) {
+func TestBuildFileTreeWithContentDetectsHeavyDir(t *testing.T) {
 	orig := maxFileTreeFiles
 	maxFileTreeFiles = 5
 	t.Cleanup(func() { maxFileTreeFiles = orig })
@@ -183,9 +131,9 @@ func TestBuildFileTreeDetectsHeavyDir(t *testing.T) {
 	// One file at root level
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644)
 
-	result, err := buildFileTreeWithRoot(dir, "")
+	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+		t.Fatalf("buildFileTreeWithContentResult failed: %v", err)
 	}
 
 	if !result.TruncatedTree {
@@ -199,7 +147,7 @@ func TestBuildFileTreeDetectsHeavyDir(t *testing.T) {
 	}
 }
 
-func TestBuildFileTreeTruncatesLargeFiles(t *testing.T) {
+func TestBuildFileTreeWithContentTruncatesLargeFiles(t *testing.T) {
 	orig := maxFileTreeFileSize
 	maxFileTreeFileSize = 64
 	t.Cleanup(func() { maxFileTreeFileSize = orig })
@@ -212,9 +160,9 @@ func TestBuildFileTreeTruncatesLargeFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "large.txt"), largeContent, 0644)
 	os.WriteFile(filepath.Join(dir, "small.txt"), []byte("small\n"), 0644)
 
-	result, err := buildFileTreeWithRoot(dir, "")
+	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+		t.Fatalf("buildFileTreeWithContentResult failed: %v", err)
 	}
 
 	for _, node := range result.Tree {
@@ -240,7 +188,7 @@ func TestBuildFileTreeTruncatesLargeFiles(t *testing.T) {
 	}
 }
 
-func TestBuildFileTreeAlwaysSkipsVCSDirs(t *testing.T) {
+func TestBuildFileTreeWithContentAlwaysSkipsVCSDirs(t *testing.T) {
 	dir := t.TempDir()
 
 	// VCS directories should always be skipped (no gitignore needed)
@@ -250,9 +198,9 @@ func TestBuildFileTreeAlwaysSkipsVCSDirs(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".svn", "entries"), []byte("svn data\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('hi')\n"), 0644)
 
-	result, err := buildFileTreeWithRoot(dir, "")
+	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {
-		t.Fatalf("buildFileTreeWithRoot failed: %v", err)
+		t.Fatalf("buildFileTreeWithContentResult failed: %v", err)
 	}
 
 	if result.TotalFiles != 1 {

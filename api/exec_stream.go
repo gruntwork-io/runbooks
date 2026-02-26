@@ -167,7 +167,7 @@ func sendSSEError(c *gin.Context, message string) {
 // and the updated file tree
 func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
 	// Build the updated file tree from the output directory
-	result, err := buildFileTreeWithRoot(cliOutputPath, "")
+	result, err := buildFileTreeWithContentResult(cliOutputPath, "")
 	if err != nil {
 		// Log the error but don't fail - we still captured the files
 		slog.Warn("Failed to build file tree for SSE event", "error", err)

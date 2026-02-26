@@ -131,32 +131,29 @@ func getLanguageFromExtension(filename string) string {
 	return "text"
 }
 
-// fileTreeStats tracks cumulative statistics during a file tree build.
-type fileTreeStats struct {
+// fileTreeWithContentStats tracks cumulative statistics during a file tree build.
+type fileTreeWithContentStats struct {
 	totalFiles    int            // total files discovered (including those beyond the limit)
 	dirFileCounts map[string]int // file count per top-level subdirectory
-	gitignore     *gitignoreRules
 }
 
-// buildFileTree recursively builds a file tree structure from a directory.
-// It enforces limits on the number of files and per-file content size to
-// prevent OOM crashes when the output directory is very large.
-// It respects .gitignore rules found in the root directory.
-func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error) {
-	stats := &fileTreeStats{
+// buildFileTreeWithContent recursively builds a file tree from a directory,
+// reading file contents inline. It enforces limits on the number of files
+// and per-file content size to prevent OOM crashes when the directory is very large.
+func buildFileTreeWithContent(rootPath string, relativePath string) ([]FileTreeNode, error) {
+	stats := &fileTreeWithContentStats{
 		dirFileCounts: make(map[string]int),
-		gitignore:     loadGitignore(rootPath),
 	}
-	tree, err := buildFileTreeRecursive(rootPath, relativePath, stats)
+	tree, err := buildFileTreeWithContentRecursive(rootPath, relativePath, stats)
 	if err != nil {
 		return nil, err
 	}
 	return tree, nil
 }
 
-// buildFileTreeRecursive is the internal recursive implementation that shares
-// a stats counter across all levels of recursion.
-func buildFileTreeRecursive(rootPath string, relativePath string, stats *fileTreeStats) ([]FileTreeNode, error) {
+// buildFileTreeWithContentRecursive is the internal recursive implementation
+// that shares a stats counter across all levels of recursion.
+func buildFileTreeWithContentRecursive(rootPath string, relativePath string, stats *fileTreeWithContentStats) ([]FileTreeNode, error) {
 	var result []FileTreeNode
 
 	fullPath := filepath.Join(rootPath, relativePath)
@@ -182,15 +179,6 @@ func buildFileTreeRecursive(rootPath string, relativePath string, stats *fileTre
 			continue
 		}
 
-		// Use slash-separated relative path for gitignore matching (consistent cross-platform)
-		parentRelPath := filepath.ToSlash(relativePath)
-
-		// Skip entries matched by .gitignore
-		if stats.gitignore.isIgnored(entryName, entry.IsDir(), parentRelPath) {
-			slog.Debug("Skipping gitignored entry in file tree", "entry", entryName, "path", filepath.Join(relativePath, entryName))
-			continue
-		}
-
 		entryRelativePath := filepath.Join(relativePath, entryName)
 		entryFullPath := filepath.Join(rootPath, entryRelativePath)
 
@@ -201,7 +189,7 @@ func buildFileTreeRecursive(rootPath string, relativePath string, stats *fileTre
 
 		if entry.IsDir() {
 			item.Type = "folder"
-			children, err := buildFileTreeRecursive(rootPath, entryRelativePath, stats)
+			children, err := buildFileTreeWithContentRecursive(rootPath, entryRelativePath, stats)
 			if err != nil {
 				return nil, fmt.Errorf("failed to build file tree for directory %s: %w", entryFullPath, err)
 			}
@@ -268,21 +256,19 @@ type FileTreeResult struct {
 	TotalFiles    int
 	TruncatedTree bool
 	// HeavyDir is the name of the top-level subdirectory containing the most files,
-	// populated only when the tree is truncated to help users add a .gitignore directive.
+	// populated only when the tree is truncated to help users identify the culprit.
 	HeavyDir string
 	// HeavyDirFileCount is the number of files found in HeavyDir.
 	HeavyDirFileCount int
 }
 
-// buildFileTreeWithRoot returns the file tree directly without wrapping in a root folder.
-// It also returns metadata about truncation so callers can inform the frontend.
-// It respects .gitignore rules found in the root directory.
-func buildFileTreeWithRoot(rootPath string, relativePath string) (*FileTreeResult, error) {
-	stats := &fileTreeStats{
+// buildFileTreeWithContentResult returns the file tree along with metadata
+// about truncation so callers can inform the frontend.
+func buildFileTreeWithContentResult(rootPath string, relativePath string) (*FileTreeResult, error) {
+	stats := &fileTreeWithContentStats{
 		dirFileCounts: make(map[string]int),
-		gitignore:     loadGitignore(rootPath),
 	}
-	tree, err := buildFileTreeRecursive(rootPath, relativePath, stats)
+	tree, err := buildFileTreeWithContentRecursive(rootPath, relativePath, stats)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +280,7 @@ func buildFileTreeWithRoot(rootPath string, relativePath string) (*FileTreeResul
 	}
 	if truncated {
 		slog.Warn("File tree truncated", "totalFiles", stats.totalFiles, "limit", maxFileTreeFiles, "rootPath", rootPath)
-		// Identify the top-level directory with the most files to recommend a .gitignore entry
+		// Identify the top-level directory with the most files
 		var heavyDir string
 		var heavyCount int
 		for dir, count := range stats.dirFileCounts {

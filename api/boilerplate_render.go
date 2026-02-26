@@ -191,7 +191,7 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 		slog.Info("Successfully rendered boilerplate template to output directory")
 
 		// Build file tree from the generated output
-		fileTreeResult, err := buildFileTreeWithRoot(outputDir, "")
+		fileTreeResult, err := buildFileTreeWithContentResult(outputDir, "")
 		if err != nil {
 			slog.Error("Failed to build file tree", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -535,7 +535,7 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 		if persistentOutputDir != "" {
 			fileTreeDir = persistentOutputDir
 		}
-		fileTreeResult, err := buildFileTreeWithRoot(fileTreeDir, "")
+		fileTreeResult, err := buildFileTreeWithContentResult(fileTreeDir, "")
 		if err != nil {
 			slog.Error("Failed to build file tree", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
