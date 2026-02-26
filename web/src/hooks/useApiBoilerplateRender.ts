@@ -84,7 +84,7 @@ export function useApiBoilerplateRender(
     const fileTreeData = data?.fileTree;
     if (fileTreeData && Array.isArray(fileTreeData)) {
       setFileTree(fileTreeData);
-      // Store truncation metadata so the UI can show .gitignore recommendations
+      // Store truncation metadata so the UI can show a warning banner
       if (data?.truncatedTree) {
         setTruncationInfo({
           truncatedTree: true,

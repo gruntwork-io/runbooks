@@ -63,7 +63,6 @@ type RenderResponse struct {
 	// TruncatedTree is true when the file tree was capped at the display limit.
 	TruncatedTree bool  `json:"truncatedTree,omitempty"`
 	// HeavyDir is the top-level subdirectory containing the most files (only set when truncated).
-	// The frontend can use this to recommend adding a .gitignore directive.
 	HeavyDir string `json:"heavyDir,omitempty"`
 	// HeavyDirFileCount is the number of files in HeavyDir.
 	HeavyDirFileCount int `json:"heavyDirFileCount,omitempty"`

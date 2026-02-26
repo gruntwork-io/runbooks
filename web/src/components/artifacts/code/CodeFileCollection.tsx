@@ -247,7 +247,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
             className="flex-1 overflow-y-auto p-3"
           >
             <div className="flex flex-col gap-3">
-              {/* Backend truncation banner with .gitignore recommendation */}
+              {/* Backend truncation banner */}
               {truncationInfo?.truncatedTree && (
                 <div className="px-3 py-3 bg-amber-50 border border-amber-200 rounded-md">
                   <div className="flex items-start gap-2">
@@ -259,9 +259,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                       {truncationInfo.heavyDir && (
                         <p className="mt-1.5">
                           The <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDir}/</code> directory
-                          contains {truncationInfo.heavyDirFileCount?.toLocaleString()} files.
-                          Consider adding <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDir}/</code> to
-                          your template's <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">.gitignore</code> to exclude it.
+                          contains {truncationInfo.heavyDirFileCount?.toLocaleString()} files and may be the cause.
                         </p>
                       )}
                     </div>
