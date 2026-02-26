@@ -177,18 +177,13 @@ log_info "Validation complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging function won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks environment, copy/paste this snippet to the top of your script:
+When running scripts locally (outside the Runbooks UI), the logging functions aren't automatically injected. To simulate the Runbooks environment, run this one-liner in your terminal session:
 
 ```bash
-# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/check#logging) ---
-if ! type log_info &>/dev/null; then
-  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
-  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
-fi
-# --- End Runbooks Logging ---
+curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o /tmp/runbooks-logging.sh && export BASH_ENV=/tmp/runbooks-logging.sh
 ```
 
-This snippet checks if the logging functions are already defined, attempts to fetch them from GitHub, and falls back to simple implementations if offline.
+This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from any parent shell (bash, zsh, fish) and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
 
 ### With Variables
 
