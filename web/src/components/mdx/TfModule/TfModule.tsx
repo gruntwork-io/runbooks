@@ -75,7 +75,8 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
   }, [templateResolvedSource, remoteSource])
 
   // Track whether ::cli_runbook_source keyword is missing a remote source
-  const isMissingRemoteSource = source === SOURCE_KEYWORD && !resolvedSource
+  // Check both raw prop and template-resolved source to catch keyword from templates
+  const isMissingRemoteSource = (templateResolvedSource === SOURCE_KEYWORD || source === SOURCE_KEYWORD) && !remoteSource
 
   // Validate props
   const validationError = useMemo((): AppError | null => {

@@ -355,27 +355,18 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 }
 
 // extractOutputDependencies extracts {{ .outputs.blockId.outputName }} patterns from content
+// Uses the shared backend extractor to ensure consistent detection across the codebase,
+// including patterns with function wrappers like {{ fromJson .outputs.block.output }}
 func extractOutputDependencies(content string) []outputDependency {
-	// Match patterns like {{ .outputs.list_users.users }}
-	re := regexp.MustCompile(`\{\{\s*-?\s*(?:range\s+[^}]*)?\.?outputs\.([a-zA-Z0-9_-]+)\.(\w+)`)
-	matches := re.FindAllStringSubmatch(content, -1)
+	// Use the same two-pass extraction logic as the backend
+	apiDeps := api.ExtractOutputDependenciesFromContent(content)
 
-	seen := make(map[string]bool)
-	var deps []outputDependency
-
-	for _, match := range matches {
-		if len(match) >= 3 {
-			blockID := match[1]
-			outputName := match[2]
-			key := blockID + "." + outputName
-
-			if !seen[key] {
-				seen[key] = true
-				deps = append(deps, outputDependency{
-					BlockID:    blockID,
-					OutputName: outputName,
-				})
-			}
+	// Convert api.OutputDependency to local outputDependency type
+	deps := make([]outputDependency, len(apiDeps))
+	for i, apiDep := range apiDeps {
+		deps[i] = outputDependency{
+			BlockID:    apiDep.BlockID,
+			OutputName: apiDep.OutputName,
 		}
 	}
 
