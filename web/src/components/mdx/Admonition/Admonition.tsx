@@ -9,8 +9,6 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 export type AdmonitionType = "note" | "info" | "warning" | "danger"
 
-const VALID_ADMONITION_TYPES: AdmonitionType[] = ["note", "info", "warning", "danger"]
-
 interface AdmonitionProps {
   type: AdmonitionType
   title?: string
@@ -69,6 +67,8 @@ const admonitionConfig: Record<
     defaultTitle: "Danger",
   },
 }
+
+const VALID_ADMONITION_TYPES = Object.keys(admonitionConfig) as AdmonitionType[]
 
 export function Admonition({
   type,
