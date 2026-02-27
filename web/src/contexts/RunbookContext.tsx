@@ -204,7 +204,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
         }
       }
 
-      console.log(`[RunbookContext] registerInputs updating [${id}]:`, { values, config })
+      console.log(`[RunbookContext] registerInputs updating [${id}]: keys=${Object.keys(values).length}, configVars=${config?.variables?.length ?? 0}`)
       return {
         ...prev,
         [id]: { values, config }
@@ -279,7 +279,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
 
   const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
     const normalizedId = normalizeBlockId(blockId)
-    console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]:`, values)
+    console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]: keys=${Object.keys(values).length}`)
     setBlockOutputs(prev => ({
       ...prev,
       [normalizedId]: {
