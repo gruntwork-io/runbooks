@@ -45,7 +45,7 @@ variables:
   title="Clone Repository"
   path="scripts/git-clone.sh"
   inputsId="clone-config"
-  args={["{{ .repo_url }}", "{{ .clone_dir }}"]}
+  args={["{{ .inputs.repo_url }}", "{{ .inputs.clone_dir }}"]}
 />
 
 ---

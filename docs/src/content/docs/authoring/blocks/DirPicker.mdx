@@ -35,7 +35,7 @@ The options available in the dropdowns are the immediate subdirectories of the c
 
 Users can also type a path directly into an auto-populated and editable text input below the dropdowns (called "Target Path" in the above screenshot).
 
-The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ ._blocks.<id>.outputs.PATH }}` syntax.
+The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ .outputs.<id>.PATH }}` syntax.
   
 ### Basic Usage
 
@@ -112,13 +112,13 @@ The DirPicker outputs `PATH`, which can be referenced in a `<TemplateInline>` bl
 ```mdx
 <TemplateInline
   inputsId="module-vars"
-  outputPath="{{ ._blocks.target_path.outputs.PATH }}/terragrunt.hcl"
+  outputPath="{{ .outputs.target_path.PATH }}/terragrunt.hcl"
   generateFile={true}
   target="worktree"
 >
 ```
 
-The `outputPath` resolves `{{ ._blocks.*.outputs.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected.
+The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected.
 
 ### How It Works
 

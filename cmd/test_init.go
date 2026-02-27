@@ -354,28 +354,19 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	return blocks, nil
 }
 
-// extractOutputDependencies extracts {{ ._blocks.blockId.outputs.outputName }} patterns from content
+// extractOutputDependencies extracts {{ .outputs.blockId.outputName }} patterns from content
+// Uses the shared backend extractor to ensure consistent detection across the codebase,
+// including patterns with function wrappers like {{ fromJson .outputs.block.output }}
 func extractOutputDependencies(content string) []outputDependency {
-	// Match patterns like {{ ._blocks.list_users.outputs.users }}
-	re := regexp.MustCompile(`\{\{\s*-?\s*(?:range\s+[^}]*)?\.?_blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
-	matches := re.FindAllStringSubmatch(content, -1)
+	// Use the same two-pass extraction logic as the backend
+	apiDeps := api.ExtractOutputDependenciesFromContent(content)
 
-	seen := make(map[string]bool)
-	var deps []outputDependency
-
-	for _, match := range matches {
-		if len(match) >= 3 {
-			blockID := match[1]
-			outputName := match[2]
-			key := blockID + "." + outputName
-
-			if !seen[key] {
-				seen[key] = true
-				deps = append(deps, outputDependency{
-					BlockID:    blockID,
-					OutputName: outputName,
-				})
-			}
+	// Convert api.OutputDependency to local outputDependency type
+	deps := make([]outputDependency, len(apiDeps))
+	for i, apiDep := range apiDeps {
+		deps[i] = outputDependency{
+			BlockID:    apiDep.BlockID,
+			OutputName: apiDep.OutputName,
 		}
 	}
 
@@ -606,7 +597,7 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 	// This ensures new blocks added to the runbook are automatically included in tests.
 	sb.WriteString("    steps:\n")
 	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
-	sb.WriteString("      # blocks that consume them via {{ ._blocks.x.outputs.y }}\n")
+	sb.WriteString("      # blocks that consume them via {{ .outputs.x.y }}\n")
 	sb.WriteString("      # All blocks below are commented out, so this test runs all blocks\n")
 	sb.WriteString("      # in document order. Uncomment specific blocks to run only those.\n\n")
 

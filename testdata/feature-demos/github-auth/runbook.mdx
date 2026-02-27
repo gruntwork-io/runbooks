@@ -44,5 +44,5 @@ variables:
   githubAuthId="gh-auth"
   inputsId="repo-config"
   title="Clone Repository"
-  command="rm -rf {{ .clone_path }} && git clone {{ .repo_url }} {{ .clone_path }}"
+  command="rm -rf {{ .inputs.clone_path }} && git clone {{ .inputs.repo_url }} {{ .inputs.clone_path }}"
 />

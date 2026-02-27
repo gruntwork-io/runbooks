@@ -37,8 +37,8 @@ This tests that `extractTemplateFiles` correctly extracts template content from 
 <TemplateInline inputsId="test2" outputPath="test3-output.yml">
 ```yaml
 # Test 3 Output
-orgName: {{ .GithubOrgName }}
-repoName: {{ .GithubRepoName }}
+orgName: {{ .inputs.GithubOrgName }}
+repoName: {{ .inputs.GithubRepoName }}
 ```
 </TemplateInline>
 
@@ -49,8 +49,8 @@ Now let's render an inline template that pulls variables from both test1 and tes
 <TemplateInline inputsId={["test1", "test2"]} outputPath="test4-output.yml">
 ```yaml
 # Test 4 Output - Combined Variables
-orgName: {{ .GithubOrgName }}
-orgNamePrefix: {{ .OrgNamePrefix }}
+orgName: {{ .inputs.GithubOrgName }}
+orgNamePrefix: {{ .inputs.OrgNamePrefix }}
 ```
 </TemplateInline>
 

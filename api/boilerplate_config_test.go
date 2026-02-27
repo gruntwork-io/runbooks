@@ -696,64 +696,64 @@ func TestExtractOutputDependenciesFromTemplateDir(t *testing.T) {
 			name: "single output dependency in tf file",
 			files: map[string]string{
 				"main.tf": `locals {
-  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+  account_id = "{{ .outputs.create_account.account_id }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "outputs.create_account.account_id"},
 			},
 		},
 		{
 			name: "multiple output dependencies in same file",
 			files: map[string]string{
 				"main.tf": `locals {
-  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
-  region     = "{{ ._blocks.create_account.outputs.region }}"
+  account_id = "{{ .outputs.create_account.account_id }}"
+  region     = "{{ .outputs.create_account.region }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
-				{BlockID: "create_account", OutputName: "region", FullPath: "_blocks.create_account.outputs.region"},
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "outputs.create_account.account_id"},
+				{BlockID: "create_account", OutputName: "region", FullPath: "outputs.create_account.region"},
 			},
 		},
 		{
 			name: "dependencies from multiple blocks",
 			files: map[string]string{
 				"main.tf": `locals {
-  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
-  vpc_id     = "{{ ._blocks.create_vpc.outputs.vpc_id }}"
+  account_id = "{{ .outputs.create_account.account_id }}"
+  vpc_id     = "{{ .outputs.create_vpc.vpc_id }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
-				{BlockID: "create_vpc", OutputName: "vpc_id", FullPath: "_blocks.create_vpc.outputs.vpc_id"},
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "outputs.create_account.account_id"},
+				{BlockID: "create_vpc", OutputName: "vpc_id", FullPath: "outputs.create_vpc.vpc_id"},
 			},
 		},
 		{
 			name: "dependencies across multiple files",
 			files: map[string]string{
 				"main.tf": `locals {
-  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+  account_id = "{{ .outputs.create_account.account_id }}"
 }`,
 				"outputs.tf": `output "vpc_id" {
-  value = "{{ ._blocks.create_vpc.outputs.vpc_id }}"
+  value = "{{ .outputs.create_vpc.vpc_id }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "create_account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
-				{BlockID: "create_vpc", OutputName: "vpc_id", FullPath: "_blocks.create_vpc.outputs.vpc_id"},
+				{BlockID: "create_account", OutputName: "account_id", FullPath: "outputs.create_account.account_id"},
+				{BlockID: "create_vpc", OutputName: "vpc_id", FullPath: "outputs.create_vpc.vpc_id"},
 			},
 		},
 		{
 			name: "block ID with hyphens",
 			files: map[string]string{
 				"main.tf": `locals {
-  account_id = "{{ ._blocks.create-account.outputs.account_id }}"
+  account_id = "{{ .outputs.create-account.account_id }}"
 }`,
 			},
 			// Hyphens are normalized to underscores because Go templates don't support hyphens in dot notation
 			expectedDeps: []OutputDependency{
-				{BlockID: "create-account", OutputName: "account_id", FullPath: "_blocks.create_account.outputs.account_id"},
+				{BlockID: "create-account", OutputName: "account_id", FullPath: "outputs.create_account.account_id"},
 			},
 		},
 		{
@@ -761,17 +761,17 @@ func TestExtractOutputDependenciesFromTemplateDir(t *testing.T) {
 			files: map[string]string{
 				"main.tf": `locals {
   # No spaces
-  a = "{{._blocks.block1.outputs.output1}}"
+  a = "{{.outputs.block1.output1}}"
   # With spaces
-  b = "{{ ._blocks.block2.outputs.output2 }}"
+  b = "{{ .outputs.block2.output2 }}"
   # With pipe function
-  c = "{{ ._blocks.block3.outputs.output3 | upper }}"
+  c = "{{ .outputs.block3.output3 | upper }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "block1", OutputName: "output1", FullPath: "_blocks.block1.outputs.output1"},
-				{BlockID: "block2", OutputName: "output2", FullPath: "_blocks.block2.outputs.output2"},
-				{BlockID: "block3", OutputName: "output3", FullPath: "_blocks.block3.outputs.output3"},
+				{BlockID: "block1", OutputName: "output1", FullPath: "outputs.block1.output1"},
+				{BlockID: "block2", OutputName: "output2", FullPath: "outputs.block2.output2"},
+				{BlockID: "block3", OutputName: "output3", FullPath: "outputs.block3.output3"},
 			},
 		},
 		{
@@ -788,24 +788,24 @@ func TestExtractOutputDependenciesFromTemplateDir(t *testing.T) {
 			name: "duplicate dependencies are deduplicated",
 			files: map[string]string{
 				"main.tf": `locals {
-  a = "{{ ._blocks.block1.outputs.output1 }}"
-  b = "{{ ._blocks.block1.outputs.output1 }}"
+  a = "{{ .outputs.block1.output1 }}"
+  b = "{{ .outputs.block1.output1 }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "block1", OutputName: "output1", FullPath: "_blocks.block1.outputs.output1"},
+				{BlockID: "block1", OutputName: "output1", FullPath: "outputs.block1.output1"},
 			},
 		},
 		{
 			name: "various file extensions",
 			files: map[string]string{
 				"script.sh": `#!/bin/bash
-ACCOUNT_ID="{{ ._blocks.cmd.outputs.account_id }}"`,
-				"config.yaml": `account_id: {{ ._blocks.cmd.outputs.account_id }}`,
-				"config.json": `{"account_id": "{{ ._blocks.cmd.outputs.account_id }}"}`,
+ACCOUNT_ID="{{ .outputs.cmd.account_id }}"`,
+				"config.yaml": `account_id: {{ .outputs.cmd.account_id }}`,
+				"config.json": `{"account_id": "{{ .outputs.cmd.account_id }}"}`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "cmd", OutputName: "account_id", FullPath: "_blocks.cmd.outputs.account_id"},
+				{BlockID: "cmd", OutputName: "account_id", FullPath: "outputs.cmd.account_id"},
 			},
 		},
 		{
@@ -817,11 +817,11 @@ ACCOUNT_ID="{{ ._blocks.cmd.outputs.account_id }}"`,
 			name: "subdirectories are scanned",
 			files: map[string]string{
 				"modules/vpc/main.tf": `locals {
-  account_id = "{{ ._blocks.setup.outputs.account_id }}"
+  account_id = "{{ .outputs.setup.account_id }}"
 }`,
 			},
 			expectedDeps: []OutputDependency{
-				{BlockID: "setup", OutputName: "account_id", FullPath: "_blocks.setup.outputs.account_id"},
+				{BlockID: "setup", OutputName: "account_id", FullPath: "outputs.setup.account_id"},
 			},
 		},
 	}
@@ -876,13 +876,13 @@ func TestExtractOutputDependenciesFromTemplateDir_SkipsBinaryFiles(t *testing.T)
 
 	// Create a text file with output dependencies
 	textFile := filepath.Join(tempDir, "main.tf")
-	err := os.WriteFile(textFile, []byte(`account_id = "{{ ._blocks.cmd.outputs.id }}"`), 0644)
+	err := os.WriteFile(textFile, []byte(`account_id = "{{ .outputs.cmd.id }}"`), 0644)
 	require.NoError(t, err)
 
 	// Create a binary file with null bytes (the detection uses content, not extension)
 	// This simulates a real binary file that happens to contain template-like text
 	binaryFile := filepath.Join(tempDir, "data.bin")
-	binaryContent := []byte("binary\x00content {{ ._blocks.ignored.outputs.value }}")
+	binaryContent := []byte("binary\x00content {{ .outputs.ignored.value }}")
 	err = os.WriteFile(binaryFile, binaryContent, 0644)
 	require.NoError(t, err)
 
@@ -909,7 +909,7 @@ func TestIsBinaryFile(t *testing.T) {
 		},
 		{
 			name:     "text with template syntax",
-			content:  []byte(`account_id = "{{ ._blocks.cmd.outputs.id }}"`),
+			content:  []byte(`account_id = "{{ .outputs.cmd.id }}"`),
 			isBinary: false,
 		},
 		{
@@ -1028,7 +1028,7 @@ func TestOutputDependencyRegex_SharedFixtures(t *testing.T) {
 					// Also verify the FullPath is constructed correctly
 					// Note: FullPath uses normalized block ID (hyphens → underscores) for Go template compatibility
 					normalizedBlockID := normalizeBlockID(expected.BlockID)
-					expectedFullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, expected.OutputName)
+					expectedFullPath := fmt.Sprintf("outputs.%s.%s", normalizedBlockID, expected.OutputName)
 					assert.Equal(t, expectedFullPath, deps[i].FullPath,
 						"FullPath mismatch at index %d", i)
 				}

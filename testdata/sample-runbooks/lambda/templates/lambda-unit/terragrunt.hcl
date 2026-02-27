@@ -32,46 +32,46 @@ include "root" {
 # ---------------------------------------------------------------------------------------------------------------------
 inputs = {
   # Required: The name of the Lambda function
-  name = "{{ .FunctionName }}-{{ .Environment }}"
+  name = "{{ .inputs.FunctionName }}-{{ .inputs.Environment }}"
 
   # Required: The runtime environment for the Lambda function
-  runtime = "{{ .Runtime }}"
+  runtime = "{{ .inputs.Runtime }}"
 
   # Required: The function entrypoint in your code (file.function_name format)
-  handler = "{{ .Handler }}"
+  handler = "{{ .inputs.Handler }}"
 
   # Required: Path to the zipped Lambda function code (created by before_hook)
   zip_file = "${get_terragrunt_dir()}/lambda.zip"
 
   # Required: Memory size in MB (128-10240)
-  memory_size = {{ .MemorySize }}
+  memory_size = {{ .inputs.MemorySize }}
 
   # Required: Timeout in seconds (1-900)
-  timeout = {{ .Timeout }}
+  timeout = {{ .inputs.Timeout }}
 
-{{- if .Description }}
+{{- if .inputs.Description }}
 
   # Description of the Lambda function
-  description = "{{ .Description }}"
+  description = "{{ .inputs.Description }}"
 {{- end }}
 
-{{- if .ReservedConcurrency }}
+{{- if .inputs.ReservedConcurrency }}
 
   # Reserved concurrent executions
-  reserved_concurrent_executions = {{ .ReservedConcurrency }}
+  reserved_concurrent_executions = {{ .inputs.ReservedConcurrency }}
 {{- end }}
 
-{{- if .LogLevel }}
+{{- if .inputs.LogLevel }}
 
   # Environment variables for the Lambda function
   environment_variables = {
-    LOG_LEVEL = "{{ .LogLevel }}"
+    LOG_LEVEL = "{{ .inputs.LogLevel }}"
   }
 {{- end }}
 
   # Tags to apply to the Lambda function
   tags = {
-    Environment = "{{ .Environment }}"
+    Environment = "{{ .inputs.Environment }}"
     ManagedBy   = "terragrunt"
   }
 }

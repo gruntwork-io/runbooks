@@ -112,7 +112,7 @@ const (
 //    githubAuthId="auth-block-id". When the auth block is skipped, dependent blocks
 //    are also skipped.
 // 2. Output dependencies: Template blocks reference outputs from Command/Check blocks
-//    via {{ ._blocks.blockId.outputs.outputName }}. These are checked at render time.
+//    via {{ .outputs.blockId.outputName }}. These are checked at render time.
 
 // AuthDependency represents a block's dependency on an auth block for credentials.
 type AuthDependency struct {
@@ -566,6 +566,17 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 		return result
 	}
 
+	// Backfill any missing inputs with defaults from Inputs block schemas.
+	// This allows tests to omit inputs that have defaults defined in the runbook.
+	for inputsID, schema := range e.validator.GetAllSchemas() {
+		for varName, variable := range schema.Variables {
+			key := fmt.Sprintf("%s.%s", inputsID, varName)
+			if _, exists := resolvedInputs[key]; !exists && variable.Default != nil {
+				resolvedInputs[key] = variable.Default
+			}
+		}
+	}
+
 	// 2. Validate test values against boilerplate schemas
 	if validationErrors := e.validator.ValidateInputValues(resolvedInputs); len(validationErrors) > 0 {
 		result.Status = TestFailed
@@ -896,6 +907,21 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 			fmt.Printf("  Error: %s\n", result.Error)
 		}
 		return result
+	}
+
+	// Render template variables in block props (e.g., {{ .inputs.repo_name }})
+	// so that all block types get interpolated props.
+	if strings.Contains(block.Props, "{{") {
+		vars := e.buildTemplateVars()
+		rendered, err := api.RenderBoilerplateContent(block.Props, vars)
+		if err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to render template in block props: %s", improveTemplateError(err))
+			result.Duration = time.Since(start)
+			return result
+		}
+		block.Props = rendered
 	}
 
 	// Execute based on block type
@@ -1878,11 +1904,11 @@ func (e *TestExecutor) printBlockOutput(blockID string, logs string, outputs map
 func (e *TestExecutor) checkMissingOutputs(expected []string) []string {
 	var missing []string
 	for _, path := range expected {
-		// Parse paths like "_blocks.create_account.outputs.account_id"
+		// Parse paths like "outputs.create_account.account_id"
 		parts := strings.Split(path, ".")
-		if len(parts) >= 4 && parts[0] == "_blocks" && parts[2] == "outputs" {
+		if len(parts) >= 3 && parts[0] == "outputs" {
 			blockID := parts[1]
-			outputName := parts[3]
+			outputName := parts[2]
 			if e.blockOutputs[blockID] == nil || e.blockOutputs[blockID][outputName] == "" {
 				missing = append(missing, path)
 			}
@@ -1911,7 +1937,7 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	}
 
 	// Always render template variables in test mode
-	// Scripts may reference _blocks outputs which aren't detected by TemplateVarNames
+	// Scripts may reference outputs which aren't detected by TemplateVarNames
 	vars := e.buildTemplateVars()
 	rendered, err := api.RenderBoilerplateContent(scriptContent, vars)
 	if err != nil {
@@ -2076,8 +2102,8 @@ func improveTemplateError(err error) string {
 			"  - The TfModule source path points to a module that doesn't exist (check the relative path)\n"+
 			"  - The TfModule block's inputsId is not correctly referenced by this template\n"+
 			"  - `runbooks test` does not yet support TfModule for this runbook")
-	case "_blocks":
-		return fmt.Sprintf("template references {{._blocks}} but no block outputs are available. "+
+	case "outputs":
+		return fmt.Sprintf("template references {{.outputs}} but no block outputs are available. "+
 			"Make sure the blocks that produce outputs run before this template in your test steps")
 	default:
 		return fmt.Sprintf("template references {{.%s}} but that variable is not defined. "+
@@ -2086,12 +2112,12 @@ func improveTemplateError(err error) string {
 	}
 }
 
-// findMissingOutputDependencies checks the script content for {{ ._blocks.x.outputs.y }} references
+// findMissingOutputDependencies checks the script content for {{ .outputs.x.y }} references
 // and returns a list of any that aren't available in blockOutputs.
 func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []string {
-	// Use a more permissive regex that finds _blocks.xxx.outputs.yyy anywhere in the content
-	// This handles patterns inside function calls like: fromJson ._blocks.list_users.outputs.users
-	re := regexp.MustCompile(`_blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+	// Use a more permissive regex that finds .outputs.xxx.yyy anywhere in the content
+	// This handles patterns inside function calls like: fromJson .outputs.list_users.users
+	re := regexp.MustCompile(`\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)`)
 	matches := re.FindAllStringSubmatch(scriptContent, -1)
 
 	seen := make(map[string]bool)
@@ -2125,10 +2151,10 @@ func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []str
 		displayBlockID := hyphenatedBlockID
 
 		if !blockExists {
-			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q hasn't run yet)",
+			missing = append(missing, fmt.Sprintf("{{ .outputs.%s.%s }} (block %q hasn't run yet)",
 				blockID, outputName, displayBlockID))
 		} else if _, outputExists := blockOutputs[outputName]; !outputExists {
-			missing = append(missing, fmt.Sprintf("{{ ._blocks.%s.outputs.%s }} (block %q ran but didn't produce output %q)",
+			missing = append(missing, fmt.Sprintf("{{ .outputs.%s.%s }} (block %q ran but didn't produce output %q)",
 				blockID, outputName, displayBlockID, outputName))
 		}
 	}
@@ -2137,33 +2163,34 @@ func (e *TestExecutor) findMissingOutputDependencies(scriptContent string) []str
 }
 
 // buildTemplateVars builds template variables including test inputs and block outputs.
+// Returns a map with two namespaces:
+//   - "inputs": map of input variable values (from test config)
+//   - "outputs": map of block outputs keyed by normalized block ID
+//
+// These correspond to {{ .inputs.VarName }} and {{ .outputs.BlockId.OutputName }} in templates.
 func (e *TestExecutor) buildTemplateVars() map[string]interface{} {
 	vars := make(map[string]interface{})
 
-	// Add test inputs (format: inputsID.varName -> value)
-	// These become top-level template variables like {{ .varName }}
+	// Build inputs namespace from test inputs (format: inputsID.varName -> value)
+	inputs := make(map[string]interface{})
 	for key, value := range e.testInputs {
 		// Parse "inputsID.varName" format
 		parts := strings.SplitN(key, ".", 2)
 		if len(parts) == 2 {
 			varName := parts[1]
-			vars[varName] = value
+			inputs[varName] = value
 		}
 	}
+	vars["inputs"] = inputs
 
-	// Add block outputs (convert hyphens to underscores for Go template compatibility)
-	blocks := make(map[string]interface{})
-	for blockID, outputs := range e.blockOutputs {
+	// Build outputs namespace (convert hyphens to underscores for Go template compatibility)
+	outputs := make(map[string]interface{})
+	for blockID, blockOutputs := range e.blockOutputs {
 		// Convert block ID hyphens to underscores for template access
 		templateBlockID := strings.ReplaceAll(blockID, "-", "_")
-		blockData := map[string]interface{}{
-			"outputs": outputs,
-		}
-		blocks[templateBlockID] = blockData
+		outputs[templateBlockID] = blockOutputs
 	}
-	if len(blocks) > 0 {
-		vars["_blocks"] = blocks
-	}
+	vars["outputs"] = outputs
 
 	return vars
 }

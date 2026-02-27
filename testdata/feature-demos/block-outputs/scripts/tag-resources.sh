@@ -5,23 +5,23 @@
 echo "Tagging resources..."
 echo ""
 echo "=== Values from Inputs block (standard variables) ==="
-echo "Environment: {{ .environment }}"
-echo "Owner: {{ .owner }}"
+echo "Environment: {{ .inputs.environment }}"
+echo "Owner: {{ .inputs.owner }}"
 echo ""
 echo "=== Values from upstream block outputs ==="
-echo "Account ID: {{ ._blocks.create_account.outputs.account_id }}"
-echo "Region: {{ ._blocks.create_account.outputs.region }}"
-echo "Role ARN: {{ ._blocks.create_resources.outputs.role_arn }}"
+echo "Account ID: {{ .outputs.create_account.account_id }}"
+echo "Region: {{ .outputs.create_account.region }}"
+echo "Role ARN: {{ .outputs.create_resources.role_arn }}"
 echo ""
 
 # Use both types together
-echo "Applying tags to role in account {{ ._blocks.create_account.outputs.account_id }}..."
+echo "Applying tags to role in account {{ .outputs.create_account.account_id }}..."
 sleep 1
 
-TAG_SUMMARY="env={{ .environment }},owner={{ .owner }},account={{ ._blocks.create_account.outputs.account_id }}"
+TAG_SUMMARY="env={{ .inputs.environment }},owner={{ .inputs.owner }},account={{ .outputs.create_account.account_id }}"
 echo "Tags applied: $TAG_SUMMARY"
 echo ""
-echo "Successfully tagged resources for {{ .owner }} in the {{ .environment }} environment!"
+echo "Successfully tagged resources for {{ .inputs.owner }} in the {{ .inputs.environment }} environment!"
 
 # Output combined values for potential downstream use
 echo "tag_summary=$TAG_SUMMARY" >> "$RUNBOOK_OUTPUT"

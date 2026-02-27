@@ -524,12 +524,13 @@ func TestEnvSlice(t *testing.T) {
 
 func TestFilterCapturedEnv(t *testing.T) {
 	input := map[string]string{
-		"PATH":         "/usr/bin",
-		"HOME":         "/home/user",
-		"_":            "/bin/bash",  // Should be filtered
-		"SHLVL":        "1",          // Should be filtered
-		"BASH_VERSION": "5.0",        // Should be filtered (BASH_* prefix)
-		"CUSTOM_VAR":   "custom",
+		"PATH":                     "/usr/bin",
+		"HOME":                     "/home/user",
+		"_":                        "/bin/bash",  // Should be filtered
+		"SHLVL":                    "1",          // Should be filtered
+		"BASH_VERSION":             "5.0",        // Should be filtered (BASH_* prefix)
+		"CUSTOM_VAR":               "custom",
+		"_RUNBOOKS_LOGGING_LOADED": "1",          // Should be filtered (injected guard)
 	}
 
 	filtered := FilterCapturedEnv(input)
@@ -554,6 +555,9 @@ func TestFilterCapturedEnv(t *testing.T) {
 	}
 	if _, ok := filtered["BASH_VERSION"]; ok {
 		t.Error("BASH_VERSION should be filtered")
+	}
+	if _, ok := filtered["_RUNBOOKS_LOGGING_LOADED"]; ok {
+		t.Error("_RUNBOOKS_LOGGING_LOADED should be filtered")
 	}
 }
 
@@ -660,13 +664,13 @@ func TestSecurityTokensAreUnique(t *testing.T) {
 }
 
 // Test wrapper script generation
-func TestWrapScriptForEnvCapture(t *testing.T) {
+func TestWrapBashScript(t *testing.T) {
 	script := `#!/bin/bash
 echo "Hello"
 export MY_VAR=value
 cd /tmp`
 
-	wrapped := WrapScriptForEnvCapture(script, "/tmp/env.txt", "/tmp/pwd.txt")
+	wrapped := WrapBashScript(script, "/tmp/env.txt", "/tmp/pwd.txt")
 
 	// Verify wrapper contains necessary components
 	if !strings.Contains(wrapped, "__RUNBOOKS_ENV_CAPTURE_PATH") {
@@ -691,10 +695,27 @@ cd /tmp`
 	if !strings.Contains(wrapped, script) {
 		t.Error("Wrapper should contain original script")
 	}
+
+	// Verify logging functions are injected
+	if !strings.Contains(wrapped, "_RUNBOOKS_LOGGING_LOADED=1") {
+		t.Error("Wrapper should set logging guard variable")
+	}
+	for _, fn := range []string{"log_info()", "log_warn()", "log_error()", "log_debug()", "_log_timestamp()"} {
+		if !strings.Contains(wrapped, fn) {
+			t.Errorf("Wrapper should contain %s function definition", fn)
+		}
+	}
+
+	// Verify logging appears before user script
+	loggingIdx := strings.Index(wrapped, "_RUNBOOKS_LOGGING_LOADED=1")
+	userScriptIdx := strings.Index(wrapped, "# USER SCRIPT BEGIN")
+	if loggingIdx >= userScriptIdx {
+		t.Error("Logging functions should be injected before user script")
+	}
 }
 
 // Test that user EXIT traps are chained with our env capture
-func TestWrapScriptForEnvCaptureWithUserTrap(t *testing.T) {
+func TestWrapBashScriptWithUserTrap(t *testing.T) {
 	// Create temp files for env capture
 	envFile, err := os.CreateTemp("", "test-env-trap-*.txt")
 	if err != nil {
@@ -723,7 +744,7 @@ trap "touch %q" EXIT
 echo "Script running"
 `, userTrapRanPath)
 
-	wrapped := WrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath)
+	wrapped := WrapBashScript(script, envCapturePath, pwdCapturePath)
 
 	// Write wrapped script to temp file and execute it
 	tmpScript, err := os.CreateTemp("", "test-wrapped-*.sh")
@@ -756,6 +777,105 @@ echo "Script running"
 
 	if env["MY_TEST_VAR"] != "test_value_12345" {
 		t.Errorf("MY_TEST_VAR should be captured, got: %q", env["MY_TEST_VAR"])
+	}
+}
+
+// Test that injected logging functions produce correct output
+func TestWrapBashScriptLoggingFunctions(t *testing.T) {
+	envFile, err := os.CreateTemp("", "test-env-log-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp env file: %v", err)
+	}
+	envCapturePath := envFile.Name()
+	envFile.Close()
+	defer os.Remove(envCapturePath)
+
+	pwdFile, err := os.CreateTemp("", "test-pwd-log-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp pwd file: %v", err)
+	}
+	pwdCapturePath := pwdFile.Name()
+	pwdFile.Close()
+	defer os.Remove(pwdCapturePath)
+
+	script := `#!/bin/bash
+log_info "info message"
+log_warn "warn message"
+log_error "error message"
+DEBUG=true log_debug "debug message"
+`
+
+	wrapped := WrapBashScript(script, envCapturePath, pwdCapturePath)
+
+	tmpScript, err := os.CreateTemp("", "test-logging-*.sh")
+	if err != nil {
+		t.Fatalf("Failed to create temp script: %v", err)
+	}
+	tmpScript.WriteString(wrapped)
+	tmpScript.Close()
+	defer os.Remove(tmpScript.Name())
+	os.Chmod(tmpScript.Name(), 0700)
+
+	cmd := exec.Command("bash", tmpScript.Name())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Script execution failed: %v\nOutput: %s", err, output)
+	}
+
+	out := string(output)
+	for _, expected := range []string{"[INFO]  info message", "[WARN]  warn message", "[ERROR] error message", "[DEBUG] debug message"} {
+		if !strings.Contains(out, expected) {
+			t.Errorf("Output should contain %q, got:\n%s", expected, out)
+		}
+	}
+}
+
+// Test that the logging guard variable is set in the wrapper
+func TestWrapBashScriptLoggingGuard(t *testing.T) {
+	envFile, err := os.CreateTemp("", "test-env-guard-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp env file: %v", err)
+	}
+	envCapturePath := envFile.Name()
+	envFile.Close()
+	defer os.Remove(envCapturePath)
+
+	pwdFile, err := os.CreateTemp("", "test-pwd-guard-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp pwd file: %v", err)
+	}
+	pwdCapturePath := pwdFile.Name()
+	pwdFile.Close()
+	defer os.Remove(pwdCapturePath)
+
+	// Script checks that the guard is already set (proving injection happened before user code)
+	script := `#!/bin/bash
+if [ "$_RUNBOOKS_LOGGING_LOADED" = "1" ]; then
+    echo "GUARD_SET"
+else
+    echo "GUARD_NOT_SET"
+fi
+`
+
+	wrapped := WrapBashScript(script, envCapturePath, pwdCapturePath)
+
+	tmpScript, err := os.CreateTemp("", "test-guard-*.sh")
+	if err != nil {
+		t.Fatalf("Failed to create temp script: %v", err)
+	}
+	tmpScript.WriteString(wrapped)
+	tmpScript.Close()
+	defer os.Remove(tmpScript.Name())
+	os.Chmod(tmpScript.Name(), 0700)
+
+	cmd := exec.Command("bash", tmpScript.Name())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Script execution failed: %v\nOutput: %s", err, output)
+	}
+
+	if !strings.Contains(string(output), "GUARD_SET") {
+		t.Errorf("Guard variable should be set before user script runs, got: %s", output)
 	}
 }
 
