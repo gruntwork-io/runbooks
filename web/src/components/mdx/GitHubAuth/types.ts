@@ -30,6 +30,8 @@ export interface GitHubAuthProps {
   oauthScopes?: string[]
   /** Credential detection configuration (default: ['env', 'cli']) */
   detectCredentials?: false | GitHubCredentialSource[]
+  /** Reference to one or more Inputs by ID for template expressions in props */
+  inputsId?: string | string[]
 }
 
 export interface GitHubUserInfo {

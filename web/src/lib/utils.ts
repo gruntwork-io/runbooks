@@ -11,7 +11,7 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Normalizes a block ID to its canonical form.
  * 
- * Go templates don't support hyphens in dot notation (e.g., `._blocks.create-account` fails),
+ * Go templates don't support hyphens in dot notation (e.g., `.outputs.create-account` fails),
  * so we convert hyphens to underscores. This means "create-account" and "create_account"
  * are treated as the same ID.
  * 

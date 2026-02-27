@@ -101,7 +101,7 @@ tests:
 
     steps:
       # Note: Order matters! Blocks that produce outputs must run before
-      # blocks that consume them via {{ ._blocks.x.outputs.y }}
+      # blocks that consume them via {{ .outputs.x.y }}
       # Each block below includes an expect: value and will be executed
       # in document order. To skip a block, set expect: skip.
 

@@ -1,5 +1,5 @@
 /**
- * Lambda function handler for the {{ .FunctionName }}-{{ .Environment }} function.
+ * Lambda function handler for the {{ .inputs.FunctionName }}-{{ .inputs.Environment }} function.
  */
 
 /**
@@ -44,10 +44,10 @@ export const handler = async (event, context) => {
 
   // Build response
   const responseBody = {
-    message: `Hello from {{ .FunctionName }}-{{ .Environment }}!`,
+    message: `Hello from {{ .inputs.FunctionName }}-{{ .inputs.Environment }}!`,
     function_name: context.functionName,
     request_id: context.awsRequestId,
-    environment: '{{ .Environment }}',
+    environment: '{{ .inputs.Environment }}',
     event: event,
   };
 

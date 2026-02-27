@@ -14,6 +14,42 @@ import (
 // Script Preparation and Environment Capture
 // =============================================================================
 
+// loggingFunctions contains bash function definitions for standardized logging.
+// These are injected into every bash script wrapper so scripts can use log_info,
+// log_warn, log_error, and log_debug without any setup.
+//
+// IMPORTANT: Keep this in sync with scripts/logging.sh — the standalone file is
+// used for local development (via BASH_ENV), while this constant is used for
+// server-side injection into the wrapper.
+const loggingFunctions = `
+# --- Runbooks Logging Functions ---
+# (auto-injected; see also scripts/logging.sh for local development)
+_RUNBOOKS_LOGGING_LOADED=1
+
+_log_timestamp() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+log_info() {
+    printf '[%s] [INFO]  %s\n' "$(_log_timestamp)" "$*"
+}
+
+log_warn() {
+    printf '[%s] [WARN]  %s\n' "$(_log_timestamp)" "$*"
+}
+
+log_error() {
+    printf '[%s] [ERROR] %s\n' "$(_log_timestamp)" "$*"
+}
+
+log_debug() {
+    if [ "${DEBUG:-}" = "true" ]; then
+        printf '[%s] [DEBUG] %s\n' "$(_log_timestamp)" "$*"
+    fi
+}
+# --- End Runbooks Logging Functions ---
+`
+
 // ScriptSetup contains the prepared script and related resources for execution.
 // Use PrepareScriptForExecution to create this, and call Cleanup when done.
 type ScriptSetup struct {
@@ -104,8 +140,8 @@ func PrepareScriptForExecution(scriptContent string, language string) (*ScriptSe
 			return nil, fmt.Errorf("failed to create pwd capture file: %w", err)
 		}
 
-		// Wrap script for environment capture
-		scriptToWrite = WrapScriptForEnvCapture(scriptContent, setup.EnvCapturePath, setup.PwdCapturePath)
+		// Wrap script with logging injection and environment capture
+		scriptToWrite = WrapBashScript(scriptContent, setup.EnvCapturePath, setup.PwdCapturePath)
 	}
 
 	// Create temporary executable script
@@ -212,11 +248,13 @@ func createTempScript(content string) (string, error) {
 }
 
 // =============================================================================
-// Environment Capture Wrapper
+// Bash Script Wrapper
 // =============================================================================
 
-// WrapScriptForEnvCapture wraps a script to capture environment changes after execution.
-// The wrapper appends commands to dump the environment and working directory to temp files.
+// WrapBashScript wraps a user script with Runbooks infrastructure:
+//  1. Environment capture — dumps env vars and pwd to temp files on exit
+//  2. Logging injection — defines log_info, log_warn, log_error, log_debug
+//  3. EXIT trap interception — chains user EXIT traps with our capture handler
 //
 // ## How the wrapper works
 //
@@ -237,22 +275,31 @@ func createTempScript(content string) (string, error) {
 //  3. Preserves the original exit code
 //
 // We use `builtin trap` to set our handler, which bypasses our override function.
-func WrapScriptForEnvCapture(script, envCapturePath, pwdCapturePath string) string {
+//
+// ## Logging functions
+//
+// Logging functions (log_info, log_warn, log_error, log_debug) are injected after the
+// env-capture infrastructure and before the user script, so the user can override them
+// with their own definitions (bash last-definition-wins). A guard variable
+// (_RUNBOOKS_LOGGING_LOADED) prevents double-loading if the user also sources logging.sh.
+func WrapBashScript(script, envCapturePath, pwdCapturePath string) string {
 	// We use `env -0` to output NUL-terminated entries instead of newline-terminated.
 	// This is critical because environment variable values can contain embedded newlines
 	// (e.g., RSA keys, JSON, multiline strings). Both GNU and BSD/macOS support `env -0`.
 	wrapper := fmt.Sprintf(`#!/bin/bash
 # =============================================================================
-# Runbooks Environment Capture Wrapper
+# Runbooks Bash Script Wrapper
 # =============================================================================
-# This wrapper captures environment changes after the user script runs.
-# It intercepts EXIT traps to ensure both user cleanup AND env capture run.
+# This wrapper injects logging functions and captures environment changes
+# after the user script runs. It intercepts EXIT traps to ensure both user
+# cleanup AND env capture run.
 #
 # Flow:
 #   1. Define our capture function and trap override
 #   2. Set our combined EXIT handler (using builtin to bypass override)
-#   3. Execute user script (which may call 'trap ... EXIT')
-#   4. On exit: run user's handler first, then capture env
+#   3. Inject logging functions (log_info, log_warn, log_error, log_debug)
+#   4. Execute user script (which may call 'trap ... EXIT')
+#   5. On exit: run user's handler first, then capture env
 # =============================================================================
 
 __RUNBOOKS_ENV_CAPTURE_PATH=%q
@@ -350,13 +397,17 @@ __runbooks_combined_exit() {
 builtin trap __runbooks_combined_exit EXIT
 
 # =============================================================================
+# Logging Functions
+# =============================================================================
+%s
+# =============================================================================
 # USER SCRIPT BEGIN
 # =============================================================================
 %s
 # =============================================================================
 # USER SCRIPT END
 # =============================================================================
-`, envCapturePath, pwdCapturePath, script)
+`, envCapturePath, pwdCapturePath, loggingFunctions, script)
 
 	return wrapper
 }

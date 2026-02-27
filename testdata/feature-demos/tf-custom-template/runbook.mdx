@@ -37,7 +37,7 @@ which pre-formats each value as an HCL literal (strings quoted, bools/numbers ra
 <TemplateInline inputsId="lambda-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -46,7 +46,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -62,7 +62,7 @@ included. With the lambda module defaults, `handler` and `description` are omitt
 <TemplateInline inputsId="lambda-vars" outputPath="terragrunt-minimal.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -71,7 +71,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -85,9 +85,9 @@ For example, referencing `function_name` directly:
 
 <TemplateInline inputsId="lambda-vars" outputPath="function-info.txt">
 ```
-Function Name: {{ .function_name }}
-Runtime: {{ .runtime }}
-Source: {{ ._module.source }}
+Function Name: {{ .inputs.function_name }}
+Runtime: {{ .inputs.runtime }}
+Source: {{ .inputs._module.source }}
 ```
 </TemplateInline>
 

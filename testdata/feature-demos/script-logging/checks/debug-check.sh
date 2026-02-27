@@ -4,15 +4,8 @@
 # Demonstrates how DEBUG=true enables verbose log_debug output
 # =============================================================================
 
-# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/command#logging) ---
-if ! type log_info &>/dev/null; then
-  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
-  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
-fi
-# --- End Runbooks Logging ---
-
 # Set DEBUG based on input variable (passed from Runbooks Inputs block)
-if [ "{{ .EnableDebug }}" = "true" ]; then
+if [ "{{ .inputs.EnableDebug }}" = "true" ]; then
   export DEBUG=true
 fi
 

@@ -169,7 +169,7 @@ Reference outputs in downstream blocks using template variables:
 <Command
   id="list-files"
   title="List Cloned Files"
-  command="ls -la {{ ._blocks.clone_repo.outputs.CLONE_PATH }}"
+  command="ls -la {{ .outputs.clone_repo.CLONE_PATH }}"
 />
 ```
 
@@ -203,6 +203,6 @@ The GitClone block includes a collapsible "View Logs" section (identical to the 
   id="apply-changes"
   githubAuthId="gh-auth"
   title="Apply OpenTofu Changes"
-  command="cd {{ ._blocks.clone_infra.outputs.CLONE_PATH }} && tofu apply -auto-approve"
+  command="cd {{ .outputs.clone_infra.CLONE_PATH }} && tofu apply -auto-approve"
 />
 ```

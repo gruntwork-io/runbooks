@@ -78,7 +78,7 @@ When writing scripts for Check blocks:
 
 - **Exit codes matter.** Return `0` for success, `1` for failure, or `2` for warning
 - **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
-- **Templatize with variables.** Use `{{ .VariableName }}` syntax to inject user input
+- **Templatize with variables.** Use `{{ .inputs.VariableName }}` syntax to inject user input
 
 Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
 
@@ -177,18 +177,7 @@ log_info "Validation complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging function won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks environment, copy/paste this snippet to the top of your script:
-
-```bash
-# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/check#logging) ---
-if ! type log_info &>/dev/null; then
-  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
-  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
-fi
-# --- End Runbooks Logging ---
-```
-
-This snippet checks if the logging functions are already defined, attempts to fetch them from GitHub, and falls back to simple implementations if offline.
+Runbooks automatically injects these logging functions into every bash script at runtime — no `source` or `import` is needed. To run these scripts locally outside the Runbooks environment, see the [Command block Local Development guide](/authoring/blocks/command/#local-development).
 
 ### With Variables
 
@@ -211,11 +200,11 @@ variables:
 
 <Check 
     id="check-region" 
-    command="aws ec2 describe-availability-zones --region {{ .AwsRegion }}"
+    command="aws ec2 describe-availability-zones --region {{ .inputs.AwsRegion }}"
     inputsId="region-config"
     title="Check AWS Region Accessibility"
-    successMessage="Region {{ .AwsRegion }} is accessible!"
-    failMessage="Cannot access region {{ .AwsRegion }}"
+    successMessage="Region {{ .inputs.AwsRegion }} is accessible!"
+    failMessage="Cannot access region {{ .inputs.AwsRegion }}"
 />
 ```
 
@@ -326,7 +315,7 @@ fi
 #!/bin/bash
 # checks/s3-bucket-exists.sh
 
-BUCKET_NAME="{{ .BucketName }}"
+BUCKET_NAME="{{ .inputs.BucketName }}"
 
 log_info "Checking if S3 bucket exists..."
 log_debug "Bucket name: ${BUCKET_NAME}"
@@ -360,14 +349,14 @@ exit 0
 
 ### Consuming Outputs
 
-Reference outputs from other blocks using the `_blocks` namespace in templates:
+Reference outputs from other blocks using the `outputs` namespace in templates:
 
 ```bash
 # Use the account ID from the verify-account block
-echo "Using account {{ ._blocks.verify-account.outputs.account_id }}"
+echo "Using account {{ .outputs.verify_account.account_id }}"
 ```
 
-The full syntax is: `{{ ._blocks.<block-id>.outputs.<output-name> }}`
+The full syntax is: `{{ .outputs.<block-id>.<output-name> }}`
 
 ### Dependency Behavior
 

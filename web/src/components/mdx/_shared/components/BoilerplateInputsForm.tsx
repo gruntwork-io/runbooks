@@ -7,9 +7,9 @@ import { FormControl } from './FormControls'
 import { useFormState } from '../hooks/useFormState'
 import { useFormValidation } from '../hooks/useFormValidation'
 import { FormStatus } from './FormStatus'
-import { UnmetOutputDependenciesWarning } from './UnmetOutputDependenciesWarning'
+import { UnmetDependenciesWarning } from './UnmetDependenciesWarning'
 import { BlockIdLabel } from './BlockIdLabel'
-import type { UnmetOutputDependency } from '../hooks/useScriptExecution'
+import type { BlockOutput } from '@/lib/templateUtils'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -55,7 +55,7 @@ interface BoilerplateInputsFormProps {
   /** Live values for shared variables - these sync in real-time from imported sources */
   liveVarValues?: Record<string, unknown>
   /** Unmet output dependencies - shows warning and disables Generate button */
-  unmetOutputDependencies?: UnmetOutputDependency[]
+  unmetOutputDependencies?: BlockOutput[]
 }
 
 /**
@@ -345,7 +345,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 {/* Show warning for unmet output dependencies below the button */}
                 {unmetOutputDependencies.length > 0 && (
                   <div className="mt-3 -mb-3">
-                    <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
+                    <UnmetDependenciesWarning blockType="template" unmetInputDeps={[]} unmetOutputDeps={unmetOutputDependencies} />
                   </div>
                 )}
               </>

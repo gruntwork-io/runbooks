@@ -54,7 +54,7 @@ tests:
 
     steps:
       # Note: Order matters! Blocks that produce outputs must run before
-      # blocks that consume them via {{ ._blocks.x.outputs.y }}
+      # blocks that consume them via {{ .outputs.x.y }}
       # All blocks below are commented out, so this test runs all blocks
       # in document order. Uncomment specific blocks to run only those.
 

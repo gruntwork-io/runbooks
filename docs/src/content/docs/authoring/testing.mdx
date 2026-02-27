@@ -393,7 +393,7 @@ tests:
       - block: create-resources
         expect: blocked
         missing_outputs:
-          - _blocks.validate_inputs.outputs.validated
+          - outputs.validate_inputs.validated
       
       - block: validate-inputs
         expect: success
@@ -577,7 +577,7 @@ tests:
       - block: create-resources
         expect: blocked
         missing_outputs:
-          - _blocks.create_account.outputs.account_id
+          - outputs.create_account.account_id
 
       # Run the dependency
       - block: create-account

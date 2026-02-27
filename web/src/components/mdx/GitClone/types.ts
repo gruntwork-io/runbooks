@@ -2,19 +2,21 @@
 export interface GitCloneProps {
   /** Unique block identifier (required) */
   id: string
-  /** Display title (supports inline markdown) */
+  /** Display title (supports inline markdown and template expressions like {{ .inputs.repo_name }}) */
   title?: string
-  /** Description text (supports inline markdown) */
+  /** Description text (supports inline markdown and template expressions) */
   description?: string
+  /** ID or array of IDs of Inputs components to get variable values from */
+  inputsId?: string | string[]
   /** Reference to a GitHubAuth block for token */
   gitHubAuthId?: string
-  /** Pre-fill the Git URL input */
+  /** Pre-fill the Git URL input (supports template expressions like {{ .inputs.repo_url }}) */
   prefilledUrl?: string
-  /** Pre-fill the ref (branch or tag) to clone */
+  /** Pre-fill the ref (branch or tag) to clone (supports template expressions) */
   prefilledRef?: string
-  /** Pre-fill the sparse checkout path (subdirectory to clone) */
+  /** Pre-fill the sparse checkout path (subdirectory to clone) (supports template expressions) */
   prefilledRepoPath?: string
-  /** Pre-fill the local path (relative to CWD) where files will be cloned */
+  /** Pre-fill the local path (relative to CWD) where files will be cloned (supports template expressions) */
   prefilledLocalPath?: string
   /** Whether to use PTY (pseudo-terminal) for git clone execution. Defaults to true. Set to false to use pipes instead, which may be needed for environments that don't support PTY. */
   usePty?: boolean

@@ -1,13 +1,13 @@
 locals {
-  name_prefix    = "{{ .OrgNamePrefix }}"
-  default_region = "{{ .DefaultRegion }}"
+  name_prefix    = "{{ .inputs.OrgNamePrefix }}"
+  default_region = "{{ .inputs.DefaultRegion }}"
   account_info   = yamldecode(file("accounts.yml"))
   account_ids = {
     for account_name, info in local.account_info :
     account_name => info.id
   }
 
-  {{- if .AddAdditionalCommonVariables }}
+  {{- if .inputs.AddAdditionalCommonVariables }}
   # The name of the S3 bucket in the Logs account where AWS Config will report its findings.
   config_s3_bucket_name = "${local.name_prefix}-config-logs"
 

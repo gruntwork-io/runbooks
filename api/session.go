@@ -482,11 +482,12 @@ var excludedEnvVars = map[string]bool{
 	"HISTCMD":          	 true, // History number of current command
 	"SRANDOM":          	 true, // 32-bit random (bash 5.1+)
 
-	// Internal wrapper variables (must match wrapScriptForEnvCapture)
+	// Internal wrapper variables (must match WrapBashScript in exec_script.go)
 	"__RUNBOOKS_ENV_CAPTURE_PATH":   true,
 	"__RUNBOOKS_PWD_CAPTURE_PATH":   true,
 	"__RUNBOOKS_USER_EXIT_HANDLER":  true, // Stores user's EXIT trap handler
 	"__RUNBOOKS_COMBINED_EXIT":      true, // Our combined exit handler function name
+	"_RUNBOOKS_LOGGING_LOADED":      true, // Guard variable for injected logging functions
 }
 
 // FilterCapturedEnv filters out shell-internal variables from captured environment.

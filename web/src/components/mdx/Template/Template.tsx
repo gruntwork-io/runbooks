@@ -8,11 +8,11 @@ import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
 import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
-import { useRunbookContext, useInputs, useAllOutputs, inputsToValues } from '@/contexts/useRunbook'
+import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { buildBlocksNamespace, computeUnmetOutputDependencies } from '@/lib/templateUtils'
+import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -91,7 +91,7 @@ function Template({
   
   // Get inputs from referenced Inputs components (if any) and convert to values map
   const inputs = useInputs(inputsId);
-  const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
+  const inputValues = useMemo(() => flattenInputs(inputs), [inputs]);
   
   // Get all block outputs to check dependencies and pass to template rendering
   const allOutputs = useAllOutputs();
@@ -269,9 +269,9 @@ function Template({
     });
   }, [boilerplateConfig]);
 
-  // Build the _blocks namespace for template rendering
-  const blocksNamespace = useCallback(() => buildBlocksNamespace(allOutputs), [allOutputs]);
-  
+  // Flatten block outputs for template rendering (used in the outputs namespace)
+  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
+
   // Handle form changes - store in ref (no state update to avoid loops)
   const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
     // Store latest local form data in ref for registration
@@ -295,19 +295,17 @@ function Template({
     
     // Debounce: wait 200ms after last change before rendering
     autoRenderTimerRef.current = setTimeout(() => {
-      // Merge imported values with local form data, plus _blocks namespace
-      const mergedData = { 
-        ...inputValues, 
-        ...localVarValues,
-        _blocks: blocksNamespace()
-      };
-      
+      const mergedData = buildRenderVariables(
+        { ...inputValues, ...localVarValues },
+        flattenedOutputs,
+      );
+
       // Only trigger render when all required values are present
       if (hasAllRequiredValues(localVarValues)) {
         autoRender(path, mergedData);
       }
     }, 200);
-  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, blocksNamespace]);
+  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, flattenedOutputs]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -347,46 +345,42 @@ function Template({
     if (inputsUnchanged && outputsUnchanged) return;
     
     // Imported values or outputs changed - trigger auto-render with current form data
-    const mergedData = { 
-      ...inputValues, 
-      ...localVarValuesRef.current,
-      _blocks: blocksNamespace()
-    };
-    
+    const mergedData = buildRenderVariables(
+      { ...inputValues, ...localVarValuesRef.current },
+      flattenedOutputs,
+    );
+
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
     }
-  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, blocksNamespace]);
+  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, flattenedOutputs]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
     // Store latest form data
     localVarValuesRef.current = localVarValues;
-    
-    // Merge imported values with local form data, plus _blocks namespace for output access
-    const mergedData = { 
-      ...inputValues, 
-      ...localVarValues,
-      _blocks: blocksNamespace()
-    };
-    
+
+    const mergedData = buildRenderVariables(
+      { ...inputValues, ...localVarValues },
+      flattenedOutputs,
+    );
+
     console.log('[Template.handleGenerate] Called with:', {
       localVarValues,
       inputValues,
       mergedData,
-      runtimeValue: (mergedData as Record<string, unknown>).Runtime
     });
-    
-    // Register our variables in the block context (without _blocks)
+
+    // Register our variables in the block context
     if (boilerplateConfig) {
       const registrationData = { ...inputValues, ...localVarValues };
       registerInputs(id, registrationData, boilerplateConfig);
     }
-    
-    // Trigger the render with merged data (including _blocks)
+
+    // Trigger the render with merged data
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, inputValues, blocksNamespace])
+  }, [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
 
   // Early return for duplicate ID error
   if (isDuplicate) {

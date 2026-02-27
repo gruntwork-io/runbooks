@@ -45,7 +45,7 @@ Before we get started, let's make sure your local system is ready to go.
 Now let's create the `infrastructure-live-root` repo.
 
 <Command id="create-infrastructure-live-root-repo"
-    command="gh repo create {{ .GithubOrgName }}/{{ .GithubRepoName }} --private"
+    command="gh repo create {{ .inputs.GithubOrgName }}/{{ .inputs.GithubRepoName }} --private"
     title="Create the `infrastructure-live-root` repo"
     description="This will create a new private repo in your GitHub organization."
     successMessage="`infrastructure-live-root` repo created successfully!"
@@ -72,7 +72,7 @@ Now let's create the `infrastructure-live-root` repo.
 Let's double check that the repo was created successfully.
 
 <Check id="check-infrastructure-live-root-repo"
-    command="gh repo view {{ .GithubOrgName }}/{{ .GithubRepoName }}"
+    command="gh repo view {{ .inputs.GithubOrgName }}/{{ .inputs.GithubRepoName }}"
     inputsId="infrastructure-live-root-repo-inputs"
     title="Confirm the repo was created successfully"
     description="Let's make sure the repo was created successfully."
@@ -113,7 +113,7 @@ variables:
 </Inputs>
 
 <Command id="test-command1"
-    command="echo 'Hello, {{.Name}}'"
+    command="echo 'Hello, {{ .inputs.Name }}'"
     inputsId="test1"
     title="Create a pull request with the changes"
     description="This will clone your repo, add all the generated files, commit them, push to a new branch, and create a pull request."
@@ -143,7 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: {{ .GithubOrgName }}/{{ .GithubRepoName }}
+          repository: {{ .inputs.GithubOrgName }}/{{ .inputs.GithubRepoName }}
       
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
