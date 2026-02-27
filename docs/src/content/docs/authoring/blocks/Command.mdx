@@ -178,18 +178,29 @@ log_info "Deployment complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging functions won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks environment, copy/paste this snippet to the top of your script:
+When running scripts locally (outside the Runbooks UI), the logging functions aren't automatically injected. To simulate the Runbooks environment, run this one-liner in your terminal session (bash or zsh):
 
 ```bash
-# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/command#logging) ---
-if ! type log_info &>/dev/null; then
-  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
-  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
-fi
-# --- End Runbooks Logging ---
+mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh && export BASH_ENV=~/.config/runbooks/logging.sh
 ```
 
-This snippet checks if the logging functions are already defined, attempts to fetch them from GitHub, and falls back to simple implementations if offline.
+This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
+
+:::note[Fish shell]
+The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also does not read `BASH_ENV` itself, but child `bash` processes will if the variable is exported. Use the fish equivalent:
+
+```fish
+mkdir -p ~/.config/runbooks; and curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh; and set -gx BASH_ENV ~/.config/runbooks/logging.sh
+```
+
+To make this persistent across sessions, add the following to a fish startup file (e.g., `~/.config/fish/conf.d/runbooks.fish`):
+
+```fish
+if test -f ~/.config/runbooks/logging.sh
+    set -gx BASH_ENV ~/.config/runbooks/logging.sh
+end
+```
+:::
 
 ### With Variables
 

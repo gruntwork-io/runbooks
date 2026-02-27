@@ -177,18 +177,7 @@ log_info "Validation complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging function won't magically be pre-loaded, so if you'd like your scripts to run successfully both locally and in the Runbooks environment, copy/paste this snippet to the top of your script:
-
-```bash
-# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/check#logging) ---
-if ! type log_info &>/dev/null; then
-  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
-  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
-fi
-# --- End Runbooks Logging ---
-```
-
-This snippet checks if the logging functions are already defined, attempts to fetch them from GitHub, and falls back to simple implementations if offline.
+Runbooks automatically injects these logging functions into every bash script at runtime — no `source` or `import` is needed. To run these scripts locally outside the Runbooks environment, see the [Command block Local Development guide](/authoring/blocks/command/#local-development).
 
 ### With Variables
 
