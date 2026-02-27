@@ -177,13 +177,7 @@ log_info "Validation complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging functions aren't automatically injected. To simulate the Runbooks environment, run this one-liner in your terminal session:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o /tmp/runbooks-logging.sh && export BASH_ENV=/tmp/runbooks-logging.sh
-```
-
-This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from any parent shell (bash, zsh, fish) and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
+Runbooks automatically injects these logging functions into every bash script at runtime — no `source` or `import` is needed. To run these scripts locally outside the Runbooks environment, see the [Command block Local Development guide](/authoring/blocks/command/#local-development).
 
 ### With Variables
 
