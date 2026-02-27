@@ -566,6 +566,17 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 		return result
 	}
 
+	// Backfill any missing inputs with defaults from Inputs block schemas.
+	// This allows tests to omit inputs that have defaults defined in the runbook.
+	for inputsID, schema := range e.validator.GetAllSchemas() {
+		for varName, variable := range schema.Variables {
+			key := fmt.Sprintf("%s.%s", inputsID, varName)
+			if _, exists := resolvedInputs[key]; !exists && variable.Default != nil {
+				resolvedInputs[key] = variable.Default
+			}
+		}
+	}
+
 	// 2. Validate test values against boilerplate schemas
 	if validationErrors := e.validator.ValidateInputValues(resolvedInputs); len(validationErrors) > 0 {
 		result.Status = TestFailed
@@ -896,6 +907,21 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 			fmt.Printf("  Error: %s\n", result.Error)
 		}
 		return result
+	}
+
+	// Render template variables in block props (e.g., {{ .inputs.repo_name }})
+	// so that all block types get interpolated props.
+	if strings.Contains(block.Props, "{{") {
+		vars := e.buildTemplateVars()
+		rendered, err := api.RenderBoilerplateContent(block.Props, vars)
+		if err != nil {
+			result.Passed = false
+			result.ActualStatus = "error"
+			result.Error = fmt.Sprintf("failed to render template in block props: %s", improveTemplateError(err))
+			result.Duration = time.Since(start)
+			return result
+		}
+		block.Props = rendered
 	}
 
 	// Execute based on block type
