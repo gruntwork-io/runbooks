@@ -28,7 +28,7 @@ test.describe("sample-runbooks/markdown-only-simple", () => {
     await expect(page.locator("strong").first()).toBeVisible();
 
     // No error boundary should be visible.
-    await expect(page.locator(".text-red-600")).not.toBeVisible();
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
 
     expectNoConsoleErrors(consoleMessages);
   });
@@ -67,7 +67,7 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     await expect(page.getByText("Before You Begin")).toBeVisible();
 
     // No error boundary should be visible.
-    await expect(page.locator(".text-red-600")).not.toBeVisible();
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
 
     expectNoConsoleErrors(consoleMessages);
   });

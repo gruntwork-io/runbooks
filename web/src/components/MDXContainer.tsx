@@ -77,7 +77,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   if (error) {
     return (
       <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-        <div className="text-red-600 p-4 border border-red-300 rounded-lg">
+        <div data-testid="mdx-error" className="text-red-600 p-4 border border-red-300 rounded-lg">
           <h3 className="font-semibold mb-2">{error.message}</h3>
           <pre className="text-sm whitespace-pre-wrap">{error.details}</pre>
         </div>
@@ -310,7 +310,7 @@ class CustomMDXComponentErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="text-red-600 p-4 border border-red-300 rounded-lg bg-red-50">
+        <div data-testid="mdx-error" className="text-red-600 p-4 border border-red-300 rounded-lg bg-red-50">
           <h3 className="font-semibold mb-2">Runtime Error in MDX Component: {this.state.error?.message}</h3>
           <p className="text-sm">{this.state.error?.details}</p>
         </div>
