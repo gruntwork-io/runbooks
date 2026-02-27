@@ -1,0 +1,148 @@
+---
+title: Inputs & Outputs Demo
+---
+
+# Inputs & Outputs
+
+This runbook demonstrates the new template syntax for referencing inputs and outputs in block props.
+
+## The New Syntax
+
+| Namespace | Syntax | Example |
+|-----------|--------|---------|
+| Inputs | `{{ .inputs.variableName }}` | `{{ .inputs.repo_url }}` |
+| Outputs | `{{ .outputs.block_id.outputName }}` | `{{ .outputs.create_account.account_id }}` |
+
+Both namespaces are explicit — no ambiguity about where a value comes from.
+
+---
+
+## Step 1: Configure Clone Parameters
+
+Define the repository details as user inputs. The GitClone block below will read these values and pre-fill its form fields.
+
+<Inputs id="clone-config">
+```yaml
+variables:
+  - name: repo_org
+    type: string
+    description: The GitHub organization of the repository to clone
+    default: "gruntwork-io"
+    validations:
+      - required
+  - name: repo_name
+    type: string
+    description: The name of the GitHub repository to clone
+    default: "runbooks-test"
+    validations:
+      - required
+  - name: branch
+    type: string
+    description: Branch or tag to check out
+    default: main
+```
+</Inputs>
+
+## Step 2: Clone from Inputs
+
+Use `inputsId` to connect a block to an Inputs block. Then reference variables with `{{ .inputs.variableName }}` — the values are resolved reactively as the user types.
+
+### How it works
+
+The `inputsId` prop tells GitClone where to read its values from:
+
+```
+inputsId="clone-config"    ← matches the id="clone-config" Inputs above
+```
+
+Each `{{ .inputs.* }}` expression maps to a variable defined in that Inputs block:
+
+```
+prefilledUrl="https://github.com/{{ .inputs.repo_org }}/{{ .inputs.repo_name }}"
+                                   ↑                      ↑
+                                   repo_org = "gruntwork-io"  repo_name = "runbooks-test"
+
+prefilledRef="{{ .inputs.branch }}"
+                  ↑
+                  branch = "main"
+```
+
+Template expressions work in any string prop — not just form fields. Here we also use them in `title` and `description`:
+
+```
+title="Clone {{ .inputs.repo_org }}/{{ .inputs.repo_name }}"
+  → "Clone gruntwork-io/runbooks-test"
+```
+
+### Try it
+
+<GitClone
+  id="clone-from-inputs"
+  inputsId="clone-config"
+  prefilledUrl="https://github.com/{{ .inputs.repo_org }}/{{ .inputs.repo_name }}"
+  prefilledRef="{{ .inputs.branch }}"
+  title="Clone {{ .inputs.repo_org }}/{{ .inputs.repo_name }}"
+  description="This will clone the branch {{ .inputs.branch }} from the repository {{ .inputs.repo_org }}/{{ .inputs.repo_name }}"
+/>
+
+Change the input values in Step 1 — the GitClone form fields, title, and description all update in real time.
+
+---
+
+## Step 3: Multiple Inputs Sources
+
+A block can pull values from more than one Inputs block by passing an **array** of IDs to `inputsId`. This is useful when you have shared defaults that individual steps can override.
+
+### How it works
+
+When `inputsId` is an array, values merge left-to-right. If two Inputs blocks define the same variable, the **later** one wins:
+
+```
+inputsId={["defaults", "overrides"]}
+```
+
+```
+defaults:    { repo_url: "https://...", branch: "main" }
+overrides:   { branch: "feature/new-syntax" }
+                                ↓
+merged:      { repo_url: "https://...", branch: "feature/new-syntax" }
+```
+
+### Try it
+
+Below are two Inputs blocks. The "Defaults" block sets `repo_url` and `branch`. The "Overrides" block redefines `branch` only. The GitClone block merges both — so `repo_url` comes from Defaults, but `branch` comes from Overrides.
+
+<Inputs id="defaults">
+```yaml
+variables:
+  - name: repo_url
+    type: string
+    description: Default repository URL
+    default: "https://github.com/gruntwork-io/runbooks"
+  - name: branch
+    type: string
+    description: Default branch
+    default: main
+```
+</Inputs>
+
+<Inputs id="overrides">
+```yaml
+variables:
+  - name: branch
+    type: string
+    description: Override branch (takes precedence over defaults)
+    default: feature/new-syntax
+```
+</Inputs>
+
+<GitClone
+  id="clone-merged"
+  inputsId={["defaults", "overrides"]}
+  prefilledUrl="{{ .inputs.repo_url }}"
+  prefilledRef="{{ .inputs.branch }}"
+  title="Clone with Merged Inputs"
+  description="repo_url from 'defaults', branch from 'overrides'"
+/>
+
+Notice the Git URL field shows the repo URL from **Defaults**, while the Ref field shows **feature/new-syntax** from **Overrides**. Try changing the branch in either Inputs block to see which one takes effect.

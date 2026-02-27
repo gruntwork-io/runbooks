@@ -6,9 +6,9 @@
 
 locals {
   # Values from block outputs (populated by running the create-account Command)
-  account_id = "{{ ._blocks.create_account.outputs.account_id }}"
-  region     = "{{ ._blocks.create_account.outputs.region }}"
-  
+  account_id = "{{ .outputs.create_account.account_id }}"
+  region     = "{{ .outputs.create_account.region }}"
+
   # Values from this template's form inputs
   config_name = "{{ .config_name }}"
   description = "{{ .description }}"
@@ -19,7 +19,7 @@ resource "aws_iam_account_alias" "alias" {
   account_alias = "${local.config_name}-${local.account_id}"
 }
 
-# Example data source using the region from the previous step  
+# Example data source using the region from the previous step
 data "aws_region" "current" {
   name = local.region
 }

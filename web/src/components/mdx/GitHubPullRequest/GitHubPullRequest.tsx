@@ -1,12 +1,13 @@
 import { GitPullRequest, CheckCircle, XCircle, Loader2, AlertTriangle, Trash2 } from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel, UnmetDependenciesWarning } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext } from "@/contexts/useRunbook"
-import { normalizeBlockId } from "@/lib/utils"
+import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
+import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
+import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
 import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
@@ -23,15 +24,9 @@ const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; i
   ready:    { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
 }
 
-/** Resolve template expressions like {{ ._blocks.X.outputs.Y }} and process escape sequences (\n → newline). */
-function resolveTemplateString(template: string, blockOutputs: Record<string, { values: Record<string, string> }>): string {
-  return template
-    .replace(/\{\{\s*\._blocks\.(\w+)\.outputs\.(\w+)\s*\}\}/g, (_match, blockId, outputName) => {
-      const normalizedId = normalizeBlockId(blockId)
-      const value = blockOutputs[normalizedId]?.values?.[outputName]
-      return value ?? _match // Leave unresolved patterns as-is
-    })
-    .replace(/\\n/g, '\n')
+/** Resolve template expressions and process escape sequences (\n → newline). */
+function resolveAndUnescape(template: string, ctx: import('@/lib/templateUtils').TemplateContext): string {
+  return resolveTemplateReferences(template, ctx).replace(/\\n/g, '\n')
 }
 
 function GitHubPullRequest({
@@ -42,6 +37,7 @@ function GitHubPullRequest({
   prefilledPullRequestDescription = '',
   prefilledPullRequestLabels = [],
   prefilledBranchName = '',
+  inputsId,
   githubAuthId,
 }: GitHubPullRequestProps) {
   // Check for duplicate component IDs
@@ -56,8 +52,49 @@ function GitHubPullRequest({
   // Git worktree context
   const { activeWorkTree } = useGitWorkTree()
 
-  // Runbook context for template resolution and metadata
-  const { blockOutputs: allOutputs, runbookName } = useRunbookContext()
+  // Runbook context for metadata; template context for resolving expressions
+  const { runbookName } = useRunbookContext()
+  const templateCtx = useTemplateContext(inputsId)
+  const rawOutputs = useAllOutputs()
+
+  // Extract and check template dependencies from props that support template expressions
+  // Blocking dependencies (functional props): prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName
+  const blockingDeps = useMemo(() => [
+    ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ''),
+    ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ''),
+    ...extractTemplateDependenciesFromString(prefilledBranchName ?? ''),
+  ], [prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName])
+
+  // Non-blocking dependencies (display props): title, description
+  const nonBlockingDeps = useMemo(() => [
+    ...extractTemplateDependenciesFromString(title ?? ''),
+    ...extractTemplateDependenciesFromString(description ?? ''),
+  ], [title, description])
+
+  // Combine all dependencies for resolution context
+  const allDeps = useMemo(() => [...blockingDeps, ...nonBlockingDeps], [blockingDeps, nonBlockingDeps])
+  const { inputs: allInputDeps, outputs: allOutputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+
+  const allUnmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(allInputDeps, templateCtx.inputs),
+    [allInputDeps, templateCtx.inputs]
+  )
+
+  const allUnmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(allOutputDeps, rawOutputs),
+    [allOutputDeps, rawOutputs]
+  )
+
+  // Compute unmet dependencies for BLOCKING props only
+  const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
+    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
+    return {
+      unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
+      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps)
+    }
+  }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
+
+  const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
   // Track render
   useEffect(() => {
@@ -97,18 +134,28 @@ function GitHubPullRequest({
     }
   }, [workspaceChanges])
 
-  // Resolve prefilled values with template expressions
+  // Resolve prefilled values with template expressions ({{ .inputs.X }} and {{ .outputs.X.Y }})
   const resolvedTitle = useMemo(() =>
-    prefilledPullRequestTitle ? resolveTemplateString(prefilledPullRequestTitle, allOutputs) : '',
-    [prefilledPullRequestTitle, allOutputs]
+    prefilledPullRequestTitle ? resolveAndUnescape(prefilledPullRequestTitle, templateCtx) : '',
+    [prefilledPullRequestTitle, templateCtx]
   )
   const resolvedDescription = useMemo(() =>
-    prefilledPullRequestDescription ? resolveTemplateString(prefilledPullRequestDescription, allOutputs) : '',
-    [prefilledPullRequestDescription, allOutputs]
+    prefilledPullRequestDescription ? resolveAndUnescape(prefilledPullRequestDescription, templateCtx) : '',
+    [prefilledPullRequestDescription, templateCtx]
   )
   const resolvedBranchName = useMemo(() =>
-    prefilledBranchName ? resolveTemplateString(prefilledBranchName, allOutputs) : '',
-    [prefilledBranchName, allOutputs]
+    prefilledBranchName ? resolveAndUnescape(prefilledBranchName, templateCtx) : '',
+    [prefilledBranchName, templateCtx]
+  )
+
+  // Resolve display props (title and description support template expressions too)
+  const resolvedDisplayTitle = useMemo(() =>
+    title ? resolveTemplateReferences(title, templateCtx) : title,
+    [title, templateCtx]
+  )
+  const resolvedDisplayDescription = useMemo(() =>
+    description ? resolveTemplateReferences(description, templateCtx) : description,
+    [description, templateCtx]
   )
 
   // Default commit message includes the runbook name when available
@@ -235,7 +282,7 @@ function GitHubPullRequest({
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
-  const isFormDisabled = !githubAuthMet || !activeWorkTree
+  const isFormDisabled = !githubAuthMet || !activeWorkTree || !hasAllBlockingDependencies
 
   // Block outputs for ViewOutputs
   const outputValues = useMemo(() => {
@@ -268,10 +315,10 @@ function GitHubPullRequest({
           {/* Title and description */}
           <div className="flex items-center gap-1 text-md font-bold text-gray-700">
             <GitHubLogo className="size-6 text-gray-800" />
-            <InlineMarkdown>{title}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDisplayTitle}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">
-            <InlineMarkdown>{description}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDisplayDescription}</InlineMarkdown>
           </div>
 
           {/* Dependency warnings */}
@@ -296,6 +343,17 @@ function GitHubPullRequest({
                   Clone a repository using a GitClone block first.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Template dependency warnings (blocking only) */}
+          {!hasAllBlockingDependencies && (
+            <div className="mb-4">
+              <UnmetDependenciesWarning
+                blockType="pull request"
+                unmetInputDeps={unmetInputDeps}
+                unmetOutputDeps={unmetOutputDeps}
+              />
             </div>
           )}
 

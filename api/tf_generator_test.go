@@ -64,8 +64,8 @@ func TestGenerateRunbook_TerragruntGitHub(t *testing.T) {
 	assert.Contains(t, mdx, "terragrunt.hcl")
 	assert.Contains(t, mdx, "<GitHubPullRequest")
 	assert.Contains(t, mdx, "target=\"worktree\"")
-	assert.Contains(t, mdx, "._blocks.target_path.outputs.PATH")
-	assert.Contains(t, mdx, "._blocks.module_vars.outputs.MODULE_NAME")
+	assert.Contains(t, mdx, ".outputs.target_path.PATH")
+	assert.Contains(t, mdx, ".outputs.module_vars.MODULE_NAME")
 }
 
 func TestGenerateRunbook_DefaultTemplate(t *testing.T) {

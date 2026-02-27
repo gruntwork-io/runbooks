@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import React from 'react'
 import TfModule from './TfModule'
 import { TestWrapper } from '@/test/test-utils'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
+import { useRunbookContext } from '@/contexts/useRunbook'
 
 // Mock the API hook — we don't want actual HTTP calls
 vi.mock('@/hooks/useApiParseTfModule', () => ({
@@ -11,7 +13,7 @@ vi.mock('@/hooks/useApiParseTfModule', () => ({
 
 // Import the mocked hook so we can control its return value per test
 import { useApiParseTfModule } from '@/hooks/useApiParseTfModule'
-const mockUseApiParseTfModule = vi.mocked(useApiParseTfModule)
+const mockUseApiParseTfModule = useApiParseTfModule as ReturnType<typeof vi.fn>
 
 /** Creates a mock return value for useApiParseTfModule with sensible defaults. */
 function mockApiResponse(overrides: Partial<ReturnType<typeof useApiParseTfModule>> = {}) {
@@ -56,6 +58,46 @@ describe('TfModule', () => {
 
       expect(screen.getByText('No remote module source available')).toBeInTheDocument()
       expect(screen.getByText(/source="::cli_runbook_source"/)).toBeInTheDocument()
+    })
+
+    it('shows missing-remote-source banner when ::cli_runbook_source comes from template variable', () => {
+      // This test uses the RunbookContext's registerInputs to simulate an Inputs block
+      // that provides a ModuleSource variable with the special keyword value.
+      // The TfModule should detect the keyword after template resolution.
+      const TestComponent = () => {
+        const { registerInputs } = useRunbookContext()
+
+        // Register an input that contains the special keyword
+        React.useEffect(() => {
+          registerInputs(
+            'config',
+            { ModuleSource: '::cli_runbook_source' },
+            {
+              variables: [
+                {
+                  name: 'ModuleSource',
+                  type: BoilerplateVariableType.String,
+                  description: 'Module source URL',
+                  default: '::cli_runbook_source',
+                  required: true,
+                }
+              ],
+            }
+          )
+        }, [registerInputs])
+
+        return <TfModule id="test" source="{{ .inputs.ModuleSource }}" inputsId="config" />
+      }
+
+      render(
+        <TestWrapper>
+          <TestComponent />
+        </TestWrapper>
+      )
+
+      // Should show the missing remote source banner
+      // The template expression {{ .inputs.ModuleSource }} resolves to ::cli_runbook_source
+      expect(screen.getByText('No remote module source available')).toBeInTheDocument()
     })
 
     it('uses literal source string when source is not ::cli_runbook_source', () => {

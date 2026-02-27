@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 import type { GitHubAuthProps } from "./types"
 import { useGitHubAuth } from "./hooks/useGitHubAuth"
@@ -23,8 +25,13 @@ export function GitHubAuth({
   oauthClientId,
   oauthScopes = ['repo'],
   detectCredentials,
+  inputsId,
 }: GitHubAuthProps) {
-  
+  // Resolve template expressions in display props
+  const templateCtx = useTemplateContext(inputsId)
+  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
+  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitHubAuth')
   
@@ -117,13 +124,13 @@ export function GitHubAuth({
           <div className="flex items-center gap-1 mb-2">
             <GitHubLogo className="size-6 text-gray-800" />
             <div className="text-md font-bold text-gray-700">
-              <InlineMarkdown>{title}</InlineMarkdown>
+              <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>
           </div>
-          
-          {description && (
+
+          {resolvedDescription && (
             <div className="text-md text-gray-600 mb-4">
-              <InlineMarkdown>{description}</InlineMarkdown>
+              <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
           )}
 

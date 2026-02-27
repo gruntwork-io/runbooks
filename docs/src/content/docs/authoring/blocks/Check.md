@@ -78,7 +78,7 @@ When writing scripts for Check blocks:
 
 - **Exit codes matter.** Return `0` for success, `1` for failure, or `2` for warning
 - **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
-- **Templatize with variables.** Use `{{ .VariableName }}` syntax to inject user input
+- **Templatize with variables.** Use `{{ .inputs.VariableName }}` syntax to inject user input
 
 Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
 
@@ -206,11 +206,11 @@ variables:
 
 <Check 
     id="check-region" 
-    command="aws ec2 describe-availability-zones --region {{ .AwsRegion }}"
+    command="aws ec2 describe-availability-zones --region {{ .inputs.AwsRegion }}"
     inputsId="region-config"
     title="Check AWS Region Accessibility"
-    successMessage="Region {{ .AwsRegion }} is accessible!"
-    failMessage="Cannot access region {{ .AwsRegion }}"
+    successMessage="Region {{ .inputs.AwsRegion }} is accessible!"
+    failMessage="Cannot access region {{ .inputs.AwsRegion }}"
 />
 ```
 
@@ -321,7 +321,7 @@ fi
 #!/bin/bash
 # checks/s3-bucket-exists.sh
 
-BUCKET_NAME="{{ .BucketName }}"
+BUCKET_NAME="{{ .inputs.BucketName }}"
 
 log_info "Checking if S3 bucket exists..."
 log_debug "Bucket name: ${BUCKET_NAME}"
@@ -355,14 +355,14 @@ exit 0
 
 ### Consuming Outputs
 
-Reference outputs from other blocks using the `_blocks` namespace in templates:
+Reference outputs from other blocks using the `outputs` namespace in templates:
 
 ```bash
 # Use the account ID from the verify-account block
-echo "Using account {{ ._blocks.verify-account.outputs.account_id }}"
+echo "Using account {{ .outputs.verify_account.account_id }}"
 ```
 
-The full syntax is: `{{ ._blocks.<block-id>.outputs.<output-name> }}`
+The full syntax is: `{{ .outputs.<block-id>.<output-name> }}`
 
 ### Dependency Behavior
 

@@ -49,7 +49,7 @@ Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest
 ```mdx
 <Command 
     id="echo-message" 
-    command='echo "Hello, {{ .Name }}!"'
+    command='echo "Hello, {{ .inputs.Name }}!"'
     title="Print Greeting"
 >
     <Inputs id="inline-greeting">
@@ -79,7 +79,7 @@ When writing scripts for Command blocks:
 
 - **Exit codes matter.** Return `0` for success, any other code for failure
 - **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
-- **Templatize with variables.** Use `{{ .VariableName }}` syntax to inject user input
+- **Templatize with variables.** Use `{{ .inputs.VariableName }}` syntax to inject user input
 
 Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
 
@@ -225,10 +225,10 @@ variables:
 
 <Command 
     id="create-repo" 
-    command="gh repo create {{ .OrgName }}/{{ .RepoName }} --private"
+    command="gh repo create {{ .inputs.OrgName }}/{{ .inputs.RepoName }} --private"
     inputsId="repo-config"
     title="Create GitHub Repository"
-    successMessage="Repository {{ .RepoName }} created!"
+    successMessage="Repository {{ .inputs.RepoName }} created!"
     failMessage="Failed to create repository"
 />
 ```
@@ -240,7 +240,7 @@ The Command collects input values directly. These values can be shared with othe
 ```mdx
 <Command 
     id="echo-message" 
-    command='echo "Hello, {{ .Name }}!"'
+    command='echo "Hello, {{ .inputs.Name }}!"'
     title="Print Greeting"
 >
     <Inputs id="inline-greeting">
@@ -319,9 +319,9 @@ log_info "Deployment complete!"
 #!/bin/bash
 # scripts/create-vpc.sh
 
-REGION="{{ .AwsRegion }}"
-VPC_NAME="{{ .VpcName }}"
-CIDR_BLOCK="{{ .CidrBlock }}"
+REGION="{{ .inputs.AwsRegion }}"
+VPC_NAME="{{ .inputs.VpcName }}"
+CIDR_BLOCK="{{ .inputs.CidrBlock }}"
 
 log_info "Creating VPC $VPC_NAME in $REGION..."
 log_debug "CIDR block: $CIDR_BLOCK"
@@ -460,7 +460,7 @@ fi
 
 ## Block Outputs
 
-Commands can produce **outputs** that downstream blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and downstream blocks reference them via `{{ ._blocks.<block-id>.outputs.<key> }}`.
+Commands can produce **outputs** that downstream blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and downstream blocks reference them via `{{ .outputs.<block-id>.<key> }}`.
 
 ```bash
 #!/bin/bash

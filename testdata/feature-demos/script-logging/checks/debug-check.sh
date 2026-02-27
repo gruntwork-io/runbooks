@@ -5,7 +5,7 @@
 # =============================================================================
 
 # Set DEBUG based on input variable (passed from Runbooks Inputs block)
-if [ "{{ .EnableDebug }}" = "true" ]; then
+if [ "{{ .inputs.EnableDebug }}" = "true" ]; then
   export DEBUG=true
 fi
 

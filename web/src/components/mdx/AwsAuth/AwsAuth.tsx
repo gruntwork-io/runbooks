@@ -1,10 +1,12 @@
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
@@ -26,8 +28,13 @@ function AwsAuth({
   ssoRoleName,
   defaultRegion = "us-east-1",
   detectCredentials = ['env'],  // Default: auto-detect from env vars
+  inputsId,
 }: AwsAuthProps) {
-  
+  // Resolve template expressions in display props
+  const templateCtx = useTemplateContext(inputsId)
+  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
+  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'AwsAuth')
   
@@ -156,13 +163,13 @@ function AwsAuth({
           <div className="flex items-center gap-3 mb-2">
             <img src="/aws-logo.svg" alt="AWS" className="h-6" />
             <div className="text-md font-bold text-gray-700">
-              <InlineMarkdown>{title}</InlineMarkdown>
+              <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>
           </div>
           
-          {description && (
+          {resolvedDescription && (
             <div className="text-md text-gray-600 mb-4">
-              <InlineMarkdown>{description}</InlineMarkdown>
+              <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
           )}
 

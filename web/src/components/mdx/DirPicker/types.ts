@@ -2,6 +2,8 @@
 export interface DirPickerProps {
   /** Unique block identifier (required). */
   id: string
+  /** Reference to one or more Inputs by ID for template expressions in props */
+  inputsId?: string | string[]
   /** Absolute path to the root directory to browse. At least one of `rootDir` or `gitCloneId` must be provided. */
   rootDir?: string
   /** Syntactic sugar: resolves to the `CLONE_PATH` output of the referenced GitClone block. Equivalent to setting `rootDir` to the clone path. */
