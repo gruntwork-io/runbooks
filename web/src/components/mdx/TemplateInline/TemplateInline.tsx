@@ -231,7 +231,9 @@ function TemplateInline({
           // Only mark as rendered after a successful response.
           // On failure renderTemplate returns [] without updating state,
           // so the next effect cycle will retry with the same inputs.
-          lastRenderedVariablesRef.current = combinedKey;
+          if (newFileTree && newFileTree.length > 0) {
+            lastRenderedVariablesRef.current = combinedKey;
+          }
 
           if (!generateFile) return;
           // When target is worktree, output went to the git repo — do NOT update Generated tab
