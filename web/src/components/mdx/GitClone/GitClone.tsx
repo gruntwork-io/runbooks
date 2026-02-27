@@ -14,7 +14,7 @@ import { CloneResultDisplay } from "./components/CloneResult"
 import { CollapsibleToggle } from "@/components/mdx/GitHubPullRequest/components/CollapsibleToggle"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
-import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { resolveTemplateReferences, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import type { GitCloneProps } from "./types"
 
@@ -70,9 +70,7 @@ function GitClone({
     const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
     return {
       unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
-      unmetOutputDeps: allUnmetOutputDeps.filter(dep =>
-        blockingOutputDeps.some(bd => bd.blockId === dep.blockId)
-      )
+      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps)
     }
   }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
 

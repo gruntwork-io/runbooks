@@ -6,7 +6,7 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
-import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies } from "@/lib/templateUtils"
+import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
 import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
@@ -90,9 +90,7 @@ function GitHubPullRequest({
     const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
     return {
       unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
-      unmetOutputDeps: allUnmetOutputDeps.filter(dep =>
-        blockingOutputDeps.some(bd => bd.blockId === dep.blockId)
-      )
+      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps)
     }
   }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
 

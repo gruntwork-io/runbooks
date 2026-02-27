@@ -134,6 +134,26 @@ export function computeUnmetInputDependencies(
 }
 
 /**
+ * Filter unmet output dependencies to only those matching specific output-level deps.
+ * Used by blocks that distinguish blocking vs non-blocking dependencies (GitClone,
+ * GitHubPullRequest) to narrow the unmet list to only outputs referenced by blocking props.
+ */
+export function filterUnmetOutputDeps(
+  allUnmetOutputDeps: BlockOutput[],
+  targetOutputDeps: OutputDependency[]
+): BlockOutput[] {
+  return allUnmetOutputDeps
+    .map(dep => {
+      const blockingNames = targetOutputDeps
+        .filter(bd => bd.blockId === dep.blockId)
+        .map(bd => bd.outputName)
+      const matchedNames = dep.outputNames.filter(n => blockingNames.includes(n))
+      return matchedNames.length > 0 ? { ...dep, outputNames: matchedNames } : null
+    })
+    .filter((dep): dep is NonNullable<typeof dep> => dep !== null)
+}
+
+/**
  * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
  * Client-side string resolver for blocks that don't go through the Go template engine
  * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
