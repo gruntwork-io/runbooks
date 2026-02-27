@@ -44,6 +44,23 @@ export interface BlockOutput {
 }
 
 /**
+ * Build the variables payload for /api/boilerplate/render (full template rendering).
+ * Wraps user variables under "inputs" and block outputs under "outputs" so that
+ * templates using {{ .inputs.Name }} and {{ .outputs.block.key }} work correctly.
+ * The backend's applyBackwardCompatibility then copies inputs to root level for
+ * legacy {{ .Name }} access.
+ */
+export function buildRenderVariables(
+  inputValues: Record<string, unknown>,
+  outputs: TemplateOutputs,
+): Record<string, unknown> {
+  return {
+    inputs: { ...inputValues },
+    outputs,
+  }
+}
+
+/**
  * Build the TemplateValue[] payload for /api/boilerplate/render-inline.
  * Wraps both namespaces as Map-typed entries — the Go template engine navigates them
  * via {{ .inputs.X }} and {{ .outputs.X.Y }}.

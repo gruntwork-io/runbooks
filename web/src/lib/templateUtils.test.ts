@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  buildRenderVariables,
   flattenBlockOutputs,
   computeUnmetInputDependencies,
   resolveTemplateReferences,
@@ -7,6 +8,33 @@ import {
 import type { TemplateContext } from './templateUtils'
 import { extractTemplateDependenciesFromString } from './extractTemplateDependencies'
 import type { BlockOutputs } from '@/contexts/RunbookContext'
+
+describe('buildRenderVariables', () => {
+  it('should wrap user variables under inputs key', () => {
+    const result = buildRenderVariables(
+      { AWSAccounts: '{}', Region: 'us-west-2' },
+      {},
+    )
+    expect(result).toHaveProperty('inputs')
+    expect(result.inputs).toEqual({ AWSAccounts: '{}', Region: 'us-west-2' })
+  })
+
+  it('should include outputs at the top level', () => {
+    const outputs = { create_account: { account_id: '123' } }
+    const result = buildRenderVariables({ Name: 'test' }, outputs)
+    expect(result.outputs).toEqual(outputs)
+  })
+
+  it('should not spread user variables at the root level', () => {
+    const result = buildRenderVariables(
+      { Name: 'test', Region: 'us-west-2' },
+      {},
+    )
+    expect(result).not.toHaveProperty('Name')
+    expect(result).not.toHaveProperty('Region')
+    expect(Object.keys(result).sort()).toEqual(['inputs', 'outputs'])
+  })
+})
 
 describe('flattenBlockOutputs', () => {
   it('should return empty object for empty input', () => {

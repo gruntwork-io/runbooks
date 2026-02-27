@@ -12,7 +12,7 @@ import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from '@/co
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
+import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -295,13 +295,10 @@ function Template({
     
     // Debounce: wait 200ms after last change before rendering
     autoRenderTimerRef.current = setTimeout(() => {
-      // Variables are flat at the top level for the boilerplate engine's variable resolution.
-      // Block outputs are available under the "outputs" key ({{ .outputs.block_id.key }}).
-      const mergedData = {
-        ...inputValues,
-        ...localVarValues,
-        outputs: flattenedOutputs,
-      };
+      const mergedData = buildRenderVariables(
+        { ...inputValues, ...localVarValues },
+        flattenedOutputs,
+      );
 
       // Only trigger render when all required values are present
       if (hasAllRequiredValues(localVarValues)) {
@@ -348,11 +345,10 @@ function Template({
     if (inputsUnchanged && outputsUnchanged) return;
     
     // Imported values or outputs changed - trigger auto-render with current form data
-    const mergedData = {
-      ...inputValues,
-      ...localVarValuesRef.current,
-      outputs: flattenedOutputs,
-    };
+    const mergedData = buildRenderVariables(
+      { ...inputValues, ...localVarValuesRef.current },
+      flattenedOutputs,
+    );
 
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
@@ -364,13 +360,10 @@ function Template({
     // Store latest form data
     localVarValuesRef.current = localVarValues;
 
-    // Variables are flat at the top level for the boilerplate engine's variable resolution.
-    // Block outputs are available under the "outputs" key ({{ .outputs.block_id.key }}).
-    const mergedData = {
-      ...inputValues,
-      ...localVarValues,
-      outputs: flattenedOutputs,
-    };
+    const mergedData = buildRenderVariables(
+      { ...inputValues, ...localVarValues },
+      flattenedOutputs,
+    );
 
     console.log('[Template.handleGenerate] Called with:', {
       localVarValues,

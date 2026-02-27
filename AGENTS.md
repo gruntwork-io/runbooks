@@ -291,3 +291,7 @@ If code or a feature was created on a feature branch, do not prioritize backward
 - **Don't re-implement codebase logic in tests** — reference the source of truth
 - **Don't skip pre-commit hooks** — if spellcheck fails, fix the spelling
 - When working in a feature branch, do not attempt to preserve backward compatibility with a feature or interface introduced in the feature branch itself. 
+
+## Bug fixes
+
+When fixing a bug caused by a repeated code pattern, search for all instances of that pattern before making changes. That is, before fixing, find every instance of this pattern in the file, package, codebase, or project area and fix them all at once. If you extract a function, be sure to scan the codebase for anyone else who should use that new function.
