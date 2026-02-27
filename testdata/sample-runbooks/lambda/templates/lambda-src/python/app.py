@@ -1,5 +1,5 @@
 """
-Lambda function handler for the {{ .FunctionName }}-{{ .Environment }} function.
+Lambda function handler for the {{ .inputs.FunctionName }}-{{ .inputs.Environment }} function.
 """
 
 import json
@@ -50,10 +50,10 @@ def handler(event, context):
 
     # Build response
     response_body = {
-        "message": "Hello from {{ .FunctionName }}-{{ .Environment }}!",
+        "message": "Hello from {{ .inputs.FunctionName }}-{{ .inputs.Environment }}!",
         "function_name": context.function_name,
         "request_id": context.aws_request_id,
-        "environment": "{{ .Environment }}",
+        "environment": "{{ .inputs.Environment }}",
         "event": event,
     }
 
