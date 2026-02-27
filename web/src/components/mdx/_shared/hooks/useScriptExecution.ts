@@ -510,13 +510,17 @@ export function useScriptExecution({
 
     // Build payload with inputs and outputs namespaces
     const inputsForRender = buildTemplatePayload(templateContext)
-    
+
     // Check if inputs actually changed
     const inputsKey = JSON.stringify(inputsForRender)
     if (inputsKey === lastRenderedVariablesRef.current) {
       return
     }
-    
+
+    // Clear any stale render error immediately so it doesn't flash while
+    // we wait for the debounced re-render with the updated variables.
+    setRenderError(null)
+
     // Clear existing timer (handles cleanup when dependencies change)
     if (autoUpdateTimerRef.current) {
       clearTimeout(autoUpdateTimerRef.current)
