@@ -173,7 +173,7 @@ export function resolveTemplateReferences(
       if (namespace === 'outputs') {
         const dotIdx = path.indexOf('.')
         if (dotIdx > 0) {
-          const blockId = path.slice(0, dotIdx)
+          const blockId = normalizeBlockId(path.slice(0, dotIdx))
           const outputName = path.slice(dotIdx + 1)
           return ctx.outputs[blockId]?.[outputName] ?? `\`${match}\``
         }

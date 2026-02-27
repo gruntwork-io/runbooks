@@ -98,6 +98,12 @@ describe('resolveTemplateReferences', () => {
     ).toBe('123456789012')
   })
 
+  it('should resolve output references with hyphenated block IDs', () => {
+    expect(
+      resolveTemplateReferences('{{ .outputs.create-account.account_id }}', ctx)
+    ).toBe('123456789012')
+  })
+
   it('should resolve mixed references in a string', () => {
     expect(
       resolveTemplateReferences(
