@@ -344,16 +344,28 @@ func TestRenderBoilerplateContent(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:    "backward compatibility - reserved names not duplicated",
-			content: "Inputs namespace: {{ .inputs.Name }}",
+			name:    "reserved name inputs rejected",
+			content: "{{ .inputs.Name }}",
 			variables: map[string]any{
 				"inputs": map[string]any{
-					"Name": "World",
-					"inputs": "should-not-appear-at-root", // Reserved name
+					"Name":   "World",
+					"inputs": "should-be-rejected",
 				},
 			},
-			expected: "Inputs namespace: World",
-			wantErr:  false,
+			expected: "",
+			wantErr:  true,
+		},
+		{
+			name:    "reserved name outputs rejected",
+			content: "{{ .inputs.Name }}",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"Name":    "World",
+					"outputs": "should-be-rejected",
+				},
+			},
+			expected: "",
+			wantErr:  true,
 		},
 	}
 

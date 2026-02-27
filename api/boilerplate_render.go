@@ -239,6 +239,10 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[string]any) error {
 	slog.Info("RenderBoilerplateTemplate called", "templatePath", templatePath, "outputDir", outputDir)
 
+	if err := validateReservedNames(variables); err != nil {
+		return err
+	}
+
 	// Create boilerplate options for direct function calls
 	opts := &bpOptions.BoilerplateOptions{
 		TemplateURL:             templatePath,
@@ -335,6 +339,20 @@ func convertVariablesToCorrectTypes(variables map[string]any, variablesInConfig 
 
 	// Apply backward compatibility layer - copy inputs to root level
 	return applyBackwardCompatibility(converted), nil
+}
+
+// validateReservedNames checks that no user variable inside the "inputs" namespace
+// uses the reserved names "inputs" or "outputs", which would conflict with the
+// top-level namespace keys.
+func validateReservedNames(variables map[string]any) error {
+	if inputs, ok := variables["inputs"].(map[string]any); ok {
+		for k := range inputs {
+			if k == "inputs" || k == "outputs" {
+				return fmt.Errorf("%q is a reserved variable name and cannot be used as a user variable", k)
+			}
+		}
+	}
+	return nil
 }
 
 // applyBackwardCompatibility adds root-level variable access for backward compatibility.
@@ -639,6 +657,10 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 //
 // This function is exported for use by the testing package.
 func RenderBoilerplateContent(content string, variables map[string]any) (string, error) {
+	if err := validateReservedNames(variables); err != nil {
+		return "", err
+	}
+
 	// Create a temporary directory for the template
 	tempDir, err := os.MkdirTemp("", "inline-template-*")
 	if err != nil {
