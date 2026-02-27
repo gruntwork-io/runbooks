@@ -289,7 +289,9 @@ func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[str
 	return nil
 }
 
-// convertVariablesToCorrectTypes converts variables to the correct types based on boilerplate config
+// convertVariablesToCorrectTypes converts variables to the correct types based on boilerplate config.
+// Variables may arrive in namespaced format (e.g., {"inputs": {"DefaultTags": "..."}}) from the
+// test executor, so this function also converts variables inside the "inputs" namespace.
 func convertVariablesToCorrectTypes(variables map[string]any, variablesInConfig map[string]bpVariables.Variable) (map[string]any, error) {
 	converted := make(map[string]any)
 
@@ -309,6 +311,26 @@ func convertVariablesToCorrectTypes(variables map[string]any, variablesInConfig 
 			// Variable not in config, use as-is
 			converted[name] = value
 		}
+	}
+
+	// Also convert variables inside the "inputs" namespace, which may contain
+	// values (e.g., JSON strings for maps/lists) that need type conversion
+	// against the boilerplate config.
+	if inputs, ok := converted["inputs"].(map[string]any); ok {
+		convertedInputs := make(map[string]any)
+		for name, value := range inputs {
+			if variable, exists := variablesInConfig[name]; exists {
+				preConvertedValue := preConvertJSONTypes(value, variable.Type())
+				convertedValue, err := bpVariables.ConvertType(preConvertedValue, variable)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert variable inputs.%s: %w", name, err)
+				}
+				convertedInputs[name] = convertedValue
+			} else {
+				convertedInputs[name] = value
+			}
+		}
+		converted["inputs"] = convertedInputs
 	}
 
 	// Apply backward compatibility layer - copy inputs to root level
