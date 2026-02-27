@@ -57,28 +57,46 @@ function GitHubPullRequest({
   const templateCtx = useTemplateContext(inputsId)
   const rawOutputs = useAllOutputs()
 
-  // Extract and check template dependencies from all props that support template expressions
-  const allDeps = useMemo(() => [
-    ...extractTemplateDependenciesFromString(title ?? ''),
-    ...extractTemplateDependenciesFromString(description ?? ''),
+  // Extract and check template dependencies from props that support template expressions
+  // Blocking dependencies (functional props): prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName
+  const blockingDeps = useMemo(() => [
     ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ''),
     ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ''),
     ...extractTemplateDependenciesFromString(prefilledBranchName ?? ''),
-  ], [title, description, prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName])
+  ], [prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName])
 
-  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+  // Non-blocking dependencies (display props): title, description
+  const nonBlockingDeps = useMemo(() => [
+    ...extractTemplateDependenciesFromString(title ?? ''),
+    ...extractTemplateDependenciesFromString(description ?? ''),
+  ], [title, description])
 
-  const unmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(inputDeps, templateCtx.inputs),
-    [inputDeps, templateCtx.inputs]
+  // Combine all dependencies for resolution context
+  const allDeps = useMemo(() => [...blockingDeps, ...nonBlockingDeps], [blockingDeps, nonBlockingDeps])
+  const { inputs: allInputDeps, outputs: allOutputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+
+  const allUnmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(allInputDeps, templateCtx.inputs),
+    [allInputDeps, templateCtx.inputs]
   )
 
-  const unmetOutputDeps = useMemo(
-    () => computeUnmetOutputDependencies(outputDeps, rawOutputs),
-    [outputDeps, rawOutputs]
+  const allUnmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(allOutputDeps, rawOutputs),
+    [allOutputDeps, rawOutputs]
   )
 
-  const hasAllDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
+  // Compute unmet dependencies for BLOCKING props only
+  const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
+    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
+    return {
+      unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
+      unmetOutputDeps: allUnmetOutputDeps.filter(dep =>
+        blockingOutputDeps.some(bd => bd.blockId === dep.blockId)
+      )
+    }
+  }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
+
+  const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
   // Track render
   useEffect(() => {
@@ -266,7 +284,7 @@ function GitHubPullRequest({
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
-  const isFormDisabled = !githubAuthMet || !activeWorkTree || !hasAllDependencies
+  const isFormDisabled = !githubAuthMet || !activeWorkTree || !hasAllBlockingDependencies
 
   // Block outputs for ViewOutputs
   const outputValues = useMemo(() => {
@@ -330,8 +348,8 @@ function GitHubPullRequest({
             </div>
           )}
 
-          {/* Template dependency warnings */}
-          {!hasAllDependencies && (
+          {/* Template dependency warnings (blocking only) */}
+          {!hasAllBlockingDependencies && (
             <div className="mb-4">
               <UnmetDependenciesWarning
                 blockType="pull request"

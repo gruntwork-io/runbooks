@@ -12,7 +12,7 @@ import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { CollapsibleToggle } from "@/components/mdx/GitHubPullRequest/components/CollapsibleToggle"
-import { extractTemplateDependenciesFromString } from "@/lib/extractTemplateDependencies"
+import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
@@ -46,17 +46,39 @@ function GitClone({
 }: GitCloneProps) {
   // --- Template dependency resolution (resolve inputs/outputs expressions) ---
 
-  // 1. EXTRACT — discover dependencies from all template-capable props
-  const deps = useMemo(() => extractTemplateDependenciesFromString(
-    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, title, description]
+  // 1. EXTRACT — discover dependencies from template-capable props
+  // Blocking dependencies (functional props): prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath
+  const blockingDeps = useMemo(() => extractTemplateDependenciesFromString(
+    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath]
       .filter(Boolean).join('\n')
-  ), [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, title, description])
+  ), [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath])
 
-  // 2. RESOLVE — check context for each dependency
-  const { hasAllDependencies, unmetInputDeps, unmetOutputDeps, inputs, outputs } =
-    useTemplateDependencies(deps, inputsId)
+  // Non-blocking dependencies (display props): title, description
+  const nonBlockingDeps = useMemo(() => extractTemplateDependenciesFromString(
+    [title, description].filter(Boolean).join('\n')
+  ), [title, description])
 
-  // 3. Resolve template expressions client-side
+  // Combine for resolution context
+  const allDeps = useMemo(() => [...blockingDeps, ...nonBlockingDeps], [blockingDeps, nonBlockingDeps])
+
+  // 2. RESOLVE — check context for each dependency (use all deps for context)
+  const { unmetInputDeps: allUnmetInputDeps, unmetOutputDeps: allUnmetOutputDeps, inputs, outputs } =
+    useTemplateDependencies(allDeps, inputsId)
+
+  // 3. Compute unmet dependencies for BLOCKING props only
+  const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
+    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
+    return {
+      unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
+      unmetOutputDeps: allUnmetOutputDeps.filter(dep =>
+        blockingOutputDeps.some(bd => bd.blockId === dep.blockId)
+      )
+    }
+  }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
+
+  const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
+
+  // 4. Resolve template expressions client-side (resolve ALL props, blocking + non-blocking)
   const ctx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
   const resolvedUrl = useMemo(() => resolveTemplateReferences(prefilledUrl, ctx), [prefilledUrl, ctx])
   const resolvedRef = useMemo(() => resolveTemplateReferences(prefilledRef, ctx), [prefilledRef, ctx])
@@ -252,7 +274,7 @@ function GitClone({
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
 
-  const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet || !hasAllDependencies
+  const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet || !hasAllBlockingDependencies
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
 
   // If configuration error, don't render the block
@@ -282,8 +304,8 @@ function GitClone({
             <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
 
-          {/* Unmet template dependencies */}
-          {!hasAllDependencies && (
+          {/* Unmet template dependencies (blocking only) */}
+          {!hasAllBlockingDependencies && (
             <UnmetDependenciesWarning
               blockType="git-clone"
               unmetInputDeps={unmetInputDeps}
@@ -292,7 +314,7 @@ function GitClone({
           )}
 
           {/* Blocked state: waiting for GitHubAuth */}
-          {hasAllDependencies && !gitHubAuthMet && (
+          {hasAllBlockingDependencies && !gitHubAuthMet && (
             <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
               <div>

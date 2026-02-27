@@ -1,13 +1,11 @@
 import { FolderOpen, AlertTriangle } from "lucide-react"
 import { useEffect, useMemo } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
-import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
-import { useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
-import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
-import { computeUnmetInputDependencies, computeUnmetOutputDependencies, resolveTemplateReferences } from "@/lib/templateUtils"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import type { DirPickerProps } from "./types"
 
@@ -23,29 +21,10 @@ function DirPicker({
   pathLabelDescription,
   inputsId,
 }: DirPickerProps) {
-  // Resolve template expressions in display props
+  // Resolve template expressions in display props (non-blocking - all props are display-only)
   const templateCtx = useTemplateContext(inputsId)
-  const rawOutputs = useAllOutputs()
 
-  // Extract and check template dependencies
-  const allDeps = useMemo(() => [
-    ...extractTemplateDependenciesFromString(title ?? ''),
-    ...extractTemplateDependenciesFromString(description ?? ''),
-    ...extractTemplateDependenciesFromString(pathLabel ?? ''),
-    ...extractTemplateDependenciesFromString(pathLabelDescription ?? ''),
-  ], [title, description, pathLabel, pathLabelDescription])
-  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
-  const unmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(inputDeps, templateCtx.inputs),
-    [inputDeps, templateCtx.inputs]
-  )
-  const unmetOutputDeps = useMemo(
-    () => computeUnmetOutputDependencies(outputDeps, rawOutputs),
-    [outputDeps, rawOutputs]
-  )
-  const hasAllDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
-
-  // Resolve display props
+  // Resolve display props - no dependency tracking since all props are non-blocking (display-only)
   const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
   const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
   const resolvedPathLabel = useMemo(() => pathLabel ? resolveTemplateReferences(pathLabel, templateCtx) : pathLabel, [pathLabel, templateCtx])
@@ -145,15 +124,6 @@ function DirPicker({
             <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
 
-          {/* Unmet template dependencies */}
-          {!hasAllDependencies && (
-            <UnmetDependenciesWarning
-              blockType="directory picker"
-              unmetInputDeps={unmetInputDeps}
-              unmetOutputDeps={unmetOutputDeps}
-            />
-          )}
-
           {/* Missing configuration: neither rootDir nor gitCloneId */}
           {missingRootConfig && (
             <div className="text-sm text-red-600 flex items-start gap-2">
@@ -184,7 +154,7 @@ function DirPicker({
           )}
 
           {/* Cascading directory dropdowns (vertical, full width) */}
-          {isWorkspaceReady && hasAllDependencies && levels.length > 0 && (
+          {isWorkspaceReady && levels.length > 0 && (
             <div className="space-y-2">
               {levels.map((level, index) => {
                 const levelLabel = dirLabels[index] ?? `Level ${index + 1}`
