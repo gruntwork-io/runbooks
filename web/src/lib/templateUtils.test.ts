@@ -115,16 +115,16 @@ describe('resolveTemplateReferences', () => {
     expect(resolveTemplateReferences('{{ .inputs.region | upper }}', ctx)).toBe('us-west-2')
   })
 
-  it('should return empty string for missing input values', () => {
-    expect(resolveTemplateReferences('{{ .inputs.nonexistent }}', ctx)).toBe('')
+  it('should wrap missing input values in backticks for inline-code rendering', () => {
+    expect(resolveTemplateReferences('{{ .inputs.nonexistent }}', ctx)).toBe('`{{ .inputs.nonexistent }}`')
   })
 
-  it('should return empty string for missing output values', () => {
-    expect(resolveTemplateReferences('{{ .outputs.missing_block.key }}', ctx)).toBe('')
+  it('should wrap missing output values in backticks for inline-code rendering', () => {
+    expect(resolveTemplateReferences('{{ .outputs.missing_block.key }}', ctx)).toBe('`{{ .outputs.missing_block.key }}`')
   })
 
-  it('should return empty string for missing output key on existing block', () => {
-    expect(resolveTemplateReferences('{{ .outputs.create_account.missing }}', ctx)).toBe('')
+  it('should wrap missing output key on existing block in backticks', () => {
+    expect(resolveTemplateReferences('{{ .outputs.create_account.missing }}', ctx)).toBe('`{{ .outputs.create_account.missing }}`')
   })
 
   it('should handle multiple occurrences', () => {
@@ -153,12 +153,12 @@ describe('resolveTemplateReferences', () => {
     expect(resolveTemplateReferences('{{ .inputs.pi }}', numCtx)).toBe('3.14')
   })
 
-  it('should replace output reference without output name with empty string', () => {
+  it('should wrap output reference without output name in backticks', () => {
     const outCtx: TemplateContext = {
       inputs: {},
       outputs: { block_only: { key: 'val' } },
     }
-    expect(resolveTemplateReferences('{{ .outputs.block_only }}', outCtx)).toBe('')
+    expect(resolveTemplateReferences('{{ .outputs.block_only }}', outCtx)).toBe('`{{ .outputs.block_only }}`')
   })
 })
 

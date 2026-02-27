@@ -145,20 +145,20 @@ export function resolveTemplateReferences(
   if (!text) return text
   return text.replace(
     /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g,
-    (_match, namespace, path) => {
+    (match, namespace, path) => {
       if (namespace === 'inputs') {
         const value = ctx.inputs[path]
-        return value != null ? String(value) : ''
+        return value != null ? String(value) : `\`${match}\``
       }
       if (namespace === 'outputs') {
         const dotIdx = path.indexOf('.')
         if (dotIdx > 0) {
           const blockId = path.slice(0, dotIdx)
           const outputName = path.slice(dotIdx + 1)
-          return ctx.outputs[blockId]?.[outputName] ?? ''
+          return ctx.outputs[blockId]?.[outputName] ?? `\`${match}\``
         }
       }
-      return ''
+      return `\`${match}\``
     }
   )
 }

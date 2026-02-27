@@ -51,7 +51,7 @@ This command uses the account ID from Step 1 to create resources.
   id="create-resources"
   path="scripts/create-resources.sh"
   title="Create Resources"
-  description="Creates IAM resources in the new account"
+  description="Creates IAM resources in account {{ .outputs.create_account.account_id }} ({{ .outputs.create_account.region }})"
 />
 
 ## Step 3: Tag Resources (Mixed Syntax Example)
@@ -324,4 +324,4 @@ These blocks support template expressions only in display props (`title`, `descr
 />
 ```
 
-**Note:** Since these only affect display text, unmet output dependencies don't block authentication - they just show the raw template syntax until dependencies are satisfied.
+**Note:** Since these only affect display text, unmet output dependencies don't block authentication - they show the raw template syntax (e.g. `{{ .outputs.create_account.account_id }}`) until dependencies are satisfied.
