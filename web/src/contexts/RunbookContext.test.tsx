@@ -159,8 +159,8 @@ describe('RunbookContext', () => {
     })
   })
 
-  describe('getTemplateVariables', () => {
-    it('spreads input values at root level', async () => {
+  describe('getTemplateContext', () => {
+    it('includes input values in the inputs namespace', async () => {
       const config = makeConfig([
         { name: 'region', type: BoilerplateVariableType.String },
       ])
@@ -172,11 +172,11 @@ describe('RunbookContext', () => {
         result.current.registerInputs('form', { region: 'us-west-2' }, config)
       })
 
-      const vars = result.current.getTemplateVariables('form')
-      expect(vars.region).toBe('us-west-2')
+      const ctx = result.current.getTemplateContext('form')
+      expect(ctx.inputs.region).toBe('us-west-2')
     })
 
-    it('includes _module namespace in template variables', async () => {
+    it('includes _module namespace in input values', async () => {
       const config = makeConfig([
         { name: 'bucket_name', type: BoilerplateVariableType.String },
       ])
@@ -196,12 +196,12 @@ describe('RunbookContext', () => {
         )
       })
 
-      const vars = result.current.getTemplateVariables('module-vars')
-      expect(vars.bucket_name).toBe('my-bucket')
-      expect(vars._module).toEqual(moduleData)
+      const ctx = result.current.getTemplateContext('module-vars')
+      expect(ctx.inputs.bucket_name).toBe('my-bucket')
+      expect(ctx.inputs._module).toEqual(moduleData)
     })
 
-    it('includes _blocks namespace with block outputs', async () => {
+    it('includes block outputs in the outputs namespace', async () => {
       const config = makeConfig([])
       const { result } = renderHook(() => useRunbookContext(), {
         wrapper: createWrapper(),
@@ -212,12 +212,11 @@ describe('RunbookContext', () => {
         result.current.registerOutputs('create-account', { account_id: '123' })
       })
 
-      const vars = result.current.getTemplateVariables('form')
-      const blocks = vars._blocks as Record<string, { outputs: Record<string, string> }>
+      const ctx = result.current.getTemplateContext('form')
 
       // Block IDs are normalized (hyphens → underscores)
-      expect(blocks['create_account']).toBeDefined()
-      expect(blocks['create_account'].outputs.account_id).toBe('123')
+      expect(ctx.outputs['create_account']).toBeDefined()
+      expect(ctx.outputs['create_account'].account_id).toBe('123')
     })
   })
 

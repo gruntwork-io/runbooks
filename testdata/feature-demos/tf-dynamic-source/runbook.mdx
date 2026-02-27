@@ -11,7 +11,7 @@ This runbook uses `source="::cli_runbook_source"` to dynamically load whatever O
 <TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -20,7 +20,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

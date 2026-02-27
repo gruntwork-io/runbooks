@@ -5,7 +5,7 @@ This runbook demonstrates how Runbooks detects and reports block ID collisions.
 ## Why ID Collisions Matter
 
 Block IDs must be unique because they're used to:
-- Reference outputs from other blocks (e.g., `{{ ._blocks.my_command.outputs.result }}`)
+- Reference outputs from other blocks (e.g., `{{ .outputs.my_command.result }}`)
 - Track execution state
 - Share data between blocks
 

@@ -84,6 +84,8 @@ export interface AwsAuthProps {
    * to prevent accidental operations against the wrong AWS account.
    */
   detectCredentials?: false | AwsCredentialSource[]
+  /** Reference to one or more Inputs by ID for template expressions in props */
+  inputsId?: string | string[]
 }
 
 export interface AccountInfo {

@@ -1,9 +1,11 @@
 import { FolderOpen, AlertTriangle } from "lucide-react"
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import type { DirPickerProps } from "./types"
 
@@ -17,7 +19,17 @@ function DirPicker({
   dirLabelsExtra = false,
   pathLabel = "Target Path",
   pathLabelDescription,
+  inputsId,
 }: DirPickerProps) {
+  // Resolve template expressions in display props (non-blocking - all props are display-only)
+  const templateCtx = useTemplateContext(inputsId)
+
+  // Resolve display props - no dependency tracking since all props are non-blocking (display-only)
+  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
+  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+  const resolvedPathLabel = useMemo(() => pathLabel ? resolveTemplateReferences(pathLabel, templateCtx) : pathLabel, [pathLabel, templateCtx])
+  const resolvedPathLabelDescription = useMemo(() => pathLabelDescription ? resolveTemplateReferences(pathLabelDescription, templateCtx) : pathLabelDescription, [pathLabelDescription, templateCtx])
+
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'DirPicker')
 
@@ -106,10 +118,10 @@ function DirPicker({
         <div className="flex-1 space-y-2">
           {/* Title and description */}
           <div className="text-md font-bold text-gray-700">
-            <InlineMarkdown>{title}</InlineMarkdown>
+            <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
           <div className="text-md text-gray-600 mb-3">
-            <InlineMarkdown>{description}</InlineMarkdown>
+            <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
 
           {/* Missing configuration: neither rootDir nor gitCloneId */}
@@ -171,11 +183,11 @@ function DirPicker({
               {/* Editable path input — visually separated from dropdowns */}
               <div className="border-t border-gray-200 pt-3 mt-3">
                 <label className="text-sm font-semibold text-gray-800 mb-0.5 block">
-                  {pathLabel}
+                  {resolvedPathLabel}
                 </label>
-                {pathLabelDescription && (
+                {resolvedPathLabelDescription && (
                   <p className="text-xs text-gray-500 mb-1.5 m-0">
-                    <InlineMarkdown>{pathLabelDescription}</InlineMarkdown>
+                    <InlineMarkdown>{resolvedPathLabelDescription}</InlineMarkdown>
                   </p>
                 )}
                 <input

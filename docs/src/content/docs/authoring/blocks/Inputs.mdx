@@ -125,10 +125,10 @@ variables:
 
 <Command 
     id="create-vpc" 
-    command="aws ec2 create-vpc --cidr-block {{ .CidrBlock }} --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ .VpcName }}}]'"
+    command="aws ec2 create-vpc --cidr-block {{ .inputs.CidrBlock }} --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ .inputs.VpcName }}}]'"
     inputsId="vpc-config"
     title="Create VPC"
-    successMessage="VPC {{ .VpcName }} created!"
+    successMessage="VPC {{ .inputs.VpcName }} created!"
 />
 `````
 
@@ -175,7 +175,7 @@ You can embed Inputs directly inside a Command or Check block:
 `````mdx
 <Command 
     id="greet" 
-    command='echo "Hello, {{ .Name }}!"'
+    command='echo "Hello, {{ .inputs.Name }}!"'
     title="Say Hello"
 >
     <Inputs id="greeting-inputs">
@@ -281,10 +281,10 @@ Now create the repository:
 
 <Command 
     id="create-repo" 
-    command="gh repo create {{ .OrgName }}/{{ .RepoName }} --{{ .Visibility }}"
+    command="gh repo create {{ .inputs.OrgName }}/{{ .inputs.RepoName }} --{{ .inputs.Visibility }}"
     inputsId="repo-settings"
     title="Create Repository"
-    successMessage="Repository {{ .OrgName }}/{{ .RepoName }} created!"
+    successMessage="Repository {{ .inputs.OrgName }}/{{ .inputs.RepoName }} created!"
     failMessage="Failed to create repository"
 />
 
@@ -292,7 +292,7 @@ Verify the repository was created:
 
 <Check 
     id="verify-repo" 
-    command="gh repo view {{ .OrgName }}/{{ .RepoName }}"
+    command="gh repo view {{ .inputs.OrgName }}/{{ .inputs.RepoName }}"
     inputsId="repo-settings"
     title="Verify Repository Exists"
     successMessage="Repository verified!"

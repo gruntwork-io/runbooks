@@ -154,10 +154,10 @@ resource "aws_flow_log" "main" {
 
 ## Using Block Outputs
 
-Template files can reference outputs from other blocks (e.g., [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), [TfModule](/authoring/blocks/tfmodule/), [DirPicker](/authoring/blocks/dirpicker/)) using the `_blocks` namespace:
+Template files can reference outputs from other blocks (e.g., [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), [TfModule](/authoring/blocks/tfmodule/), [DirPicker](/authoring/blocks/dirpicker/)) using the `outputs` namespace:
 
 ```hcl
-account_id = "{{ ._blocks.create_account.outputs.account_id }}"
+account_id = "{{ .outputs.create_account.account_id }}"
 ```
 
 Runbooks scans template files for output references and disables the Generate button until all upstream blocks have run.

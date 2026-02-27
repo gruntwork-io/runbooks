@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 type AdmonitionType = "note" | "info" | "warning" | "danger"
 
@@ -12,6 +14,8 @@ interface AdmonitionProps {
   description?: string
   closable?: boolean
   confirmationText?: string
+  /** Reference to one or more Inputs by ID for template expressions in props */
+  inputsId?: string | string[]
   allowPermanentHide?: boolean
   storageKey?: string
   children?: React.ReactNode
@@ -70,10 +74,16 @@ export function Admonition({
   children,
   closable = false,
   confirmationText,
+  inputsId,
   allowPermanentHide = false,
   storageKey,
   className,
 }: AdmonitionProps) {
+  // Resolve template expressions in display props
+  const templateCtx = useTemplateContext(inputsId)
+  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
+  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+  const resolvedConfirmationText = useMemo(() => confirmationText ? resolveTemplateReferences(confirmationText, templateCtx) : confirmationText, [confirmationText, templateCtx])
   const [isVisible, setIsVisible] = useState(true)
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isFadingOut, setIsFadingOut] = useState(false)
@@ -113,10 +123,10 @@ export function Admonition({
 
   const config = admonitionConfig[type]
   const Icon = config.icon
-  const displayTitle = title || config.defaultTitle
+  const displayTitle = resolvedTitle || config.defaultTitle
 
   // Determine content to display: description prop takes priority, then children
-  const contentToDisplay = description || children
+  const contentToDisplay = resolvedDescription || children
 
   return (
     <div
@@ -133,7 +143,7 @@ export function Admonition({
       <div className="flex-1">
         <div>
           <div className="text-md font-bold mb-2">
-            {title ? <InlineMarkdown>{displayTitle}</InlineMarkdown> : displayTitle}
+            {resolvedTitle ? <InlineMarkdown>{displayTitle}</InlineMarkdown> : displayTitle}
           </div>
           {typeof contentToDisplay === "string" ? (
             <InlineMarkdown>{contentToDisplay}</InlineMarkdown>
@@ -142,14 +152,14 @@ export function Admonition({
           )}
         </div>
         
-        {confirmationText && (
+        {resolvedConfirmationText && (
           <div className="mt-3">
             <button
               onClick={() => handleConfirmationChange(true)}
               disabled={isConfirmed}
               className="px-4 py-2 text-sm font-medium bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <InlineMarkdown>{confirmationText}</InlineMarkdown>
+              <InlineMarkdown>{resolvedConfirmationText}</InlineMarkdown>
             </button>
             
             {allowPermanentHide && storageKey && (

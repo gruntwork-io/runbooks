@@ -17,7 +17,7 @@ import (
 
 // normalizeBlockID converts a block ID to its canonical form by replacing
 // hyphens with underscores. This normalization is required because Go templates
-// don't support hyphens in dot notation (e.g., ._blocks.create-account fails).
+// don't support hyphens in dot notation (e.g., .outputs.create-account fails).
 //
 // This function must be used consistently across both frontend and backend:
 // - Frontend: when registering/looking up outputs (RunbookContext)
@@ -515,24 +515,24 @@ func isBinaryFile(path string) (bool, error) {
 
 // Two regexes for output dependency extraction. We use a two-pass approach:
 // blockRegex finds all {{ }} template blocks, then depRegex scans within each
-// block for ._blocks.X.outputs.Y references. This correctly handles references
+// block for .outputs.X.Y references. This correctly handles references
 // inside function calls (e.g., fromJson) while ignoring occurrences outside
 // template delimiters (e.g., in comments).
 //
 // IMPORTANT: Keep in sync with the TypeScript implementation in:
 //
-//	web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts
+//	web/src/lib/extractTemplateDependencies.ts
 //
 // Both implementations are validated against testdata/test-fixtures/output-dependencies/patterns.json
 // to ensure they produce identical results. Run tests in both languages after any changes.
 var (
 	outputDepBlockRegex = regexp.MustCompile(`\{\{-?([\s\S]*?)-?\}\}`)
-	outputDepRegex      = regexp.MustCompile(`\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)`)
+	outputDepRegex      = regexp.MustCompile(`\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)`)
 )
 
 // ExtractOutputDependenciesFromContent extracts output dependencies from string content.
 // This is the core extraction logic used by extractOutputDependenciesFromTemplateDir.
-// It finds ._blocks.blockId.outputs.outputName references inside {{ }} template blocks.
+// It finds .outputs.blockId.outputName references inside {{ }} template blocks.
 func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 	var dependencies []OutputDependency
 	seen := make(map[string]bool)
@@ -553,7 +553,7 @@ func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 			normalizedBlockID := normalizeBlockID(originalBlockID)
 			outputName := match[2]
 			// FullPath uses normalized ID for consistent lookups in Go templates
-			fullPath := fmt.Sprintf("_blocks.%s.outputs.%s", normalizedBlockID, outputName)
+			fullPath := fmt.Sprintf("outputs.%s.%s", normalizedBlockID, outputName)
 
 			// Deduplicate
 			if !seen[fullPath] {
@@ -571,7 +571,7 @@ func ExtractOutputDependenciesFromContent(content string) []OutputDependency {
 }
 
 // extractOutputDependenciesFromTemplateDir scans all template files in a directory
-// for {{ ._blocks.blockId.outputs.outputName }} patterns and returns unique dependencies.
+// for {{ .outputs.blockId.outputName }} patterns and returns unique dependencies.
 // This allows Template blocks to show warnings when dependent Check/Command blocks
 // haven't been executed yet.
 func extractOutputDependenciesFromTemplateDir(templateDir string) ([]OutputDependency, error) {

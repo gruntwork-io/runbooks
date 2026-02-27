@@ -179,18 +179,18 @@ For details on built-in templates (`::terragrunt`, `::tofu`, `::terragrunt-githu
 
 ## Block Outputs
 
-`<TfModule>` publishes outputs that downstream blocks can consume. The `_module` namespace is accessed via `inputsId` in templates; the uppercase outputs are accessed via `{{ ._blocks.<id>.outputs.<key> }}`.
+`<TfModule>` publishes outputs that downstream blocks can consume. The `_module` namespace is accessed via `inputsId` in templates; the uppercase outputs are accessed via `{{ .outputs.<id>.<key> }}`.
 
 | Output | Access | Description |
 |--------|--------|-------------|
 | `_module` | `inputsId` | Map containing module metadata, user inputs, and HCL-formatted values. See [structure](#structure) below. |
-| `MODULE_NAME` | `._blocks` | The module's folder name (same as `_module.folder_name`). <br/>Useful in `outputPath` expressions for naming generated directories. |
-| `SOURCE` | `._blocks` | The resolved module source URL. |
+| `MODULE_NAME` | `outputs` | The module's folder name (same as `_module.folder_name`). <br/>Useful in `outputPath` expressions for naming generated directories. |
+| `SOURCE` | `outputs` | The resolved module source URL. |
 
 For example, the `::terragrunt-github` template uses `MODULE_NAME` to compose the output path:
 
 ```
-outputPath="{{ ._blocks.target_path.outputs.PATH }}/{{ ._blocks.module_vars.outputs.MODULE_NAME }}/terragrunt.hcl"
+outputPath="{{ .outputs.target_path.PATH }}/{{ .outputs.module_vars.MODULE_NAME }}/terragrunt.hcl"
 ```
 
 ### The `_module` Namespace
@@ -377,8 +377,8 @@ You can also reference specific variables by name instead of iterating:
 
 <TemplateInline inputsId="module-vars" outputPath="summary.txt">
 ```
-Instance Class: {{ .instance_class }}
-Engine Version: {{ .engine_version }}
+Instance Class: {{ .inputs.instance_class }}
+Engine Version: {{ .inputs.engine_version }}
 Module Source: {{ ._module.source }}
 ```
 </TemplateInline>
