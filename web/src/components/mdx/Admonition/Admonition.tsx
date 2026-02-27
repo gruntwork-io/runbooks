@@ -1,12 +1,13 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useId, useMemo } from "react"
 import { X, Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 
-type AdmonitionType = "note" | "info" | "warning" | "danger"
+export type AdmonitionType = "note" | "info" | "warning" | "danger"
 
 interface AdmonitionProps {
   type: AdmonitionType
@@ -67,6 +68,8 @@ const admonitionConfig: Record<
   },
 }
 
+const VALID_ADMONITION_TYPES = Object.keys(admonitionConfig) as AdmonitionType[]
+
 export function Admonition({
   type,
   title,
@@ -88,6 +91,8 @@ export function Admonition({
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isFadingOut, setIsFadingOut] = useState(false)
   const [dontShowAgain, setDontShowAgain] = useState(false)
+  const componentId = useId()
+  const { reportError, clearError } = useErrorReporting()
 
   // Check localStorage on mount to see if user has permanently hidden this
   useEffect(() => {
@@ -97,6 +102,21 @@ export function Admonition({
       }
     }
   }, [allowPermanentHide, storageKey])
+
+  // Report invalid admonition type to error tracking
+  useEffect(() => {
+    if (!admonitionConfig[type]) {
+      const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
+      reportError({
+        componentId,
+        componentType: 'Admonition',
+        severity: 'error',
+        message: `Invalid admonition type "${String(type)}". Valid types are: ${validTypes}.`,
+      })
+    } else {
+      clearError(componentId)
+    }
+  }, [type, componentId, reportError, clearError])
 
   // Handle checkbox change with delayed fade-out
   const handleConfirmationChange = (checked: boolean) => {
@@ -122,6 +142,28 @@ export function Admonition({
   if (!isVisible) return null
 
   const config = admonitionConfig[type]
+
+  if (!config) {
+    const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
+    return (
+      <div
+        className={cn(
+          "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
+          "bg-red-50 border-red-200 text-red-700"
+        )}
+      >
+        <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-500" />
+        <div>
+          <div className="text-md font-bold mb-1">Invalid Admonition Type</div>
+          <p>
+            Unknown type <code className="bg-red-100 px-1 rounded">"{String(type)}"</code>.
+            Valid types are: {validTypes}.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const Icon = config.icon
   const displayTitle = resolvedTitle || config.defaultTitle
 
