@@ -222,6 +222,19 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 }
 
 // RenderBoilerplateTemplate renders a boilerplate template using direct function calls.
+//
+// Template Syntax:
+//   - New (recommended): {{ .inputs.VarName }} and {{ .outputs.blockId.outputName }}
+//   - Legacy (backward compatible): {{ .VarName }}
+//
+// Backward Compatibility:
+// Variables under the "inputs" namespace are automatically duplicated at the root level,
+// allowing both old and new template syntax to work simultaneously. Existing templates
+// using {{ .VarName }} will continue to work when variables are passed as namespaced.
+//
+// Reserved Names:
+//   - "inputs" and "outputs" are reserved variable names.
+//
 // This function is exported for use by the testing package.
 func RenderBoilerplateTemplate(templatePath, outputDir string, variables map[string]any) error {
 	slog.Info("RenderBoilerplateTemplate called", "templatePath", templatePath, "outputDir", outputDir)
@@ -298,7 +311,40 @@ func convertVariablesToCorrectTypes(variables map[string]any, variablesInConfig 
 		}
 	}
 
-	return converted, nil
+	// Apply backward compatibility layer - copy inputs to root level
+	return applyBackwardCompatibility(converted), nil
+}
+
+// applyBackwardCompatibility adds root-level variable access for backward compatibility.
+// It copies all variables from the "inputs" namespace to the root level so that both
+// {{ .VarName }} (legacy syntax) and {{ .inputs.VarName }} (new syntax) work.
+//
+// Reserved names "inputs" and "outputs" are not duplicated to avoid conflicts.
+// This allows existing boilerplate templates to work without modification.
+func applyBackwardCompatibility(variables map[string]any) map[string]any {
+	result := make(map[string]any)
+
+	// First, copy all existing variables (including "inputs" and "outputs" namespaces)
+	for k, v := range variables {
+		result[k] = v
+	}
+
+	// If there's an "inputs" namespace, copy all its contents to root level
+	if inputs, ok := variables["inputs"].(map[string]any); ok {
+		for k, v := range inputs {
+			// Skip reserved names to avoid conflicts
+			if k == "inputs" || k == "outputs" {
+				continue
+			}
+			// Only copy if not already present at root level
+			// (gives precedence to explicitly set root-level values)
+			if _, exists := result[k]; !exists {
+				result[k] = v
+			}
+		}
+	}
+
+	return result
 }
 
 // preConvertJSONTypes converts JSON number types to Go types before boilerplate conversion
@@ -557,6 +603,18 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 
 // RenderBoilerplateContent renders boilerplate template content with variables and returns the rendered string.
 // Variables can be simple strings or nested structures (like outputs for block outputs).
+//
+// Template Syntax:
+//   - New (recommended): {{ .inputs.VarName }} and {{ .outputs.blockId.outputName }}
+//   - Legacy (backward compatible): {{ .VarName }}
+//
+// Both syntaxes work simultaneously for backward compatibility. Variables under the "inputs"
+// namespace are automatically made available at the root level, so existing templates using
+// {{ .VarName }} continue to work even when variables are passed as { inputs: { VarName: "value" }}.
+//
+// Reserved Names:
+//   - "inputs" and "outputs" are reserved variable names and cannot be used as user variable names.
+//
 // This function is exported for use by the testing package.
 func RenderBoilerplateContent(content string, variables map[string]any) (string, error) {
 	// Create a temporary directory for the template

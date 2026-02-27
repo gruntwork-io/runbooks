@@ -40,6 +40,23 @@ Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) a
 
 If you've used Boilerplate before, everything you know carries over directly. If you haven't, the [Boilerplate Templates](/authoring/boilerplate/) page covers the full syntax, including variable definitions, template rendering, helper functions, and how to test templates locally with the Boilerplate CLI.
 
+#### Template Syntax: New vs. Legacy
+
+Runbooks supports two template syntaxes for referencing variables:
+
+- **New syntax (recommended):** `{{ .inputs.VarName }}` for inputs and `{{ .outputs.blockId.outputName }}` for outputs. This explicit namespace syntax makes it clear where values come from.
+- **Legacy syntax (backward compatible):** `{{ .VarName }}` for inputs. This syntax is supported for backward compatibility with existing Boilerplate templates.
+
+Both syntaxes work simultaneously. When variables are passed under the `inputs` namespace, they are automatically duplicated at the root level so existing templates using `{{ .VarName }}` continue to work without modification. This means you can:
+
+- Use existing Boilerplate templates without changes
+- Mix both syntaxes in the same template if needed
+- Gradually migrate to the new syntax at your own pace
+
+<Aside type="caution">
+**Reserved variable names:** `inputs` and `outputs` are reserved keywords and cannot be used as variable names in your `boilerplate.yml` files.
+</Aside>
+
 ## Input Providers
 
 An **input provider** is a block that collects variable values and makes them available to other blocks. Let's look at the input providers that are available in Runbooks.
@@ -211,12 +228,14 @@ Block outputs are stored in browser memory and cleared on page refresh.
 You can use both standard inputs and block outputs in the same template:
 
 ```hcl
-# From an Inputs block (via inputsId)
-environment = "{{ .Environment }}"
+# From an Inputs block (via inputsId) - new syntax
+environment = "{{ .inputs.Environment }}"
 
 # From a Command block's outputs
 account_id  = "{{ .outputs.create_account.account_id }}"
 ```
+
+Both the new namespaced syntax (`{{ .inputs.Environment }}`) and legacy syntax (`{{ .Environment }}`) work for inputs.
 
 ## Example
 

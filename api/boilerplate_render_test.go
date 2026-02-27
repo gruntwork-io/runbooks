@@ -267,20 +267,298 @@ func TestRenderBoilerplateContent(t *testing.T) {
 			expected: "Hello World!",
 			wantErr:  false,
 		},
+		{
+			name:    "new syntax - namespaced inputs",
+			content: "Hello {{ .inputs.Name }}!",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"Name": "World",
+				},
+			},
+			expected: "Hello World!",
+			wantErr:  false,
+		},
+		{
+			name:    "backward compatibility - legacy syntax with namespaced inputs",
+			content: "Hello {{ .Name }}!",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"Name": "World",
+				},
+			},
+			expected: "Hello World!",
+			wantErr:  false,
+		},
+		{
+			name:    "backward compatibility - both syntaxes work together",
+			content: "Legacy: {{ .Name }}, New: {{ .inputs.Name }}",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"Name": "World",
+				},
+			},
+			expected: "Legacy: World, New: World",
+			wantErr:  false,
+		},
+		{
+			name:    "backward compatibility - outputs namespace preserved",
+			content: "Block output: {{ .outputs.myblock.value }}",
+			variables: map[string]any{
+				"outputs": map[string]any{
+					"myblock": map[string]any{
+						"value": "test-value",
+					},
+				},
+			},
+			expected: "Block output: test-value",
+			wantErr:  false,
+		},
+		{
+			name:    "backward compatibility - mixed inputs and outputs",
+			content: "Input: {{ .Region }}, Output: {{ .outputs.deploy.url }}",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"Region": "us-west-2",
+				},
+				"outputs": map[string]any{
+					"deploy": map[string]any{
+						"url": "https://example.com",
+					},
+				},
+			},
+			expected: "Input: us-west-2, Output: https://example.com",
+			wantErr:  false,
+		},
+		{
+			name:    "backward compatibility - TfModule _module namespace with legacy access",
+			content: "Source: {{ ._module.source }}, Name: {{ .function_name }}",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"_module": map[string]any{
+						"source": "github.com/example/module",
+					},
+					"function_name": "my-function",
+				},
+			},
+			expected: "Source: github.com/example/module, Name: my-function",
+			wantErr:  false,
+		},
+		{
+			name:    "backward compatibility - reserved names not duplicated",
+			content: "Inputs namespace: {{ .inputs.Name }}",
+			variables: map[string]any{
+				"inputs": map[string]any{
+					"Name": "World",
+					"inputs": "should-not-appear-at-root", // Reserved name
+				},
+			},
+			expected: "Inputs namespace: World",
+			wantErr:  false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := RenderBoilerplateContent(tt.content, tt.variables)
-			
+
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RenderBoilerplateContent() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			
+
 			if !tt.wantErr && result != tt.expected {
 				t.Errorf("RenderBoilerplateContent() = %q, want %q", result, tt.expected)
 			}
 		})
 	}
+}
+
+func TestApplyBackwardCompatibility(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    map[string]any
+		expected map[string]any
+	}{
+		{
+			name: "flattens inputs to root level",
+			input: map[string]any{
+				"inputs": map[string]any{
+					"Name":   "Alice",
+					"Region": "us-west-2",
+				},
+			},
+			expected: map[string]any{
+				"inputs": map[string]any{
+					"Name":   "Alice",
+					"Region": "us-west-2",
+				},
+				"Name":   "Alice",
+				"Region": "us-west-2",
+			},
+		},
+		{
+			name: "preserves outputs namespace without flattening",
+			input: map[string]any{
+				"outputs": map[string]any{
+					"block1": map[string]any{
+						"value": "test",
+					},
+				},
+			},
+			expected: map[string]any{
+				"outputs": map[string]any{
+					"block1": map[string]any{
+						"value": "test",
+					},
+				},
+			},
+		},
+		{
+			name: "handles both inputs and outputs",
+			input: map[string]any{
+				"inputs": map[string]any{
+					"Region": "us-east-1",
+				},
+				"outputs": map[string]any{
+					"deploy": map[string]any{
+						"url": "https://example.com",
+					},
+				},
+			},
+			expected: map[string]any{
+				"inputs": map[string]any{
+					"Region": "us-east-1",
+				},
+				"outputs": map[string]any{
+					"deploy": map[string]any{
+						"url": "https://example.com",
+					},
+				},
+				"Region": "us-east-1",
+			},
+		},
+		{
+			name: "skips reserved names in inputs",
+			input: map[string]any{
+				"inputs": map[string]any{
+					"Name":    "Alice",
+					"inputs":  "reserved",
+					"outputs": "also-reserved",
+				},
+			},
+			expected: map[string]any{
+				"inputs": map[string]any{
+					"Name":    "Alice",
+					"inputs":  "reserved",
+					"outputs": "also-reserved",
+				},
+				"Name": "Alice",
+				// "inputs" and "outputs" should NOT be duplicated at root
+			},
+		},
+		{
+			name: "preserves existing root-level values",
+			input: map[string]any{
+				"ExistingVar": "existing-value",
+				"inputs": map[string]any{
+					"Name":        "Alice",
+					"ExistingVar": "new-value", // Should not override root-level
+				},
+			},
+			expected: map[string]any{
+				"ExistingVar": "existing-value", // Original value preserved
+				"inputs": map[string]any{
+					"Name":        "Alice",
+					"ExistingVar": "new-value",
+				},
+				"Name": "Alice",
+			},
+		},
+		{
+			name: "handles _module namespace for TfModule",
+			input: map[string]any{
+				"inputs": map[string]any{
+					"_module": map[string]any{
+						"source": "github.com/example/module",
+					},
+					"function_name": "my-function",
+				},
+			},
+			expected: map[string]any{
+				"inputs": map[string]any{
+					"_module": map[string]any{
+						"source": "github.com/example/module",
+					},
+					"function_name": "my-function",
+				},
+				"_module": map[string]any{
+					"source": "github.com/example/module",
+				},
+				"function_name": "my-function",
+			},
+		},
+		{
+			name:     "handles empty inputs",
+			input:    map[string]any{},
+			expected: map[string]any{},
+		},
+		{
+			name: "handles non-map inputs value",
+			input: map[string]any{
+				"inputs": "not-a-map",
+			},
+			expected: map[string]any{
+				"inputs": "not-a-map",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := applyBackwardCompatibility(tt.input)
+
+			// Check that all expected keys are present with correct values
+			for key, expectedValue := range tt.expected {
+				actualValue, exists := result[key]
+				if !exists {
+					t.Errorf("Expected key %q not found in result", key)
+					continue
+				}
+
+				// Use a simple comparison for basic types and nested maps
+				if !compareValues(expectedValue, actualValue) {
+					t.Errorf("For key %q: expected %+v, got %+v", key, expectedValue, actualValue)
+				}
+			}
+
+			// Check that no unexpected keys are present
+			for key := range result {
+				if _, expected := tt.expected[key]; !expected {
+					t.Errorf("Unexpected key %q found in result", key)
+				}
+			}
+		})
+	}
+}
+
+// compareValues does a deep comparison of two values
+func compareValues(expected, actual any) bool {
+	// Handle map comparison
+	expectedMap, expectedIsMap := expected.(map[string]any)
+	actualMap, actualIsMap := actual.(map[string]any)
+
+	if expectedIsMap && actualIsMap {
+		if len(expectedMap) != len(actualMap) {
+			return false
+		}
+		for k, v := range expectedMap {
+			if !compareValues(v, actualMap[k]) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// For other types, use simple equality
+	return expected == actual
 }
