@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, expectNoConsoleErrors } from "./fixtures";
 
 /**
  * Phase 1: Smoke-test 2 representative runbooks to validate the Playwright
@@ -30,9 +30,7 @@ test.describe("sample-runbooks/markdown-only-simple", () => {
     // No error boundary should be visible.
     await expect(page.locator(".text-red-600")).not.toBeVisible();
 
-    // No unexpected console errors.
-    const errors = consoleMessages.filter((m) => m.type() === "error");
-    expect(errors).toHaveLength(0);
+    expectNoConsoleErrors(consoleMessages);
   });
 });
 
@@ -71,8 +69,6 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     // No error boundary should be visible.
     await expect(page.locator(".text-red-600")).not.toBeVisible();
 
-    // No unexpected console errors.
-    const errors = consoleMessages.filter((m) => m.type() === "error");
-    expect(errors).toHaveLength(0);
+    expectNoConsoleErrors(consoleMessages);
   });
 });

@@ -1,4 +1,4 @@
-import { test as base, type ConsoleMessage } from "@playwright/test";
+import { test as base, expect, type ConsoleMessage } from "@playwright/test";
 import { type ChildProcess, spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -137,7 +137,15 @@ export const test = base.extend<RunbookServerFixture>({
         }
       });
 
-      await waitForServer();
+      // If the server exits before becoming ready (e.g. bad runbook path),
+      // reject immediately instead of polling until timeout.
+      const earlyExit = new Promise<never>((_, reject) => {
+        serverProcess!.on("exit", (code) => {
+          reject(new Error(`Server exited with code ${code} before becoming ready (runbook path: ${runbookPath})`));
+        });
+      });
+
+      await Promise.race([waitForServer(), earlyExit]);
     };
 
     await use(start);
@@ -150,3 +158,16 @@ export const test = base.extend<RunbookServerFixture>({
 });
 
 export { expect } from "@playwright/test";
+
+/**
+ * Assert that no unexpected console errors occurred during a test.
+ * Filters out the expected 401 from /api/session/join (the frontend
+ * tries to join an existing session first, and handles the 401 by
+ * creating a new one).
+ */
+export function expectNoConsoleErrors(messages: ConsoleMessage[]) {
+  const unexpected = messages.filter(
+    (m) => m.type() === "error" && !m.location().url.includes("/api/session/join"),
+  );
+  expect(unexpected, "Unexpected browser console errors").toHaveLength(0);
+}
