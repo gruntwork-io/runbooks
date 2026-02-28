@@ -137,20 +137,6 @@ type fileTreeWithContentStats struct {
 	dirFileCounts map[string]int // file count per top-level subdirectory
 }
 
-// buildFileTreeWithContent recursively builds a file tree from a directory,
-// reading file contents inline. It enforces limits on the number of files
-// and per-file content size to prevent OOM crashes when the directory is very large.
-func buildFileTreeWithContent(rootPath string, relativePath string) ([]FileTreeNode, error) {
-	stats := &fileTreeWithContentStats{
-		dirFileCounts: make(map[string]int),
-	}
-	tree, err := buildFileTreeWithContentRecursive(rootPath, relativePath, stats)
-	if err != nil {
-		return nil, err
-	}
-	return tree, nil
-}
-
 // buildFileTreeWithContentRecursive is the internal recursive implementation
 // that shares a stats counter across all levels of recursion.
 func buildFileTreeWithContentRecursive(rootPath string, relativePath string, stats *fileTreeWithContentStats) ([]FileTreeNode, error) {
@@ -252,14 +238,8 @@ func buildFileTreeWithContentRecursive(rootPath string, relativePath string, sta
 
 // FileTreeResult is the result of building a file tree, including truncation info.
 type FileTreeResult struct {
-	Tree          []FileTreeNode
-	TotalFiles    int
-	TruncatedTree bool
-	// HeavyDir is the name of the top-level subdirectory containing the most files,
-	// populated only when the tree is truncated to help users identify the culprit.
-	HeavyDir string
-	// HeavyDirFileCount is the number of files found in HeavyDir.
-	HeavyDirFileCount int
+	Tree []FileTreeNode
+	FileTreeMeta
 }
 
 // buildFileTreeWithContentResult returns the file tree along with metadata
@@ -274,9 +254,11 @@ func buildFileTreeWithContentResult(rootPath string, relativePath string) (*File
 	}
 	truncated := stats.totalFiles > maxFileTreeFiles
 	result := &FileTreeResult{
-		Tree:          tree,
-		TotalFiles:    stats.totalFiles,
-		TruncatedTree: truncated,
+		Tree: tree,
+		FileTreeMeta: FileTreeMeta{
+			TotalFiles:    stats.totalFiles,
+			TruncatedTree: truncated,
+		},
 	}
 	if truncated {
 		slog.Warn("File tree truncated", "totalFiles", stats.totalFiles, "limit", maxFileTreeFiles, "rootPath", rootPath)

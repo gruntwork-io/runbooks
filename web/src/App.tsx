@@ -11,7 +11,7 @@ import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
 import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/layout/GeneratedFilesAlert'
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useGetRunbook } from './hooks/useApiGetRunbook'
-import { useFileTree } from './hooks/useFileTree'
+import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
@@ -56,7 +56,7 @@ function App() {
   useWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
-  const { fileTree, updateFileTree } = useFileTree()
+  const { fileTree, updateFileTree } = useGeneratedFiles()
   const hasFiles = hasGeneratedFiles(fileTree)
   
   // Get git worktree state to detect when a repo is cloned

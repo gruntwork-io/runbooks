@@ -1,5 +1,5 @@
 import { Workspace } from '../artifacts/workspace'
-import { useFileTree } from '../../hooks/useFileTree'
+import { useGeneratedFiles } from '../../hooks/useGeneratedFiles'
 
 
 interface ArtifactsContainerProps {
@@ -11,7 +11,7 @@ interface ArtifactsContainerProps {
 }
 
 export const ArtifactsContainer = ({ className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath }: ArtifactsContainerProps) => {
-  const { fileTree, truncationInfo } = useFileTree()
+  const { fileTree, truncationInfo } = useGeneratedFiles()
 
   // Use real filetree data if available, otherwise show empty state
   const generatedFiles = fileTree && fileTree.length > 0 ? fileTree : []

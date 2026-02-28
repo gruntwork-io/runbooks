@@ -5,7 +5,7 @@ import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type Templa
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
-import { useFileTree } from '@/hooks/useFileTree'
+import { useGeneratedFiles } from '@/hooks/useGeneratedFiles'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
@@ -137,7 +137,7 @@ export function useScriptExecution({
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
   
   // Get file tree context for updating when files are captured
-  const { updateFileTree } = useFileTree()
+  const { updateFileTree } = useGeneratedFiles()
 
   // Get worktree context for triggering immediate changelog refresh
   const { invalidateTree } = useGitWorkTree()

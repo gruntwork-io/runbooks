@@ -203,14 +203,11 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 
 		// Create response with file tree and cleanup info
 		response := RenderResponse{
-			Message:           "Template rendered successfully to output directory",
-			OutputDir:         outputDir,
-			TemplatePath:      fullTemplatePath,
-			FileTree:          fileTreeResult.Tree,
-			TotalFiles:        fileTreeResult.TotalFiles,
-			TruncatedTree:     fileTreeResult.TruncatedTree,
-			HeavyDir:          fileTreeResult.HeavyDir,
-			HeavyDirFileCount: fileTreeResult.HeavyDirFileCount,
+			Message:      "Template rendered successfully to output directory",
+			OutputDir:    outputDir,
+			TemplatePath: fullTemplatePath,
+			FileTree:     fileTreeResult.Tree,
+			FileTreeMeta: fileTreeResult.FileTreeMeta,
 		}
 
 		// Include diff information if manifest tracking was used
@@ -636,13 +633,10 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 
 		// Create response with rendered files and file tree
 		response := RenderInlineResponse{
-			Message:           "Template rendered successfully",
-			RenderedFiles:     renderedFiles,
-			FileTree:          fileTreeResult.Tree,
-			TotalFiles:        fileTreeResult.TotalFiles,
-			TruncatedTree:     fileTreeResult.TruncatedTree,
-			HeavyDir:          fileTreeResult.HeavyDir,
-			HeavyDirFileCount: fileTreeResult.HeavyDirFileCount,
+			Message:      "Template rendered successfully",
+			RenderedFiles: renderedFiles,
+			FileTree:     fileTreeResult.Tree,
+			FileTreeMeta: fileTreeResult.FileTreeMeta,
 		}
 
 		c.JSON(http.StatusOK, response)

@@ -1,7 +1,7 @@
 import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
-import { useFileTree } from './useFileTree';
+import { useGeneratedFiles } from './useGeneratedFiles';
 import { useGitWorkTree } from '@/contexts/useGitWorkTree';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
@@ -46,7 +46,7 @@ export function useApiBoilerplateRender(
   shouldFetch: boolean = true,
   target?: 'generated' | 'worktree'
 ): UseApiBoilerplateRenderResult {
-  const { updateFileTree } = useFileTree();
+  const { updateFileTree } = useGeneratedFiles();
   const { invalidateTree } = useGitWorkTree();
 
   // Build the request body - both templatePath and templateId are required

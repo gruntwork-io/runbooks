@@ -28,6 +28,7 @@ import { useWorkspaceTree } from '@/hooks/useWorkspaceTree'
 import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import type { FileTreeNode } from '../code/FileTree'
 import type { WorkspaceTab, WorkspaceContext } from '@/types/workspace'
+import { ChangeProportionBar } from './ChangeProportionBar'
 import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
 
 interface WorkspaceProps {
@@ -291,30 +292,3 @@ function countFiles(nodes: FileTreeNode[]): number {
   return count
 }
 
-/**
- * GitHub-style proportion bar showing additions vs deletions
- */
-function ChangeProportionBar({ additions, deletions }: { additions: number; deletions: number }) {
-  const total = additions + deletions
-  const BOXES = 5
-  
-  let greenBoxes = 0
-  if (total > 0) {
-    greenBoxes = Math.round((additions / total) * BOXES)
-    if (additions > 0 && greenBoxes === 0) greenBoxes = 1
-    if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
-  }
-  
-  const redBoxes = BOXES - greenBoxes
-  
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: greenBoxes }).map((_, i) => (
-        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-green-500" />
-      ))}
-      {Array.from({ length: redBoxes }).map((_, i) => (
-        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-red-500" />
-      ))}
-    </div>
-  )
-}
