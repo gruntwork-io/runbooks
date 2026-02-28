@@ -37,7 +37,7 @@ This Command uses variables but doesn't have an Inputs component:
 
 <Command 
   id="cmd-missing-vars" 
-  command="echo 'Hello {{ .name }}, welcome to {{ .location }}!'"
+  command="echo 'Hello {{ .inputs.name }}, welcome to {{ .inputs.location }}!'"
   title="Command with unresolved variables"
   description="This should show a configuration required warning"
   successMessage="Variables resolved!"
@@ -280,7 +280,7 @@ variables:
 <Command 
   id="working-cmd-with-inputs" 
   inputsId="working-inputs"
-  command="echo '{{ .greeting }}, {{ .name }}!'"
+  command="echo '{{ .inputs.greeting }}, {{ .inputs.name }}!'"
   title="Command with inputs"
   description="Uses variables from the Inputs block above"
   successMessage="Greeting displayed!"

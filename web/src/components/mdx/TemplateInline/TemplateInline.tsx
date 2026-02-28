@@ -2,21 +2,18 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
-import { UnmetOutputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetOutputDependenciesWarning'
-import { UnmetInputDependenciesWarning } from '@/components/mdx/_shared/components/UnmetInputDependenciesWarning'
-import { useInputs, useAllOutputs, inputsToValues, useRunbookContext } from '@/contexts/useRunbook'
+import { UnmetDependenciesWarning } from '@/components/mdx/_shared/components/UnmetDependenciesWarning'
+import { useInputs, useAllOutputs, flattenInputs, useRunbookContext } from '@/contexts/useRunbook'
 import type { AppError } from '@/types/error'
-import { extractTemplateVariables } from './lib/extractTemplateVariables'
+import { extractTemplateDependencies, extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import { extractOutputDependencies, extractOutputDependenciesFromString } from './lib/extractOutputDependencies'
 import type { File } from '@/components/artifacts/code/FileTree'
 import type { FileTreeResponse } from '@/contexts/GeneratedFilesContext.types'
-import { useFileTree } from '@/hooks/useFileTree'
+import { useGeneratedFiles } from '@/hooks/useGeneratedFiles'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
-import { allDependenciesSatisfied, buildInputsWithBlocks, computeUnmetOutputDependencies, hasEmptyNumericInputs } from '@/lib/templateUtils'
-import { normalizeBlockId } from '@/lib/utils'
+import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
@@ -61,12 +58,12 @@ function TemplateInline({
   const renderVersionRef = useRef(0);
   
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
-  const { updateFileTree } = useFileTree();
+  const { updateFileTree } = useGeneratedFiles();
   const { invalidateTree } = useGitWorkTree();
 
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
-  const inputValues = useMemo(() => inputsToValues(inputs), [inputs]);
+  const inputValues = useMemo(() => flattenInputs(inputs), [inputs]);
 
   // Track which inputsId blocks haven't registered values yet (for the waiting message)
   const { blockInputs } = useRunbookContext();
@@ -79,43 +76,34 @@ function TemplateInline({
   // Get all block outputs to check dependencies and pass to template rendering
   const allOutputs = useAllOutputs();
   
-  // Extract input dependencies from template content
-  const inputDependencies = useMemo(() => {
-    return extractTemplateVariables(children);
-  }, [children]);
-  
-  // Extract output dependencies from template content ({{ ._blocks.*.outputs.* }} patterns)
-  // Also extract from outputPath so TemplateInline waits for those outputs before rendering.
-  const outputDependencies = useMemo(() => {
-    const childDeps = extractOutputDependencies(children);
-    const pathDeps = outputPath ? extractOutputDependenciesFromString(outputPath) : [];
-    if (pathDeps.length === 0) return childDeps;
-    // Deduplicate by fullPath — later entries (pathDeps) don't override earlier ones (childDeps)
-    return [...new Map([...childDeps, ...pathDeps].map(d => [d.fullPath, d])).values()];
-  }, [children, outputPath]);
+  // Extract all template dependencies from children and outputPath
+  const allDeps = useMemo(() => [
+    ...extractTemplateDependencies(children),
+    ...extractTemplateDependenciesFromString(outputPath ?? ''),
+  ], [children, outputPath]);
+  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps]);
 
-  // Resolve {{ ._blocks.*.outputs.* }} expressions in outputPath using block outputs.
-  // This enables dynamic file paths like "{{ ._blocks.target_path.outputs.PATH }}/terragrunt.hcl".
-  const resolvedOutputPath = useMemo(() => {
-    if (!outputPath) return outputPath;
-    return outputPath.replace(
-      /\{\{\s*\._blocks\.([a-zA-Z0-9_-]+)\.outputs\.(\w+)(?:\s*\|[^}]*)?\s*\}\}/g,
-      (_match, blockId, outputName) => {
-        const nid = normalizeBlockId(blockId);
-        const blockData = allOutputs[nid];
-        return blockData?.values?.[outputName] ?? '';
-      }
-    );
-  }, [outputPath, allOutputs]);
+  // Compute flattened outputs for template context
+  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
 
-  // Compute unmet output dependencies
-  const unmetOutputDependencies = useMemo(
-    () => computeUnmetOutputDependencies(outputDependencies, allOutputs),
-    [outputDependencies, allOutputs]
+  // Resolve {{ .outputs.X.Y }} expressions in outputPath using block outputs.
+  // This enables dynamic file paths like "{{ .outputs.target_path.PATH }}/terragrunt.hcl".
+  const resolvedOutputPath = useMemo(
+    () => outputPath ? resolveTemplateReferences(outputPath, { inputs: inputValues, outputs: flattenedOutputs }) : outputPath,
+    [outputPath, inputValues, flattenedOutputs]
   );
 
-  // Check if all output dependencies are satisfied
-  const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
+  // Check which input/output dependencies are not yet satisfied
+  const unmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(inputDeps, inputValues),
+    [inputDeps, inputValues]
+  );
+  const unmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(outputDeps, allOutputs),
+    [outputDeps, allOutputs]
+  );
+  const hasAllInputDeps = unmetInputDeps.length === 0;
+  const hasAllOutputDeps = unmetOutputDeps.length === 0;
 
   // Extract template content from children
   // MDX compiles code blocks into a nested React element structure (pre > code > text),
@@ -125,11 +113,6 @@ function TemplateInline({
   const templateFiles = useMemo(() => {
     return extractTemplateFiles(children, resolvedOutputPath);
   }, [children, resolvedOutputPath]);
-  
-  const hasAllInputDependencies = useCallback(
-    (vars: Record<string, unknown>): boolean => allDependenciesSatisfied(inputDependencies, vars),
-    [inputDependencies]
-  );
   
   // Core render function that calls the API.
   // Each call increments renderVersionRef; when the response arrives we check
@@ -143,8 +126,8 @@ function TemplateInline({
     }
     setError(null);
 
-    // Build inputs array including _blocks namespace for output access
-    const inputsWithBlocks = buildInputsWithBlocks(inputs, allOutputs);
+    // Build payload with inputs and outputs namespaces
+    const payload = buildTemplatePayload({ inputs: inputValues, outputs: flattenedOutputs });
 
     try {
       const response = await fetch('/api/boilerplate/render-inline', {
@@ -153,8 +136,8 @@ function TemplateInline({
         body: JSON.stringify({
           templateFiles,
           // Send inputs with name, type, and value for proper type conversion
-          // Includes _blocks namespace for output access
-          inputs: inputsWithBlocks,
+          // Includes outputs namespace for output access
+          inputs: payload,
           generateFile,
           // Target specifies where output is written: "generated" (default) or "worktree"
           ...(target ? { target } : {}),
@@ -204,19 +187,19 @@ function TemplateInline({
       setIsRendering(false);
       return null;
     }
-  }, [templateFiles, inputs, generateFile, allOutputs, target]);
+  }, [templateFiles, inputValues, flattenedOutputs, generateFile, target]);
   
   // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
     // Check if we have all input dependencies
-    if (!hasAllInputDependencies(inputValues)) {
+    if (!hasAllInputDeps) {
       return;
     }
-    
+
     // Check if we have all output dependencies
-    if (!hasAllOutputDependencies) {
+    if (!hasAllOutputDeps) {
       return;
     }
 
@@ -273,7 +256,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDependencies, hasAllOutputDependencies, outputPath, renderTemplate, updateFileTree, generateFile, target, invalidateTree]);
+  }, [inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, updateFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -284,14 +267,11 @@ function TemplateInline({
     };
   }, []);
   
-  // Check if there are any unmet input dependencies
-  const hasUnmetInputDependencies = inputDependencies.length > 0 && !hasAllInputDependencies(inputValues);
-
   // Render UI
   return (
     <div>
       {/* Show warning when waiting for input blocks to submit values */}
-      {hasUnmetInputDependencies && unmetInputsIds.length > 0 && (
+      {unmetInputDeps.length > 0 && unmetInputsIds.length > 0 && (
         <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
           <div>
@@ -309,18 +289,13 @@ function TemplateInline({
         </div>
       )}
       {/* Fall back to variable-level warning when inputsId blocks have registered but specific variables are still missing */}
-      {hasUnmetInputDependencies && unmetInputsIds.length === 0 && (
-        <UnmetInputDependenciesWarning
+      {(unmetInputDeps.length > 0 && unmetInputsIds.length === 0) || unmetOutputDeps.length > 0 ? (
+        <UnmetDependenciesWarning
           blockType="template"
-          inputDependencies={inputDependencies}
-          inputValues={inputValues}
+          unmetInputDeps={unmetInputDeps.length > 0 && unmetInputsIds.length === 0 ? unmetInputDeps : []}
+          unmetOutputDeps={unmetOutputDeps}
         />
-      )}
-      
-      {/* Show warning for unmet output dependencies */}
-      {!hasUnmetInputDependencies && !hasAllOutputDependencies && (
-        <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
-      )}
+      ) : null}
       
       {error ? (
         <ErrorDisplay error={error} />

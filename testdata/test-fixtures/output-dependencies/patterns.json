@@ -1,31 +1,31 @@
 {
-  "description": "Shared test cases for output dependency extraction regex. Both Go (api/boilerplate_config.go) and TypeScript (web/src/components/mdx/TemplateInline/lib/extractOutputDependencies.ts) implementations must pass these tests to ensure they stay in sync.",
-  "pattern_description": "Matches {{ ._blocks.blockId.outputs.outputName }} patterns with optional whitespace and pipe functions",
+  "description": "Shared test cases for output dependency extraction regex. Both Go (api/boilerplate_config.go) and TypeScript (web/src/lib/extractTemplateDependencies.ts) implementations must pass these tests to ensure they stay in sync.",
+  "pattern_description": "Matches {{ .outputs.blockId.outputName }} patterns with optional whitespace and pipe functions",
   "cases": [
     {
       "name": "basic pattern with spaces",
-      "input": "{{ ._blocks.create-account.outputs.account_id }}",
+      "input": "{{ .outputs.create-account.account_id }}",
       "expected": [
         { "blockId": "create-account", "outputName": "account_id" }
       ]
     },
     {
       "name": "basic pattern without spaces",
-      "input": "{{._blocks.foo.outputs.bar}}",
+      "input": "{{.outputs.foo.bar}}",
       "expected": [
         { "blockId": "foo", "outputName": "bar" }
       ]
     },
     {
       "name": "pattern with pipe function",
-      "input": "{{ ._blocks.my-block.outputs.value | UpperCase }}",
+      "input": "{{ .outputs.my-block.value | UpperCase }}",
       "expected": [
         { "blockId": "my-block", "outputName": "value" }
       ]
     },
     {
       "name": "pattern with multiple pipe functions",
-      "input": "{{ ._blocks.block1.outputs.name | lower | trimSpace }}",
+      "input": "{{ .outputs.block1.name | lower | trimSpace }}",
       "expected": [
         { "blockId": "block1", "outputName": "name" }
       ]
@@ -37,7 +37,7 @@
     },
     {
       "name": "multiple different dependencies",
-      "input": "Account: {{ ._blocks.create-account.outputs.account_id }} Region: {{ ._blocks.setup-region.outputs.region_name }}",
+      "input": "Account: {{ .outputs.create-account.account_id }} Region: {{ .outputs.setup-region.region_name }}",
       "expected": [
         { "blockId": "create-account", "outputName": "account_id" },
         { "blockId": "setup-region", "outputName": "region_name" }
@@ -45,60 +45,60 @@
     },
     {
       "name": "duplicate dependencies should be deduplicated",
-      "input": "First: {{ ._blocks.block-a.outputs.value }} Second: {{ ._blocks.block-a.outputs.value }}",
+      "input": "First: {{ .outputs.block-a.value }} Second: {{ .outputs.block-a.value }}",
       "expected": [
         { "blockId": "block-a", "outputName": "value" }
       ]
     },
     {
       "name": "block id with underscores",
-      "input": "{{ ._blocks.my_block_name.outputs.result }}",
+      "input": "{{ .outputs.my_block_name.result }}",
       "expected": [
         { "blockId": "my_block_name", "outputName": "result" }
       ]
     },
     {
       "name": "block id with numbers",
-      "input": "{{ ._blocks.step1.outputs.output2 }}",
+      "input": "{{ .outputs.step1.output2 }}",
       "expected": [
         { "blockId": "step1", "outputName": "output2" }
       ]
     },
     {
       "name": "mixed alphanumeric block id",
-      "input": "{{ ._blocks.create-ec2-instance-v2.outputs.instance_id }}",
+      "input": "{{ .outputs.create-ec2-instance-v2.instance_id }}",
       "expected": [
         { "blockId": "create-ec2-instance-v2", "outputName": "instance_id" }
       ]
     },
     {
       "name": "embedded in terraform template",
-      "input": "resource \"aws_instance\" \"main\" {\n  ami = \"{{ ._blocks.get-ami.outputs.ami_id }}\"\n  instance_type = \"t3.micro\"\n  tags = {\n    Account = \"{{ ._blocks.create-account.outputs.account_name | UpperCase }}\"\n  }\n}",
+      "input": "resource \"aws_instance\" \"main\" {\n  ami = \"{{ .outputs.get-ami.ami_id }}\"\n  instance_type = \"t3.micro\"\n  tags = {\n    Account = \"{{ .outputs.create-account.account_name | UpperCase }}\"\n  }\n}",
       "expected": [
         { "blockId": "get-ami", "outputName": "ami_id" },
         { "blockId": "create-account", "outputName": "account_name" }
       ]
     },
     {
-      "name": "regular template variables should not match",
-      "input": "{{ .AccountName }} {{ .Environment }}",
+      "name": "input variables should not match",
+      "input": "{{ .inputs.AccountName }} {{ .inputs.Environment }}",
       "expected": []
     },
     {
       "name": "partial patterns should not match",
-      "input": "{{ ._blocks.incomplete }} {{ .outputs.something }}",
+      "input": "{{ .outputs.incomplete }} {{ .inputs.something }}",
       "expected": []
     },
     {
       "name": "extra whitespace variations",
-      "input": "{{   ._blocks.block1.outputs.val   }}",
+      "input": "{{   .outputs.block1.val   }}",
       "expected": [
         { "blockId": "block1", "outputName": "val" }
       ]
     },
     {
       "name": "same block multiple outputs",
-      "input": "ID: {{ ._blocks.setup.outputs.id }} Name: {{ ._blocks.setup.outputs.name }}",
+      "input": "ID: {{ .outputs.setup.id }} Name: {{ .outputs.setup.name }}",
       "expected": [
         { "blockId": "setup", "outputName": "id" },
         { "blockId": "setup", "outputName": "name" }
@@ -106,31 +106,31 @@
     },
     {
       "name": "inside fromJson function call",
-      "input": "{{- range (fromJson ._blocks.list_users.outputs.users) }}\n- {{ . }}\n{{- end }}",
+      "input": "{{- range (fromJson .outputs.list_users.users) }}\n- {{ . }}\n{{- end }}",
       "expected": [
         { "blockId": "list_users", "outputName": "users" }
       ]
     },
     {
       "name": "inside fromJson with range assignment",
-      "input": "{{- range $k, $v := (fromJson ._blocks.list_users.outputs.teams) }}\n{{ $k }}\n{{- end }}",
+      "input": "{{- range $k, $v := (fromJson .outputs.list_users.teams) }}\n{{ $k }}\n{{- end }}",
       "expected": [
         { "blockId": "list_users", "outputName": "teams" }
       ]
     },
     {
       "name": "reference outside template delimiters should not match",
-      "input": "# This comment mentions ._blocks.setup.outputs.id but is not inside {{ }}",
+      "input": "# This comment mentions .outputs.setup.id but is not inside {{ }}",
       "expected": []
     },
     {
       "name": "reference in plain text between template blocks should not match",
-      "input": "{{ .SomeVar }} then ._blocks.setup.outputs.id appears outside {{ .OtherVar }}",
+      "input": "{{ .inputs.SomeVar }} then .outputs.setup.id appears outside {{ .inputs.OtherVar }}",
       "expected": []
     },
     {
       "name": "mixed: one inside delimiters, one outside should only match the inside one",
-      "input": "._blocks.outside.outputs.nope {{ ._blocks.inside.outputs.yes }}",
+      "input": ".outputs.outside.nope {{ .outputs.inside.yes }}",
       "expected": [
         { "blockId": "inside", "outputName": "yes" }
       ]

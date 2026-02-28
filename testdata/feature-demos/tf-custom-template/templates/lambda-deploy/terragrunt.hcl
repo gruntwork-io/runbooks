@@ -1,5 +1,5 @@
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -8,7 +8,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

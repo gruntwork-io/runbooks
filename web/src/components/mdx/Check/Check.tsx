@@ -3,10 +3,11 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetOutputDependenciesWarning, UnmetInputDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 interface CheckProps {
   id: string
@@ -59,8 +60,8 @@ function Check({
     sourceCode,
     language,
     fileError: getFileError,
-    inputValues,
     inputDependencies,
+    unmetInputDependencies,
     hasAllInputDependencies,
     inlineInputsId,
     unmetOutputDependencies,
@@ -71,6 +72,7 @@ function Check({
     hasGitHubAuthDependency,
     isRendering,
     renderError,
+    templateContext,
     status: checkStatus,
     logs,
     execError,
@@ -135,6 +137,14 @@ function Check({
     
     return errors;
   }, [title]);
+
+  // Resolve display string props using template context
+  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateContext) : title, [title, templateContext])
+  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateContext) : description, [description, templateContext])
+  const resolvedSuccessMessage = useMemo(() => resolveTemplateReferences(successMessage, templateContext), [successMessage, templateContext])
+  const resolvedWarnMessage = useMemo(() => resolveTemplateReferences(warnMessage, templateContext), [warnMessage, templateContext])
+  const resolvedFailMessage = useMemo(() => resolveTemplateReferences(failMessage, templateContext), [failMessage, templateContext])
+  const resolvedRunningMessage = useMemo(() => resolveTemplateReferences(runningMessage, templateContext), [runningMessage, templateContext])
 
   // Check if component requires variables but none are configured
   const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
@@ -347,31 +357,31 @@ function Check({
         <div className="">
         <div className="flex-1 space-y-2">
           <div className="text-md font-bold text-gray-600">
-            <InlineMarkdown>{title}</InlineMarkdown>
+            <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
-          {description && (
+          {resolvedDescription && (
             <div className="text-md text-gray-600 mb-3">
-              <InlineMarkdown>{description}</InlineMarkdown>
+              <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
           )}
-          {checkStatus === 'success' && successMessage && (
+          {checkStatus === 'success' && resolvedSuccessMessage && (
             <div className="text-green-600 font-semibold text-sm mb-3">
-              <InlineMarkdown>{successMessage}</InlineMarkdown>
+              <InlineMarkdown>{resolvedSuccessMessage}</InlineMarkdown>
             </div>
           )}
-          {checkStatus === 'warn' && warnMessage && (
+          {checkStatus === 'warn' && resolvedWarnMessage && (
             <div className="text-yellow-600 font-semibold text-sm mb-3">
-              <InlineMarkdown>{warnMessage}</InlineMarkdown>
+              <InlineMarkdown>{resolvedWarnMessage}</InlineMarkdown>
             </div>
           )}
-          {checkStatus === 'fail' && failMessage && (
+          {checkStatus === 'fail' && resolvedFailMessage && (
             <div className="text-red-600 font-semibold text-sm mb-3">
-              <InlineMarkdown>{failMessage}</InlineMarkdown>
+              <InlineMarkdown>{resolvedFailMessage}</InlineMarkdown>
             </div>
           )}
-          {checkStatus === 'running' && runningMessage && (
+          {checkStatus === 'running' && resolvedRunningMessage && (
             <div className="text-blue-600 font-semibold text-sm mb-3">
-              <InlineMarkdown>{runningMessage}</InlineMarkdown>
+              <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
             </div>
           )}
           
@@ -392,18 +402,13 @@ function Check({
           {/* Separator */}
           <div className="border-b border-gray-300"></div>
           
-          {/* Show status messages for waiting/rendering/error states */}      
+          {/* Show unmet input/output dependencies */}
           {!isRendering && (
-            <UnmetInputDependenciesWarning
+            <UnmetDependenciesWarning
               blockType="check"
-              inputDependencies={inputDependencies}
-              inputValues={inputValues}
+              unmetInputDeps={unmetInputDependencies}
+              unmetOutputDeps={unmetOutputDependencies}
             />
-          )}
-          
-          {/* Show unmet output dependencies */}
-          {hasAllInputDependencies && (
-            <UnmetOutputDependenciesWarning unmetOutputDependencies={unmetOutputDependencies} />
           )}
           
           {/* Show unmet AWS auth dependency */}

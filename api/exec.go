@@ -22,7 +22,7 @@ import (
 type ExecRequest struct {
 	ExecutableID      string            `json:"executable_id,omitempty"`     // Used when useExecutableRegistry=true
 	ComponentID       string            `json:"component_id,omitempty"`      // Used when useExecutableRegistry=false
-	TemplateVarValues map[string]any    `json:"template_var_values"`         // Values for template variables (can include nested _blocks)
+	TemplateVarValues map[string]any    `json:"template_var_values"`         // Values for template variables (includes inputs and outputs namespaces)
 	EnvVarsOverride   map[string]string `json:"env_vars_override,omitempty"` // Environment variables to set for this execution only (overrides session env)
 	UsePTY            *bool             `json:"use_pty,omitempty"`           // Whether to use PTY for execution (default: true). Set to false to use pipes instead.
 }
@@ -237,7 +237,7 @@ func prepareScriptContent(executable *Executable, templateVars map[string]any) (
 	scriptContent := executable.ScriptContent
 
 	// If template variable values are provided, render the template
-	// This handles both simple {{ .VarName }} patterns and nested paths like {{ ._blocks.xxx.outputs.yyy }}
+	// This handles both {{ .inputs.VarName }} patterns and output paths like {{ .outputs.blockId.outputName }}
 	if len(templateVars) > 0 {
 		rendered, err := RenderBoilerplateContent(scriptContent, templateVars)
 		if err != nil {

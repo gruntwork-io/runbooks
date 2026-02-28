@@ -243,11 +243,11 @@ type Section struct {
 }
 
 // OutputDependency represents a reference to another block's output in a template.
-// These are found by scanning template files for {{ ._blocks.blockId.outputs.outputName }} patterns.
+// These are found by scanning template files for {{ .outputs.blockId.outputName }} patterns.
 type OutputDependency struct {
 	BlockID    string `json:"blockId"`    // The block ID that produces the output (e.g., "create-account")
 	OutputName string `json:"outputName"` // The output name (e.g., "account_id")
-	FullPath   string `json:"fullPath"`   // The full template reference (e.g., "_blocks.create-account.outputs.account_id")
+	FullPath   string `json:"fullPath"`   // The full template reference (e.g., "outputs.create_account.account_id")
 }
 
 // BoilerplateConfig represents the parsed boilerplate.yml, which is a collection of variables
@@ -258,7 +258,7 @@ type BoilerplateConfig struct {
 	// Note: Individual variables also have a SectionName field for direct lookup.
 	Sections []Section `json:"sections,omitempty"`
 	// OutputDependencies lists references to other blocks' outputs found in template files.
-	// These are {{ ._blocks.blockId.outputs.outputName }} patterns that must be satisfied
+	// These are {{ .outputs.blockId.outputName }} patterns that must be satisfied
 	// before the template can be rendered. The Template component uses this to show warnings
 	// when dependent blocks haven't been executed yet.
 	OutputDependencies []OutputDependency `json:"outputDependencies,omitempty"`

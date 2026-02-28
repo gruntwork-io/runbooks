@@ -9,7 +9,7 @@ Runbooks provides four logging functions that give you:
 - **Consistent formatting** — All logs follow the `[timestamp] [LEVEL] message` format
 - **Severity levels** — INFO, WARN, ERROR, and DEBUG for filtering and parsing
 - **Debug mode** — Verbose output only when `DEBUG=true` is set
-- **Convenience** — Runbooks exposes logging functions "for free" to make script authorship easy, and a copy/paste snippet for local functions so that you can run them independent of Runbooks.
+- **Convenience** — Runbooks auto-injects logging functions into every bash script, and a one-liner lets you simulate the same environment locally.
 
 ## Log Levels Reference
 
@@ -60,18 +60,7 @@ Run this check with and without debug mode to see the difference:
 
 ## Using Logging in Your Scripts
 
-To make your scripts portable (work both in Runbooks UI and locally), add this snippet at the top:
-
-```bash
-# --- Runbooks Logging (https://runbooks.gruntwork.io/authoring/blocks/command#logging) ---
-if ! type log_info &>/dev/null; then
-  source <(curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh 2>/dev/null) 2>/dev/null
-  type log_info &>/dev/null || { log_info() { echo "[INFO]  $*"; }; log_warn() { echo "[WARN]  $*"; }; log_error() { echo "[ERROR] $*"; }; log_debug() { [ "${DEBUG:-}" = "true" ] && echo "[DEBUG] $*"; }; }
-fi
-# --- End Runbooks Logging ---
-```
-
-Then use the functions throughout your script:
+Inside Runbooks, the logging functions are auto-injected. Just use them directly in your scripts:
 
 ```bash
 log_info "Starting process..."
@@ -79,4 +68,6 @@ log_debug "Detailed variable state: $MY_VAR"
 log_warn "Optional dependency not found, continuing anyway"
 log_error "Critical failure, exiting"
 ```
+
+Runbooks automatically injects these logging functions into every bash script at runtime; no `source` or `import` is needed. To run these scripts locally outside the Runbooks environment, see [Local Development](https://runbooks.gruntwork.io/authoring/blocks/command/#local-development).
 

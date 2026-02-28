@@ -63,7 +63,7 @@ variables:
 
 <Command 
     id="deploy" 
-    command="kubectl apply -f {{ .ServiceName }}-{{ .Environment }}.yaml"
+    command="kubectl apply -f {{ .inputs.ServiceName }}-{{ .inputs.Environment }}.yaml"
     inputsId="service-config"
     title="Deploy Service"
     successMessage="Service deployed successfully!"

@@ -1,4 +1,4 @@
 locals {
-  name_prefix    = "{{ .OrgNamePrefix }}"
-  default_region = "{{ .DefaultRegion }}"
+  name_prefix    = "{{ .inputs.OrgNamePrefix }}"
+  default_region = "{{ .inputs.DefaultRegion }}"
 }

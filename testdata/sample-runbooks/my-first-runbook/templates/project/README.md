@@ -1,20 +1,20 @@
-# {{ .ProjectName }}
+# {{ .inputs.ProjectName }}
 
-Created by **{{ .Author }}**
+Created by **{{ .inputs.Author }}**
 
 ## About
 
-This project is built with {{ .Language }}.
+This project is built with {{ .inputs.Language }}.
 
-{{ if eq .Language "Go" -}}
+{{ if eq .inputs.Language "Go" -}}
 Go excels at cross-platform compilation and building fast, reliable CLI tools and APIs.
-{{- else if eq .Language "Python" -}}
+{{- else if eq .inputs.Language "Python" -}}
 Python's readability and vast ecosystem make it ideal for data science and rapid prototyping.
-{{- else if eq .Language "JavaScript" -}}
+{{- else if eq .inputs.Language "JavaScript" -}}
 JavaScript powers the web and runs everywhere from browsers to servers to mobile apps.
-{{- else if eq .Language "TypeScript" -}}
+{{- else if eq .inputs.Language "TypeScript" -}}
 TypeScript adds static typing to JavaScript, catching bugs at compile time.
-{{- else if eq .Language "Rust" -}}
+{{- else if eq .inputs.Language "Rust" -}}
 Rust delivers C-level performance with memory safety guaranteed at compile time.
 {{- end }}
 
