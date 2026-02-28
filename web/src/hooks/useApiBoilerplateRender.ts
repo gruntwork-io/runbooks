@@ -1,8 +1,7 @@
 import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
-import { useGeneratedFiles } from './useGeneratedFiles';
-import { useGitWorkTree } from '@/contexts/useGitWorkTree';
+import { useFileTreeUpdater } from '@/components/mdx/_shared/hooks/useFileTreeUpdater';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 interface BoilerplateRenderResult {
@@ -46,8 +45,7 @@ export function useApiBoilerplateRender(
   shouldFetch: boolean = true,
   target?: 'generated' | 'worktree'
 ): UseApiBoilerplateRenderResult {
-  const { updateFileTree } = useGeneratedFiles();
-  const { invalidateTree } = useGitWorkTree();
+  const { applyFileTreeUpdate } = useFileTreeUpdater(target);
 
   // Build the request body - both templatePath and templateId are required
   const requestBody = useMemo(() => {
@@ -73,17 +71,13 @@ export function useApiBoilerplateRender(
     }
   }, [debouncedRequest, templateId, target]);
 
-  // Handle file tree updates when data changes (Generated tab only)
-  // When target is worktree, output went to the git repo — do not overwrite Generated with worktree tree
+  // Handle file tree updates when data changes
+  const renderData = apiResult.data;
   useEffect(() => {
-    if (target === 'worktree') return;
-    const data = apiResult.data;
-    if (data?.fileTree && Array.isArray(data.fileTree)) {
-      updateFileTree(data);
-      // Trigger immediate changelog refresh so changes appear without waiting for next poll
-      invalidateTree();
+    if (renderData?.fileTree && Array.isArray(renderData.fileTree)) {
+      applyFileTreeUpdate(renderData);
     }
-  }, [apiResult.data?.fileTree, apiResult.data?.truncatedTree, updateFileTree, target, invalidateTree]);
+  }, [renderData, applyFileTreeUpdate]);
 
   return {
     ...apiResult,
