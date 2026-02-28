@@ -14,7 +14,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   retryText = 'Try Again'
 }) => {
   return (
-    <div className="p-6 bg-red-50 border border-red-200 rounded-lg">
+    <div data-testid="component-error" className="p-6 bg-red-50 border border-red-200 rounded-lg">
       <div className="text-red-600 font-semibold mb-2">Error: {error.message}</div>
       {error.details && (
         <div className="text-red-600 text-sm mb-3">{error.details}</div>

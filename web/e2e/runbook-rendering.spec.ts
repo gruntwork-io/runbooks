@@ -72,3 +72,50 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test: demo3 — template rendering should not show errors
+// ---------------------------------------------------------------------------
+test.describe("sample-runbooks/demo3", () => {
+  test("renders templates without errors", async ({ page, startServer, consoleMessages }) => {
+    await startServer("testdata/sample-runbooks/demo3");
+    await page.goto("/");
+
+    const markdownBody = page.locator(".markdown-body");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+
+    // Wait for templates to auto-render (they fire after a 200ms debounce).
+    await page.waitForTimeout(2_000);
+
+    // No template rendering errors should be visible.
+    await expect(page.getByTestId("component-error")).not.toBeVisible();
+
+    // No error boundary should be visible.
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+
+  test("runs a command and shows success", async ({ page, startServer, consoleMessages }) => {
+    await startServer("testdata/sample-runbooks/demo3");
+    await page.goto("/");
+
+    const markdownBody = page.locator(".markdown-body");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+
+    // Dismiss the trust banner so command execution is allowed.
+    await page.getByText("I trust this Runbook").click();
+
+    // Find the "Test embedded inputs" Command block (test6) and click Run.
+    const commandBlock = page.locator(".mb-5", { hasText: "Test embedded inputs" });
+    await commandBlock.getByRole("button", { name: "Run" }).click();
+
+    // Wait for the success message to appear.
+    await expect(commandBlock.getByText("Embedded inputs work!")).toBeVisible({ timeout: 15_000 });
+
+    // No error boundary should be visible.
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+});
