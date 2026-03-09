@@ -103,7 +103,7 @@ function DirPicker({
     : 'text-gray-400'
 
   return (
-    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

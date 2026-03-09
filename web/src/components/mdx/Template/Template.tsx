@@ -425,7 +425,7 @@ function Template({
 
   // Render the form with output dependency warning and inline render errors
   return (
-    <div>
+    <div data-testid={id}>
       {/* Show render errors inline (don't unmount the form) */}
       {renderError && (
         <ErrorDisplay error={renderError} />

@@ -300,7 +300,7 @@ function Command({
 
   // Main render
   return (
-    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -317,7 +317,7 @@ function Command({
       {/* Command main container */}
       <div className="flex @container">
         <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
-          <IconComponent data-testid={`${id}-icon-${commandStatus}`} className={`size-6 ${iconClasses} ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
+          <IconComponent data-testid={`icon-${commandStatus}`} className={`size-6 ${iconClasses} ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">

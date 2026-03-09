@@ -263,7 +263,7 @@ function TemplateInline({
   
   // Render UI
   return (
-    <div>
+    <div data-testid={resolvedOutputPath && `template-inline-${resolvedOutputPath}`}>
       {/* Show warning when waiting for input blocks to submit values */}
       {unmetInputDeps.length > 0 && unmetInputsIds.length > 0 && (
         <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">

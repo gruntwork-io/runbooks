@@ -309,7 +309,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const formIsValid = isFormValid(formData)
 
   return (
-    <div className={containerClasses}>
+    <div data-testid={id} className={containerClasses}>
       {/* ID label in top-right corner for standard variant */}
       {variant === 'standard' && (
         <div className="absolute top-2 right-3">
