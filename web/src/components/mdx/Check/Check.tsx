@@ -351,7 +351,7 @@ function Check({
       {/* Check main body */}
       <div className="flex @container">
         <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
-          <IconComponent className={`size-6 ${iconClasses} ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
+          <IconComponent data-testid={`${id}-icon-${checkStatus}`} className={`size-6 ${iconClasses} ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">

@@ -317,7 +317,7 @@ function Command({
       {/* Command main container */}
       <div className="flex @container">
         <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
-          <IconComponent className={`size-6 ${iconClasses} ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
+          <IconComponent data-testid={`${id}-icon-${commandStatus}`} className={`size-6 ${iconClasses} ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">

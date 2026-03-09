@@ -92,13 +92,13 @@ type RunbookServerFixture = {
    * Start the runbooks server for the given runbook path.
    * The path should be relative to the repo root (e.g. "testdata/sample-runbooks/my-first-runbook").
    */
-  startServer: (runbookPath: string) => Promise<void>;
+  serveRunbook: (runbookPath: string) => Promise<void>;
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[];
 };
 
 /**
- * Extend Playwright's `test` with a `startServer` fixture that manages
+ * Extend Playwright's `test` with a `serveRunbook` fixture that manages
  * the Go server lifecycle and a `consoleMessages` array for assertions.
  */
 export const test = base.extend<RunbookServerFixture>({
@@ -108,7 +108,7 @@ export const test = base.extend<RunbookServerFixture>({
     await use(messages);
   },
 
-  startServer: async ({ page, consoleMessages }, use) => {
+  serveRunbook: async ({ page, consoleMessages }, use) => {
     let serverProcess: ChildProcess | null = null;
 
     // Collect all browser console messages for later assertion.
@@ -132,7 +132,7 @@ export const test = base.extend<RunbookServerFixture>({
         if (line) {
           // Only log actual errors, skip Gin's routine request logs.
           if (!line.includes("[GIN]") && !line.includes("200 |")) {
-            console.error(`[server stderr] ${line}`);
+            console.log(`[server] ${line}`);
           }
         }
       });
@@ -159,6 +159,17 @@ export const test = base.extend<RunbookServerFixture>({
 
 export { expect } from "@playwright/test";
 
+export type { Page } from "@playwright/test";
+
+/**
+ * Dismiss the "I trust this Runbook" confirmation banner.
+ * Call this before any test that needs to execute commands or interact with
+ * blocks that require trust (e.g. Command, Check).
+ */
+export async function trustRunbook(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "I trust this Runbook" }).click();
+}
+
 /**
  * Assert that no unexpected console errors occurred during a test.
  * Filters out the expected 401 from /api/session/join (the frontend
@@ -166,8 +177,17 @@ export { expect } from "@playwright/test";
  * creating a new one).
  */
 export function expectNoConsoleErrors(messages: ConsoleMessage[]) {
-  const unexpected = messages.filter(
-    (m) => m.type() === "error" && !m.location().url.includes("/api/session/join"),
-  );
-  expect(unexpected, "Unexpected browser console errors").toHaveLength(0);
+  const unexpected = messages
+    .filter((m) => m.type() === "error" && !m.location().url.includes("/api/session/join"))
+    .map((m) => ({
+      text: m.text(),
+      url: m.location().url,
+    }));
+
+  if (unexpected.length > 0) {
+    const summary = unexpected
+      .map((e, i) => `  ${i + 1}. ${e.text}\n     Source: ${e.url}`)
+      .join("\n\n");
+    expect.soft(unexpected, `Browser console errors:\n\n${summary}\n`).toHaveLength(0);
+  }
 }
