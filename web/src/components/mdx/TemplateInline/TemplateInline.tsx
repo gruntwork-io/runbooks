@@ -15,6 +15,8 @@ import { AlertTriangle } from 'lucide-react'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
+  /** Unique identifier for this block, used as data-testid on the root element */
+  id: string
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
   /** Output path prefix for generated files */
@@ -35,6 +37,7 @@ interface TemplateInlineProps {
  * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).
  */
 function TemplateInline({
+  id,
   inputsId,
   outputPath,
   generateFile = false,
@@ -263,7 +266,7 @@ function TemplateInline({
   
   // Render UI
   return (
-    <div>
+    <div data-testid={id}>
       {/* Show warning when waiting for input blocks to submit values */}
       {unmetInputDeps.length > 0 && unmetInputsIds.length > 0 && (
         <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
