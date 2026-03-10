@@ -130,7 +130,7 @@ tests:
         # Template: templates/mise-config
         expect: success
 
-      - block: template-ci-f9af7f64
+      - block: ci-workflow-preview
         # Renders: ci.yml
         # Uses inputs from: infrastructure-live-root-repo-inputs
         expect: success

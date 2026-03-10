@@ -317,20 +317,17 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 	re := regexp.MustCompile(`<TemplateInline\s+([^>]*?)>([\s\S]*?)</TemplateInline>`)
 	matches := re.FindAllStringSubmatch(contentStr, -1)
 
-	templateCount := 0
 	for _, match := range matches {
 		props := match[1]
 		templateContent := match[2]
 
 		// Extract props
+		id := extractMDXPropValue(props, "id")
 		outputPath := extractMDXPropValue(props, "outputPath")
 		inputsID := extractMDXPropValue(props, "inputsId")
 
-		// Generate ID from outputPath
-		id := GenerateTemplateInlineID(outputPath)
 		if id == "" {
-			templateCount++
-			id = fmt.Sprintf("template-inline-%d", templateCount)
+			continue // id is required; skip blocks without one
 		}
 
 		// Extract the actual template content from code fence if present
