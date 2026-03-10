@@ -61,17 +61,22 @@ test.describe("sample-runbooks/demo2", () => {
     await page.goto(`http://localhost:${serverPort}/`);
 
     // Fill in the GitHub Org Name
-    await page.getByRole('textbox', { name: 'GitHub Org Name*' }).fill('gruntwork-io');
     const createRepoBlock = page.getByTestId('create-infrastructure-live-root-repo');
+    await createRepoBlock.getByRole('textbox', { name: 'GitHub Org Name*' }).fill('gruntwork-io');
     await expect(createRepoBlock.getByRole('button', { name: 'Run' })).toBeEnabled();
-    await expect(page.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
+
+    const generatedFiles = page.getByTestId('filetree-generated');
+    await expect(generatedFiles.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
 
     // Fill in the OpenTofu and Terragrunt Versions
-    await page.getByRole('textbox', { name: 'OpenTofu Version' }).fill('1');
-    await page.getByRole('textbox', { name: 'Terragrunt Version*' }).fill('2');
-    await page.getByRole('button', { name: 'Generate' }).first().click();
-    await page.getByRole('code').filter({ hasText: 'opentofu = "1"' }).isVisible({ timeout: 500 });
-    await page.getByRole('code').filter({ hasText: 'terragrunt = "2"' }).isVisible({ timeout: 500 });
+    const lookupVersionsBlock = page.getByTestId('mise-config-inputs');
+    await lookupVersionsBlock.getByRole('textbox', { name: 'OpenTofu Version' }).fill('1');
+    await lookupVersionsBlock.getByRole('textbox', { name: 'Terragrunt Version*' }).fill('2');
+    await lookupVersionsBlock.getByRole('button', { name: 'Generate' }).first().click();
+    
+    const miseToml = generatedFiles.getByTestId('code-file-.mise.toml');
+    await expect(miseToml).toContainText('opentofu = "1"');
+    await expect(miseToml).toContainText('terragrunt = "2"');
 
     // TemplateInline block should render the CI workflow preview (generateFile=false)
     // TODO: uncomment once TemplateInline has an `id` prop (see branch adding id to TemplateInline)
@@ -84,10 +89,10 @@ test.describe("sample-runbooks/demo2", () => {
     const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
     await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
     await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
-    const generatedFiles = page.getByTestId('filetree-generated');
     await generatedFiles.getByRole('treeitem', { name: 'subfolder' }).click();
     await generatedFiles.getByRole('treeitem', { name: 'sample.hcl' }).click();
-    await expect(page.getByRole('code').filter({ hasText: 'name_prefix = "my_prefix"' })).toBeVisible();
+    const sampleHcl = generatedFiles.getByTestId('code-file-subfolder/sample.hcl');
+    await expect(sampleHcl).toContainText('name_prefix = "my_prefix"');
   });
 });
 
