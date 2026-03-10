@@ -193,6 +193,11 @@ function TemplateInline({
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
+    // Don't render if this is a duplicate/colliding ID
+    if (isDuplicate) {
+      return;
+    }
+
     // Check if we have all input dependencies
     if (!hasAllInputDeps) {
       return;
@@ -257,7 +262,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
+  }, [isDuplicate, inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {
