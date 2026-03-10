@@ -52,6 +52,12 @@ function TemplateInline({
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
 
+  // Render state
+  const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
+  const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, File> } | null>(null);
+  const [error, setError] = useState<AppError | null>(null);
+  const [isRendering, setIsRendering] = useState(false);
+
   // Report duplicate/collision and render errors to the shared error context
   useEffect(() => {
     if (isDuplicate) {
@@ -73,12 +79,6 @@ function TemplateInline({
     }
   }, [id, isDuplicate, error, reportError, clearError])
 
-  // Render state
-  const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
-  const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, File> } | null>(null);
-  const [error, setError] = useState<AppError | null>(null);
-  const [isRendering, setIsRendering] = useState(false);
-  
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null);
   
