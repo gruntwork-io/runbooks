@@ -75,7 +75,7 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
   const isBooleanType = variable.type === 'bool'
   
   return (
-    <div className="space-y-1">
+    <div className="space-y-1" data-testid={`field-${variable.name}`}>
       <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1' : 'contents space-y-1'}>
         <label 
           htmlFor={`${id}-${variable.name}`}
@@ -309,7 +309,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const formIsValid = isFormValid(formData)
 
   return (
-    <div data-testid={id} className={containerClasses}>
+    <div className={containerClasses}>
       {/* ID label in top-right corner for standard variant */}
       {variant === 'standard' && (
         <div className="absolute top-2 right-3">

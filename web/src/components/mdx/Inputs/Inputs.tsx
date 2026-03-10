@@ -145,19 +145,21 @@ function Inputs({
   }
 
   return (
-    <BoilerplateInputsForm
-      id={id}
-      boilerplateConfig={boilerplateConfigWithPrefilledVariables}
-      initialData={initialData}
-      onAutoRender={handleAutoUpdate}
-      onGenerate={handleSubmit}
-      isGenerating={false}
-      isAutoRendering={false}
-      enableAutoRender={true}
-      hasGeneratedSuccessfully={hasSubmitted}
-      variant={variant}
-      isInlineMode={true}
-    />
+    <div data-testid={id}>
+      <BoilerplateInputsForm
+        id={id}
+        boilerplateConfig={boilerplateConfigWithPrefilledVariables}
+        initialData={initialData}
+        onAutoRender={handleAutoUpdate}
+        onGenerate={handleSubmit}
+        isGenerating={false}
+        isAutoRendering={false}
+        enableAutoRender={true}
+        hasGeneratedSuccessfully={hasSubmitted}
+        variant={variant}
+        isInlineMode={true}
+      />
+    </div>
   )
 }
 

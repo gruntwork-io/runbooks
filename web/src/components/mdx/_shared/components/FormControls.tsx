@@ -253,7 +253,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
  * Structured map input component for map variables with a schema
  * Provides a form-based UI for entering structured data with multiple fields per entry
  */
-export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, disabled }) => {
+export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => {
   const currentMap = typeof value === 'object' && value !== null ? value as Record<string, Record<string, unknown>> : {}
   const [isAddingEntry, setIsAddingEntry] = React.useState(false)
   const [entryKey, setEntryKey] = React.useState('')
@@ -261,7 +261,8 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
   
   const schema = variable.schema || {}
   const schemaFields = Object.keys(schema)
-  const instanceLabel = variable.schemaInstanceLabel || 'Entry name' // Use custom label or default
+  const instanceLabel = variable.schemaInstanceLabel || 'Entry name'
+  const entryKeyId = `${id}-${variable.name}-entry-key`
 
   const resetEntryForm = () => {
     setIsAddingEntry(false)
@@ -317,11 +318,12 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
           
           {/* Entry key input */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor={entryKeyId} className="block text-sm font-medium text-gray-700 mb-1">
               {instanceLabel} <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
+              id={entryKeyId}
               value={entryKey}
               onChange={(e) => setEntryKey(e.target.value)}
               onBlur={onBlur}
@@ -331,16 +333,19 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
 
           {/* Schema fields */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Fields</label>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Fields</span>
             {schemaFields.map((fieldName) => {
               const fieldType = schema[fieldName]
+              // Include variable.name to ensure global uniqueness, a requirement with htmlFor attributes — multiple structured maps can share schema field names (e.g., "email").
+              const fieldId = `${id}-${variable.name}-field-${fieldName}`
               return (
                 <div key={fieldName}>
-                  <label className="block text-xs text-gray-600 mb-1">
+                  <label htmlFor={fieldId} className="block text-xs text-gray-600 mb-1">
                     {fieldName} <span className="text-gray-400">({fieldType})</span>
                   </label>
                   {fieldType === 'bool' ? (
                     <select
+                      id={fieldId}
                       value={entryFields[fieldName] || 'false'}
                       onChange={(e) => updateField(fieldName, e.target.value)}
                       className={getInputClassName(undefined, 'w-full')}
@@ -351,6 +356,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
                   ) : fieldType === 'number' || fieldType === 'int' || fieldType === 'float' ? (
                     <input
                       type="number"
+                      id={fieldId}
                       value={entryFields[fieldName] || ''}
                       onChange={(e) => updateField(fieldName, e.target.value)}
                       className={getInputClassName(undefined, 'w-full')}
@@ -358,6 +364,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
                   ) : (
                     <input
                       type="text"
+                      id={fieldId}
                       value={entryFields[fieldName] || ''}
                       onChange={(e) => updateField(fieldName, e.target.value)}
                       className={getInputClassName(undefined, 'w-full')}

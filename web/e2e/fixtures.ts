@@ -218,8 +218,8 @@ export function getFilesPanel(page: import("@playwright/test").Page, panel: File
   return {
     /** The root locator for the panel — use for custom queries. */
     root,
-    /** Locator for a tree item (file or folder) by display name. */
-    getTreeItem: (name: string) => root.getByRole("treeitem", { name }),
+    /** Locator for a tree item (file or folder) by exact display name. */
+    getTreeItem: (name: string) => root.getByRole("treeitem", { name, exact: true }),
     /** Locator for a rendered code file by its path (matches `data-testid="code-file-<path>"`). */
     getCodeFile: (filePath: string) => root.getByTestId(`code-file-${filePath}`),
   };

@@ -208,18 +208,20 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
   }
 
   return (
-    <BoilerplateInputsForm
-      id={id}
-      boilerplateConfig={boilerplateConfig}
-      initialData={initialData}
-      onAutoRender={handleAutoUpdateWithOutputs}
-      onGenerate={handleSubmitWithOutputs}
-      isGenerating={false}
-      isAutoRendering={false}
-      enableAutoRender={true}
-      hasGeneratedSuccessfully={hasSubmitted}
-      isInlineMode={true}
-    />
+    <div data-testid={id}>
+      <BoilerplateInputsForm
+        id={id}
+        boilerplateConfig={boilerplateConfig}
+        initialData={initialData}
+        onAutoRender={handleAutoUpdateWithOutputs}
+        onGenerate={handleSubmitWithOutputs}
+        isGenerating={false}
+        isAutoRendering={false}
+        enableAutoRender={true}
+        hasGeneratedSuccessfully={hasSubmitted}
+        isInlineMode={true}
+      />
+    </div>
   )
 }
 

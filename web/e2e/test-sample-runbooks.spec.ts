@@ -89,6 +89,61 @@ test.describe("sample-runbooks/demo2", () => {
     await generated.getTreeItem('sample.hcl').click();
     await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
   });
+
+  test("renders the large input form and generates files", async ({ page, serveRunbook, serverPort }) => {
+    await serveRunbook("testdata/sample-runbooks/demo2");
+    await page.goto(`http://localhost:${serverPort}/`);
+    await deleteFilesIfPrompted(page);
+
+    const infraLiveForm = page.getByTestId('infra-live-elements-inputs');
+    await expect(infraLiveForm).toBeVisible({ timeout: 5_000 });
+
+    // Verify all input types render.
+    await expect(infraLiveForm.getByRole('textbox', { name: 'Org Name Prefix' })).toBeVisible();
+    await expect(infraLiveForm.getByRole('combobox', { name: 'Default Region' })).toBeVisible();
+    await expect(infraLiveForm.getByRole('textbox', { name: 'Root Terragrunt File Name' })).toBeVisible();
+    await expect(infraLiveForm.getByRole('checkbox', { name: 'Add Additional Common Variables' })).toBeVisible();
+    await expect(infraLiveForm.getByRole('textbox', { name: 'Catalog Tags' })).toBeVisible();
+
+    // Fill in the string inputs.
+    await infraLiveForm.getByRole('textbox', { name: 'Org Name Prefix' }).fill('acme');
+    await infraLiveForm.getByRole('textbox', { name: 'Root Terragrunt File Name' }).clear();
+    await infraLiveForm.getByRole('textbox', { name: 'Root Terragrunt File Name' }).fill('terragrunt2.hcl');
+
+    // Select an enum value.
+    await infraLiveForm.getByRole('combobox', { name: 'Default Region' }).selectOption('eu-west-1');
+
+    // Ensure the bool checkbox is checked (default is true).
+    await expect(infraLiveForm.getByRole('checkbox', { name: 'Add Additional Common Variables' })).toBeChecked();
+
+    // Add a structured map entry (AWSAccounts with x-schema).
+    const awsField = infraLiveForm.getByTestId('field-AWSAccounts');
+    await awsField.getByRole('button', { name: 'Add' }).click();
+    await awsField.getByRole('textbox', { name: /AWS Account Name/ }).fill('dev-account');
+    await awsField.getByRole('textbox', { name: /^email\b/i }).fill('dev@example.com');
+    await awsField.getByRole('textbox', { name: /^environment\b/i }).fill('development');
+    await awsField.getByRole('textbox', { name: /^id\b/i }).fill('111222333444');
+    await awsField.getByRole('button', { name: 'Save Entry' }).click();
+
+    // Submit the form and verify files are generated.
+    await infraLiveForm.getByRole('button', { name: 'Generate', exact: true }).click();
+
+    const genFiles = getFilesPanel(page, 'generated');
+
+    // Verify common.hcl contains values from our inputs.
+    await genFiles.getTreeItem('common.hcl').click();
+    await expect(genFiles.getCodeFile('common.hcl')).toContainText('name_prefix    = "acme"');
+    await expect(genFiles.getCodeFile('common.hcl')).toContainText('default_region = "eu-west-1"');
+    await expect(genFiles.getCodeFile('common.hcl')).toContainText('config_s3_bucket_name');
+
+    // Verify accounts.yml contains the structured map entry.
+    await genFiles.getTreeItem('accounts.yml').click();
+    await expect(genFiles.getCodeFile('accounts.yml')).toContainText('dev-account');
+    await expect(genFiles.getCodeFile('accounts.yml')).toContainText('111222333444');
+
+    // Verify the root terragrunt file uses our custom name.
+    await genFiles.getTreeItem('terragrunt2.hcl').click();
+  });
 });
 
 // ---------------------------------------------------------------------------
