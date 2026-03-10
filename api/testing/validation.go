@@ -246,6 +246,13 @@ func validateComponent(comp api.ParsedComponent) []ConfigError {
 		}
 
 	case "TemplateInline":
+		if !comp.HasExplicitID {
+			errors = append(errors, ConfigError{
+				ComponentType: "TemplateInline",
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+		}
 		if api.ExtractProp(comp.Props, "outputPath") == "" {
 			errors = append(errors, ConfigError{
 				ComponentType: "TemplateInline",
