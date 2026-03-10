@@ -13,6 +13,7 @@ import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle, XCircle } from 'lucide-react'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
+import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
@@ -47,6 +48,30 @@ function TemplateInline({
 }: TemplateInlineProps) {
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
+
+  // Error reporting context
+  const { reportError, clearError } = useErrorReporting()
+
+  // Report duplicate/collision and render errors to the shared error context
+  useEffect(() => {
+    if (isDuplicate) {
+      reportError({
+        componentId: id,
+        componentType: 'TemplateInline',
+        severity: 'error',
+        message: `Duplicate component ID: ${id}`
+      })
+    } else if (error) {
+      reportError({
+        componentId: id,
+        componentType: 'TemplateInline',
+        severity: 'error',
+        message: error.message
+      })
+    } else {
+      clearError(id)
+    }
+  }, [id, isDuplicate, error, reportError, clearError])
 
   // Render state
   const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
