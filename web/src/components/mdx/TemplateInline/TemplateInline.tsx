@@ -67,7 +67,8 @@ function TemplateInline({
   const [error, setError] = useState<AppError | null>(null);
   const [isRendering, setIsRendering] = useState(false);
 
-  // Report duplicate/collision and render errors to the shared error context
+  // Report configuration errors (duplicate ID) to the shared error context.
+  // Transient render/fetch errors are shown locally by ErrorDisplay.
   useEffect(() => {
     if (isDuplicate) {
       reportError({
@@ -76,17 +77,10 @@ function TemplateInline({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
-    } else if (error) {
-      reportError({
-        componentId: id,
-        componentType: 'TemplateInline',
-        severity: 'error',
-        message: error.message
-      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, error, reportError, clearError])
+  }, [id, isDuplicate, reportError, clearError])
 
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null);
