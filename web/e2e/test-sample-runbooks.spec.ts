@@ -53,9 +53,41 @@ test.describe("sample-runbooks/demo2", () => {
     // Verify the title rendered.
     await expect(page.locator('h1')).toContainText('Create the infrastructure-live-root repo');
 
-    // Run the checkbox
-    await page.getByRole('button', { name: 'Check' }).first().click();
-    await expect(page.getByTestId('check-gh-install-icon-success')).toBeVisible({ timeout: 5_000 });
+    // Check that gh is installed
+    const ghCheck = page.getByTestId('check-gh-install');
+    await ghCheck.getByRole('button', { name: 'Check' }).click();
+    await expect(ghCheck.getByTestId('icon-success')).toBeVisible({ timeout: 5_000 });
+
+    await page.goto('http://localhost:7825/');
+
+    // Fill in the GitHub Org Name
+    await page.getByRole('textbox', { name: 'GitHub Org Name*' }).fill('gruntwork-io');
+    const createRepoBlock = page.getByTestId('create-infrastructure-live-root-repo');
+    await expect(createRepoBlock.getByRole('button', { name: 'Run' })).toBeEnabled();
+    await expect(page.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
+
+    // Fill in the OpenTofu and Terragrunt Versions
+    await page.getByRole('textbox', { name: 'OpenTofu Version' }).fill('1');
+    await page.getByRole('textbox', { name: 'Terragrunt Version*' }).fill('2');
+    await page.getByRole('button', { name: 'Generate' }).first().click();
+    await page.getByRole('code').filter({ hasText: 'opentofu = "1"' }).isVisible({ timeout: 500 });
+    await page.getByRole('code').filter({ hasText: 'terragrunt = "2"' }).isVisible({ timeout: 500 });
+
+    // TemplateInline block should render the CI workflow preview (generateFile=false)
+    // TODO: uncomment once TemplateInline has an `id` prop (see branch adding id to TemplateInline)
+    // const ciBlock = page.getByTestId('ci-workflow-preview');
+    // await expect(ciBlock.getByText('ci.yml')).toBeVisible();
+    // await expect(ciBlock.getByRole('code').filter({ hasText: 'name: CI' })).toBeVisible();
+    // await expect(page.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
+
+    // Fill in the Org Name Prefix and confirm that files are generated
+    const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
+    await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
+    await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
+    const generatedFiles = page.getByTestId('filetree-generated');
+    await generatedFiles.getByRole('treeitem', { name: 'subfolder' }).click();
+    await generatedFiles.getByRole('treeitem', { name: 'sample.hcl' }).click();
+    await expect(page.getByRole('code').filter({ hasText: 'name_prefix = "my_prefix"' })).toBeVisible();
   });
 });
 
