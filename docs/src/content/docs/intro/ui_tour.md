@@ -18,7 +18,7 @@ Now, they open the runbook.
 runbooks open /path/to/lambda
 ```
 
-Runbooks launches a web browser to access `localhost:7825` and renders the runbook.
+Runbooks launches a web browser to access `localhost` on the default port (7825) and renders the runbook.
 
 ![Runbooks Example Screenshot 1](../../../assets/screenshots/intro/runbooks-example-1.webp)
 

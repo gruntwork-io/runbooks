@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	defaultPort           = 7825
-	healthCheckInterval   = 50 * time.Millisecond
-	healthCheckTimeout    = 5 * time.Second
+	healthCheckInterval = 50 * time.Millisecond
+	healthCheckTimeout  = 5 * time.Second
 )
 
 // healthResponse represents the JSON response from /api/health

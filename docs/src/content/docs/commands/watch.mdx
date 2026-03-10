@@ -37,6 +37,7 @@ When watching a remote runbook, file watching operates on the local downloaded c
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
 - `--tf-runbook <keyword-or-path>` - Select a built-in template or provide a local custom runbook for OpenTofu/Terraform modules. Remote URLs are not supported. See [runbooks open](/commands/open/#flags) for available templates and details.
+- `--port <number>` - Port for the backend + frontend server (default: 7825). Useful when running multiple runbooks simultaneously or when the default port is already in use.
 - `--disable-live-file-reload` - Enable executable registry validation. Scripts will not reload from disk when they are updated; instead, you must re-run the `runbooks` command to apply script changes. This trades lower convenience for higher security. See [Execution Security Model](/security/execution-model) for details.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
@@ -44,8 +45,8 @@ When watching a remote runbook, file watching operates on the local downloaded c
 
 When you run `runbooks watch`:
 
-1. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
-2. **Opens Your Browser** - Automatically navigates to `http://localhost:7825`
+1. **Starts the Backend Server** - Launches a Go-based HTTP server on `localhost` (port 7825 by default, configurable with `--port`)
+2. **Opens Your Browser** - Automatically navigates to the server URL
 3. **Watches for Changes** - Monitors the runbook file for any modifications
 4. **Auto-Reloads** - Automatically refreshes the browser when changes are detected (within ~300ms)
 

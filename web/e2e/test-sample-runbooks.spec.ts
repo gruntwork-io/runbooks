@@ -12,9 +12,9 @@ import { test, expect, expectNoConsoleErrors, trustRunbook } from "./fixtures";
 // Test: demo1
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo1", () => {
-  test("renders demo1 without errors", async ({ page, serveRunbook, consoleMessages }) => {
+  test("renders demo1 without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo1");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
 
     const markdownBody = page.locator(".markdown-body");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
@@ -44,9 +44,9 @@ test.describe("sample-runbooks/demo1", () => {
 // Test: demo2
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo2", () => {
-  test("renders demo2 without errors", async ({ page, serveRunbook }) => {
+  test("renders demo2 without errors", async ({ page, serveRunbook, serverPort }) => {
     await serveRunbook("testdata/sample-runbooks/demo2");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
 
     await trustRunbook(page);
 
@@ -58,7 +58,7 @@ test.describe("sample-runbooks/demo2", () => {
     await ghCheck.getByRole('button', { name: 'Check' }).click();
     await expect(ghCheck.getByTestId('icon-success')).toBeVisible({ timeout: 5_000 });
 
-    await page.goto('http://localhost:7825/');
+    await page.goto(`http://localhost:${serverPort}/`);
 
     // Fill in the GitHub Org Name
     await page.getByRole('textbox', { name: 'GitHub Org Name*' }).fill('gruntwork-io');
@@ -95,9 +95,9 @@ test.describe("sample-runbooks/demo2", () => {
 // Test: demo3
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo3", () => {
-  test("renders templates without errors", async ({ page, serveRunbook, consoleMessages }) => {
+  test("renders templates without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo3");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
 
     const markdownBody = page.locator(".markdown-body");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
@@ -114,9 +114,9 @@ test.describe("sample-runbooks/demo3", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("runs a command and shows success", async ({ page, serveRunbook, consoleMessages }) => {
+  test("runs a command and shows success", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo3");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
 
     const markdownBody = page.locator(".markdown-body");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
@@ -141,9 +141,9 @@ test.describe("sample-runbooks/demo3", () => {
 // Test: error-scenarios
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/error-scenarios", () => {
-  test("renders templates without errors", async ({ page, serveRunbook }) => {
+  test("renders templates without errors", async ({ page, serveRunbook, serverPort }) => {
     await serveRunbook("testdata/sample-runbooks/error-scenarios");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
   });
 });
 
@@ -151,9 +151,9 @@ test.describe("sample-runbooks/error-scenarios", () => {
 // Test: markdown-only-full
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/markdown-only-full", () => {
-  test("renders markdown content", async ({ page, serveRunbook, consoleMessages }) => {
+  test("renders markdown content", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/markdown-only-full");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
 
     // Wait for the markdown body to appear (MDXContainer wraps content in .markdown-body).
     const markdownBody = page.locator(".markdown-body");
@@ -172,9 +172,9 @@ test.describe("sample-runbooks/markdown-only-full", () => {
 // Test: my-first-runbook
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/my-first-runbook", () => {
-  test("renders MDX content with blocks", async ({ page, serveRunbook, consoleMessages }) => {
+  test("renders MDX content with blocks", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/my-first-runbook");
-    await page.goto("/");
+    await page.goto(`http://localhost:${serverPort}/`);
 
     // Wait for the markdown body to appear.
     const markdownBody = page.locator(".markdown-body");

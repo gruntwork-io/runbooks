@@ -23,7 +23,7 @@ The Runbooks backend server (which runs locally on your computer) only accepts c
 
 Even with localhost-only binding, an additional layer of protection prevents unauthorized script execution. When you open a runbook, the browser receives a cryptographically random session token that must be included with every execution request.
 
-Without token authentication, any process on your machine could send requests to `localhost:7825` and execute scripts. The token requirement ensures only browser tabs that loaded the Runbooks UI can trigger execution.
+Without token authentication, any process on your machine could send requests to the local server and execute scripts. The token requirement ensures only browser tabs that loaded the Runbooks UI can trigger execution.
 
 If you see "Invalid or expired session token" errors, try refreshing the page to obtain a new token.
 
