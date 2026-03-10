@@ -14,6 +14,7 @@ import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle, XCircle } from 'lucide-react'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
+import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
@@ -51,6 +52,14 @@ function TemplateInline({
 
   // Error reporting context
   const { reportError, clearError } = useErrorReporting()
+
+  // Telemetry context
+  const { trackBlockRender } = useTelemetry()
+
+  // Track block render on mount
+  useEffect(() => {
+    trackBlockRender('TemplateInline')
+  }, [trackBlockRender])
 
   // Render state
   const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
