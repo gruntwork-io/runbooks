@@ -245,11 +245,11 @@ Welcome to {{ .inputs.ProjectName }}!
 Use `generateFile={true}` when you want users to both see the output inline _and_ have the file saved to their workspace.
 </Aside>
 
-## Block IDs for Testing
+## Block IDs
 
-Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` is rendered as `data-testid` on the root element, enabling e2e tests to use scoped locators like `page.getByTestId('block-id')`.
+Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the runbook and is used for dependency resolution between blocks.
 
-Learn more about how to use block IDs in the [testing documentation](/authoring/testing/#block-ids).
+Learn more about block IDs in the [testing documentation](/authoring/testing/#block-ids).
 
 ## Complete Example
 

@@ -15,7 +15,7 @@ import { AlertTriangle } from 'lucide-react'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
-  /** Unique identifier for this block, used as data-testid on the root element */
+  /** Unique identifier for this block */
   id: string
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
