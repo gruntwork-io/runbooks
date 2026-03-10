@@ -53,7 +53,7 @@ locals {
   # This should contain an incoming webhook URL for the Slack channel #cis-audit
   # This secret lives in the shared account and is setup for cross account access so that every account can
   # stream the CIS alarms to Slack.
-  slack_webhook_url_secrets_manager_arn = "arn:aws:secretsmanager:{{ .DefaultRegion }}:${local.account_ids.shared}:secret:SlackWebhookURLForCISAudit-yybOoL"
+  slack_webhook_url_secrets_manager_arn = "arn:aws:secretsmanager:{{ .inputs.DefaultRegion }}:${local.account_ids.shared}:secret:SlackWebhookURLForCISAudit-yybOoL"
 }
 
 # Macie throws an error when initially creating classification jobs for the first time in an account due to the fact that the service linked role

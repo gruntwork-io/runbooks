@@ -105,8 +105,8 @@ inputs = {
   ##################################
   config_should_create_s3_bucket      = true
   cloudtrail_s3_bucket_already_exists = false
-  # Aggregate security hub results in {{ .DefaultRegion }}
-  security_hub_aggregate_region = "{{ .DefaultRegion }}"
+  # Aggregate security hub results in {{ .inputs.DefaultRegion }}
+  security_hub_aggregate_region = "{{ .inputs.DefaultRegion }}"
 
   # The logs account acts as the administrator account for SecurityHub and Macie, so add the rule to invite the other
   # accounts.
@@ -114,12 +114,12 @@ inputs = {
   macie_external_member_accounts        = local.external_macie_accounts
 
   macie_buckets_to_analyze = {
-    // Manually override {{ .DefaultRegion }} to include config and cloudtrail
+    // Manually override {{ .inputs.DefaultRegion }} to include config and cloudtrail
     // This was already set up (manually, maybe?) and applies were failing
     // due to the following error -
     // Error: error updating Macie ClassificationJob (xxx): InvalidParameter: 1 validation error(s) found.
     // │ - missing required field, UpdateClassificationJobInput.JobStatus.
-    "{{ .DefaultRegion }}" : [
+    "{{ .inputs.DefaultRegion }}" : [
       local.state_bucket,
       "aws-controltower-logs-${local.account_id}-${local.aws_region}"
     ]

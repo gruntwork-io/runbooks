@@ -1,4 +1,4 @@
 [tools]
-opentofu = "{{ .OpenTofuVersion }}"
-terragrunt = "{{ .TerragruntVersion }}"
+opentofu = "{{ .inputs.OpenTofuVersion }}"
+terragrunt = "{{ .inputs.TerragruntVersion }}"
 awscli = "latest"

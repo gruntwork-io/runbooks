@@ -1,8 +1,8 @@
 #!/bin/bash
 
-echo "🚀 Setting up project: {{ .ProjectName }}"
+echo "🚀 Setting up project: {{ .inputs.ProjectName }}"
 echo ""
-echo "👋 Welcome, {{ .Author }}!"
-echo "📦 Primary language: {{ .Language }}"
+echo "👋 Welcome, {{ .inputs.Author }}!"
+echo "📦 Primary language: {{ .inputs.Language }}"
 echo ""
 echo "✅ Project setup complete!"

@@ -15,11 +15,11 @@ set -e
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
-GITHUB_ORG="{{ .GithubOrgName }}"
-REPO_NAME="{{ .GithubRepoName }}"
-FUNCTION_NAME="{{ .FunctionName }}"
-ENVIRONMENT="{{ .Environment }}"
-AWS_REGION="{{ .AwsRegion }}"
+GITHUB_ORG="{{ .inputs.GithubOrgName }}"
+REPO_NAME="{{ .inputs.GithubRepoName }}"
+FUNCTION_NAME="{{ .inputs.FunctionName }}"
+ENVIRONMENT="{{ .inputs.Environment }}"
+AWS_REGION="{{ .inputs.AwsRegion }}"
 
 BRANCH_NAME="add-lambda-${FUNCTION_NAME}-${ENVIRONMENT}"
 TARGET_PATH="${ENVIRONMENT}/${AWS_REGION}/${FUNCTION_NAME}"

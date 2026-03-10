@@ -1,4 +1,4 @@
-# {{ .SCMProviderRepo }}
+# {{ .inputs.SCMProviderRepo }}
 
 The infrastructure in this repo is managed as **code** using [Terragrunt](https://terragrunt.gruntwork.io/), an orchestrator for [OpenTofu](https://opentofu.org/) and [Terraform](https://www.terraform.io).
 
@@ -122,7 +122,7 @@ This is why we recommend the following golden rule: **ALWAYS TEST YOUR CHANGES I
 
 Each folder contains a `terragrunt.hcl` configuration that defines which OpenTofu module to deploy with what inputs. To deploy changes to any module:
 
-- Create a pull request in this `{{ .SCMProviderRepo }}` repository with your changes and have Gruntwork Pipelines plan, then apply your changes on merge.
+- Create a pull request in this `{{ .inputs.SCMProviderRepo }}` repository with your changes and have Gruntwork Pipelines plan, then apply your changes on merge.
 - Run `terragrunt apply` manually in any of the resource folders.
 
 ### Account Vending

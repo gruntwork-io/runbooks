@@ -1,12 +1,12 @@
 inputs = {
-  {{- if eq .CustomSCMProviderInstanceURL "" }}
+  {{- if eq .inputs.CustomSCMProviderInstanceURL "" }}
   audiences = [
-    "https://gitlab.com/{{ .SCMProviderGroup }}",
+    "https://gitlab.com/{{ .inputs.SCMProviderGroup }}",
   ]
   {{- else }}
   audiences = [
-    "{{ .CustomSCMProviderInstanceURL }}/{{ .SCMProviderGroup }}",
+    "{{ .inputs.CustomSCMProviderInstanceURL }}/{{ .inputs.SCMProviderGroup }}",
   ]
-  URL = "{{ .CustomSCMProviderInstanceURL }}"
+  URL = "{{ .inputs.CustomSCMProviderInstanceURL }}"
   {{- end }}
 }

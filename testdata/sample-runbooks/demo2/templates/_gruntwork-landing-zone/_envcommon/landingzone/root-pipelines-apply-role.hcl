@@ -1,13 +1,13 @@
 inputs = {
   allowed_sources = {
-    "{{ .SCMProviderGroup }}/{{ .SCMProviderRepo }}" : ["main"]
+    "{{ .inputs.SCMProviderGroup }}/{{ .inputs.SCMProviderRepo }}" : ["main"]
   }
 
-  # Policy for OIDC role assumed from {{ .SCMProvider }} in the "{{ .SCMProviderGroup }}/{{ .SCMProviderRepo }}" repo
+  # Policy for OIDC role assumed from {{ .inputs.SCMProvider }} in the "{{ .inputs.SCMProviderGroup }}/{{ .inputs.SCMProviderRepo }}" repo
   custom_iam_policy_name = "root-pipelines-apply-oidc-policy"
   iam_role_name          = "root-pipelines-apply"
 
-  # This ${{ .SCMProvider }} OIDC IAM role is used by the central infra-live repo, via Pipelines, to deploy
+  # This ${{ .inputs.SCMProvider }} OIDC IAM role is used by the central infra-live repo, via Pipelines, to deploy
   # changes to child accounts. These permissions should be updated as necessary based on the type of infrastructure
   # contained in the central infra-live repo.
   iam_policy = {
@@ -18,7 +18,7 @@ inputs = {
     }
     "IamCreateRole" = {
       resources = [
-        "arn:{{ .AWSPartition }}:iam::*:role/aws-service-role/orgsdatasync.servicecatalog.amazonaws.com/AWSServiceRoleForServiceCatalogOrgsDataSync"
+        "arn:{{ .inputs.AWSPartition }}:iam::*:role/aws-service-role/orgsdatasync.servicecatalog.amazonaws.com/AWSServiceRoleForServiceCatalogOrgsDataSync"
       ]
       actions = ["iam:CreateServiceLinkedRole"]
       effect  = "Allow"
@@ -34,7 +34,7 @@ inputs = {
       effect    = "Allow"
     }
     "DynamoDBLocksTableAccess" = {
-      resources = ["arn:{{ .AWSPartition }}:dynamodb:*:*:table/terraform-locks"]
+      resources = ["arn:{{ .inputs.AWSPartition }}:dynamodb:*:*:table/terraform-locks"]
       actions   = ["dynamodb:*"]
       effect    = "Allow"
     }

@@ -1,5 +1,5 @@
 inputs = {
   allowed_organizations = [
-    "{{ .SCMProviderGroup }}",
+    "{{ .inputs.SCMProviderGroup }}",
   ]
 }
