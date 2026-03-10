@@ -1,4 +1,4 @@
-import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted } from "./fixtures";
+import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 
 /**
  * Phase 1: Smoke-test 2 representative runbooks to validate the Playwright
@@ -62,10 +62,8 @@ test.describe("sample-runbooks/demo2", () => {
     await createRepoBlock.getByRole('textbox', { name: 'GitHub Org Name*' }).fill('gruntwork-io');
     await expect(createRepoBlock.getByRole('button', { name: 'Run' })).toBeEnabled();
 
-    // Use :visible to target the desktop layout — there's also a hidden mobile
-    // ArtifactsContainer that renders the same file tree with the same test IDs.
-    const generatedFiles = page.locator('[data-testid="filetree-generated"]:visible');
-    await expect(generatedFiles.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
+    const generated = getFilesPanel(page, 'generated');
+    await expect(generated.getTreeItem('ci.yml')).not.toBeVisible();
 
     // Fill in the OpenTofu and Terragrunt Versions
     const lookupVersionsBlock = page.getByTestId('mise-config-inputs');
@@ -73,25 +71,23 @@ test.describe("sample-runbooks/demo2", () => {
     await lookupVersionsBlock.getByRole('textbox', { name: 'Terragrunt Version*' }).fill('2');
     await lookupVersionsBlock.getByRole('button', { name: 'Generate' }).first().click();
     
-    const miseToml = generatedFiles.getByTestId('code-file-.mise.toml');
-    await expect(miseToml).toContainText('opentofu = "1"');
-    await expect(miseToml).toContainText('terragrunt = "2"');
+    await expect(generated.getCodeFile('.mise.toml')).toContainText('opentofu = "1"');
+    await expect(generated.getCodeFile('.mise.toml')).toContainText('terragrunt = "2"');
 
     // TemplateInline block should render the CI workflow preview (generateFile=false)
     // TODO: uncomment once TemplateInline has an `id` prop (see branch adding id to TemplateInline)
     // const ciBlock = page.getByTestId('ci-workflow-preview');
     // await expect(ciBlock.getByText('ci.yml')).toBeVisible();
     // await expect(ciBlock.getByRole('code').filter({ hasText: 'name: CI' })).toBeVisible();
-    // await expect(page.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
+    // await expect(generated.getTreeItem('ci.yml')).not.toBeVisible();
 
     // Fill in the Org Name Prefix and confirm that files are generated
     const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
     await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
     await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
-    await generatedFiles.getByRole('treeitem', { name: 'subfolder' }).click();
-    await generatedFiles.getByRole('treeitem', { name: 'sample.hcl' }).click();
-    const sampleHcl = generatedFiles.getByTestId('code-file-subfolder/sample.hcl');
-    await expect(sampleHcl).toContainText('name_prefix = "my_prefix"');
+    await generated.getTreeItem('subfolder').click();
+    await generated.getTreeItem('sample.hcl').click();
+    await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
   });
 });
 

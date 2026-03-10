@@ -189,6 +189,42 @@ export async function deleteFilesIfPrompted(page: import("@playwright/test").Pag
   await expect(dialog).not.toBeVisible({ timeout: 3_000 });
 }
 
+// ---- Workspace file panel helpers -----------------------------------------
+
+type FilesPanelType = 'generated' | 'all' | 'changed';
+
+const PANEL_TEST_IDS: Record<FilesPanelType, string> = {
+  generated: 'filetree-generated',
+  all: 'filetree-all',
+  changed: 'filetree-changed',
+};
+
+/**
+ * Returns scoped locators for a workspace file panel.
+ *
+ * The app renders both a desktop and a mobile ArtifactsContainer with
+ * identical test IDs, so we use `:visible` to target the active one.
+ *
+ * @example
+ * ```ts
+ * const gen = getFilesPanel(page, 'generated');
+ * await gen.getTreeItem('subfolder').click();
+ * await expect(gen.getCodeFile('.mise.toml')).toContainText('opentofu = "1"');
+ * ```
+ */
+export function getFilesPanel(page: import("@playwright/test").Page, panel: FilesPanelType) {
+  const root = page.locator(`[data-testid="${PANEL_TEST_IDS[panel]}"]:visible`);
+
+  return {
+    /** The root locator for the panel — use for custom queries. */
+    root,
+    /** Locator for a tree item (file or folder) by display name. */
+    getTreeItem: (name: string) => root.getByRole("treeitem", { name }),
+    /** Locator for a rendered code file by its path (matches `data-testid="code-file-<path>"`). */
+    getCodeFile: (filePath: string) => root.getByTestId(`code-file-${filePath}`),
+  };
+}
+
 /**
  * Dismiss the "I trust this Runbook" confirmation banner.
  * Call this before any test that needs to execute commands or interact with
