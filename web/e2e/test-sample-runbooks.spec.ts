@@ -1,4 +1,4 @@
-import { test, expect, expectNoConsoleErrors, trustRunbook } from "./fixtures";
+import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted } from "./fixtures";
 
 /**
  * Phase 1: Smoke-test 2 representative runbooks to validate the Playwright
@@ -47,8 +47,7 @@ test.describe("sample-runbooks/demo2", () => {
   test("renders demo2 without errors", async ({ page, serveRunbook, serverPort }) => {
     await serveRunbook("testdata/sample-runbooks/demo2");
     await page.goto(`http://localhost:${serverPort}/`);
-
-    await trustRunbook(page);
+    await deleteFilesIfPrompted(page);
 
     // Verify the title rendered.
     await expect(page.locator('h1')).toContainText('Create the infrastructure-live-root repo');
@@ -58,14 +57,14 @@ test.describe("sample-runbooks/demo2", () => {
     await ghCheck.getByRole('button', { name: 'Check' }).click();
     await expect(ghCheck.getByTestId('icon-success')).toBeVisible({ timeout: 5_000 });
 
-    await page.goto(`http://localhost:${serverPort}/`);
-
     // Fill in the GitHub Org Name
     const createRepoBlock = page.getByTestId('create-infrastructure-live-root-repo');
     await createRepoBlock.getByRole('textbox', { name: 'GitHub Org Name*' }).fill('gruntwork-io');
     await expect(createRepoBlock.getByRole('button', { name: 'Run' })).toBeEnabled();
 
-    const generatedFiles = page.getByTestId('filetree-generated');
+    // Use :visible to target the desktop layout — there's also a hidden mobile
+    // ArtifactsContainer that renders the same file tree with the same test IDs.
+    const generatedFiles = page.locator('[data-testid="filetree-generated"]:visible');
     await expect(generatedFiles.getByRole('treeitem', { name: 'ci.yml' })).not.toBeVisible();
 
     // Fill in the OpenTofu and Terragrunt Versions

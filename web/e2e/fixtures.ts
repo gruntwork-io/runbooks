@@ -169,6 +169,27 @@ export { expect } from "@playwright/test";
 export type { Page } from "@playwright/test";
 
 /**
+ * If the "Existing Generated Files Detected" dialog appears, click
+ * "Delete Files" and wait for it to close. Otherwise do nothing.
+ * Call this after page.goto() for runbooks that generate files.
+ *
+ * Waits up to 2 seconds for the dialog to appear (it renders
+ * asynchronously after an API call), then proceeds immediately
+ * if it never shows.
+ */
+export async function deleteFilesIfPrompted(page: import("@playwright/test").Page) {
+  const dialog = page.getByTestId("delete-files-alert");
+  try {
+    await dialog.waitFor({ state: "visible", timeout: 2_000 });
+  } catch {
+    return;
+  }
+
+  await dialog.getByRole("button", { name: "Delete Files" }).click();
+  await expect(dialog).not.toBeVisible({ timeout: 3_000 });
+}
+
+/**
  * Dismiss the "I trust this Runbook" confirmation banner.
  * Call this before any test that needs to execute commands or interact with
  * blocks that require trust (e.g. Command, Check).
