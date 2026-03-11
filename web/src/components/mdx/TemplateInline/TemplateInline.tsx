@@ -48,6 +48,17 @@ function TemplateInline({
   target,
   children
 }: TemplateInlineProps) {
+  // Validate required props before any hooks that depend on id
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <TemplateInline> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
 
@@ -304,6 +315,11 @@ function TemplateInline({
     };
   }, []);
   
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
+
   // Early return for duplicate ID error
   if (isDuplicate) {
     return <DuplicateIdError id={id} isNormalizedCollision={isNormalizedCollision} collidingId={collidingId} />
