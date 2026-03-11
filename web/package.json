@@ -15,7 +15,7 @@
     "type-check": "bun run tsc --noEmit",
     "clean": "rm -rf node_modules"
   },
-  "packageManager": "bun@1.1.0",
+  "packageManager": "bun@1.3.10",
   "dependencies": {
     "@headless-tree/core": "^1.4.0",
     "@headless-tree/react": "^1.4.0",
