@@ -8,7 +8,7 @@ inputs = {
   allowed_sources_condition_operator = "StringLike"
 
   allowed_sources = {
-    "{{ .SCMProviderGroup }}/{{ .AccessControlRepoName }}" : ["*"]
+    "{{ .inputs.SCMProviderGroup }}/{{ .inputs.AccessControlRepoName }}" : ["*"]
   }
 
   custom_iam_policy_name = "access-control-pipelines-plan-oidc-policy"
@@ -25,7 +25,7 @@ inputs = {
         "dynamodb:DeleteItem",
         "dynamodb:CreateTable",
       ]
-      resources = ["arn:{{ .AWSPartition }}:dynamodb:*:*:table/terraform-locks"]
+      resources = ["arn:{{ .inputs.AWSPartition }}:dynamodb:*:*:table/terraform-locks"]
     }
     "S3StateBucketAccess" = {
       effect = "Allow"
@@ -49,7 +49,7 @@ inputs = {
         "s3:PutBucketOwnershipControls",
       ]
       resources = [
-        "arn:{{ .AWSPartition }}:s3:::${local.state_bucket_pattern}",
+        "arn:{{ .inputs.AWSPartition }}:s3:::${local.state_bucket_pattern}",
       ]
     }
     "S3StateBucketObjectAccess" = {
@@ -59,7 +59,7 @@ inputs = {
         "s3:GetObject"
       ]
       resources = [
-        "arn:{{ .AWSPartition }}:s3:::${local.state_bucket_pattern}/*",
+        "arn:{{ .inputs.AWSPartition }}:s3:::${local.state_bucket_pattern}/*",
       ]
     }
     # Role permissions

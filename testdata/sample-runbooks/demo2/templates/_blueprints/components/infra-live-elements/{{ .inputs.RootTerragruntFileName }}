@@ -32,9 +32,9 @@ locals {
   accesslogging_bucket_name = lower("${local.name_prefix}-${local.account_name}-${local.aws_region}-tf-logs")
 
   # Tags
-  {{- if ne .CatalogTags "" }}
+  {{- if ne .inputs.CatalogTags "" }}
   # Load tags from the central catalog
-  catalog_tags_location = "{{ .CatalogTags }}"
+  catalog_tags_location = "{{ .inputs.CatalogTags }}"
   # Cache configuration
   cache_dir = "${get_terragrunt_dir()}/.terragrunt-cache"
   catalog_tags_cache_file = "${local.cache_dir}/catalog_tags.yaml"
@@ -172,7 +172,7 @@ terraform {
 
 catalog {
   urls = [
-    {{- range .CatalogRepositories }}
+    {{- range .inputs.CatalogRepositories }}
     "{{ . }}",
     {{- end }}
   ]

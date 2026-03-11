@@ -17,7 +17,7 @@ import (
 var serveCmd = &cobra.Command{
 	Use:   "serve RUNBOOK_SOURCE",
 	Short: "Start the backend API server (for runbook developers)",
-	Long: `Start the backend API server for RUNBOOK_SOURCE on port 7825.
+	Long: `Start the backend API server for RUNBOOK_SOURCE.
 
 This is useful for local development on the Runbooks tool itself.
 Runbook authors and consumers should use 'open' or 'watch' instead.
@@ -38,7 +38,7 @@ module directory.`,
 
 		if err := api.StartServer(api.ServerConfig{
 			RunbookPath:           rb.serverPath,
-			Port:                  7825,
+			Port:                  port,
 			WorkingDir:            rb.workingDir,
 			OutputPath:            outputPath,
 			RemoteSourceURL:       rb.remoteSourceURL,

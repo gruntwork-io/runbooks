@@ -16,6 +16,8 @@ import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
 import { resolveTemplateReferences, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import type { AppError } from "@/types/error"
 import type { GitCloneProps } from "./types"
 
 /** Parse org and repo from a GitHub URL */
@@ -44,6 +46,17 @@ function GitClone({
   usePty,
   showFileTree = true,
 }: GitCloneProps) {
+  // Validate required props
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <GitClone> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // --- Template dependency resolution (resolve inputs/outputs expressions) ---
 
   // 1. EXTRACT — discover dependencies from template-capable props
@@ -275,13 +288,18 @@ function GitClone({
   const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet || !hasAllBlockingDependencies
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
 
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
+
   // If configuration error, don't render the block
   if (isDuplicate || isNormalizedCollision) {
     return null
   }
 
   return (
-    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

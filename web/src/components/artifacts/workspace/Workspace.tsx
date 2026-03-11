@@ -239,37 +239,43 @@ export const Workspace = ({
       {/* Content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {isGeneratedView && (
-          <CodeFileCollection
-            data={generatedFiles}
-            className="h-full"
-            hideContent={hideContent}
-            absoluteOutputPath={absoluteOutputPath}
-            relativeOutputPath={relativeOutputPath}
-            hideHeader={true}
-            truncationInfo={truncationInfo}
-          />
+          <div data-testid="filetree-generated" className="h-full">
+            <CodeFileCollection
+              data={generatedFiles}
+              className="h-full"
+              hideContent={hideContent}
+              absoluteOutputPath={absoluteOutputPath}
+              relativeOutputPath={relativeOutputPath}
+              hideHeader={true}
+              truncationInfo={truncationInfo}
+            />
+          </div>
         )}
 
         {isRepositoryView && activeTab === 'all' && (
-          <RepositoryFileBrowser
-            tree={workspaceTree}
-            isLoading={treeLoading}
-            error={treeError}
-            onRetry={refetchTree}
-            onLazyExpand={fetchSubtree}
-            className="h-full"
-          />
+          <div data-testid="filetree-all" className="h-full">
+            <RepositoryFileBrowser
+              tree={workspaceTree}
+              isLoading={treeLoading}
+              error={treeError}
+              onRetry={refetchTree}
+              onLazyExpand={fetchSubtree}
+              className="h-full"
+            />
+          </div>
         )}
 
         {isRepositoryView && activeTab === 'changed' && (
-          <ChangedFilesView
-            changes={changes}
-            tooManyChanges={tooManyChanges}
-            totalChanges={totalChanges}
-            isLoading={changesLoading}
-            onLoadDiff={fetchFileDiff}
-            className="h-full"
-          />
+          <div data-testid="filetree-changed" className="h-full">
+            <ChangedFilesView
+              changes={changes}
+              tooManyChanges={tooManyChanges}
+              totalChanges={totalChanges}
+              isLoading={changesLoading}
+              onLoadDiff={fetchFileDiff}
+              className="h-full"
+            />
+          </div>
         )}
       </div>
     </div>

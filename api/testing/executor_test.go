@@ -870,7 +870,7 @@ func TestExecuteTemplateInline_GenerateFile(t *testing.T) {
 <Inputs id="config">
 </Inputs>
 
-<TemplateInline outputPath="output.txt" generateFile={true}>
+<TemplateInline id="output-template" outputPath="output.txt" generateFile={true}>
 ` + "```" + `
 Hello from template
 ` + "```" + `
@@ -883,7 +883,7 @@ Hello from template
 	require.NoError(t, err)
 	defer executor.Close()
 
-	blockID := GenerateTemplateInlineID("output.txt")
+	blockID := "output-template"
 	result := executor.RunTest(TestCase{
 		Name: "generate-file",
 		Steps: []TestStep{
@@ -906,7 +906,7 @@ func TestExecuteTemplateInline_WorktreeTarget_NoWorktree(t *testing.T) {
 	tmpDir := t.TempDir()
 	runbookContent := `# TemplateInline Worktree Error Test
 
-<TemplateInline outputPath="config.yaml" generateFile={true} target="worktree">
+<TemplateInline id="config-template" outputPath="config.yaml" generateFile={true} target="worktree">
 ` + "```yaml" + `
 key: value
 ` + "```" + `
@@ -919,7 +919,7 @@ key: value
 	require.NoError(t, err)
 	defer executor.Close()
 
-	blockID := GenerateTemplateInlineID("config.yaml")
+	blockID := "config-template"
 	result := executor.RunTest(TestCase{
 		Name: "worktree-no-clone",
 		Steps: []TestStep{
@@ -943,7 +943,7 @@ func TestExecuteTemplateInline_WorktreeTarget_WithClone(t *testing.T) {
 
 <GitClone id="clone-repo" prefilledUrl="%s" />
 
-<TemplateInline outputPath="generated.txt" generateFile={true} target="worktree">
+<TemplateInline id="gen-template" outputPath="generated.txt" generateFile={true} target="worktree">
 `+"```"+`
 Generated content
 `+"```"+`
@@ -956,7 +956,7 @@ Generated content
 	require.NoError(t, err)
 	defer executor.Close()
 
-	templateBlockID := GenerateTemplateInlineID("generated.txt")
+	templateBlockID := "gen-template"
 	result := executor.RunTest(TestCase{
 		Name: "worktree-with-clone",
 		Steps: []TestStep{
@@ -1220,13 +1220,13 @@ func TestParseTemplateInlineBlocks_NewFields(t *testing.T) {
 	tmpDir := t.TempDir()
 	content := `# Template Test
 
-<TemplateInline outputPath="config.yaml" generateFile={true} target="worktree">
+<TemplateInline id="config-block" outputPath="config.yaml" generateFile={true} target="worktree">
 ` + "```yaml" + `
 key: value
 ` + "```" + `
 </TemplateInline>
 
-<TemplateInline outputPath="plain.txt">
+<TemplateInline id="plain-block" outputPath="plain.txt">
 ` + "```" + `
 plain content
 ` + "```" + `
@@ -1238,19 +1238,15 @@ plain content
 	blocks, err := parseTemplateInlineBlocks(runbookPath)
 	require.NoError(t, err)
 
-	// Use GenerateTemplateInlineID to get the real IDs (they include a hash suffix)
-	configID := GenerateTemplateInlineID("config.yaml")
-	plainID := GenerateTemplateInlineID("plain.txt")
-
 	// First block: generateFile=true, target=worktree
-	configBlock := blocks[configID]
-	require.NotNil(t, configBlock, "should parse config.yaml block (id=%s)", configID)
+	configBlock := blocks["config-block"]
+	require.NotNil(t, configBlock, "should parse config.yaml block")
 	assert.True(t, configBlock.GenerateFile, "generateFile should be true")
 	assert.Equal(t, "worktree", configBlock.Target, "target should be worktree")
 
 	// Second block: defaults (generateFile=false, target empty)
-	plainBlock := blocks[plainID]
-	require.NotNil(t, plainBlock, "should parse plain.txt block (id=%s)", plainID)
+	plainBlock := blocks["plain-block"]
+	require.NotNil(t, plainBlock, "should parse plain.txt block")
 	assert.False(t, plainBlock.GenerateFile, "generateFile should default to false")
 	assert.Equal(t, "", plainBlock.Target, "target should be empty by default")
 }

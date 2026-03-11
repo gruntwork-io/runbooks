@@ -168,6 +168,7 @@ export const RepositoryFileBrowser = ({
       <div className="flex-1 h-full overflow-y-auto">
         {selectedFilePath ? (
           <FileContentViewer
+            filePath={selectedFilePath}
             fileContent={fileContent}
             isLoading={contentLoading}
             error={contentError}
@@ -187,7 +188,8 @@ export const RepositoryFileBrowser = ({
 /**
  * File content viewer that handles text, images, binary, and too-large files.
  */
-function FileContentViewer({ fileContent, isLoading, error }: {
+function FileContentViewer({ filePath, fileContent, isLoading, error }: {
+  filePath: string
   fileContent: { path: string; content?: string; language: string; size: number; isImage?: boolean; mimeType?: string; dataUri?: string; isBinary?: boolean; isTooLarge?: boolean } | null
   isLoading: boolean
   error: string | null
@@ -270,7 +272,7 @@ function FileContentViewer({ fileContent, isLoading, error }: {
 
   // Text content
   return (
-    <div className="h-full flex flex-col">
+    <div data-testid={`code-file-${filePath}`} className="h-full flex flex-col">
       <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs text-gray-600 font-mono flex items-center justify-between">
         <span>{fileContent.path.split('/').pop()}</span>
         <span className="text-gray-400">{fileContent.language} • {formatFileSize(fileContent.size)}</span>

@@ -65,7 +65,7 @@ export function GeneratedFilesAlert({
   if (deleteSuccess) {
     return (
       <AlertDialog open={isOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent data-testid="delete-files-alert">
           <AlertDialogHeader>
             <AlertDialogTitle>Files Deleted Successfully</AlertDialogTitle>
             <AlertDialogDescription>
@@ -109,7 +109,7 @@ export function GeneratedFilesAlert({
 
   return (
     <AlertDialog open={isOpen}>
-      <AlertDialogContent>
+      <AlertDialogContent data-testid="delete-files-alert">
         <AlertDialogHeader>
           <AlertDialogTitle>Existing Generated Files Detected</AlertDialogTitle>
           <AlertDialogDescription>

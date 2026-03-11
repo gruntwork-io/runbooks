@@ -1,0 +1,21 @@
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  // MDX compiles client-side, so give each test enough time for
+  // server startup + React render + MDX compilation.
+  timeout: 30_000,
+  use: {
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { browserName: "chromium" },
+    },
+  ],
+  // Build the Go binary before running any tests.
+  globalSetup: "./e2e/global-setup.ts",
+});

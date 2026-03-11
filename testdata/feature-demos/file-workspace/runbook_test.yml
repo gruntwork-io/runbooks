@@ -21,7 +21,7 @@ tests:
         expect: success
       - block: modify-repo
         expect: success
-      - block: template-account-c991c121
+      - block: account-config
         expect: success
       # Part 2: Generated files workspace
       - block: generate-config
@@ -69,7 +69,7 @@ tests:
         expect: skip
       - block: modify-repo
         expect: skip
-      - block: template-account-c991c121
+      - block: account-config
         expect: skip
       - block: generate-config
         expect: success

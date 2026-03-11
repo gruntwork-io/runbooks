@@ -33,6 +33,9 @@ var (
 	// Global flag for working directory
 	workingDir string
 
+	// Global flag for the HTTP server port
+	port int
+
 	// Global flag to disable telemetry
 	noTelemetry bool
 
@@ -492,6 +495,10 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&workingDir, "working-dir", "",
 		"Working directory for script execution, or ::tmp for a temporary directory (default: current directory)")
+
+	// Add port flag
+	rootCmd.PersistentFlags().IntVar(&port, "port", 7825,
+		"Port for the server (backend only for serve, backend + frontend for open and watch)")
 
 	// Add telemetry opt-out flag
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,

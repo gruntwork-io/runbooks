@@ -16,8 +16,8 @@ set -e
 ORIGINAL_DIR=$(pwd)
 
 # Parse arguments (automatically passed from boilerplate inputs in the runbook)
-GITHUB_ORG="{{ .GithubOrgName }}"
-REPO_NAME="{{ .GithubRepoName }}"
+GITHUB_ORG="{{ .inputs.GithubOrgName }}"
+REPO_NAME="{{ .inputs.GithubRepoName }}"
 
 if [ -z "$GITHUB_ORG" ] || [ -z "$REPO_NAME" ]; then
     echo "Error: Missing required arguments"

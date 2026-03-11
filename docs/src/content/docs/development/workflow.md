@@ -9,7 +9,7 @@ If you're developing the Runbooks tool itself (working on the Go backend or Reac
 go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
 ```
 
-This starts the Go backend API server on port 7825.
+This starts the Go backend API server on the default port (7825). Use `--port` to pick a different port.
 
 **Terminal 2 - Frontend Dev Server:**
 ```bash

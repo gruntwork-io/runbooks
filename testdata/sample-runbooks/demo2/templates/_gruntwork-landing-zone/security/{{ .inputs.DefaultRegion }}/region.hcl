@@ -1,4 +1,4 @@
 # Common variables for this region
 locals {
-  aws_region = "{{ .DefaultRegion }}"
+  aws_region = "{{ .inputs.DefaultRegion }}"
 }

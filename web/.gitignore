@@ -28,3 +28,7 @@ dist-ssr
 # Node/npm artifacts (project uses bun)
 package-lock.json
 node_modules/
+
+# Playwright
+/test-results/
+/playwright-report/

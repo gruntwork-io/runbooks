@@ -490,6 +490,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
     return (
       <div 
         ref={ref}
+        data-testid={`diff-file-${change.path}`}
         className={cn(
           "border border-gray-300 rounded-md overflow-hidden bg-white",
           isFocused && "ring-2 ring-blue-500"

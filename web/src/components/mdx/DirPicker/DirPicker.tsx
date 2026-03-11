@@ -7,6 +7,8 @@ import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import type { AppError } from "@/types/error"
 import type { DirPickerProps } from "./types"
 
 function DirPicker({
@@ -21,6 +23,17 @@ function DirPicker({
   pathLabelDescription,
   inputsId,
 }: DirPickerProps) {
+  // Validate required props
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <DirPicker> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // Resolve template expressions in display props (non-blocking - all props are display-only)
   const templateCtx = useTemplateContext(inputsId)
 
@@ -87,6 +100,11 @@ function DirPicker({
     }
   }, [id, isDuplicate, isNormalizedCollision, collidingId, missingRootConfig, reportError, clearError])
 
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
+
   // Don't render if duplicate
   if (isDuplicate || isNormalizedCollision) {
     return null
@@ -103,7 +121,7 @@ function DirPicker({
     : 'text-gray-400'
 
   return (
-    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

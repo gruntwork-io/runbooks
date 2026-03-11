@@ -47,7 +47,7 @@ Examples:
 
 		startServerAndOpen(rb, api.ServerConfig{
 			RunbookPath:           rb.serverPath,
-			Port:                  defaultPort,
+			Port:                  port,
 			WorkingDir:            rb.workingDir,
 			OutputPath:            outputPath,
 			RemoteSourceURL:       rb.remoteSourceURL,

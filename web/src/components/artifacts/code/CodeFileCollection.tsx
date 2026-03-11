@@ -335,6 +335,7 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
     return (
       <div
         ref={ref}
+        data-testid={`code-file-${filePath}`}
         className={cn(
           "border border-gray-300 rounded-md overflow-hidden bg-white",
           isFocused && "ring-2 ring-blue-500"

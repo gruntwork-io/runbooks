@@ -8,6 +8,8 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import type { AppError } from "@/types/error"
 
 interface CheckProps {
   id: string
@@ -46,6 +48,17 @@ function Check({
   children,
   usePty,
 }: CheckProps) {
+  // Validate required props
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <Check> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
   
@@ -260,6 +273,11 @@ function Check({
     cancel()
   }
 
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
+
   // Early return for duplicate ID error
   if (isDuplicate) {
     return (
@@ -334,7 +352,7 @@ function Check({
 
   // Main render - form with success indicator overlay if needed
   return (
-    <div className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
+    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>      
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -351,7 +369,7 @@ function Check({
       {/* Check main body */}
       <div className="flex @container">
         <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
-          <IconComponent className={`size-6 ${iconClasses} ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
+          <IconComponent data-testid={`icon-${checkStatus}`} className={`size-6 ${iconClasses} ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">
