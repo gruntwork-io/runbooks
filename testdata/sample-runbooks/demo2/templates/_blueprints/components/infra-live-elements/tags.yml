@@ -1,1 +1,1 @@
-{{ .DefaultTags | toYaml }}
+{{ .inputs.DefaultTags | toYaml }}

@@ -1,4 +1,4 @@
-# {{ .SCMProviderRepo }}
+# {{ .inputs.SCMProviderRepo }}
 
 The infrastructure in this repo is managed as **code** using [Terragrunt](https://terragrunt.gruntwork.io/), a thin wrapper around [Terraform](https://www.terraform.io). Most of the infrastructure code in this repository use:
 

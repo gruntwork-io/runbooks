@@ -1,0 +1,277 @@
+import { test as base, expect, type ConsoleMessage } from "@playwright/test";
+import { type ChildProcess, spawn } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { fileURLToPath } from "url";
+import http from "http";
+
+// This is the default port for the serve command, and we increment it for each parallel worker.
+const BASE_PORT = 7825;
+const HEALTH_POLL_INTERVAL_MS = 100;
+const HEALTH_TIMEOUT_MS = 10_000;
+
+/** Repo root: two directories above web/e2e/ */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+/** Resolved path to the Go binary at the repo root. */
+const BINARY_PATH = path.join(REPO_ROOT, "runbooks");
+
+/**
+ * The server resolves directory paths (e.g. "testdata/demo1") to include the
+ * default filename (e.g. "testdata/demo1/runbook.mdx"), so a health-check
+ * response may report either form.
+ */
+function matchesRunbookPath(actual: string, expected: string): boolean {
+  return actual === expected || actual === expected + "/runbook.mdx";
+}
+
+/**
+ * Poll the /api/health endpoint until the server reports "ok".
+ * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
+ */
+function waitForServer(port: number, expectedRunbookPath: string): Promise<void> {
+  const healthURL = `http://localhost:${port}/api/health`;
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+
+    function poll() {
+      if (Date.now() > deadline) {
+        reject(new Error(`Server did not become ready within ${HEALTH_TIMEOUT_MS}ms`));
+        return;
+      }
+      const req = http.get(healthURL, (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => (body += chunk.toString()));
+        res.on("end", () => {
+          if (res.statusCode === 200) {
+            try {
+              const json = JSON.parse(body);
+              if (json.status === "ok" && matchesRunbookPath(json.runbookPath, expectedRunbookPath)) {
+                resolve();
+                return;
+              }
+            } catch {
+              // Not valid JSON yet — keep polling.
+            }
+          }
+          setTimeout(poll, HEALTH_POLL_INTERVAL_MS);
+        });
+      });
+      req.on("error", () => setTimeout(poll, HEALTH_POLL_INTERVAL_MS));
+    }
+
+    poll();
+  });
+}
+
+/** Kill a process tree. Sends SIGTERM, then SIGKILL after a short grace period. */
+function killProcess(proc: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    if (!proc.pid) {
+      resolve();
+      return;
+    }
+    // Kill process group (negative PID) to clean up child processes.
+    try {
+      process.kill(-proc.pid, "SIGTERM");
+    } catch {
+      // Process may have already exited.
+    }
+    const timeout = setTimeout(() => {
+      try {
+        process.kill(-proc.pid!, "SIGKILL");
+      } catch {
+        // Already exited.
+      }
+    }, 2_000);
+    proc.on("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    // If the process already exited, resolve immediately.
+    if (proc.exitCode !== null) {
+      clearTimeout(timeout);
+      resolve();
+    }
+  });
+}
+
+// ---- Custom fixture types ------------------------------------------------
+
+type RunbookServerFixture = {
+  /**
+   * Start the runbooks server for the given runbook path.
+   * The path should be relative to the repo root (e.g. "testdata/sample-runbooks/my-first-runbook").
+   */
+  serveRunbook: (runbookPath: string) => Promise<void>;
+  /** The port the server is listening on (unique per parallel worker). */
+  serverPort: number;
+  /** Console messages collected from the page during the test. */
+  consoleMessages: ConsoleMessage[];
+};
+
+/**
+ * Extend Playwright's `test` with a `serveRunbook` fixture that manages
+ * the Go server lifecycle and a `consoleMessages` array for assertions.
+ *
+ * Each parallel worker gets a unique port (BASE_PORT + workerIndex) so
+ * multiple tests can run simultaneously without port conflicts.
+ */
+export const test = base.extend<RunbookServerFixture>({
+  // eslint-disable-next-line no-empty-pattern
+  consoleMessages: async ({}, use) => {
+    const messages: ConsoleMessage[] = [];
+    await use(messages);
+  },
+
+  serverPort: [async ({}, use, testInfo) => {
+    await use(BASE_PORT + testInfo.workerIndex);
+  }, { scope: "test" }],
+
+  serveRunbook: async ({ page, consoleMessages, serverPort }, use, testInfo) => {
+    let serverProcess: ChildProcess | null = null;
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
+
+    page.on("console", (msg) => consoleMessages.push(msg));
+
+    const start = async (runbookPath: string) => {
+      serverProcess = spawn(
+        BINARY_PATH,
+        ["serve", "--port", String(serverPort), "--working-dir", workDir, runbookPath],
+        {
+          cwd: REPO_ROOT,
+          stdio: ["ignore", "pipe", "pipe"],
+          detached: true,
+          env: {
+            ...process.env,
+            RUNBOOKS_TELEMETRY_DISABLE: "1",
+          },
+        },
+      );
+
+      serverProcess.stderr?.on("data", (data: Buffer) => {
+        const line = data.toString().trim();
+        if (line) {
+          if (!line.includes("[GIN]") && !line.includes("200 |")) {
+            console.log(`[server:${serverPort}] ${line}`);
+          }
+        }
+      });
+
+      let earlyExitHandler: (code: number | null) => void;
+      const earlyExit = new Promise<never>((_, reject) => {
+        earlyExitHandler = (code) => {
+          reject(new Error(`Server exited with code ${code} before becoming ready (runbook path: ${runbookPath})`));
+        };
+        serverProcess!.on("exit", earlyExitHandler);
+      });
+
+      try {
+        await Promise.race([waitForServer(serverPort, runbookPath), earlyExit]);
+      } finally {
+        serverProcess!.removeListener("exit", earlyExitHandler!);
+        earlyExit.catch(() => {});
+      }
+    };
+
+    await use(start);
+
+    if (serverProcess) {
+      await killProcess(serverProcess);
+    }
+    fs.rmSync(workDir, { recursive: true, force: true });
+  },
+});
+
+export { expect } from "@playwright/test";
+
+export type { Page } from "@playwright/test";
+
+/**
+ * If the "Existing Generated Files Detected" dialog appears, click
+ * "Delete Files" and wait for it to close. Otherwise do nothing.
+ * Call this after page.goto() for runbooks that generate files.
+ *
+ * Waits up to 2 seconds for the dialog to appear (it renders
+ * asynchronously after an API call), then proceeds immediately
+ * if it never shows.
+ */
+export async function deleteFilesIfPrompted(page: import("@playwright/test").Page) {
+  const dialog = page.getByTestId("delete-files-alert");
+  try {
+    await dialog.waitFor({ state: "visible", timeout: 2_000 });
+  } catch {
+    return;
+  }
+
+  await dialog.getByRole("button", { name: "Delete Files" }).click();
+  await expect(dialog).not.toBeVisible({ timeout: 3_000 });
+}
+
+// ---- Workspace file panel helpers -----------------------------------------
+
+type FilesPanelType = 'generated' | 'all' | 'changed';
+
+const PANEL_TEST_IDS: Record<FilesPanelType, string> = {
+  generated: 'filetree-generated',
+  all: 'filetree-all',
+  changed: 'filetree-changed',
+};
+
+/**
+ * Returns scoped locators for a workspace file panel.
+ *
+ * The app renders both a desktop and a mobile ArtifactsContainer with
+ * identical test IDs, so we use `:visible` to target the active one.
+ *
+ * @example
+ * ```ts
+ * const gen = getFilesPanel(page, 'generated');
+ * await gen.getTreeItem('subfolder').click();
+ * await expect(gen.getCodeFile('.mise.toml')).toContainText('opentofu = "1"');
+ * ```
+ */
+export function getFilesPanel(page: import("@playwright/test").Page, panel: FilesPanelType) {
+  const root = page.locator(`[data-testid="${PANEL_TEST_IDS[panel]}"]:visible`);
+
+  return {
+    /** The root locator for the panel — use for custom queries. */
+    root,
+    /** Locator for a tree item (file or folder) by exact display name. */
+    getTreeItem: (name: string) => root.getByRole("treeitem", { name, exact: true }),
+    /** Locator for a rendered code file by its path (matches `data-testid="code-file-<path>"`). */
+    getCodeFile: (filePath: string) => root.getByTestId(`code-file-${filePath}`),
+  };
+}
+
+/**
+ * Dismiss the "I trust this Runbook" confirmation banner.
+ * Call this before any test that needs to execute commands or interact with
+ * blocks that require trust (e.g. Command, Check).
+ */
+export async function trustRunbook(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "I trust this Runbook" }).click();
+}
+
+/**
+ * Assert that no unexpected console errors occurred during a test.
+ * Filters out the expected 401 from /api/session/join (the frontend
+ * tries to join an existing session first, and handles the 401 by
+ * creating a new one).
+ */
+export function expectNoConsoleErrors(messages: ConsoleMessage[]) {
+  const unexpected = messages
+    .filter((m) => m.type() === "error" && !m.location().url.includes("/api/session/join"))
+    .map((m) => ({
+      text: m.text(),
+      url: m.location().url,
+    }));
+
+  if (unexpected.length > 0) {
+    const summary = unexpected
+      .map((e, i) => `  ${i + 1}. ${e.text}\n     Source: ${e.url}`)
+      .join("\n\n");
+    expect.soft(unexpected, `Browser console errors:\n\n${summary}\n`).toHaveLength(0);
+  }
+}

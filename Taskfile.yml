@@ -80,6 +80,14 @@ tasks:
     cmds:
       - ./runbooks test ./testdata/...
 
+  test:e2e:
+    desc: Run Playwright end-to-end tests
+    deps: [build]
+    dir: web
+    cmds:
+      - bun install
+      - bunx playwright test
+
   docs:spellcheck:
     desc: Run spellcheck on documentation
     dir: docs

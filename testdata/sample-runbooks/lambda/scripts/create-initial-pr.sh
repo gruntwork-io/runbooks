@@ -25,11 +25,11 @@ DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 ORIGINAL_DIR=$(pwd)
 
 # Parse arguments (automatically passed from boilerplate inputs in the runbook)
-GITHUB_ORG="{{ .GithubOrgName }}"
-REPO_NAME="{{ .GithubRepoName }}"
-ENVIRONMENT="{{ .Environment }}"
-AWS_REGION="{{ .AwsRegion }}"
-FUNCTION_NAME="{{ .FunctionName }}"
+GITHUB_ORG="{{ .inputs.GithubOrgName }}"
+REPO_NAME="{{ .inputs.GithubRepoName }}"
+ENVIRONMENT="{{ .inputs.Environment }}"
+AWS_REGION="{{ .inputs.AwsRegion }}"
+FUNCTION_NAME="{{ .inputs.FunctionName }}"
 
 if [ -z "$GITHUB_ORG" ] || [ -z "$REPO_NAME" ]; then
     echo "Error: Missing required arguments"

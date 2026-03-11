@@ -51,7 +51,7 @@ inputs = {
       local.account_name != "shared"
       ? {
         ami_encryption_key = {
-          kms_cmk_arn       = "arn:aws:kms:{{ .DefaultRegion }}:${local.account_ids["shared"]}:alias/ami-encryption"
+          kms_cmk_arn       = "arn:aws:kms:{{ .inputs.DefaultRegion }}:${local.account_ids["shared"]}:alias/ami-encryption"
           grantee_principal = "arn:aws:iam::${local.account_ids[local.account_name]}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
           granted_operations = [
             "Encrypt",
@@ -74,7 +74,7 @@ inputs = {
   kms_customer_master_keys = {
     # Generic KMS key that can be used for most app level encryption
     ("cmk-${local.account_name}") = {
-      region                                = "{{ .DefaultRegion }}"
+      region                                = "{{ .inputs.DefaultRegion }}"
       allow_manage_key_permissions_with_iam = true
       enable_key_rotation                   = true
     }

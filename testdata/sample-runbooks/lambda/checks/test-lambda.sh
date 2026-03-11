@@ -10,8 +10,8 @@ set -e
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
-FUNCTION_NAME="{{ .FunctionName }}-{{ .Environment }}"
-AWS_REGION="{{ .AwsRegion }}"
+FUNCTION_NAME="{{ .inputs.FunctionName }}-{{ .inputs.Environment }}"
+AWS_REGION="{{ .inputs.AwsRegion }}"
 
 # In dry-run mode, simulate the Lambda invocation
 if [[ "$DRY_RUN" == "true" ]]; then

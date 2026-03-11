@@ -37,7 +37,7 @@ export const CodeFile = ({
   const displayPath = filePath || fileName;
 
   return (
-    <div className={className}>
+    <div data-testid={`code-file-${displayPath}`} className={className}>
       {/* File Header */}
       <CodeFileHeader 
         filePath={displayPath}

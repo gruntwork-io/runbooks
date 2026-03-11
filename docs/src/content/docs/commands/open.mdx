@@ -95,6 +95,7 @@ For public repositories, no authentication is needed. For private repositories, 
   - `::tofu` — Generates a plain `main.tf` file
   - Or pass a local path to a custom runbook directory (e.g., `--tf-runbook ./my-runbook/`)
   - Remote URLs are not supported — download the template first and pass the local path. This is intentional: a remote `--tf-runbook` could silently pull in an untrusted runbook that executes scripts on your machine.
+- `--port <number>` - Port for the backend + frontend server (default: 7825). Useful when running multiple runbooks simultaneously or when the default port is already in use.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
@@ -103,21 +104,21 @@ When you run `runbooks open`:
 
 1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
 2. **Auto-detects (if TF module)** - If the target is an OpenTofu/Terraform module directory (contains `.tf` files but no `runbook.mdx`), generates a temporary runbook using the selected template
-3. **Starts the Backend Server** - Launches a Go-based HTTP server on port 7825
-4. **Launches the Browser** - Opens your default web browser to `http://localhost:7825`
+3. **Starts the Backend Server** - Launches a Go-based HTTP server on `localhost` (port 7825 by default, configurable with `--port`)
+4. **Launches the Browser** - Opens your default web browser to the server URL
 5. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
 6. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
 
 ## Troubleshooting
 
 **Port already in use:**
-If port 7825 is already in use, you'll see an error. Stop any other process using that port or modify the code to use a different port.
+If the default port (7825) is already in use, you'll see an error. Either stop the other process or use `--port` to pick a different port (e.g., `runbooks open --port 8080 ./my-runbook`).
 
 **Browser doesn't open:**
-If the browser doesn't open automatically, you can manually navigate to `http://localhost:7825` after running the command.
+If the browser doesn't open automatically, you can manually navigate to `http://localhost:7825` (or your custom `--port`) after running the command.
 
 **Browser window with the runbook doesn't open:**
-Sometimes, your browser seems to launch, but you don't see the Runbook. The most likely issue here is that your browser launched with multiple tabs and windows and your Runbooks tab is not visible. Either look through all your browser windows, or go directly to http://localhost:7825.
+Sometimes, your browser seems to launch, but you don't see the Runbook. The most likely issue here is that your browser launched with multiple tabs and windows and your Runbooks tab is not visible. Either look through all your browser windows, or go directly to http://localhost:7825 (or your custom `--port`).
 
 **Runbook not found:**
 Make sure the path points to a valid `runbook.mdx` file.

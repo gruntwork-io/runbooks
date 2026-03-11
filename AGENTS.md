@@ -8,7 +8,7 @@
 
 ```
 /web          — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4
-/api          — Backend: Go API server (Gin framework, port 7825)
+/api          — Backend: Go API server (Gin framework, default port 7825)
 /browser      — Browser launcher (opens the local UI)
 /cmd          — CLI commands (Cobra)
 /docs         — Documentation site (Astro + Starlight)
@@ -33,7 +33,7 @@ Taskfile.yml  — Task runner config
 
 - **Go** (1.25+), using the **Gin** web framework
 - **Cobra** for CLI command parsing
-- The server runs on **port 7825** by default
+- The server runs on **port 7825** by default (configurable with `--port`)
 - The built binary embeds the frontend via `web/embed.go`
 - Testing framework lives in `api/testing/`
 
