@@ -21,7 +21,7 @@ const BINARY_PATH = path.join(REPO_ROOT, "runbooks");
  * Poll the /api/health endpoint until the server reports "ok".
  * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
  */
-function waitForServer(port: number): Promise<void> {
+function waitForServer(port: number, expectedRunbookPath: string): Promise<void> {
   const healthURL = `http://localhost:${port}/api/health`;
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + HEALTH_TIMEOUT_MS;
@@ -38,7 +38,7 @@ function waitForServer(port: number): Promise<void> {
           if (res.statusCode === 200) {
             try {
               const json = JSON.parse(body);
-              if (json.status === "ok") {
+              if (json.status === "ok" && json.runbookPath === expectedRunbookPath) {
                 resolve();
                 return;
               }
@@ -150,13 +150,20 @@ export const test = base.extend<RunbookServerFixture>({
         }
       });
 
+      let earlyExitHandler: (code: number | null) => void;
       const earlyExit = new Promise<never>((_, reject) => {
-        serverProcess!.on("exit", (code) => {
+        earlyExitHandler = (code) => {
           reject(new Error(`Server exited with code ${code} before becoming ready (runbook path: ${runbookPath})`));
-        });
+        };
+        serverProcess!.on("exit", earlyExitHandler);
       });
 
-      await Promise.race([waitForServer(serverPort), earlyExit]);
+      try {
+        await Promise.race([waitForServer(serverPort, runbookPath), earlyExit]);
+      } finally {
+        serverProcess!.removeListener("exit", earlyExitHandler!);
+        earlyExit.catch(() => {});
+      }
     };
 
     await use(start);
