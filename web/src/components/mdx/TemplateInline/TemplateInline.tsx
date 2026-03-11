@@ -105,9 +105,9 @@ function TemplateInline({
   // Track last rendered change key to avoid duplicate renders
   const lastRenderedKeyRef = useRef<string | null>(null);
 
-  // API hook — empty endpoint means no auto-fetch on mount; we use debouncedRequest explicitly
+  // API hook — lazy mode skips auto-fetch on mount; we use debouncedRequest explicitly
   const { data, error, isLoading, debouncedRequest } = useApi<RenderInlineResult>(
-    '', 'POST', undefined, 300
+    '/api/boilerplate/render-inline', 'POST', undefined, 300, undefined, true
   );
 
   // File tree updater — handles Generated tab vs worktree updates
