@@ -165,11 +165,7 @@ export function ViewLogs({
           }}
           className="border-t border-gray-200 p-3 bg-gray-900 max-h-64 overflow-y-auto"
         >
-          {logs.length === 0 ? (
-            <div className="text-sm text-gray-400 italic">
-              No logs yet. Click to start the execution.
-            </div>
-          ) : (
+          {logs.length > 0 && (
             <div className="space-y-1">
               {logs.map((log, index) => (
                 <div key={index} className="text-xs font-mono text-gray-100">
@@ -179,11 +175,16 @@ export function ViewLogs({
                   <TerminalText text={log.line} />
                 </div>
               ))}
-              {status === 'running' && (
-                <div className="text-xs font-mono text-gray-400 animate-pulse">
-                  Running...
-                </div>
-              )}
+            </div>
+          )}
+          {status === 'running' && (
+            <div className="text-xs font-mono text-gray-400 animate-pulse">
+              Running...
+            </div>
+          )}
+          {logs.length === 0 && status !== 'running' && (
+            <div className="text-sm text-gray-400 italic">
+              No logs yet.
             </div>
           )}
         </div>
