@@ -1,5 +1,7 @@
 import { test as base, expect, type ConsoleMessage } from "@playwright/test";
 import { type ChildProcess, spawn } from "child_process";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import http from "http";
@@ -118,15 +120,16 @@ export const test = base.extend<RunbookServerFixture>({
     await use(BASE_PORT + testInfo.workerIndex);
   }, { scope: "test" }],
 
-  serveRunbook: async ({ page, consoleMessages, serverPort }, use) => {
+  serveRunbook: async ({ page, consoleMessages, serverPort }, use, testInfo) => {
     let serverProcess: ChildProcess | null = null;
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
 
     page.on("console", (msg) => consoleMessages.push(msg));
 
     const start = async (runbookPath: string) => {
       serverProcess = spawn(
         BINARY_PATH,
-        ["serve", "--port", String(serverPort), runbookPath],
+        ["serve", "--port", String(serverPort), "--working-dir", workDir, runbookPath],
         {
           cwd: REPO_ROOT,
           stdio: ["ignore", "pipe", "pipe"],
@@ -161,6 +164,7 @@ export const test = base.extend<RunbookServerFixture>({
     if (serverProcess) {
       await killProcess(serverProcess);
     }
+    fs.rmSync(workDir, { recursive: true, force: true });
   },
 });
 
