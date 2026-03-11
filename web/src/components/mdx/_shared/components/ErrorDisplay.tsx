@@ -6,15 +6,17 @@ interface ErrorDisplayProps {
   errorDetails?: string | null
   onRetry?: () => void
   retryText?: string
+  testId?: string
 }
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   error, 
   onRetry,
-  retryText = 'Try Again'
+  retryText = 'Try Again',
+  testId = 'component-error'
 }) => {
   return (
-    <div data-testid="component-error" className="p-6 bg-red-50 border border-red-200 rounded-lg">
+    <div data-testid={testId} className="p-6 bg-red-50 border border-red-200 rounded-lg">
       <div className="text-red-600 font-semibold mb-2">Error: {error.message}</div>
       {error.details && (
         <div className="text-red-600 text-sm mb-3">{error.details}</div>
