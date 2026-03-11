@@ -394,8 +394,17 @@ func handleWorkspacePathAction(action func(string)) gin.HandlerFunc {
 	}
 }
 
+// textBasedImageExtensions are image formats that are actually text (e.g., SVG is XML).
+// These should be treated as text for diffing even though they render as images.
+var textBasedImageExtensions = map[string]bool{
+	".svg": true,
+}
+
 // isBinaryExt returns true if the file extension indicates a binary (non-text) file.
 func isBinaryExt(ext string) bool {
+	if textBasedImageExtensions[ext] {
+		return false
+	}
 	return binaryExtensions[ext] || imageExtensions[ext] != ""
 }
 

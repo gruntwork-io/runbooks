@@ -567,7 +567,10 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
               </button>
             </div>
           ) : (
-            <DiffContent change={change} />
+            <>
+              <SvgPreview change={change} />
+              <DiffContent change={change} />
+            </>
           )
         )}
       </div>
@@ -575,6 +578,54 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
   }
 )
 CollapsibleFileDiff.displayName = 'CollapsibleFileDiff'
+
+// ============================================================================
+// SVG Preview Component
+// ============================================================================
+
+function isSvgFile(path: string): boolean {
+  return path.toLowerCase().endsWith('.svg')
+}
+
+function svgToDataUri(svgText: string): string {
+  return `data:image/svg+xml;base64,${btoa(svgText)}`
+}
+
+const SvgPreview = ({ change }: { change: WorkspaceFileChange }) => {
+  if (!isSvgFile(change.path)) return null
+
+  const hasOriginal = !!change.originalContent
+  const hasNew = !!change.newContent
+
+  if (!hasOriginal && !hasNew) return null
+
+  return (
+    <div className="flex items-start gap-4 p-4 border-b border-gray-200 bg-gray-50/50">
+      {hasOriginal && hasNew ? (
+        <>
+          <div className="flex-1 text-center">
+            <span className="inline-block mb-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">Before</span>
+            <div className="flex justify-center">
+              <img src={svgToDataUri(change.originalContent!)} alt="Before" className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+            </div>
+          </div>
+          <div className="flex-1 text-center">
+            <span className="inline-block mb-2 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded px-2 py-0.5">After</span>
+            <div className="flex justify-center">
+              <img src={svgToDataUri(change.newContent!)} alt="After" className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 text-center">
+          <div className="flex justify-center">
+            <img src={svgToDataUri((change.newContent || change.originalContent)!)} alt={change.path} className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ============================================================================
 // Diff Content Component
