@@ -67,7 +67,7 @@ function TemplateInline({
   const [error, setError] = useState<AppError | null>(null);
   const [isRendering, setIsRendering] = useState(false);
 
-  // Report configuration errors (duplicate ID) to the shared error context.
+  // Report configuration errors (duplicate ID / normalized collision) to the shared error context.
   // Transient render/fetch errors are shown locally by ErrorDisplay.
   useEffect(() => {
     if (isDuplicate) {
@@ -75,12 +75,14 @@ function TemplateInline({
         componentId: id,
         componentType: 'TemplateInline',
         severity: 'error',
-        message: `Duplicate component ID: ${id}`
+        message: isNormalizedCollision
+          ? `TemplateInline ID "${id}" collides with "${collidingId}" after normalization`
+          : `Duplicate component ID: ${id}`
       })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, reportError, clearError])
+  }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
 
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null);
@@ -337,10 +339,10 @@ function TemplateInline({
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
           <div>
             <strong>Waiting for inputs from:</strong>{' '}
-            {unmetInputsIds.map((id, i) => (
-              <span key={id}>
+            {unmetInputsIds.map((inputId, i) => (
+              <span key={inputId}>
                 {i > 0 && ', '}
-                <code className="bg-yellow-100 px-1 rounded text-xs">{id}</code>
+                <code className="bg-yellow-100 px-1 rounded text-xs">{inputId}</code>
               </span>
             ))}
             <div className="text-xs mt-1 text-yellow-600">
