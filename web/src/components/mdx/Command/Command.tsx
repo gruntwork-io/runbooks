@@ -8,6 +8,8 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import type { AppError } from "@/types/error"
 
 interface CommandProps {
   id: string
@@ -44,6 +46,17 @@ function Command({
   children,
   usePty,
 }: CommandProps) {
+  // Validate required props
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <Command> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Command')
   
@@ -225,6 +238,11 @@ function Command({
       clearError(id)
     }
   }, [id, isDuplicate, getFileError, missingInputsConfig, inputDependencies, reportError, clearError])
+
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
 
   // Early return for duplicate ID error
   if (isDuplicate) {
