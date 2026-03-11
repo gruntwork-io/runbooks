@@ -11,7 +11,8 @@ import type { FileTreeNode, File } from '@/components/artifacts/code/FileTree'
 import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
-import { AlertTriangle, XCircle } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
+import { DuplicateIdError } from '../_shared/components/DuplicateIdError'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -305,29 +306,7 @@ function TemplateInline({
   
   // Early return for duplicate ID error
   if (isDuplicate) {
-    return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
-          <XCircle className="size-6 mr-4 flex-shrink-0" />
-          <div className="text-md">
-            {isNormalizedCollision ? (
-              <>
-                <strong>ID Collision:</strong><br />
-                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because
-                hyphens are converted to underscores for template access.
-                Use different IDs to avoid this collision.
-              </>
-            ) : (
-              <>
-                <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-red-100 px-1 rounded">{"<TemplateInline>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
-                Each component must have a unique ID.
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    )
+    return <DuplicateIdError id={id} isNormalizedCollision={isNormalizedCollision} collidingId={collidingId} />
   }
 
   // Render UI
