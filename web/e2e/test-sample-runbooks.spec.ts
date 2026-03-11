@@ -44,7 +44,7 @@ test.describe("sample-runbooks/demo1", () => {
 // Test: demo2
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo2", () => {
-  test("renders demo2 without errors", async ({ page, serveRunbook, serverPort }) => {
+  test("renders demo2 without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo2");
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
@@ -88,9 +88,11 @@ test.describe("sample-runbooks/demo2", () => {
     await generated.getTreeItem('subfolder').click();
     await generated.getTreeItem('sample.hcl').click();
     await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
+
+    expectNoConsoleErrors(consoleMessages);
   });
 
-  test("renders the large input form and generates files", async ({ page, serveRunbook, serverPort }) => {
+  test("renders the large input form and generates files", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo2");
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
@@ -143,6 +145,8 @@ test.describe("sample-runbooks/demo2", () => {
 
     // Verify the root terragrunt file uses our custom name.
     await genFiles.getTreeItem('terragrunt2.hcl').click();
+
+    expectNoConsoleErrors(consoleMessages);
   });
 });
 
@@ -174,11 +178,8 @@ test.describe("sample-runbooks/demo3", () => {
     await expect(commandBlock.getByRole("textbox", { name: /project/i })).toHaveValue("my-awesome-project");
     await expect(commandBlock.getByRole("textbox", { name: /author/i })).toHaveValue("Developer");
 
-    // Wait for templates to auto-render (they fire after a debounce).
-    await page.waitForTimeout(2_000);
-
-    // No template rendering errors should be visible.
-    await expect(page.getByTestId("component-error")).not.toBeVisible();
+    // Verify no template rendering errors are visible (templates auto-render after a debounce).
+    await expect(page.getByTestId("component-error")).not.toBeVisible({ timeout: 5_000 });
 
     // No error boundary should be visible.
     await expect(page.getByTestId("mdx-error")).not.toBeVisible();

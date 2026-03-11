@@ -168,7 +168,7 @@ export function ViewLogs({
           {logs.length > 0 && (
             <div className="space-y-1">
               {logs.map((log, index) => (
-                <div key={index} className="text-xs font-mono text-gray-100">
+                <div key={`${log.timestamp}-${index}`} className="text-xs font-mono text-gray-100">
                   <span className="text-gray-400 mr-2">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>

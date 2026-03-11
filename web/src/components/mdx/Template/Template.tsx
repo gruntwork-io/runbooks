@@ -302,12 +302,6 @@ function Template({
       flattenedOutputs,
     );
 
-    console.log('[Template.handleGenerate] Called with:', {
-      localVarValues,
-      inputValues,
-      mergedData,
-    });
-
     // Register our variables in the block context
     if (boilerplateConfig) {
       const registrationData = { ...inputValues, ...localVarValues };

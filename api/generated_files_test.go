@@ -709,7 +709,9 @@ func TestHandleGeneratedFilesDelete_HiddenFiles(t *testing.T) {
 	}
 
 	var checkResp GeneratedFilesCheckResponse
-	json.Unmarshal(checkRec.Body.Bytes(), &checkResp)
+	if err := json.Unmarshal(checkRec.Body.Bytes(), &checkResp); err != nil {
+		t.Fatalf("Failed to parse check response JSON: %v", err)
+	}
 
 	if checkResp.FileCount != len(hiddenFiles) {
 		t.Errorf("Check: expected %d files (including hidden), got %d", len(hiddenFiles), checkResp.FileCount)
@@ -728,7 +730,9 @@ func TestHandleGeneratedFilesDelete_HiddenFiles(t *testing.T) {
 	}
 
 	var deleteResp GeneratedFilesDeleteResponse
-	json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp)
+	if err := json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp); err != nil {
+		t.Fatalf("Failed to parse delete response JSON: %v", err)
+	}
 
 	if !deleteResp.Success {
 		t.Error("Delete: expected Success=true")
@@ -756,7 +760,9 @@ func TestHandleGeneratedFilesDelete_HiddenFiles(t *testing.T) {
 	router.ServeHTTP(checkRec2, checkReq2)
 
 	var checkResp2 GeneratedFilesCheckResponse
-	json.Unmarshal(checkRec2.Body.Bytes(), &checkResp2)
+	if err := json.Unmarshal(checkRec2.Body.Bytes(), &checkResp2); err != nil {
+		t.Fatalf("Failed to parse post-delete check response JSON: %v", err)
+	}
 
 	if checkResp2.HasFiles {
 		t.Error("After delete: expected HasFiles=false")
