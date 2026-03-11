@@ -34,7 +34,7 @@ variables:
 
 This tests that `extractTemplateFiles` correctly extracts template content from the custom CodeBlock component.
 
-<TemplateInline inputsId="test2" outputPath="test3-output.yml">
+<TemplateInline id="test3-template" inputsId="test2" outputPath="test3-output.yml">
 ```yaml
 # Test 3 Output
 orgName: {{ .inputs.GithubOrgName }}
@@ -46,7 +46,7 @@ repoName: {{ .inputs.GithubRepoName }}
 
 Now let's render an inline template that pulls variables from both test1 and test2:
 
-<TemplateInline inputsId={["test1", "test2"]} outputPath="test4-output.yml">
+<TemplateInline id="test4-template" inputsId={["test1", "test2"]} outputPath="test4-output.yml">
 ```yaml
 # Test 4 Output - Combined Variables
 orgName: {{ .inputs.GithubOrgName }}
@@ -98,7 +98,7 @@ variables:
 
 This tests that a `<TemplateInline>` can correctly reference inputs that were defined inside a Command block:
 
-<TemplateInline inputsId="test6-inputs" outputPath="test7-output.txt">
+<TemplateInline id="test7-template" inputsId="test6-inputs" outputPath="test7-output.txt">
 ```text
 Project Configuration
 =====================

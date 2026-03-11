@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import type { ReactNode } from 'react'
 import { normalizeBlockId } from '../lib/utils'
 
-export type BlockComponentType = 'Command' | 'Check' | 'Inputs' | 'Template' | 'TfModule' | 'AwsAuth' | 'GitHubAuth' | 'GitClone' | 'GitHubPullRequest' | 'DirPicker'
+export type BlockComponentType = 'Command' | 'Check' | 'Inputs' | 'Template' | 'TemplateInline' | 'TfModule' | 'AwsAuth' | 'GitHubAuth' | 'GitClone' | 'GitHubPullRequest' | 'DirPicker'
 
 interface ComponentRegistration {
   id: string

@@ -13,6 +13,8 @@ import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import type { AppError } from "@/types/error"
 import type { GitHubPullRequestProps, PRBlockStatus } from "./types"
 
 const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; iconColor: string }> = {
@@ -40,6 +42,17 @@ function GitHubPullRequest({
   inputsId,
   githubAuthId,
 }: GitHubPullRequestProps) {
+  // Validate required props
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <GitHubPullRequest> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitHubPullRequest')
 
@@ -292,6 +305,11 @@ function GitHubPullRequest({
       PR_URL: prResult.prUrl,
     }
   }, [prResult])
+
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
 
   // If configuration error, don't render
   if (isDuplicate || isNormalizedCollision) {

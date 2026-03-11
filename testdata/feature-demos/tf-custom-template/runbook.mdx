@@ -34,7 +34,7 @@ handy for prototyping but doesn't scale to multiple files or extra variables the
 This template iterates over all module variables dynamically using `_module.hcl_inputs`,
 which pre-formats each value as an HCL literal (strings quoted, bools/numbers raw).
 
-<TemplateInline inputsId="lambda-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="terragrunt-full" inputsId="lambda-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ .inputs._module.source }}"
@@ -59,7 +59,7 @@ This template uses `_module.hcl_inputs_non_default`, which only includes variabl
 current value differs from the module's declared default. Required variables are always
 included. With the lambda module defaults, `handler` and `description` are omitted when unchanged.
 
-<TemplateInline inputsId="lambda-vars" outputPath="terragrunt-minimal.hcl" generateFile={true}>
+<TemplateInline id="terragrunt-minimal" inputsId="lambda-vars" outputPath="terragrunt-minimal.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ .inputs._module.source }}"
@@ -83,7 +83,7 @@ inputs = {
 You can also access specific variables by name (not just through iteration).
 For example, referencing `function_name` directly:
 
-<TemplateInline inputsId="lambda-vars" outputPath="function-info.txt">
+<TemplateInline id="function-info" inputsId="lambda-vars" outputPath="function-info.txt">
 ```
 Function Name: {{ .inputs.function_name }}
 Runtime: {{ .inputs.runtime }}

@@ -18,7 +18,7 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline inputsId="greeting" outputPath="hello.txt">
+<TemplateInline id="greeting-preview" inputsId="greeting" outputPath="hello.txt">
 ```txt
 Hello, {{ .inputs.Name }}!
 ```
@@ -42,6 +42,7 @@ Use `<TemplateInline>` when you want to show users what generated content looks 
 
 ### Required Props
 
+- `id` (string) - Unique identifier for this block.
 - **[Inline template content]** - The template content to render, written as a fenced code block inside the `<TemplateInline>` tags. The code block should include a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
 
 ### Optional Props
@@ -75,7 +76,7 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline inputsId="docker-config" outputPath="Dockerfile">
+<TemplateInline id="docker-preview" inputsId="docker-config" outputPath="Dockerfile">
 ```dockerfile
 FROM node:{{ .inputs.NodeVersion }}-alpine
 
@@ -116,7 +117,7 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline inputsId={["global-config", "service-config"]} outputPath="deploy.tf">
+<TemplateInline id="deploy-preview" inputsId={["global-config", "service-config"]} outputPath="deploy.tf">
 ```hcl
 resource "aws_ecs_service" "main" {
   name = "{{ .inputs.ServiceName }}-{{ .inputs.Environment }}"
@@ -147,7 +148,7 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline inputsId="app-config" outputPath="config.yaml">
+<TemplateInline id="app-config-preview" inputsId="app-config" outputPath="config.yaml">
 ```yaml
 app:
   name: {{ .inputs.AppName }}
@@ -155,7 +156,7 @@ app:
 ```
 </TemplateInline>
 
-<TemplateInline inputsId="app-config" outputPath=".env">
+<TemplateInline id="app-env-preview" inputsId="app-config" outputPath=".env">
 ```bash
 APP_NAME={{ .inputs.AppName }}
 ENVIRONMENT={{ .inputs.Environment }}
@@ -180,7 +181,7 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline inputsId="terraform-config" outputPath="main.tf">
+<TemplateInline id="terraform-preview" inputsId="terraform-config" outputPath="main.tf">
 ```hcl
 resource "aws_instance" "app" {
   ami           = "ami-12345678"
@@ -201,7 +202,7 @@ For full details on template syntax, see [Boilerplate Template Syntax](/authorin
 TemplateInline can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks using the `outputs` namespace:
 
 `````mdx
-<TemplateInline outputPath="account-info.txt">
+<TemplateInline id="account-info" outputPath="account-info.txt">
 ```txt
 Account ID: {{ .outputs.create_account.account_id }}
 Region:     {{ .outputs.create_account.region }}
@@ -226,8 +227,9 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline 
-  inputsId="config" 
+<TemplateInline
+  id="readme-preview"
+  inputsId="config"
   outputPath="README.md"
   generateFile={true}
 >
@@ -243,11 +245,11 @@ Welcome to {{ .inputs.ProjectName }}!
 Use `generateFile={true}` when you want users to both see the output inline _and_ have the file saved to their workspace.
 </Aside>
 
-## Block IDs for Testing
+## Block IDs
 
-Unlike `<Check>` and `<Command>` blocks, `<TemplateInline>` blocks don't have an explicit `id` prop. Instead, IDs are **auto-generated** based on the `outputPath` prop. The auto-generated ID is used in the test framework to reference the block.
+Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the runbook and is used for dependency resolution between blocks.
 
-Learn more about how to use block IDs in the [testing documentation](/authoring/testing/#block-ids).
+Learn more about block IDs in the [testing documentation](/authoring/testing/#block-ids).
 
 ## Complete Example
 
@@ -280,7 +282,7 @@ variables:
 
 Here's what your Docker Compose file will look like:
 
-<TemplateInline inputsId="service-config" outputPath="docker-compose.yaml" generateFile={true}>
+<TemplateInline id="docker-compose" inputsId="service-config" outputPath="docker-compose.yaml" generateFile={true}>
 ```yaml
 version: "3.8"
 services:
@@ -295,7 +297,7 @@ services:
 
 And your environment file:
 
-<TemplateInline inputsId="service-config" outputPath=".env" generateFile={true}>
+<TemplateInline id="env-file" inputsId="service-config" outputPath=".env" generateFile={true}>
 ```bash
 SERVICE_NAME={{ .inputs.ServiceName }}
 PORT={{ .inputs.Port }}
