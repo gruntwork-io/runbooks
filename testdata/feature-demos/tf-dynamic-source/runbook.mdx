@@ -8,7 +8,7 @@ This runbook uses `source="::cli_runbook_source"` to dynamically load whatever O
 
 ## Preview Generated Configuration
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="terragrunt-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ .inputs._module.source }}"

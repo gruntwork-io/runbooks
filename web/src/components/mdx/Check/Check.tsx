@@ -8,6 +8,8 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import type { AppError } from "@/types/error"
 
 interface CheckProps {
   id: string
@@ -46,6 +48,17 @@ function Check({
   children,
   usePty,
 }: CheckProps) {
+  // Validate required props
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <Check> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
   
@@ -258,6 +271,11 @@ function Check({
   // Handle stopping the check
   const handleStopCheck = () => {
     cancel()
+  }
+
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
   }
 
   // Early return for duplicate ID error

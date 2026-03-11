@@ -7,7 +7,7 @@ export default defineConfig({
   // server startup + React render + MDX compilation.
   timeout: 30_000,
   use: {
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [

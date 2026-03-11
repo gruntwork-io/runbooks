@@ -18,6 +18,15 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const BINARY_PATH = path.join(REPO_ROOT, "runbooks");
 
 /**
+ * The server resolves directory paths (e.g. "testdata/demo1") to include the
+ * default filename (e.g. "testdata/demo1/runbook.mdx"), so a health-check
+ * response may report either form.
+ */
+function matchesRunbookPath(actual: string, expected: string): boolean {
+  return actual === expected || actual === expected + "/runbook.mdx";
+}
+
+/**
  * Poll the /api/health endpoint until the server reports "ok".
  * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
  */
@@ -38,7 +47,7 @@ function waitForServer(port: number, expectedRunbookPath: string): Promise<void>
           if (res.statusCode === 200) {
             try {
               const json = JSON.parse(body);
-              if (json.status === "ok" && json.runbookPath === expectedRunbookPath) {
+              if (json.status === "ok" && matchesRunbookPath(json.runbookPath, expectedRunbookPath)) {
                 resolve();
                 return;
               }

@@ -10,7 +10,7 @@ When someone runs `runbooks open` pointing at this directory (locally or via a r
 
 ## Preview Generated Configuration
 
-<TemplateInline inputsId="instance-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="terragrunt-config" inputsId="instance-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ .inputs._module.source }}"

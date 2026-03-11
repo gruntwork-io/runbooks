@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"runbooks/api"
-	"runbooks/api/testing"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -313,21 +312,17 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 	}
 
 	// Parse TemplateInline blocks with their content
-	// TemplateInline blocks don't have an id prop - we generate one from outputPath
 	templateInlineWithContentRe := blockTagContainerRegex("TemplateInline")
-	templateInlineCount := 0
 	for _, match := range templateInlineWithContentRe.FindAllStringSubmatchIndex(contentStr, -1) {
 		if len(match) >= 6 {
 			props := contentStr[match[2]:match[3]]
 			content := contentStr[match[4]:match[5]]
+			id := extractPropValue(props, "id")
 			outputPath := extractPropValue(props, "outputPath")
 			inputsID := extractPropValue(props, "inputsId")
 
-			// Generate ID from outputPath or use a counter
-			id := testing.GenerateTemplateInlineID(outputPath)
 			if id == "" {
-				templateInlineCount++
-				id = fmt.Sprintf("template-inline-%d", templateInlineCount)
+				continue // id is required; skip blocks without one
 			}
 
 			if !seen[id] {

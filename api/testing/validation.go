@@ -1,8 +1,6 @@
 package testing
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/mail"
 	"net/url"
@@ -16,23 +14,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// GenerateTemplateInlineID generates an ID for a TemplateInline block based on its outputPath.
-// If outputPath is provided, generates "template-{basename}-{hash}" where hash is an 8-character
-// SHA256 hash of the full outputPath to disambiguate same filenames in different directories.
-// If outputPath is empty, returns empty string (caller should handle fallback).
-func GenerateTemplateInlineID(outputPath string) string {
-	if outputPath == "" {
-		return ""
-	}
-	baseName := filepath.Base(outputPath)
-	if idx := strings.LastIndex(baseName, "."); idx > 0 {
-		baseName = baseName[:idx]
-	}
-	// Add a short hash of the full outputPath to disambiguate same filenames in different dirs
-	hash := sha256.Sum256([]byte(outputPath))
-	shortHash := hex.EncodeToString(hash[:])[:8]
-	return fmt.Sprintf("template-%s-%s", baseName, shortHash)
-}
 
 // ValidationError represents a single validation error.
 type ValidationError struct {
@@ -265,6 +246,13 @@ func validateComponent(comp api.ParsedComponent) []ConfigError {
 		}
 
 	case "TemplateInline":
+		if !comp.HasExplicitID {
+			errors = append(errors, ConfigError{
+				ComponentType: "TemplateInline",
+				ComponentID:   "(missing)",
+				Message:       "the 'id' prop is required",
+			})
+		}
 		if api.ExtractProp(comp.Props, "outputPath") == "" {
 			errors = append(errors, ConfigError{
 				ComponentType: "TemplateInline",
@@ -584,28 +572,8 @@ func (v *InputValidator) parseAndValidateTemplateInlineBlocks(contentStr string)
 	components := api.ParseComponents(contentStr, "TemplateInline")
 	var results []api.ParsedComponent
 
-	// TemplateInline uses custom ID generation based on outputPath
-	templateCount := 0
-	seen := make(map[string]bool)
-
 	for _, comp := range components {
-		outputPath := api.ExtractProp(comp.Props, "outputPath")
-
-		// Generate ID from outputPath
-		if id := GenerateTemplateInlineID(outputPath); id != "" {
-			comp.ID = id
-		} else {
-			templateCount++
-			comp.ID = fmt.Sprintf("template-inline-%d", templateCount)
-		}
-
-		// Skip duplicates (using our custom ID, not ParseComponents' auto-generated one)
-		if seen[comp.ID] {
-			continue
-		}
-		seen[comp.ID] = true
-
-		// Run structural validation (after setting custom ID)
+		// Run structural validation
 		validationErrors := validateComponent(comp)
 		v.configErrors = append(v.configErrors, validationErrors...)
 

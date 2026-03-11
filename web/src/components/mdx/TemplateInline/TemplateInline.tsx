@@ -12,9 +12,15 @@ import { useFileTree } from '@/hooks/useFileTree'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
+import { DuplicateIdError } from '../_shared/components/DuplicateIdError'
+import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
+import { useErrorReporting } from '@/contexts/useErrorReporting'
+import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
 
 interface TemplateInlineProps {
+  /** Unique identifier for this block */
+  id: string
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
   /** Output path prefix for generated files */
@@ -35,18 +41,61 @@ interface TemplateInlineProps {
  * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).
  */
 function TemplateInline({
+  id,
   inputsId,
   outputPath,
   generateFile = false,
   target,
   children
 }: TemplateInlineProps) {
+  // Validate required props before any hooks that depend on id
+  const validationError = useMemo((): AppError | null => {
+    if (!id) {
+      return {
+        message: "The <TemplateInline> component requires a non-empty 'id' prop.",
+        details: "Please provide a unique 'id' for this component instance."
+      }
+    }
+    return null
+  }, [id])
+
+  // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
+
+  // Error reporting context
+  const { reportError, clearError } = useErrorReporting()
+
+  // Telemetry context
+  const { trackBlockRender } = useTelemetry()
+
+  // Track block render on mount
+  useEffect(() => {
+    trackBlockRender('TemplateInline')
+  }, [trackBlockRender])
+
   // Render state
   const [renderState, setRenderState] = useState<'waiting' | 'rendered'>('waiting');
   const [renderData, setRenderData] = useState<{ renderedFiles: Record<string, File> } | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [isRendering, setIsRendering] = useState(false);
-  
+
+  // Report configuration errors (duplicate ID / normalized collision) to the shared error context.
+  // Transient render/fetch errors are shown locally by ErrorDisplay.
+  useEffect(() => {
+    if (isDuplicate) {
+      reportError({
+        componentId: id,
+        componentType: 'TemplateInline',
+        severity: 'error',
+        message: isNormalizedCollision
+          ? `TemplateInline ID "${id}" collides with "${collidingId}" after normalization`
+          : `Duplicate component ID: ${id}`
+      })
+    } else {
+      clearError(id)
+    }
+  }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
+
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null);
   
@@ -186,6 +235,11 @@ function TemplateInline({
   const hasTriggeredInitialRender = useRef(false);
   
   useEffect(() => {
+    // Don't render if this is a duplicate/colliding ID
+    if (isDuplicate) {
+      return;
+    }
+
     // Check if we have all input dependencies
     if (!hasAllInputDeps) {
       return;
@@ -250,7 +304,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
+  }, [isDuplicate, inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -261,19 +315,29 @@ function TemplateInline({
     };
   }, []);
   
+  // Early return for validation errors (e.g. missing id prop)
+  if (validationError) {
+    return <ErrorDisplay error={validationError} />
+  }
+
+  // Early return for duplicate ID error
+  if (isDuplicate) {
+    return <DuplicateIdError id={id} isNormalizedCollision={isNormalizedCollision} collidingId={collidingId} />
+  }
+
   // Render UI
   return (
-    <div data-testid={resolvedOutputPath && `template-inline-${resolvedOutputPath}`}>
+    <div data-testid={id}>
       {/* Show warning when waiting for input blocks to submit values */}
       {unmetInputDeps.length > 0 && unmetInputsIds.length > 0 && (
         <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
           <div>
             <strong>Waiting for inputs from:</strong>{' '}
-            {unmetInputsIds.map((id, i) => (
-              <span key={id}>
+            {unmetInputsIds.map((inputId, i) => (
+              <span key={inputId}>
                 {i > 0 && ', '}
-                <code className="bg-yellow-100 px-1 rounded text-xs">{id}</code>
+                <code className="bg-yellow-100 px-1 rounded text-xs">{inputId}</code>
               </span>
             ))}
             <div className="text-xs mt-1 text-yellow-600">
