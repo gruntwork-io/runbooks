@@ -1,13 +1,13 @@
 ---
-title: Runbooks Documentation
-description: Interactive documentation that executes
+title: Runbooks
+description: Expert knowledge, anyone can run
 template: splash
 hero:
-  title: Runbooks
-  tagline: Make the knowledge and experience of few available to the many
+  title: Expert knowledge, anyone can run.
+  tagline: Runbooks turns your infrastructure expertise into guided workflows that any developer can safely execute. No portals to deploy. No docs that rot. Just live runbooks that work.
   actions:
     - text: Get Started
-      link: /intro/overview/
+      link: /intro/installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
@@ -18,27 +18,23 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## What are Runbooks?
+## You shouldn't be the bottleneck
 
-Runbooks are **interactive markdown documents** that combine documentation with executable functionality. They allow you to:
+You're the person everyone depends on for infrastructure. The Slack DMs pile up. The tickets stack up. You've tried writing docs, but they go stale. You've tried developer portals, but they took months to set up and developers barely use them.
 
-- ✅ **Read** standard markdown content with rich formatting
-- ✅ **Validate** system prerequisites with automated checks
-- ✅ **Execute** shell commands with customizable parameters
-- ✅ **Generate** code from templates using dynamic forms
-- ✅ **Guide** users through complex procedures step-by-step
+**There's a better way.** Runbooks are live, interactive documents that guide developers through complex tasks step-by-step — with forms to collect inputs, checks to validate prerequisites, and commands that execute with the right parameters. It's developer self-service that developers actually use.
 
-Think of runbooks as Jupyter Notebooks for DevOps and Infrastructure tasks.
+## How it works
 
-## Quick Example
+You write a runbook in MDX — markdown with interactive blocks — in your editor, just like code. A developer opens it in their browser and gets a guided experience: fill out forms, run checks, execute commands, generate files. No guesswork, no copy-paste errors, no Slack DMs to you.
 
 ```mdx
 # Deploy a New Service
 
 ## Prerequisites
 
-<Check 
-    id="check-kubectl" 
+<Check
+    id="check-kubectl"
     command="kubectl version"
     title="Check if kubectl is installed"
     successMessage="kubectl is installed!"
@@ -61,8 +57,8 @@ variables:
 
 ## Deploy
 
-<Command 
-    id="deploy" 
+<Command
+    id="deploy"
     command="kubectl apply -f {{ .inputs.ServiceName }}-{{ .inputs.Environment }}.yaml"
     inputsId="service-config"
     title="Deploy Service"
@@ -70,83 +66,100 @@ variables:
 />
 ```
 
-## Key Features
+## Developers actually self-serve
+
+Most self-service tools fail because they're built for authors, not consumers. Runbooks flips that. Developers get a guided web UI with interactive forms, automated prerequisite checks, and step-by-step execution. They don't need to interpret a wall of markdown or figure out which flags to pass. The runbook does the thinking.
 
 <CardGrid stagger>
-  <Card title="Interactive Checks" icon="approve-check">
-    Validate prerequisites and system state before proceeding. Checks run shell commands and show success/failure/warning based on exit codes.
+  <Card title="Interactive Forms" icon="pencil">
+    Collect inputs through clean web forms — strings, numbers, booleans, enums, lists. No more copy-pasting variable names from a README.
   </Card>
-  <Card title="Dynamic Commands" icon="rocket">
-    Execute shell commands with variable substitution. Commands support Go template syntax and can reference user inputs from forms.
+  <Card title="Automated Checks" icon="approve-check">
+    Validate that prerequisites are met before anything runs. Catch problems before they happen, not after.
   </Card>
-  <Card title="Smart Forms" icon="pencil">
-    Generate dynamic web forms from Boilerplate templates. Support for strings, numbers, booleans, enums, lists, and structured maps.
+  <Card title="Guided Execution" icon="rocket">
+    Commands run with the right parameters, in the right order. Developers follow the happy path without getting lost.
   </Card>
   <Card title="Code Generation" icon="add-document">
-    Generate infrastructure-as-code and configuration files from templates with user-provided variables using Gruntwork Boilerplate.
+    Generate infrastructure-as-code and configuration files from templates. Developers fill out a form, Runbooks writes the code.
   </Card>
 </CardGrid>
 
-## Why Runbooks?
+## Author in minutes, not weeks
 
-### The Problem
+No platform to deploy. No plugins to build. No YAML abstractions to learn. Write a runbook in your editor using MDX — markdown you already know, with a handful of interactive blocks. It lives in git, gets reviewed in PRs, and stays close to the infrastructure it documents.
 
-Traditional documentation becomes outdated quickly. Code examples don't work. Users struggle to adapt generic instructions to their specific situation. Knowledge transfer is difficult.
+<CardGrid>
+  <Card title="MDX Authoring" icon="pen">
+    Markdown + interactive blocks. If you can write a README, you can write a runbook.
+  </Card>
+  <Card title="Lives in Git" icon="github">
+    Runbooks are code. Version them, review them, share them like any other file in your repo.
+  </Card>
+  <Card title="Watch Mode" icon="approve-check">
+    Edit your runbook and see changes instantly in the browser. Fast feedback loop for authors.
+  </Card>
+</CardGrid>
 
-### The Solution
+## Open source and self-contained
 
-Runbooks ensure your documentation always works because it actually executes. Examples are tested every time they run. Instructions automatically adapt to user inputs. Expert knowledge is captured in an executable format.
+Runbooks is a single Go binary. Download it, run it, done. No servers to maintain, no cloud accounts to configure, no dependencies to manage. Everything executes locally on the developer's machine.
 
-## Getting Started
+Open source under the MIT License. Inspect the code, contribute, or fork it.
+
+<CardGrid>
+  <Card title="Single Binary" icon="laptop">
+    One download. No runtime dependencies. Works offline. Runs on macOS and Linux.
+  </Card>
+  <Card title="Local Execution" icon="setting">
+    All commands run on the developer's machine. No secrets leave the local environment.
+  </Card>
+  <Card title="Open Source" icon="github">
+    MIT licensed. Full source on GitHub. No vendor lock-in, no surprise pricing.
+  </Card>
+</CardGrid>
+
+## Get started
 
 <CardGrid>
   <Card title="Install Runbooks" icon="setting">
-    Get up and running in minutes. Install via Homebrew, download a pre-built binary, or build from source.
-    
-    [Installation Guide →](/intro/installation/)
+    Install via Homebrew, download a binary, or build from source. Up and running in under a minute.
+
+    [Install →](/intro/installation/)
   </Card>
   <Card title="Write Your First Runbook" icon="document">
-    Learn the basics by creating a simple runbook from scratch.
-    
+    Create a runbook from scratch and see the full authoring workflow.
+
     [Tutorial →](/intro/write_your_first_runbook/)
   </Card>
-  <Card title="Explore Examples" icon="open-book">
-    See real-world examples in the testdata directory, including AWS multi-account setups and ECS deployments.
-    
+  <Card title="See Use Cases" icon="open-book">
+    Real-world examples: AWS account setup, ECS deployments, infrastructure provisioning.
+
     [Use Cases →](/intro/use_cases/)
   </Card>
 </CardGrid>
 
-## Learn More
+## Learn more
 
 <CardGrid>
-  <Card title="Introduction" icon="information">
-    Learn about Runbooks, how they work, and when to use them.
-    
+  <Card title="How It Works" icon="information">
+    Understand the architecture, execution model, and security design.
+
     [Overview →](/intro/overview/)
   </Card>
   <Card title="Authoring Guide" icon="pen">
-    Write your own runbooks with markdown and special blocks.
-    
+    Deep dive into writing runbooks — structure, inputs, outputs, templates.
+
     [Authoring →](/authoring/overview/)
   </Card>
   <Card title="Block Reference" icon="puzzle">
-    Detailed documentation for Check, Command, Inputs, and more.
-    
+    Every interactive block: Check, Command, Inputs, Template, and more.
+
     [Blocks →](/authoring/blocks/)
   </Card>
   <Card title="CLI Reference" icon="laptop">
-    Command-line interface documentation for the runbooks tool.
-    
+    All commands: open, watch, serve.
+
     [Commands →](/commands/overview/)
   </Card>
 </CardGrid>
-
-## Community & Support
-
-- **GitHub**: Report issues and contribute at [github.com/gruntwork-io/runbooks](https://github.com/gruntwork-io/runbooks)
-- **Documentation**: You're reading it!
-
-## License
-
-Runbooks is open source software licensed under the MIT License.

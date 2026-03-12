@@ -5,12 +5,7 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://runbooks.gruntwork.io',
-	// This redirect is kept as a fallback in case the CDN-level redirect (configured in vercel.json)
-	// fails or is not applied. For optimal performance, CDN-level redirecting is preferred.
-	redirects: {
-		'/': '/intro/overview/',
-	},
-	integrations: [
+integrations: [
 		starlight({
 			title: 'Gruntwork Runbooks',
 			logo: {
