@@ -43,7 +43,8 @@
     "prek",
     "worktree",
     "WORKTREE",
-    "glab"
+    "glab",
+    "logomark"
   ],
   "ignorePaths": [
     "node_modules",
