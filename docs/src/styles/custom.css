@@ -355,6 +355,12 @@ button[data-open-modal]:hover {
    They do NOT affect normal documentation pages.
    ============================================ */
 
+/* Disable smooth scroll on splash page so back-navigation doesn't
+   annoyingly scroll down the page */
+html[data-has-hero] {
+  scroll-behavior: auto;
+}
+
 /* Widen splash page content to fit screenshots */
 [data-has-hero] {
   --sl-content-width: 64rem;
@@ -366,32 +372,97 @@ button[data-open-modal]:hover {
   max-width: var(--sl-content-width);
 }
 
-/* Force hero to single-column centered layout (Starlight defaults to
-   2-column grid on desktop, which left-aligns when there's no image) */
+/* Remove content-panel top padding so hero touches the header */
+[data-has-hero] .content-panel:first-child {
+  padding-top: 0;
+}
+
+/* Dark hero background — content-width, matching Boilerplate */
 [data-has-hero] .hero {
-  display: flex !important;
-  flex-direction: column;
-  align-items: center;
-  grid-template-columns: none !important;
+  background: linear-gradient(135deg, #0f172a 0%, #162038 40%, #1a2e4a 100%);
+  margin: 23px calc(-1 * var(--sl-content-pad-x)) 2rem;
+  padding: 6rem 5rem;
+  border-radius: 0;
+}
+
+/* Hero text and link colors on dark background */
+[data-has-hero] .hero .copy {
+  align-items: flex-start !important;
 }
 
 [data-has-hero] .hero .stack {
-  text-align: center !important;
+  text-align: left !important;
 }
 
-[data-has-hero] .hero .copy {
-  align-items: center !important;
-}
-
-/* Constrain hero headline width for balanced line breaks */
-[data-has-hero] .hero .copy h1 {
-  max-width: 20ch;
-  font-size: clamp(2.25rem, 5vw, 3.5rem);
+[data-has-hero] .hero h1 {
+  color: #ffffff !important;
+  font-size: clamp(2.25rem, 5vw, 3.25rem);
   font-weight: 800;
+  line-height: 1.15;
 }
 
-[data-has-hero] .hero .actions {
-  justify-content: center !important;
+[data-has-hero] .hero .tagline {
+  color: #94a3b8 !important;
+  font-size: 1.125rem;
+}
+
+/* Hero buttons */
+[data-has-hero] .hero .sl-link-button.primary {
+  background: var(--sl-color-accent) !important;
+  border-color: var(--sl-color-accent) !important;
+  color: #ffffff !important;
+  transition: filter 0.15s ease;
+}
+
+[data-has-hero] .hero .sl-link-button.primary:hover {
+  filter: brightness(1.15);
+}
+
+[data-has-hero] .hero .sl-link-button.minimal {
+  color: #cbd5e1 !important;
+  background: transparent !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.35) !important;
+  border-radius: 999px;
+  padding: 0.75rem 1.25rem !important;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+[data-has-hero] .hero .sl-link-button.minimal:hover {
+  border-color: rgba(255, 255, 255, 0.6) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Hero logo image */
+[data-has-hero] .hero img {
+  max-width: 280px;
+  height: auto;
+}
+
+/* Mobile hero adjustments */
+@media (max-width: 50rem) {
+  [data-has-hero] .hero {
+    padding: 2.5rem 1.5rem;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  [data-has-hero] .hero img {
+    max-width: 140px;
+  }
+
+  /* Keep buttons side-by-side and equal size on mobile */
+  [data-has-hero] .hero .actions {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start !important;
+    gap: 0.5rem !important;
+  }
+
+  [data-has-hero] .hero .sl-link-button {
+    padding: 0.6rem 1rem !important;
+    font-size: 0.8rem !important;
+    white-space: nowrap !important;
+  }
 }
 
 /* Center splash page body content */
@@ -432,6 +503,23 @@ button[data-open-modal]:hover {
 
 [data-has-hero] .sl-markdown-content .sl-steps h3 {
   font-size: 1.5rem;
+}
+
+/* Subtle source link under code excerpts */
+[data-has-hero] .source-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  margin-bottom: 2rem;
+  font-size: 0.8rem !important;
+  font-weight: 400 !important;
+  color: var(--sl-color-gray-4) !important;
+  text-decoration: none !important;
+  transition: color 0.15s ease;
+}
+
+[data-has-hero] .source-link:hover {
+  color: var(--sl-color-gray-2) !important;
+  text-decoration: none !important;
 }
 
 /* Block list rows on splash page */
