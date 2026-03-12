@@ -352,6 +352,62 @@ button[data-open-modal]:hover {
 }
 
 /* ============================================
+   SPLASH / HOMEPAGE
+   ============================================ */
+
+/* Override left margin on splash page so content centers */
+[data-has-hero] .main-pane .sl-container {
+  margin-inline: auto;
+  max-width: var(--sl-content-width);
+}
+
+/* Force hero to single-column centered layout (Starlight defaults to
+   2-column grid on desktop, which left-aligns when there's no image) */
+[data-has-hero] .hero {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  grid-template-columns: none !important;
+}
+
+[data-has-hero] .hero .stack {
+  text-align: center !important;
+}
+
+[data-has-hero] .hero .copy {
+  align-items: center !important;
+}
+
+/* Constrain hero headline width for balanced line breaks */
+[data-has-hero] .hero .copy h1 {
+  max-width: 20ch;
+}
+
+[data-has-hero] .hero .actions {
+  justify-content: center !important;
+}
+
+/* Center splash page body content */
+[data-has-hero] .sl-markdown-content {
+  text-align: center;
+}
+
+[data-has-hero] .sl-markdown-content h2 {
+  text-align: center;
+}
+
+[data-has-hero] .sl-markdown-content p {
+  text-align: center;
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+/* Left-align code blocks on splash page */
+[data-has-hero] .sl-markdown-content pre {
+  text-align: left;
+}
+
+/* ============================================
    CUSTOM STYLES
    ============================================ */
 

@@ -1,10 +1,10 @@
 ---
-title: Runbooks
-description: Expert knowledge, anyone can run
+title: Gruntwork Runbooks
+description: Expert knowledge that anyone can run
 template: splash
 hero:
-  title: Expert knowledge, anyone can run.
-  tagline: Runbooks turns your infrastructure expertise into guided workflows that any developer can safely execute. No portals to deploy. No docs that rot. Just live runbooks that work.
+  title: Expert knowledge that anyone can run.
+  tagline: Gruntwork Runbooks turns your infrastructure expertise into guided workflows that any developer can safely execute. No portals to deploy. No docs that rot. Just live runbooks that work.
   actions:
     - text: Get Started
       link: /intro/installation/
@@ -18,57 +18,70 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## You shouldn't be the bottleneck
+## Authors write MDX
 
-You're the person everyone depends on for infrastructure. The Slack DMs pile up. The tickets stack up. You've tried writing docs, but they go stale. You've tried developer portals, but they took months to set up and developers barely use them.
-
-**There's a better way.** Runbooks are live, interactive documents that guide developers through complex tasks step-by-step — with forms to collect inputs, checks to validate prerequisites, and commands that execute with the right parameters. It's developer self-service that developers actually use.
-
-## How it works
-
-You write a runbook in MDX — markdown with interactive blocks — in your editor, just like code. A developer opens it in their browser and gets a guided experience: fill out forms, run checks, execute commands, generate files. No guesswork, no copy-paste errors, no Slack DMs to you.
+You write a runbook in MDX — markdown with interactive blocks — in your editor, just like code. Here's a real runbook:
 
 ```mdx
 # Deploy a New Service
 
-## Prerequisites
+This runbook guides you through deploying a new
+microservice to your infrastructure.
+
+## Pre-flight checks
 
 <Check
-    id="check-kubectl"
-    command="kubectl version"
-    title="Check if kubectl is installed"
-    successMessage="kubectl is installed!"
-    failMessage="Please install kubectl first"
+    id="check-node"
+    path="checks/node-version.sh"
+    title="Check Node.js Installation"
+    successMessage="Node.js is installed and ready!"
+    failMessage="Please install Node.js first"
 />
 
-## Configuration
+## Configure your service
 
 <Inputs id="service-config">
-```yaml
-variables:
-  - name: ServiceName
-    type: string
-    description: Name for your service
-  - name: Environment
-    type: enum
-    options: [dev, staging, production]
-\```
+  variables:
+    - name: ServiceName
+      type: string
+      default: "my-service"
+    - name: Environment
+      type: enum
+      options: [dev, staging, production]
+    - name: Port
+      type: int
+      default: 3000
+    - name: EnableMonitoring
+      type: bool
+      default: true
 </Inputs>
 
 ## Deploy
 
 <Command
     id="deploy"
-    command="kubectl apply -f {{ .inputs.ServiceName }}-{{ .inputs.Environment }}.yaml"
+    command="deploy {{ .inputs.ServiceName }}
+      --env {{ .inputs.Environment }}"
     inputsId="service-config"
-    title="Deploy Service"
-    successMessage="Service deployed successfully!"
+    title="Deploy the service"
 />
 ```
 
-## Developers actually self-serve
+## Developers get a guided UI
 
-Most self-service tools fail because they're built for authors, not consumers. Runbooks flips that. Developers get a guided web UI with interactive forms, automated prerequisite checks, and step-by-step execution. They don't need to interpret a wall of markdown or figure out which flags to pass. The runbook does the thinking.
+That MDX renders into a clean web interface. Developers fill out forms, run checks, and execute commands — no copy-pasting, no guesswork.
+
+<div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; margin: 2rem 0;">
+  <div style="width: 320px; height: 200px; border: 3px dashed #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05); color: #3b82f6; font-weight: 600; font-size: 0.9rem; text-align: center; padding: 1rem;">
+    Screenshot 1:<br/>Pre-flight checks UI
+  </div>
+  <div style="width: 320px; height: 200px; border: 3px dashed #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05); color: #3b82f6; font-weight: 600; font-size: 0.9rem; text-align: center; padding: 1rem;">
+    Screenshot 2:<br/>Configure your service form
+  </div>
+  <div style="width: 320px; height: 200px; border: 3px dashed #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05); color: #3b82f6; font-weight: 600; font-size: 0.9rem; text-align: center; padding: 1rem;">
+    Screenshot 3:<br/>Deploy command execution
+  </div>
+</div>
 
 <CardGrid stagger>
   <Card title="Interactive Forms" icon="pencil">
@@ -81,7 +94,7 @@ Most self-service tools fail because they're built for authors, not consumers. R
     Commands run with the right parameters, in the right order. Developers follow the happy path without getting lost.
   </Card>
   <Card title="Code Generation" icon="add-document">
-    Generate infrastructure-as-code and configuration files from templates. Developers fill out a form, Runbooks writes the code.
+    Generate infrastructure-as-code and configuration files from templates. Developers fill out a form, Gruntwork Runbooks writes the code.
   </Card>
 </CardGrid>
 
@@ -103,7 +116,7 @@ No platform to deploy. No plugins to build. No YAML abstractions to learn. Write
 
 ## Open source and self-contained
 
-Runbooks is a single Go binary. Download it, run it, done. No servers to maintain, no cloud accounts to configure, no dependencies to manage. Everything executes locally on the developer's machine.
+Gruntwork Runbooks is a single Go binary. Download it, run it, done. No servers to maintain, no cloud accounts to configure, no dependencies to manage. Everything executes locally on the developer's machine.
 
 Open source under the MIT License. Inspect the code, contribute, or fork it.
 

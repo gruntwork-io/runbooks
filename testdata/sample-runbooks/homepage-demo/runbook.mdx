@@ -1,0 +1,79 @@
+# Deploy a New Service
+
+This runbook guides you through deploying a new microservice to your infrastructure.
+
+## Pre-flight checks
+
+Before we begin, let's verify your local environment is ready.
+
+<Check
+    id="check-node"
+    path="checks/node-version.sh"
+    title="Check Node.js Installation"
+    description="Verify that Node.js is installed on your machine."
+    successMessage="Node.js is installed and ready!"
+    failMessage="Node.js is not installed. Install it from https://nodejs.org"
+/>
+
+<Check
+    id="check-git"
+    command="git --version"
+    title="Check Git Installation"
+    description="Verify that Git is available for version control."
+    successMessage="Git is installed!"
+    failMessage="Git is not installed. Install it from https://git-scm.com"
+/>
+
+## Configure your service
+
+<Inputs id="service-config">
+```yaml
+variables:
+  - name: ServiceName
+    type: string
+    description: Name for your new service
+    default: "my-service"
+    validations:
+      - required
+  - name: Environment
+    type: enum
+    description: Target deployment environment
+    options:
+      - dev
+      - staging
+      - production
+    default: dev
+  - name: Port
+    type: int
+    description: Port the service will listen on
+    default: 3000
+  - name: EnableMonitoring
+    type: bool
+    description: Enable Datadog monitoring for this service
+    default: true
+```
+</Inputs>
+
+## Deploy
+
+<Command
+    id="deploy"
+    command="echo 'Deploying {{ .inputs.ServiceName }} to {{ .inputs.Environment }} on port {{ .inputs.Port }}...'"
+    inputsId="service-config"
+    title="Deploy the service"
+    description="Deploys your service to the target environment."
+    successMessage="Service deployed successfully!"
+    failMessage="Deployment failed. Check the logs for details."
+/>
+
+## Verify deployment
+
+<Check
+    id="verify"
+    command="echo 'Service {{ .inputs.ServiceName }} is healthy on {{ .inputs.Environment }}'"
+    inputsId="service-config"
+    title="Verify service health"
+    description="Confirm the service is running and healthy."
+    successMessage="Service is healthy!"
+    failMessage="Service health check failed."
+/>
