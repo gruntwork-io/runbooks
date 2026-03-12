@@ -176,9 +176,27 @@ jobs:
         working-directory: ./web
         run: bun install
 
+      - name: Get Playwright version
+        id: pw-version
+        working-directory: ./web
+        run: echo "version=$(bunx playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw-version.outputs.version }}
+
       - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         working-directory: ./web
         run: bunx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        working-directory: ./web
+        run: bunx playwright install-deps chromium
 
       - name: Run Playwright tests
         working-directory: ./web
