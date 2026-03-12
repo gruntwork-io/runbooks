@@ -3,7 +3,7 @@
  * SourceFile - Displays source file contents from the repository at build time.
  * 
  * Usage in .mdx files:
- *   import SourceFile from '@/components/SourceFile.astro';
+ *   import SourceFile from '../../components/SourceFile.astro';
  *   <SourceFile file="testdata/my-first-runbook/runbook.mdx" lang="mdx" />
  * 
  * Props:
@@ -19,9 +19,11 @@ interface Props {
   file: string;
   lang: string;
   title?: string;
+  /** Hide the filename heading — useful when embedded inside content that already has its own heading (e.g. Steps). */
+  hideTitle?: boolean;
 }
 
-const { file, lang, title } = Astro.props;
+const { file, lang, title, hideTitle } = Astro.props;
 
 // Resolve path relative to repo root (docs is one level down from repo root)
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
@@ -39,7 +41,7 @@ try {
 }
 ---
 
-<h3><code>{displayTitle}</code></h3>
+{!hideTitle && <h3><code>{displayTitle}</code></h3>}
 
 {error ? (
   <div style="color: red; padding: 1rem; border: 1px solid red; border-radius: 4px;">
