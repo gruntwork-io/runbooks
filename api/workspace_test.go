@@ -796,3 +796,106 @@ func TestWorkspaceDirsMissingPath(t *testing.T) {
 		t.Fatalf("expected 400 for missing path, got %d", w.Code)
 	}
 }
+
+// =============================================================================
+// parseGitStatusCode tests
+// =============================================================================
+
+func TestParseGitStatusCode(t *testing.T) {
+	tests := []struct {
+		code     string
+		expected string
+	}{
+		// Untracked files
+		{"?? ", "added"},
+		// Staged additions
+		{"A ", "added"},
+		{"A ", "added"},
+		// Deletions (index or worktree)
+		{"D ", "deleted"},
+		{" D", "deleted"},
+		// Modified (index or worktree)
+		{"M ", "modified"},
+		{" M", "modified"},
+		{"MM", "modified"},
+		// Renames
+		{"R ", "modified"},
+		// Copied files (not explicitly handled — falls through to default)
+		{"C ", "modified"},
+		// Staged delete takes precedence over modification
+		{"DM", "deleted"},
+		// Unknown codes default to modified
+		{"!!",  "modified"},
+		{"  ", "modified"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("code_%q", tt.code), func(t *testing.T) {
+			// parseGitStatusCode only uses the first 2 bytes
+			result := parseGitStatusCode(tt.code[:2])
+			if result != tt.expected {
+				t.Errorf("parseGitStatusCode(%q) = %q, want %q", tt.code[:2], result, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// countLines tests
+// =============================================================================
+
+func TestCountLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"empty string", "", 0},
+		{"single line no newline", "hello", 1},
+		{"single line with newline", "hello\n", 2},
+		{"two lines", "line1\nline2", 2},
+		{"two lines trailing newline", "line1\nline2\n", 3},
+		{"multiple newlines", "\n\n\n", 4},
+		{"single newline", "\n", 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := countLines(tt.input)
+			if result != tt.expected {
+				t.Errorf("countLines(%q) = %d, want %d", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// parseStatusLines tests
+// =============================================================================
+
+func TestParseStatusLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int // expected number of valid lines
+	}{
+		{"empty string", "", 0},
+		{"whitespace only", "  \n  ", 0},
+		{"single valid line", " M README.md", 1},
+		{"multiple valid lines", " M README.md\n?? new.txt", 2},
+		{"short lines filtered", "ab\n M valid.txt", 1},
+		{"trailing newline", " M file.go\n", 1},
+		{"trailing whitespace stripped", " M file.go  ", 1},
+		{"renamed file line", "R  old.txt -> new.txt", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseStatusLines(tt.input)
+			if len(result) != tt.expected {
+				t.Errorf("parseStatusLines(%q) returned %d lines, want %d; lines=%v",
+					tt.input, len(result), tt.expected, result)
+			}
+		})
+	}
+}
