@@ -1,0 +1,105 @@
+# Test configuration for ingest-existing-aws-account
+#
+# To run locally:
+#   export RUNBOOKS_TEST_AWS_ACCESS_KEY_ID=...
+#   export RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY=...
+#   export RUNBOOKS_TEST_AWS_SESSION_TOKEN=...  # if using temp creds
+#   export RUNBOOKS_TEST_AWS_REGION=us-east-1
+#   go run main.go test testdata/sample-runbooks/ingest-existing-aws-account -v
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: Full ingestion workflow with real AWS resources
+
+    inputs:
+      account-details.AccountName:
+        value: "demo-sandbox"
+      account-details.AccountId:
+        fuzz:
+          type: string
+          minLength: 12
+          maxLength: 12
+      account-details.AccountEmail:
+        value: "demo-sandbox@example.com"
+      account-details.AccountEnvironment:
+        value: "sandbox"
+      account-details.DefaultRegion:
+        value: "us-east-1"
+      account-details.OrgNamePrefix:
+        value: "rbktest"
+
+    steps:
+      - block: check-aws-cli
+        expect: success
+
+      - block: check-jq
+        expect: success
+
+      # AWS auth blocks use env_prefix for CI credentials
+      - block: mgmt-account-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
+
+      - block: verify-mgmt-auth
+        expect: success
+
+      # Skip the registration step (simulated, and may fail without org permissions)
+      - block: register-account-control-tower
+        expect: skip
+
+      - block: target-account-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
+
+      # Skip target verification (CI uses same account for both mgmt and target)
+      - block: verify-target-auth
+        expect: skip
+
+      # Skip resource creation in tests to avoid creating real AWS resources
+      - block: create-state-bucket
+        expect: skip
+
+      - block: verify-state-bucket
+        expect: skip
+
+      - block: create-tags-bucket
+        expect: skip
+
+      # Template blocks should render successfully
+      - block: account-hcl-preview
+        expect: success
+
+      - block: account-terragrunt-preview
+        expect: success
+
+      - block: accounts-yml-entry
+        expect: success
+
+      - block: region-hcl-preview
+        expect: success
+
+      - block: verify-generated-files
+        expect: success
+
+      - block: verify-resources-in-target
+        expect: skip
+
+      - block: cleanup-resources
+        expect: skip
+
+    assertions:
+      - type: file_exists
+        path: demo-sandbox/.gruntwork/account.hcl
+      - type: file_exists
+        path: demo-sandbox/account.hcl
+      - type: file_exists
+        path: _new-account-requests/demo-sandbox.yml
+      - type: file_exists
+        path: demo-sandbox/us-east-1/region.hcl

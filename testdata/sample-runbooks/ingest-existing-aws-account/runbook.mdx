@@ -1,0 +1,351 @@
+# Ingest Existing AWS Account
+
+This runbook automates the process of ingesting an existing AWS account into your Gruntwork Reference Architecture. Instead of manually updating `accounts.yml`, creating account request files, importing into Control Tower, and scaffolding boilerplate — this runbook handles it all in a guided workflow.
+
+**What this runbook does:**
+
+1. Validates your local environment and AWS authentication
+2. Collects details about the existing account to ingest
+3. Registers the account in Control Tower (via the management account)
+4. Creates an S3 bucket in the target account for Terraform state
+5. Scaffolds the account baseline configuration (directory structure, Terragrunt configs)
+6. Generates a PR-ready changeset
+
+---
+
+## Pre-flight Checks
+
+Before we begin, let's make sure your environment is set up correctly.
+
+<Check
+  id="check-aws-cli"
+  command="aws --version"
+  title="Check if AWS CLI is installed"
+  description="The [AWS CLI](https://aws.amazon.com/cli/) is required to interact with AWS services."
+  successMessage="AWS CLI is installed!"
+  failMessage="AWS CLI is not installed. Please [install it](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) to continue."
+/>
+
+<Check
+  id="check-jq"
+  command="jq --version"
+  title="Check if `jq` is installed"
+  description="`jq` is used for parsing JSON responses from AWS API calls."
+  successMessage="`jq` is installed!"
+  failMessage="`jq` is not installed. Please install it to continue."
+/>
+
+---
+
+## Authenticate to AWS (Management Account)
+
+Authenticate to your **AWS management account**. This is the account that manages your AWS Organization and Control Tower. We'll use these credentials to register the existing account into your organization.
+
+<AwsAuth
+  id="mgmt-account-auth"
+  title="Authenticate to Management Account"
+  description="Authenticate to the AWS management (root) account that manages your AWS Organization."
+  defaultRegion="us-east-1"
+/>
+
+Let's verify the management account authentication and confirm the account identity.
+
+<Check
+  id="verify-mgmt-auth"
+  path="checks/verify-mgmt-account.sh"
+  title="Verify Management Account Identity"
+  description="Confirms you're authenticated to an AWS management account with the right permissions."
+  awsAuthId="mgmt-account-auth"
+  successMessage="Authenticated to management account!"
+  failMessage="Authentication failed or this doesn't appear to be a management account."
+/>
+
+---
+
+## Existing Account Details
+
+Provide the details of the existing AWS account you want to ingest into your Reference Architecture.
+
+<Inputs id="account-details">
+```yaml
+variables:
+  - name: AccountName
+    type: string
+    description: >
+      A human-readable name for this account (e.g., "prod-workloads", "data-analytics").
+      This will be used as the directory name in your infrastructure-live repo.
+    validations:
+      - required
+    x-section: Account Information
+
+  - name: AccountId
+    type: string
+    description: >
+      The 12-digit AWS account ID of the existing account to ingest
+      (e.g., "123456789012").
+    validations:
+      - required
+    x-section: Account Information
+
+  - name: AccountEmail
+    type: string
+    description: >
+      The root email address associated with this AWS account.
+    validations:
+      - required
+    x-section: Account Information
+
+  - name: AccountEnvironment
+    type: enum
+    description: >
+      The environment this account belongs to. This determines which
+      baseline configurations and guardrails are applied.
+    options:
+      - dev
+      - stage
+      - prod
+      - sandbox
+      - shared
+    default: dev
+    x-section: Account Configuration
+
+  - name: DefaultRegion
+    type: enum
+    description: The primary AWS region for this account's resources.
+    options:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - eu-west-1
+      - eu-west-2
+      - eu-central-1
+      - ap-southeast-1
+      - ap-northeast-1
+    default: us-east-1
+    x-section: Account Configuration
+
+  - name: OrgNamePrefix
+    type: string
+    description: >
+      Your organization name prefix, used for naming conventions
+      (e.g., "acme" for acme-dev, acme-prod).
+    default: "acme"
+    x-section: Account Configuration
+```
+</Inputs>
+
+---
+
+## Register Account in Control Tower
+
+Now we'll register the existing account in your AWS Control Tower setup. This simulates updating `accounts.yml` and creating the `_new-account-requests/account-xxx.yml` file, then importing the account into the `control-tower-multi-account-factory`.
+
+<Command
+  id="register-account-control-tower"
+  path="scripts/register-account.sh"
+  title="Register Account in Control Tower"
+  description="Simulates registering the existing account in AWS Control Tower by updating the account registry and creating a request file."
+  inputsId="account-details"
+  awsAuthId="mgmt-account-auth"
+  successMessage="Account **{{ .inputs.AccountName }}** ({{ .inputs.AccountId }}) registered in Control Tower!"
+  failMessage="Failed to register the account. Check the logs for details."
+/>
+
+---
+
+## Authenticate to Target Account
+
+Now authenticate to the **target account** — the existing account being ingested. We'll create foundational resources (like an S3 state bucket) directly in this account.
+
+<AwsAuth
+  id="target-account-auth"
+  title="Authenticate to Target Account"
+  description="Authenticate to the existing AWS account you are ingesting (Account ID: the one you entered above)."
+  defaultRegion="us-east-1"
+/>
+
+<Check
+  id="verify-target-auth"
+  path="checks/verify-target-account.sh"
+  title="Verify Target Account Identity"
+  description="Confirms you're authenticated to the correct target account."
+  inputsId="account-details"
+  awsAuthId="target-account-auth"
+  successMessage="Authenticated to target account {{ .inputs.AccountId }}!"
+  failMessage="Authentication failed or account ID doesn't match. Expected {{ .inputs.AccountId }}."
+/>
+
+---
+
+## Create Terraform State Bucket
+
+Every account in the Reference Architecture needs an S3 bucket for Terraform/OpenTofu remote state. Let's create one in the target account.
+
+<Command
+  id="create-state-bucket"
+  path="scripts/create-state-bucket.sh"
+  title="Create Terraform State S3 Bucket"
+  description="Creates a versioned, encrypted S3 bucket for storing Terraform/OpenTofu state in the target account."
+  inputsId="account-details"
+  awsAuthId="target-account-auth"
+  successMessage="State bucket created successfully!"
+  failMessage="Failed to create the state bucket. Check the logs for details."
+/>
+
+<Check
+  id="verify-state-bucket"
+  path="checks/verify-state-bucket.sh"
+  title="Verify State Bucket"
+  description="Confirms the S3 state bucket was created and is properly configured."
+  inputsId="account-details"
+  awsAuthId="target-account-auth"
+  successMessage="State bucket is configured correctly with versioning and encryption!"
+  failMessage="State bucket verification failed."
+/>
+
+---
+
+## Create Tags Bucket
+
+We'll also create an S3 bucket to demonstrate tagging standards for the ingested account.
+
+<Command
+  id="create-tags-bucket"
+  path="scripts/create-tags-bucket.sh"
+  title="Create Tags Standard S3 Bucket"
+  description="Creates an S3 bucket with your organization's standard tags applied, demonstrating tagging governance."
+  inputsId="account-details"
+  awsAuthId="target-account-auth"
+  successMessage="Tags bucket created with standard organization tags!"
+  failMessage="Failed to create the tags bucket."
+/>
+
+---
+
+## Scaffold Account Baseline
+
+Now let's generate the boilerplate configuration files for this account. This creates the directory structure, Terragrunt config files, and account-level settings that match a freshly vended account.
+
+### Preview: Account Configuration File
+
+Here's what the `.gruntwork/account.hcl` configuration will look like for this account:
+
+<TemplateInline id="account-hcl-preview" inputsId="account-details" outputPath="{{ .inputs.AccountName }}/.gruntwork/account.hcl" generateFile={true}>
+```hcl
+# Account configuration for {{ .inputs.AccountName }}
+# Ingested from existing account {{ .inputs.AccountId }}
+
+locals {
+  account_name = "{{ .inputs.AccountName }}"
+  account_id   = "{{ .inputs.AccountId }}"
+  account_email = "{{ .inputs.AccountEmail }}"
+  environment  = "{{ .inputs.AccountEnvironment }}"
+  default_region = "{{ .inputs.DefaultRegion }}"
+}
+```
+</TemplateInline>
+
+### Preview: Account Terragrunt Config
+
+<TemplateInline id="account-terragrunt-preview" inputsId="account-details" outputPath="{{ .inputs.AccountName }}/account.hcl" generateFile={true}>
+```hcl
+# Account-level Terragrunt configuration for {{ .inputs.AccountName }}
+# This file is included in all Terragrunt configurations within this account.
+
+locals {
+  account_name = "{{ .inputs.AccountName }}"
+  account_id   = "{{ .inputs.AccountId }}"
+  environment  = "{{ .inputs.AccountEnvironment }}"
+}
+```
+</TemplateInline>
+
+### Preview: Account Entry for `accounts.yml`
+
+<TemplateInline id="accounts-yml-entry" inputsId="account-details" outputPath="_new-account-requests/{{ .inputs.AccountName }}.yml" generateFile={true}>
+```yaml
+# Account request for {{ .inputs.AccountName }}
+# Generated by the Ingest Existing AWS Account runbook
+
+account_name: {{ .inputs.AccountName }}
+account_id: "{{ .inputs.AccountId }}"
+account_email: {{ .inputs.AccountEmail }}
+environment: {{ .inputs.AccountEnvironment }}
+default_region: {{ .inputs.DefaultRegion }}
+org_name_prefix: {{ .inputs.OrgNamePrefix }}
+status: ingested
+ingested_at: "{{ now | date "2006-01-02T15:04:05Z07:00" }}"
+```
+</TemplateInline>
+
+### Preview: Region-level Terragrunt Config
+
+<TemplateInline id="region-hcl-preview" inputsId="account-details" outputPath="{{ .inputs.AccountName }}/{{ .inputs.DefaultRegion }}/region.hcl" generateFile={true}>
+```hcl
+# Region-level Terragrunt configuration for {{ .inputs.DefaultRegion }}
+
+locals {
+  aws_region = "{{ .inputs.DefaultRegion }}"
+}
+```
+</TemplateInline>
+
+---
+
+## Verify Account Ingestion
+
+Let's run a final set of checks to make sure everything was set up correctly.
+
+<Check
+  id="verify-generated-files"
+  command="ls -la $GENERATED_FILES/"
+  title="Verify Generated Files"
+  description="Confirms that all the account baseline files were generated."
+  successMessage="All account baseline files are present!"
+  failMessage="Some files appear to be missing."
+/>
+
+<Check
+  id="verify-resources-in-target"
+  path="checks/verify-resources.sh"
+  title="Verify AWS Resources in Target Account"
+  description="Confirms that the S3 buckets were created in the target account."
+  inputsId="account-details"
+  awsAuthId="target-account-auth"
+  successMessage="All AWS resources verified in account {{ .inputs.AccountId }}!"
+  failMessage="Some resources could not be verified."
+/>
+
+---
+
+## Clean Up (Optional)
+
+If you want to remove the demo resources created in the target account, run the cleanup command below.
+
+<Command
+  id="cleanup-resources"
+  path="scripts/cleanup-resources.sh"
+  title="Clean Up Demo Resources"
+  description="Removes the S3 buckets created during this runbook. Only run this if you don't need the resources."
+  inputsId="account-details"
+  awsAuthId="target-account-auth"
+  successMessage="Demo resources cleaned up!"
+  failMessage="Cleanup encountered errors. You may need to manually remove some resources."
+/>
+
+---
+
+## Next Steps
+
+Congratulations! You've ingested the existing account **{{ .inputs.AccountName }}** into your Reference Architecture.
+
+Here's what to do next:
+
+1. **Review the generated files** in the file panel and download them
+2. **Copy the files** into your `infrastructure-live-root` repository
+3. **Create a pull request** with the `[skip ci]` tag to avoid triggering pipelines prematurely
+4. **Run `terragrunt plan`** in the new account directory to verify the baseline
+5. **Apply the baseline** once the plan looks correct
+
+> **Tip:** Use the `[skip ci]` commit message tag when pushing these changes, since Pipelines will treat this as a large batch of events otherwise.
