@@ -16,91 +16,83 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, Icon, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import SourceFile from '../../components/SourceFile.astro';
 
-## Authors write MDX
+## How it works
 
-You write a runbook in MDX — markdown with interactive blocks — in your editor, just like code. Here's a real runbook:
+<Steps>
 
-```mdx
-# Deploy a New Service
+1. **Authors write MDX**
 
-This runbook guides you through deploying a new
-microservice to your infrastructure.
+   You write a runbook in MDX (markdown with interactive blocks) in your editor, just like code.
 
-## Pre-flight checks
+   Here's a real runbook:
 
-<Check
-    id="check-node"
-    path="checks/node-version.sh"
-    title="Check Node.js Installation"
-    successMessage="Node.js is installed and ready!"
-    failMessage="Please install Node.js first"
-/>
+   <SourceFile file="testdata/sample-runbooks/homepage-demo/runbook.mdx" lang="mdx" hideTitle />
 
-## Configure your service
+2. **Developers get a guided UI**
 
-<Inputs id="service-config">
-  variables:
-    - name: ServiceName
-      type: string
-      default: "my-service"
-    - name: Environment
-      type: enum
-      options: [dev, staging, production]
-    - name: Port
-      type: int
-      default: 3000
-    - name: EnableMonitoring
-      type: bool
-      default: true
-</Inputs>
+   That MDX renders into a clean web interface. Developers fill out forms, run checks, and execute commands. No copy-pasting, no guesswork.
 
-## Deploy
+</Steps>
 
-<Command
-    id="deploy"
-    command="deploy {{ .inputs.ServiceName }}
-      --env {{ .inputs.Environment }}"
-    inputsId="service-config"
-    title="Deploy the service"
-/>
-```
+<Tabs>
+  <TabItem label="Pre-flight checks">
+    ![Pre-flight checks UI](../../assets/screenshots/homepage-checks.webp)
+  </TabItem>
+  <TabItem label="Configure service">
+    ![Configure your service form](../../assets/screenshots/homepage-deploy.webp)
+  </TabItem>
+  <TabItem label="Deploy">
+    ![Deploy command execution](../../assets/screenshots/homepage-configure.webp)
+  </TabItem>
+</Tabs>
 
-## Developers get a guided UI
+## Choose the blocks you need
 
-That MDX renders into a clean web interface. Developers fill out forms, run checks, and execute commands — no copy-pasting, no guesswork.
+Runbooks ships with a growing set of blocks that handle common infrastructure tasks. Mix and match them to build your workflow.
 
-<div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; margin: 2rem 0;">
-  <div style="width: 320px; height: 200px; border: 3px dashed #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05); color: #3b82f6; font-weight: 600; font-size: 0.9rem; text-align: center; padding: 1rem;">
-    Screenshot 1:<br/>Pre-flight checks UI
-  </div>
-  <div style="width: 320px; height: 200px; border: 3px dashed #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05); color: #3b82f6; font-weight: 600; font-size: 0.9rem; text-align: center; padding: 1rem;">
-    Screenshot 2:<br/>Configure your service form
-  </div>
-  <div style="width: 320px; height: 200px; border: 3px dashed #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05); color: #3b82f6; font-weight: 600; font-size: 0.9rem; text-align: center; padding: 1rem;">
-    Screenshot 3:<br/>Deploy command execution
-  </div>
+<div class="block-list not-content">
+  <a class="block-row" href="/authoring/blocks/command/">
+    <Icon name="rocket" size="1.25rem" />
+    <strong>&lt;Command&gt;</strong>
+    <span>Execute shell commands and scripts with variable substitution and streaming output.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/template/">
+    <Icon name="add-document" size="1.25rem" />
+    <strong>&lt;Template&gt;</strong>
+    <span>Generate files from Boilerplate templates. Render forms for variables, then write to the workspace.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/awsauth/">
+    <Icon name="setting" size="1.25rem" />
+    <strong>&lt;AwsAuth&gt;</strong>
+    <span>Authenticate to AWS via SSO, static credentials, or local profiles. Credentials flow to subsequent blocks.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/githubauth/">
+    <Icon name="github" size="1.25rem" />
+    <strong>&lt;GitHubAuth&gt;</strong>
+    <span>Authenticate to GitHub via OAuth, PAT, or the GitHub CLI. Detected credentials are confirmed before use.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/githubpullrequest/">
+    <Icon name="github" size="1.25rem" />
+    <strong>&lt;GitHubPullRequest&gt;</strong>
+    <span>Open a pull request from changes made during the runbook. Completes the clone → modify → PR workflow.</span>
+    <span class="block-arrow">→</span>
+  </a>
 </div>
 
-<CardGrid stagger>
-  <Card title="Interactive Forms" icon="pencil">
-    Collect inputs through clean web forms — strings, numbers, booleans, enums, lists. No more copy-pasting variable names from a README.
-  </Card>
-  <Card title="Automated Checks" icon="approve-check">
-    Validate that prerequisites are met before anything runs. Catch problems before they happen, not after.
-  </Card>
-  <Card title="Guided Execution" icon="rocket">
-    Commands run with the right parameters, in the right order. Developers follow the happy path without getting lost.
-  </Card>
-  <Card title="Code Generation" icon="add-document">
-    Generate infrastructure-as-code and configuration files from templates. Developers fill out a form, Gruntwork Runbooks writes the code.
-  </Card>
-</CardGrid>
+[View all blocks →](/authoring/blocks/)
 
 ## Author in minutes, not weeks
 
-No platform to deploy. No plugins to build. No YAML abstractions to learn. Write a runbook in your editor using MDX — markdown you already know, with a handful of interactive blocks. It lives in git, gets reviewed in PRs, and stays close to the infrastructure it documents.
+No platform to deploy. No plugins to build. No YAML abstractions to learn.
+
+Write a runbook in your editor using MDX, which is markdown you already know, with a handful of interactive blocks. It lives in git, gets reviewed in PRs, and stays close to the infrastructure it documents.
 
 <CardGrid>
   <Card title="MDX Authoring" icon="pen">
@@ -110,15 +102,15 @@ No platform to deploy. No plugins to build. No YAML abstractions to learn. Write
     Runbooks are code. Version them, review them, share them like any other file in your repo.
   </Card>
   <Card title="Watch Mode" icon="approve-check">
-    Edit your runbook and see changes instantly in the browser. Fast feedback loop for authors.
+    Edit your runbook and see changes instantly in the browser. Fast feedback loop for authors. [Learn more →](/commands/watch/)
   </Card>
 </CardGrid>
 
 ## Open source and self-contained
 
-Gruntwork Runbooks is a single Go binary. Download it, run it, done. No servers to maintain, no cloud accounts to configure, no dependencies to manage. Everything executes locally on the developer's machine.
+Gruntwork Runbooks is a single Go binary.
 
-Open source under the MIT License. Inspect the code, contribute, or fork it.
+No servers to maintain, no cloud accounts to configure, no dependencies to manage. Everything executes locally on the developer's machine.
 
 <CardGrid>
   <Card title="Single Binary" icon="laptop">
@@ -127,52 +119,25 @@ Open source under the MIT License. Inspect the code, contribute, or fork it.
   <Card title="Local Execution" icon="setting">
     All commands run on the developer's machine. No secrets leave the local environment.
   </Card>
-  <Card title="Open Source" icon="github">
-    MIT licensed. Full source on GitHub. No vendor lock-in, no surprise pricing.
+  <Card title="Open Source" icon="heart">
+    MPLv2 licensed. Full source on GitHub. No vendor lock-in, no surprise pricing.
   </Card>
 </CardGrid>
 
 ## Get started
 
-<CardGrid>
-  <Card title="Install Runbooks" icon="setting">
-    Install via Homebrew, download a binary, or build from source. Up and running in under a minute.
+<div class="compact-cards not-content">
+  <a href="/intro/installation/" class="compact-card">
+    <strong>Install Runbooks</strong>
+    <span>Install via Homebrew, download a binary, or build from source.</span>
+  </a>
+  <a href="/intro/write_your_first_runbook/" class="compact-card">
+    <strong>Write your first runbook</strong>
+    <span>Step-by-step tutorial to create and run your first runbook.</span>
+  </a>
+  <a href="https://github.com/gruntwork-io/runbooks" class="compact-card">
+    <strong>View on GitHub</strong>
+    <span>Browse the source, open issues, and contribute.</span>
+  </a>
+</div>
 
-    [Install →](/intro/installation/)
-  </Card>
-  <Card title="Write Your First Runbook" icon="document">
-    Create a runbook from scratch and see the full authoring workflow.
-
-    [Tutorial →](/intro/write_your_first_runbook/)
-  </Card>
-  <Card title="See Use Cases" icon="open-book">
-    Real-world examples: AWS account setup, ECS deployments, infrastructure provisioning.
-
-    [Use Cases →](/intro/use_cases/)
-  </Card>
-</CardGrid>
-
-## Learn more
-
-<CardGrid>
-  <Card title="How It Works" icon="information">
-    Understand the architecture, execution model, and security design.
-
-    [Overview →](/intro/overview/)
-  </Card>
-  <Card title="Authoring Guide" icon="pen">
-    Deep dive into writing runbooks — structure, inputs, outputs, templates.
-
-    [Authoring →](/authoring/overview/)
-  </Card>
-  <Card title="Block Reference" icon="puzzle">
-    Every interactive block: Check, Command, Inputs, Template, and more.
-
-    [Blocks →](/authoring/blocks/)
-  </Card>
-  <Card title="CLI Reference" icon="laptop">
-    All commands: open, watch, serve.
-
-    [Commands →](/commands/overview/)
-  </Card>
-</CardGrid>

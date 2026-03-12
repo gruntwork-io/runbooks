@@ -353,6 +353,10 @@ button[data-open-modal]:hover {
 
 /* ============================================
    SPLASH / HOMEPAGE
+   All rules in this section are scoped to
+   [data-has-hero], an attribute Starlight adds
+   only to splash-template pages (index.mdx).
+   They do NOT affect normal documentation pages.
    ============================================ */
 
 /* Override left margin on splash page so content centers */
@@ -402,9 +406,155 @@ button[data-open-modal]:hover {
   margin-inline: auto;
 }
 
+/* Let images in tab panels break out of the paragraph width cap */
+[data-has-hero] .sl-markdown-content [role='tabpanel'] p {
+  max-width: none;
+}
+
 /* Left-align code blocks on splash page */
 [data-has-hero] .sl-markdown-content pre {
   text-align: left;
+}
+
+/* Left-align Steps content on splash page */
+[data-has-hero] .sl-markdown-content .sl-steps {
+  text-align: left;
+}
+
+[data-has-hero] .sl-markdown-content .sl-steps p {
+  text-align: left;
+  margin-inline: 0;
+  font-size: 1.125rem;
+}
+
+[data-has-hero] .sl-markdown-content .sl-steps h3 {
+  font-size: 1.5rem;
+}
+
+/* Block list rows on splash page */
+[data-has-hero] .block-list {
+  text-align: left;
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+[data-has-hero] .block-row,
+[data-has-hero] .block-row:hover {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--sl-color-gray-6);
+  text-decoration: none !important;
+  color: inherit;
+  transition: background-color 0.15s ease;
+}
+
+[data-has-hero] .block-row:first-child {
+  border-top: 1px solid var(--sl-color-gray-6);
+}
+
+[data-has-hero] .block-row:hover {
+  background-color: var(--sl-color-gray-7);
+  text-decoration: none;
+}
+
+[data-has-hero] .block-row svg {
+  flex-shrink: 0;
+  color: var(--sl-color-accent);
+}
+
+[data-has-hero] .block-row strong {
+  flex-shrink: 0;
+  min-width: 11rem;
+  font-size: 0.95rem;
+}
+
+[data-has-hero] .block-row > span {
+  flex: 1;
+  color: var(--sl-color-gray-3);
+  font-size: 0.9rem;
+}
+
+[data-has-hero] .block-row .block-arrow {
+  flex: 0;
+  color: var(--sl-color-accent);
+  font-weight: 600;
+  margin-left: 1rem;
+}
+
+/* Compact cards (Get started section) */
+[data-has-hero] .compact-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 50rem) {
+  [data-has-hero] .compact-cards {
+    flex-direction: row;
+    gap: 1.5rem;
+  }
+}
+
+[data-has-hero] .compact-card,
+[data-has-hero] .compact-card:hover {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.25rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--sl-color-gray-6);
+  border-radius: 0.5rem;
+  text-decoration: none !important;
+  color: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+[data-has-hero] .compact-card:hover {
+  border-color: var(--sl-color-accent);
+  background-color: var(--sl-color-gray-7);
+}
+
+[data-has-hero] .compact-card strong {
+  color: var(--sl-color-accent);
+  font-size: 0.95rem;
+}
+
+[data-has-hero] .compact-card span {
+  color: var(--sl-color-gray-3);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+/* Tab styling on splash page */
+[data-has-hero] starlight-tabs [role='tablist'] {
+  border-bottom: 1px solid var(--sl-color-gray-6);
+}
+
+[data-has-hero] starlight-tabs .tab > [role='tab'] {
+  box-shadow: none;
+  text-decoration: none !important;
+}
+
+[data-has-hero] starlight-tabs .tab > [role='tab']:hover {
+  color: var(--sl-color-text-accent);
+  text-decoration: none !important;
+}
+
+[data-has-hero] starlight-tabs .tab [role='tab'][aria-selected='true'] {
+  box-shadow: 0 3px 0 var(--sl-color-text-accent);
+}
+
+/* Widen splash page content to fit screenshots */
+[data-has-hero] {
+  --sl-content-width: 64rem;
+}
+
+[data-has-hero] starlight-tabs img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 /* ============================================
