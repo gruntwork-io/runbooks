@@ -5,6 +5,9 @@ template: splash
 hero:
   title: Expert knowledge that anyone can run.
   tagline: Gruntwork Runbooks turns your infrastructure expertise into guided workflows that any developer can safely execute. No portals to deploy. No docs that rot. Just live runbooks that work.
+  image:
+    dark: ../../assets/runbooks-logomark-light.svg
+    light: ../../assets/runbooks-logomark-dark.svg
   actions:
     - text: Get Started
       link: /intro/installation/
@@ -31,6 +34,8 @@ import SourceFile from '../../components/SourceFile.astro';
 
    <SourceFile file="testdata/sample-runbooks/homepage-demo/runbook.mdx" lang="mdx" hideTitle />
 
+   <a href="https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/homepage-demo" target="_blank" rel="noopener noreferrer" class="source-link">View this runbook on GitHub →</a>
+
 2. **Developers get a guided UI**
 
    That MDX renders into a clean web interface. Developers fill out forms, run checks, and execute commands. No copy-pasting, no guesswork.
@@ -51,7 +56,7 @@ import SourceFile from '../../components/SourceFile.astro';
 
 ## Choose the blocks you need
 
-Runbooks ships with a growing set of blocks that handle common infrastructure tasks. Mix and match them to build your workflow.
+Gruntwork Runbooks ships with a growing set of blocks that handle common infrastructure tasks. Mix and match them to build your workflow.
 
 <div class="block-list not-content">
   <a class="block-row" href="/authoring/blocks/command/">
@@ -128,7 +133,7 @@ No servers to maintain, no cloud accounts to configure, no dependencies to manag
 
 <div class="compact-cards not-content">
   <a href="/intro/installation/" class="compact-card">
-    <strong>Install Runbooks</strong>
+    <strong>Install</strong>
     <span>Install via Homebrew, download a binary, or build from source.</span>
   </a>
   <a href="/intro/write_your_first_runbook/" class="compact-card">
