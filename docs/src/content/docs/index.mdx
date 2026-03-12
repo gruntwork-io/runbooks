@@ -111,6 +111,29 @@ Write a runbook in your editor using MDX, which is markdown you already know, wi
   </Card>
 </CardGrid>
 
+## Generate files, open PRs, ship changes
+
+Gruntwork Runbooks isn't just live documentation, it's a code generation pipeline.
+
+Powered by [Gruntwork Boilerplate](/authoring/boilerplate/), the `<Template>` block renders files from templates with developer-supplied variables, previews the output in a built-in file tree, and writes results to the workspace.
+
+Combine `<GitClone>` to clone a repo, `<Template>` to generate files, and `<GitHubPullRequest>` to open a PR, all in a single guided workflow.
+
+<CardGrid>
+  <Card title="Boilerplate Templates" icon="add-document">
+    Generate files and folders from a template. Variables come from form inputs. [Learn more →](/authoring/blocks/template/)
+  </Card>
+  <Card title="Inline Templates" icon="document">
+    Define small templates directly in your runbook MDX and give users inline previews. [Learn more →](/authoring/blocks/templateinline/)
+  </Card>
+  <Card title="Clone & PR" icon="github">
+    Clone a repo with `<GitClone>`, make changes, and open a pull request with `<GitHubPullRequest>` for a complete end-to-end workflow. [Learn more →](/authoring/blocks/gitclone/)
+  </Card>
+  <Card title="File Preview" icon="open-book">
+    Generated files render in a collapsible file tree with syntax-highlighted code. Developers see exactly what will be created before committing.
+  </Card>
+</CardGrid>
+
 ## Open source and self-contained
 
 Gruntwork Runbooks is a single Go binary.
