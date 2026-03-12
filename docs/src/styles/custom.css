@@ -220,10 +220,6 @@ header.header {
    ============================================ */
 
 /* Table wrapper for horizontal scrolling on mobile */
-.sl-markdown-content {
-  /* Allow tables to overflow and scroll horizontally */
-}
-
 .sl-markdown-content table {
   display: block;
   overflow-x: auto;
@@ -359,6 +355,11 @@ button[data-open-modal]:hover {
    They do NOT affect normal documentation pages.
    ============================================ */
 
+/* Widen splash page content to fit screenshots */
+[data-has-hero] {
+  --sl-content-width: 64rem;
+}
+
 /* Override left margin on splash page so content centers */
 [data-has-hero] .main-pane .sl-container {
   margin-inline: auto;
@@ -458,7 +459,6 @@ button[data-open-modal]:hover {
 
 [data-has-hero] .block-row:hover {
   background-color: var(--sl-color-gray-7);
-  text-decoration: none;
 }
 
 [data-has-hero] .block-row svg {
@@ -470,6 +470,12 @@ button[data-open-modal]:hover {
   flex-shrink: 0;
   min-width: 11rem;
   font-size: 0.95rem;
+}
+
+@media (max-width: 30rem) {
+  [data-has-hero] .block-row strong {
+    min-width: auto;
+  }
 }
 
 [data-has-hero] .block-row > span {
@@ -546,11 +552,6 @@ button[data-open-modal]:hover {
 
 [data-has-hero] starlight-tabs .tab [role='tab'][aria-selected='true'] {
   box-shadow: 0 3px 0 var(--sl-color-text-accent);
-}
-
-/* Widen splash page content to fit screenshots */
-[data-has-hero] {
-  --sl-content-width: 64rem;
 }
 
 [data-has-hero] starlight-tabs img {
