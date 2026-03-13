@@ -64,10 +64,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
       } catch (err) {
         console.error('Error processing MDX content:', err)
         const errorMessage = err instanceof Error ? err.message : String(err)
-        setError({
-          message: 'Error processing MDX content',
-          details: errorMessage
-        })
+        setError(friendlyMDXError(errorMessage))
       }
     }
 
@@ -77,9 +74,9 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   if (error) {
     return (
       <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-        <div data-testid="mdx-error" className="text-red-600 p-4 border border-red-300 rounded-lg">
-          <h3 className="font-semibold mb-2">{error.message}</h3>
-          <pre className="text-sm whitespace-pre-wrap">{error.details}</pre>
+        <div data-testid="mdx-error" className="p-5 border border-red-300 rounded-lg bg-red-50">
+          <h3 className="text-red-600 font-semibold mb-3">{error.message}</h3>
+          <pre className="text-sm text-gray-700 whitespace-pre-wrap bg-white border border-red-200 rounded p-3">{error.details}</pre>
         </div>
       </div>
     )
@@ -236,6 +233,43 @@ const stripFrontMatter = (content: string): string => {
   
   // Remove the front matter block
   return content.slice(endMatch[0].length)
+}
+
+// Maps raw MDX compilation errors to user-friendly messages with actionable hints.
+const friendlyMDXError = (rawMessage: string): AppError => {
+  // Acorn expression parse errors — usually caused by unescaped { } in body text
+  if (rawMessage.includes('Could not parse expression with acorn')) {
+    return {
+      message: 'Error while parsing MDX: unexpected curly braces',
+      details:
+        'The runbook contains { } characters in body text that MDX is trying to interpret as JavaScript expressions.\n\n' +
+        'This usually happens when Go template expressions like {{ .inputs.Name }} appear outside of component props or code blocks.\n\n' +
+        'To fix this, either:\n' +
+        '  • Escape the braces: \\{{ .inputs.Name \\}}\n' +
+        '  • Move the expression into a component prop (e.g. successMessage="...")\n' +
+        '  • Wrap it in a fenced code block (``` ```)\n\n' +
+        'Raw error: ' + rawMessage
+    }
+  }
+
+  // Missing/unknown component references
+  if (rawMessage.includes('Expected component')) {
+    const match = rawMessage.match(/Expected component `(\w+)`/)
+    const componentName = match ? match[1] : 'unknown'
+    return {
+      message: `Error while parsing MDX: unknown component <${componentName} />`,
+      details:
+        `The runbook uses a <${componentName} /> component that is not recognized.\n\n` +
+        'Check that the component name is spelled correctly and is a supported runbook component.\n\n' +
+        'Raw error: ' + rawMessage
+    }
+  }
+
+  // Fallback for other MDX errors
+  return {
+    message: 'Error processing MDX content',
+    details: rawMessage
+  }
 }
 
 // Compiles MDX content into a custom React component that can render the MDX content.
