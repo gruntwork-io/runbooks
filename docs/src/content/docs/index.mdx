@@ -1,13 +1,16 @@
 ---
-title: Runbooks Documentation
-description: Interactive documentation that executes
+title: Gruntwork Runbooks
+description: Expert knowledge that anyone can run
 template: splash
 hero:
-  title: Runbooks
-  tagline: Make the knowledge and experience of few available to the many
+  title: Expert knowledge that anyone can run.
+  tagline: Gruntwork Runbooks turns your infrastructure expertise into guided workflows that any developer can safely execute. No portals to deploy. No docs that rot. Just live runbooks that work.
+  image:
+    dark: ../../assets/runbooks-logomark-light.svg
+    light: ../../assets/runbooks-logomark-dark.svg
   actions:
     - text: Get Started
-      link: /intro/overview/
+      link: /intro/installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
@@ -16,137 +19,153 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, Icon, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import SourceFile from '../../components/SourceFile.astro';
 
-## What are Runbooks?
+## How it works
 
-Runbooks are **interactive markdown documents** that combine documentation with executable functionality. They allow you to:
+<Steps>
 
-- ✅ **Read** standard markdown content with rich formatting
-- ✅ **Validate** system prerequisites with automated checks
-- ✅ **Execute** shell commands with customizable parameters
-- ✅ **Generate** code from templates using dynamic forms
-- ✅ **Guide** users through complex procedures step-by-step
+1. **Authors write MDX**
 
-Think of runbooks as Jupyter Notebooks for DevOps and Infrastructure tasks.
+   You write a runbook in MDX (markdown with interactive blocks) in your editor, just like code.
 
-## Quick Example
+   Here's a real runbook:
 
-```mdx
-# Deploy a New Service
+   <SourceFile file="testdata/sample-runbooks/homepage-demo/runbook.mdx" lang="mdx" hideTitle />
 
-## Prerequisites
+   <a href="https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/homepage-demo" target="_blank" rel="noopener noreferrer" class="source-link">View this runbook on GitHub →</a>
 
-<Check 
-    id="check-kubectl" 
-    command="kubectl version"
-    title="Check if kubectl is installed"
-    successMessage="kubectl is installed!"
-    failMessage="Please install kubectl first"
-/>
+2. **Developers get a guided UI**
 
-## Configuration
+   That MDX renders into a clean web interface. Developers fill out forms, run checks, and execute commands. No copy-pasting, no guesswork.
 
-<Inputs id="service-config">
-```yaml
-variables:
-  - name: ServiceName
-    type: string
-    description: Name for your service
-  - name: Environment
-    type: enum
-    options: [dev, staging, production]
-\```
-</Inputs>
+</Steps>
 
-## Deploy
+<Tabs>
+  <TabItem label="Pre-flight checks">
+    ![Pre-flight checks UI](../../assets/screenshots/homepage-checks.webp)
+  </TabItem>
+  <TabItem label="Configure service">
+    ![Configure your service form](../../assets/screenshots/homepage-configure.webp)
+  </TabItem>
+  <TabItem label="Deploy">
+    ![Deploy command execution](../../assets/screenshots/homepage-deploy.webp)
+  </TabItem>
+</Tabs>
 
-<Command 
-    id="deploy" 
-    command="kubectl apply -f {{ .inputs.ServiceName }}-{{ .inputs.Environment }}.yaml"
-    inputsId="service-config"
-    title="Deploy Service"
-    successMessage="Service deployed successfully!"
-/>
-```
+## Choose the blocks you need
 
-## Key Features
+Gruntwork Runbooks ships with a growing set of blocks that handle common infrastructure tasks. Mix and match them to build your workflow.
 
-<CardGrid stagger>
-  <Card title="Interactive Checks" icon="approve-check">
-    Validate prerequisites and system state before proceeding. Checks run shell commands and show success/failure/warning based on exit codes.
-  </Card>
-  <Card title="Dynamic Commands" icon="rocket">
-    Execute shell commands with variable substitution. Commands support Go template syntax and can reference user inputs from forms.
-  </Card>
-  <Card title="Smart Forms" icon="pencil">
-    Generate dynamic web forms from Boilerplate templates. Support for strings, numbers, booleans, enums, lists, and structured maps.
-  </Card>
-  <Card title="Code Generation" icon="add-document">
-    Generate infrastructure-as-code and configuration files from templates with user-provided variables using Gruntwork Boilerplate.
-  </Card>
-</CardGrid>
+<div class="block-list not-content">
+  <a class="block-row" href="/authoring/blocks/command/">
+    <Icon name="rocket" size="1.25rem" />
+    <strong>&lt;Command&gt;</strong>
+    <span>Execute shell commands and scripts with variable substitution and streaming output.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/template/">
+    <Icon name="add-document" size="1.25rem" />
+    <strong>&lt;Template&gt;</strong>
+    <span>Generate files from Boilerplate templates. Render forms for variables, then write to the workspace.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/awsauth/">
+    <Icon name="setting" size="1.25rem" />
+    <strong>&lt;AwsAuth&gt;</strong>
+    <span>Authenticate to AWS via SSO, static credentials, or local profiles. Credentials flow to subsequent blocks.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/githubauth/">
+    <Icon name="github" size="1.25rem" />
+    <strong>&lt;GitHubAuth&gt;</strong>
+    <span>Authenticate to GitHub via OAuth, PAT, or the GitHub CLI. Detected credentials are confirmed before use.</span>
+    <span class="block-arrow">→</span>
+  </a>
+  <a class="block-row" href="/authoring/blocks/githubpullrequest/">
+    <Icon name="github" size="1.25rem" />
+    <strong>&lt;GitHubPullRequest&gt;</strong>
+    <span>Open a pull request from changes made during the runbook. Completes the clone → modify → PR workflow.</span>
+    <span class="block-arrow">→</span>
+  </a>
+</div>
 
-## Why Runbooks?
+[View all blocks →](/authoring/blocks/)
 
-### The Problem
+## Author in minutes, not weeks
 
-Traditional documentation becomes outdated quickly. Code examples don't work. Users struggle to adapt generic instructions to their specific situation. Knowledge transfer is difficult.
+No platform to deploy. No plugins to build. No YAML abstractions to learn.
 
-### The Solution
-
-Runbooks ensure your documentation always works because it actually executes. Examples are tested every time they run. Instructions automatically adapt to user inputs. Expert knowledge is captured in an executable format.
-
-## Getting Started
+Write a runbook in your editor using MDX, which is markdown you already know, with a handful of interactive blocks. It lives in git, gets reviewed in PRs, and stays close to the infrastructure it documents.
 
 <CardGrid>
-  <Card title="Install Runbooks" icon="setting">
-    Get up and running in minutes. Install via Homebrew, download a pre-built binary, or build from source.
-    
-    [Installation Guide →](/intro/installation/)
+  <Card title="MDX Authoring" icon="pen">
+    Markdown + interactive blocks. If you can write a README, you can write a runbook.
   </Card>
-  <Card title="Write Your First Runbook" icon="document">
-    Learn the basics by creating a simple runbook from scratch.
-    
-    [Tutorial →](/intro/write_your_first_runbook/)
+  <Card title="Lives in Git" icon="github">
+    Runbooks are code. Version them, review them, share them like any other file in your repo.
   </Card>
-  <Card title="Explore Examples" icon="open-book">
-    See real-world examples in the testdata directory, including AWS multi-account setups and ECS deployments.
-    
-    [Use Cases →](/intro/use_cases/)
+  <Card title="Watch Mode" icon="approve-check">
+    Edit your runbook and see changes instantly in the browser. Fast feedback loop for authors. [Learn more →](/commands/watch/)
   </Card>
 </CardGrid>
 
-## Learn More
+## Generate files, open PRs, ship changes
+
+Gruntwork Runbooks isn't just live documentation, it's a code generation pipeline.
+
+Powered by [Gruntwork Boilerplate](/authoring/boilerplate/), the `<Template>` block renders files from templates with developer-supplied variables, previews the output in a built-in file tree, and writes results to the workspace.
+
+Combine `<GitClone>` to clone a repo, `<Template>` to generate files, and `<GitHubPullRequest>` to open a PR, all in a single guided workflow.
 
 <CardGrid>
-  <Card title="Introduction" icon="information">
-    Learn about Runbooks, how they work, and when to use them.
-    
-    [Overview →](/intro/overview/)
+  <Card title="Boilerplate Templates" icon="add-document">
+    Generate files and folders from a template. Variables come from form inputs. [Learn more →](/authoring/blocks/template/)
   </Card>
-  <Card title="Authoring Guide" icon="pen">
-    Write your own runbooks with markdown and special blocks.
-    
-    [Authoring →](/authoring/overview/)
+  <Card title="Inline Templates" icon="document">
+    Define small templates directly in your runbook MDX and give users inline previews. [Learn more →](/authoring/blocks/templateinline/)
   </Card>
-  <Card title="Block Reference" icon="puzzle">
-    Detailed documentation for Check, Command, Inputs, and more.
-    
-    [Blocks →](/authoring/blocks/)
+  <Card title="Clone & PR" icon="github">
+    Clone a repo with `<GitClone>`, make changes, and open a pull request with `<GitHubPullRequest>` for a complete end-to-end workflow. [Learn more →](/authoring/blocks/gitclone/)
   </Card>
-  <Card title="CLI Reference" icon="laptop">
-    Command-line interface documentation for the runbooks tool.
-    
-    [Commands →](/commands/overview/)
+  <Card title="File Preview" icon="open-book">
+    Generated files render in a collapsible file tree with syntax-highlighted code. Developers see exactly what will be created before committing.
   </Card>
 </CardGrid>
 
-## Community & Support
+## Open source and self-contained
 
-- **GitHub**: Report issues and contribute at [github.com/gruntwork-io/runbooks](https://github.com/gruntwork-io/runbooks)
-- **Documentation**: You're reading it!
+Gruntwork Runbooks is a single Go binary.
 
-## License
+No servers to maintain, no cloud accounts to configure, no dependencies to manage. Everything executes locally on the developer's machine.
 
-Runbooks is open source software licensed under the MIT License.
+<CardGrid>
+  <Card title="Single Binary" icon="laptop">
+    One download. No runtime dependencies. Works offline. Runs on macOS and Linux.
+  </Card>
+  <Card title="Local Execution" icon="setting">
+    All commands run on the developer's machine. No secrets leave the local environment.
+  </Card>
+  <Card title="Open Source" icon="heart">
+    MPLv2 licensed. Full source on GitHub. No vendor lock-in, no surprise pricing.
+  </Card>
+</CardGrid>
+
+## Get started
+
+<div class="compact-cards not-content">
+  <a href="/intro/installation/" class="compact-card">
+    <strong>Install</strong>
+    <span>Install via Homebrew, download a binary, or build from source.</span>
+  </a>
+  <a href="/intro/write_your_first_runbook/" class="compact-card">
+    <strong>Write your first runbook</strong>
+    <span>Step-by-step tutorial to create and run your first runbook.</span>
+  </a>
+  <a href="https://github.com/gruntwork-io/runbooks" class="compact-card">
+    <strong>View on GitHub</strong>
+    <span>Browse the source, open issues, and contribute.</span>
+  </a>
+</div>
+

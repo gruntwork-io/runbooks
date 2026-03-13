@@ -387,6 +387,81 @@ test.describe("sample-runbooks/my-first-runbook", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Test: homepage-demo
+// ---------------------------------------------------------------------------
+test.describe("sample-runbooks/homepage-demo", () => {
+  test("renders without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+    await serveRunbook("testdata/sample-runbooks/homepage-demo");
+    await page.goto(`http://localhost:${serverPort}/`);
+    await deleteFilesIfPrompted(page);
+
+    const markdownBody = page.locator(".markdown-body");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+
+    // Verify the title rendered.
+    await expect(page.locator("h1")).toHaveText("Deploy a New Service");
+
+    // Verify key sections rendered.
+    await expect(page.getByRole("heading", { name: "Pre-flight checks" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Configure your service" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Deploy", exact: true })).toBeVisible();
+
+    // Verify the Check block rendered with a Check button.
+    const checkBlock = page.getByTestId("check-node");
+    await expect(checkBlock).toBeVisible();
+    await expect(checkBlock.getByRole("button", { name: "Check" })).toBeVisible();
+
+    // Verify the Inputs block rendered with defaults.
+    const inputsBlock = page.getByTestId("service-config");
+    await expect(inputsBlock).toBeVisible();
+    await expect(inputsBlock.getByRole("textbox", { name: /Service Name/i })).toHaveValue("my-service");
+    await expect(inputsBlock.getByRole("combobox", { name: /Environment/i })).toHaveValue("dev");
+    await expect(inputsBlock.getByRole("checkbox", { name: /Enable Monitoring/i })).toBeChecked();
+
+    // Verify the Command block rendered with a Run button.
+    const commandBlock = page.getByTestId("deploy");
+    await expect(commandBlock).toBeVisible();
+    await expect(commandBlock.getByRole("button", { name: "Run" })).toBeVisible();
+
+    // No error boundary should be visible.
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+
+  test("runs check and command blocks", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+    await serveRunbook("testdata/sample-runbooks/homepage-demo");
+    await page.goto(`http://localhost:${serverPort}/`);
+    await deleteFilesIfPrompted(page);
+
+    const markdownBody = page.locator(".markdown-body");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+
+    await trustRunbook(page);
+
+    // Run the Check block and verify success.
+    const checkBlock = page.getByTestId("check-node");
+    await checkBlock.getByRole("button", { name: "Check" }).click();
+    await expect(checkBlock.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 });
+
+    // Submit the inputs so the Command block becomes enabled.
+    const inputsBlock = page.getByTestId("service-config");
+    await inputsBlock.getByRole("button", { name: "Submit" }).click();
+
+    // Run the Command block and verify success.
+    const commandBlock = page.getByTestId("deploy");
+    await expect(commandBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 10_000 });
+    await commandBlock.getByRole("button", { name: "Run" }).click();
+    await expect(commandBlock.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 });
+
+    // No error boundary should be visible.
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Test: next-app
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/next-app", () => {
