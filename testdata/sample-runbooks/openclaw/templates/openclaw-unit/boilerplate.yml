@@ -53,13 +53,6 @@ variables:
       - required
     x-section: Instance Settings
 
-  - name: KeyPairName
-    type: string
-    description: Name of an existing EC2 key pair for SSH access (create one in the EC2 Console if needed)
-    validations:
-      - required
-    x-section: Network Settings
-
   - name: AllowedSshCidr
     type: string
     description: CIDR block allowed to SSH into the instance (e.g., your office IP). Use 0.0.0.0/0 to allow all.

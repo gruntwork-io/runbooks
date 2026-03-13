@@ -13,8 +13,19 @@ output "vpc_id" {
   description = "The ID of the VPC"
 }
 
+output "private_key_openssh" {
+  value       = tls_private_key.openclaw.private_key_openssh
+  sensitive   = true
+  description = "Private SSH key in OpenSSH format. Save to ~/.ssh/${var.instance_name}-key and chmod 600."
+}
+
+output "save_key_instructions" {
+  value       = "Run: terragrunt output -raw private_key_openssh > ~/.ssh/${var.instance_name}-key && chmod 600 ~/.ssh/${var.instance_name}-key"
+  description = "Command to save the private key to your local machine"
+}
+
 output "ssh_command" {
-  value       = "ssh -i ~/.ssh/${var.key_pair_name}.pem ubuntu@${aws_eip.openclaw.public_ip}"
+  value       = "ssh -i ~/.ssh/${var.instance_name}-key ubuntu@${aws_eip.openclaw.public_ip}"
   description = "SSH command to connect to the instance"
 }
 
@@ -24,6 +35,6 @@ output "tailscale_access_note" {
 }
 
 output "token_retrieval_command" {
-  value       = "ssh -i ~/.ssh/${var.key_pair_name}.pem ubuntu@${aws_eip.openclaw.public_ip} cat /home/ubuntu/.openclaw-token"
+  value       = "ssh -i ~/.ssh/${var.instance_name}-key ubuntu@${aws_eip.openclaw.public_ip} cat /home/ubuntu/.openclaw-token"
   description = "Command to retrieve the OpenClaw gateway auth token"
 }

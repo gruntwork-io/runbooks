@@ -57,8 +57,6 @@ inputs = {
   instance_name = "{{ .inputs.InstanceName }}-{{ .inputs.Environment }}"
   instance_type = "{{ .inputs.InstanceType }}"
   volume_size   = {{ .inputs.VolumeSize }}
-  key_pair_name = "{{ .inputs.KeyPairName }}"
-
   allowed_ssh_cidr   = "{{ .inputs.AllowedSshCidr }}"
   tailscale_auth_key = "{{ .inputs.TailscaleAuthKey }}"
 

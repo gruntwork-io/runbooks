@@ -12,6 +12,10 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.0"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = ">= 4.0"
+    }
   }
 }
 
@@ -134,6 +138,25 @@ resource "aws_vpc_security_group_egress_rule" "all_outbound" {
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
+# SSH KEY PAIR
+# Auto-create an EC2 key pair so the user doesn't need to pre-create one.
+# The private key is stored in Terraform state and exposed as a sensitive output.
+# ---------------------------------------------------------------------------------------------------------------------
+
+resource "tls_private_key" "openclaw" {
+  algorithm = "ED25519"
+}
+
+resource "aws_key_pair" "openclaw" {
+  key_name   = "${var.instance_name}-key"
+  public_key = tls_private_key.openclaw.public_key_openssh
+
+  tags = merge(var.tags, {
+    Name = "${var.instance_name}-key"
+  })
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
 # EC2 INSTANCE
 # Launch the OpenClaw instance with Docker and Tailscale installed via user_data.
 # ---------------------------------------------------------------------------------------------------------------------
@@ -141,7 +164,7 @@ resource "aws_vpc_security_group_egress_rule" "all_outbound" {
 resource "aws_instance" "openclaw" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
-  key_name               = var.key_pair_name
+  key_name               = aws_key_pair.openclaw.key_name
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.openclaw.id]
 

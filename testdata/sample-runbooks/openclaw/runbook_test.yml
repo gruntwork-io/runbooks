@@ -19,7 +19,6 @@ tests:
       openclaw-config.InstanceName: "openclaw"
       openclaw-config.InstanceType: "t4g.medium"
       openclaw-config.VolumeSize: 30
-      openclaw-config.KeyPairName: "my-keypair"
       openclaw-config.AllowedSshCidr: "0.0.0.0/0"
       openclaw-config.TailscaleAuthKey: "tskey-auth-test1234567890"
       openclaw-config.OpenClawVersion: "latest"
@@ -39,6 +38,8 @@ tests:
       - block: terragrunt-apply
         expect: skip
       - block: test-openclaw
+        expect: skip
+      - block: terragrunt-destroy
         expect: skip
 
     assertions:

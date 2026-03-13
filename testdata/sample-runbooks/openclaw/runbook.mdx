@@ -65,8 +65,7 @@ Configure and generate the OpenTofu module and Terragrunt configuration for your
 
 Before configuring, you'll need:
 
-1. **An AWS EC2 key pair** in your target region. Create one in the [EC2 Console](https://console.aws.amazon.com/ec2/home#KeyPairs:) if you don't have one.
-2. **A Tailscale auth key**. Generate one at [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys) > Settings > Keys > Generate auth key. Enable "Reusable" if you plan to redeploy.
+1. **A Tailscale auth key**. Generate one at [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys) > Settings > Keys > Generate auth key. Enable "Reusable" if you plan to redeploy.
 
 ### Configure the Deployment
 
@@ -104,6 +103,23 @@ Now deploy the infrastructure using Terragrunt. First, preview the changes with 
   inputsId="openclaw-config"
   awsAuthId="aws-auth"
 />
+
+## Save Your SSH Key
+
+The deployment automatically created an EC2 key pair. Save the private key to your local machine so you can SSH into the instance:
+
+```bash
+cd generated
+terragrunt output -raw private_key_openssh > ~/.ssh/openclaw-key && chmod 600 ~/.ssh/openclaw-key
+```
+
+You can then SSH into the instance using:
+
+```bash
+ssh -i ~/.ssh/openclaw-key ubuntu@<elastic-ip>
+```
+
+The Elastic IP is shown in the Terragrunt apply output above.
 
 ## Set up Tailscale on Your Machine
 
@@ -150,7 +166,7 @@ Replace `<tailscale-ip>` with the Tailscale IP of your EC2 node (shown in `tails
 The gateway auth token was auto-generated during deployment. Retrieve it via SSH:
 
 ```bash
-ssh ubuntu@<tailscale-ip> cat /home/ubuntu/.openclaw-token
+ssh -i ~/.ssh/openclaw-key ubuntu@<tailscale-ip> cat /home/ubuntu/.openclaw-token
 ```
 
 Use this token to authenticate with the OpenClaw gateway.
@@ -164,6 +180,21 @@ Use this token to authenticate with the OpenClaw gateway.
   description="Check that the EC2 instance is running and OpenClaw is operational."
   successMessage="OpenClaw is deployed and running!"
   failMessage="Verification failed. Check the logs for details."
+  inputsId="openclaw-config"
+  awsAuthId="aws-auth"
+/>
+
+## Cleanup (Optional)
+
+When you're done with OpenClaw, you can tear down all the infrastructure created by this runbook. This will delete the EC2 instance, VPC, Elastic IP, security group, and key pair.
+
+<Command
+  id="terragrunt-destroy"
+  path="scripts/terragrunt-destroy.sh"
+  title="Terragrunt Destroy"
+  description="Destroy all OpenClaw infrastructure. This action is irreversible."
+  successMessage="All OpenClaw resources have been destroyed."
+  failMessage="Terragrunt destroy failed. See logs for details."
   inputsId="openclaw-config"
   awsAuthId="aws-auth"
 />

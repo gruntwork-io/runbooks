@@ -23,11 +23,6 @@ variable "volume_size" {
   }
 }
 
-variable "key_pair_name" {
-  type        = string
-  description = "Name of an existing EC2 key pair for SSH access"
-}
-
 variable "allowed_ssh_cidr" {
   type        = string
   default     = "0.0.0.0/0"
