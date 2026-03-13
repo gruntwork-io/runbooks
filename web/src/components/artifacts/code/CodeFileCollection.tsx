@@ -3,7 +3,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
 import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
@@ -322,13 +322,8 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
     const isTruncated = fileItem.file?.isTruncated === true;
     const lineCount = code ? code.split('\n').length : 0;
 
-    // Format file size for display
     const fileSize = fileItem.file?.size ?? 0;
-    const fileSizeLabel = fileSize > 1024 * 1024
-      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
-      : fileSize > 1024
-        ? `${(fileSize / 1024).toFixed(1)} KB`
-        : `${fileSize} B`;
+    const fileSizeLabel = formatFileSize(fileSize);
 
     const handleCopyPath = () => copy(filePath);
 

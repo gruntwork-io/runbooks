@@ -9,9 +9,15 @@ import (
 
 func TestBuildFileTreeWithContentBasic(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "src"), 0755)
-	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Hello\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\n"), 0644)
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0755); err != nil {
+		t.Fatalf("failed to create src dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Hello\n"), 0644); err != nil {
+		t.Fatalf("failed to write README.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
 
 	result, err := buildFileTreeWithContentResult(dir, "")
 	if err != nil {

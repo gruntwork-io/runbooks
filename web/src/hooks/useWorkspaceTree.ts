@@ -128,22 +128,32 @@ export function useWorkspaceTree(): UseWorkspaceTreeResult {
 
   const fetchSubtree = useCallback(async (nodeId: string) => {
     if (!activeWorkTree) return
-    const absolutePath = `${activeWorkTree.localPath}/${nodeId}`
+    const basePath = activeWorkTree.localPath.replace(/\/+$/, '')
+    const subPath = nodeId.replace(/^\/+/, '')
+    const absolutePath = `${basePath}/${subPath}`
 
-    const response = await fetch(
-      `/api/workspace/tree?path=${encodeURIComponent(absolutePath)}`,
-      { headers: { ...getAuthHeader() } }
-    )
+    try {
+      const response = await fetch(
+        `/api/workspace/tree?path=${encodeURIComponent(absolutePath)}`,
+        { headers: { ...getAuthHeader() } }
+      )
 
-    if (!response.ok) return
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        console.error(`Failed to load subtree for "${nodeId}": ${response.status}`, text)
+        return
+      }
 
-    const data: WorkspaceTreeResponse = await response.json()
-    const prefixed = prefixTreeIds(data.tree, nodeId)
+      const data: WorkspaceTreeResponse = await response.json()
+      const prefixed = prefixTreeIds(data.tree, nodeId)
 
-    setTree(prev => {
-      if (!prev) return prev
-      return mergeSubtree(prev, nodeId, prefixed)
-    })
+      setTree(prev => {
+        if (!prev) return prev
+        return mergeSubtree(prev, nodeId, prefixed)
+      })
+    } catch (err) {
+      console.error(`Failed to fetch subtree for "${nodeId}":`, err)
+    }
   }, [activeWorkTree, getAuthHeader])
 
   return { tree, isLoading, error, totalFiles, refetch, fetchSubtree }
