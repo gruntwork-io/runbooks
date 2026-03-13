@@ -5,11 +5,30 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import http from "http";
+import net from "net";
 
-// This is the default port for the serve command, and we increment it for each parallel worker.
-const BASE_PORT = 7825;
 const HEALTH_POLL_INTERVAL_MS = 100;
 const HEALTH_TIMEOUT_MS = 10_000;
+
+/**
+ * Ask the OS for an available port by binding to port 0, which makes the
+ * kernel pick an unused ephemeral port. We read back the assigned port,
+ * then close the listener so the Go server can bind to it moments later.
+ *
+ * There is a small TOCTOU window between close() and the Go server's
+ * bind(), but in practice the OS won't reassign the same ephemeral port
+ * to another process that quickly.
+ */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address() as net.AddressInfo;
+      srv.close(() => resolve(addr.port));
+    });
+    srv.on("error", reject);
+  });
+}
 
 /** Repo root: two directories above web/e2e/ */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -105,7 +124,7 @@ type RunbookServerFixture = {
    * The path should be relative to the repo root (e.g. "testdata/sample-runbooks/my-first-runbook").
    */
   serveRunbook: (runbookPath: string) => Promise<void>;
-  /** The port the server is listening on (unique per parallel worker). */
+  /** The port the server is listening on (unique per test, OS-assigned). */
   serverPort: number;
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[];
@@ -115,7 +134,7 @@ type RunbookServerFixture = {
  * Extend Playwright's `test` with a `serveRunbook` fixture that manages
  * the Go server lifecycle and a `consoleMessages` array for assertions.
  *
- * Each parallel worker gets a unique port (BASE_PORT + workerIndex) so
+ * Each test gets a unique OS-assigned port via findFreePort() so
  * multiple tests can run simultaneously without port conflicts.
  */
 export const test = base.extend<RunbookServerFixture>({
@@ -125,8 +144,8 @@ export const test = base.extend<RunbookServerFixture>({
     await use(messages);
   },
 
-  serverPort: [async ({}, use, testInfo) => {
-    await use(BASE_PORT + testInfo.workerIndex);
+  serverPort: [async ({}, use) => {
+    await use(await findFreePort());
   }, { scope: "test" }],
 
   serveRunbook: async ({ page, consoleMessages, serverPort }, use, testInfo) => {
