@@ -107,7 +107,7 @@ function TemplateInline({
   
   // Get file tree for merging (Generated tab) and worktree context for invalidation (All files tab)
   const { setFileTree } = useFileTree();
-  const { invalidateTree } = useGitWorkTree();
+  const { activeWorkTree, invalidateTree } = useGitWorkTree();
 
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(inputsId);
@@ -168,11 +168,13 @@ function TemplateInline({
   const renderTemplate = useCallback(async (isAutoUpdate: boolean = false): Promise<FileTreeNode[]> => {
     const version = ++renderVersionRef.current;
 
-    // Only show loading state for initial renders, not auto-updates
+    // Only show loading state for initial renders, not auto-updates.
+    // Don't clear error/loading state eagerly — wait until we get a response
+    // to avoid flashing between error → loading → error on retries.
     if (!isAutoUpdate) {
       setIsRendering(true);
+      setError(null);
     }
-    setError(null);
 
     // Build payload with inputs and outputs namespaces
     const payload = buildTemplatePayload({ inputs: inputValues, outputs: flattenedOutputs });
@@ -234,9 +236,17 @@ function TemplateInline({
   // Render when imported values or outputs change (handles both initial render and updates)
   const hasTriggeredInitialRender = useRef(false);
   
+  // Whether the worktree is required but not yet available
+  const waitingForWorktree = target === 'worktree' && !activeWorkTree;
+
   useEffect(() => {
     // Don't render if this is a duplicate/colliding ID
     if (isDuplicate) {
+      return;
+    }
+
+    // When target is "worktree", wait for a GitClone to complete
+    if (waitingForWorktree) {
       return;
     }
 
@@ -304,7 +314,7 @@ function TemplateInline({
           console.error(`[TemplateInline][${outputPath}] Render failed:`, err);
         });
     }, delay);
-  }, [isDuplicate, inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
+  }, [isDuplicate, waitingForWorktree, activeWorkTree, inputValues, inputs, allOutputs, hasAllInputDeps, hasAllOutputDeps, outputPath, renderTemplate, setFileTree, generateFile, target, invalidateTree]);
   
   // Cleanup timer on unmount
   useEffect(() => {
@@ -355,7 +365,9 @@ function TemplateInline({
         />
       ) : null}
       
-      {error ? (
+      {waitingForWorktree ? (
+        <LoadingDisplay message="Waiting for repository to be cloned..." />
+      ) : error ? (
         <ErrorDisplay error={error} />
       ) : renderState === 'waiting' ? (
         <LoadingDisplay message="Waiting for template to render..." />
