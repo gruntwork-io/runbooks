@@ -59,20 +59,28 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     return files;
   }, [data]);
 
+  // Derive a stable identity key from the file list so we detect when a
+  // *different* set of files arrives, even if the count stays the same.
+  const fileIdsKey = useMemo(
+    () => fileItems.map(f => f.id).join('\0'),
+    [fileItems]
+  );
+
   // Auto-collapse all files when there are many to avoid rendering
   // expensive syntax-highlighted content for every file at once.
-  const prevFileCountRef = useRef(0);
+  const prevFileIdsKeyRef = useRef('');
   useEffect(() => {
-    if (fileItems.length > AUTO_COLLAPSE_THRESHOLD && prevFileCountRef.current !== fileItems.length) {
+    if (fileIdsKey === prevFileIdsKeyRef.current) return;
+    if (fileItems.length > AUTO_COLLAPSE_THRESHOLD) {
       setCollapsedFiles(new Set(fileItems.map(f => f.id)));
     }
-    prevFileCountRef.current = fileItems.length;
-  }, [fileItems]);
+    prevFileIdsKeyRef.current = fileIdsKey;
+  }, [fileIdsKey, fileItems]);
 
-  // Reset display limit when file list changes substantially
+  // Reset display limit when file list changes
   useEffect(() => {
     setDisplayLimit(MAX_DISPLAYED_FILES);
-  }, [fileItems.length]);
+  }, [fileIdsKey]);
 
   // Slice files to the display limit
   const displayedFiles = useMemo(
@@ -286,6 +294,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                     Showing {displayedFiles.length} of {fileItems.length} generated files.
                   </span>
                   <button
+                    type="button"
                     onClick={handleShowMore}
                     className="px-3 py-1 text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md cursor-pointer transition-colors"
                   >
