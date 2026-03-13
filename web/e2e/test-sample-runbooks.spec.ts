@@ -85,7 +85,9 @@ test.describe("sample-runbooks/demo2", () => {
     const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
     await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
     await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect(generated.getTreeItem('subfolder')).toBeVisible({ timeout: 2_000 });
     await generated.getTreeItem('subfolder').click();
+    await expect(generated.getTreeItem('sample.hcl')).toBeVisible({ timeout: 2_000 });
     await generated.getTreeItem('sample.hcl').click();
     await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
   });
@@ -131,17 +133,20 @@ test.describe("sample-runbooks/demo2", () => {
     const genFiles = getFilesPanel(page, 'generated');
 
     // Verify common.hcl contains values from our inputs.
+    await expect(genFiles.getTreeItem('common.hcl')).toBeVisible({ timeout: 2_000 });
     await genFiles.getTreeItem('common.hcl').click();
     await expect(genFiles.getCodeFile('common.hcl')).toContainText('name_prefix    = "acme"');
     await expect(genFiles.getCodeFile('common.hcl')).toContainText('default_region = "eu-west-1"');
     await expect(genFiles.getCodeFile('common.hcl')).toContainText('config_s3_bucket_name');
 
     // Verify accounts.yml contains the structured map entry.
+    await expect(genFiles.getTreeItem('accounts.yml')).toBeVisible({ timeout: 2_000 });
     await genFiles.getTreeItem('accounts.yml').click();
     await expect(genFiles.getCodeFile('accounts.yml')).toContainText('dev-account');
     await expect(genFiles.getCodeFile('accounts.yml')).toContainText('111222333444');
 
     // Verify the root terragrunt file uses our custom name.
+    await expect(genFiles.getTreeItem('terragrunt2.hcl')).toBeVisible({ timeout: 2_000 });
     await genFiles.getTreeItem('terragrunt2.hcl').click();
   });
 });
