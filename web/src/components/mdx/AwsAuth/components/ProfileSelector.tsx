@@ -130,7 +130,7 @@ export function ProfileSelector({
             {hasSsoProfiles && (
               <div className="text-xs text-gray-500 bg-gray-50 rounded-md px-3 py-2 flex items-start gap-1">
                 <Asterisk className="size-3.5 mt-0.5 shrink-0" />
-                <span>SSO profiles are not shown here. Use the <strong>AWS SSO</strong> tab instead.</span>
+                <span>SSO profiles are not shown here. For SSO profiles, use the <strong>AWS SSO</strong> tab.</span>
               </div>
             )}
           </div>
@@ -142,7 +142,7 @@ export function ProfileSelector({
             {hasSsoProfiles && (
               <div className="text-xs text-gray-500 bg-gray-50 rounded-md px-3 py-2 flex items-start gap-2">
                 <Info className="size-3.5 mt-0.5 shrink-0" />
-                <span>SSO profiles are not shown here. Use the <strong>AWS SSO</strong> tab instead.</span>
+                <span>SSO profiles are not shown here. For SSO profiles, use the <strong>AWS SSO</strong> tab.</span>
               </div>
             )}
           </div>
