@@ -1,0 +1,169 @@
+# Deploy OpenClaw on AWS EC2
+
+This runbook guides you through deploying [OpenClaw](https://github.com/openclaw/openclaw) on a standalone AWS EC2 instance using Terragrunt and OpenTofu. OpenClaw is an open-source AI agent framework that runs 24/7 and can autonomously execute tasks like checking you into flights, responding to messages, and booking appointments.
+
+## What you'll deploy
+
+You'll deploy a self-contained Terragrunt configuration that creates:
+
+1. A dedicated **VPC** with a public subnet and internet gateway
+2. An **EC2 instance** (Graviton ARM by default) running OpenClaw in Docker
+3. **Tailscale** mesh VPN for secure private access to the OpenClaw UI
+4. An **Elastic IP** for stable SSH access to the instance
+5. A **security group** restricting access to SSH only (OpenClaw is accessed via Tailscale)
+
+Estimated monthly cost: **~$25/month** (t4g.medium + 30GB EBS + Elastic IP).
+
+## Pre-flight checks
+
+Before you begin, ensure you have the required tools installed and are properly authenticated.
+
+### Authenticate to AWS
+
+First, authenticate to AWS. This runbook uses AWS SSO (IAM Identity Center) for authentication.
+
+<AwsAuth
+  id="aws-auth"
+  title="Authenticate to AWS"
+  description="Authenticate to the AWS account where you want to deploy OpenClaw."
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+  ssoRegion="us-west-2"
+  defaultRegion="us-west-2"
+/>
+
+### Install mise
+
+Verify that mise is installed. If not, install it from [mise.jdx.dev](https://mise.jdx.dev/getting-started.html).
+
+<Check
+  id="check-mise"
+  command="mise --version && mise self-update;"
+  title="Check mise Installation"
+  description="We recommend `mise` as a tool version manager that can install and manage Terragrunt, OpenTofu, and other tools. This checks that mise is installed and up to date."
+  successMessage="mise is installed and up to date!"
+  failMessage="mise is not installed. Install it from https://mise.jdx.dev/getting-started.html"
+/>
+
+### Install Required Tools
+
+Once mise is installed, run the following command to install all required tools:
+
+<Command
+  id="install-tools"
+  command="mise use terragrunt@latest opentofu@latest awscli@latest granted@latest"
+  title="Install Required Tools via mise"
+  description="Installs Terragrunt, OpenTofu, AWS CLI, and Granted using mise"
+  successMessage="All tools installed successfully!"
+  failMessage="Failed to install tools. Check the logs for details."
+/>
+
+## Generate the OpenClaw Infrastructure
+
+Configure and generate the OpenTofu module and Terragrunt configuration for your OpenClaw deployment.
+
+### Prerequisites
+
+Before configuring, you'll need:
+
+1. **An AWS EC2 key pair** in your target region. Create one in the [EC2 Console](https://console.aws.amazon.com/ec2/home#KeyPairs:) if you don't have one.
+2. **A Tailscale auth key**. Generate one at [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys) > Settings > Keys > Generate auth key. Enable "Reusable" if you plan to redeploy.
+
+### Configure the Deployment
+
+<Template
+  id="openclaw-config"
+  path="templates/openclaw-unit"
+/>
+
+The generated files will include:
+- `terragrunt.hcl` - Self-contained Terragrunt configuration (no external dependencies)
+- `modules/openclaw-ec2/` - OpenTofu module with VPC, EC2, security group, and Elastic IP
+
+## Deploy OpenClaw
+
+Now deploy the infrastructure using Terragrunt. First, preview the changes with a plan, then apply.
+
+<Command
+  id="terragrunt-plan"
+  path="scripts/terragrunt-plan.sh"
+  title="Terragrunt Plan"
+  description="Preview the infrastructure changes that will be made to deploy OpenClaw."
+  successMessage="Plan completed successfully! Review the changes above."
+  failMessage="Terragrunt plan failed. See logs for details."
+  inputsId="openclaw-config"
+  awsAuthId="aws-auth"
+/>
+
+<Command
+  id="terragrunt-apply"
+  path="scripts/terragrunt-apply.sh"
+  title="Terragrunt Apply"
+  description="Apply the infrastructure changes to deploy OpenClaw on EC2."
+  successMessage="OpenClaw deployed successfully!"
+  failMessage="Terragrunt apply failed. See logs for details."
+  inputsId="openclaw-config"
+  awsAuthId="aws-auth"
+/>
+
+## Set up Tailscale on Your Machine
+
+Your OpenClaw instance is now running and connected to your Tailscale network. Follow these steps to access it from your local machine.
+
+### 1. Install the Tailscale Client
+
+Install Tailscale on your local machine:
+
+- **macOS**: `brew install tailscale` or download from [tailscale.com/download](https://tailscale.com/download)
+- **Linux**: `curl -fsSL https://tailscale.com/install.sh | sh`
+- **Windows**: Download from [tailscale.com/download](https://tailscale.com/download)
+
+### 2. Authenticate to Your Tailnet
+
+Run the following command and follow the browser prompt to log in:
+
+```bash
+sudo tailscale up
+```
+
+### 3. Verify the EC2 Node is Connected
+
+Check that your OpenClaw EC2 instance appears in your Tailscale network:
+
+```bash
+tailscale status
+```
+
+You should see a node named `openclaw-<environment>` (or the instance name you configured). You can also verify in the [Tailscale Admin Console](https://login.tailscale.com/admin/machines).
+
+### 4. Access OpenClaw
+
+Open your browser and navigate to:
+
+```
+http://<tailscale-ip>:18789
+```
+
+Replace `<tailscale-ip>` with the Tailscale IP of your EC2 node (shown in `tailscale status` output).
+
+### 5. Retrieve the Gateway Auth Token
+
+The gateway auth token was auto-generated during deployment. Retrieve it via SSH:
+
+```bash
+ssh ubuntu@<tailscale-ip> cat /home/ubuntu/.openclaw-token
+```
+
+Use this token to authenticate with the OpenClaw gateway.
+
+## Verify the Deployment
+
+<Check
+  id="test-openclaw"
+  path="checks/test-openclaw.sh"
+  title="Verify OpenClaw Deployment"
+  description="Check that the EC2 instance is running and OpenClaw is operational."
+  successMessage="OpenClaw is deployed and running!"
+  failMessage="Verification failed. Check the logs for details."
+  inputsId="openclaw-config"
+  awsAuthId="aws-auth"
+/>

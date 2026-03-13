@@ -1,0 +1,103 @@
+#!/bin/bash
+# Cloud-init script for OpenClaw EC2 instance
+# Installs Docker, Tailscale, and runs OpenClaw in a container.
+set -euo pipefail
+
+exec > >(tee /var/log/openclaw-setup.log) 2>&1
+echo "=== OpenClaw setup started at $(date) ==="
+
+# ---------------------------------------------------------------------------------------------------------------------
+# SYSTEM UPDATE
+# ---------------------------------------------------------------------------------------------------------------------
+
+echo ">>> Updating system packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get upgrade -y
+
+# ---------------------------------------------------------------------------------------------------------------------
+# INSTALL DOCKER
+# Install Docker CE from the official Docker repository.
+# https://docs.docker.com/engine/install/ubuntu/
+# ---------------------------------------------------------------------------------------------------------------------
+
+echo ">>> Installing Docker..."
+apt-get install -y ca-certificates curl gnupg
+
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+systemctl enable docker
+systemctl start docker
+
+# Add ubuntu user to docker group
+usermod -aG docker ubuntu
+
+echo ">>> Docker installed successfully"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# INSTALL TAILSCALE
+# Install Tailscale and join the Tailnet using the provided auth key.
+# https://tailscale.com/kb/1031/install-linux
+# ---------------------------------------------------------------------------------------------------------------------
+
+echo ">>> Installing Tailscale..."
+curl -fsSL https://tailscale.com/install.sh | sh
+
+echo ">>> Connecting to Tailnet..."
+tailscale up --authkey="${tailscale_auth_key}" --hostname="${instance_name}"
+
+echo ">>> Tailscale connected. IP: $(tailscale ip -4)"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# GENERATE GATEWAY AUTH TOKEN
+# Create a random token for OpenClaw gateway authentication.
+# ---------------------------------------------------------------------------------------------------------------------
+
+OPENCLAW_TOKEN=$(openssl rand -hex 32)
+echo "$OPENCLAW_TOKEN" > /home/ubuntu/.openclaw-token
+chown ubuntu:ubuntu /home/ubuntu/.openclaw-token
+chmod 600 /home/ubuntu/.openclaw-token
+
+echo ">>> Gateway auth token generated and saved to /home/ubuntu/.openclaw-token"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# RUN OPENCLAW
+# Start OpenClaw in a Docker container with automatic restart.
+# ---------------------------------------------------------------------------------------------------------------------
+
+echo ">>> Starting OpenClaw container..."
+docker run -d \
+  --name openclaw \
+  --restart=always \
+  -p ${gateway_port}:${gateway_port} \
+  -e OPENCLAW_GATEWAY_PORT=${gateway_port} \
+  -e OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN" \
+  -v openclaw-data:/app/data \
+  openclaw/openclaw:${openclaw_version}
+
+echo ">>> OpenClaw container started"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# SETUP COMPLETE
+# ---------------------------------------------------------------------------------------------------------------------
+
+TAILSCALE_IP=$(tailscale ip -4)
+echo ""
+echo "============================================"
+echo "  OpenClaw setup complete!"
+echo "  Tailscale IP: $TAILSCALE_IP"
+echo "  OpenClaw UI: http://$TAILSCALE_IP:${gateway_port}"
+echo "  Gateway token: saved to /home/ubuntu/.openclaw-token"
+echo "============================================"
+echo ""
+echo "=== OpenClaw setup finished at $(date) ==="
