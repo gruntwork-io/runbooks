@@ -140,11 +140,13 @@ test.describe("sample-runbooks/demo2", () => {
     await expect(genFiles.getCodeFile('common.hcl')).toContainText('config_s3_bucket_name');
 
     // Verify accounts.yml contains the structured map entry.
+    await expect(genFiles.getTreeItem('accounts.yml')).toBeVisible({ timeout: 1_000 });
     await genFiles.getTreeItem('accounts.yml').click();
     await expect(genFiles.getCodeFile('accounts.yml')).toContainText('dev-account');
     await expect(genFiles.getCodeFile('accounts.yml')).toContainText('111222333444');
 
     // Verify the root terragrunt file uses our custom name.
+    await expect(genFiles.getTreeItem('terragrunt2.hcl')).toBeVisible({ timeout: 1_000 });
     await genFiles.getTreeItem('terragrunt2.hcl').click();
   });
 });
