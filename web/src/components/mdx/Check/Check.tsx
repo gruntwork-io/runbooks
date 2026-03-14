@@ -142,7 +142,7 @@ function Check({
     const errors: string[] = [];
     
     if (!title) {
-      errors.push('The <code>title</code> prop is required but was not provided.');
+      errors.push('The "title" prop is required but was not provided.');
     }
     
     // Add more validation checks here as needed
@@ -214,8 +214,8 @@ function Check({
             <strong>Check Component Error{validationErrors.length > 1 ? 's' : ''}:</strong>
             {id && <span className="text-sm"> (Check ID: <code className="bg-red-100 px-1 rounded">{id}</code>)</span>}
             <ul className="list-disc ml-5 mt-2 space-y-1">
-              {validationErrors.map((error, index) => (
-                <li key={index} dangerouslySetInnerHTML={{ __html: error }} />
+              {validationErrors.map((error) => (
+                <li key={error}>{error}</li>
               ))}
             </ul>
           </div>

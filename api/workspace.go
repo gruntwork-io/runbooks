@@ -22,13 +22,15 @@ import (
 
 // WorkspaceTreeNode represents a file or folder in the workspace tree (structure only, no content).
 type WorkspaceTreeNode struct {
-	ID       string              `json:"id"`
-	Name     string              `json:"name"`
-	Type     string              `json:"type"` // "file" or "folder"
-	Size     int64               `json:"size,omitempty"`
-	Language string              `json:"language,omitempty"`
-	IsBinary bool                `json:"isBinary,omitempty"`
-	Children []WorkspaceTreeNode `json:"children,omitempty"`
+	ID         string              `json:"id"`
+	Name       string              `json:"name"`
+	Type       string              `json:"type"` // "file" or "folder"
+	Size       int64               `json:"size,omitempty"`
+	Language   string              `json:"language,omitempty"`
+	IsBinary   bool                `json:"isBinary,omitempty"`
+	IsIgnored  bool                `json:"isIgnored,omitempty"`
+	IsLazyLoad bool                `json:"isLazyLoad,omitempty"`
+	Children   []WorkspaceTreeNode `json:"children,omitempty"`
 }
 
 // WorkspaceGitInfo contains git metadata for a workspace.
@@ -89,6 +91,7 @@ var (
 	maxFileContentSize = int64(1 * 1024 * 1024) // 1 MB
 	maxDiffSizePerFile = 50 * 1024               // 50 KB
 	maxChangedFiles    = 500
+	maxDirEntries      = 500
 )
 
 // imageExtensions maps file extensions to MIME types for images we render inline.
@@ -149,7 +152,7 @@ func HandleWorkspaceTree() gin.HandlerFunc {
 			if strings.Contains(err.Error(), "too many files") {
 				c.JSON(http.StatusRequestEntityTooLarge, gin.H{
 					"error":   "too many files",
-					"details": fmt.Sprintf("Directory contains more than %d files. Try cloning a specific subdirectory.", maxWorkspaceFiles),
+					"details": fmt.Sprintf("Directory contains more than %s files. Try cloning a specific subdirectory.", formatWithCommas(maxWorkspaceFiles)),
 				})
 				return
 			}
@@ -391,8 +394,17 @@ func handleWorkspacePathAction(action func(string)) gin.HandlerFunc {
 	}
 }
 
+// textBasedImageExtensions are image formats that are actually text (e.g., SVG is XML).
+// These should be treated as text for diffing even though they render as images.
+var textBasedImageExtensions = map[string]bool{
+	".svg": true,
+}
+
 // isBinaryExt returns true if the file extension indicates a binary (non-text) file.
 func isBinaryExt(ext string) bool {
+	if textBasedImageExtensions[ext] {
+		return false
+	}
 	return binaryExtensions[ext] || imageExtensions[ext] != ""
 }
 
@@ -409,6 +421,9 @@ func getGitField(dirPath string, args ...string) string {
 // =============================================================================
 
 // buildWorkspaceTree builds a structure-only file tree (no content).
+// At each directory level it batch-checks entries against gitignore and
+// skips recursion into directories that are either gitignored or have more
+// than maxDirEntries immediate entries, marking them as lazy-loadable.
 func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([]WorkspaceTreeNode, error) {
 	fullPath := filepath.Join(rootPath, relativePath)
 
@@ -425,19 +440,32 @@ func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([
 		return entries[i].Name() < entries[j].Name()
 	})
 
+	ignoredSet := checkIgnoredPaths(rootPath, relativePath, entries)
+
 	var result []WorkspaceTreeNode
 
 	for _, entry := range entries {
 		name := entry.Name()
 
-		// Skip .git and other VCS directories
 		if entry.IsDir() && (name == ".git" || name == ".svn" || name == ".hg") {
 			continue
 		}
 
 		entryRelPath := filepath.Join(relativePath, name)
+		isIgnored := ignoredSet[entryRelPath]
 
 		if entry.IsDir() {
+			if isIgnored || isDirLarge(filepath.Join(fullPath, name)) {
+				result = append(result, WorkspaceTreeNode{
+					ID:         entryRelPath,
+					Name:       name,
+					Type:       "folder",
+					IsIgnored:  isIgnored,
+					IsLazyLoad: true,
+				})
+				continue
+			}
+
 			children, err := buildWorkspaceTree(rootPath, entryRelPath, fileCount)
 			if err != nil {
 				return nil, err
@@ -463,17 +491,68 @@ func buildWorkspaceTree(rootPath string, relativePath string, fileCount *int) ([
 			ext := strings.ToLower(filepath.Ext(name))
 
 			result = append(result, WorkspaceTreeNode{
-				ID:       entryRelPath,
-				Name:     name,
-				Type:     "file",
-				Size:     info.Size(),
-				Language: getLanguageFromExtension(name),
-				IsBinary: isBinaryExt(ext),
+				ID:        entryRelPath,
+				Name:      name,
+				Type:      "file",
+				Size:      info.Size(),
+				Language:  getLanguageFromExtension(name),
+				IsBinary:  isBinaryExt(ext),
+				IsIgnored: isIgnored,
 			})
 		}
 	}
 
 	return result, nil
+}
+
+// checkIgnoredPaths runs a single git check-ignore --stdin call for all
+// entries in a directory and returns a set of ignored relative paths.
+func checkIgnoredPaths(rootPath string, relativePath string, entries []os.DirEntry) map[string]bool {
+	var paths []string
+	for _, entry := range entries {
+		relPath := filepath.Join(relativePath, entry.Name())
+		if entry.IsDir() {
+			paths = append(paths, relPath+"/")
+		} else {
+			paths = append(paths, relPath)
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil
+	}
+
+	stdin := strings.Join(paths, "\n") + "\n"
+	cmd := exec.Command("git", "check-ignore", "--stdin")
+	cmd.Dir = rootPath
+	cmd.Stdin = strings.NewReader(stdin)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil && stderr.Len() > 0 {
+		slog.Debug("git check-ignore failed", "error", err, "stderr", stderr.String())
+	}
+
+	ignored := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n") {
+		line = strings.TrimRight(line, "/")
+		if line != "" {
+			ignored[line] = true
+		}
+	}
+	return ignored
+}
+
+// isDirLarge returns true if the directory has more than maxDirEntries
+// immediate entries, indicating it should be lazy-loaded.
+func isDirLarge(dirPath string) bool {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return false
+	}
+	return len(entries) > maxDirEntries
 }
 
 // =============================================================================
@@ -514,7 +593,27 @@ func getGitInfo(dirPath string) *WorkspaceGitInfo {
 	}
 }
 
+// parseStatusLines parses git status porcelain output into individual status lines.
+// Returns the total count and the parsed lines (each at least 4 characters).
+func parseStatusLines(statusOutput string) []string {
+	trimmed := strings.TrimRight(statusOutput, "\n\r ")
+	if trimmed == "" {
+		return nil
+	}
+	var valid []string
+	for _, line := range strings.Split(trimmed, "\n") {
+		if len(line) >= 4 {
+			valid = append(valid, line)
+		}
+	}
+	return valid
+}
+
 // getAllChanges returns all changed files in a git workspace with inline diffs.
+// When the number of changed files exceeds maxChangedFiles, it returns only
+// lightweight metadata (path, changeType, language) without reading file
+// contents from disk—avoiding expensive I/O for massive changesets like
+// npm install.
 func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 	// Run git status --porcelain with --untracked-files=all to list individual
 	// untracked files rather than directory summaries (e.g. "docs/account.hcl"
@@ -524,19 +623,19 @@ func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
 
-	trimmedOutput := strings.TrimRight(statusOutput, "\n\r ")
-	if trimmedOutput == "" {
+	lines := parseStatusLines(statusOutput)
+	if len(lines) == 0 {
 		return nil, nil
 	}
 
 	var changes []WorkspaceFileChange
 
-	lines := strings.Split(trimmedOutput, "\n")
-	for _, line := range lines {
-		if len(line) < 4 {
-			continue
-		}
+	// Short-circuit: when there are too many changes, build a lightweight
+	// list without reading any file content from disk.  The handler will
+	// set tooManyChanges=true and the frontend will show a summary banner.
+	lightweight := len(lines) > maxChangedFiles
 
+	for _, line := range lines {
 		// Parse git status porcelain format: XY filename
 		statusCode := line[:2]
 		filePath := strings.TrimSpace(line[3:])
@@ -556,6 +655,12 @@ func getAllChanges(dirPath string) ([]WorkspaceFileChange, error) {
 			ChangeType: changeType,
 			Language:   getLanguageFromExtension(filePath),
 			IsBinary:   isBinary,
+		}
+
+		// In lightweight mode, skip all file I/O — just collect metadata.
+		if lightweight {
+			changes = append(changes, change)
+			continue
 		}
 
 		// Skip diff content for binary files
@@ -749,6 +854,22 @@ func requirePathQuery(c *gin.Context) (string, bool) {
 		return "", false
 	}
 	return p, true
+}
+
+// formatWithCommas formats an integer with comma separators (e.g. 10000 → "10,000").
+func formatWithCommas(n int) string {
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
 }
 
 // countLines counts the number of lines in a string.

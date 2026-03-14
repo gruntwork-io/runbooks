@@ -5,14 +5,12 @@ import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
 import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
-import { useFileTree } from '@/hooks/useFileTree'
-import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import { parseFileTreeNodeArray } from '@/components/artifacts/code/FileTree.types'
 import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
+import { computeChangeKey } from '@/lib/changeDetection'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -78,13 +76,12 @@ function Template({
   
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
+  const [formChangeTrigger, setFormChangeTrigger] = useState(0);
   
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
   const hasEverGeneratedRef = useRef(false);
   
-  // Get the global file tree context and worktree context for invalidation (for All files when target=worktree)
-  const { setFileTree } = useFileTree();
-  const { invalidateTree } = useGitWorkTree();
+  // (Worktree/file tree updates are handled by useApiBoilerplateRender via useFileTreeUpdater)
   
   // Get the runbook context to register our config
   const { registerInputs } = useRunbookContext();
@@ -237,25 +234,11 @@ function Template({
     target
   )
 
-  // Update global file tree when render result is available (Generated tab only)
-  // When target is worktree, output went to the git repo — do not overwrite Generated; refresh All files instead
+  // Track successful generation (file tree updates are handled by useApiBoilerplateRender)
   useEffect(() => {
     if (!renderResult) return;
     hasEverGeneratedRef.current = true;
-    if (target === 'worktree') {
-      invalidateTree();
-      return;
-    }
-    const validatedTree = parseFileTreeNodeArray(renderResult.fileTree);
-    if (validatedTree) {
-      setFileTree(validatedTree);
-    }
-    // Trigger immediate changelog refresh so changes appear without waiting for next poll
-    invalidateTree();
-  }, [renderResult, setFileTree, target, invalidateTree]);
-
-  // Debounce timer ref for auto-render
-  const autoRenderTimerRef = useRef<NodeJS.Timeout | null>(null);
+  }, [renderResult]);
 
   // Check if form data has all required values filled
   const hasAllRequiredValues = useCallback((localVarValues: Record<string, unknown>): boolean => {
@@ -272,79 +255,33 @@ function Template({
   // Flatten block outputs for template rendering (used in the outputs namespace)
   const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
 
-  // Handle form changes - store in ref (no state update to avoid loops)
+  // Handle form changes - store in ref and bump trigger counter
   const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
     // Store latest local form data in ref for registration
     localVarValuesRef.current = localVarValues;
-    
+
     // Update registration with new form data
     if (boilerplateConfig && id) {
       const mergedData = { ...inputValues, ...localVarValues };
       registerInputs(id, mergedData, boilerplateConfig);
     }
-    
-    if (!shouldRender) return; // Only auto-render after initial generation
-    
-    // Don't auto-render if output dependencies are not satisfied
-    if (!hasAllOutputDependencies) return;
-    
-    // Clear existing timer
-    if (autoRenderTimerRef.current) {
-      clearTimeout(autoRenderTimerRef.current);
-    }
-    
-    // Debounce: wait 200ms after last change before rendering
-    autoRenderTimerRef.current = setTimeout(() => {
-      const mergedData = buildRenderVariables(
-        { ...inputValues, ...localVarValues },
-        flattenedOutputs,
-      );
 
-      // Only trigger render when all required values are present
-      if (hasAllRequiredValues(localVarValues)) {
-        autoRender(path, mergedData);
-      }
-    }, 200);
-  }, [id, boilerplateConfig, shouldRender, autoRender, hasAllRequiredValues, hasAllOutputDependencies, inputValues, path, registerInputs, flattenedOutputs]);
-  
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (autoRenderTimerRef.current) {
-        clearTimeout(autoRenderTimerRef.current);
-      }
-    };
-  }, []);
+    // Bump trigger to cause the unified auto-render effect to re-evaluate
+    setFormChangeTrigger(c => c + 1);
+  }, [id, boilerplateConfig, inputValues, registerInputs]);
 
-  // Track previous imported values and outputs to detect changes
-  const prevInputValuesRef = useRef<Record<string, unknown>>({});
-  const prevOutputsRef = useRef<string>('');
-  
-  // Trigger auto-render when imported values or outputs change (for pass-through variables)
-  // This handles variables from inputsId that aren't in this template's boilerplate.yml
-  // and also re-renders when block outputs change
+  // Unified auto-render effect — watches form changes (via formChangeTrigger),
+  // imported value changes (via inputValues), and output changes (via flattenedOutputs).
+  // The autoRender function from useApiBoilerplateRender already debounces at 200ms.
+  const lastRenderedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!shouldRender) return; // Only after initial generation
-    if (!boilerplateConfig) return;
-    if (!hasAllOutputDependencies) return; // Don't render if output deps unsatisfied
-    
-    // Check if imported values actually changed
-    const prev = prevInputValuesRef.current;
-    const prevKeys = Object.keys(prev);
-    const newKeys = Object.keys(inputValues);
-    const inputsUnchanged = prevKeys.length === newKeys.length &&
-      prevKeys.every(key => prev[key] === inputValues[key]);
-    
-    // Check if outputs changed
-    const currentOutputsKey = JSON.stringify(allOutputs);
-    const outputsUnchanged = currentOutputsKey === prevOutputsRef.current;
-    
-    prevInputValuesRef.current = inputValues;
-    prevOutputsRef.current = currentOutputsKey;
-    
-    if (inputsUnchanged && outputsUnchanged) return;
-    
-    // Imported values or outputs changed - trigger auto-render with current form data
+    if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return;
+
+    const key = computeChangeKey(inputValues, localVarValuesRef.current, flattenedOutputs);
+    if (key === lastRenderedKeyRef.current) return;
+    lastRenderedKeyRef.current = key;
+
     const mergedData = buildRenderVariables(
       { ...inputValues, ...localVarValuesRef.current },
       flattenedOutputs,
@@ -353,7 +290,7 @@ function Template({
     if (hasAllRequiredValues(localVarValuesRef.current)) {
       autoRender(path, mergedData);
     }
-  }, [shouldRender, boilerplateConfig, inputValues, allOutputs, hasAllOutputDependencies, hasAllRequiredValues, autoRender, path, flattenedOutputs]);
+  }, [formChangeTrigger, shouldRender, boilerplateConfig, hasAllOutputDependencies, inputValues, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
@@ -364,12 +301,6 @@ function Template({
       { ...inputValues, ...localVarValues },
       flattenedOutputs,
     );
-
-    console.log('[Template.handleGenerate] Called with:', {
-      localVarValues,
-      inputValues,
-      mergedData,
-    });
 
     // Register our variables in the block context
     if (boilerplateConfig) {

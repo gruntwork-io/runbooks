@@ -1,23 +1,23 @@
 import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
-import { useFileTree } from './useFileTree';
-import { useGitWorkTree } from '@/contexts/useGitWorkTree';
+import { useFileTreeUpdater } from '@/components/mdx/_shared/hooks/useFileTreeUpdater';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 
 interface BoilerplateRenderResult {
   message:      string,
   outputDir:    string,
   templatePath: string,
-  fileTree:     FileTree,
-  // Cleanup information from manifest-based rendering
-  deletedFiles?:  string[], // Files deleted due to orphaning
-  createdFiles?:  string[], // Newly created files
-  modifiedFiles?: string[], // Files with changed content
-  skippedFiles?:  string[], // Files unchanged (no write needed)
+  fileTree:     FileTreeNode[],
+  totalFiles?:  number,
+  truncatedTree?: boolean,
+  heavyDir?: string,
+  heavyDirFileCount?: number,
+  deletedFiles?:  string[],
+  createdFiles?:  string[],
+  modifiedFiles?: string[],
+  skippedFiles?:  string[],
 }
-
-type FileTree = FileTreeNode[]
 
 // Enhanced return type that includes auto-rendering functionality
 interface UseApiBoilerplateRenderResult extends UseApiReturn<BoilerplateRenderResult> {
@@ -45,8 +45,7 @@ export function useApiBoilerplateRender(
   shouldFetch: boolean = true,
   target?: 'generated' | 'worktree'
 ): UseApiBoilerplateRenderResult {
-  const { setFileTree } = useFileTree();  // The FileTree is where we render the list of generated files
-  const { invalidateTree } = useGitWorkTree();
+  const { applyFileTreeUpdate } = useFileTreeUpdater(target);
 
   // Build the request body - both templatePath and templateId are required
   const requestBody = useMemo(() => {
@@ -72,17 +71,13 @@ export function useApiBoilerplateRender(
     }
   }, [debouncedRequest, templateId, target]);
 
-  // Handle file tree updates when data changes (Generated tab only)
-  // When target is worktree, output went to the git repo — do not overwrite Generated with worktree tree
+  // Handle file tree updates when data changes
+  const renderData = apiResult.data;
   useEffect(() => {
-    if (target === 'worktree') return;
-    const fileTreeData = apiResult.data?.fileTree;
-    if (fileTreeData && Array.isArray(fileTreeData)) {
-      setFileTree(fileTreeData);
-      // Trigger immediate changelog refresh so changes appear without waiting for next poll
-      invalidateTree();
+    if (renderData?.fileTree && Array.isArray(renderData.fileTree)) {
+      applyFileTreeUpdate(renderData);
     }
-  }, [apiResult.data?.fileTree, setFileTree, target, invalidateTree]);
+  }, [renderData, applyFileTreeUpdate]);
 
   return {
     ...apiResult,

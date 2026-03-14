@@ -584,6 +584,87 @@ func TestWorkspaceChangesDeletedFile(t *testing.T) {
 	}
 }
 
+func TestWorkspaceChangesTooManySkipsDiffContent(t *testing.T) {
+	// Override the limit to a small value so we can test the too-many-changes path.
+	orig := maxChangedFiles
+	maxChangedFiles = 3
+	t.Cleanup(func() { maxChangedFiles = orig })
+
+	dir := createTempGitRepo(t)
+
+	// Create more untracked files than the limit
+	for i := 0; i < maxChangedFiles+1; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("extra_%d.txt", i)), []byte(fmt.Sprintf("content %d\n", i)), 0644)
+	}
+
+	router := setupWorkspaceTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/workspace/changes?path="+dir, nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp WorkspaceChangesResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if !resp.TooManyChanges {
+		t.Fatal("expected tooManyChanges: true")
+	}
+	if resp.TotalChanges <= maxChangedFiles {
+		t.Errorf("expected totalChanges > %d, got %d", maxChangedFiles, resp.TotalChanges)
+	}
+	// When tooManyChanges is true, changes should be nil (not sent to client)
+	if resp.Changes != nil {
+		t.Errorf("expected nil changes when tooManyChanges is true, got %d entries", len(resp.Changes))
+	}
+}
+
+func TestWorkspaceChangesTooManyNoFileContent(t *testing.T) {
+	// Verify that in lightweight mode, getAllChanges doesn't populate file content.
+	// This is the performance-critical behavior: no disk I/O for file content.
+	orig := maxChangedFiles
+	maxChangedFiles = 2
+	t.Cleanup(func() { maxChangedFiles = orig })
+
+	dir := createTempGitRepo(t)
+
+	// Create more untracked files than the limit
+	for i := 0; i < maxChangedFiles+1; i++ {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.go", i)), []byte("package main\n"), 0644)
+	}
+
+	changes, err := getAllChanges(dir)
+	if err != nil {
+		t.Fatalf("getAllChanges failed: %v", err)
+	}
+
+	if len(changes) <= maxChangedFiles {
+		t.Fatalf("expected more than %d changes, got %d", maxChangedFiles, len(changes))
+	}
+
+	// Verify NO file content was loaded (lightweight mode)
+	for _, c := range changes {
+		if c.OriginalContent != "" {
+			t.Errorf("expected empty OriginalContent in lightweight mode for %s", c.Path)
+		}
+		if c.NewContent != "" {
+			t.Errorf("expected empty NewContent in lightweight mode for %s", c.Path)
+		}
+		// But metadata should still be populated
+		if c.Path == "" {
+			t.Error("expected non-empty Path in lightweight mode")
+		}
+		if c.Language == "" {
+			t.Error("expected non-empty Language in lightweight mode")
+		}
+	}
+}
+
 // =============================================================================
 // HandleWorkspaceDirs tests
 // =============================================================================
@@ -713,5 +794,108 @@ func TestWorkspaceDirsMissingPath(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing path, got %d", w.Code)
+	}
+}
+
+// =============================================================================
+// parseGitStatusCode tests
+// =============================================================================
+
+func TestParseGitStatusCode(t *testing.T) {
+	tests := []struct {
+		code     string
+		expected string
+	}{
+		// Untracked files
+		{"?? ", "added"},
+		// Staged additions
+		{"A ", "added"},
+		{"A ", "added"},
+		// Deletions (index or worktree)
+		{"D ", "deleted"},
+		{" D", "deleted"},
+		// Modified (index or worktree)
+		{"M ", "modified"},
+		{" M", "modified"},
+		{"MM", "modified"},
+		// Renames
+		{"R ", "modified"},
+		// Copied files (not explicitly handled — falls through to default)
+		{"C ", "modified"},
+		// Staged delete takes precedence over modification
+		{"DM", "deleted"},
+		// Unknown codes default to modified
+		{"!!",  "modified"},
+		{"  ", "modified"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("code_%q", tt.code), func(t *testing.T) {
+			// parseGitStatusCode only uses the first 2 bytes
+			result := parseGitStatusCode(tt.code[:2])
+			if result != tt.expected {
+				t.Errorf("parseGitStatusCode(%q) = %q, want %q", tt.code[:2], result, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// countLines tests
+// =============================================================================
+
+func TestCountLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"empty string", "", 0},
+		{"single line no newline", "hello", 1},
+		{"single line with newline", "hello\n", 2},
+		{"two lines", "line1\nline2", 2},
+		{"two lines trailing newline", "line1\nline2\n", 3},
+		{"multiple newlines", "\n\n\n", 4},
+		{"single newline", "\n", 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := countLines(tt.input)
+			if result != tt.expected {
+				t.Errorf("countLines(%q) = %d, want %d", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// parseStatusLines tests
+// =============================================================================
+
+func TestParseStatusLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int // expected number of valid lines
+	}{
+		{"empty string", "", 0},
+		{"whitespace only", "  \n  ", 0},
+		{"single valid line", " M README.md", 1},
+		{"multiple valid lines", " M README.md\n?? new.txt", 2},
+		{"short lines filtered", "ab\n M valid.txt", 1},
+		{"trailing newline", " M file.go\n", 1},
+		{"trailing whitespace stripped", " M file.go  ", 1},
+		{"renamed file line", "R  old.txt -> new.txt", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseStatusLines(tt.input)
+			if len(result) != tt.expected {
+				t.Errorf("parseStatusLines(%q) returned %d lines, want %d; lines=%v",
+					tt.input, len(result), tt.expected, result)
+			}
+		})
 	}
 }

@@ -191,7 +191,7 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 		slog.Info("Successfully rendered boilerplate template to output directory")
 
 		// Build file tree from the generated output
-		fileTree, err := buildFileTreeWithRoot(outputDir, "")
+		fileTreeResult, err := buildFileTreeWithContentResult(outputDir, "")
 		if err != nil {
 			slog.Error("Failed to build file tree", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -206,7 +206,8 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 			Message:      "Template rendered successfully to output directory",
 			OutputDir:    outputDir,
 			TemplatePath: fullTemplatePath,
-			FileTree:     fileTree,
+			FileTree:     fileTreeResult.Tree,
+			FileTreeMeta: fileTreeResult.FileTreeMeta,
 		}
 
 		// Include diff information if manifest tracking was used
@@ -620,7 +621,7 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 		if persistentOutputDir != "" {
 			fileTreeDir = persistentOutputDir
 		}
-		fileTree, err := buildFileTreeWithRoot(fileTreeDir, "")
+		fileTreeResult, err := buildFileTreeWithContentResult(fileTreeDir, "")
 		if err != nil {
 			slog.Error("Failed to build file tree", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -632,9 +633,10 @@ func HandleBoilerplateRenderInline(workingDir string, cliOutputPath string, sess
 
 		// Create response with rendered files and file tree
 		response := RenderInlineResponse{
-			Message:       "Template rendered successfully",
+			Message:      "Template rendered successfully",
 			RenderedFiles: renderedFiles,
-			FileTree:      fileTree,
+			FileTree:     fileTreeResult.Tree,
+			FileTreeMeta: fileTreeResult.FileTreeMeta,
 		}
 
 		c.JSON(http.StatusOK, response)

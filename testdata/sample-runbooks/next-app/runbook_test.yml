@@ -1,0 +1,32 @@
+# Test configuration for next-app runbook
+# This runbook is heavily network-dependent (GitHub, npm), so tests skip
+# the external steps and validate what can be tested locally.
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+
+tests:
+  - name: skip-without-credentials
+    description: All blocks skip gracefully when no GitHub credentials or network access is available
+    env:
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+      RUNBOOKS_GITHUB_TOKEN: ""
+    steps:
+      - block: check-bun
+        expect: skip
+      - block: gh-auth
+        expect: skip
+      - block: create-repo
+        expect: skip
+      - block: clone-repo
+        expect: skip
+      - block: create-next-app
+        expect: skip
+      - block: welcome-card
+        expect: skip
+      - block: create-pr
+        expect: skip

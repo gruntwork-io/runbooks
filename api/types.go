@@ -10,11 +10,12 @@ import (
 
 // File represents a file with its content and metadata
 type File struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	Language string `json:"language"`
-	Size     int64  `json:"size"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Content     string `json:"content"`
+	Language    string `json:"language"`
+	Size        int64  `json:"size"`
+	IsTruncated bool   `json:"isTruncated,omitempty"` // True when content was omitted because the file is too large
 }
 
 // FileTreeNode represents a file or folder in the generated file tree
@@ -24,6 +25,19 @@ type FileTreeNode struct {
 	Type     string         `json:"type"` // "file" or "folder"
 	Children []FileTreeNode `json:"children,omitempty"`
 	File     *File          `json:"file,omitempty"` // Only present for files
+}
+
+// FileTreeMeta holds truncation metadata shared by all endpoints that return a file tree.
+type FileTreeMeta struct {
+	// TotalFiles is the total number of files discovered in the output directory.
+	// When this exceeds the file tree limit, the tree contains a truncated subset.
+	TotalFiles int `json:"totalFiles"`
+	// TruncatedTree is true when the file tree was capped at the display limit.
+	TruncatedTree bool `json:"truncatedTree,omitempty"`
+	// HeavyDir is the top-level subdirectory containing the most files (only set when truncated).
+	HeavyDir string `json:"heavyDir,omitempty"`
+	// HeavyDirFileCount is the number of files in HeavyDir.
+	HeavyDirFileCount int `json:"heavyDirFileCount,omitempty"`
 }
 
 // API request/response types
@@ -56,6 +70,7 @@ type RenderResponse struct {
 	OutputDir    string         `json:"outputDir"`
 	TemplatePath string         `json:"templatePath"`
 	FileTree     []FileTreeNode `json:"fileTree"`
+	FileTreeMeta
 	// Cleanup statistics (only populated when TemplateID is provided in request)
 	DeletedFiles  []string `json:"deletedFiles,omitempty"`  // Files that were deleted (orphaned from previous render)
 	CreatedFiles  []string `json:"createdFiles,omitempty"`  // Files that were newly created
@@ -145,9 +160,10 @@ type RenderInlineRequest struct {
 
 // RenderInlineResponse represents the response from the inline render endpoint
 type RenderInlineResponse struct {
-	Message       string                           `json:"message"`
-	RenderedFiles map[string]File                  `json:"renderedFiles"` // Map of file paths to file metadata
-	FileTree      []FileTreeNode                   `json:"fileTree"`
+	Message       string         `json:"message"`
+	RenderedFiles map[string]File `json:"renderedFiles"` // Map of file paths to file metadata
+	FileTree      []FileTreeNode `json:"fileTree"`
+	FileTreeMeta
 }
 
 // Boilerplate configuration types

@@ -2,10 +2,21 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+)
+
+// Limits for file tree building to prevent OOM when the output directory
+// contains a large number of files (e.g. after npm install).
+var (
+	// maxFileTreeFiles is the maximum number of files to include in a file tree response.
+	maxFileTreeFiles = 500
+	// maxFileTreeFileSize is the maximum size of a single file's content to include inline.
+	// Files larger than this will have their content omitted with isTruncated=true.
+	maxFileTreeFileSize = int64(512 * 1024) // 512 KB
 )
 
 // getLanguageFromExtension determines the language/type based on file extension
@@ -120,8 +131,15 @@ func getLanguageFromExtension(filename string) string {
 	return "text"
 }
 
-// buildFileTree recursively builds a file tree structure from a directory
-func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error) {
+// fileTreeWithContentStats tracks cumulative statistics during a file tree build.
+type fileTreeWithContentStats struct {
+	totalFiles    int            // total files discovered (including those beyond the limit)
+	dirFileCounts map[string]int // file count per top-level subdirectory
+}
+
+// buildFileTreeWithContentRecursive is the internal recursive implementation
+// that shares a stats counter across all levels of recursion.
+func buildFileTreeWithContentRecursive(rootPath string, relativePath string, stats *fileTreeWithContentStats) ([]FileTreeNode, error) {
 	var result []FileTreeNode
 
 	fullPath := filepath.Join(rootPath, relativePath)
@@ -142,7 +160,7 @@ func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error)
 	for _, entry := range entries {
 		entryName := entry.Name()
 
-		// Skip VCS directories
+		// Always skip VCS metadata directories
 		if entry.IsDir() && (entryName == ".git" || entryName == ".svn" || entryName == ".hg") {
 			continue
 		}
@@ -157,13 +175,26 @@ func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error)
 
 		if entry.IsDir() {
 			item.Type = "folder"
-			children, err := buildFileTree(rootPath, entryRelativePath)
+			children, err := buildFileTreeWithContentRecursive(rootPath, entryRelativePath, stats)
 			if err != nil {
 				return nil, fmt.Errorf("failed to build file tree for directory %s: %w", entryFullPath, err)
 			}
 			item.Children = children
 		} else {
 			item.Type = "file"
+			stats.totalFiles++
+
+			// Track file counts per top-level subdirectory for heavy dir detection
+			if relativePath != "" {
+				topDir := strings.SplitN(filepath.ToSlash(entryRelativePath), "/", 2)[0]
+				stats.dirFileCounts[topDir]++
+			}
+
+			// If we've exceeded the file limit, still count but don't read content.
+			// The caller uses stats.totalFiles to report truncation.
+			if stats.totalFiles > maxFileTreeFiles {
+				continue
+			}
 
 			// Get file info for size
 			info, err := entry.Info()
@@ -171,19 +202,31 @@ func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error)
 				return nil, fmt.Errorf("failed to get file info for %s: %w", entryFullPath, err)
 			}
 
-			// Read file contents
-			content, err := os.ReadFile(entryFullPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read file %s: %w", entryFullPath, err)
-			}
+			fileSize := info.Size()
 
-			// Create File struct with all metadata
-			item.File = &File{
-				Name:     entryName,
-				Path:     entryRelativePath,
-				Content:  string(content),
-				Language: getLanguageFromExtension(entryName),
-				Size:     info.Size(),
+			// Skip content for oversized files, but still include metadata
+			if fileSize > maxFileTreeFileSize || isBinaryExt(strings.ToLower(filepath.Ext(entryName))) {
+				item.File = &File{
+					Name:        entryName,
+					Path:        entryRelativePath,
+					Language:    getLanguageFromExtension(entryName),
+					Size:        fileSize,
+					IsTruncated: true,
+				}
+			} else {
+				// Read file contents
+				content, err := os.ReadFile(entryFullPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read file %s: %w", entryFullPath, err)
+				}
+
+				item.File = &File{
+					Name:     entryName,
+					Path:     entryRelativePath,
+					Content:  string(content),
+					Language: getLanguageFromExtension(entryName),
+					Size:     fileSize,
+				}
 			}
 		}
 
@@ -193,8 +236,47 @@ func buildFileTree(rootPath string, relativePath string) ([]FileTreeNode, error)
 	return result, nil
 }
 
-// buildFileTreeWithRoot returns the file tree directly without wrapping in a root folder
-func buildFileTreeWithRoot(rootPath string, relativePath string) ([]FileTreeNode, error) {
-	// Build the file tree and return it directly
-	return buildFileTree(rootPath, relativePath)
+// FileTreeResult is the result of building a file tree, including truncation info.
+type FileTreeResult struct {
+	Tree []FileTreeNode
+	FileTreeMeta
+}
+
+// buildFileTreeWithContentResult returns the file tree along with metadata
+// about truncation so callers can inform the frontend.
+func buildFileTreeWithContentResult(rootPath string, relativePath string) (*FileTreeResult, error) {
+	stats := &fileTreeWithContentStats{
+		dirFileCounts: make(map[string]int),
+	}
+	tree, err := buildFileTreeWithContentRecursive(rootPath, relativePath, stats)
+	if err != nil {
+		return nil, err
+	}
+	truncated := stats.totalFiles > maxFileTreeFiles
+	result := &FileTreeResult{
+		Tree: tree,
+		FileTreeMeta: FileTreeMeta{
+			TotalFiles:    stats.totalFiles,
+			TruncatedTree: truncated,
+		},
+	}
+	if truncated {
+		slog.Warn("File tree truncated", "totalFiles", stats.totalFiles, "limit", maxFileTreeFiles, "rootPath", rootPath)
+		// Identify the top-level directory with the most files
+		var heavyDir string
+		var heavyCount int
+		for dir, count := range stats.dirFileCounts {
+			if count > heavyCount {
+				heavyDir = dir
+				heavyCount = count
+			}
+		}
+		// Only recommend if the heavy directory has a substantial share of total files
+		if heavyCount > stats.totalFiles/2 {
+			result.HeavyDir = heavyDir
+			result.HeavyDirFileCount = heavyCount
+			slog.Warn("Heavy directory detected", "dir", heavyDir, "files", heavyCount, "totalFiles", stats.totalFiles)
+		}
+	}
+	return result, nil
 }

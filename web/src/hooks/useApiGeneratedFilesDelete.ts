@@ -13,7 +13,7 @@ export interface GeneratedFilesDeleteResult {
  * Return type for the delete hook
  */
 export interface UseApiGeneratedFilesDeleteReturn {
-  deleteFiles: () => Promise<void>;
+  deleteFiles: () => Promise<boolean>;
   isDeleting: boolean;
   deleteError: { message: string; details?: string } | null;
   deleteSuccess: GeneratedFilesDeleteResult | null;
@@ -27,7 +27,7 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
   const [deleteError, setDeleteError] = useState<{ message: string; details?: string } | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState<GeneratedFilesDeleteResult | null>(null);
 
-  const deleteFiles = useCallback(async () => {
+  const deleteFiles = useCallback(async (): Promise<boolean> => {
     setIsDeleting(true);
     setDeleteError(null);
     setDeleteSuccess(null);
@@ -44,18 +44,20 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
           details: errorData?.details,
         });
         setIsDeleting(false);
-        return;
+        return false;
       }
 
       const data: GeneratedFilesDeleteResult = await response.json();
       setDeleteSuccess(data);
       setIsDeleting(false);
+      return true;
     } catch (err) {
       setDeleteError({
         message: 'Failed to delete files',
         details: err instanceof Error ? err.message : 'Unknown error',
       });
       setIsDeleting(false);
+      return false;
     }
   }, []);
 

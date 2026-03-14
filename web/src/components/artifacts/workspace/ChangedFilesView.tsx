@@ -6,7 +6,7 @@
  */
 
 import type React from 'react'
-import { useState, useMemo, useCallback, useRef, forwardRef } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -21,6 +21,7 @@ import {
   UnfoldVertical,
   ArrowUpToLine,
   ArrowDownToLine,
+  AlertTriangle,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -29,8 +30,16 @@ import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
+import { ChangeProportionBar } from './ChangeProportionBar'
 
 type ChangeType = WorkspaceFileChange['changeType']
+
+/** Maximum number of files to render in the diff view at once */
+const MAX_DISPLAYED_FILES = 100
+/** When the number of changes exceeds this, all diffs start collapsed */
+const AUTO_COLLAPSE_THRESHOLD = 25
+/** How many additional files to show each time "Show more" is clicked */
+const SHOW_MORE_INCREMENT = 50
 
 /** Maps change types to their icon and color */
 const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
@@ -45,40 +54,6 @@ function getChangeTypeIcon(changeType: ChangeType): LucideIcon {
   return (changeTypeConfig[changeType] ?? defaultChangeConfig).icon
 }
 
-/**
- * GitHub-style proportion bar showing additions vs deletions
- */
-function ChangeProportionBar({ additions, deletions }: { additions: number; deletions: number }) {
-  const total = additions + deletions
-  const BOXES = 5
-
-  if (total === 0) {
-    return (
-      <div className="flex items-center gap-0.5">
-        {Array.from({ length: BOXES }).map((_, i) => (
-          <div key={`n-${i}`} className="w-2 h-2 rounded-sm bg-gray-300" />
-        ))}
-      </div>
-    )
-  }
-
-  let greenBoxes = Math.round((additions / total) * BOXES)
-  if (additions > 0 && greenBoxes === 0) greenBoxes = 1
-  if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
-  
-  const redBoxes = BOXES - greenBoxes
-  
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: greenBoxes }).map((_, i) => (
-        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-green-500" />
-      ))}
-      {Array.from({ length: redBoxes }).map((_, i) => (
-        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-red-500" />
-      ))}
-    </div>
-  )
-}
 
 interface ChangedFilesViewProps {
   /** List of file changes from useWorkspaceChanges */
@@ -105,12 +80,35 @@ export const ChangedFilesView = ({
 }: ChangedFilesViewProps) => {
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
+  const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAYED_FILES)
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
+  // Auto-collapse all diffs when there are many changes to avoid rendering
+  // expensive diff content for every file, which can freeze the browser.
+  const prevChangeLenRef = useRef(0)
+  useEffect(() => {
+    if (changes.length > AUTO_COLLAPSE_THRESHOLD && prevChangeLenRef.current !== changes.length) {
+      setCollapsedFiles(new Set(changes.map(c => c.path)))
+    }
+    prevChangeLenRef.current = changes.length
+  }, [changes])
+
+  // Reset display limit when changes list changes substantially
+  useEffect(() => {
+    setDisplayLimit(MAX_DISPLAYED_FILES)
+  }, [changes.length])
+
   // Build file tree from changes
   const fileTree = useMemo(() => buildFileTree(changes), [changes])
-  
+
+  // Slice changes to the display limit for the diff pane
+  const displayedChanges = useMemo(
+    () => changes.slice(0, displayLimit),
+    [changes, displayLimit]
+  )
+  const hasMoreFiles = changes.length > displayLimit
+
   // Handle file selection from tree - jump to file
   const handleFileSelect = (filePath: string) => {
     setFocusedPath(filePath)
@@ -120,13 +118,20 @@ export const ChangedFilesView = ({
       next.delete(filePath)
       return next
     })
-    // Jump to the file
-    const fileEl = fileRefs.current.get(filePath)
-    if (fileEl) {
-      fileEl.scrollIntoView({ behavior: 'auto', block: 'start' })
+    // If the selected file is beyond the display limit, extend the limit
+    const fileIndex = changes.findIndex(c => c.path === filePath)
+    if (fileIndex >= displayLimit) {
+      setDisplayLimit(fileIndex + 1)
     }
+    // Jump to the file (deferred to let React render the new limit)
+    requestAnimationFrame(() => {
+      const fileEl = fileRefs.current.get(filePath)
+      if (fileEl) {
+        fileEl.scrollIntoView({ behavior: 'auto', block: 'start' })
+      }
+    })
   }
-  
+
   // Toggle file collapse
   const toggleFileCollapse = (filePath: string) => {
     setCollapsedFiles(prev => {
@@ -139,7 +144,12 @@ export const ChangedFilesView = ({
       return next
     })
   }
-  
+
+  // Show more files
+  const handleShowMore = () => {
+    setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT)
+  }
+
   // Register file ref
   const setFileRef = useCallback((filePath: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -148,7 +158,7 @@ export const ChangedFilesView = ({
       fileRefs.current.delete(filePath)
     }
   }, [])
-  
+
   // Loading state
   if (isLoading && changes.length === 0) {
     return (
@@ -168,10 +178,14 @@ export const ChangedFilesView = ({
         <div className="text-center">
           <FileCode className="w-16 h-16 mx-auto mb-2 text-amber-300" />
           <h3 className="text-lg font-medium mb-2 text-gray-600">
-            Too many changes
+            Too many changes to display
           </h3>
-          <p className="text-sm text-gray-500">
-            {totalChanges ?? 0} files changed — too many to display.
+          <p className="text-sm text-gray-500 max-w-sm mx-auto">
+            {totalChanges ?? 0} files changed. This may be caused by a command that
+            generated a large number of files (e.g. <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">npm install</code>).
+          </p>
+          <p className="text-xs text-gray-400 mt-2">
+            Consider revising the runbook to reduce the number of changed files.
           </p>
         </div>
       </div>
@@ -196,14 +210,14 @@ export const ChangedFilesView = ({
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className={cn("h-full flex flex-col", isResizing && "select-none", className)}
     >
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
         {/* File Tree */}
-        <div 
+        <div
           ref={treeRef}
           className="flex-shrink-0 overflow-y-auto"
           style={{ width: `${treeWidth}px` }}
@@ -214,13 +228,13 @@ export const ChangedFilesView = ({
             onFileSelect={handleFileSelect}
           />
         </div>
-        
+
         <ResizeHandle onMouseDown={handleMouseDown} />
-        
+
         {/* All Files Diff View */}
         <div className="flex-1 overflow-y-auto p-3">
           <div className="flex flex-col gap-3">
-            {changes.map(change => (
+            {displayedChanges.map(change => (
               <CollapsibleFileDiff
                 key={change.path}
                 change={change}
@@ -231,6 +245,21 @@ export const ChangedFilesView = ({
                 ref={(el) => setFileRef(change.path, el)}
               />
             ))}
+            {/* Show more / truncation banner */}
+            {hasMoreFiles && (
+              <div className="flex items-center gap-2 px-3 py-3 bg-amber-50 border border-amber-200 rounded-md">
+                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <span className="text-sm text-amber-800 flex-1">
+                  Showing {displayedChanges.length} of {changes.length} changed files.
+                </span>
+                <button
+                  onClick={handleShowMore}
+                  className="px-3 py-1 text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md cursor-pointer transition-colors"
+                >
+                  Show {Math.min(SHOW_MORE_INCREMENT, changes.length - displayLimit)} more
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -307,15 +336,23 @@ interface ChangedFileTreeProps {
   onFileSelect: (filePath: string) => void;
 }
 
+/** Max tree nodes to render before collapsing all folders by default */
+const MAX_TREE_NODES_EXPANDED = 200
+
 const ChangedFileTree = ({
   tree,
   focusedPath,
   onFileSelect,
 }: ChangedFileTreeProps) => {
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    new Set(getAllFolderPaths(tree))
+  // For large trees, start with all folders collapsed to avoid rendering
+  // thousands of nodes which can lock up the browser.
+  const totalFileCount = useMemo(() => countTreeFiles(tree), [tree])
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() =>
+    totalFileCount > MAX_TREE_NODES_EXPANDED
+      ? new Set<string>()
+      : new Set(getAllFolderPaths(tree))
   )
-  
+
   const toggleFolder = (path: string) => {
     setExpandedFolders(prev => {
       const next = new Set(prev)
@@ -327,14 +364,14 @@ const ChangedFileTree = ({
       return next
     })
   }
-  
+
   // Indent per level (8 base + 11 = 19px for level 1)
   const INDENT = 11
-  
+
   const renderNode = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path)
     const isSelected = node.change?.path === focusedPath
-    
+
     if (node.type === 'folder') {
       return (
         <div key={node.path}>
@@ -367,14 +404,14 @@ const ChangedFileTree = ({
         </div>
       )
     }
-    
+
     // File node - spacer + change type icon (FilePlus/FileDiff/FileMinus)
     const change = node.change
     if (!change) return null
-    
+
     const Icon = getChangeTypeIcon(change.changeType)
     const iconColor = getIconColor(change.changeType)
-    
+
     return (
       <button
         key={node.path}
@@ -393,12 +430,25 @@ const ChangedFileTree = ({
       </button>
     )
   }
-  
+
   return (
     <div className="py-1">
       {tree.map(node => renderNode(node))}
     </div>
   )
+}
+
+function countTreeFiles(nodes: TreeNode[]): number {
+  let count = 0
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      count++
+    }
+    if (node.children) {
+      count += countTreeFiles(node.children)
+    }
+  }
+  return count
 }
 
 function getAllFolderPaths(nodes: TreeNode[]): string[] {
@@ -517,7 +567,10 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
               </button>
             </div>
           ) : (
-            <DiffContent change={change} />
+            <>
+              <SvgPreview change={change} />
+              <DiffContent change={change} />
+            </>
           )
         )}
       </div>
@@ -525,6 +578,54 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
   }
 )
 CollapsibleFileDiff.displayName = 'CollapsibleFileDiff'
+
+// ============================================================================
+// SVG Preview Component
+// ============================================================================
+
+function isSvgFile(path: string): boolean {
+  return path.toLowerCase().endsWith('.svg')
+}
+
+function svgToDataUri(svgText: string): string {
+  return `data:image/svg+xml;base64,${btoa(svgText)}`
+}
+
+const SvgPreview = ({ change }: { change: WorkspaceFileChange }) => {
+  if (!isSvgFile(change.path)) return null
+
+  const hasOriginal = !!change.originalContent
+  const hasNew = !!change.newContent
+
+  if (!hasOriginal && !hasNew) return null
+
+  return (
+    <div className="flex items-start gap-4 p-4 border-b border-gray-200 bg-gray-50/50">
+      {hasOriginal && hasNew ? (
+        <>
+          <div className="flex-1 text-center">
+            <span className="inline-block mb-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">Before</span>
+            <div className="flex justify-center">
+              <img src={svgToDataUri(change.originalContent!)} alt="Before" className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+            </div>
+          </div>
+          <div className="flex-1 text-center">
+            <span className="inline-block mb-2 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded px-2 py-0.5">After</span>
+            <div className="flex justify-center">
+              <img src={svgToDataUri(change.newContent!)} alt="After" className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 text-center">
+          <div className="flex justify-center">
+            <img src={svgToDataUri((change.newContent || change.originalContent)!)} alt={change.path} className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ============================================================================
 // Diff Content Component

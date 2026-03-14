@@ -28,10 +28,14 @@ import { useWorkspaceTree } from '@/hooks/useWorkspaceTree'
 import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
 import type { FileTreeNode } from '../code/FileTree'
 import type { WorkspaceTab, WorkspaceContext } from '@/types/workspace'
+import { ChangeProportionBar } from './ChangeProportionBar'
+import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
 
 interface WorkspaceProps {
   /** Generated files tree (from GeneratedFilesContext) */
   generatedFiles: FileTreeNode[];
+  /** Truncation metadata from the backend (when file tree exceeds limits) */
+  truncationInfo?: TruncationInfo | null;
   /** Additional CSS classes */
   className?: string;
   /** Callback to hide the workspace */
@@ -46,6 +50,7 @@ interface WorkspaceProps {
 
 export const Workspace = ({
   generatedFiles,
+  truncationInfo,
   className = "",
   onHide,
   hideContent = false,
@@ -59,7 +64,7 @@ export const Workspace = ({
 
   // Git worktree data
   const { workTrees, activeWorkTree, activeWorkTreeId, setActiveWorkTree } = useGitWorkTree()
-  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree } = useWorkspaceTree()
+  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree, fetchSubtree } = useWorkspaceTree()
   const { changes, totalChanges, tooManyChanges, isLoading: changesLoading, fetchFileDiff } = useWorkspaceChanges()
 
   // Determine what's available
@@ -242,6 +247,7 @@ export const Workspace = ({
               absoluteOutputPath={absoluteOutputPath}
               relativeOutputPath={relativeOutputPath}
               hideHeader={true}
+              truncationInfo={truncationInfo}
             />
           </div>
         )}
@@ -253,6 +259,7 @@ export const Workspace = ({
               isLoading={treeLoading}
               error={treeError}
               onRetry={refetchTree}
+              onLazyExpand={fetchSubtree}
               className="h-full"
             />
           </div>
@@ -291,30 +298,3 @@ function countFiles(nodes: FileTreeNode[]): number {
   return count
 }
 
-/**
- * GitHub-style proportion bar showing additions vs deletions
- */
-function ChangeProportionBar({ additions, deletions }: { additions: number; deletions: number }) {
-  const total = additions + deletions
-  const BOXES = 5
-  
-  let greenBoxes = 0
-  if (total > 0) {
-    greenBoxes = Math.round((additions / total) * BOXES)
-    if (additions > 0 && greenBoxes === 0) greenBoxes = 1
-    if (deletions > 0 && greenBoxes === BOXES) greenBoxes = BOXES - 1
-  }
-  
-  const redBoxes = BOXES - greenBoxes
-  
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: greenBoxes }).map((_, i) => (
-        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-green-500" />
-      ))}
-      {Array.from({ length: redBoxes }).map((_, i) => (
-        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-red-500" />
-      ))}
-    </div>
-  )
-}

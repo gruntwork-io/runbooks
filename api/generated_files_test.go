@@ -560,6 +560,218 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 
 // TestHandleGeneratedFilesCheck_RelativePathPreserved verifies that the relativeOutputPath
 // is exactly what was passed to the handler (the CLI --output-path value), not modified.
+// TestDeleteDirectoryContents_HiddenFiles verifies that deleteDirectoryContents
+// correctly removes hidden files and directories (those starting with ".").
+func TestDeleteDirectoryContents_HiddenFiles(t *testing.T) {
+	workingDir := setupTestWorkingDir(t)
+
+	// Create the output directory inside the working directory
+	outputDir := filepath.Join(workingDir, "generated")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		t.Fatalf("Failed to create output directory: %v", err)
+	}
+
+	// Create a mix of hidden and non-hidden files/directories
+	entries := map[string]string{
+		".github/workflows/ci.yml":   "name: CI\non: push",
+		".github/CODEOWNERS":         "* @team",
+		".generated/metadata.json":   `{"version": "1.0"}`,
+		".hidden-file":               "secret content",
+		"visible-dir/main.tf":        "resource {}",
+		"visible-file.txt":           "hello world",
+		".env":                        "KEY=VALUE",
+		".config/settings.yml":        "debug: true",
+	}
+
+	for relPath, content := range entries {
+		fullPath := filepath.Join(outputDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("Failed to create directory for %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write file %s: %v", relPath, err)
+		}
+	}
+
+	// Verify files exist before deletion
+	fileCount, err := countFilesInDirectory(outputDir)
+	if err != nil {
+		t.Fatalf("Failed to count files before deletion: %v", err)
+	}
+	if fileCount != len(entries) {
+		t.Errorf("Expected %d files before deletion, got %d", len(entries), fileCount)
+	}
+
+	// Delete directory contents
+	err = deleteDirectoryContents(outputDir, workingDir)
+	if err != nil {
+		t.Fatalf("deleteDirectoryContents failed: %v", err)
+	}
+
+	// Verify ALL entries are deleted (hidden and non-hidden)
+	remaining, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatalf("Failed to read output directory after deletion: %v", err)
+	}
+	if len(remaining) != 0 {
+		var names []string
+		for _, entry := range remaining {
+			names = append(names, entry.Name())
+		}
+		t.Errorf("Expected empty directory after deletion, but found %d entries: %v", len(remaining), names)
+	}
+
+	// Verify the output directory itself still exists
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		t.Error("Output directory itself should still exist after deletion")
+	}
+
+	// Verify file count is now zero
+	fileCount, err = countFilesInDirectory(outputDir)
+	if err != nil {
+		t.Fatalf("Failed to count files after deletion: %v", err)
+	}
+	if fileCount != 0 {
+		t.Errorf("Expected 0 files after deletion, got %d", fileCount)
+	}
+}
+
+// TestCountFilesInDirectory_HiddenFiles verifies that countFilesInDirectory
+// includes hidden files and files inside hidden directories in its count.
+func TestCountFilesInDirectory_HiddenFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create hidden and non-hidden files
+	files := []string{
+		".github/workflows/ci.yml",
+		".github/CODEOWNERS",
+		".hidden-file",
+		".env",
+		"visible/main.tf",
+		"readme.txt",
+	}
+
+	for _, relPath := range files {
+		fullPath := filepath.Join(dir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("Failed to create directory for %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to write file %s: %v", relPath, err)
+		}
+	}
+
+	count, err := countFilesInDirectory(dir)
+	if err != nil {
+		t.Fatalf("countFilesInDirectory failed: %v", err)
+	}
+
+	if count != len(files) {
+		t.Errorf("Expected %d files (including hidden), got %d", len(files), count)
+	}
+}
+
+// TestHandleGeneratedFilesDelete_HiddenFiles tests the full HTTP handler flow
+// for deleting generated files including hidden directories like .github.
+func TestHandleGeneratedFilesDelete_HiddenFiles(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	workingDir := setupTestWorkingDir(t)
+
+	// Create the output directory with hidden files
+	outputDir := filepath.Join(workingDir, "generated")
+	hiddenFiles := map[string]string{
+		".github/workflows/deploy.yml": "name: Deploy",
+		".generated/manifest.json":     `{"files": []}`,
+		"terraform/main.tf":            "resource {}",
+	}
+
+	for relPath, content := range hiddenFiles {
+		fullPath := filepath.Join(outputDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("Failed to create dir for %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write %s: %v", relPath, err)
+		}
+	}
+
+	// First verify check endpoint counts all files including hidden
+	router := gin.New()
+	router.GET("/api/generated-files/check", HandleGeneratedFilesCheck(workingDir, "generated"))
+	router.DELETE("/api/generated-files/delete", HandleGeneratedFilesDelete(workingDir, "generated"))
+
+	checkReq, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
+	checkRec := httptest.NewRecorder()
+	router.ServeHTTP(checkRec, checkReq)
+
+	if checkRec.Code != http.StatusOK {
+		t.Fatalf("Check endpoint returned %d: %s", checkRec.Code, checkRec.Body.String())
+	}
+
+	var checkResp GeneratedFilesCheckResponse
+	if err := json.Unmarshal(checkRec.Body.Bytes(), &checkResp); err != nil {
+		t.Fatalf("Failed to parse check response JSON: %v", err)
+	}
+
+	if checkResp.FileCount != len(hiddenFiles) {
+		t.Errorf("Check: expected %d files (including hidden), got %d", len(hiddenFiles), checkResp.FileCount)
+	}
+	if !checkResp.HasFiles {
+		t.Error("Check: expected HasFiles=true")
+	}
+
+	// Now delete
+	deleteReq, _ := http.NewRequest("DELETE", "/api/generated-files/delete", nil)
+	deleteRec := httptest.NewRecorder()
+	router.ServeHTTP(deleteRec, deleteReq)
+
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("Delete endpoint returned %d: %s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	var deleteResp GeneratedFilesDeleteResponse
+	if err := json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp); err != nil {
+		t.Fatalf("Failed to parse delete response JSON: %v", err)
+	}
+
+	if !deleteResp.Success {
+		t.Error("Delete: expected Success=true")
+	}
+	if deleteResp.DeletedCount != len(hiddenFiles) {
+		t.Errorf("Delete: expected DeletedCount=%d, got %d", len(hiddenFiles), deleteResp.DeletedCount)
+	}
+
+	// Verify all files are actually gone (including hidden)
+	remaining, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatalf("Failed to read output dir after delete: %v", err)
+	}
+	if len(remaining) != 0 {
+		var names []string
+		for _, e := range remaining {
+			names = append(names, e.Name())
+		}
+		t.Errorf("Expected empty directory after delete, found: %v", names)
+	}
+
+	// Verify check endpoint now shows no files
+	checkReq2, _ := http.NewRequest("GET", "/api/generated-files/check", nil)
+	checkRec2 := httptest.NewRecorder()
+	router.ServeHTTP(checkRec2, checkReq2)
+
+	var checkResp2 GeneratedFilesCheckResponse
+	if err := json.Unmarshal(checkRec2.Body.Bytes(), &checkResp2); err != nil {
+		t.Fatalf("Failed to parse post-delete check response JSON: %v", err)
+	}
+
+	if checkResp2.HasFiles {
+		t.Error("After delete: expected HasFiles=false")
+	}
+	if checkResp2.FileCount != 0 {
+		t.Errorf("After delete: expected FileCount=0, got %d", checkResp2.FileCount)
+	}
+}
+
 func TestHandleGeneratedFilesCheck_RelativePathPreserved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	workingDir := setupTestWorkingDir(t)
