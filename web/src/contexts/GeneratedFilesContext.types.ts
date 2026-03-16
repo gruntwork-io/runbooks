@@ -1,16 +1,22 @@
 import { createContext } from 'react'
 import type { FileTreeNode } from '../components/artifacts/code/FileTree'
 
+/** A top-level subdirectory that contains a disproportionate number of files. */
+export interface HeavyDir {
+  /** Directory path relative to the output directory (e.g., "node_modules") */
+  path: string
+  /** Number of files contained within this directory (recursively) */
+  fileCount: number
+}
+
 /** Truncation metadata from the backend when the file tree exceeds limits. */
 export interface TruncationInfo {
   /** True when the file tree was capped at the display limit */
   truncatedTree: boolean
   /** Total files discovered (including beyond the limit) */
   totalFiles: number
-  /** The top-level subdirectory containing the most files (when truncated) */
-  heavyDir?: string
-  /** Number of files in heavyDir */
-  heavyDirFileCount?: number
+  /** Top-level subdirectories with a significant share of total files, sorted by file count descending */
+  heavyDirs?: HeavyDir[]
 }
 
 /**
@@ -22,8 +28,7 @@ export interface FileTreeResponse {
   fileTree: FileTreeNode[]
   truncatedTree?: boolean
   totalFiles?: number
-  heavyDir?: string
-  heavyDirFileCount?: number
+  heavyDirs?: HeavyDir[]
 }
 
 export interface GeneratedFilesContextType {

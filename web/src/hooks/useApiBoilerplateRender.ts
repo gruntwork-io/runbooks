@@ -3,6 +3,7 @@ import type { UseApiReturn } from './useApi';
 import { useMemo, useCallback, useEffect } from 'react';
 import { useFileTreeUpdater } from '@/components/mdx/_shared/hooks/useFileTreeUpdater';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
+import type { HeavyDir } from '@/contexts/GeneratedFilesContext.types';
 
 interface BoilerplateRenderResult {
   message:      string,
@@ -11,8 +12,7 @@ interface BoilerplateRenderResult {
   fileTree:     FileTreeNode[],
   totalFiles?:  number,
   truncatedTree?: boolean,
-  heavyDir?: string,
-  heavyDirFileCount?: number,
+  heavyDirs?: HeavyDir[],
   deletedFiles?:  string[],
   createdFiles?:  string[],
   modifiedFiles?: string[],

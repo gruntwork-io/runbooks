@@ -124,8 +124,13 @@ func TestBuildFileTreeWithContentDoesNotFilterGitignored(t *testing.T) {
 
 func TestBuildFileTreeWithContentDetectsHeavyDir(t *testing.T) {
 	orig := maxFileTreeFiles
+	origThreshold := heavyDirThreshold
 	maxFileTreeFiles = 5
-	t.Cleanup(func() { maxFileTreeFiles = orig })
+	heavyDirThreshold = 3
+	t.Cleanup(func() {
+		maxFileTreeFiles = orig
+		heavyDirThreshold = origThreshold
+	})
 
 	dir := t.TempDir()
 
@@ -145,11 +150,14 @@ func TestBuildFileTreeWithContentDetectsHeavyDir(t *testing.T) {
 	if !result.TruncatedTree {
 		t.Error("expected TruncatedTree=true")
 	}
-	if result.HeavyDir != "vendor" {
-		t.Errorf("expected HeavyDir='vendor', got %q", result.HeavyDir)
+	if len(result.HeavyDirs) == 0 {
+		t.Fatal("expected at least one HeavyDir")
 	}
-	if result.HeavyDirFileCount != maxFileTreeFiles+3 {
-		t.Errorf("expected HeavyDirFileCount=%d, got %d", maxFileTreeFiles+3, result.HeavyDirFileCount)
+	if result.HeavyDirs[0].Path != "vendor" {
+		t.Errorf("expected first HeavyDir path='vendor', got %q", result.HeavyDirs[0].Path)
+	}
+	if result.HeavyDirs[0].FileCount != maxFileTreeFiles+3 {
+		t.Errorf("expected first HeavyDir FileCount=%d, got %d", maxFileTreeFiles+3, result.HeavyDirs[0].FileCount)
 	}
 }
 

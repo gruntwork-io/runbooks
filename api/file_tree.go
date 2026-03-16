@@ -17,6 +17,9 @@ var (
 	// maxFileTreeFileSize is the maximum size of a single file's content to include inline.
 	// Files larger than this will have their content omitted with isTruncated=true.
 	maxFileTreeFileSize = int64(512 * 1024) // 512 KB
+	// heavyDirThreshold is the minimum number of files a top-level subdirectory must contain
+	// to be flagged as a "heavy dir" in truncation metadata.
+	heavyDirThreshold = 300
 )
 
 // getLanguageFromExtension determines the language/type based on file extension
@@ -262,20 +265,20 @@ func buildFileTreeWithContentResult(rootPath string, relativePath string) (*File
 	}
 	if truncated {
 		slog.Warn("File tree truncated", "totalFiles", stats.totalFiles, "limit", maxFileTreeFiles, "rootPath", rootPath)
-		// Identify the top-level directory with the most files
-		var heavyDir string
-		var heavyCount int
+		// Identify top-level directories that exceed the heavy dir file count threshold
+		var heavyDirs []HeavyDir
 		for dir, count := range stats.dirFileCounts {
-			if count > heavyCount {
-				heavyDir = dir
-				heavyCount = count
+			if count >= heavyDirThreshold {
+				heavyDirs = append(heavyDirs, HeavyDir{Path: dir, FileCount: count})
 			}
 		}
-		// Only recommend if the heavy directory has a substantial share of total files
-		if heavyCount > stats.totalFiles/2 {
-			result.HeavyDir = heavyDir
-			result.HeavyDirFileCount = heavyCount
-			slog.Warn("Heavy directory detected", "dir", heavyDir, "files", heavyCount, "totalFiles", stats.totalFiles)
+		// Sort by file count descending so the biggest offender is first
+		sort.Slice(heavyDirs, func(i, j int) bool {
+			return heavyDirs[i].FileCount > heavyDirs[j].FileCount
+		})
+		if len(heavyDirs) > 0 {
+			result.HeavyDirs = heavyDirs
+			slog.Warn("Heavy directories detected", "dirs", heavyDirs, "totalFiles", stats.totalFiles)
 		}
 	}
 	return result, nil

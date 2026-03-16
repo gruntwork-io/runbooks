@@ -39,6 +39,16 @@ type FileTreeNode struct {
 	File *File `json:"file,omitempty"`
 }
 
+// HeavyDir identifies a top-level subdirectory that contains a disproportionate number of files.
+// Only reported when the file tree is truncated, to help the user understand which directories
+// are responsible for the large file count.
+type HeavyDir struct {
+	// Path is the top-level subdirectory path relative to the output directory (e.g., "node_modules").
+	Path string `json:"path"`
+	// FileCount is the number of files contained within this directory (recursively).
+	FileCount int `json:"fileCount"`
+}
+
 // FileTreeMeta holds truncation metadata shared by all endpoints that return a file tree.
 type FileTreeMeta struct {
 	// TotalFiles is the total number of files discovered in the output directory.
@@ -46,10 +56,10 @@ type FileTreeMeta struct {
 	TotalFiles int `json:"totalFiles"`
 	// TruncatedTree is true when the file tree was capped at the display limit.
 	TruncatedTree bool `json:"truncatedTree,omitempty"`
-	// HeavyDir is the top-level subdirectory containing the most files (only set when truncated).
-	HeavyDir string `json:"heavyDir,omitempty"`
-	// HeavyDirFileCount is the number of files in HeavyDir.
-	HeavyDirFileCount int `json:"heavyDirFileCount,omitempty"`
+	// HeavyDirs lists the top-level subdirectories that contain a large number of files.
+	// Only populated when the tree is truncated. Sorted by file count descending.
+	// A directory is considered "heavy" if it contains at least heavyDirThreshold files (default 300).
+	HeavyDirs []HeavyDir `json:"heavyDirs,omitempty"`
 }
 
 // API request/response types

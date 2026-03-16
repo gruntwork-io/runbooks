@@ -24,8 +24,7 @@ interface RenderInlineResult {
   fileTree: FileTreeNode[]
   truncatedTree?: boolean
   totalFiles?: number
-  heavyDir?: string
-  heavyDirFileCount?: number
+  heavyDirs?: Array<{ path: string; fileCount: number }>
 }
 
 interface TemplateInlineProps {

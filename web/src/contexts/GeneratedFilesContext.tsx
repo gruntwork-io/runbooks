@@ -29,8 +29,7 @@ export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ 
         ? {
             truncatedTree: true,
             totalFiles: response.totalFiles ?? 0,
-            heavyDir: response.heavyDir,
-            heavyDirFileCount: response.heavyDirFileCount,
+            heavyDirs: response.heavyDirs,
           }
         : null
     )

@@ -264,12 +264,25 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
                       <p>
                         Too many files to display ({truncationInfo.totalFiles.toLocaleString()} found). Only the first {fileItems.length.toLocaleString()} files are shown.
                       </p>
-                      {truncationInfo.heavyDir && (
+                      {truncationInfo.heavyDirs && truncationInfo.heavyDirs.length > 0 && (
                         <p className="mt-1.5">
-                          The <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDir}/</code> directory
-                          {typeof truncationInfo.heavyDirFileCount === "number"
-                            ? <> contains {truncationInfo.heavyDirFileCount.toLocaleString()} files and</>
-                            : <></>} may be the cause.
+                          {truncationInfo.heavyDirs.length === 1 ? (
+                            <>
+                              The <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{truncationInfo.heavyDirs[0].path}/</code> directory
+                              {" "}({truncationInfo.heavyDirs[0].fileCount.toLocaleString()} files) may be the cause.
+                            </>
+                          ) : (
+                            <>
+                              The following directories may be the cause:{" "}
+                              {truncationInfo.heavyDirs.map((dir, i) => (
+                                <span key={dir.path}>
+                                  {i > 0 && ", "}
+                                  <code className="px-1 py-0.5 bg-amber-100 border border-amber-300 rounded text-xs font-mono">{dir.path}/</code>
+                                  {" "}({dir.fileCount.toLocaleString()} files)
+                                </span>
+                              ))}
+                            </>
+                          )}
                         </p>
                       )}
                     </div>
