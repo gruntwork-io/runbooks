@@ -278,6 +278,8 @@ function Template({
   useEffect(() => {
     if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return;
 
+    // Deduplicate renders: hash the current inputs/outputs and skip if nothing changed.
+    // This prevents redundant API calls when React re-runs the effect with the same values.
     const key = computeChangeKey(inputValues, localVarValuesRef.current, flattenedOutputs);
     if (key === lastRenderedKeyRef.current) return;
     lastRenderedKeyRef.current = key;

@@ -175,6 +175,8 @@ function TemplateInline({
     // cause type-conversion errors like strconv.Atoi("").
     if (hasEmptyNumericInputs(inputs)) return;
 
+    // Deduplicate renders: hash the current inputs/outputs and skip if nothing changed.
+    // This prevents redundant API calls when React re-runs the effect with the same values.
     const key = computeChangeKey(inputs, allOutputs);
     if (key === lastRenderedKeyRef.current) return;
     lastRenderedKeyRef.current = key;
