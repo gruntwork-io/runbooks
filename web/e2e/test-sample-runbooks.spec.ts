@@ -16,7 +16,7 @@ test.describe("sample-runbooks/demo1", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -159,7 +159,7 @@ test.describe("sample-runbooks/demo3", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -192,7 +192,7 @@ test.describe("sample-runbooks/demo3", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     await trustRunbook(page);
@@ -215,7 +215,7 @@ test.describe("sample-runbooks/demo3", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // The Template block (test1) loads from templates/infra-live-elements.
@@ -242,7 +242,7 @@ test.describe("sample-runbooks/markdown-only-full", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 5_000 });
 
     // Verify the title rendered.
@@ -310,7 +310,7 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title.
@@ -363,7 +363,7 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Fill in the Template form and generate files.
@@ -395,7 +395,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -434,7 +434,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     await trustRunbook(page);
@@ -470,7 +470,7 @@ test.describe("sample-runbooks/next-app", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -535,7 +535,7 @@ test.describe("sample-runbooks/next-app", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Customize the welcome card Title and generate files.
