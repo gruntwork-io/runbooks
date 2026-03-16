@@ -1,6 +1,7 @@
 import { test as base, expect, type ConsoleMessage } from "@playwright/test";
 import { type ChildProcess, spawn } from "child_process";
 import fs from "fs";
+import net from "net";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -97,6 +98,15 @@ function killProcess(proc: ChildProcess): Promise<void> {
   });
 }
 
+/** Check whether a TCP port is already bound on localhost. */
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.createConnection({ port, host: "127.0.0.1" });
+    sock.once("connect", () => { sock.destroy(); resolve(true); });
+    sock.once("error", () => { resolve(false); });
+  });
+}
+
 // ---- Custom fixture types ------------------------------------------------
 
 type RunbookServerFixture = {
@@ -126,7 +136,15 @@ export const test = base.extend<RunbookServerFixture>({
   },
 
   serverPort: [async ({}, use, testInfo) => {
-    await use(BASE_PORT + testInfo.workerIndex);
+    const port = BASE_PORT + testInfo.workerIndex;
+    const inUse = await isPortInUse(port);
+    if (inUse) {
+      throw new Error(
+        `Port ${port} is already in use (worker ${testInfo.workerIndex}). ` +
+        `A previous test run may have left a zombie process. Run: lsof -i :${port}`
+      );
+    }
+    await use(port);
   }, { scope: "test" }],
 
   serveRunbook: async ({ page, consoleMessages, serverPort }, use, testInfo) => {

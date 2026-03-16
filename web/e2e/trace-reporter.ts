@@ -54,7 +54,7 @@ class TraceReporter implements Reporter {
     } else {
       for (const { title, tracePath } of this.failures) {
         console.log(`# ${title}`);
-        console.log(`npx playwright show-trace ${tracePath}\n`);
+        console.log(`npx playwright show-trace test-results/${tracePath}\n`);
       }
     }
 

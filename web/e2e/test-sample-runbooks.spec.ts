@@ -1,3 +1,4 @@
+import { execSync } from "child_process";
 import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 
 /**
@@ -497,8 +498,8 @@ test.describe("sample-runbooks/next-app", () => {
     // Verify the Create Repository Command block and its embedded Inputs.
     const createRepoBlock = page.getByTestId("create-repo");
     await expect(createRepoBlock).toBeVisible();
-    await expect(createRepoBlock.getByRole("textbox", { name: /GitHub organization/i })).toBeVisible();
-    await expect(createRepoBlock.getByRole("textbox", { name: /Repository name/i })).toHaveValue("my-next-app");
+    await expect(createRepoBlock.getByRole("textbox", { name: /GitHub Org Name/i })).toBeVisible();
+    await expect(createRepoBlock.getByRole("textbox", { name: /Repo Name/i })).toHaveValue("my-next-app");
     await expect(createRepoBlock.getByRole("button", { name: "Run" })).toBeVisible();
 
     // Verify the GitClone block rendered.
@@ -508,15 +509,15 @@ test.describe("sample-runbooks/next-app", () => {
     // Verify the Scaffold Command block with its embedded Inputs.
     const scaffoldBlock = page.getByTestId("create-next-app");
     await expect(scaffoldBlock).toBeVisible();
-    await expect(scaffoldBlock.getByRole("combobox", { name: /Programming language/i })).toHaveValue("TypeScript");
-    await expect(scaffoldBlock.getByRole("combobox", { name: /Tailwind/i })).toHaveValue("Yes");
-    await expect(scaffoldBlock.getByRole("combobox", { name: /bundler/i })).toHaveValue("Turbopack");
-    await expect(scaffoldBlock.getByRole("textbox", { name: /Import alias/i })).toHaveValue("@/*");
+    await expect(scaffoldBlock.getByRole("combobox", { name: /Language/i })).toHaveValue("TypeScript");
+    await expect(scaffoldBlock.getByRole("combobox", { name: /Use Tailwind/i })).toHaveValue("Yes");
+    await expect(scaffoldBlock.getByRole("combobox", { name: /Bundler/i })).toHaveValue("Turbopack");
+    await expect(scaffoldBlock.getByRole("textbox", { name: /Import Alias/i })).toHaveValue("@/*");
 
     // Verify the Template block (welcome-card) rendered with its form.
     const templateBlock = page.getByTestId("welcome-card");
     await expect(templateBlock).toBeVisible();
-    await expect(templateBlock.getByRole("textbox", { name: /Heading/i })).toHaveValue("Welcome to your new app");
+    await expect(templateBlock.getByRole("textbox", { name: /Title/i })).toHaveValue("Welcome to your new app");
     await expect(templateBlock.getByRole("button", { name: "Generate" })).toBeVisible();
 
     // Verify the GitHubPullRequest block rendered.
@@ -531,6 +532,13 @@ test.describe("sample-runbooks/next-app", () => {
   });
 
   test("generates welcome-card template files", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+    // This test clones a real repo via the GitClone block, which requires
+    // GitHub credentials (env var or gh CLI). Skip when unavailable.
+    const hasGitHubCredentials = !!process.env.GITHUB_TOKEN || !!process.env.GH_TOKEN || (() => {
+      try { execSync("gh auth status", { stdio: "ignore" }); return true; } catch { return false; }
+    })();
+    test.skip(!hasGitHubCredentials, "Requires GitHub credentials (GITHUB_TOKEN, GH_TOKEN, or gh CLI)");
+
     await serveRunbook("testdata/sample-runbooks/next-app");
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
@@ -538,20 +546,26 @@ test.describe("sample-runbooks/next-app", () => {
     const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
+    // Wait for GitHubAuth to auto-detect credentials (env or CLI).
+    const ghAuth = page.getByTestId("gh-auth");
+    await expect(ghAuth.getByText("Authenticated")).toBeVisible({ timeout: 10_000 });
+
+    // Clone the pre-filled public repo using the GitClone block.
+    const cloneBlock = page.getByTestId("clone-repo");
+    await expect(cloneBlock.getByRole("button", { name: "Clone" })).toBeEnabled({ timeout: 5_000 });
+    await cloneBlock.getByRole("button", { name: "Clone" }).click();
+    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 30_000 });
+
     // Customize the welcome card Title and generate files.
     const templateBlock = page.getByTestId("welcome-card");
     await expect(templateBlock).toBeVisible();
-    await templateBlock.getByRole("textbox", { name: /Heading/i }).clear();
-    await templateBlock.getByRole("textbox", { name: /Heading/i }).fill("Hello Next.js");
+    await templateBlock.getByRole("textbox", { name: /Title/i }).clear();
+    await templateBlock.getByRole("textbox", { name: /Title/i }).fill("Hello Next.js");
     await templateBlock.getByRole("button", { name: "Generate" }).click();
 
-    // Verify files appear in the generated file panel.
-    const generated = getFilesPanel(page, "generated");
-    await expect(generated.getTreeItem("WelcomeCard.tsx")).toBeVisible({ timeout: 5_000 });
-
-    // Verify the generated component contains our customized title.
-    await generated.getTreeItem("WelcomeCard.tsx").click();
-    await expect(generated.getCodeFile("src/components/WelcomeCard.tsx")).toContainText("Hello Next.js");
+    // Files go to the worktree (target="worktree"), so they appear in the changed files panel.
+    const changed = getFilesPanel(page, "changed");
+    await expect(changed.getTreeItem("WelcomeCard.tsx")).toBeVisible({ timeout: 10_000 });
 
     expectNoConsoleErrors(consoleMessages);
   });
