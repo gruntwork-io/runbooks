@@ -75,6 +75,8 @@ func prepareOutputDirectory(workingDir string, cliOutputPath string, apiOutputPa
 // For "worktree", it uses the active git worktree path from the session.
 // For "generated" (or empty/default), it uses the CLI-configured output path.
 func resolveTargetOutputDir(target string, workingDir string, cliOutputPath string, apiOutputPath *string, sessionManager *SessionManager) (string, error) {
+	// "worktree" means the template writes directly into the cloned git repo
+	// rather than the generated files directory.
 	if target == "worktree" {
 		worktreePath := sessionManager.GetActiveWorkTreePath()
 		if worktreePath == "" {

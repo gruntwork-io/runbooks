@@ -1130,6 +1130,7 @@ func (e *TestExecutor) executeTemplateInline(step TestStep, block *TemplateInlin
 	// If generateFile is true, write the rendered content to disk
 	if block.GenerateFile && block.OutputPath != "" {
 		var outputDir string
+		// "worktree" means write into the cloned git repo, not the generated files dir.
 		if block.Target == "worktree" {
 			if e.activeWorkTreePath == "" {
 				result.Passed = false
@@ -1208,7 +1209,8 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 	// Build template variables from test inputs
 	vars := e.buildTemplateVars()
 
-	// Determine output directory based on target
+	// Determine output directory based on target.
+	// "worktree" means write into the cloned git repo, not the generated files dir.
 	var outputDir string
 	if block.Target == "worktree" {
 		if e.activeWorkTreePath == "" {
