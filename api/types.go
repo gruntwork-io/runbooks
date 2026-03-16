@@ -10,21 +10,33 @@ import (
 
 // File represents a file with its content and metadata
 type File struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Content     string `json:"content"`
-	Language    string `json:"language"`
-	Size        int64  `json:"size"`
-	IsTruncated bool   `json:"isTruncated,omitempty"` // True when content was omitted because the file is too large
+	// Name is the file's base name (e.g., "main.go").
+	Name string `json:"name"`
+	// Path is the file path relative to the output directory (e.g., "src/main.go").
+	Path string `json:"path"`
+	// Content is the full text content of the file. Empty when IsTruncated is true.
+	Content string `json:"content"`
+	// Language is the detected programming language (e.g., "go", "typescript"), used for syntax highlighting.
+	Language string `json:"language"`
+	// Size is the file size in bytes.
+	Size int64 `json:"size"`
+	// IsTruncated is true when the file content was omitted because it exceeds the size limit (512KB).
+	// The frontend shows a placeholder message instead of the file content.
+	IsTruncated bool `json:"isTruncated,omitempty"`
 }
 
 // FileTreeNode represents a file or folder in the generated file tree
 type FileTreeNode struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Type     string         `json:"type"` // "file" or "folder"
+	// ID is the unique identifier for this node, typically the file path relative to the output directory.
+	ID string `json:"id"`
+	// Name is the display name of the file or folder (e.g., "main.tf", "modules").
+	Name string `json:"name"`
+	// Type is either "file" or "folder".
+	Type string `json:"type"`
+	// Children contains the nested files and folders within this folder. Empty for files.
 	Children []FileTreeNode `json:"children,omitempty"`
-	File     *File          `json:"file,omitempty"` // Only present for files
+	// File holds the file content and metadata. Only present for file nodes, nil for folders.
+	File *File `json:"file,omitempty"`
 }
 
 // FileTreeMeta holds truncation metadata shared by all endpoints that return a file tree.

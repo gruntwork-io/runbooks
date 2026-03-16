@@ -22,15 +22,26 @@ import (
 
 // WorkspaceTreeNode represents a file or folder in the workspace tree (structure only, no content).
 type WorkspaceTreeNode struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Type       string              `json:"type"` // "file" or "folder"
-	Size       int64               `json:"size,omitempty"`
-	Language   string              `json:"language,omitempty"`
-	IsBinary   bool                `json:"isBinary,omitempty"`
-	IsIgnored  bool                `json:"isIgnored,omitempty"`
-	IsLazyLoad bool                `json:"isLazyLoad,omitempty"`
-	Children   []WorkspaceTreeNode `json:"children,omitempty"`
+	// ID is the unique identifier for this node, typically the file path relative to the workspace root.
+	ID string `json:"id"`
+	// Name is the display name of the file or folder (e.g., "main.go", "src").
+	Name string `json:"name"`
+	// Type is either "file" or "folder".
+	Type string `json:"type"`
+	// Size is the file size in bytes. Only set for files, omitted for folders.
+	Size int64 `json:"size,omitempty"`
+	// Language is the detected programming language of the file (e.g., "go", "typescript").
+	Language string `json:"language,omitempty"`
+	// IsBinary is true when the file is detected as a binary (non-text) file.
+	IsBinary bool `json:"isBinary,omitempty"`
+	// IsIgnored is true when the file or folder is matched by .gitignore rules.
+	// The frontend renders these with muted styling to indicate they are not tracked by git.
+	IsIgnored bool `json:"isIgnored,omitempty"`
+	// IsLazyLoad is true for folders that contain too many entries to load upfront (>500 children).
+	// The frontend shows a placeholder and fetches the subtree on demand when the user expands the folder.
+	IsLazyLoad bool `json:"isLazyLoad,omitempty"`
+	// Children contains the nested files and folders within this folder. Empty for files.
+	Children []WorkspaceTreeNode `json:"children,omitempty"`
 }
 
 // WorkspaceGitInfo contains git metadata for a workspace.
