@@ -29,7 +29,7 @@ interface WorkspaceTreeResponse {
   gitInfo?: WorkspaceGitInfo
 }
 
-interface UseWorkspaceTreeResult {
+interface UseGitFileTreeResult {
   tree: WorkspaceTreeNode[] | null
   isLoading: boolean
   error: string | null
@@ -43,7 +43,7 @@ interface UseWorkspaceTreeResult {
  * Hook that fetches the structure-only file tree for the active git worktree.
  * Re-fetches automatically when the active worktree changes.
  */
-export function useWorkspaceTree(): UseWorkspaceTreeResult {
+export function useGitFileTree(): UseGitFileTreeResult {
   const { activeWorkTree, treeVersion } = useGitWorkTree()
   const { getAuthHeader } = useSession()
   const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null)

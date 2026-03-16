@@ -14,13 +14,13 @@ import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useFileContent } from '@/hooks/useFileContent'
-import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
+import { useGitFileChanges } from '@/hooks/useGitFileChanges'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import type { WorkspaceTreeNode } from '@/hooks/useWorkspaceTree'
+import type { WorkspaceTreeNode } from '@/hooks/useGitFileTree'
 import type { FileTreeNode } from '../code/FileTree'
 
 interface RepositoryFileBrowserProps {
-  /** Structure-only tree (no content) from useWorkspaceTree */
+  /** Structure-only tree (no content) from useGitFileTree */
   tree: WorkspaceTreeNode[] | null;
   /** Whether the tree is loading */
   isLoading: boolean;
@@ -47,7 +47,7 @@ export const RepositoryFileBrowser = ({
   
   // Lazy file content loader
   const { fetchFileContent, refetchFileContent, clearCache, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
-  const { changes } = useWorkspaceChanges()
+  const { changes } = useGitFileChanges()
   const { activeWorkTree, treeVersion } = useGitWorkTree()
 
   // When changes are detected, refetch the currently selected file so All Files shows updated content

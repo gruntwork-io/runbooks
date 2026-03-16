@@ -32,10 +32,10 @@ export interface GitWorkTreeContextType {
   /** Switch the active worktree by id */
   setActiveWorkTree: (id: string) => void
   /** Monotonically increasing counter that signals "the worktree contents changed, re-fetch the tree".
-   *  Any component can call invalidateTree() to bump this; useWorkspaceTree watches it. */
+   *  Any component can call invalidateGitFileTree() to bump this; useGitFileTree watches it. */
   treeVersion: number
   /** Bump treeVersion to trigger a re-fetch of the workspace file tree */
-  invalidateTree: () => void
+  invalidateGitFileTree: () => void
 }
 
 export const GitWorkTreeContext = React.createContext<GitWorkTreeContextType | undefined>(undefined)

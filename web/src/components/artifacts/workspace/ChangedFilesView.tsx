@@ -29,7 +29,7 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
-import type { WorkspaceFileChange } from '@/hooks/useWorkspaceChanges'
+import type { WorkspaceFileChange } from '@/hooks/useGitFileChanges'
 import { ChangeProportionBar } from './ChangeProportionBar'
 
 type ChangeType = WorkspaceFileChange['changeType']
@@ -56,7 +56,7 @@ function getChangeTypeIcon(changeType: ChangeType): LucideIcon {
 
 
 interface ChangedFilesViewProps {
-  /** List of file changes from useWorkspaceChanges */
+  /** List of file changes from useGitFileChanges */
   changes: WorkspaceFileChange[];
   /** Whether there are too many changes to display */
   tooManyChanges?: boolean;

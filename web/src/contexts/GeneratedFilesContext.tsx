@@ -17,7 +17,7 @@ export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ 
     setLocalPath(path)
   }, [])
 
-  const updateFileTree = useCallback((response: FileTreeResponse | null) => {
+  const updateGeneratedFileTree = useCallback((response: FileTreeResponse | null) => {
     if (!response) {
       setFileTree(null)
       setTruncationInfo(null)
@@ -36,7 +36,7 @@ export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ 
   }, [])
 
   return (
-    <GeneratedFilesContext.Provider value={{ fileTree, truncationInfo, localPath, setLocalPath: stableSetLocalPath, updateFileTree }}>
+    <GeneratedFilesContext.Provider value={{ fileTree, truncationInfo, localPath, setLocalPath: stableSetLocalPath, updateGeneratedFileTree }}>
       {children}
     </GeneratedFilesContext.Provider>
   )

@@ -16,7 +16,7 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
   const [treeVersion, setTreeVersion] = useState(0)
   const { getAuthHeader } = useSession()
 
-  const invalidateTree = useCallback(() => {
+  const invalidateGitFileTree = useCallback(() => {
     setTreeVersion(v => v + 1)
   }, [])
 
@@ -59,8 +59,8 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     }).catch(() => {})
 
     // Always invalidate the tree so re-clones refresh the file tree and reset changed files
-    invalidateTree()
-  }, [getAuthHeader, syncActiveToBackend, invalidateTree])
+    invalidateGitFileTree()
+  }, [getAuthHeader, syncActiveToBackend, invalidateGitFileTree])
 
   const setActiveWorkTree = useCallback((id: string) => {
     setActiveWorkTreeId(id)
@@ -85,8 +85,8 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     registerWorkTree,
     setActiveWorkTree,
     treeVersion,
-    invalidateTree,
-  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree, treeVersion, invalidateTree])
+    invalidateGitFileTree,
+  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree, treeVersion, invalidateGitFileTree])
 
   return (
     <GitWorkTreeContext.Provider value={value}>

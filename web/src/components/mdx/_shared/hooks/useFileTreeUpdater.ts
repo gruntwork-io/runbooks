@@ -4,18 +4,18 @@ import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import type { FileTreeResponse } from '@/contexts/GeneratedFilesContext.types'
 
 export function useFileTreeUpdater(target?: 'generated' | 'worktree') {
-  const { updateFileTree } = useGeneratedFiles()
-  const { invalidateTree } = useGitWorkTree()
+  const { updateGeneratedFileTree } = useGeneratedFiles()
+  const { invalidateGitFileTree } = useGitWorkTree()
 
   const applyFileTreeUpdate = useCallback((result: FileTreeResponse | null) => {
     if (!result) return
     if (target === 'worktree') {
-      invalidateTree()
+      invalidateGitFileTree()
     } else {
-      updateFileTree(result)
-      invalidateTree()
+      updateGeneratedFileTree(result)
+      invalidateGitFileTree()
     }
-  }, [target, updateFileTree, invalidateTree])
+  }, [target, updateGeneratedFileTree, invalidateGitFileTree])
 
   return { applyFileTreeUpdate }
 }

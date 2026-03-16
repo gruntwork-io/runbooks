@@ -20,7 +20,7 @@ export interface TruncationInfo {
 }
 
 /**
- * Shape accepted by updateFileTree. Includes the file tree itself plus optional
+ * Shape accepted by updateGeneratedFileTree. Includes the file tree itself plus optional
  * truncation metadata returned by the backend. When truncation fields are
  * absent the stored TruncationInfo is automatically cleared.
  */
@@ -37,7 +37,7 @@ export interface GeneratedFilesContextType {
   localPath: string | null
   setLocalPath: (path: string | null) => void
   /** Single setter for file tree + truncation metadata. Pass null to clear. */
-  updateFileTree: (response: FileTreeResponse | null) => void
+  updateGeneratedFileTree: (response: FileTreeResponse | null) => void
 }
 
 export const GeneratedFilesContext = createContext<GeneratedFilesContextType | undefined>(undefined)

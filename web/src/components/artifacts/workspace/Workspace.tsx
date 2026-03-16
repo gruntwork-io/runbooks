@@ -24,8 +24,8 @@ import { RepositoryFileBrowser } from './RepositoryFileBrowser'
 import { ChangedFilesView } from './ChangedFilesView'
 import { CodeFileCollection } from '../code/CodeFileCollection'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import { useWorkspaceTree } from '@/hooks/useWorkspaceTree'
-import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
+import { useGitFileTree } from '@/hooks/useGitFileTree'
+import { useGitFileChanges } from '@/hooks/useGitFileChanges'
 import type { FileTreeNode } from '../code/FileTree'
 import type { WorkspaceTab, WorkspaceContext } from '@/types/workspace'
 import { ChangeProportionBar } from './ChangeProportionBar'
@@ -64,8 +64,8 @@ export const Workspace = ({
 
   // Git worktree data
   const { workTrees, activeWorkTree, activeWorkTreeId, setActiveWorkTree } = useGitWorkTree()
-  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree, fetchSubtree } = useWorkspaceTree()
-  const { changes, totalChanges, tooManyChanges, isLoading: changesLoading, fetchFileDiff } = useWorkspaceChanges()
+  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree, fetchSubtree } = useGitFileTree()
+  const { changes, totalChanges, tooManyChanges, isLoading: changesLoading, fetchFileDiff } = useGitFileChanges()
 
   // Determine what's available
   const hasGeneratedFiles = generatedFiles.length > 0

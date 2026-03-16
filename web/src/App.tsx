@@ -56,7 +56,7 @@ function App() {
   useWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
-  const { fileTree, updateFileTree } = useGeneratedFiles()
+  const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
   const hasFiles = hasGeneratedFiles(fileTree)
   
   // Get git worktree state to detect when a repo is cloned
@@ -143,7 +143,7 @@ function App() {
     setAlertDismissedThisSession(true);
     // Clear the file tree so stale generated files (including hidden files/folders
     // like .github) are removed from the UI after deletion
-    updateFileTree(null);
+    updateGeneratedFileTree(null);
   };
 
   return (
