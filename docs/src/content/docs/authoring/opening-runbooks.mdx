@@ -89,11 +89,11 @@ Inside `runbook.mdx`, the `::cli_runbook_source` keyword resolves to whatever mo
 <TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -143,11 +143,11 @@ When someone runs `runbooks open` on this directory, the colocated `runbook.mdx`
 <TemplateInline id="rds-config" inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

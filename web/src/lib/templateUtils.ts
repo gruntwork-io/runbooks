@@ -136,8 +136,23 @@ export function flattenBlockOutputs(
 }
 
 /**
+ * Resolve a potentially nested path (e.g., "_module.source") against an object.
+ * Returns the value at the path, or undefined if any segment is missing.
+ */
+function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const segments = path.split('.')
+  let current: unknown = obj
+  for (const segment of segments) {
+    if (current === null || current === undefined || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+/**
  * Returns input dependency names that don't have values yet.
- * Mirrors computeUnmetOutputDependencies — same pattern, same naming.
+ * Supports nested paths (e.g., "_module.source") for values injected
+ * as nested objects by upstream blocks like TfModule.
  * Returns an empty array when deps is empty (no dependencies to check).
  */
 export function computeUnmetInputDependencies(
@@ -145,7 +160,7 @@ export function computeUnmetInputDependencies(
   inputs: TemplateInputs
 ): InputName[] {
   return deps.filter(name => {
-    const value = inputs[name]
+    const value = name.includes('.') ? resolveNestedValue(inputs as Record<string, unknown>, name) : inputs[name]
     return value === undefined || value === null || value === ''
   })
 }

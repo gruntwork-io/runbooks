@@ -32,13 +32,19 @@ test.describe("remote TF module", () => {
     const moduleBlock = page.getByTestId("module-vars");
     await expect(moduleBlock).toBeVisible({ timeout: 15_000 });
 
+    // Before submitting, the TemplateInline should show a dependency
+    // warning — not a render error — since its inputsId block hasn't
+    // submitted values yet.
+    const templateBlock = page.getByTestId("module-config");
+    await expect(templateBlock).toBeVisible({ timeout: 5_000 });
+    await expect(templateBlock.getByText("Waiting for inputs from")).toBeVisible({ timeout: 5_000 });
+
     // Fill in the required "Name" field and submit
     await moduleBlock.getByRole("textbox", { name: "Name" }).fill("my-test-bucket");
     await moduleBlock.getByRole("button", { name: "Submit" }).click();
 
-    // The TemplateInline should render the terragrunt.hcl preview with
-    // static template content and the user-provided input value.
-    const templateBlock = page.getByTestId("module-config");
+    // After submit, the TemplateInline should render the terragrunt.hcl
+    // preview with static template content and the user-provided input value.
     await expect(templateBlock).toContainText("find_in_parent_folders", { timeout: 5_000 });
     await expect(templateBlock).toContainText('name = "my-test-bucket"');
 
