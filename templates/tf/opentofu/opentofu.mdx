@@ -8,7 +8,7 @@ This runbook generates a `main.tf` file from an OpenTofu or Terraform module's i
 
 ## Generated Configuration
 
-<TemplateInline inputsId="module-vars" outputPath="main.tf" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="main.tf" generateFile={true}>
 ```hcl
 module "this" {
   source = "{{ ._module.source }}"

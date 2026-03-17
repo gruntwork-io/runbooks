@@ -48,15 +48,18 @@ function matchesRunbookPath(actual: string, expected: string): boolean {
 /**
  * Poll the /api/health endpoint until the server reports "ok".
  * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
+ *
+ * When skipPathCheck is true, only the status is verified (useful for
+ * remote URLs where the server generates a temp runbook path).
  */
-function waitForServer(port: number, expectedRunbookPath: string): Promise<void> {
+function waitForServer(port: number, expectedRunbookPath: string, skipPathCheck = false, timeout = HEALTH_TIMEOUT_MS): Promise<void> {
   const healthURL = `http://localhost:${port}/api/health`;
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+    const deadline = Date.now() + timeout;
 
     function poll() {
       if (Date.now() > deadline) {
-        reject(new Error(`Server did not become ready within ${HEALTH_TIMEOUT_MS}ms`));
+        reject(new Error(`Server did not become ready within ${timeout}ms`));
         return;
       }
       const req = http.get(healthURL, (res) => {
@@ -66,7 +69,7 @@ function waitForServer(port: number, expectedRunbookPath: string): Promise<void>
           if (res.statusCode === 200) {
             try {
               const json = JSON.parse(body);
-              if (json.status === "ok" && matchesRunbookPath(json.runbookPath, expectedRunbookPath)) {
+              if (json.status === "ok" && (skipPathCheck || matchesRunbookPath(json.runbookPath, expectedRunbookPath))) {
                 resolve();
                 return;
               }
@@ -186,8 +189,10 @@ export const test = base.extend<RunbookServerFixture>({
         serverProcess!.on("exit", earlyExitHandler);
       });
 
+      const isRemoteURL = runbookPath.startsWith("http://") || runbookPath.startsWith("https://");
+      const healthTimeout = isRemoteURL ? 30_000 : HEALTH_TIMEOUT_MS;
       try {
-        await Promise.race([waitForServer(serverPort, runbookPath), earlyExit]);
+        await Promise.race([waitForServer(serverPort, runbookPath, isRemoteURL, healthTimeout), earlyExit]);
       } finally {
         serverProcess!.removeListener("exit", earlyExitHandler!);
         earlyExit.catch(() => {});
