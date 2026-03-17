@@ -1,70 +1,37 @@
-import { getCollection } from "astro:content";
+// These are internal Starlight modules. We import via absolute path to bypass
+// the package.json exports map, which doesn't expose utils publicly.
+// @ts-ignore - internal Starlight module
+import { getSidebar } from "../../node_modules/@astrojs/starlight/utils/navigation.ts";
+// @ts-ignore - internal Starlight module
+import { routes } from "../../node_modules/@astrojs/starlight/utils/routing/index.ts";
 
-const DOC_ORDER = [
-  {
-    section: "Intro",
-    entries: [
-      "intro/overview",
-      "intro/ui_tour",
-      "intro/installation",
-      "intro/write_your_first_runbook",
-      "intro/use_cases",
-      "intro/runbooks_vs_other",
-      "intro/files_workspace",
-    ],
-  },
-  {
-    section: "CLI",
-    entries: [
-      "commands/overview",
-      "commands/open",
-      "commands/serve",
-      "commands/watch",
-    ],
-  },
-  {
-    section: "Authoring Runbooks",
-    entries: [
-      "authoring/overview",
-      "authoring/runbook-structure",
-      "authoring/markdown",
-      "authoring/inputs-and-outputs",
-      "authoring/opening-runbooks",
-      "authoring/boilerplate",
-      "authoring/testing",
-      "authoring/blocks",
-      "authoring/blocks/inputs",
-      "authoring/blocks/command",
-      "authoring/blocks/check",
-      "authoring/blocks/template",
-      "authoring/blocks/templateinline",
-      "authoring/blocks/awsauth",
-      "authoring/blocks/githubauth",
-      "authoring/blocks/gitclone",
-      "authoring/blocks/githubpullrequest",
-      "authoring/blocks/dirpicker",
-      "authoring/blocks/tfmodule",
-      "authoring/blocks/admonition",
-      "authoring/blocks/advanced",
-    ],
-  },
-  {
-    section: "Security",
-    entries: [
-      "security/execution-model",
-      "security/shell-execution-context",
-      "security/telemetry",
-    ],
-  },
-  {
-    section: "Development",
-    entries: ["development/workflow"],
-  },
-  {
-    section: "Runbooks Pro",
-    entries: ["pro/overview"],
-  },
-];
+interface SidebarLink {
+  type: "link";
+  label: string;
+  href: string;
+}
+interface SidebarGroup {
+  type: "group";
+  label: string;
+  entries: SidebarEntry[];
+}
+type SidebarEntry = SidebarLink | SidebarGroup;
+
+interface Route {
+  slug: string;
+  id: string;
+  entry: {
+    data: { title?: string };
+    body?: string;
+  };
+}
+
+/** Build a map from sidebar href to route entry for O(1) lookup. */
+const routesByPath = new Map(routes.map((r) => [`/${r.slug}/`, r]));
+// Also map the root route.
+for (const r of routes) {
+  if (r.slug === "") routesByPath.set("/", r);
+}
 
 /** Strip MDX/JSX syntax from raw markdown body to produce clean plaintext markdown. */
 function stripMdx(body: string): string {
@@ -126,9 +93,40 @@ function stripMdx(body: string): string {
   return text.trim();
 }
 
+/**
+ * Walk the sidebar tree and emit text for each entry.
+ * Groups become section headings, links become doc content.
+ */
+function walkSidebar(entries: SidebarEntry[], parts: string[], depth: number): void {
+  for (const entry of entries) {
+    if (entry.type === "group") {
+      // Use markdown heading based on depth (## for top-level groups, ### for nested).
+      const heading = "#".repeat(Math.min(depth + 2, 4));
+      parts.push(`${heading} ${entry.label}`, "");
+      walkSidebar(entry.entries, parts, depth + 1);
+    } else {
+      const route = routesByPath.get(entry.href);
+      if (!route) continue;
+
+      // Skip the homepage — it's a splash page.
+      if (route.slug === "") continue;
+
+      const title = route.entry.data.title || route.id;
+      const heading = "#".repeat(Math.min(depth + 2, 4));
+      parts.push(`${heading} ${title}`, "");
+
+      if (route.entry.body) {
+        parts.push(stripMdx(route.entry.body), "");
+      }
+
+      parts.push("---", "");
+    }
+  }
+}
+
 export async function generateLlmsTxt(): Promise<string> {
-  const allDocs = await getCollection("docs");
-  const docMap = new Map(allDocs.map((doc) => [doc.id, doc]));
+  // Get the fully resolved sidebar in the exact order Starlight uses.
+  const sidebar = getSidebar("/", undefined);
 
   const parts: string[] = [
     "# Gruntwork Runbooks Documentation",
@@ -145,26 +143,7 @@ export async function generateLlmsTxt(): Promise<string> {
     "",
   ];
 
-  for (const section of DOC_ORDER) {
-    parts.push(`## ${section.section}`, "");
-
-    for (const entryId of section.entries) {
-      const doc = docMap.get(entryId);
-      if (!doc) {
-        console.warn(`[llms.txt] Entry not found: ${entryId}`);
-        continue;
-      }
-
-      const title = doc.data.title || entryId;
-      parts.push(`### ${title}`, "");
-
-      if (doc.body) {
-        parts.push(stripMdx(doc.body), "");
-      }
-
-      parts.push("---", "");
-    }
-  }
+  walkSidebar(sidebar, parts, 0);
 
   return parts.join("\n");
 }
