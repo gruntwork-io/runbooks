@@ -8,10 +8,10 @@ This runbook generates a `terragrunt.hcl` file from an OpenTofu or Terraform mod
 
 ## Generated Configuration
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -20,7 +20,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

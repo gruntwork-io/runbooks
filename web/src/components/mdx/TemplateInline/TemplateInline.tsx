@@ -169,6 +169,10 @@ function TemplateInline({
   useEffect(() => {
     if (isDuplicate) return;
     if (!hasAllInputDeps || !hasAllOutputDeps) return;
+    // Don't render when inputsId blocks haven't submitted values yet.
+    // Templates may reference root-level keys (e.g., ._module) injected by
+    // upstream blocks like TfModule that aren't tracked as .inputs.X deps.
+    if (unmetInputsIds.length > 0) return;
 
     // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
     // a number field before typing a new value). Sending "" to the backend would
@@ -189,7 +193,7 @@ function TemplateInline({
       generateFile,
       ...(target ? { target } : {}),
     });
-  }, [inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, templateFiles, flattenedOutputs, generateFile, target, debouncedRequest, isDuplicate]);
+  }, [inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, generateFile, target, debouncedRequest, isDuplicate]);
 
   // Apply file tree updates when render data arrives
   useEffect(() => {
@@ -214,7 +218,7 @@ function TemplateInline({
   return (
     <div data-testid={id}>
       {/* Show warning when waiting for input blocks to submit values */}
-      {unmetInputDeps.length > 0 && unmetInputsIds.length > 0 && (
+      {unmetInputsIds.length > 0 && (
         <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
           <div>
