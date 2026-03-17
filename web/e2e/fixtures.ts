@@ -190,9 +190,13 @@ export const test = base.extend<RunbookServerFixture>({
       });
 
       const isRemoteURL = runbookPath.startsWith("http://") || runbookPath.startsWith("https://");
+      // Skip path check for remote URLs and local TF modules — both generate
+      // a runbook in a temp directory, so the served path won't match the input.
+      const isTfModule = !runbookPath.endsWith(".mdx");
+      const skipPathCheck = isRemoteURL || isTfModule;
       const healthTimeout = isRemoteURL ? 30_000 : HEALTH_TIMEOUT_MS;
       try {
-        await Promise.race([waitForServer(serverPort, runbookPath, isRemoteURL, healthTimeout), earlyExit]);
+        await Promise.race([waitForServer(serverPort, runbookPath, skipPathCheck, healthTimeout), earlyExit]);
       } finally {
         serverProcess!.removeListener("exit", earlyExitHandler!);
         earlyExit.catch(() => {});

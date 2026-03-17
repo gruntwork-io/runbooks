@@ -1,5 +1,6 @@
 import { test, expect, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 import path from "path";
+import { fileURLToPath } from "url";
 
 /**
  * End-to-end tests for opening an OpenTofu/Terraform module.
@@ -11,11 +12,12 @@ import path from "path";
  */
 
 // Use a repo-local test fixture to avoid depending on external repos.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TF_MODULE_PATH = path.resolve(__dirname, "../../testdata/test-fixtures/tf-modules/s3-bucket");
 
-// Same fixture accessed via GitHub URL, pinned to a commit SHA for determinism.
+// Same fixture accessed via GitHub URL, using main branch.
 const TF_MODULE_REMOTE_URL =
-  "https://github.com/gruntwork-io/runbooks/tree/4093ed1a8ea775562fc7628f6f5fbdb9688fab10/testdata/test-fixtures/tf-modules/s3-bucket";
+  "https://github.com/gruntwork-io/runbooks/tree/main/testdata/test-fixtures/tf-modules/s3-bucket";
 
 test.describe("TF module (local)", () => {
   test("renders TfModule form and generates terragrunt.hcl after submit", async ({
