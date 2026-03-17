@@ -9,7 +9,7 @@ import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts
 import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
-import { useWorkspaceChanges } from "@/hooks/useWorkspaceChanges"
+import { useGitFileChanges } from "@/hooks/useGitFileChanges"
 import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
@@ -136,7 +136,7 @@ function GitHubPullRequest({
   } = useGitHubPullRequest({ id, githubAuthId })
 
   // Workspace changes for diff summary
-  const { changes: workspaceChanges } = useWorkspaceChanges()
+  const { changes: workspaceChanges } = useGitFileChanges()
 
   const changeSummary = useMemo(() => {
     if (!workspaceChanges || workspaceChanges.length === 0) return null

@@ -51,10 +51,9 @@ export function GeneratedFilesAlert({
   };
 
   const handleDeleteFiles = async () => {
-    await deleteFiles();
-    
-    // Check if deletion was successful
-    if (!deleteError) {
+    const success = await deleteFiles();
+
+    if (success) {
       if (dontAskAgain) {
         dismissGeneratedFilesAlert();
       }

@@ -1,3 +1,4 @@
+import { execSync } from "child_process";
 import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 
 /**
@@ -16,7 +17,7 @@ test.describe("sample-runbooks/demo1", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -44,7 +45,7 @@ test.describe("sample-runbooks/demo1", () => {
 // Test: demo2
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo2", () => {
-  test("renders demo2 without errors", async ({ page, serveRunbook, serverPort }) => {
+  test("renders demo2 without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo2");
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
@@ -90,9 +91,11 @@ test.describe("sample-runbooks/demo2", () => {
     await expect(generated.getTreeItem('sample.hcl')).toBeVisible({ timeout: 2_000 });
     await generated.getTreeItem('sample.hcl').click();
     await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
+
+    expectNoConsoleErrors(consoleMessages);
   });
 
-  test("renders the large input form and generates files", async ({ page, serveRunbook, serverPort }) => {
+  test("renders the large input form and generates files", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
     await serveRunbook("testdata/sample-runbooks/demo2");
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
@@ -148,6 +151,8 @@ test.describe("sample-runbooks/demo2", () => {
     // Verify the root terragrunt file uses our custom name.
     await expect(genFiles.getTreeItem('terragrunt2.hcl')).toBeVisible({ timeout: 2_000 });
     await genFiles.getTreeItem('terragrunt2.hcl').click();
+
+    expectNoConsoleErrors(consoleMessages);
   });
 });
 
@@ -160,7 +165,7 @@ test.describe("sample-runbooks/demo3", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -179,11 +184,8 @@ test.describe("sample-runbooks/demo3", () => {
     await expect(commandBlock.getByRole("textbox", { name: /project/i })).toHaveValue("my-awesome-project");
     await expect(commandBlock.getByRole("textbox", { name: /author/i })).toHaveValue("Developer");
 
-    // Wait for templates to auto-render (they fire after a debounce).
-    await page.waitForTimeout(2_000);
-
-    // No template rendering errors should be visible.
-    await expect(page.getByTestId("component-error")).not.toBeVisible();
+    // Verify no template rendering errors are visible (templates auto-render after a debounce).
+    await expect(page.getByTestId("component-error")).not.toBeVisible({ timeout: 5_000 });
 
     // No error boundary should be visible.
     await expect(page.getByTestId("mdx-error")).not.toBeVisible();
@@ -196,7 +198,7 @@ test.describe("sample-runbooks/demo3", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     await trustRunbook(page);
@@ -219,7 +221,7 @@ test.describe("sample-runbooks/demo3", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // The Template block (test1) loads from templates/infra-live-elements.
@@ -246,7 +248,7 @@ test.describe("sample-runbooks/markdown-only-full", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 5_000 });
 
     // Verify the title rendered.
@@ -314,7 +316,7 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title.
@@ -367,7 +369,7 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Fill in the Template form and generate files.
@@ -399,7 +401,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // Verify the title rendered.
@@ -438,7 +440,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.locator(".markdown-body");
+    const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     await trustRunbook(page);
@@ -460,6 +462,115 @@ test.describe("sample-runbooks/homepage-demo", () => {
 
     // No error boundary should be visible.
     await expect(page.getByTestId("mdx-error")).not.toBeVisible();
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test: next-app
+// ---------------------------------------------------------------------------
+test.describe("sample-runbooks/next-app", () => {
+  test("renders all blocks and interactive forms without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+    await serveRunbook("testdata/sample-runbooks/next-app");
+    await page.goto(`http://localhost:${serverPort}/`);
+    await deleteFilesIfPrompted(page);
+
+    const markdownBody = page.getByTestId("runbook-content");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+
+    // Verify the title rendered.
+    await expect(page.locator("h1")).toHaveText("Create a Next.js App");
+
+    // Verify key headings rendered.
+    await expect(page.getByRole("heading", { name: "Pre-flight Checks" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Authenticate to GitHub" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Create a Repository" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Clone the Repository" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Scaffold the Next.js App" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Add a Custom Component" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Create a Pull Request" })).toBeVisible();
+
+    // Verify the Check block rendered with its button.
+    const bunCheck = page.getByTestId("check-bun");
+    await expect(bunCheck).toBeVisible();
+    await expect(bunCheck.getByRole("button", { name: "Check" })).toBeVisible();
+
+    // Verify the GitHubAuth block rendered.
+    const ghAuth = page.getByTestId("gh-auth");
+    await expect(ghAuth).toBeVisible();
+
+    // Verify the Create Repository Command block and its embedded Inputs.
+    const createRepoBlock = page.getByTestId("create-repo");
+    await expect(createRepoBlock).toBeVisible();
+    await expect(createRepoBlock.getByRole("textbox", { name: /GitHub Org Name/i })).toBeVisible();
+    await expect(createRepoBlock.getByRole("textbox", { name: /Repo Name/i })).toHaveValue("my-next-app");
+    await expect(createRepoBlock.getByRole("button", { name: "Run" })).toBeVisible();
+
+    // Verify the GitClone block rendered.
+    const cloneBlock = page.getByTestId("clone-repo");
+    await expect(cloneBlock).toBeVisible();
+
+    // Verify the Scaffold Command block with its embedded Inputs.
+    const scaffoldBlock = page.getByTestId("create-next-app");
+    await expect(scaffoldBlock).toBeVisible();
+    await expect(scaffoldBlock.getByRole("combobox", { name: /Language/i })).toHaveValue("TypeScript");
+    await expect(scaffoldBlock.getByRole("combobox", { name: /Use Tailwind/i })).toHaveValue("Yes");
+    await expect(scaffoldBlock.getByRole("combobox", { name: /Bundler/i })).toHaveValue("Turbopack");
+    await expect(scaffoldBlock.getByRole("textbox", { name: /Import Alias/i })).toHaveValue("@/*");
+
+    // Verify the Template block (welcome-card) rendered with its form.
+    const templateBlock = page.getByTestId("welcome-card");
+    await expect(templateBlock).toBeVisible();
+    await expect(templateBlock.getByRole("textbox", { name: /Title/i })).toHaveValue("Welcome to your new app");
+    await expect(templateBlock.getByRole("button", { name: "Generate" })).toBeVisible();
+
+    // Verify the GitHubPullRequest block rendered.
+    const prBlock = page.getByTestId("create-pr");
+    await expect(prBlock).toBeVisible();
+
+    // No error boundary should be visible.
+    await expect(page.getByTestId("mdx-error")).not.toBeVisible();
+    await expect(page.getByTestId("component-error")).not.toBeVisible({ timeout: 5_000 });
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+
+  test("generates welcome-card template files", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+    // This test clones a real repo via the GitClone block, which requires
+    // GitHub credentials (env var or gh CLI). Skip when unavailable.
+    const hasGitHubCredentials = !!process.env.GITHUB_TOKEN || !!process.env.GH_TOKEN || (() => {
+      try { execSync("gh auth status", { stdio: "ignore" }); return true; } catch { return false; }
+    })();
+    test.skip(!hasGitHubCredentials, "Requires GitHub credentials (GITHUB_TOKEN, GH_TOKEN, or gh CLI)");
+
+    await serveRunbook("testdata/sample-runbooks/next-app");
+    await page.goto(`http://localhost:${serverPort}/`);
+    await deleteFilesIfPrompted(page);
+
+    const markdownBody = page.getByTestId("runbook-content");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+
+    // Wait for GitHubAuth to auto-detect credentials (env or CLI).
+    const ghAuth = page.getByTestId("gh-auth");
+    await expect(ghAuth.getByText("Authenticated")).toBeVisible({ timeout: 10_000 });
+
+    // Clone the pre-filled public repo using the GitClone block.
+    const cloneBlock = page.getByTestId("clone-repo");
+    await expect(cloneBlock.getByRole("button", { name: "Clone" })).toBeEnabled({ timeout: 5_000 });
+    await cloneBlock.getByRole("button", { name: "Clone" }).click();
+    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 30_000 });
+
+    // Customize the welcome card Title and generate files.
+    const templateBlock = page.getByTestId("welcome-card");
+    await expect(templateBlock).toBeVisible();
+    await templateBlock.getByRole("textbox", { name: /Title/i }).clear();
+    await templateBlock.getByRole("textbox", { name: /Title/i }).fill("Hello Next.js");
+    await templateBlock.getByRole("button", { name: "Generate" }).click();
+
+    // Files go to the worktree (target="worktree"), so they appear in the changed files panel.
+    const changed = getFilesPanel(page, "changed");
+    await expect(changed.getTreeItem("WelcomeCard.tsx")).toBeVisible({ timeout: 10_000 });
 
     expectNoConsoleErrors(consoleMessages);
   });

@@ -6,6 +6,7 @@ export default defineConfig({
   // MDX compiles client-side, so give each test enough time for
   // server startup + React render + MDX compilation.
   timeout: 30_000,
+  reporter: [["list"], ["./e2e/trace-reporter.ts"]],
   use: {
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

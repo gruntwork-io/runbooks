@@ -1,11 +1,11 @@
 import { test as base, expect, type ConsoleMessage } from "@playwright/test";
 import { type ChildProcess, spawn } from "child_process";
 import fs from "fs";
+import net from "net";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import http from "http";
-import net from "net";
 
 const HEALTH_POLL_INTERVAL_MS = 100;
 const HEALTH_TIMEOUT_MS = 10_000;
