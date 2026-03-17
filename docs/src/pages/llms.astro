@@ -45,7 +45,9 @@ const content = await generateLlmsTxt();
     <p class="llms-stats" id="stats"></p>
   </div>
 
-  <script is:inline define:vars={{ content }}>
+  <script is:inline>
+    const content = document.getElementById("llms-content").textContent;
+
     const statsEl = document.getElementById("stats");
     const chars = content.length;
     const words = content.split(/\s+/).length;
