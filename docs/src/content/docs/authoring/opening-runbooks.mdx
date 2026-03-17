@@ -86,7 +86,7 @@ Inside `runbook.mdx`, the `::cli_runbook_source` keyword resolves to whatever mo
 
 <TfModule id="module-vars" source="::cli_runbook_source" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ ._module.source }}"
@@ -140,7 +140,7 @@ When someone runs `runbooks open` on this directory, the colocated `runbook.mdx`
 
 <TfModule id="rds-vars" source="." />
 
-<TemplateInline inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="rds-config" inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ ._module.source }}"

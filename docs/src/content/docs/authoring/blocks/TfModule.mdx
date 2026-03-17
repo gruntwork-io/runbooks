@@ -142,7 +142,7 @@ Inside `runbook.mdx`:
 
 <TfModule id="rds-vars" source="." />
 
-<TemplateInline inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="rds-config" inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ ._module.source }}"
@@ -317,7 +317,7 @@ One common pattern is generating a `terragrunt.hcl` that "instantiates" an OpenT
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ ._module.source }}"
@@ -348,7 +348,7 @@ The example above will render every module variable, even those left empty or ma
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
   source = "{{ ._module.source }}"
@@ -375,7 +375,7 @@ You can also reference specific variables by name instead of iterating:
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="summary.txt">
+<TemplateInline id="module-summary" inputsId="module-vars" outputPath="summary.txt">
 ```
 Instance Class: {{ .inputs.instance_class }}
 Engine Version: {{ .inputs.engine_version }}
