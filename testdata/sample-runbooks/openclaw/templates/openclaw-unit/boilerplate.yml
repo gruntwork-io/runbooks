@@ -36,11 +36,13 @@ variables:
     type: enum
     description: "EC2 instance type. Graviton (t4g) instances are ~20% cheaper than x86 (t3)."
     options:
+      - t4g.micro
       - t4g.small
       - t4g.medium
+      - t3.micro
       - t3.small
       - t3.medium
-    default: t4g.medium
+    default: t4g.small
     validations:
       - required
     x-section: Instance Settings

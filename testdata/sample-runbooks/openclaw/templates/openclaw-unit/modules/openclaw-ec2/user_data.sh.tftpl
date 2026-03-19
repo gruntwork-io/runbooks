@@ -83,7 +83,7 @@ docker run -d \
   -e OPENCLAW_GATEWAY_PORT=${gateway_port} \
   -e OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN" \
   -v openclaw-data:/app/data \
-  openclaw/openclaw:${openclaw_version}
+  alpine/openclaw:${openclaw_version}
 
 echo ">>> OpenClaw container started"
 

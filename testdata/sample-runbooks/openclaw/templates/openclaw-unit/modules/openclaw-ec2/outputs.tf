@@ -16,7 +16,7 @@ output "vpc_id" {
 output "private_key_openssh" {
   value       = tls_private_key.openclaw.private_key_openssh
   sensitive   = true
-  description = "Private SSH key in OpenSSH format. Save to ~/.ssh/${var.instance_name}-key and chmod 600."
+  description = "Private SSH key in OpenSSH format. Save to ~/.ssh/<instance_name>-key and chmod 600."
 }
 
 output "save_key_instructions" {
