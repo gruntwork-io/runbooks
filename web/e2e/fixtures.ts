@@ -1,5 +1,5 @@
 import { test as base, expect, type ConsoleMessage } from "@playwright/test";
-import { type ChildProcess, spawn } from "child_process";
+import { type ChildProcess, execSync, spawn } from "child_process";
 import fs from "fs";
 import net from "net";
 import os from "os";
@@ -131,6 +131,8 @@ type RunbookServerFixture = {
   serverPort: number;
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[];
+  /** The temporary working directory used by the server. */
+  workDir: string;
 };
 
 /**
@@ -151,9 +153,14 @@ export const test = base.extend<RunbookServerFixture>({
     await use(await findFreePort());
   }, { scope: "test" }],
 
-  serveRunbook: async ({ page, consoleMessages, serverPort }, use, testInfo) => {
+  workDir: [async ({}, use, testInfo) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
+    await use(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, { scope: "test" }],
+
+  serveRunbook: async ({ page, consoleMessages, serverPort, workDir }, use) => {
     let serverProcess: ChildProcess | null = null;
-    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
 
     page.on("console", (msg) => consoleMessages.push(msg));
 
@@ -208,7 +215,6 @@ export const test = base.extend<RunbookServerFixture>({
     if (serverProcess) {
       await killProcess(serverProcess);
     }
-    fs.rmSync(workDir, { recursive: true, force: true });
   },
 });
 
@@ -302,4 +308,30 @@ export function expectNoConsoleErrors(messages: ConsoleMessage[]) {
       .join("\n\n");
     expect.soft(unexpected, `Browser console errors:\n\n${summary}\n`).toHaveLength(0);
   }
+}
+
+/**
+ * Create a local bare git repo with one commit, suitable for cloning
+ * in tests without needing GitHub credentials or network access.
+ *
+ * Returns the absolute path to the bare repo (use as a `file://` URL).
+ */
+export function createLocalBareRepo(parentDir: string, name = "bare-test-repo"): string {
+  const bareRepoPath = path.join(parentDir, `${name}.git`);
+  execSync(`git init --bare "${bareRepoPath}"`, { stdio: "ignore" });
+
+  const seedDir = path.join(parentDir, `_seed-${name}`);
+  execSync([
+    `git init "${seedDir}"`,
+    `cd "${seedDir}"`,
+    `git checkout -b main`,
+    `echo "hello" > README.md`,
+    `git add .`,
+    `git -c user.name=test -c user.email=test@test.com commit -m "init"`,
+    `git remote add origin "${bareRepoPath}"`,
+    `git push origin main`,
+  ].join(" && "), { stdio: "ignore" });
+  fs.rmSync(seedDir, { recursive: true, force: true });
+
+  return bareRepoPath;
 }
