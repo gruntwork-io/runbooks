@@ -18,10 +18,12 @@ export function useApi<T>(
   method: HttpMethod = 'GET',
   body?: Record<string, unknown>,
   debounceTimeout?: number,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
+  /** When true, skip the initial auto-fetch. Requests are only made via debouncedRequest / refetch. */
+  lazy?: boolean
 ): UseApiReturn<T> {
   const [data, setData] = useState<T | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!lazy);
   const [error, setError] = useState<AppError | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Use a ref for extraHeaders so changing the object identity doesn't trigger
@@ -115,7 +117,7 @@ export function useApi<T>(
   }, [performFetch]);
 
   useEffect(() => {
-    if (!endpoint) {
+    if (!endpoint || lazy) {
       setIsLoading(false);
       return;
     }

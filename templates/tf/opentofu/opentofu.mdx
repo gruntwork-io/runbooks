@@ -8,12 +8,12 @@ This runbook generates a `main.tf` file from an OpenTofu or Terraform module's i
 
 ## Generated Configuration
 
-<TemplateInline inputsId="module-vars" outputPath="main.tf" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="main.tf" generateFile={true}>
 ```hcl
 module "this" {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 
-{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }

@@ -94,7 +94,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   }
 
   return (
-    <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div data-testid="runbook-content" className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
         <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
           <CustomMDXComponentErrorBoundary 

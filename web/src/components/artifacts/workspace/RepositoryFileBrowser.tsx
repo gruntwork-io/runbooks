@@ -10,17 +10,17 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useFileContent } from '@/hooks/useFileContent'
-import { useWorkspaceChanges } from '@/hooks/useWorkspaceChanges'
+import { useGitFileChanges } from '@/hooks/useGitFileChanges'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import type { WorkspaceTreeNode } from '@/hooks/useWorkspaceTree'
+import type { WorkspaceTreeNode } from '@/hooks/useGitFileTree'
 import type { FileTreeNode } from '../code/FileTree'
 
 interface RepositoryFileBrowserProps {
-  /** Structure-only tree (no content) from useWorkspaceTree */
+  /** Structure-only tree (no content) from useGitFileTree */
   tree: WorkspaceTreeNode[] | null;
   /** Whether the tree is loading */
   isLoading: boolean;
@@ -28,6 +28,8 @@ interface RepositoryFileBrowserProps {
   error: string | null;
   /** Callback to retry loading */
   onRetry: () => void;
+  /** Callback to lazy-load a folder's children by node ID */
+  onLazyExpand?: (nodeId: string) => void;
   /** Additional CSS classes */
   className?: string;
 }
@@ -37,6 +39,7 @@ export const RepositoryFileBrowser = ({
   isLoading,
   error,
   onRetry,
+  onLazyExpand,
   className = "",
 }: RepositoryFileBrowserProps) => {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
@@ -44,7 +47,7 @@ export const RepositoryFileBrowser = ({
   
   // Lazy file content loader
   const { fetchFileContent, refetchFileContent, clearCache, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
-  const { changes } = useWorkspaceChanges()
+  const { changes } = useGitFileChanges()
   const { activeWorkTree, treeVersion } = useGitWorkTree()
 
   // When changes are detected, refetch the currently selected file so All Files shows updated content
@@ -144,9 +147,11 @@ export const RepositoryFileBrowser = ({
         <FileTree
           items={fileTreeData}
           onItemClick={(item) => {
+            if (item.type === 'folder' && item.isLazyLoad && !item.children?.length) {
+              onLazyExpand?.(item.id)
+            }
             if (item.type === 'file') {
               setSelectedFilePath(item.id)
-              // Construct absolute path from worktree root + relative path
               if (activeWorkTree?.localPath) {
                 const absPath = `${activeWorkTree.localPath}/${item.id}`
                 fetchFileContent(absPath)
@@ -301,15 +306,6 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
 }
 
 /**
- * Format file size in human-readable form
- */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-/**
  * Convert WorkspaceTreeNode (structure only) to FileTreeNode for the existing FileTree component
  */
 function convertToFileTreeNodes(nodes: WorkspaceTreeNode[]): FileTreeNode[] {
@@ -318,11 +314,12 @@ function convertToFileTreeNodes(nodes: WorkspaceTreeNode[]): FileTreeNode[] {
     name: node.name,
     type: node.type,
     children: node.children ? convertToFileTreeNodes(node.children) : undefined,
-    // Store the path as a file property so we can fetch content on click
+    isIgnored: node.isIgnored,
+    isLazyLoad: node.isLazyLoad,
     file: node.type === 'file' ? {
       name: node.name,
-      path: node.id, // Relative path used as ID
-      content: '', // Content loaded lazily
+      path: node.id,
+      content: '',
       language: node.language || 'text',
       size: node.size || 0,
     } : undefined,

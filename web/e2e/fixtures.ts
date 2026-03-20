@@ -1,15 +1,34 @@
 import { test as base, expect, type ConsoleMessage } from "@playwright/test";
-import { type ChildProcess, spawn } from "child_process";
+import { type ChildProcess, execSync, spawn } from "child_process";
 import fs from "fs";
+import net from "net";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import http from "http";
 
-// This is the default port for the serve command, and we increment it for each parallel worker.
-const BASE_PORT = 7825;
 const HEALTH_POLL_INTERVAL_MS = 100;
 const HEALTH_TIMEOUT_MS = 10_000;
+
+/**
+ * Ask the OS for an available port by binding to port 0, which makes the
+ * kernel pick an unused ephemeral port. We read back the assigned port,
+ * then close the listener so the Go server can bind to it moments later.
+ *
+ * There is a small TOCTOU window between close() and the Go server's
+ * bind(), but in practice the OS won't reassign the same ephemeral port
+ * to another process that quickly.
+ */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address() as net.AddressInfo;
+      srv.close(() => resolve(addr.port));
+    });
+    srv.on("error", reject);
+  });
+}
 
 /** Repo root: two directories above web/e2e/ */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -29,15 +48,18 @@ function matchesRunbookPath(actual: string, expected: string): boolean {
 /**
  * Poll the /api/health endpoint until the server reports "ok".
  * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
+ *
+ * When skipPathCheck is true, only the status is verified (useful for
+ * remote URLs where the server generates a temp runbook path).
  */
-function waitForServer(port: number, expectedRunbookPath: string): Promise<void> {
+function waitForServer(port: number, expectedRunbookPath: string, skipPathCheck = false, timeout = HEALTH_TIMEOUT_MS): Promise<void> {
   const healthURL = `http://localhost:${port}/api/health`;
   return new Promise((resolve, reject) => {
-    const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+    const deadline = Date.now() + timeout;
 
     function poll() {
       if (Date.now() > deadline) {
-        reject(new Error(`Server did not become ready within ${HEALTH_TIMEOUT_MS}ms`));
+        reject(new Error(`Server did not become ready within ${timeout}ms`));
         return;
       }
       const req = http.get(healthURL, (res) => {
@@ -47,7 +69,7 @@ function waitForServer(port: number, expectedRunbookPath: string): Promise<void>
           if (res.statusCode === 200) {
             try {
               const json = JSON.parse(body);
-              if (json.status === "ok" && matchesRunbookPath(json.runbookPath, expectedRunbookPath)) {
+              if (json.status === "ok" && (skipPathCheck || matchesRunbookPath(json.runbookPath, expectedRunbookPath))) {
                 resolve();
                 return;
               }
@@ -105,17 +127,19 @@ type RunbookServerFixture = {
    * The path should be relative to the repo root (e.g. "testdata/sample-runbooks/my-first-runbook").
    */
   serveRunbook: (runbookPath: string) => Promise<void>;
-  /** The port the server is listening on (unique per parallel worker). */
+  /** The port the server is listening on (unique per test, OS-assigned). */
   serverPort: number;
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[];
+  /** The temporary working directory used by the server. */
+  workDir: string;
 };
 
 /**
  * Extend Playwright's `test` with a `serveRunbook` fixture that manages
  * the Go server lifecycle and a `consoleMessages` array for assertions.
  *
- * Each parallel worker gets a unique port (BASE_PORT + workerIndex) so
+ * Each test gets a unique OS-assigned port via findFreePort() so
  * multiple tests can run simultaneously without port conflicts.
  */
 export const test = base.extend<RunbookServerFixture>({
@@ -125,13 +149,18 @@ export const test = base.extend<RunbookServerFixture>({
     await use(messages);
   },
 
-  serverPort: [async ({}, use, testInfo) => {
-    await use(BASE_PORT + testInfo.workerIndex);
+  serverPort: [async ({}, use) => {
+    await use(await findFreePort());
   }, { scope: "test" }],
 
-  serveRunbook: async ({ page, consoleMessages, serverPort }, use, testInfo) => {
+  workDir: [async ({}, use, testInfo) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
+    await use(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, { scope: "test" }],
+
+  serveRunbook: async ({ page, consoleMessages, serverPort, workDir }, use) => {
     let serverProcess: ChildProcess | null = null;
-    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
 
     page.on("console", (msg) => consoleMessages.push(msg));
 
@@ -167,8 +196,14 @@ export const test = base.extend<RunbookServerFixture>({
         serverProcess!.on("exit", earlyExitHandler);
       });
 
+      const isRemoteURL = runbookPath.startsWith("http://") || runbookPath.startsWith("https://");
+      // Skip path check for remote URLs and local TF modules — both generate
+      // a runbook in a temp directory, so the served path won't match the input.
+      const isTfModule = !runbookPath.endsWith(".mdx");
+      const skipPathCheck = isRemoteURL || isTfModule;
+      const healthTimeout = isRemoteURL ? 30_000 : HEALTH_TIMEOUT_MS;
       try {
-        await Promise.race([waitForServer(serverPort, runbookPath), earlyExit]);
+        await Promise.race([waitForServer(serverPort, runbookPath, skipPathCheck, healthTimeout), earlyExit]);
       } finally {
         serverProcess!.removeListener("exit", earlyExitHandler!);
         earlyExit.catch(() => {});
@@ -180,7 +215,6 @@ export const test = base.extend<RunbookServerFixture>({
     if (serverProcess) {
       await killProcess(serverProcess);
     }
-    fs.rmSync(workDir, { recursive: true, force: true });
   },
 });
 
@@ -274,4 +308,30 @@ export function expectNoConsoleErrors(messages: ConsoleMessage[]) {
       .join("\n\n");
     expect.soft(unexpected, `Browser console errors:\n\n${summary}\n`).toHaveLength(0);
   }
+}
+
+/**
+ * Create a local bare git repo with one commit, suitable for cloning
+ * in tests without needing GitHub credentials or network access.
+ *
+ * Returns the absolute path to the bare repo (use as a `file://` URL).
+ */
+export function createLocalBareRepo(parentDir: string, name = "bare-test-repo"): string {
+  const bareRepoPath = path.join(parentDir, `${name}.git`);
+  execSync(`git init --bare "${bareRepoPath}"`, { stdio: "ignore" });
+
+  const seedDir = path.join(parentDir, `_seed-${name}`);
+  execSync([
+    `git init "${seedDir}"`,
+    `cd "${seedDir}"`,
+    `git checkout -b main`,
+    `echo "hello" > README.md`,
+    `git add .`,
+    `git -c user.name=test -c user.email=test@test.com commit -m "init"`,
+    `git remote add origin "${bareRepoPath}"`,
+    `git push origin main`,
+  ].join(" && "), { stdio: "ignore" });
+  fs.rmSync(seedDir, { recursive: true, force: true });
+
+  return bareRepoPath;
 }

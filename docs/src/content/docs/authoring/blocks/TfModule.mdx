@@ -142,14 +142,14 @@ Inside `runbook.mdx`:
 
 <TfModule id="rds-vars" source="." />
 
-<TemplateInline inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="rds-config" inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -197,7 +197,7 @@ outputPath="{{ .outputs.target_path.PATH }}/{{ .outputs.module_vars.MODULE_NAME 
 
 When `<TfModule>` registers its values, it outputs a `_module` value that is a map of key-value pairs. This enables both iteration over all variables and direct access to specific ones.
 
-You can access the `_module` value in your templates just like any other value, using the `{{ ._module }}` syntax.
+You can access the `_module` value in your templates just like any other value, using the `{{ .inputs._module }}` syntax.
 
 #### Structure
 
@@ -317,10 +317,10 @@ One common pattern is generating a `terragrunt.hcl` that "instantiates" an OpenT
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -329,7 +329,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -348,10 +348,10 @@ The example above will render every module variable, even those left empty or ma
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 include "root" {
@@ -360,7 +360,7 @@ include "root" {
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs_non_default }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs_non_default }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -375,11 +375,11 @@ You can also reference specific variables by name instead of iterating:
 `````mdx
 <TfModule id="module-vars" source="../modules/rds" />
 
-<TemplateInline inputsId="module-vars" outputPath="summary.txt">
+<TemplateInline id="module-summary" inputsId="module-vars" outputPath="summary.txt">
 ```
 Instance Class: {{ .inputs.instance_class }}
 Engine Version: {{ .inputs.engine_version }}
-Module Source: {{ ._module.source }}
+Module Source: {{ .inputs._module.source }}
 ```
 </TemplateInline>
 `````
@@ -402,11 +402,11 @@ Inside `templates/rds-scaffold/terragrunt.hcl`:
 
 ```hcl
 terraform {
-  source = "{{ ._module.source }}"
+  source = "{{ .inputs._module.source }}"
 }
 
 inputs = {
-{{- range $name, $hcl := ._module.hcl_inputs }}
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
   {{ $name }} = {{ $hcl }}
 {{- end }}
 }
@@ -415,13 +415,13 @@ inputs = {
 Inside `templates/rds-scaffold/README.md`:
 
 ```markdown
-# {{ ._module.readme_title }}
+# {{ .inputs._module.readme_title }}
 
-Source: `{{ ._module.source }}`
+Source: `{{ .inputs._module.source }}`
 
 ## Outputs
 
-{{- range ._module.output_names }}
+{{- range .inputs._module.output_names }}
 - `{{ . }}`
 {{- end }}
 ```

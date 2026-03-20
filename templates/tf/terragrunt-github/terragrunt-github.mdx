@@ -22,6 +22,7 @@ generates a `terragrunt.hcl` file at a chosen path, and opens a pull request.
 ## Generated Configuration
 
 <TemplateInline
+  id="module-config"
   inputsId="module-vars"
   outputPath="{{ .outputs.target_path.PATH }}/{{ .outputs.module_vars.MODULE_NAME }}/terragrunt.hcl"
   generateFile={true}
@@ -48,6 +49,7 @@ inputs = {
 ## Create Pull Request
 
 <GitHubPullRequest
+  id="create-pr"
   workspaceId="clone-repo"
   inputsId="module-vars"
   prefilledPullRequestTitle="Update {{ .outputs.module_vars.MODULE_NAME }} module"

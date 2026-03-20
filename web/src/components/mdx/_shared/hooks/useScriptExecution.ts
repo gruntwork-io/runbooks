@@ -5,7 +5,7 @@ import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type Templa
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
-import { useFileTree } from '@/hooks/useFileTree'
+import { useGeneratedFiles } from '@/hooks/useGeneratedFiles'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
@@ -137,10 +137,10 @@ export function useScriptExecution({
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
   
   // Get file tree context for updating when files are captured
-  const { setFileTree } = useFileTree()
+  const { updateGeneratedFileTree } = useGeneratedFiles()
 
   // Get worktree context for triggering immediate changelog refresh
-  const { invalidateTree } = useGitWorkTree()
+  const { invalidateGitFileTree } = useGitWorkTree()
   
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
@@ -152,10 +152,10 @@ export function useScriptExecution({
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
     // Update the file tree with the new tree from the backend
     // The fileTree is already validated by Zod in useApiExec
-    setFileTree(event.fileTree)
+    updateGeneratedFileTree({ fileTree: event.fileTree })
     // Trigger immediate changelog refresh so changes appear without waiting for next poll
-    invalidateTree()
-  }, [setFileTree, invalidateTree])
+    invalidateGitFileTree()
+  }, [updateGeneratedFileTree, invalidateGitFileTree])
   
   // Callback to handle outputs captured from script execution
   const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {
@@ -398,9 +398,9 @@ export function useScriptExecution({
   // so we need to refresh even when no files_captured event was emitted.
   useEffect(() => {
     if (status === 'success' || status === 'warn') {
-      invalidateTree()
+      invalidateGitFileTree()
     }
-  }, [status, invalidateTree])
+  }, [status, invalidateGitFileTree])
 
   // Function to render script with inputs
   const renderScript = useCallback(async (inputs: TemplateValue[]) => {

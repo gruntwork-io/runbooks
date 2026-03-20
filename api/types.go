@@ -10,20 +10,56 @@ import (
 
 // File represents a file with its content and metadata
 type File struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Content  string `json:"content"`
+	// Name is the file's base name (e.g., "main.go").
+	Name string `json:"name"`
+	// Path is the file path relative to the output directory (e.g., "src/main.go").
+	Path string `json:"path"`
+	// Content is the full text content of the file. Empty when IsTruncated is true.
+	Content string `json:"content"`
+	// Language is the detected programming language (e.g., "go", "typescript"), used for syntax highlighting.
 	Language string `json:"language"`
-	Size     int64  `json:"size"`
+	// Size is the file size in bytes.
+	Size int64 `json:"size"`
+	// IsTruncated is true when the file content was omitted because it exceeds the size limit (512KB).
+	// The frontend shows a placeholder message instead of the file content.
+	IsTruncated bool `json:"isTruncated,omitempty"`
 }
 
 // FileTreeNode represents a file or folder in the generated file tree
 type FileTreeNode struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Type     string         `json:"type"` // "file" or "folder"
+	// ID is the unique identifier for this node, typically the file path relative to the output directory.
+	ID string `json:"id"`
+	// Name is the display name of the file or folder (e.g., "main.tf", "modules").
+	Name string `json:"name"`
+	// Type is either "file" or "folder".
+	Type string `json:"type"`
+	// Children contains the nested files and folders within this folder. Empty for files.
 	Children []FileTreeNode `json:"children,omitempty"`
-	File     *File          `json:"file,omitempty"` // Only present for files
+	// File holds the file content and metadata. Only present for file nodes, nil for folders.
+	File *File `json:"file,omitempty"`
+}
+
+// HeavyDir identifies a top-level subdirectory that contains a disproportionate number of files.
+// Only reported when the file tree is truncated, to help the user understand which directories
+// are responsible for the large file count.
+type HeavyDir struct {
+	// Path is the top-level subdirectory path relative to the output directory (e.g., "node_modules").
+	Path string `json:"path"`
+	// FileCount is the number of files contained within this directory (recursively).
+	FileCount int `json:"fileCount"`
+}
+
+// FileTreeMeta holds truncation metadata shared by all endpoints that return a file tree.
+type FileTreeMeta struct {
+	// TotalFiles is the total number of files discovered in the output directory.
+	// When this exceeds the file tree limit, the tree contains a truncated subset.
+	TotalFiles int `json:"totalFiles"`
+	// TruncatedTree is true when the file tree was capped at the display limit.
+	TruncatedTree bool `json:"truncatedTree,omitempty"`
+	// HeavyDirs lists the top-level subdirectories that contain a large number of files.
+	// Only populated when the tree is truncated. Sorted by file count descending.
+	// A directory is considered "heavy" if it contains at least heavyDirThreshold files (default 300).
+	HeavyDirs []HeavyDir `json:"heavyDirs,omitempty"`
 }
 
 // API request/response types
@@ -56,6 +92,7 @@ type RenderResponse struct {
 	OutputDir    string         `json:"outputDir"`
 	TemplatePath string         `json:"templatePath"`
 	FileTree     []FileTreeNode `json:"fileTree"`
+	FileTreeMeta
 	// Cleanup statistics (only populated when TemplateID is provided in request)
 	DeletedFiles  []string `json:"deletedFiles,omitempty"`  // Files that were deleted (orphaned from previous render)
 	CreatedFiles  []string `json:"createdFiles,omitempty"`  // Files that were newly created
@@ -145,9 +182,10 @@ type RenderInlineRequest struct {
 
 // RenderInlineResponse represents the response from the inline render endpoint
 type RenderInlineResponse struct {
-	Message       string                           `json:"message"`
-	RenderedFiles map[string]File                  `json:"renderedFiles"` // Map of file paths to file metadata
-	FileTree      []FileTreeNode                   `json:"fileTree"`
+	Message       string         `json:"message"`
+	RenderedFiles map[string]File `json:"renderedFiles"` // Map of file paths to file metadata
+	FileTree      []FileTreeNode `json:"fileTree"`
+	FileTreeMeta
 }
 
 // Boilerplate configuration types

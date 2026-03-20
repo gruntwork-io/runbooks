@@ -15,12 +15,14 @@ export const FileSchema = z.object({
   name: z.string(),
   /** Full path of the file */
   path: z.string(),
-  /** File content */
+  /** File content (empty string when isTruncated is true) */
   content: z.string(),
   /** Programming language for syntax highlighting */
   language: z.string(),
   /** File size in bytes */
   size: z.number(),
+  /** True when content was omitted because the file is too large */
+  isTruncated: z.boolean().optional(),
 })
 
 /**
@@ -43,6 +45,10 @@ export interface FileTreeNode {
   children?: FileTreeNode[];
   /** File data (only present for files) */
   file?: File;
+  /** Whether this file/folder is gitignored */
+  isIgnored?: boolean;
+  /** Whether this folder's children should be loaded on demand */
+  isLazyLoad?: boolean;
 }
 
 /**
@@ -61,6 +67,10 @@ export const FileTreeNodeSchema: z.ZodType<FileTreeNode> = z.lazy(() =>
     children: z.array(FileTreeNodeSchema).optional(),
     /** File data (only present for files) */
     file: FileSchema.optional(),
+    /** Whether this file/folder is gitignored */
+    isIgnored: z.boolean().optional(),
+    /** Whether this folder's children should be loaded on demand */
+    isLazyLoad: z.boolean().optional(),
   })
 )
 

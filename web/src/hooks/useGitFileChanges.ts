@@ -25,7 +25,7 @@ interface WorkspaceChangesResponse {
   tooManyChanges?: boolean
 }
 
-interface UseWorkspaceChangesResult {
+interface UseGitFileChangesResult {
   changes: WorkspaceFileChange[]
   totalChanges: number
   tooManyChanges: boolean
@@ -40,7 +40,7 @@ const POLL_INTERVAL_MS = 3000
  * Hook that polls for git changes in the active worktree.
  * Polls every 3 seconds, skips if the previous request is still in-flight.
  */
-export function useWorkspaceChanges(): UseWorkspaceChangesResult {
+export function useGitFileChanges(): UseGitFileChangesResult {
   const { activeWorkTree, treeVersion } = useGitWorkTree()
   const { getAuthHeader } = useSession()
   const [changes, setChanges] = useState<WorkspaceFileChange[]>([])
