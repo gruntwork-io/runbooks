@@ -79,14 +79,6 @@ if [ -z "${REPO_FILES}" ] || [ ! -d "${REPO_FILES}" ]; then
     exit 1
 fi
 
-# Check for Tailscale auth key
-if [ -z "${TAILSCALE_AUTH_KEY:-}" ]; then
-    echo "❌ Error: TAILSCALE_AUTH_KEY is not set"
-    echo "   Set it in your terminal before running this command:"
-    echo "    export TAILSCALE_AUTH_KEY=\"tskey-auth-...\""
-    exit 1
-fi
-
 # Run terragrunt plan
 echo "📋 Running terragrunt plan for: ${INSTANCE_NAME} in ${AWS_REGION}..."
 echo "   Path: ${REPO_FILES}"

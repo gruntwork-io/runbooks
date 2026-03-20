@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------------------------------------------------
 # OPENCLAW EC2 DEPLOYMENT
-# Terragrunt configuration that deploys OpenClaw on an EC2 instance with Tailscale for secure
-# remote access.
+# Terragrunt configuration that deploys OpenClaw on an EC2 instance with SSM Session Manager
+# for secure remote access.
 # ---------------------------------------------------------------------------------------------------------------------
 
 terraform {
@@ -69,7 +69,6 @@ inputs = {
   instance_name = "{{ .inputs.InstanceName }}"
   instance_type = "{{ .inputs.InstanceType }}"
   volume_size   = {{ .inputs.VolumeSize }}
-  tailscale_auth_key = get_env("TAILSCALE_AUTH_KEY")
 
   openclaw_version = "{{ .inputs.OpenClawVersion }}"
   gateway_port     = {{ .inputs.GatewayPort }}

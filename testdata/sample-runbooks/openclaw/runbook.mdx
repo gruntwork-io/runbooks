@@ -10,11 +10,12 @@ You'll deploy a self-contained Terragrunt configuration that creates:
 
 1. A dedicated **VPC** with a public subnet and internet gateway
 2. An **EC2 instance** (Graviton ARM by default) running OpenClaw in Docker
-3. **Tailscale** mesh VPN for secure private access to the OpenClaw UI
-4. An **IAM role** for **SSM Session Manager** shell access (no SSH ports exposed)
-5. A **security group** with no inbound ports (all access is via SSM and Tailscale)
+3. An **IAM role** for **SSM Session Manager** — shell access and port forwarding with no open ports
+4. A **security group** with no inbound ports (all access is via SSM)
 
-Estimated monthly cost: **~$20/month** (t4g.medium + 30GB EBS).
+Access to OpenClaw is via **SSM port forwarding**, which tunnels the OpenClaw UI to `localhost` on your machine. Authentication is handled by your AWS credentials — no VPN, SSH keys, or open ports needed.
+
+Estimated monthly cost: **~$27/month** (t4g.medium + 30GB EBS).
 
 **Prerequisite:** This runbook assumes you have an **infra-live** repository with a `root.hcl` and the standard Terragrunt folder hierarchy. If you don't have one yet, run the [new-infra-live-repo](../new-infra-live-repo/) runbook first to scaffold one.
 
@@ -99,23 +100,6 @@ brew install --cask session-manager-plugin
   successMessage="Session Manager plugin is installed!"
   failMessage="Session Manager plugin is not installed. See https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
 />
-
-## Generate a Tailscale Auth Key
-
-Generate a Tailscale auth key so the EC2 instance can join your Tailnet automatically.
-
-Go to [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys) > Settings > Keys > Generate auth key. Enable "Reusable" if you plan to redeploy.
-
-<Inputs id="tailscale-config">
-```yaml
-variables:
-  - name: TailscaleAuthKey
-    type: string
-    description: "Tailscale pre-authentication key. Generate at: Tailscale Admin > Settings > Keys > Generate auth key"
-    validations:
-      - required
-```
-</Inputs>
 
 ## infra-catalog: Generate the OpenTofu Module
 
@@ -216,7 +200,7 @@ Check if the infra-live repo contains a `root.hcl`. If found, the generated `ter
   id="gen-unit"
   path="templates/infra-live-unit"
   target="worktree"
-  inputsId={["gen-module", "tailscale-config"]}
+  inputsId="gen-module"
 />
 
 ### Create a pull request on infra-live
@@ -250,17 +234,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
 
 ## Deploy OpenClaw
 
-### Set the Tailscale auth key
-
-Before running Terragrunt, set the Tailscale auth key as an environment variable in your terminal. The leading space prevents the command from being saved in shell history.
-
-<TemplateInline id="tailscale-env-snippet" inputsId="tailscale-config">
-```bash
- export TAILSCALE_AUTH_KEY="{{ .inputs.TailscaleAuthKey }}"
-```
-</TemplateInline>
-
-Now preview the changes with a plan, then apply.
+Preview the changes with a plan, then apply.
 
 <Command
   id="terragrunt-plan"
@@ -284,82 +258,83 @@ Now preview the changes with a plan, then apply.
   awsAuthId="aws-auth"
 />
 
-## Connect to Your Instance
+## Access OpenClaw
 
-The instance uses **SSM Session Manager** for shell access. No SSH keys or open ports are needed — authentication is handled by your AWS credentials.
+OpenClaw is accessed via **SSM port forwarding**, which securely tunnels the OpenClaw UI to `localhost` on your machine. No VPN or open ports needed — your AWS credentials handle authentication.
 
 <Command
   id="instance-info"
   path="scripts/save-ssh-key.sh"
   title="Get Connection Info"
-  description="Retrieve the instance ID and SSM connect command."
+  description="Retrieve the instance ID and connection commands."
   successMessage="Connection info retrieved!"
   failMessage="Failed to retrieve connection info. Check the logs for details."
   inputsId={["gen-unit", "gen-module"]}
   awsAuthId="aws-auth"
 />
 
-You can open a shell on the instance with:
+### 1. Start the port forward
 
-<TemplateInline id="ssm-snippet">
+Run this command in a **dedicated terminal window** — it needs to stay running while you use OpenClaw. Save it somewhere handy so you can restart it if your machine reboots.
+
+<TemplateInline id="port-forward-snippet">
+```bash
+{{ .outputs.instance_info.ssm_port_forward_command }}
+```
+</TemplateInline>
+
+### 2. Open OpenClaw
+
+Once the port forward is running, open your browser to:
+
+```
+http://localhost:18789
+```
+
+### 3. Retrieve the gateway password
+
+When prompted for a password, retrieve it via SSM:
+
+<TemplateInline id="password-snippet">
+```bash
+{{ .outputs.instance_info.ssm_password_command }}
+```
+</TemplateInline>
+
+Enter the password in the OpenClaw UI and click **Connect**.
+
+### 4. Configure your Anthropic API key
+
+OpenClaw needs an Anthropic API key to power its AI agent. Get one from [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) if you don't have one already.
+
+Open a shell on the instance and configure the key:
+
+<TemplateInline id="apikey-snippet">
 ```bash
 {{ .outputs.instance_info.ssm_command }}
 ```
 </TemplateInline>
 
-## Set up Tailscale on Your Machine
-
-Your OpenClaw instance is now running and connected to your Tailscale network. Follow these steps to access it from your local machine.
-
-### 1. Install the Tailscale Client
-
-Install Tailscale on your local machine:
-
-- **macOS**: `brew install tailscale` or download from [tailscale.com/download](https://tailscale.com/download)
-- **Linux**: `curl -fsSL https://tailscale.com/install.sh | sh`
-- **Windows**: Download from [tailscale.com/download](https://tailscale.com/download)
-
-### 2. Authenticate to Your Tailnet
-
-Run the following command and follow the browser prompt to log in:
+Then on the instance, run:
 
 ```bash
-sudo tailscale up
+sudo docker exec openclaw openclaw config set agents.main.provider.apiKey "sk-ant-your-key-here"
+sudo docker restart openclaw
 ```
 
-### 3. Verify the EC2 Node is Connected
+Replace `sk-ant-your-key-here` with your actual API key. The key is stored in the container's config file and persists across restarts.
 
-Check that your OpenClaw EC2 instance appears in your Tailscale network:
+### 5. Monitor cloud-init progress (optional)
 
-```bash
-tailscale status
-```
+If you just deployed and OpenClaw isn't responding yet, cloud-init may still be installing packages. You can monitor progress:
 
-You should see a node with the instance name you configured (e.g., `openclaw`). You can also verify in the [Tailscale Admin Console](https://login.tailscale.com/admin/machines).
-
-### 4. Access OpenClaw
-
-Open your browser and navigate to:
-
-<TemplateInline id="access-snippet" inputsId="gen-unit">
-```
-http://{{ .outputs.instance_info.tailscale_ip }}:{{ .inputs.GatewayPort }}
-```
-</TemplateInline>
-
-### 5. Retrieve the Gateway Auth Token
-
-The gateway auth token was auto-generated during deployment. Retrieve it via SSM:
-
-<TemplateInline id="token-snippet">
+<TemplateInline id="monitor-snippet">
 ```bash
 {{ .outputs.instance_info.ssm_command }}
 # Then on the instance:
-cat /home/ubuntu/.openclaw-token
+tail -f /var/log/cloud-init-output.log
 ```
 </TemplateInline>
-
-Use this token to authenticate with the OpenClaw gateway.
 
 ## Verify the Deployment
 

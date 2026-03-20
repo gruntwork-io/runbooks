@@ -79,21 +79,12 @@ if [ -z "${REPO_FILES}" ] || [ ! -d "${REPO_FILES}" ]; then
     exit 1
 fi
 
-# Check for Tailscale auth key
-if [ -z "${TAILSCALE_AUTH_KEY:-}" ]; then
-    echo "❌ Error: TAILSCALE_AUTH_KEY is not set"
-    echo "   Set it in your terminal before running this command:"
-    echo "    export TAILSCALE_AUTH_KEY=\"tskey-auth-...\""
-    exit 1
-fi
-
 # Run terragrunt destroy
 echo "🗑️  Running terragrunt destroy for: ${INSTANCE_NAME} in ${AWS_REGION}..."
 echo "   Path: ${REPO_FILES}"
 echo ""
 echo "   This will destroy:"
-echo "   - EC2 instance and key pair"
-echo "   - Elastic IP"
+echo "   - EC2 instance and IAM role"
 echo "   - Security group"
 echo "   - VPC, subnet, internet gateway, and route table"
 echo ""
@@ -106,9 +97,7 @@ if terragrunt run --backend-bootstrap --non-interactive -- destroy -auto-approve
   echo ""
   echo "   All OpenClaw resources have been removed from AWS."
   echo ""
-  echo "   You may also want to:"
-  echo "   1. Remove the saved SSH key: rm ~/.ssh/${INSTANCE_NAME}-key"
-  echo "   2. Remove the node from Tailscale: https://login.tailscale.com/admin/machines"
+  echo "   All infrastructure has been cleaned up. No further action needed."
   exit 0
 else
   echo ""

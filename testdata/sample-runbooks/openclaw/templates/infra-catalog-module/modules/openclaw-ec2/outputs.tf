@@ -13,12 +13,17 @@ output "ssm_connect_command" {
   description = "Command to open a shell on the instance via SSM Session Manager"
 }
 
-output "tailscale_access_note" {
-  value       = "Access OpenClaw at http://<tailscale-ip>:${var.gateway_port} — run 'tailscale status' to find the Tailscale IP of '${var.instance_name}'"
-  description = "Instructions for accessing OpenClaw via Tailscale"
+output "ssm_port_forward_command" {
+  value       = "aws ssm start-session --target ${aws_instance.openclaw.id} --document-name AWS-StartPortForwardingSession --parameters '{\"portNumber\":[\"${var.gateway_port}\"],\"localPortNumber\":[\"${var.gateway_port}\"]}'"
+  description = "Command to forward the OpenClaw port to localhost via SSM"
 }
 
-output "token_retrieval_command" {
-  value       = "aws ssm start-session --target ${aws_instance.openclaw.id} --document-name AWS-StartInteractiveCommand --parameters command='cat /home/ubuntu/.openclaw-token'"
-  description = "Command to retrieve the OpenClaw gateway auth token via SSM"
+output "openclaw_url" {
+  value       = "http://localhost:${var.gateway_port}"
+  description = "URL to access OpenClaw after starting the SSM port forward"
+}
+
+output "password_retrieval_command" {
+  value       = "aws ssm start-session --target ${aws_instance.openclaw.id} --document-name AWS-StartInteractiveCommand --parameters command='sudo cat /home/ubuntu/.openclaw-password'"
+  description = "Command to retrieve the OpenClaw gateway password via SSM"
 }

@@ -25,7 +25,7 @@ variables:
 
   - name: InstanceName
     type: string
-    description: Name for the OpenClaw EC2 instance (used in resource tags and Tailscale hostname)
+    description: Name for the OpenClaw EC2 instance (used in resource tags)
     default: openclaw
     validations:
       - required
@@ -33,13 +33,13 @@ variables:
 
   - name: InstanceType
     type: enum
-    description: "EC2 instance type. Graviton (t4g) instances are ~20% cheaper than x86 (t3)."
+    description: "EC2 instance type. Graviton (t4g) instances are ~20% cheaper than x86 (t3). OpenClaw requires at least 4GB RAM (medium or larger)."
     options:
-      - t4g.small
       - t4g.medium
-      - t3.small
+      - t4g.large
       - t3.medium
-    default: t4g.small
+      - t3.large
+    default: t4g.medium
     validations:
       - required
     x-section: Instance Settings

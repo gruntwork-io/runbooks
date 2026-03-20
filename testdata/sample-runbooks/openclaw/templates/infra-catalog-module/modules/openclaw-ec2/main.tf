@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------------------------------------------------
 # OPENCLAW EC2 MODULE
-# Deploys an EC2 instance running OpenClaw in Docker with Tailscale for secure access.
+# Deploys an EC2 instance running OpenClaw in Docker with SSM Session Manager for secure access.
 # Creates a dedicated VPC, subnet, security group, and IAM role for SSM Session Manager.
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -99,8 +99,8 @@ resource "aws_route_table_association" "public" {
 
 # ---------------------------------------------------------------------------------------------------------------------
 # SECURITY GROUP
-# Allow only outbound traffic. No inbound ports are exposed — access is via SSM Session Manager
-# and Tailscale. OpenClaw port (18789) is accessed via Tailscale.
+# Allow only outbound traffic. No inbound ports are exposed — all access is via SSM Session
+# Manager port forwarding.
 # ---------------------------------------------------------------------------------------------------------------------
 
 resource "aws_security_group" "openclaw" {
@@ -161,7 +161,7 @@ resource "aws_iam_instance_profile" "openclaw" {
 
 # ---------------------------------------------------------------------------------------------------------------------
 # EC2 INSTANCE
-# Launch the OpenClaw instance with Docker and Tailscale installed via user_data.
+# Launch the OpenClaw instance with Docker installed via user_data.
 # ---------------------------------------------------------------------------------------------------------------------
 
 resource "aws_instance" "openclaw" {
@@ -178,10 +178,9 @@ resource "aws_instance" "openclaw" {
   }
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    tailscale_auth_key = var.tailscale_auth_key
-    openclaw_version   = var.openclaw_version
-    gateway_port       = var.gateway_port
-    instance_name      = var.instance_name
+    openclaw_version = var.openclaw_version
+    gateway_port     = var.gateway_port
+    instance_name    = var.instance_name
   })
 
   metadata_options {

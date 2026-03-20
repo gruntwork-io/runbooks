@@ -1,6 +1,7 @@
 #!/bin/bash
 # Cloud-init script for OpenClaw EC2 instance
-# Installs Docker, Tailscale, and runs OpenClaw in a container.
+# Installs Docker and runs OpenClaw in a container.
+# Access is via SSM Session Manager port forwarding — no public ports needed.
 set -euo pipefail
 
 exec > >(tee /var/log/openclaw-setup.log) 2>&1
@@ -45,59 +46,67 @@ usermod -aG docker ubuntu
 echo ">>> Docker installed successfully"
 
 # ---------------------------------------------------------------------------------------------------------------------
-# INSTALL TAILSCALE
-# Install Tailscale and join the Tailnet using the provided auth key.
-# https://tailscale.com/kb/1031/install-linux
+# GENERATE GATEWAY PASSWORD
+# Create a random password for OpenClaw gateway authentication.
 # ---------------------------------------------------------------------------------------------------------------------
 
-echo ">>> Installing Tailscale..."
-curl -fsSL https://tailscale.com/install.sh | sh
+OPENCLAW_PASSWORD=$(openssl rand -base64 24)
+echo "$OPENCLAW_PASSWORD" > /home/ubuntu/.openclaw-password
+chown ubuntu:ubuntu /home/ubuntu/.openclaw-password
+chmod 600 /home/ubuntu/.openclaw-password
 
-echo ">>> Connecting to Tailnet..."
-tailscale up --authkey="${tailscale_auth_key}" --hostname="${instance_name}"
-
-echo ">>> Tailscale connected. IP: $(tailscale ip -4)"
-
-# ---------------------------------------------------------------------------------------------------------------------
-# GENERATE GATEWAY AUTH TOKEN
-# Create a random token for OpenClaw gateway authentication.
-# ---------------------------------------------------------------------------------------------------------------------
-
-OPENCLAW_TOKEN=$(openssl rand -hex 32)
-echo "$OPENCLAW_TOKEN" > /home/ubuntu/.openclaw-token
-chown ubuntu:ubuntu /home/ubuntu/.openclaw-token
-chmod 600 /home/ubuntu/.openclaw-token
-
-echo ">>> Gateway auth token generated and saved to /home/ubuntu/.openclaw-token"
+echo ">>> Gateway password generated and saved to /home/ubuntu/.openclaw-password"
 
 # ---------------------------------------------------------------------------------------------------------------------
 # RUN OPENCLAW
 # Start OpenClaw in a Docker container with automatic restart.
+# OpenClaw binds to 127.0.0.1 by default — access is via SSM port forwarding.
 # ---------------------------------------------------------------------------------------------------------------------
 
 echo ">>> Starting OpenClaw container..."
 docker run -d \
   --name openclaw \
   --restart=always \
-  -p ${gateway_port}:${gateway_port} \
+  --network host \
   -e OPENCLAW_GATEWAY_PORT=${gateway_port} \
-  -e OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN" \
+  -e OPENCLAW_GATEWAY_PASSWORD="$OPENCLAW_PASSWORD" \
   -v openclaw-data:/app/data \
   alpine/openclaw:${openclaw_version}
 
 echo ">>> OpenClaw container started"
 
 # ---------------------------------------------------------------------------------------------------------------------
+# CONFIGURE OPENCLAW
+# Set password auth mode so the Control UI works without device pairing.
+# ---------------------------------------------------------------------------------------------------------------------
+
+echo ">>> Configuring OpenClaw gateway..."
+
+# Wait for the container to be healthy before configuring
+for i in $(seq 1 30); do
+  if docker exec openclaw openclaw config set gateway.auth.mode password 2>/dev/null; then
+    echo ">>> OpenClaw configured for password auth"
+    docker restart openclaw
+    break
+  fi
+  sleep 5
+done
+
+# ---------------------------------------------------------------------------------------------------------------------
 # SETUP COMPLETE
 # ---------------------------------------------------------------------------------------------------------------------
 
-TAILSCALE_IP=$(tailscale ip -4)
 echo ""
 echo "============================================"
 echo "  OpenClaw setup complete!"
-echo "  Tailscale IP: $TAILSCALE_IP"
-echo "  OpenClaw UI: http://$TAILSCALE_IP:${gateway_port}"
-echo "  Gateway token: saved to /home/ubuntu/.openclaw-token"
+echo ""
+echo "  Access via SSM port forwarding:"
+echo "    aws ssm start-session --target $(curl -s http://169.254.169.254/latest/meta-data/instance-id) \\"
+echo "      --document-name AWS-StartPortForwardingSession \\"
+echo "      --parameters '{\"portNumber\":[\"${gateway_port}\"],\"localPortNumber\":[\"${gateway_port}\"]}'"
+echo ""
+echo "  Then open: http://localhost:${gateway_port}"
+echo "  Password: saved to /home/ubuntu/.openclaw-password"
 echo "============================================"
 echo ""
 echo "=== OpenClaw setup finished at $(date) ==="

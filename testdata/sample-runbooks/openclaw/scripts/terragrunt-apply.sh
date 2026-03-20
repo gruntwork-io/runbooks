@@ -79,14 +79,6 @@ if [ -z "${REPO_FILES}" ] || [ ! -d "${REPO_FILES}" ]; then
     exit 1
 fi
 
-# Check for Tailscale auth key
-if [ -z "${TAILSCALE_AUTH_KEY:-}" ]; then
-    echo "❌ Error: TAILSCALE_AUTH_KEY is not set"
-    echo "   Set it in your terminal before running this command:"
-    echo "    export TAILSCALE_AUTH_KEY=\"tskey-auth-...\""
-    exit 1
-fi
-
 # Run terragrunt apply
 echo "🚀 Running terragrunt apply for: ${INSTANCE_NAME} in ${AWS_REGION}..."
 echo "   Path: ${REPO_FILES}"
@@ -101,10 +93,10 @@ if terragrunt run --backend-bootstrap --non-interactive -- apply -auto-approve; 
   echo "   OpenClaw has been deployed to AWS."
   echo ""
   echo "   Next steps:"
-  echo "   1. Install Tailscale on your local machine (see instructions above)"
-  echo "   2. Run 'tailscale status' to find your instance's Tailscale IP"
-  echo "   3. Access OpenClaw at http://<tailscale-ip>:18789"
-  echo "   4. Retrieve the gateway token: see the 'token_retrieval_command' output above"
+  echo "   1. Start SSM port forwarding (see the 'Access OpenClaw' section)"
+  echo "   2. Open http://localhost:18789 in your browser"
+  echo "   3. Retrieve the gateway password and log in"
+  echo "   4. Configure your Anthropic API key"
   exit 0
 else
   echo ""

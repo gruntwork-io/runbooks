@@ -6,10 +6,10 @@ variable "instance_name" {
 variable "instance_type" {
   type        = string
   default     = "t4g.medium"
-  description = "EC2 instance type (Graviton t4g recommended for cost savings)"
+  description = "EC2 instance type (Graviton t4g recommended for cost savings). t4g.medium (4GB RAM) is the minimum recommended for OpenClaw."
   validation {
-    condition     = contains(["t4g.small", "t4g.medium", "t3.small", "t3.medium"], var.instance_type)
-    error_message = "Instance type must be one of: t4g.small, t4g.medium, t3.small, t3.medium"
+    condition     = contains(["t4g.medium", "t4g.large", "t3.medium", "t3.large"], var.instance_type)
+    error_message = "Instance type must be one of: t4g.medium, t4g.large, t3.medium, t3.large. OpenClaw requires at least 4GB RAM."
   }
 }
 
@@ -21,12 +21,6 @@ variable "volume_size" {
     condition     = var.volume_size >= 20
     error_message = "Volume size must be at least 20 GB for Docker images"
   }
-}
-
-variable "tailscale_auth_key" {
-  type        = string
-  sensitive   = true
-  description = "Tailscale pre-authentication key for joining the Tailnet"
 }
 
 variable "openclaw_version" {

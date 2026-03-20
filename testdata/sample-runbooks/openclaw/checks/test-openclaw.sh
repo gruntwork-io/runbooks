@@ -2,7 +2,7 @@
 set -e
 
 # Verify OpenClaw deployment is running
-# Template variables: InstanceName, AwsRegion
+# Template variables: InstanceName, AwsRegion, GatewayPort
 #
 # Environment variables:
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
@@ -16,56 +16,42 @@ GATEWAY_PORT="{{ .inputs.GatewayPort }}"
 
 # In dry-run mode, simulate the checks
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo "🧪 Dry-run mode: Simulating OpenClaw verification..."
+    echo "Dry-run mode: Simulating OpenClaw verification..."
     echo ""
     echo "[DRY-RUN] aws sts get-caller-identity"
     echo "[DRY-RUN] aws ec2 describe-instances --filters Name=tag:Name,Values=$INSTANCE_NAME --region $AWS_REGION"
     echo ""
-    echo "📝 Would verify:"
+    echo "Would verify:"
     echo "   Instance: ${INSTANCE_NAME}"
     echo "   Region: ${AWS_REGION}"
     echo ""
-    echo "✅ Dry-run completed successfully!"
+    echo "Done!"
     exit 0
 fi
 
 # First, check if the user is authenticated to AWS
-echo "🔐 Checking AWS authentication..."
+echo "Checking AWS authentication..."
 if ! aws sts get-caller-identity &> /dev/null; then
-  echo "❌ Not authenticated to AWS"
+  echo "Not authenticated to AWS"
   echo ""
   echo "   You need valid AWS credentials to verify the deployment."
-  echo ""
-
-  if command -v assume &> /dev/null; then
-    echo "   Use Granted to assume a role:"
-    echo "     assume <profile-name>"
-  else
-    echo "   Option 1: Install Granted (recommended)"
-    echo "     brew tap common-fate/granted && brew install granted"
-    echo "     assume <profile-name>"
-    echo ""
-    echo "   Option 2: Use AWS CLI directly"
-    echo "     aws sso login --profile <profile-name>"
-    echo "     export AWS_PROFILE=<profile-name>"
-  fi
   exit 1
 fi
 
-echo "✅ Authenticated to AWS"
+echo "Authenticated to AWS"
 echo ""
 
 # Check the EC2 instance is running
-echo "🔍 Checking EC2 instance status..."
+echo "Checking EC2 instance status..."
 
-INSTANCE_INFO=$(aws ec2 describe-instances \
+INSTANCE_ID=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=${INSTANCE_NAME}" "Name=instance-state-name,Values=running" \
   --region "$AWS_REGION" \
-  --query "Reservations[0].Instances[0].[InstanceId,PublicIpAddress,State.Name]" \
+  --query "Reservations[0].Instances[0].InstanceId" \
   --output text 2>/dev/null)
 
-if [ -z "$INSTANCE_INFO" ] || [ "$INSTANCE_INFO" = "None" ]; then
-    echo "❌ No running instance found with name: ${INSTANCE_NAME}"
+if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+    echo "No running instance found with name: ${INSTANCE_NAME}"
     echo ""
     echo "   Possible causes:"
     echo "   - The instance hasn't been deployed yet (run terragrunt apply first)"
@@ -74,46 +60,35 @@ if [ -z "$INSTANCE_INFO" ] || [ "$INSTANCE_INFO" = "None" ]; then
     exit 1
 fi
 
-INSTANCE_ID=$(echo "$INSTANCE_INFO" | awk '{print $1}')
-PUBLIC_IP=$(echo "$INSTANCE_INFO" | awk '{print $2}')
-STATE=$(echo "$INSTANCE_INFO" | awk '{print $3}')
-
-echo "✅ Instance is running!"
+echo "Instance is running!"
 echo "   Instance ID: $INSTANCE_ID"
-echo "   Public IP: $PUBLIC_IP"
-echo "   State: $STATE"
 echo ""
 
-# Check if Tailscale is available locally
-if command -v tailscale &> /dev/null; then
-    echo "🔍 Checking Tailscale connectivity..."
-    TAILSCALE_STATUS=$(tailscale status 2>/dev/null || true)
+# Check SSM connectivity
+echo "Checking SSM connectivity..."
+SSM_STATUS=$(aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
+  --query "InstanceInformationList[0].PingStatus" \
+  --output text 2>/dev/null || echo "Unknown")
 
-    if echo "$TAILSCALE_STATUS" | grep -qi "${INSTANCE_NAME}"; then
-        TAILSCALE_IP=$(echo "$TAILSCALE_STATUS" | grep -i "${INSTANCE_NAME}" | awk '{print $1}')
-        echo "✅ OpenClaw node found on Tailnet!"
-        echo "   Tailscale IP: $TAILSCALE_IP"
-        echo ""
-        echo "   Access OpenClaw at: http://${TAILSCALE_IP}:${GATEWAY_PORT}"
-        echo ""
-        echo "   Retrieve the gateway token:"
-        echo "     ssh ubuntu@${TAILSCALE_IP} cat /home/ubuntu/.openclaw-token"
-    else
-        echo "⚠️  OpenClaw node not found on your Tailnet yet."
-        echo "   The instance may still be initializing (cloud-init can take 2-3 minutes)."
-        echo ""
-        echo "   Try again in a minute, or check the Tailscale admin console:"
-        echo "   https://login.tailscale.com/admin/machines"
-    fi
-else
-    echo "ℹ️  Tailscale is not installed on this machine."
-    echo "   Install it to access OpenClaw securely:"
-    echo "   - macOS: brew install tailscale"
-    echo "   - Linux: curl -fsSL https://tailscale.com/install.sh | sh"
+if [ "$SSM_STATUS" = "Online" ]; then
+    echo "SSM agent is online!"
     echo ""
-    echo "   Alternatively, you can SSH to the instance:"
-    echo "   ssh -i ~/.ssh/<your-key>.pem ubuntu@${PUBLIC_IP}"
+    echo "   Access OpenClaw:"
+    echo "   1. Start port forward:"
+    echo "      aws ssm start-session --target ${INSTANCE_ID} --document-name AWS-StartPortForwardingSession --parameters '{\"portNumber\":[\"${GATEWAY_PORT}\"],\"localPortNumber\":[\"${GATEWAY_PORT}\"]}'"
+    echo "   2. Open http://localhost:${GATEWAY_PORT}"
+    echo "   3. Retrieve password:"
+    echo "      aws ssm start-session --target ${INSTANCE_ID} --document-name AWS-StartInteractiveCommand --parameters command='sudo cat /home/ubuntu/.openclaw-password'"
+else
+    echo "SSM agent is not yet online (status: ${SSM_STATUS})"
+    echo "   The instance may still be initializing (cloud-init can take 2-3 minutes)."
+    echo "   Wait a moment and try again."
+    echo ""
+    echo "   To monitor progress, open a shell once SSM is ready:"
+    echo "     aws ssm start-session --target ${INSTANCE_ID}"
+    echo "   Then run: tail -f /var/log/cloud-init-output.log"
 fi
 
 echo ""
-echo "🎉 OpenClaw deployment verified successfully!"
+echo "OpenClaw deployment verified successfully!"
