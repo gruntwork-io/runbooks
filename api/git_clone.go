@@ -262,18 +262,19 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			return
 		}
 
-		// Get session context for working directory
+		// Verify session is valid
 		execCtx := GetSessionExecContext(c)
 		if execCtx == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session context not found"})
 			return
 		}
 
-		// Determine the effective working directory
-		effectiveWorkDir := execCtx.WorkDir
-		if effectiveWorkDir == "" {
-			effectiveWorkDir = workingDir
-		}
+		// Always resolve clone paths relative to the initial working directory
+		// (the --working-dir passed at server start), NOT the session's current
+		// working directory. The session WorkDir can drift when <Command> blocks
+		// execute scripts that change directory (e.g. `cd infra-catalog`), which
+		// would cause a second <GitClone> to nest inside the first clone's tree.
+		effectiveWorkDir := workingDir
 
 		absolutePath, relativePath := ResolveClonePaths(req.LocalPath, req.URL, effectiveWorkDir)
 
@@ -993,6 +994,11 @@ func isValidGitURL(rawURL string) bool {
 
 	// git:// protocol
 	if strings.HasPrefix(rawURL, "git://") {
+		return true
+	}
+
+	// file:// protocol (local repos)
+	if strings.HasPrefix(rawURL, "file://") {
 		return true
 	}
 

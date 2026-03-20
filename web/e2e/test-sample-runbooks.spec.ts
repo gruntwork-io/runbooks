@@ -1,5 +1,7 @@
 import { execSync } from "child_process";
-import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
+import fs from "fs";
+import path from "path";
+import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel, createLocalBareRepo } from "./fixtures";
 
 /**
  * End-to-end tests for the sample runbooks in testdata/sample-runbooks/.
@@ -571,6 +573,79 @@ test.describe("sample-runbooks/next-app", () => {
     // Files go to the worktree (target="worktree"), so they appear in the changed files panel.
     const changed = getFilesPanel(page, "changed");
     await expect(changed.getTreeItem("WelcomeCard.tsx")).toBeVisible({ timeout: 10_000 });
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test: dual-clone (issue #94 regression test)
+// Working directory behavior across block types.
+// ---------------------------------------------------------------------------
+test.describe("sample-runbooks/dual-clone", () => {
+  test("Command blocks propagate CWD to subsequent commands", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+    await serveRunbook("testdata/sample-runbooks/dual-clone");
+    await page.goto(`http://localhost:${serverPort}/`);
+
+    const markdownBody = page.getByTestId("runbook-content");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+    await trustRunbook(page);
+
+    // Run the first Command that cd's into subdir.
+    const cdBlock = page.getByTestId("cd-subdir");
+    await expect(cdBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 5_000 });
+    await cdBlock.getByRole("button", { name: "Run" }).click();
+    await expect(cdBlock.getByText("Success")).toBeVisible({ timeout: 15_000 });
+
+    // Run the second Command that just prints pwd.
+    // It should inherit the changed CWD and print "<workDir>/subdir".
+    const pwdBlock = page.getByTestId("verify-cwd");
+    await expect(pwdBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 5_000 });
+    await pwdBlock.getByRole("button", { name: "Run" }).click();
+    await expect(pwdBlock.getByText("Success")).toBeVisible({ timeout: 15_000 });
+
+    // Verify the pwd output contains "subdir" (the CWD propagated)
+    await pwdBlock.getByText("View Logs").click();
+    await expect(pwdBlock.getByText(/subdir/)).toBeVisible();
+
+    expectNoConsoleErrors(consoleMessages);
+  });
+
+  test("GitClone resolves paths relative to initial workDir after cd (issue #94)", async ({ page, serveRunbook, serverPort, workDir, consoleMessages }) => {
+    // Create a local bare git repo so we can clone without GitHub credentials.
+    const bareRepoPath = createLocalBareRepo(workDir);
+
+    await serveRunbook("testdata/sample-runbooks/dual-clone");
+    await page.goto(`http://localhost:${serverPort}/`);
+
+    const markdownBody = page.getByTestId("runbook-content");
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
+    await trustRunbook(page);
+
+    // Run the Command block that cd's into subdir — this drifts the session CWD.
+    const cdBlock = page.getByTestId("cd-subdir");
+    await expect(cdBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 5_000 });
+    await cdBlock.getByRole("button", { name: "Run" }).click();
+    await expect(cdBlock.getByText("Success")).toBeVisible({ timeout: 15_000 });
+
+    // Now use the GitClone block to clone the local bare repo via the UI.
+    const cloneBlock = page.getByTestId("clone-after-cd");
+    const urlInput = cloneBlock.getByRole("textbox").first();
+    await urlInput.fill(`file://${bareRepoPath}`);
+    // Set an explicit local path so the clone destination is predictable
+    // (file:// URLs don't parse into a clean repo name).
+    await cloneBlock.getByText("Additional Settings").click();
+    const localPathInput = cloneBlock.getByPlaceholder("Defaults to repo name");
+    await localPathInput.fill("cloned-repo");
+    await cloneBlock.getByRole("button", { name: "Clone" }).click();
+    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 15_000 });
+
+    // The repo should be cloned as a sibling to subdir (in the initial workDir),
+    // NOT nested inside subdir. This is the core assertion for issue #94.
+    const correctPath = path.join(workDir, "cloned-repo");
+    const buggyPath = path.join(workDir, "subdir", "cloned-repo");
+    expect(fs.existsSync(correctPath), `expected clone at ${correctPath}`).toBe(true);
+    expect(fs.existsSync(buggyPath), `clone should NOT be nested inside subdir`).toBe(false);
 
     expectNoConsoleErrors(consoleMessages);
   });

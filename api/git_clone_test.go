@@ -1,7 +1,17 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInjectGitToken(t *testing.T) {
@@ -193,4 +203,78 @@ func TestIsValidGitHubRepoName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGitCloneUsesInitialWorkDir verifies that HandleGitClone resolves clone
+// paths relative to the initial working directory (passed at server start),
+// NOT the session's current working directory. This prevents the second
+// GitClone from nesting inside the first clone when a Command block changes
+// the session's working directory in between (issue #94).
+func TestGitCloneUsesInitialWorkDir(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create the initial working directory and a subdirectory that simulates
+	// the result of a previous clone + cd.
+	initialWorkDir := t.TempDir()
+	subDir := filepath.Join(initialWorkDir, "repo-a")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	// Set up session with initial working directory
+	sm := NewSessionManager()
+	sessionResp, err := sm.CreateSession(initialWorkDir)
+	require.NoError(t, err)
+
+	// Simulate a Command block changing the session's working directory
+	// (this is what happens when a script does `cd repo-a`)
+	err = sm.UpdateSessionEnv(map[string]string{}, subDir)
+	require.NoError(t, err)
+
+	// Verify session WorkDir has drifted
+	session, ok := sm.GetSession()
+	require.True(t, ok)
+	assert.Equal(t, subDir, session.WorkingDir, "session WorkDir should have drifted to subDir")
+
+	// Set up a router with the clone handler using the INITIAL working directory
+	router := gin.New()
+	router.POST("/api/git/clone", SessionAuthMiddleware(sm), HandleGitClone(sm, initialWorkDir))
+
+	// Send a clone request — the URL is invalid on purpose (we only care about
+	// the path resolution, not whether the clone actually succeeds). The handler
+	// will attempt the clone and fail, but we can check the 409 "directory_exists"
+	// behavior to verify path resolution.
+
+	// Create a directory at initialWorkDir/repo-b to trigger the 409 response,
+	// which reveals the resolved absolute path in the response body.
+	repoBDir := filepath.Join(initialWorkDir, "repo-b")
+	require.NoError(t, os.MkdirAll(repoBDir, 0o755))
+
+	body := GitCloneRequest{
+		URL: "https://github.com/example/repo-b.git",
+	}
+	jsonBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/git/clone", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+sessionResp.Token)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// We should get a 409 because repo-b exists in the INITIAL working directory.
+	// If the bug were still present, the handler would look for repo-b inside
+	// the drifted subDir (repo-a/repo-b), which doesn't exist, and would proceed
+	// to clone — returning 200 with an SSE stream instead of 409.
+	assert.Equal(t, http.StatusConflict, w.Code,
+		"clone should resolve relative to initial workDir, not drifted session WorkDir. Body: %s", w.Body.String())
+
+	var respBody map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &respBody)
+	require.NoError(t, err)
+	assert.Equal(t, "directory_exists", respBody["error"])
+
+	// Verify the absolute path in the response points to initialWorkDir/repo-b
+	// (NOT subDir/repo-b)
+	assert.Equal(t, repoBDir, respBody["absolutePath"],
+		"absolutePath should be relative to initial workDir")
 }
