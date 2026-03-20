@@ -1,0 +1,65 @@
+variables:
+  - name: AccountName
+    type: string
+    description: Name of the AWS account folder in the infra-live repo (e.g., dev, staging, prod, or a project name)
+    default: openclaw
+    validations:
+      - required
+    x-section: Deployment Settings
+
+  - name: AwsRegion
+    type: enum
+    options:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - eu-central-1
+      - eu-west-1
+      - eu-west-2
+    description: The AWS region to deploy OpenClaw to
+    default: "us-west-2"
+    validations:
+      - required
+    x-section: Deployment Settings
+
+  - name: InstanceName
+    type: string
+    description: Name for the OpenClaw EC2 instance (used in resource tags)
+    default: openclaw
+    validations:
+      - required
+    x-section: Instance Settings
+
+  - name: InstanceType
+    type: enum
+    description: "EC2 instance type. Graviton (t4g) instances are ~20% cheaper than x86 (t3). OpenClaw requires at least 4GB RAM (medium or larger)."
+    options:
+      - t4g.medium
+      - t4g.large
+      - t3.medium
+      - t3.large
+    default: t4g.medium
+    validations:
+      - required
+    x-section: Instance Settings
+
+  - name: VolumeSize
+    type: int
+    description: Root EBS volume size in GB (minimum 20 recommended for Docker images)
+    default: 30
+    validations:
+      - required
+    x-section: Instance Settings
+
+  - name: OpenClawVersion
+    type: string
+    description: OpenClaw Docker image tag (use 'latest' for the most recent release)
+    default: "latest"
+    x-section: OpenClaw Settings
+
+  - name: GatewayPort
+    type: int
+    description: Port for the OpenClaw gateway (default 18789)
+    default: 18789
+    x-section: OpenClaw Settings

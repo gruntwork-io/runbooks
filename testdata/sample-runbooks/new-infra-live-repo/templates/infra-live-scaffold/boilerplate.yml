@@ -1,0 +1,44 @@
+variables:
+  - name: DefaultRegion
+    type: enum
+    description: Default AWS region for the S3 state bucket and provider
+    options:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - eu-central-1
+      - eu-west-1
+      - eu-west-2
+    default: us-east-1
+    validations:
+      - required
+    x-section: AWS Settings
+
+  - name: StateBucketPrefix
+    type: string
+    description: "Prefix for the S3 state bucket name (bucket will be named: <prefix>-tf-state-<account>-<region>)"
+    default: ""
+    x-section: AWS Settings
+
+  - name: CatalogRepoUrl
+    type: string
+    description: Git URL of your infra-catalog repo (used in the Terragrunt catalog config)
+    default: ""
+    x-section: Catalog Settings
+
+  - name: OpenTofuVersion
+    type: string
+    description: OpenTofu version to pin in mise.toml
+    default: "1.11.5"
+    validations:
+      - required
+    x-section: Tool Versions
+
+  - name: TerragruntVersion
+    type: string
+    description: Terragrunt version to pin in mise.toml
+    default: "0.99.4"
+    validations:
+      - required
+    x-section: Tool Versions

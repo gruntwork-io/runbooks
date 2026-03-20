@@ -1,0 +1,21 @@
+variables:
+  - name: ModuleName
+    type: string
+    description: Name of the OpenTofu module directory within the infra-catalog repo (e.g., modules/<name>)
+    default: openclaw-ec2
+    validations:
+      - required
+
+  - name: ReleaseTag
+    type: string
+    description: Git tag for the infra-catalog release (e.g., v0.0.1). Terragrunt pins to this ref.
+    default: "v0.0.1"
+    validations:
+      - required
+
+  - name: CatalogRepoUrl
+    type: string
+    description: Git URL of the infra-catalog repo (used as the Terragrunt module source)
+    default: ""
+    validations:
+      - required

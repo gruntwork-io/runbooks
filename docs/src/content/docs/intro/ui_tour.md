@@ -28,7 +28,7 @@ So far, the runbook is just rendering markdown text. Useful, but not very intere
 
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
 
-Here, the user is given some "pre-flight checks" to make sure their local system has the right tools installed (in this case `mise`, a package manager). The user can click "Check" and Runbooks will run the given command (in this case `mise --version && mise self-update`) directly on their local machine.
+Here, the user is given some "pre-flight checks" to make sure their local system has the right tools installed (in this case `mise`, a package manager). The user can click "Check" and Runbooks will run the given command (in this case `mise --version && mise self-update --yes`) directly on their local machine.
 
 ![Runbooks Example Screenshot 3](../../../assets/screenshots/intro/runbooks-example-3.webp)
 
@@ -37,7 +37,7 @@ The Runbooks consumer can just use the web UI without knowing anything about how
 ```mdx
 <Check
   id="check-mise"
-  command="mise --version && mise self-update"
+  command="mise --version && mise self-update --yes"
   title="Check mise Installation"
   description="We recommend `mise` as a tool version manager that can install and manage Terragrunt, OpenTofu, and other tools. This checks that mise is installed and up to date."
   successMessage="mise is installed and up to date!"
