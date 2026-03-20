@@ -1,8 +1,6 @@
 # Deploy OpenClaw on AWS EC2
 
-This runbook guides you through deploying [OpenClaw](https://github.com/openclaw/openclaw) on a standalone AWS EC2 instance using **Terragrunt** and **OpenTofu**. It generates an OpenTofu module in your **infra-catalog** repo and a Terragrunt unit in your **infra-live** repo, following the [Gruntwork infrastructure-live pattern](https://github.com/gruntwork-io/terragrunt-infrastructure-live-stacks-example).
-
-OpenClaw is an open-source AI agent framework that runs 24/7 and can autonomously execute tasks like checking you into flights, responding to messages, and booking appointments.
+Deploy [OpenClaw](https://github.com/openclaw/openclaw) — an open-source AI agent that runs 24/7 — on a standalone AWS EC2 instance. Uses Terragrunt and OpenTofu following the [Gruntwork infrastructure-live pattern](https://github.com/gruntwork-io/terragrunt-infrastructure-live-stacks-example).
 
 ## What you'll deploy
 
@@ -17,11 +15,19 @@ Access to OpenClaw is via **SSM port forwarding**, which tunnels the OpenClaw UI
 
 Estimated monthly cost: **~$27/month** (t4g.medium + 30GB EBS).
 
-**Prerequisite:** This runbook assumes you have an **infra-live** repository with a `root.hcl` and the standard Terragrunt folder hierarchy. If you don't have one yet, run the [new-infra-live-repo](../new-infra-live-repo/) runbook first to scaffold one.
-
 ## Pre-flight checks
 
-Before you begin, ensure you have the required tools installed and are properly authenticated.
+Before you begin, ensure you have the prerequisites below, the required tools installed, and are properly authenticated.
+
+### Prerequisites
+
+- **Dedicated AWS account:** We recommend deploying OpenClaw in a dedicated AWS account to keep it isolated from other workloads. If you don't have one yet, create one in your AWS Organization before proceeding.
+- **infra-live repo:** You need an **infra-live** repository with a `root.hcl` and the standard Terragrunt folder hierarchy. If you don't have one yet, create one first by running:
+  ```
+  runbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/new-infra-live-repo
+  ```
+  That runbook also includes an optional step to create an infra-catalog repo.
+- **infra-catalog repo:** You need an **infra-catalog** repository where reusable OpenTofu/Terraform modules are stored. If you don't have one, create an empty repo on GitHub before proceeding.
 
 ### Authenticate to GitHub
 

@@ -9,6 +9,8 @@ This runbook creates a new **infra-live** repository following the [Gruntwork in
 
 The repo will be ready for you to add AWS accounts and deploy modules once your accounts are created.
 
+> **Note:** You'll also need an **infra-catalog** repository to store reusable OpenTofu/Terraform modules. Your infra-live Terragrunt units reference modules from infra-catalog, so you'll need one before deploying any infrastructure. It just needs to be an empty GitHub repo — this runbook includes an optional step at the end to create one. You don't need it to complete this runbook.
+
 ## Pre-flight Checks
 
 ### Authenticate to GitHub
@@ -126,6 +128,37 @@ Review and merge the pull request on GitHub, then verify it's been merged.
   description="Check that the scaffold pull request has been merged to main."
   successMessage="PR is merged! Your infra-live repo is ready."
   failMessage="PR is not yet merged. Merge it on GitHub and try again."
+  githubAuthId="gh-auth"
+/>
+
+## Create an infra-catalog Repository (Optional)
+
+If you don't already have an **infra-catalog** repository for storing reusable OpenTofu modules, create one now. Other runbooks (e.g., deploying OpenClaw) will need a place to push generated modules.
+
+### Name your infra-catalog repository
+
+<Inputs id="catalog-config">
+```yaml
+variables:
+  - name: CatalogRepoName
+    type: string
+    description: Name of the infra-catalog repository
+    default: infra-catalog
+    validations:
+      - required
+```
+</Inputs>
+
+### Create the infra-catalog repo on GitHub
+
+<Command
+  id="create-catalog-repo"
+  command="gh repo create {{ .inputs.OrgName }}/{{ .inputs.CatalogRepoName }} --public --description 'Reusable OpenTofu/Terraform modules catalog' --clone=false && echo 'Repository created: https://github.com/{{ .inputs.OrgName }}/{{ .inputs.CatalogRepoName }}'"
+  title="Create infra-catalog Repository"
+  description="Create a new GitHub repository for reusable OpenTofu modules."
+  successMessage="infra-catalog repository created!"
+  failMessage="Failed to create repository. It may already exist, which is fine."
+  inputsId={["repo-config", "catalog-config"]}
   githubAuthId="gh-auth"
 />
 
