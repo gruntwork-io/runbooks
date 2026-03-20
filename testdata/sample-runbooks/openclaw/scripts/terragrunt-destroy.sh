@@ -98,7 +98,7 @@ echo "   - Security group"
 echo "   - VPC, subnet, internet gateway, and route table"
 echo ""
 
-cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.ModuleName }}"
+cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.AwsRegion }}/{{ .inputs.ModuleName }}"
 
 if terragrunt run --backend-bootstrap --non-interactive -- destroy -auto-approve; then
   echo ""

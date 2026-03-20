@@ -52,14 +52,6 @@ variables:
       - required
     x-section: Instance Settings
 
-  - name: AllowedSshCidr
-    type: string
-    description: CIDR block allowed to SSH into the instance (e.g., your office IP). Use 0.0.0.0/0 to allow all.
-    default: "0.0.0.0/0"
-    validations:
-      - required
-    x-section: Network Settings
-
   - name: OpenClawVersion
     type: string
     description: OpenClaw Docker image tag (use 'latest' for the most recent release)

@@ -1,6 +1,8 @@
 # Deploy OpenClaw on AWS EC2
 
-This runbook guides you through deploying [OpenClaw](https://github.com/openclaw/openclaw) on a standalone AWS EC2 instance using Terragrunt and OpenTofu. OpenClaw is an open-source AI agent framework that runs 24/7 and can autonomously execute tasks like checking you into flights, responding to messages, and booking appointments.
+This runbook guides you through deploying [OpenClaw](https://github.com/openclaw/openclaw) on a standalone AWS EC2 instance using **Terragrunt** and **OpenTofu**. It generates an OpenTofu module in your **infra-catalog** repo and a Terragrunt unit in your **infra-live** repo, following the [Gruntwork infrastructure-live pattern](https://github.com/gruntwork-io/terragrunt-infrastructure-live-stacks-example).
+
+OpenClaw is an open-source AI agent framework that runs 24/7 and can autonomously execute tasks like checking you into flights, responding to messages, and booking appointments.
 
 ## What you'll deploy
 
@@ -9,10 +11,12 @@ You'll deploy a self-contained Terragrunt configuration that creates:
 1. A dedicated **VPC** with a public subnet and internet gateway
 2. An **EC2 instance** (Graviton ARM by default) running OpenClaw in Docker
 3. **Tailscale** mesh VPN for secure private access to the OpenClaw UI
-4. An **Elastic IP** for stable SSH access to the instance
-5. A **security group** restricting access to SSH only (OpenClaw is accessed via Tailscale)
+4. An **IAM role** for **SSM Session Manager** shell access (no SSH ports exposed)
+5. A **security group** with no inbound ports (all access is via SSM and Tailscale)
 
-Estimated monthly cost: **~$25/month** (t4g.medium + 30GB EBS + Elastic IP).
+Estimated monthly cost: **~$20/month** (t4g.medium + 30GB EBS).
+
+**Prerequisite:** This runbook assumes you have an **infra-live** repository with a `root.hcl` and the standard Terragrunt folder hierarchy. If you don't have one yet, run the [new-infra-live-repo](../new-infra-live-repo/) runbook first to scaffold one.
 
 ## Pre-flight checks
 
@@ -30,7 +34,7 @@ Authenticate to GitHub so the runbook can clone repos, create pull requests, and
 
 ### Authenticate to AWS
 
-First, authenticate to AWS. This runbook uses AWS SSO (IAM Identity Center) for authentication.
+**Authenticate to the AWS account where OpenClaw will run.** We recommend using a dedicated AWS account for OpenClaw to keep it isolated from other workloads.
 
 <AwsAuth
   id="aws-auth"
@@ -39,6 +43,18 @@ First, authenticate to AWS. This runbook uses AWS SSO (IAM Identity Center) for 
   ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
   ssoRegion="us-west-2"
   defaultRegion="us-west-2"
+/>
+
+### Detect AWS Account ID
+
+<Command
+  id="detect-account"
+  path="scripts/detect-account.sh"
+  title="Detect AWS Account ID"
+  description="Fetch the AWS account ID from your authenticated session."
+  successMessage="Account ID detected! It will be prefilled in the configuration form below."
+  failMessage="Failed to detect account ID. You can enter it manually."
+  awsAuthId="aws-auth"
 />
 
 ### Install mise
@@ -65,6 +81,23 @@ Once mise is installed, run the following command to install all required tools:
   description="Installs Terragrunt, OpenTofu, AWS CLI, and Granted using mise"
   successMessage="All tools installed successfully!"
   failMessage="Failed to install tools. Check the logs for details."
+/>
+
+### Install AWS Session Manager Plugin
+
+The Session Manager plugin for the AWS CLI is required to connect to the EC2 instance. Install it from [the AWS docs](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), or on macOS:
+
+```bash
+brew install --cask session-manager-plugin
+```
+
+<Check
+  id="check-ssm-plugin"
+  command="session-manager-plugin --version"
+  title="Check Session Manager Plugin"
+  description="Verify that the AWS Session Manager plugin is installed."
+  successMessage="Session Manager plugin is installed!"
+  failMessage="Session Manager plugin is not installed. See https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
 />
 
 ## Generate a Tailscale Auth Key
@@ -164,6 +197,19 @@ Clone the **infra-live** repo where the Terragrunt unit (terragrunt.hcl) will be
   prefilledUrl="https://github.com/josh-padnick/infra-live"
 />
 
+### Detect root.hcl
+
+Check if the infra-live repo contains a `root.hcl`. If found, the generated `terragrunt.hcl` will automatically include it.
+
+<Check
+  id="check-root-hcl"
+  path="checks/check-root-hcl.sh"
+  title="Detect root.hcl"
+  description="Check if root.hcl exists in the infra-live repo."
+  successMessage="root.hcl found — it will be included in the generated terragrunt.hcl."
+  warnMessage="No root.hcl found — the generated terragrunt.hcl will be self-contained."
+/>
+
 ### Generate the Terragrunt unit into infra-live
 
 <Template
@@ -238,26 +284,26 @@ Now preview the changes with a plan, then apply.
   awsAuthId="aws-auth"
 />
 
-## Save Your SSH Key
+## Connect to Your Instance
 
-The deployment automatically created an EC2 key pair. Save the private key to your local machine so you can SSH into the instance.
+The instance uses **SSM Session Manager** for shell access. No SSH keys or open ports are needed — authentication is handled by your AWS credentials.
 
 <Command
-  id="save-ssh-key"
+  id="instance-info"
   path="scripts/save-ssh-key.sh"
-  title="Save SSH Key"
-  description="Extract the auto-generated SSH private key from Terragrunt state and save it locally."
-  successMessage="SSH key saved!"
-  failMessage="Failed to save SSH key. Check the logs for details."
+  title="Get Connection Info"
+  description="Retrieve the instance ID and SSM connect command."
+  successMessage="Connection info retrieved!"
+  failMessage="Failed to retrieve connection info. Check the logs for details."
   inputsId={["gen-unit", "gen-module"]}
   awsAuthId="aws-auth"
 />
 
-You can SSH into the instance with:
+You can open a shell on the instance with:
 
-<TemplateInline id="ssh-snippet">
+<TemplateInline id="ssm-snippet">
 ```bash
-{{ .outputs.save_ssh_key.ssh_command }}
+{{ .outputs.instance_info.ssm_command }}
 ```
 </TemplateInline>
 
@@ -297,17 +343,19 @@ Open your browser and navigate to:
 
 <TemplateInline id="access-snippet" inputsId="gen-unit">
 ```
-http://{{ .outputs.save_ssh_key.tailscale_ip }}:{{ .inputs.GatewayPort }}
+http://{{ .outputs.instance_info.tailscale_ip }}:{{ .inputs.GatewayPort }}
 ```
 </TemplateInline>
 
 ### 5. Retrieve the Gateway Auth Token
 
-The gateway auth token was auto-generated during deployment. Retrieve it via SSH:
+The gateway auth token was auto-generated during deployment. Retrieve it via SSM:
 
 <TemplateInline id="token-snippet">
 ```bash
-ssh -i {{ .outputs.save_ssh_key.key_path }} ubuntu@{{ .outputs.save_ssh_key.tailscale_ip }} cat /home/ubuntu/.openclaw-token
+{{ .outputs.instance_info.ssm_command }}
+# Then on the instance:
+cat /home/ubuntu/.openclaw-token
 ```
 </TemplateInline>
 
@@ -328,7 +376,7 @@ Use this token to authenticate with the OpenClaw gateway.
 
 ## Cleanup (Optional)
 
-When you're done with OpenClaw, you can tear down all the infrastructure created by this runbook. This will delete the EC2 instance, VPC, Elastic IP, security group, and key pair.
+When you're done with OpenClaw, you can tear down all the infrastructure created by this runbook. This will delete the EC2 instance, VPC, security group, and IAM role.
 
 <Command
   id="terragrunt-destroy"

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Save the auto-generated SSH private key to the local machine.
+# Print the SSM connect command and instance details after deployment.
 #
 # Environment variables:
 #   - REPO_FILES: Path to the infra-live clone
@@ -10,34 +10,31 @@ set -e
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 INSTANCE_NAME="{{ .inputs.InstanceName }}"
-KEY_PATH="$HOME/.ssh/${INSTANCE_NAME}-key"
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo "🔑 Dry-run mode: Simulating SSH key save..."
+    echo "🔑 Dry-run mode: Simulating SSM connection info..."
     echo ""
     echo "[DRY-RUN] cd \$REPO_FILES"
-    echo "[DRY-RUN] terragrunt output -raw private_key_openssh > ${KEY_PATH}"
-    echo "[DRY-RUN] chmod 600 ${KEY_PATH}"
+    echo "[DRY-RUN] terragrunt output -raw instance_id"
+    echo "[DRY-RUN] terragrunt output -raw ssm_connect_command"
     echo ""
     echo "✅ Dry-run completed successfully!"
     exit 0
 fi
 
-cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.ModuleName }}"
+cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.AwsRegion }}/{{ .inputs.ModuleName }}"
 
-echo "🔑 Saving SSH private key to ${KEY_PATH}..."
-
-terragrunt output -raw private_key_openssh > "${KEY_PATH}"
-chmod 600 "${KEY_PATH}"
-
-# Get the Elastic IP from outputs
-ELASTIC_IP=$(terragrunt output -raw public_ip 2>/dev/null || echo "<elastic-ip>")
+INSTANCE_ID=$(terragrunt output -raw instance_id 2>/dev/null || echo "<instance-id>")
+SSM_COMMAND=$(terragrunt output -raw ssm_connect_command 2>/dev/null || echo "aws ssm start-session --target <instance-id>")
 
 echo ""
-echo "✅ SSH key saved to ${KEY_PATH}"
+echo "✅ OpenClaw instance deployed: ${INSTANCE_ID}"
 echo ""
-echo "   Connect to the instance with:"
-echo "     ssh -i ${KEY_PATH} ubuntu@${ELASTIC_IP}"
+echo "   Connect to the instance with SSM Session Manager:"
+echo "     ${SSM_COMMAND}"
+echo ""
+echo "   Monitor cloud-init progress:"
+echo "     ${SSM_COMMAND} then run: tail -f /var/log/cloud-init-output.log"
 
 # Try to resolve the Tailscale IP for the instance
 TAILSCALE_IP=""
@@ -51,7 +48,6 @@ if [[ -n "$TAILSCALE_IP" ]]; then
 fi
 
 # Output values for downstream blocks
-echo "ssh_command=ssh -i ${KEY_PATH} ubuntu@${ELASTIC_IP}" >> "$RUNBOOK_OUTPUT"
-echo "elastic_ip=${ELASTIC_IP}" >> "$RUNBOOK_OUTPUT"
-echo "key_path=${KEY_PATH}" >> "$RUNBOOK_OUTPUT"
+echo "instance_id=${INSTANCE_ID}" >> "$RUNBOOK_OUTPUT"
+echo "ssm_command=${SSM_COMMAND}" >> "$RUNBOOK_OUTPUT"
 echo "tailscale_ip=${TAILSCALE_IP}" >> "$RUNBOOK_OUTPUT"

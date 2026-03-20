@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------------------------------------------------
 # OPENCLAW EC2 MODULE
 # Deploys an EC2 instance running OpenClaw in Docker with Tailscale for secure access.
-# Creates a dedicated VPC, subnet, security group, and Elastic IP.
+# Creates a dedicated VPC, subnet, security group, and IAM role for SSM Session Manager.
 # ---------------------------------------------------------------------------------------------------------------------
 
 terraform {
@@ -11,10 +11,6 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = ">= 5.0"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = ">= 4.0"
     }
   }
 }
@@ -103,8 +99,8 @@ resource "aws_route_table_association" "public" {
 
 # ---------------------------------------------------------------------------------------------------------------------
 # SECURITY GROUP
-# Allow SSH from the configured CIDR and all outbound traffic.
-# OpenClaw port (18789) is NOT exposed publicly — access is via Tailscale.
+# Allow only outbound traffic. No inbound ports are exposed — access is via SSM Session Manager
+# and Tailscale. OpenClaw port (18789) is accessed via Tailscale.
 # ---------------------------------------------------------------------------------------------------------------------
 
 resource "aws_security_group" "openclaw" {
@@ -121,15 +117,6 @@ resource "aws_security_group" "openclaw" {
   }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "ssh" {
-  security_group_id = aws_security_group.openclaw.id
-  description       = "SSH access"
-  from_port         = 22
-  to_port           = 22
-  ip_protocol       = "tcp"
-  cidr_ipv4         = var.allowed_ssh_cidr
-}
-
 resource "aws_vpc_security_group_egress_rule" "all_outbound" {
   security_group_id = aws_security_group.openclaw.id
   description       = "Allow all outbound traffic"
@@ -138,22 +125,38 @@ resource "aws_vpc_security_group_egress_rule" "all_outbound" {
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
-# SSH KEY PAIR
-# Auto-create an EC2 key pair so the user doesn't need to pre-create one.
-# The private key is stored in Terraform state and exposed as a sensitive output.
+# IAM ROLE FOR SSM SESSION MANAGER
+# Allows shell access to the instance via AWS Systems Manager without opening SSH ports.
+# Authentication and authorization are handled by IAM — no SSH keys needed.
 # ---------------------------------------------------------------------------------------------------------------------
 
-resource "tls_private_key" "openclaw" {
-  algorithm = "ED25519"
+resource "aws_iam_role" "openclaw" {
+  name = "${var.instance_name}-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = var.tags
 }
 
-resource "aws_key_pair" "openclaw" {
-  key_name   = "${var.instance_name}-key"
-  public_key = tls_private_key.openclaw.public_key_openssh
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.openclaw.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
 
-  tags = merge(var.tags, {
-    Name = "${var.instance_name}-key"
-  })
+resource "aws_iam_instance_profile" "openclaw" {
+  name = "${var.instance_name}-ec2-profile"
+  role = aws_iam_role.openclaw.name
+
+  tags = var.tags
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -164,9 +167,9 @@ resource "aws_key_pair" "openclaw" {
 resource "aws_instance" "openclaw" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
-  key_name               = aws_key_pair.openclaw.key_name
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.openclaw.id]
+  iam_instance_profile   = aws_iam_instance_profile.openclaw.name
 
   root_block_device {
     volume_size = var.volume_size
@@ -191,16 +194,3 @@ resource "aws_instance" "openclaw" {
   })
 }
 
-# ---------------------------------------------------------------------------------------------------------------------
-# ELASTIC IP
-# Assign a stable public IP for SSH access.
-# ---------------------------------------------------------------------------------------------------------------------
-
-resource "aws_eip" "openclaw" {
-  instance = aws_instance.openclaw.id
-  domain   = "vpc"
-
-  tags = merge(var.tags, {
-    Name = "${var.instance_name}-eip"
-  })
-}

@@ -92,7 +92,7 @@ echo "🚀 Running terragrunt apply for: ${INSTANCE_NAME} in ${AWS_REGION}..."
 echo "   Path: ${REPO_FILES}"
 echo ""
 
-cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.ModuleName }}"
+cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.AwsRegion }}/{{ .inputs.ModuleName }}"
 
 if terragrunt run --backend-bootstrap --non-interactive -- apply -auto-approve; then
   echo ""

@@ -7,6 +7,18 @@
 terraform {
   source = "git::{{ .inputs.CatalogRepoUrl }}.git//modules/{{ .inputs.ModuleName }}?ref={{ .inputs.ReleaseTag }}"
 }
+{{- if eq .outputs.check_root_hcl.has_root_hcl "true" }}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# INCLUDE ROOT CONFIGURATION
+# Inherit provider, backend, and catalog settings from root.hcl.
+# ---------------------------------------------------------------------------------------------------------------------
+
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+{{- else }}
 
 # ---------------------------------------------------------------------------------------------------------------------
 # PROVIDER CONFIGURATION
@@ -46,6 +58,7 @@ generate "backend" {
     }
   EOF
 }
+{{- end }}
 
 # ---------------------------------------------------------------------------------------------------------------------
 # MODULE INPUTS
@@ -56,7 +69,6 @@ inputs = {
   instance_name = "{{ .inputs.InstanceName }}"
   instance_type = "{{ .inputs.InstanceType }}"
   volume_size   = {{ .inputs.VolumeSize }}
-  allowed_ssh_cidr   = "{{ .inputs.AllowedSshCidr }}"
   tailscale_auth_key = get_env("TAILSCALE_AUTH_KEY")
 
   openclaw_version = "{{ .inputs.OpenClawVersion }}"

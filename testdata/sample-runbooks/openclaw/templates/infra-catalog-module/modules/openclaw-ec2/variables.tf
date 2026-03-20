@@ -23,12 +23,6 @@ variable "volume_size" {
   }
 }
 
-variable "allowed_ssh_cidr" {
-  type        = string
-  default     = "0.0.0.0/0"
-  description = "CIDR block allowed to SSH into the instance"
-}
-
 variable "tailscale_auth_key" {
   type        = string
   sensitive   = true
