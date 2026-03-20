@@ -8,8 +8,8 @@ variable "instance_type" {
   default     = "t4g.medium"
   description = "EC2 instance type (Graviton t4g recommended for cost savings)"
   validation {
-    condition     = contains(["t4g.micro", "t4g.small", "t4g.medium", "t3.micro", "t3.small", "t3.medium"], var.instance_type)
-    error_message = "Instance type must be one of: t4g.micro, t4g.small, t4g.medium, t3.micro, t3.small, t3.medium"
+    condition     = contains(["t4g.small", "t4g.medium", "t3.small", "t3.medium"], var.instance_type)
+    error_message = "Instance type must be one of: t4g.small, t4g.medium, t3.small, t3.medium"
   }
 }
 

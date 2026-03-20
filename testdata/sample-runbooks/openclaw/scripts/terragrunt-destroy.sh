@@ -2,33 +2,30 @@
 set -e
 
 # Run terragrunt destroy for the OpenClaw deployment
-# Template variables from openclaw-config:
+# Template variables from gen-unit:
 #   - InstanceName -> OpenClaw instance name
-#   - Environment -> Target environment
 #   - AwsRegion -> AWS region
 #
 # Environment variables:
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
+#   - REPO_FILES: Path to the infra-live clone (set by the most recent GitClone block)
 
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 INSTANCE_NAME="{{ .inputs.InstanceName }}"
-ENVIRONMENT="{{ .inputs.Environment }}"
 AWS_REGION="{{ .inputs.AwsRegion }}"
-
-GENERATED_DIR="generated"
 
 # In dry-run mode, skip AWS auth check and simulate the rest
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "🗑️  Dry-run mode: Simulating terragrunt destroy..."
     echo ""
     echo "[DRY-RUN] aws sts get-caller-identity"
-    echo "[DRY-RUN] cd ${GENERATED_DIR}"
+    echo "[DRY-RUN] cd \$REPO_FILES"
     echo "[DRY-RUN] terragrunt run --backend-bootstrap --non-interactive -- destroy -auto-approve"
     echo ""
     echo "📝 Destroy would remove all resources for:"
-    echo "   Instance: ${INSTANCE_NAME}-${ENVIRONMENT}"
+    echo "   Instance: ${INSTANCE_NAME}"
     echo "   Region: ${AWS_REGION}"
     echo ""
     echo "✅ Dry-run completed successfully!"
@@ -75,16 +72,24 @@ echo "   Account: $ACCOUNT"
 echo "   Identity: $ARN"
 echo ""
 
-# Check if generated directory exists
-if [ ! -d "${GENERATED_DIR}" ]; then
-    echo "❌ Error: Generated directory not found at ${GENERATED_DIR}"
-    echo "   Please make sure you've generated the files first."
+# Check if infra-live repo is available
+if [ -z "${REPO_FILES}" ] || [ ! -d "${REPO_FILES}" ]; then
+    echo "❌ Error: infra-live repo not found"
+    echo "   Please make sure you've cloned the infra-live repo and generated the files first."
+    exit 1
+fi
+
+# Check for Tailscale auth key
+if [ -z "${TAILSCALE_AUTH_KEY:-}" ]; then
+    echo "❌ Error: TAILSCALE_AUTH_KEY is not set"
+    echo "   Set it in your terminal before running this command:"
+    echo "    export TAILSCALE_AUTH_KEY=\"tskey-auth-...\""
     exit 1
 fi
 
 # Run terragrunt destroy
-echo "🗑️  Running terragrunt destroy for: ${INSTANCE_NAME}-${ENVIRONMENT} in ${AWS_REGION}..."
-echo "   Path: ${GENERATED_DIR}"
+echo "🗑️  Running terragrunt destroy for: ${INSTANCE_NAME} in ${AWS_REGION}..."
+echo "   Path: ${REPO_FILES}"
 echo ""
 echo "   This will destroy:"
 echo "   - EC2 instance and key pair"
@@ -93,7 +98,7 @@ echo "   - Security group"
 echo "   - VPC, subnet, internet gateway, and route table"
 echo ""
 
-cd "${GENERATED_DIR}"
+cd "${REPO_FILES}/{{ .inputs.AccountName }}/{{ .inputs.ModuleName }}"
 
 if terragrunt run --backend-bootstrap --non-interactive -- destroy -auto-approve; then
   echo ""
@@ -102,7 +107,7 @@ if terragrunt run --backend-bootstrap --non-interactive -- destroy -auto-approve
   echo "   All OpenClaw resources have been removed from AWS."
   echo ""
   echo "   You may also want to:"
-  echo "   1. Remove the saved SSH key: rm ~/.ssh/${INSTANCE_NAME}-${ENVIRONMENT}-key"
+  echo "   1. Remove the saved SSH key: rm ~/.ssh/${INSTANCE_NAME}-key"
   echo "   2. Remove the node from Tailscale: https://login.tailscale.com/admin/machines"
   exit 0
 else

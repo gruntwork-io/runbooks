@@ -2,7 +2,7 @@
 set -e
 
 # Verify OpenClaw deployment is running
-# Template variables: InstanceName, Environment, AwsRegion
+# Template variables: InstanceName, AwsRegion
 #
 # Environment variables:
 #   - RUNBOOK_DRY_RUN: Set to "true" to print commands instead of executing them
@@ -10,7 +10,7 @@ set -e
 # Dry-run support
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
-INSTANCE_NAME="{{ .inputs.InstanceName }}-{{ .inputs.Environment }}"
+INSTANCE_NAME="{{ .inputs.InstanceName }}"
 AWS_REGION="{{ .inputs.AwsRegion }}"
 GATEWAY_PORT="{{ .inputs.GatewayPort }}"
 

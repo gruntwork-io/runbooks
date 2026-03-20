@@ -1,11 +1,11 @@
 # ---------------------------------------------------------------------------------------------------------------------
 # OPENCLAW EC2 DEPLOYMENT
-# Self-contained Terragrunt configuration that deploys OpenClaw on an EC2 instance
-# with Tailscale for secure remote access. No external dependencies required.
+# Terragrunt configuration that deploys OpenClaw on an EC2 instance with Tailscale for secure
+# remote access.
 # ---------------------------------------------------------------------------------------------------------------------
 
 terraform {
-  source = "${get_terragrunt_dir()}/modules/openclaw-ec2"
+  source = "git::{{ .inputs.CatalogRepoUrl }}.git//modules/{{ .inputs.ModuleName }}?ref={{ .inputs.ReleaseTag }}"
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -22,7 +22,6 @@ generate "provider" {
 
       default_tags {
         tags = {
-          Environment = "{{ .inputs.Environment }}"
           ManagedBy   = "terragrunt"
           Application = "openclaw"
         }
@@ -54,17 +53,16 @@ generate "backend" {
 # ---------------------------------------------------------------------------------------------------------------------
 
 inputs = {
-  instance_name = "{{ .inputs.InstanceName }}-{{ .inputs.Environment }}"
+  instance_name = "{{ .inputs.InstanceName }}"
   instance_type = "{{ .inputs.InstanceType }}"
   volume_size   = {{ .inputs.VolumeSize }}
   allowed_ssh_cidr   = "{{ .inputs.AllowedSshCidr }}"
-  tailscale_auth_key = "{{ .inputs.TailscaleAuthKey }}"
+  tailscale_auth_key = get_env("TAILSCALE_AUTH_KEY")
 
   openclaw_version = "{{ .inputs.OpenClawVersion }}"
   gateway_port     = {{ .inputs.GatewayPort }}
 
   tags = {
-    Environment = "{{ .inputs.Environment }}"
-    Name        = "{{ .inputs.InstanceName }}-{{ .inputs.Environment }}"
+    Name = "{{ .inputs.InstanceName }}"
   }
 }

@@ -1,11 +1,10 @@
 variables:
-  - name: Environment
-    type: enum
-    description: Target environment for deployment
-    options:
-      - non-prod
-      - prod
-    default: non-prod
+  - name: AccountName
+    type: string
+    description: Name of the AWS account folder in the infra-live repo (e.g., dev, staging, prod, or a project name)
+    default: openclaw
+    validations:
+      - required
     x-section: Deployment Settings
 
   - name: AwsRegion
@@ -36,10 +35,8 @@ variables:
     type: enum
     description: "EC2 instance type. Graviton (t4g) instances are ~20% cheaper than x86 (t3)."
     options:
-      - t4g.micro
       - t4g.small
       - t4g.medium
-      - t3.micro
       - t3.small
       - t3.medium
     default: t4g.small
@@ -62,13 +59,6 @@ variables:
     validations:
       - required
     x-section: Network Settings
-
-  - name: TailscaleAuthKey
-    type: string
-    description: "Tailscale pre-authentication key. Generate at: Tailscale Admin > Settings > Keys > Generate auth key"
-    validations:
-      - required
-    x-section: Tailscale Settings
 
   - name: OpenClawVersion
     type: string
