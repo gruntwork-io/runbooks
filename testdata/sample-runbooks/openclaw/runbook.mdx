@@ -47,8 +47,6 @@ Authenticate to GitHub so the runbook can clone repos, create pull requests, and
   id="aws-auth"
   title="Authenticate to AWS"
   description="Authenticate to the AWS account where you want to deploy OpenClaw."
-  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
-  ssoRegion="us-west-2"
   defaultRegion="us-west-2"
 />
 
@@ -118,7 +116,7 @@ Clone the **infra-catalog** repo where the OpenTofu module will be written.
   gitHubAuthId="gh-auth"
   title="Clone infra-catalog"
   description="Clone the repository where the OpenTofu module will be written."
-  prefilledUrl="https://github.com/josh-padnick/infra-catalog"
+
 />
 
 ### Configure and generate the OpenTofu module
@@ -184,7 +182,7 @@ Clone the **infra-live** repo where the Terragrunt unit (terragrunt.hcl) will be
   gitHubAuthId="gh-auth"
   title="Clone infra-live"
   description="Clone the repository where the Terragrunt unit (terragrunt.hcl) will be written."
-  prefilledUrl="https://github.com/josh-padnick/infra-live"
+
 />
 
 ### Detect root.hcl

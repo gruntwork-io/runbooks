@@ -16,6 +16,6 @@ variables:
   - name: CatalogRepoUrl
     type: string
     description: Git URL of the infra-catalog repo (used as the Terragrunt module source)
-    default: "https://github.com/josh-padnick/infra-catalog"
+    default: ""
     validations:
       - required
