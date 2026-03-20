@@ -32,6 +32,25 @@ The repo will be ready for you to add AWS accounts and deploy modules once your 
 
 ## Create the Repository
 
+### Name your repository
+
+<Inputs id="repo-config">
+```yaml
+variables:
+  - name: OrgName
+    type: string
+    description: GitHub organization or user that owns this repo
+    validations:
+      - required
+  - name: RepoName
+    type: string
+    description: Name of the infra-live repository
+    default: infra-live
+    validations:
+      - required
+```
+</Inputs>
+
 ### Create a new GitHub repo
 
 Create a new empty repository on GitHub. The scaffolded files will be pushed to it.
@@ -43,6 +62,7 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
   description="Create a new GitHub repository for infra-live."
   successMessage="Repository created!"
   failMessage="Failed to create repository. Check the logs for details."
+  inputsId="repo-config"
   githubAuthId="gh-auth"
 />
 
@@ -53,16 +73,31 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
   gitHubAuthId="gh-auth"
   title="Clone the new repository"
   description="Clone the empty repository so we can scaffold files into it."
+  prefilledUrl="https://github.com/{{ .inputs.OrgName }}/{{ .inputs.RepoName }}"
+  inputsId="repo-config"
 />
 
 ## Configure and Generate Files
 
-Configure the infra-live scaffold and generate the files into the cloned repo.
+### Look up latest tool versions
+
+<Command
+  id="lookup-versions"
+  path="scripts/lookup-versions.sh"
+  title="Look Up Latest Versions"
+  description="Fetch the latest OpenTofu and Terragrunt versions from GitHub."
+  successMessage="Versions fetched! Enter them in the form below."
+  failMessage="Failed to look up versions. You can enter them manually."
+  githubAuthId="gh-auth"
+/>
+
+### Configure and generate the scaffold
 
 <Template
   id="scaffold"
   path="templates/infra-live-scaffold"
   target="worktree"
+  inputsId="repo-config"
 />
 
 ## Push the Scaffolded Files

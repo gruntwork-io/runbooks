@@ -1,19 +1,4 @@
 variables:
-  - name: RepoName
-    type: string
-    description: Name of the infra-live repository
-    default: infra-live
-    validations:
-      - required
-    x-section: Repository Settings
-
-  - name: OrgName
-    type: string
-    description: GitHub organization or user that owns this repo
-    validations:
-      - required
-    x-section: Repository Settings
-
   - name: DefaultRegion
     type: enum
     description: Default AWS region for the S3 state bucket and provider
