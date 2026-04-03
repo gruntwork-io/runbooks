@@ -657,6 +657,32 @@ func TestExtractSectionGroupings(t *testing.T) {
 			yaml:             `variables: []`,
 			expectedSections: []Section{},
 		},
+		{
+			name: "x-collapsed on section",
+			yaml: `variables:
+  - name: Var1
+    type: string
+    x-section: Basic
+  - name: Var2
+    type: string
+    x-section: Advanced
+    x-collapsed: true`,
+			expectedSections: []Section{
+				{Name: "Basic", Variables: []string{"Var1"}},
+				{Name: "Advanced", Variables: []string{"Var2"}, Collapsed: true},
+			},
+		},
+		{
+			name: "x-collapsed false is explicit",
+			yaml: `variables:
+  - name: Var1
+    type: string
+    x-section: Open Section
+    x-collapsed: false`,
+			expectedSections: []Section{
+				{Name: "Open Section", Variables: []string{"Var1"}, Collapsed: false},
+			},
+		},
 	}
 
 	for _, tt := range tests {

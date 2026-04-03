@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
@@ -10,6 +10,7 @@ import { FormStatus } from './FormStatus'
 import { UnmetDependenciesWarning } from './UnmetDependenciesWarning'
 import { BlockIdLabel } from './BlockIdLabel'
 import type { BlockOutput } from '@/lib/templateUtils'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -181,6 +182,25 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Determine if we should use section-based rendering
   const hasSections = boilerplateConfig?.sections && boilerplateConfig.sections.length > 0
 
+  // Track collapsed state per section, initialized from the API's collapsed flag
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    if (!boilerplateConfig?.sections) return {}
+    const initial: Record<string, boolean> = {}
+    for (const section of boilerplateConfig.sections) {
+      if (section.name) {
+        initial[section.name] = section.collapsed ?? false
+      }
+    }
+    return initial
+  })
+
+  const toggleSection = useCallback((sectionName: string) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [sectionName]: !prev[sectionName]
+    }))
+  }, [])
+
   /**
    * Handles form input changes
    * @param variableName - Name of the variable being changed
@@ -263,15 +283,29 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         )
       }
 
-      // For named sections, render with a header
+      // For named sections, render with a collapsible header
+      const isCollapsed = collapsedSections[section.name] ?? false
       return (
         <div key={section.name} className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-800 pt-5 pb-1 border-b border-gray-400">
-            {section.name}
-          </h3>
-          <div className="space-y-5">
-            {renderSectionVariables(section.variables)}
-          </div>
+          <button
+            type="button"
+            onClick={() => toggleSection(section.name)}
+            className="flex items-center gap-2 w-full pt-5 pb-1 border-b border-gray-400 cursor-pointer hover:border-gray-600 transition-colors"
+          >
+            {isCollapsed ? (
+              <ChevronRight className="size-4 text-gray-500 shrink-0" />
+            ) : (
+              <ChevronDown className="size-4 text-gray-500 shrink-0" />
+            )}
+            <span className="text-lg font-semibold text-gray-800">
+              {section.name}
+            </span>
+          </button>
+          {!isCollapsed && (
+            <div className="space-y-5">
+              {renderSectionVariables(section.variables)}
+            </div>
+          )}
         </div>
       )
     })

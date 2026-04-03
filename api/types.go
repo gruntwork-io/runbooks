@@ -260,6 +260,7 @@ type ValidationRule struct {
 type Section struct {
 	Name      string   `json:"name"`      // Section name ("" for unnamed/default section)
 	Variables []string `json:"variables"` // Variable names in this section (in declaration order)
+	Collapsed bool     `json:"collapsed"` // Whether the section should be initially collapsed in the UI
 }
 
 // OutputDependency represents a reference to another block's output in a template.

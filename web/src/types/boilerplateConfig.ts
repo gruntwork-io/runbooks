@@ -7,6 +7,7 @@ import type { BoilerplateVariable } from './boilerplateVariable';
 export interface Section {
   name: string;        // Section name ("" for unnamed/default section)
   variables: string[]; // Variable names in this section (in declaration order)
+  collapsed: boolean;  // Whether the section should be initially collapsed in the UI
 }
 
 // OutputDependency represents a reference to another block's output found in a template file.

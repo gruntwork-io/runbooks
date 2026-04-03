@@ -253,6 +253,7 @@ type rawXVariable struct {
 	Schema              map[string]string `yaml:"x-schema"`
 	SchemaInstanceLabel string            `yaml:"x-schema-instance-label"`
 	Section             string            `yaml:"x-section"`
+	Collapsed           *bool             `yaml:"x-collapsed"`
 }
 
 // parseRawXVariables parses the raw YAML once and returns the x-extension fields.
@@ -313,9 +314,26 @@ func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
 // Variables without a section use "" (empty string) as the section name.
 // The unnamed section ("") is always placed first if it exists.
 func extractSectionGroupings(rawVars []rawXVariable) []Section {
-	return groupIntoSections(rawVars, func(v rawXVariable) (string, string) {
+	sections := groupIntoSections(rawVars, func(v rawXVariable) (string, string) {
 		return v.Name, v.Section
 	})
+
+	// Apply x-collapsed flags: use the first x-collapsed value found for each section.
+	collapsedBySection := make(map[string]bool)
+	for _, v := range rawVars {
+		if v.Collapsed != nil {
+			if _, exists := collapsedBySection[v.Section]; !exists {
+				collapsedBySection[v.Section] = *v.Collapsed
+			}
+		}
+	}
+	for i := range sections {
+		if collapsed, ok := collapsedBySection[sections[i].Name]; ok {
+			sections[i].Collapsed = collapsed
+		}
+	}
+
+	return sections
 }
 
 // groupIntoSections collects items into ordered sections, with the unnamed
