@@ -377,6 +377,10 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		if req.Ref != "" {
 			outputs["REF"] = req.Ref
 		}
+		if owner, repo := parseOwnerRepoFromURL(req.URL); owner != "" {
+			outputs["REPO_OWNER"] = owner
+			outputs["REPO_NAME"] = repo
+		}
 		sse.outputs(outputs)
 		sse.status("success", 0)
 		sse.done()
