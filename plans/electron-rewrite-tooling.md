@@ -40,6 +40,21 @@ Tools NOT managed by mise (installed separately):
 
 Developers run `mise install` once to get all pinned tool versions.
 
+### Running mise-managed tools
+
+Use `mise x <tool> -- <command>` to ensure you're running the version pinned in `.mise.toml`, not whatever is on the system PATH. This is especially important in CI and when multiple projects use different versions.
+
+```bash
+# Preferred: runs node/npx from the mise-pinned version
+mise x node -- npx electron-vite dev
+mise x bun -- bun install
+
+# Also works for chained commands
+mise x node -- node dist/cli/index.js test testdata/...
+```
+
+The `mise x` prefix guarantees the correct version even if the developer hasn't activated mise's shell hook (`mise activate`). The justfile recipes should use `mise x` where practical so that `just dev` works without requiring shell activation.
+
 ## just (command runner, replaces Taskfile.yml)
 
 Replaces `Taskfile.yml` (Task) with a `justfile` at project root. just is simpler, has no YAML, supports arguments natively, and doesn't try to be a build system.
