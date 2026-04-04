@@ -57,7 +57,7 @@ const ALL_COMPONENT_TYPES = [
  * double-quoted, single-quoted, and JSX expression values with template
  * literals.
  */
-function getComponentRegex(componentType: string): RegExp {
+export function getComponentRegex(componentType: string): RegExp {
   const propsPattern = `(?:"[^"]*"|'[^']*'|\\{\`[^\`]*\`\\}|\\{"[^"]*"\\}|\\{'[^']*'\\}|[^>])*?`
   const pattern = `<${componentType}\\s+(${propsPattern})(?:/>|>([\\s\\S]*?)</${componentType}>)`
   return new RegExp(pattern, "g")
@@ -162,7 +162,7 @@ function unescapeString(s: string): string {
 // Parsed component (internal)
 // ---------------------------------------------------------------------------
 
-interface ParsedComponent {
+export interface ParsedComponent {
   id: string
   type: string
   props: string
@@ -174,7 +174,7 @@ interface ParsedComponent {
  * Parse all components of a given type from MDX content, skipping those inside
  * fenced code blocks (documentation examples).
  */
-function parseComponents(
+export function parseComponents(
   content: string,
   componentType: string,
 ): ParsedComponent[] {
@@ -387,6 +387,14 @@ export class ExecutableRegistry {
       result[id] = safe
     }
     return result
+  }
+
+  /**
+   * Retrieve an entry by its ID synchronously.
+   * Returns undefined if not found (for use in CLI test runner).
+   */
+  getExecutableSync(id: string): Executable | undefined {
+    return this.entries.get(id)
   }
 
   /** Return all warnings collected during parsing. */

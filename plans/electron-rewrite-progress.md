@@ -84,10 +84,15 @@ Tracks implementation progress for the Electron migration. Updated as work proce
 - [x] `electron/main/cli.ts` — CLI arg parsing
 - [x] `electron/main/index.ts` — updated with single-instance lock, macOS open-file, runtime cleanup
 
-## Phase 6: CLI Test Runner
-- [ ] `cli/index.ts` — commander.js entry
-- [ ] `cli/commands/test.ts` — test command
-- [ ] `cli/test/` — executor, config, assertions, reporter
+## Phase 6: CLI Test Runner ✅
+- [x] `cli/index.ts` — commander.js entry (runbooks-cli command)
+- [x] `cli/commands/test.ts` — test command (discovery, orchestration, reporting)
+- [x] `cli/test/config.ts` — test config types and YAML parser
+- [x] `cli/test/fuzz.ts` — fuzz value generator (13 types)
+- [x] `cli/test/assertions.ts` — assertion runners (13 types)
+- [x] `cli/test/validation.ts` — input validator, component parser, auth dependency parser
+- [x] `cli/test/executor.ts` — test execution engine (all block types)
+- [x] `cli/test/reporter.ts` — text and JUnit XML reporters
 
 ## Phase 7: Build & Distribution
 - [ ] electron-builder configs (macOS DMG, Linux AppImage/deb, Windows NSIS)
@@ -108,8 +113,8 @@ Tracks implementation progress for the Electron migration. Updated as work proce
 
 ## Current Status
 
-**Completed**: Phases 1–5 (Scaffold, Backend, IPC, Frontend, Main Process)
-**Remaining**: Phases 6–9 (CLI Test Runner, Build & Distribution, Documentation, Cleanup)
+**Completed**: Phases 1–6 (Scaffold, Backend, IPC, Frontend, Main Process, CLI Test Runner)
+**Remaining**: Phases 7–9 (Build & Distribution, Documentation, Cleanup)
 **Last updated**: 2026-04-04
 
 ## File Count
@@ -129,5 +134,8 @@ Tracks implementation progress for the Electron migration. Updated as work proce
 | `web/src/hooks/` (new) | 15 | IPC-based hooks |
 | `web/src/contexts/` (new) | 6 | IPC-based contexts + ApiContext |
 | `web/src/test-utils/` | 1 | Mock IPC API |
+| `cli/` | 1 | CLI entry point |
+| `cli/commands/` | 1 | Test command |
+| `cli/test/` | 6 | Config, fuzz, assertions, validation, executor, reporter |
 | Root configs | 6 | package.json, tsconfigs, justfile, mise, electron.vite, oxlint |
-| **Total new files** | **~89** | |
+| **Total new files** | **~97** | |
