@@ -2,40 +2,61 @@
 
 ## Overview
 
-**Runbooks** is an open-source tool by [Gruntwork](https://gruntwork.io) that turns interactive MDX documents into executable workflows. Infrastructure experts author "runbooks" — markdown files with embedded React components (called "blocks") — that guide users through multi-step processes like deploying infrastructure, running migrations, or onboarding to AWS. The Go backend executes scripts and commands on the user's local machine while the React frontend renders the interactive UI. The final artifact is a single self-contained Go binary with the frontend embedded.
+**Runbooks** is an open-source desktop application by [Gruntwork](https://gruntwork.io) that turns interactive MDX documents into executable workflows. Infrastructure experts author "runbooks" — markdown files with embedded React components (called "blocks") — that guide users through multi-step processes like deploying infrastructure, running migrations, or onboarding to AWS. The Electron main process executes scripts and commands on the user's local machine while the React renderer displays the interactive UI. Communication between frontend and backend happens via Electron IPC (not HTTP).
 
 ## Project Structure
 
 ```
-/web          — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4
-/api          — Backend: Go API server (Gin framework, default port 7825)
-/browser      — Browser launcher (opens the local UI)
-/cmd          — CLI commands (Cobra)
-/docs         — Documentation site (Astro + Starlight)
-/testdata     — Sample runbooks, feature demos, and test fixtures
-/scripts      — Shared shell scripts
-main.go       — Entrypoint
-Taskfile.yml  — Task runner config
+/electron       — Electron main process, preload script, shared IPC types
+  /main         — App entry, window lifecycle, menu, updater, CLI arg parsing
+  /main/ipc     — IPC handlers (thin wrappers over src/ domain modules)
+  /preload      — contextBridge exposing typed window.api
+  /shared       — IPC channel constants + types
+/src            — Core backend modules (shared by Electron + CLI), built on Effect
+  /services     — Effect service definitions (Context.Tag + interface)
+  /layers       — Live implementations (only place that imports SDKs/node APIs)
+  /domain       — Business logic (uses services via yield*, never imports node APIs)
+  /errors       — Typed error classes (Data.TaggedError)
+  /test-utils   — Test layers with mock implementations
+/cli            — Node.js CLI (test runner), reuses src/ modules directly
+/web            — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4
+/docs           — Documentation site (Astro + Starlight)
+/testdata       — Sample runbooks, feature demos, and test fixtures
+/build          — Electron packaging assets (icons, entitlements)
 ```
+
+### Backend (`/src`)
+
+- **TypeScript** with **Effect** for dependency injection, typed errors, and resource safety
+- Domain modules use `yield* ServiceTag` to access dependencies — never import Node.js APIs or SDKs directly
+- All external side-effects are modeled as Effect services with typed errors
+- Live implementations (layers) are the only place that imports SDKs or Node.js APIs
+- 8 services: FileSystem, ProcessSpawner, Environment, AwsClient, GitHubClient, GitClient, BoilerplateRenderer, Telemetry
+- Tests swap layers to provide mock implementations — no real external services needed
+
+### Electron Main Process (`/electron`)
+
+- IPC handlers bridge Effect to Electron — call `runtime.runPromise()` on domain modules
+- Streaming operations (exec, git clone) use `event.sender.send()` for real-time events
+- Native handlers: file dialogs, external URL opening, app info
 
 ### Frontend (`/web`)
 
-- **React 19** with TypeScript, built with **Vite**
+- **React 19** with TypeScript, built with **Vite** (via `electron-vite`)
 - **Bun** as the javascript runtime
 - **Tailwind CSS 4** for styling
 - **shadcn/ui** (Radix primitives) for accessible UI components
 - **MDX** (`@mdx-js/mdx`) for rendering runbook content
 - **Vitest** for unit tests
+- Hooks use `window.api.invoke()` for IPC (not fetch). All hooks go through `useApi()` React context for testability
 - Components live in `web/src/components/`; blocks live in `web/src/components/mdx/`
 - Each block is a directory: `web/src/components/mdx/<BlockName>/` containing the main component, `index.ts`, sub-components, hooks, types, and utils
 
-### Backend (`/api`, `/browser`, `/cmd`)
+### CLI Test Runner (`/cli`)
 
-- **Go** (1.25+), using the **Gin** web framework
-- **Cobra** for CLI command parsing
-- The server runs on **port 7825** by default (configurable with `--port`)
-- The built binary embeds the frontend via `web/embed.go`
-- Testing framework lives in `api/testing/`
+- Standalone Node.js CLI that reuses `src/` modules directly (no IPC, no Electron)
+- Runs automated runbook tests from `runbook_test.yml` config files
+- Built via `electron-vite build` alongside the main app
 
 ### Docs (`/docs`)
 
@@ -45,12 +66,15 @@ Taskfile.yml  — Task runner config
 
 ## Tooling
 
-| Use this         | Not this       | Notes                                          |
-|------------------|----------------|-------------------------------------------------|
-| **bun**          | npm / yarn     | All JS package management and script running    |
-| **Taskfile.dev** | Make           | See `Taskfile.yml` for available tasks          |
-| **OpenTofu**     | Terraform      | For any IaC examples in runbooks or docs        |
-| **prek**         | husky          | Pre-commit hook manager (optional)              |
+| Use this         | Not this            | Notes                                          |
+|------------------|---------------------|-------------------------------------------------|
+| **bun**          | npm / yarn          | All JS package management and script running    |
+| **just**         | task / make         | See `justfile` for available recipes            |
+| **mise**         | nvm / manual install | Tool versioning (`.mise.toml`): Node.js, bun   |
+| **oxlint**       | eslint              | Linting (50-100x faster)                       |
+| **electron-vite**| manual vite config  | Builds main, preload, and renderer              |
+| **Effect**       | manual DI / raw promises | Services, layers, typed errors, streams    |
+| **OpenTofu**     | Terraform           | For any IaC examples in runbooks or docs        |
 
 ### Adding new shadcn/ui components
 
@@ -59,46 +83,94 @@ First add the component directly into our code base: `bunx shadcn@latest add <co
 ## Key Commands
 
 ```bash
-# List all tasks
-task --list
+# List all recipes
+just
 
-# Build the full binary (frontend + Go)
-task build
+# Start Electron app in dev mode (HMR for renderer, watch-rebuild for main)
+just dev
 
-# Dev servers (run in separate terminals)
-task dev:backend RUNBOOK_PATH=testdata/my-first-runbook
-task dev:frontend
+# Start with a specific runbook
+just dev-runbook testdata/my-first-runbook
+
+# Build the Electron app
+just build
+
+# Package for distribution
+just package
 
 # Run all tests
-task test
+just test
 
 # Run tests by category
-task test:backend       # Go tests (go test ./...)
-task test:frontend      # Vitest (bun run test)
-task test:runbooks      # Runbook integration tests
-task test:docs          # Spellcheck + link check
+just test-unit       # Vitest (src/ + web/)
+just test-e2e        # Playwright
+just test-runbooks   # Runbook integration tests via CLI
+just test-docs       # Spellcheck + link check
 
 # Runbook testing
-runbooks test init /path/to/runbook   # Generate runbook_test.yml
-runbooks test /path/to/runbook        # Run tests for one runbook
-runbooks test ./testdata/...          # Run all runbook tests
+node dist/cli/index.js test init /path/to/runbook   # Generate runbook_test.yml
+node dist/cli/index.js test /path/to/runbook         # Run tests for one runbook
+node dist/cli/index.js test ./testdata/...           # Run all runbook tests
 
-# Docs
-task docs:spellcheck
-task docs:linkcheck
+# Code quality
+just lint            # oxlint
+just typecheck       # tsc --noEmit
+just check           # lint + typecheck
 ```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Electron App                        │
+│                                                      │
+│  ┌──────────────┐    IPC     ┌───────────────────┐  │
+│  │   Renderer    │◄────────►│   Main Process     │  │
+│  │   (React)     │           │                    │  │
+│  │   web/src/    │           │  electron/main/    │  │
+│  │               │           │  ipc/ handlers     │  │
+│  └──────────────┘           │         │          │  │
+│                              │         ▼          │  │
+│                              │  ┌─────────────┐  │  │
+│                              │  │ Effect       │  │  │
+│                              │  │ Runtime      │  │  │
+│                              │  │ (AppLayer)   │  │  │
+│                              │  └──────┬──────┘  │  │
+│                              └─────────┼─────────┘  │
+│                                        │             │
+│                              ┌─────────▼─────────┐  │
+│                              │   src/domain/      │  │
+│                              │   Business Logic   │  │
+│                              │   (Effect services)│  │
+│                              └───────────────────┘  │
+└─────────────────────────────────────────────────────┘
+```
+
+- **Renderer** → IPC invoke/on → **Main Process** → Effect runtime → **Domain modules**
+- Domain modules depend on service interfaces, never on concrete implementations
+- IPC replaces all HTTP routes — no REST API, no SSE streams
+- Streaming uses IPC events (`event.sender.send()`) instead of SSE
 
 ## Conventions
 
 ### General
 
-- Backend code is in Go; follow standard Go conventions (`gofmt`, etc.)
-- Frontend code is TypeScript React; follow the existing ESLint config (`web/eslint.config.js`)
+- All backend code is TypeScript; follow Effect patterns for services/layers/domain
+- Frontend code is TypeScript React
 - Use **functional components** and **hooks** for all React code
 - File and directory names for blocks use **PascalCase** (e.g., `AwsAuth/`, `TemplateInline/`)
-- Go files use **snake_case** (e.g., `aws_auth.go`, `exec_script.go`)
-- Test files follow Go convention: `*_test.go` alongside the file they test
+- Domain modules use **camelCase** files (e.g., `auth.ts`, `executor.ts`)
 - Frontend tests use `.test.ts` / `.test.tsx` suffix
+- Domain modules never import `electron`, Node.js APIs, or external SDKs — only Effect services via `yield*`
+
+### Effect Patterns
+
+- All external operations return `Effect<A, E, R>` — never raw Promises in domain code
+- Errors are always typed with `Data.TaggedError` subclasses, never plain strings or `Error`
+- Layers contain no business logic — adapters only translate between service interfaces and external APIs
+- Resource cleanup uses `Scope` — temp files, watchers, WASM instances use `acquireRelease` or `addFinalizer`
+- Frontend uses `useApi()` context — never `window.api` directly
+- Tests never need real external services — swap Layers, not implementations
 
 ### Documentation Tables
 
@@ -112,7 +184,7 @@ When the user asks you to output markdown that itself contains code fences (e.g.
 
 - Keep commits focused on a single logical change
 - Pre-commit hooks run spellcheck on docs — if spellcheck fails, fix the spelling or update `docs/cspell.json`
-- When making changes, determine whether the user is asking about the **frontend**, **backend**, or **docs**, and scope changes accordingly
+- When making changes, determine whether the user is asking about the **frontend**, **backend** (`src/`), **Electron main process** (`electron/`), or **docs**, and scope changes accordingly
 
 ## Error Reporting in MDX Components
 
@@ -161,10 +233,10 @@ This means:
 ### 2. Mock Only at True Boundaries
 
 - Mocks, stubs, and fakes are justified **only** at external boundaries: network calls, databases, file systems, third-party APIs, time/randomness, and other non-deterministic or side-effectful dependencies.
+- In this project, use **Effect test layers** (in `src/test-utils/`) to swap service implementations — this is the preferred mocking mechanism. The compiler verifies all services are provided.
 - Flag any mock of an internal module, utility function, or sibling class that could be used directly. Mocking internals couples tests to implementation details and lets interface mismatches go undetected.
-- When mocks are necessary, verify they **faithfully represent** the real interface: correct method signatures, realistic return shapes/types, accurate error behavior. Stale or oversimplified mocks are a common source of false-passing tests.
-- Watch for "mock trains" — deep chains of mocked objects returning mocked objects — which almost always indicate the test is too far from reality.
-- Where possible, recommend real in-memory alternatives (e.g., SQLite for a database layer, in-memory event buses for message queues) over mocks.
+- When mocks are necessary, verify they **faithfully represent** the real interface: correct method signatures, realistic return shapes/types, accurate error behavior.
+- Where possible, recommend real in-memory alternatives over mocks.
 
 ### 3. Verify Test Fidelity to Real Behavior
 
@@ -192,31 +264,27 @@ Flag cases where coverage effort is **inverted** — heavy testing on low-risk t
 
 ### 6. Tests as Safety Brakes, Not Bureaucracy
 
-Automated tests serve as continuous integration's safety mechanism — they are the brakes that let a team move fast by catching regressions on every commit. To serve this role effectively:
-
-- **Tests must be fast enough to run on every commit.** If the suite takes too long, developers skip it or batch commits, undermining the safety net. Flag tests that are unnecessarily slow due to heavy setup, redundant teardown, or over-broad integration scope.
-- **Tests must be deterministic.** Flaky tests that pass or fail randomly destroy trust. Flag tests with race conditions, time-dependent logic, or reliance on external state that isn't controlled.
-- **Tests should support small, frequent commits.** The test suite should encourage developers to commit early and often by making it painless to verify changes. A suite that takes 30 minutes to run discourages the small-commit workflow that keeps integration conflicts rare and bugs easy to trace.
-- **A failing test must be actionable.** When a test fails, a developer should be able to quickly identify what broke and why. Flag tests with vague assertions, missing context in failure messages, or overly broad scope that could fail for many unrelated reasons.
+- **Tests must be fast enough to run on every commit.** Flag tests that are unnecessarily slow due to heavy setup, redundant teardown, or over-broad integration scope.
+- **Tests must be deterministic.** Flag tests with race conditions, time-dependent logic, or reliance on external state that isn't controlled.
+- **Tests should support small, frequent commits.**
+- **A failing test must be actionable.** When a test fails, a developer should be able to quickly identify what broke and why.
 
 ### 7. Assess the Test Portfolio Balance
 
-A healthy test suite is a portfolio, not a monoculture. Evaluate the overall shape:
+A healthy test suite is a portfolio, not a monoculture:
 
 - **Too many mocked unit tests, too few integration tests:** High line coverage, low confidence. Bugs hide in the seams between components.
-- **Too many end-to-end tests, too few focused tests:** Slow suite, flaky results, hard-to-diagnose failures. Developers stop trusting or running them.
+- **Too many end-to-end tests, too few focused tests:** Slow suite, flaky results, hard-to-diagnose failures.
 - **Right balance:** A base of focused unit tests for complex pure logic, a middle layer of integration tests using real components wired together, and a thin layer of end-to-end tests for critical user journeys.
-
-As codebase size grows, bug density grows disproportionately. The test portfolio should account for this — larger, more complex modules need proportionally more testing investment, not a uniform distribution.
 
 ### Writing Tests for Runbooks
 
 Every new runbook must have an automated test. Follow the [testing guide](docs/src/content/docs/authoring/testing.mdx).
 
-1. Generate a test config: `runbooks test init /path/to/runbook`
+1. Generate a test config: `node dist/cli/index.js test init /path/to/runbook`
 2. This creates `runbook_test.yml` next to your `runbook.mdx`
 3. Edit the YAML to customize inputs, steps, and assertions
-4. Run the test: `runbooks test /path/to/runbook`
+4. Run the test: `node dist/cli/index.js test /path/to/runbook`
 
 Look at `testdata/sample-runbooks/my-first-runbook/runbook_test.yml` for a well-commented reference example.
 
@@ -235,10 +303,11 @@ When defining a new block, you must add **all** of the following:
 | What                  | Where                                                        |
 |-----------------------|--------------------------------------------------------------|
 | Frontend component    | `web/src/components/mdx/<BlockName>/`                        |
-| Backend handler (if needed)       | `api/<block_name>.go`                                        |
+| Backend domain module (if needed) | `src/domain/<module>/`                            |
+| IPC handler (if needed) | `electron/main/ipc/<module>.ts`                            |
 | Block documentation   | `docs/src/content/docs/authoring/blocks/<BlockName>.mdx`     |
 | Automated tests       | `testdata/feature-demos/<block-name>/` (runbook + test YAML) |
-| Test framework support| `api/testing/` — `runbooks test init` must detect the block, and `runbooks test` must handle it |
+| Test framework support| `cli/test/` — test init must detect the block, and test must handle it |
 
 #### Block directory structure (frontend)
 
@@ -257,8 +326,8 @@ web/src/components/mdx/<BlockName>/
 
 #### Reference implementations
 
-- **Simple block:** `web/src/components/mdx/Command/` (frontend), `api/exec.go` (backend)
-- **Complex block with auth:** `web/src/components/mdx/AwsAuth/` (frontend), `api/aws_auth.go` (backend)
+- **Simple block:** `web/src/components/mdx/Command/` (frontend), `src/domain/exec/` (backend), `electron/main/ipc/exec.ts` (IPC)
+- **Complex block with auth:** `web/src/components/mdx/AwsAuth/` (frontend), `src/domain/aws/` (backend), `electron/main/ipc/aws.ts` (IPC)
 - **Block docs:** `docs/src/content/docs/authoring/blocks/AwsAuth.mdx`
 - **Test config:** `testdata/sample-runbooks/my-first-runbook/runbook_test.yml`
 
@@ -283,14 +352,17 @@ If code or a feature was created on a feature branch, do not prioritize backward
 ## Don't Do This
 
 - **Don't use `npm` or `yarn`** — use `bun` for all JS/TS operations
-- **Don't use Make** — use `task` (Taskfile.dev)
+- **Don't use Make or Task** — use `just` (see `justfile`)
 - **Don't use Terraform** — use OpenTofu for all IaC examples
+- **Don't import Node.js APIs or SDKs in `src/domain/`** — use Effect services via `yield*`
+- **Don't import `electron` in `src/`** — the Electron dependency stays in `electron/`
+- **Don't use `window.api` directly in React** — use the `useApi()` context hook
 - **Don't modify the test framework to make tests pass** — fix the runbook or the codebase instead
 - **Don't call `reportError()` for runtime errors** — only for configuration errors (see [Error Reporting](#error-reporting-in-mdx-components))
-- **Don't create blocks without docs, tests, and test framework support** — all four artifacts are required
+- **Don't create blocks without docs, tests, and test framework support** — all artifacts are required
 - **Don't re-implement codebase logic in tests** — reference the source of truth
 - **Don't skip pre-commit hooks** — if spellcheck fails, fix the spelling
-- When working in a feature branch, do not attempt to preserve backward compatibility with a feature or interface introduced in the feature branch itself. 
+- When working in a feature branch, do not attempt to preserve backward compatibility with a feature or interface introduced in the feature branch itself.
 
 ## Bug fixes
 

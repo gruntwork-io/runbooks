@@ -87,43 +87,80 @@
   "build": {
     "appId": "io.gruntwork.runbooks",
     "productName": "Gruntwork Runbooks",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
-      "output": "out"
+      "output": "out",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "gruntwork-io",
+      "repo": "runbooks"
+    },
     "mac": {
       "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": false,
+      "fileAssociations": [
         {
-        "target": "dmg",
-        "arch": ["arm64", "x64"]
-      }
-    ],
-    "category": "public.app-category.developer-tools"
-  },
-  "linux": {
-    "target": [
-      {
-      "target": "AppImage",
-      "arch": ["x64"]
+          "ext": "mdx",
+          "name": "Runbook",
+          "description": "Gruntwork Runbook",
+          "role": "Editor"
+        }
+      ]
     },
-    {
-    "target": "deb",
-    "arch": ["x64"]
-  }
-],
-"category": "Development"
-},
-"win": {
-  "target": [
-    {
-    "target": "nsis",
-    "arch": ["x64"]
-  }
-]
-}
-},
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "category": "Development",
+      "icon": "build/icons",
+      "mimeTypes": ["text/mdx"],
+      "desktop": {
+        "StartupWMClass": "gruntwork-runbooks"
+      }
+    },
+    "deb": {
+      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1"]
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico",
+      "fileAssociations": [
+        {
+          "ext": "mdx",
+          "name": "Runbook",
+          "description": "Gruntwork Runbook"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true
+    }
+  },
 "trustedDependencies": [
   "@swc/core"
 ]

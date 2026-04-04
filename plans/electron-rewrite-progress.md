@@ -94,14 +94,22 @@ Tracks implementation progress for the Electron migration. Updated as work proce
 - [x] `cli/test/executor.ts` — test execution engine (all block types)
 - [x] `cli/test/reporter.ts` — text and JUnit XML reporters
 
-## Phase 7: Build & Distribution
-- [ ] electron-builder configs (macOS DMG, Linux AppImage/deb, Windows NSIS)
-- [ ] Code signing for macOS
-- [ ] Auto-update via electron-updater
+## Phase 7: Build & Distribution ✅
+- [x] electron-builder config — full platform configs (DMG+zip for macOS arm64/x64, AppImage+deb for Linux x64, NSIS for Windows x64)
+- [x] Publish config — GitHub Releases provider for auto-update
+- [x] macOS code signing — hardened runtime entitlements, notarization support
+- [x] macOS DMG layout — Applications symlink
+- [x] Windows NSIS — custom install directory, app data cleanup
+- [x] Linux packaging — .desktop file, mime types, deb dependencies
+- [x] File associations — .mdx files on macOS and Windows
+- [x] Build assets — `build/` directory with entitlements, icon placeholder
+- [x] Auto-update — electron-updater reads publish config from package.json
+- [x] CI/CD — release.yml (macOS/Linux/Windows builds + GitHub Release), test.yml (lint, typecheck, unit, e2e, runbooks, docs)
 
-## Phase 8: Documentation
-- [ ] README.md, AGENTS.md updates
-- [ ] Docs site updates (~28 files)
+## Phase 8: Documentation (in progress)
+- [x] `AGENTS.md` — full rewrite for Electron architecture, Effect patterns, IPC, new tooling
+- [x] `README.md` — rewritten for desktop app (installation, building, development)
+- [ ] Docs site updates (~28 files) — see [electron-rewrite-docs.md](./electron-rewrite-docs.md)
 
 ## Phase 9: Cleanup
 - [ ] Remove Go files (api/, cmd/, browser/, templates/, main.go, go.mod, go.sum)
@@ -113,8 +121,8 @@ Tracks implementation progress for the Electron migration. Updated as work proce
 
 ## Current Status
 
-**Completed**: Phases 1–6 (Scaffold, Backend, IPC, Frontend, Main Process, CLI Test Runner)
-**Remaining**: Phases 7–9 (Build & Distribution, Documentation, Cleanup)
+**Completed**: Phases 1–7 (Scaffold, Backend, IPC, Frontend, Main Process, CLI Test Runner, Build & Distribution)
+**Remaining**: Phases 8–9 (Documentation, Cleanup)
 **Last updated**: 2026-04-04
 
 ## File Count
