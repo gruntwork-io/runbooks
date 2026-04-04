@@ -47,7 +47,7 @@ export default defineConfig({
 					autogenerate: { directory: 'intro' },
 				},
 				{
-					label: 'CLI',
+					label: 'App & CLI',
 					autogenerate: { directory: 'commands' },
 					collapsed: true,
 				},

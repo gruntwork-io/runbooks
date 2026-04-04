@@ -106,23 +106,37 @@ Tracks implementation progress for the Electron migration. Updated as work proce
 - [x] Auto-update — electron-updater reads publish config from package.json
 - [x] CI/CD — release.yml (macOS/Linux/Windows builds + GitHub Release), test.yml (lint, typecheck, unit, e2e, runbooks, docs)
 
-## Phase 8: Documentation (in progress)
+## Phase 8: Documentation ✅
 - [x] `AGENTS.md` — full rewrite for Electron architecture, Effect patterns, IPC, new tooling
 - [x] `README.md` — rewritten for desktop app (installation, building, development)
-- [ ] Docs site updates (~28 files) — see [electron-rewrite-docs.md](./electron-rewrite-docs.md)
+- [x] `docs/intro/installation.mdx` — rewritten for Electron distribution (DMG, AppImage, NSIS)
+- [x] `docs/commands/overview.mdx` — updated for desktop app
+- [x] `docs/commands/open.mdx` — removed --port, --tf-runbook, TF module sections
+- [x] `docs/commands/serve.mdx` — deleted (no separate backend)
+- [x] `docs/commands/watch.mdx` — updated for Electron (chokidar, IPC)
+- [x] `docs/security/execution-model.md` — removed localhost/token sections, added Electron security
+- [x] `docs/security/shell-execution-context.md` — updated terminology (server → main process)
+- [x] `docs/security/telemetry.md` — removed serve, updated code links to TypeScript
+- [x] `docs/authoring/opening-runbooks.mdx` — removed TfModule/template sections
+- [x] `docs/authoring/testing.mdx` — updated CLI invocation to runbooks-cli
+- [x] `docs/authoring/blocks/TfModule.mdx` — deleted (feature dropped)
+- [x] `docs/development/workflow.md` — rewritten for Electron dev workflow
+- [x] `docs/astro.config.mjs` — sidebar label CLI → App & CLI
 
-## Phase 9: Cleanup
-- [ ] Remove Go files (api/, cmd/, browser/, templates/, main.go, go.mod, go.sum)
-- [ ] Remove ESLint config + deps
-- [ ] Remove Taskfile.yml
-- [ ] Update CI/CD
+## Phase 9: Cleanup ✅
+- [x] Remove Go files — api/ (56 files), cmd/ (12 files), browser/ (1 file), templates/ (4 files), main.go, go.mod, go.sum
+- [x] Remove ESLint config — web/eslint.config.js
+- [x] Remove Taskfile.yml
+- [x] Remove legacy web config — web/embed.go, web/vite.config.ts
+- [x] Remove Go CI/CD — sign-macos.yml, update-homebrew.yml, .github/assets/, .github/scripts/
+- [x] Update CI/CD — release.yml and test.yml rewritten for Electron
 
 ---
 
 ## Current Status
 
-**Completed**: Phases 1–7 (Scaffold, Backend, IPC, Frontend, Main Process, CLI Test Runner, Build & Distribution)
-**Remaining**: Phases 8–9 (Documentation, Cleanup)
+**Completed**: All phases (1–9)
+**Last updated**: 2026-04-04
 **Last updated**: 2026-04-04
 
 ## File Count

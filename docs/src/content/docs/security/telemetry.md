@@ -15,7 +15,7 @@ We collect the following anonymous data:
 
 | Category | Data Points | Purpose |
 |----------|-------------|---------|
-| Commands | `open`, `watch`, `serve` invocations | Understand which CLI commands are most used |
+| Commands | `open`, `watch` invocations | Understand which commands are most used |
 | Platform | Operating system, architecture | Ensure compatibility across platforms |
 | Version | Runbooks version | Track adoption of new versions |
 | Blocks | Block types in runbooks (Command, Check, Template, Inputs) | Prioritize feature development |
@@ -44,39 +44,24 @@ We cannot determine who you are from this identifier.
 
 ## How to Disable Telemetry
 
-You can disable telemetry using either of these methods:
-
-### Environment Variable (Recommended)
+### Environment Variable
 
 Set the `RUNBOOKS_TELEMETRY_DISABLE` environment variable to `1`:
 
 ```bash
-# For a single command
-RUNBOOKS_TELEMETRY_DISABLE=1 runbooks open my-runbook
-
-# Or add to your shell profile (~/.bashrc, ~/.zshrc, etc.) for permanent opt-out
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.) for permanent opt-out
 export RUNBOOKS_TELEMETRY_DISABLE=1
 ```
 
-### CLI Flag
+### App Setting
 
-Use the `--no-telemetry` flag with any command:
-
-```bash
-runbooks --no-telemetry open my-runbook
-runbooks --no-telemetry watch my-runbook
-```
+You can also disable telemetry from within the Runbooks app via the Settings panel.
 
 ## Telemetry Notice
 
-When telemetry is enabled, Runbooks displays a notice at startup:
+When telemetry is enabled, Runbooks displays a notice in the app settings indicating that telemetry is active. You can disable it directly from there, or set the `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable. When you disable telemetry, the notice will no longer appear.
 
-```
-📊 Telemetry is enabled. Set RUNBOOKS_TELEMETRY_DISABLE=1 to opt out.
-   Learn more: https://runbooks.gruntwork.io/security/telemetry/
-```
-
-This notice appears every time you run a command to ensure transparency. When you disable telemetry, the notice will no longer appear.
+Learn more: https://runbooks.gruntwork.io/security/telemetry/
 
 ## Data Storage and Retention
 
@@ -90,8 +75,8 @@ Telemetry data is sent to [Mixpanel](https://mixpanel.com/), a third-party analy
 
 Runbooks is open source, and our telemetry implementation is fully visible in the codebase:
 
-- **Backend**: [`api/telemetry/telemetry.go`](https://github.com/gruntwork-io/runbooks/blob/main/api/telemetry/telemetry.go)
-- **Frontend**: [`web/src/contexts/TelemetryContext.tsx`](https://github.com/gruntwork-io/runbooks/blob/main/web/src/contexts/TelemetryContext.tsx)
+- **Main process**: [`src/telemetry.ts`](https://github.com/gruntwork-io/runbooks/blob/main/src/telemetry.ts)
+- **Frontend**: [`web/src/contexts/IpcTelemetryContext.tsx`](https://github.com/gruntwork-io/runbooks/blob/main/web/src/contexts/IpcTelemetryContext.tsx)
 
 You can review exactly what data is collected and how it's sent.
 
@@ -105,4 +90,3 @@ As an open source project, telemetry helps us:
 4. **Measure adoption** - Track how new versions are being adopted
 
 We're committed to building Runbooks in the open and respecting user privacy. If you have questions or concerns about our telemetry practices, please [open an issue](https://github.com/gruntwork-io/runbooks/issues) on GitHub.
-

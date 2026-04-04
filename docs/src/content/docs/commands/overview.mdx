@@ -6,20 +6,25 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-The Runbooks CLI provides several commands for working with runbooks. All commands accept a local path or a remote URL as the runbook source.
+Runbooks is a desktop app for working with runbooks. You can launch it by double-clicking the app icon or via the CLI. All CLI commands accept a local path or a remote URL as the runbook source.
 
-- [`runbooks open`](/commands/open) — Open a runbook for consumers
-- [`runbooks serve`](/commands/serve) — Start the backend server (for developers)
-- [`runbooks watch`](/commands/watch) — Watch a runbook for changes (for authors)
+- [`runbooks open`](/commands/open) -- Open a runbook in the desktop app
+- [Watch mode](/commands/watch) -- Toggle live-reload for authoring runbooks
+
+### Launching the app
+
+You can launch a runbook by double-clicking the Runbooks app, or from the command line:
+
+```bash
+runbooks open ./path/to/runbook
+```
 
 ### Remote URLs
 
-Every command that accepts a `RUNBOOK_SOURCE` can open a runbook directly from a remote URL, removing the need to manually download any runbook files.
+You can open a runbook directly from a remote URL via the CLI, removing the need to manually download any runbook files.
 
 ```bash
 runbooks open https://github.com/org/repo/tree/main/runbooks/launch-rds
 ```
 
 See [`runbooks open`](/commands/open/#remote-sources) for supported URL formats and authentication for private repos.
-
-
