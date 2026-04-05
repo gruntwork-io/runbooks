@@ -34,26 +34,11 @@ export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
 
     const initSession = async () => {
       try {
-        // Try to join an existing session first (supports multiple windows)
-        console.log('[IpcSessionContext] Attempting to join existing session')
-        try {
-          await api.invoke('session:join')
-          console.log('[IpcSessionContext] Joined existing session')
-          setIsReady(true)
-          return
-        } catch {
-          // No existing session — fall through to create
-        }
-
-        // No session exists, create a new one
-        console.log('[IpcSessionContext] No session exists, creating new session')
         await api.invoke('session:create', { workingDir: '.' })
-        console.log('[IpcSessionContext] Session created')
         setIsReady(true)
       } catch (err) {
         console.error('[IpcSessionContext] Session initialization failed:', err)
         setError(err instanceof Error ? err : new Error(String(err)))
-        // Still mark as ready so the app doesn't hang, but session features won't work
         setIsReady(true)
       }
     }

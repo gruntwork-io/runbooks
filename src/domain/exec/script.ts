@@ -2,7 +2,7 @@
  * Script preparation and environment capture.
  * Port of api/exec_script.go.
  */
-import { Effect, Scope } from "effect"
+import { Effect } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import type {
   FileWriteError,

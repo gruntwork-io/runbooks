@@ -6,7 +6,7 @@
  * event.sender.send(). The handler returns the final status when the stream
  * completes.
  */
-import { Effect, Stream, Scope } from "effect"
+import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import {
   runtime,

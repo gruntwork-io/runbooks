@@ -9,7 +9,6 @@ export function useWatchMode(onFileChange: () => void, isWatchMode: boolean = fa
   useEffect(() => {
     // Only connect to watch endpoint if we're actually in watch mode
     if (!isWatchMode) {
-      console.log('[Watch Mode] Not in watch mode, skipping SSE connection');
       return;
     }
 
