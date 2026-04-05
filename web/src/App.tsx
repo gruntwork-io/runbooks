@@ -4,6 +4,7 @@ import './css/github-markdown-light.css'
 import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
+import { WelcomeScreen } from './components/layout/WelcomeScreen'
 import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
@@ -215,6 +216,8 @@ function App() {
               </div>
             </div>
           </div>
+        ) : !getRunbookResult.data ? (
+          <WelcomeScreen />
         ) : (
           <>
             {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}

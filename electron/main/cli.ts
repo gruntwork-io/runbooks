@@ -52,7 +52,14 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
       config.outputPath = path.resolve(args[++i])
     } else if (arg === "--no-telemetry") {
       config.noTelemetry = true
-    } else if (!arg.startsWith("-") && !arg.endsWith(".js") && !arg.includes("electron")) {
+    } else if (
+      !arg.startsWith("-") &&
+      !arg.endsWith(".js") &&
+      !arg.endsWith(".ts") &&
+      !arg.includes("electron") &&
+      !arg.includes("node_modules") &&
+      arg !== "."
+    ) {
       // Treat bare positional arguments as a runbook path (e.g. `runbooks ./foo.mdx`).
       config.runbookPath = path.resolve(arg)
     }

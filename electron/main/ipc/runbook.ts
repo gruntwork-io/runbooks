@@ -14,7 +14,7 @@ import {
   setRunbookConfig,
 } from "./runtime.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
-import { readFileMetadata, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
+import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 
@@ -32,7 +32,8 @@ export function registerRunbookHandlers(): void {
         }
       }
 
-      const runbookPath = params.path
+      // Resolve the path — if it's a directory, look for runbook.mdx inside it
+      const runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
       const config: RunbookConfig = {
         localPath: runbookPath,
         isWatchMode: params.watchMode ?? false,
