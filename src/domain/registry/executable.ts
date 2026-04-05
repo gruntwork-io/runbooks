@@ -29,20 +29,6 @@ import type { Executable, ExecutableType } from "../../types.js"
 /** Component types that carry scripts. */
 const SCRIPT_COMPONENT_TYPES = ["Command", "Check"] as const
 
-/**
- * All component types scanned for registry/validation purposes.
- * Includes non-script components used by HasComponent checks.
- */
-const _ALL_COMPONENT_TYPES = [
-  "Command",
-  "Check",
-  "Template",
-  "AwsAuth",
-  "GitHubAuth",
-  "GitClone",
-  "GitHubPullRequest",
-] as const
-
 // ---------------------------------------------------------------------------
 // Regex helpers
 // ---------------------------------------------------------------------------

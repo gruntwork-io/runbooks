@@ -78,7 +78,6 @@ export interface UseApiExecReturn {
  * Uses executable IDs from the executable registry instead of raw script content.
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
-  const { onFilesCaptured: _onFilesCaptured, onOutputsCaptured: _onOutputsCaptured } = options || {}
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',

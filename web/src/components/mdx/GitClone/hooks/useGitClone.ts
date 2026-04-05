@@ -1,16 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
-
-const _CloneCloneLogEventSchema = z.object({
-  line: z.string(),
-  timestamp: z.string().optional(),
-  replace: z.boolean().optional(),
-})
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
