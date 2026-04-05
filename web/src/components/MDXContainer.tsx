@@ -133,8 +133,9 @@ interface RehypeNode {
   [key: string]: unknown
 }
 
-// Custom rehype plugin to transform asset paths for all media types
-// Transforms ./assets/file.ext to /runbook-assets/file.ext
+// Custom rehype plugin to transform asset paths for all media types.
+// Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
+// Electron's custom protocol handler can serve them from the local filesystem.
 function rehypeTransformAssetPaths() {
   return (tree: RehypeNode) => {
     // Helper function to transform a path if it starts with ./assets/
@@ -142,9 +143,9 @@ function rehypeTransformAssetPaths() {
       if (!path || !path.startsWith('./assets/')) {
         return path
       }
-      // Remove the ./assets/ prefix and prepend /runbook-assets/
-      const assetPath = path.substring('./assets/'.length)
-      return `/runbook-assets/${assetPath}`
+      // Remove the ./ prefix and use the runbook-asset:// protocol
+      const assetPath = path.substring('./'.length)
+      return `runbook-asset://${assetPath}`
     }
 
     // Walk through the tree and transform asset nodes

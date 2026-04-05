@@ -37,7 +37,7 @@ export function createMainWindow(): BrowserWindow {
         responseHeaders: {
           ...details.responseHeaders,
           "Content-Security-Policy": [
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: runbook-asset:; media-src 'self' runbook-asset:; font-src 'self' data:",
           ],
         },
       })

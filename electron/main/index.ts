@@ -5,13 +5,27 @@ if (process.env.ELECTRON_RENDERER_URL) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
 }
 
-import { app, BrowserWindow, shell, ipcMain, dialog } from "electron"
+import { app, BrowserWindow, shell, ipcMain, dialog, protocol, net } from "electron"
+import * as path from "path"
+import * as fs from "fs"
 import { createMainWindow, focusOrCreateWindow, getMainWindow } from "./window.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+
+// ---------------------------------------------------------------------------
+// Register the runbook-asset protocol as privileged so it can be used in img
+// src, video src, etc. Must be called before app.whenReady().
+// ---------------------------------------------------------------------------
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "runbook-asset",
+    privileges: { standard: false, secure: true, supportFetchAPI: true },
+  },
+])
 
 // ---------------------------------------------------------------------------
 // Single instance lock — focus existing window instead of opening a second.
@@ -105,6 +119,27 @@ app.on("open-file", (event, filePath) => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  // Register a protocol handler to serve runbook assets (images, videos, etc.)
+  // from the local filesystem. The renderer rewrites ./assets/foo.png to
+  // runbook-asset://assets/foo.png which this handler resolves relative to the
+  // runbook directory.
+  protocol.handle("runbook-asset", (request) => {
+    // URL looks like: runbook-asset://assets/foo.png
+    const url = new URL(request.url)
+    // Combine host + pathname to get the relative asset path (e.g. "assets/foo.png")
+    const assetRelative = url.hostname + url.pathname
+    const runbookDir = path.dirname(runbookConfig.localPath)
+    const assetPath = path.join(runbookDir, assetRelative)
+
+    // Security: ensure the resolved path is within the runbook directory
+    const resolved = path.resolve(assetPath)
+    if (!resolved.startsWith(path.resolve(runbookDir))) {
+      return new Response("Forbidden", { status: 403 })
+    }
+
+    return net.fetch(`file://${resolved}`)
+  })
+
   setupApplicationMenu()
   registerAllIpcHandlers()
   createMainWindow()

@@ -12,8 +12,8 @@
 export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
-    params: { isWatchMode?: boolean; useRegistry?: boolean; remoteSourceURL?: string }
-    result: { content: string; localPath: string; isWatchMode: boolean; useRegistry: boolean; remoteSourceURL?: string }
+    params: { path: string; watchMode?: boolean }
+    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode: boolean; warnings: string[]; remoteSource?: string }
   }
   "runbook:executables": { params: void; result: Executable[] }
   "runbook:assets": { params: { filepath: string }; result: { data: Buffer; mimeType: string } }

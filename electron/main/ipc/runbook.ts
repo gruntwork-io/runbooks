@@ -49,10 +49,15 @@ export function registerRunbookHandlers(): void {
       )
       setExecutableRegistry(registry)
 
+      const ext = path.extname(runbookPath).replace(/^\./, "")
+
       return {
+        path: runbookPath,
         content: fileData.content,
         contentHash: fileData.contentHash,
-        config,
+        language: ext || "mdx",
+        size: fileData.content.length,
+        isWatchMode: config.isWatchMode,
         warnings: registry.getWarnings(),
       }
     },
