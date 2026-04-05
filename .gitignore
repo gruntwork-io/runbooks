@@ -18,6 +18,7 @@ coverage.out
 *.test
 dist/
 out/
+test-results/
 
 # Keep TODOs local for now
 TODO/

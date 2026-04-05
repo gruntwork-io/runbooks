@@ -52,7 +52,7 @@ test-e2e: build
 
 # Run automated runbook tests
 test-runbooks: build
-    mise x node -- node dist/cli/index.js test testdata/...
+    mise x node -- node dist/main/cli.js test testdata/...
 
 # Run docs tests (spellcheck + link check)
 test-docs:

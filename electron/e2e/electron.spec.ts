@@ -16,7 +16,9 @@ import { test, expect, _electron as electron } from "@playwright/test"
 import * as path from "path"
 import { fileURLToPath } from "url"
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const ROOT = path.resolve(__dirname, "../..")
 const MAIN_ENTRY = path.join(ROOT, "dist/main/index.js")
 const SAMPLE_RUNBOOK = path.join(ROOT, "testdata/sample-runbooks/demo1")
 
