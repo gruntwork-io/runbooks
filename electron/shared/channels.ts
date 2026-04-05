@@ -129,6 +129,17 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:get-app-info": { params: void; result: { version: string; platform: string; arch: string } }
+  "native:get-cli-config": {
+    params: void
+    result: {
+      runbookPath?: string
+      remoteUrl?: string
+      watch?: boolean
+      workingDir?: string
+      outputPath?: string
+      noTelemetry?: boolean
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +155,7 @@ export interface IpcEventMap {
   "watch:file-change": { type: "reload" }
   "git:clone-progress": { line: string; timestamp: string }
   "git:push-progress": { line: string; timestamp: string }
+  "menu:open-url-prompt": void
 }
 
 // ---------------------------------------------------------------------------

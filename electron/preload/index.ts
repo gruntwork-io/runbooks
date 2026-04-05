@@ -19,7 +19,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   "file:read",
   "watch:subscribe",
   "telemetry:config",
-  "native:open-external", "native:show-open-dialog", "native:get-app-info",
+  "native:open-external", "native:show-open-dialog", "native:get-app-info", "native:get-cli-config",
 ])
 
 const ALLOWED_EVENT_CHANNELS = new Set([
@@ -27,6 +27,7 @@ const ALLOWED_EVENT_CHANNELS = new Set([
   "watch:file-change",
   "git:clone-progress", "git:push-progress",
   "file:open-runbook",
+  "menu:open-url-prompt",
 ])
 
 contextBridge.exposeInMainWorld("api", {
