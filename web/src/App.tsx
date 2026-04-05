@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
+import { OpenUrlModal } from './components/layout/OpenUrlModal'
 import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
@@ -17,15 +18,26 @@ import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useWatchMode } from './hooks/useWatchMode'
 import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
+import { useApi } from './contexts/ApiContext'
 import { cn } from './lib/utils'
 
 function App() {
+  const api = useApi()
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
   const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
   const [showCodeButton, setShowCodeButton] = useState(false);
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
-  
+  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+
+  // Listen for "Open from URL" menu command
+  useEffect(() => {
+    const cleanup = api.on('menu:open-url-prompt', () => {
+      setIsUrlModalOpen(true)
+    })
+    return cleanup
+  }, [api])
+
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useIpcGetRunbook()
 
@@ -217,7 +229,7 @@ function App() {
             </div>
           </div>
         ) : !getRunbookResult.data ? (
-          <WelcomeScreen />
+          <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} />
         ) : (
           <>
             {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
@@ -311,6 +323,9 @@ function App() {
           onDeleted={handleFilesDeleted}
         />
       )}
+
+      {/* Open from URL Modal */}
+      <OpenUrlModal open={isUrlModalOpen} onOpenChange={setIsUrlModalOpen} />
     </>
   )
 }

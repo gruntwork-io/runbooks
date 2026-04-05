@@ -5,10 +5,13 @@
  * we parse argv to extract configuration that gets forwarded to the IPC runtime.
  */
 import path from "path"
+import { isRemoteURL } from "./remote.ts"
 
 export interface CliConfig {
   /** Path to a runbook file to open on launch, if provided. */
   runbookPath: string | null
+  /** Remote URL to open on launch, if provided. */
+  remoteUrl: string | null
   /** Enable watch mode for live-reloading. */
   watch: boolean
   /** Override the working directory for runbook execution. */
@@ -33,6 +36,7 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
 
   const config: CliConfig = {
     runbookPath: null,
+    remoteUrl: null,
     watch: false,
     workingDir: null,
     outputPath: null,
@@ -43,7 +47,12 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
     const arg = args[i]
 
     if (arg === "--runbook" && i + 1 < args.length) {
-      config.runbookPath = path.resolve(args[++i])
+      const val = args[++i]
+      if (isRemoteURL(val)) {
+        config.remoteUrl = val
+      } else {
+        config.runbookPath = path.resolve(val)
+      }
     } else if (arg === "--watch") {
       config.watch = true
     } else if (arg === "--working-dir" && i + 1 < args.length) {
@@ -60,8 +69,12 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
       !arg.includes("node_modules") &&
       arg !== "."
     ) {
-      // Treat bare positional arguments as a runbook path (e.g. `runbooks ./foo.mdx`).
-      config.runbookPath = path.resolve(arg)
+      // Treat bare positional arguments as a runbook path or remote URL.
+      if (isRemoteURL(arg)) {
+        config.remoteUrl = arg
+      } else {
+        config.runbookPath = path.resolve(arg)
+      }
     }
   }
 

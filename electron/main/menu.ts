@@ -59,8 +59,17 @@ function buildTemplate(): MenuItemConstructorOptions[] {
             ],
           })
           if (!result.canceled && result.filePaths.length > 0) {
-            win.webContents.send("file:open-runbook", result.filePaths[0])
+            win.webContents.send("file:open-runbook", { path: result.filePaths[0] })
           }
+        },
+      },
+      {
+        label: "Open from URL…",
+        accelerator: "CmdOrCtrl+Shift+O",
+        click: () => {
+          const win = getMainWindow()
+          if (!win) return
+          win.webContents.send("menu:open-url-prompt")
         },
       },
       { type: "separator" },

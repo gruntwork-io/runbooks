@@ -17,11 +17,13 @@ import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
+import { resolveRemoteRunbook } from "../remote.ts"
+import { getMainWindow } from "../window.ts"
 
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (_event, params?: { path?: string; watchMode?: boolean }) => {
+    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
       // If no path provided, return current config without loading a runbook
       if (!params?.path) {
         return {
@@ -36,6 +38,7 @@ export function registerRunbookHandlers(): void {
       const runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
       const config: RunbookConfig = {
         localPath: runbookPath,
+        remoteSourceURL: params.remoteSource,
         isWatchMode: params.watchMode ?? false,
         useExecutableRegistry: true,
       }
@@ -60,7 +63,24 @@ export function registerRunbookHandlers(): void {
         size: fileData.content.length,
         isWatchMode: config.isWatchMode,
         warnings: registry.getWarnings(),
+        remoteSource: params.remoteSource,
       }
+    },
+  )
+
+  ipcMain.handle(
+    "runbook:open-remote",
+    async (_event, params: { url: string }) => {
+      const result = await resolveRemoteRunbook(params.url)
+      // Notify the renderer to load the resolved runbook
+      const win = getMainWindow()
+      if (win) {
+        win.webContents.send("file:open-runbook", {
+          path: result.localPath,
+          remoteSource: result.remoteSource,
+        })
+      }
+      return { path: result.localPath, remoteSource: result.remoteSource }
     },
   )
 

@@ -93,30 +93,44 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
-        const args = ["clone", "--progress"]
         const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
 
-        if (options?.ref) {
-          args.push("--branch", options.ref)
-        }
+        if (options?.sparse) {
+          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
+          const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
+          if (options.ref) {
+            cloneArgs.push("--branch", options.ref)
+          }
+          cloneArgs.push(effectiveUrl, dest)
+          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".")
 
-        args.push(effectiveUrl, dest)
+          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
+          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
+          yield* runGit(spawner, ["checkout"], dest)
+        } else {
+          // Standard full clone
+          const args = ["clone", "--progress"]
+          if (options?.ref) {
+            args.push("--branch", options.ref)
+          }
+          args.push(effectiveUrl, dest)
 
-        const proc = yield* spawner.spawn("git", args, {
-          cwd: options?.repoPath,
-        })
-        const chunks = yield* Stream.runCollect(proc.output)
-        const code = yield* proc.exitCode
+          const proc = yield* spawner.spawn("git", args, {
+            cwd: options?.repoPath,
+          })
+          const chunks = yield* Stream.runCollect(proc.output)
+          const code = yield* proc.exitCode
 
-        if (code !== 0) {
-          const lines = Chunk.toArray(chunks)
-          const stderr = lines
-            .filter((l) => l.source === "stderr")
-            .map((l) => l.line)
-            .join("\n")
-          return yield* Effect.fail(
-            new GitError({ command: `git clone`, stderr, exitCode: code }),
-          )
+          if (code !== 0) {
+            const lines = Chunk.toArray(chunks)
+            const stderr = lines
+              .filter((l) => l.source === "stderr")
+              .map((l) => l.line)
+              .join("\n")
+            return yield* Effect.fail(
+              new GitError({ command: `git clone`, stderr, exitCode: code }),
+            )
+          }
         }
 
         // Count files in the destination

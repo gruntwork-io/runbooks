@@ -14,6 +14,7 @@ import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 
 // ---------------------------------------------------------------------------
 // Register the runbook-asset protocol as privileged so it can be used in img
@@ -38,10 +39,20 @@ if (!gotLock) {
 } else {
   app.on("second-instance", (_event, argv) => {
     const win = focusOrCreateWindow()
-    // If the second instance was launched with a runbook path, forward it.
     const secondArgs = parseCliArgs(argv)
-    if (secondArgs.runbookPath) {
-      win.webContents.send("file:open-runbook", secondArgs.runbookPath)
+    if (secondArgs.remoteUrl) {
+      resolveRemoteRunbook(secondArgs.remoteUrl)
+        .then((result) => {
+          win.webContents.send("file:open-runbook", {
+            path: result.localPath,
+            remoteSource: result.remoteSource,
+          })
+        })
+        .catch((err) => {
+          console.error("[main] Failed to resolve remote URL:", err)
+        })
+    } else if (secondArgs.runbookPath) {
+      win.webContents.send("file:open-runbook", { path: secondArgs.runbookPath })
     }
   })
 }
@@ -53,6 +64,7 @@ if (!gotLock) {
 const cliConfig = parseCliArgs()
 
 // Apply CLI overrides to the shared runtime config.
+// Remote URLs are resolved asynchronously after app.whenReady().
 if (cliConfig.runbookPath) {
   setRunbookConfig({
     ...runbookConfig,
@@ -92,6 +104,7 @@ ipcMain.handle("native:get-app-info", () => ({
 
 ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,
+  remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
   workingDir: cliConfig.workingDir,
   outputPath: cliConfig.outputPath,
@@ -106,7 +119,7 @@ app.on("open-file", (event, filePath) => {
   event.preventDefault()
   const win = getMainWindow()
   if (win) {
-    win.webContents.send("file:open-runbook", filePath)
+    win.webContents.send("file:open-runbook", { path: filePath })
   } else {
     // App hasn't finished launching yet — stash the path so we can open it
     // once the window is ready.
@@ -146,10 +159,24 @@ app.whenReady().then(() => {
   initAutoUpdater()
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
-  if (cliConfig.runbookPath) {
+  if (cliConfig.remoteUrl) {
     const win = getMainWindow()
     win?.webContents.once("did-finish-load", () => {
-      win.webContents.send("file:open-runbook", cliConfig.runbookPath)
+      resolveRemoteRunbook(cliConfig.remoteUrl!)
+        .then((result) => {
+          win.webContents.send("file:open-runbook", {
+            path: result.localPath,
+            remoteSource: result.remoteSource,
+          })
+        })
+        .catch((err) => {
+          console.error("[main] Failed to resolve remote URL:", err)
+        })
+    })
+  } else if (cliConfig.runbookPath) {
+    const win = getMainWindow()
+    win?.webContents.once("did-finish-load", () => {
+      win.webContents.send("file:open-runbook", { path: cliConfig.runbookPath })
     })
   }
 
@@ -163,6 +190,9 @@ app.on("window-all-closed", () => {
 })
 
 app.on("will-quit", (event) => {
+  // Clean up any temp clone directories
+  cleanupTempClones()
+
   // Dispose the Effect managed runtime to clean up background fibers,
   // file watchers, etc. Use a timeout to avoid blocking shutdown if a
   // fiber never completes.

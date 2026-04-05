@@ -1,6 +1,10 @@
-import { FileText, Terminal, Mouse } from 'lucide-react'
+import { FileText, Terminal, Mouse, Globe } from 'lucide-react'
 
-export function WelcomeScreen() {
+interface WelcomeScreenProps {
+  onOpenUrl?: () => void
+}
+
+export function WelcomeScreen({ onOpenUrl }: WelcomeScreenProps) {
   return (
     <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
       <div className="text-center max-w-lg mx-auto px-6">
@@ -23,6 +27,20 @@ export function WelcomeScreen() {
               </p>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={onOpenUrl}
+            className="flex items-start gap-3 p-4 rounded-lg border border-gray-200 bg-gray-50 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer w-full"
+          >
+            <Globe className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-gray-700">Open from URL</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Paste a GitHub or GitLab URL to a runbook
+              </p>
+            </div>
+          </button>
 
           <div className="flex items-start gap-3 p-4 rounded-lg border border-gray-200 bg-gray-50">
             <Terminal className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />

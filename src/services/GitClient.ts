@@ -6,6 +6,8 @@ export interface CloneOptions {
   readonly repoPath?: string
   readonly token?: string
   readonly force?: boolean
+  /** When set, use sparse checkout to only fetch this subpath within the repo. */
+  readonly sparse?: string
 }
 
 export interface CloneProgress {
