@@ -13,7 +13,9 @@
     "lint": "oxlint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "bunx playwright test"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "bunx playwright test",
+    "test:electron-e2e": "bunx playwright test --config electron/e2e/playwright.config.ts"
   },
   "dependencies": {
     "effect": "^3.21.0",

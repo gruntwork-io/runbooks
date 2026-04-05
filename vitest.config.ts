@@ -9,5 +9,12 @@ export default defineConfig({
       "electron/**/*.test.ts",
     ],
     exclude: ["node_modules/**", "web/**", "docs/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.ts", "electron/**/*.ts"],
+      exclude: ["**/*.test.ts", "**/test-utils/**"],
+    },
   },
 })
