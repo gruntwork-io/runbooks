@@ -16,6 +16,7 @@ runbooks
 generated/*
 coverage.out
 *.test
+dist/
 
 # Keep TODOs local for now
 TODO/
