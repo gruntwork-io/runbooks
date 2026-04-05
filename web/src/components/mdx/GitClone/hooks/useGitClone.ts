@@ -1,9 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
+
+const CloneCloneLogEventSchema = z.object({
+  line: z.string(),
+  timestamp: z.string().optional(),
+  replace: z.boolean().optional(),
+})
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
@@ -116,89 +123,6 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     }
   }, [api])
 
-  // Process SSE stream from clone endpoint
-  const processSSEStream = useCallback(async (response: Response) => {
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-
-    if (!reader) {
-      throw new Error('No response body')
-    }
-
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-
-      // Process complete SSE messages (separated by \n\n)
-      const messages = buffer.split('\n\n')
-      buffer = messages.pop() || ''
-
-      for (const message of messages) {
-        if (!message.trim()) continue
-
-        const lines = message.split('\n')
-        let eventType = ''
-        let eventData = ''
-
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            eventType = line.slice(6).trim()
-          } else if (line.startsWith('data:')) {
-            eventData = line.slice(5).trim()
-          }
-        }
-
-        if (!eventType || !eventData) continue
-
-        try {
-          const data = JSON.parse(eventData)
-
-          if (eventType === 'log') {
-            const parsed = LogEventSchema.safeParse(data)
-            if (parsed.success) {
-              const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
-              setLogs(prev => {
-                if (parsed.data.replace && prev.length > 0) {
-                  return [...prev.slice(0, -1), newEntry]
-                }
-                return [...prev, newEntry]
-              })
-            }
-          } else if (eventType === 'status') {
-            const parsed = StatusEventSchema.safeParse(data)
-            if (parsed.success) {
-              if (parsed.data.status === 'success') {
-                setCloneStatus('success')
-              } else {
-                setCloneStatus('fail')
-              }
-            }
-          } else if (eventType === 'clone_result') {
-            const parsed = CloneResultEventSchema.safeParse(data)
-            if (parsed.success) {
-              setCloneResult(parsed.data)
-            }
-          } else if (eventType === 'outputs') {
-            const parsed = OutputsEventSchema.safeParse(data)
-            if (parsed.success) {
-              registerOutputs(id, parsed.data.outputs)
-            }
-          } else if (eventType === 'error') {
-            setErrorMessage(data.message || 'Clone failed')
-            setCloneStatus('fail')
-          }
-        } catch {
-          // JSON parse error
-          setLogs(prev => [...prev, createLogEntry(`[Malformed server response: ${eventType}]`)])
-        }
-      }
-    }
-  }, [id, registerOutputs])
-
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
   const clone = useCallback(async (url: string, ref: string, repoPath: string, localPath: string, usePty?: boolean, force?: boolean): Promise<'directory_exists' | void> => {
@@ -220,7 +144,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
 
       // Subscribe to streaming events before starting the clone
       const unsubLog = window.api.on('git:clone-progress', (data: { line: string; timestamp?: string; replace?: boolean }) => {
-        const parsed = LogEventSchema.safeParse(data)
+        const parsed = CloneLogEventSchema.safeParse(data)
         if (parsed.success) {
           const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
           setLogs(prev => {
@@ -274,7 +198,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     } finally {
       abortControllerRef.current = null
     }
-  }, [getAuthHeader, processSSEStream])
+  }, [api, id, registerOutputs])
 
   // Cancel an in-progress clone
   const cancel = useCallback(() => {
@@ -301,7 +225,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
-    sessionReady,
+    sessionReady: true, // Always ready in IPC mode
     workingDir,
 
     // Actions

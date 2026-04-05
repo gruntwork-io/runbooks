@@ -15,7 +15,7 @@ import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
 import { useIpcGetRunbook } from './hooks/useIpcGetRunbook'
 import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
-import { useWatchMode } from './hooks/useWatchMode'
+import { useIpcWatchMode } from './hooks/useIpcWatchMode'
 import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
 import { useApi } from './contexts/ApiContext'
@@ -66,7 +66,7 @@ function App() {
     }
   }, [getRunbookResult]);
   
-  useWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
+  useIpcWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
