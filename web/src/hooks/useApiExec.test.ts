@@ -1,82 +1,87 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { createElement, type ReactNode } from 'react'
 import { useApiExec } from './useApiExec'
-import { SessionContext } from '@/contexts/SessionContext.types'
 
 // =============================================================================
-// useApiExec SSE State Machine Tests
+// useApiExec IPC State Machine Tests
 // =============================================================================
 //
-// These tests verify the core execution engine's state transitions via realistic
-// SSE streams. useApiExec is the most complex hook in the codebase — if it gets
-// stuck in 'running' or mishandles events, the user can't execute anything.
+// These tests verify the core execution engine's state transitions via IPC events.
+// useApiExec subscribes to window.api.on('exec:log'), window.api.on('exec:status'),
+// etc., and calls window.api.invoke('exec:run', payload) to start execution.
 //
-// Mock boundary: Only fetch is mocked (returning a ReadableStream of SSE text).
-// Everything else — Zod parsing, state transitions, log accumulation — runs as
-// real production code.
+// Mock boundary: window.api is mocked. The IPC event listeners and Zod parsing
+// run as real production code.
 
-// --- Test helpers ---
+type EventCallback = (...args: unknown[]) => void
 
-/** Minimal SessionContext wrapper that provides a fake getAuthHeader */
-function createSessionWrapper() {
-  const sessionValue = {
-    isReady: true,
-    getAuthHeader: () => ({ Authorization: 'Bearer test-token' }),
-    resetSession: async () => {},
-    error: null,
+/**
+ * Creates a mock window.api that:
+ * - Collects event subscriptions via .on()
+ * - Allows tests to emit events to those subscribers
+ * - Controls when .invoke('exec:run') resolves
+ */
+function createMockWindowApi() {
+  const listeners = new Map<string, Set<EventCallback>>()
+  let invokeResolve: (() => void) | null = null
+  let invokeReject: ((err: Error) => void) | null = null
+
+  const api = {
+    invoke: vi.fn((_channel: string, ..._args: unknown[]) => {
+      return new Promise<void>((resolve, reject) => {
+        invokeResolve = resolve
+        invokeReject = reject
+      })
+    }),
+    on: vi.fn((channel: string, callback: EventCallback) => {
+      if (!listeners.has(channel)) {
+        listeners.set(channel, new Set())
+      }
+      listeners.get(channel)!.add(callback)
+      return () => {
+        listeners.get(channel)?.delete(callback)
+      }
+    }),
+    once: vi.fn(),
   }
-  return function SessionWrapper({ children }: { children: ReactNode }) {
-    return createElement(SessionContext.Provider, { value: sessionValue }, children)
-  }
-}
 
-/** Encode SSE events into a ReadableStream, simulating the backend */
-function createSSEStream(events: Array<{ event: string; data: unknown }>): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder()
-  const chunks = events.map(({ event, data }) =>
-    encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-  )
-
-  let index = 0
-  return new ReadableStream({
-    pull(controller) {
-      if (index < chunks.length) {
-        controller.enqueue(chunks[index++])
-      } else {
-        controller.close()
+  return {
+    api: api as unknown as typeof window.api,
+    /** Emit an event to all listeners on a channel */
+    emit(channel: string, data: unknown) {
+      const cbs = listeners.get(channel)
+      if (cbs) {
+        for (const cb of cbs) cb(data)
       }
     },
-  })
+    /** Resolve the pending invoke('exec:run') call */
+    resolveInvoke() {
+      invokeResolve?.()
+    },
+    /** Reject the pending invoke('exec:run') call */
+    rejectInvoke(err: Error) {
+      invokeReject?.(err)
+    },
+  }
 }
-
-/** Create a mock fetch that returns an SSE stream response */
-function createSSEFetch(events: Array<{ event: string; data: unknown }>) {
-  return vi.fn(() =>
-    Promise.resolve({
-      ok: true,
-      body: createSSEStream(events),
-    } as unknown as Response)
-  )
-}
-
-// --- Tests ---
 
 describe('useApiExec state machine', () => {
-  let originalFetch: typeof globalThis.fetch
+  let mock: ReturnType<typeof createMockWindowApi>
+  let originalApi: typeof window.api
 
   beforeEach(() => {
-    originalFetch = globalThis.fetch
+    mock = createMockWindowApi()
+    originalApi = window.api
+    window.api = mock.api
   })
 
   afterEach(() => {
-    globalThis.fetch = originalFetch
+    window.api = originalApi
     vi.restoreAllMocks()
   })
 
   it('starts in pending state', () => {
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
+    const { result } = renderHook(() => useApiExec())
 
     expect(result.current.state.status).toBe('pending')
     expect(result.current.state.logs).toEqual([])
@@ -84,17 +89,8 @@ describe('useApiExec state machine', () => {
     expect(result.current.state.error).toBeNull()
   })
 
-  it('happy path: pending → running → logs arrive → success', async () => {
-    const fetchSpy = createSSEFetch([
-      { event: 'log', data: { line: 'Starting...', timestamp: '2024-01-01T00:00:00Z' } },
-      { event: 'log', data: { line: 'Done!', timestamp: '2024-01-01T00:00:01Z' } },
-      { event: 'status', data: { status: 'success', exitCode: 0 } },
-      { event: 'done', data: {} },
-    ])
-    globalThis.fetch = fetchSpy
-
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
+  it('happy path: pending -> running -> logs arrive -> success', async () => {
+    const { result } = renderHook(() => useApiExec())
 
     // Execute
     act(() => {
@@ -104,103 +100,68 @@ describe('useApiExec state machine', () => {
     // Should transition to running immediately
     expect(result.current.state.status).toBe('running')
 
-    // Wait for SSE stream to complete
+    // Verify invoke was called with correct payload
+    expect(mock.api.invoke).toHaveBeenCalledWith('exec:run', {
+      executable_id: 'test-executable',
+      template_var_values: { region: 'us-west-2' },
+      env_vars_override: undefined,
+      use_pty: undefined,
+    })
+
+    // Simulate IPC events from main process
+    act(() => {
+      mock.emit('exec:log', { line: 'Starting...', timestamp: '2024-01-01T00:00:00Z' })
+      mock.emit('exec:log', { line: 'Done!', timestamp: '2024-01-01T00:00:01Z' })
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.resolveInvoke()
+    })
+
     await waitFor(() => expect(result.current.state.status).toBe('success'))
 
-    // Verify final state
     expect(result.current.state.exitCode).toBe(0)
     expect(result.current.state.error).toBeNull()
     expect(result.current.state.logs).toHaveLength(2)
     expect(result.current.state.logs[0].line).toBe('Starting...')
     expect(result.current.state.logs[1].line).toBe('Done!')
-
-    // Verify fetch was called with correct payload
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('/api/exec')
-    expect(JSON.parse(options.body as string)).toEqual({
-      executable_id: 'test-executable',
-      template_var_values: { region: 'us-west-2' },
-    })
-    expect((options.headers as Record<string, string>).Authorization).toBe('Bearer test-token')
   })
 
-  it('error event: running → fail with error message', async () => {
-    const fetchSpy = createSSEFetch([
-      { event: 'log', data: { line: 'Running script...', timestamp: '2024-01-01T00:00:00Z' } },
-      { event: 'error', data: { message: 'Script not found', details: 'No such file' } },
-    ])
-    globalThis.fetch = fetchSpy
-
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
-
-    act(() => {
-      result.current.execute('bad-executable')
-    })
-
-    await waitFor(() => expect(result.current.state.status).toBe('fail'))
-
-    expect(result.current.state.error).not.toBeNull()
-    expect(result.current.state.error!.message).toBe('Script not found')
-  })
-
-  it('status fail event: running → fail with exit code', async () => {
-    const fetchSpy = createSSEFetch([
-      { event: 'log', data: { line: 'Running...', timestamp: '2024-01-01T00:00:00Z' } },
-      { event: 'status', data: { status: 'fail', exitCode: 1 } },
-      { event: 'done', data: {} },
-    ])
-    globalThis.fetch = fetchSpy
-
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
+  it('status fail event: running -> fail with exit code', async () => {
+    const { result } = renderHook(() => useApiExec())
 
     act(() => {
       result.current.execute('failing-script')
+    })
+
+    act(() => {
+      mock.emit('exec:log', { line: 'Running...', timestamp: '2024-01-01T00:00:00Z' })
+      mock.emit('exec:status', { status: 'fail', exitCode: 1 })
+      mock.resolveInvoke()
     })
 
     await waitFor(() => expect(result.current.state.status).toBe('fail'))
     expect(result.current.state.exitCode).toBe(1)
   })
 
-  it('HTTP error: non-200 response → fail with error', async () => {
-    globalThis.fetch = vi.fn(() =>
-      Promise.resolve({
-        ok: false,
-        status: 500,
-        json: () => Promise.resolve({ error: 'Internal server error' }),
-      } as unknown as Response)
-    )
-
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
+  it('IPC error: invoke rejection -> fail with error', async () => {
+    const { result } = renderHook(() => useApiExec())
 
     act(() => {
       result.current.execute('test-executable')
     })
 
+    expect(result.current.state.status).toBe('running')
+
+    act(() => {
+      mock.rejectInvoke(new Error('IPC channel not found'))
+    })
+
     await waitFor(() => expect(result.current.state.status).toBe('fail'))
     expect(result.current.state.error).not.toBeNull()
-    expect(result.current.state.error!.message).toBe('Internal server error')
+    expect(result.current.state.error!.message).toContain('An unexpected error occurred')
   })
 
-  it('cancel: running → pending with cancellation log', async () => {
-    // Create a stream that never completes (simulates a long-running script)
-    const neverEndingStream = new ReadableStream<Uint8Array>({
-      start() {
-        // Never enqueue or close — stream stays open
-      },
-    })
-    globalThis.fetch = vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        body: neverEndingStream,
-      } as unknown as Response)
-    )
-
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
+  it('cancel: running -> pending with cancellation log', async () => {
+    const { result } = renderHook(() => useApiExec())
 
     act(() => {
       result.current.execute('long-running-script')
@@ -214,24 +175,21 @@ describe('useApiExec state machine', () => {
     })
 
     expect(result.current.state.status).toBe('pending')
-    // Should have a cancellation log entry
     const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
     expect(lastLog.line).toContain('cancelled')
   })
 
   it('reset: clears all state back to initial', async () => {
-    const fetchSpy = createSSEFetch([
-      { event: 'log', data: { line: 'Output', timestamp: '2024-01-01T00:00:00Z' } },
-      { event: 'status', data: { status: 'success', exitCode: 0 } },
-      { event: 'done', data: {} },
-    ])
-    globalThis.fetch = fetchSpy
-
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec(), { wrapper })
+    const { result } = renderHook(() => useApiExec())
 
     act(() => {
       result.current.execute('test-executable')
+    })
+
+    act(() => {
+      mock.emit('exec:log', { line: 'Output', timestamp: '2024-01-01T00:00:00Z' })
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.resolveInvoke()
     })
 
     await waitFor(() => expect(result.current.state.status).toBe('success'))
@@ -250,24 +208,66 @@ describe('useApiExec state machine', () => {
   })
 
   it('outputs event: captures block outputs and invokes callback', async () => {
-    const fetchSpy = createSSEFetch([
-      { event: 'outputs', data: { outputs: { account_id: '123', region: 'us-west-2' } } },
-      { event: 'status', data: { status: 'success', exitCode: 0 } },
-      { event: 'done', data: {} },
-    ])
-    globalThis.fetch = fetchSpy
-
     const onOutputsCaptured = vi.fn()
-    const wrapper = createSessionWrapper()
-    const { result } = renderHook(() => useApiExec({ onOutputsCaptured }), { wrapper })
+    const { result } = renderHook(() => useApiExec({ onOutputsCaptured }))
 
     act(() => {
       result.current.execute('test-executable')
+    })
+
+    act(() => {
+      mock.emit('exec:outputs', { outputs: { account_id: '123', region: 'us-west-2' } })
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.resolveInvoke()
     })
 
     await waitFor(() => expect(result.current.state.status).toBe('success'))
 
     expect(result.current.state.outputs).toEqual({ account_id: '123', region: 'us-west-2' })
     expect(onOutputsCaptured).toHaveBeenCalledWith({ account_id: '123', region: 'us-west-2' })
+  })
+
+  it('warn status: exit code 2 sets warn status', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('warn-script')
+    })
+
+    act(() => {
+      mock.emit('exec:status', { status: 'warn', exitCode: 2 })
+      mock.resolveInvoke()
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('warn'))
+    expect(result.current.state.exitCode).toBe(2)
+  })
+
+  it('cleans up event subscriptions after execution completes', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('test-executable')
+    })
+
+    // Event subscriptions should be registered
+    expect(mock.api.on).toHaveBeenCalledWith('exec:log', expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith('exec:status', expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith('exec:outputs', expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith('exec:files-captured', expect.any(Function))
+
+    act(() => {
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.resolveInvoke()
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('success'))
+
+    // After completion, new events on exec:log should NOT update state
+    const logCountAfter = result.current.state.logs.length
+    act(() => {
+      mock.emit('exec:log', { line: 'should be ignored', timestamp: '2024-01-01T00:00:00Z' })
+    })
+    expect(result.current.state.logs.length).toBe(logCountAfter)
   })
 })

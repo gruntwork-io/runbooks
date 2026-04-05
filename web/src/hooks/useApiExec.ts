@@ -2,9 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
-import { useSession } from '@/contexts/useSession'
-
-// Zod schemas for SSE events
+// Zod schemas for IPC events
 const ExecLogEventSchema = z.object({
   line: z.string(),
   timestamp: z.string(),
@@ -25,11 +23,6 @@ const FilesCapturedEventSchema = z.object({
   files: z.array(CapturedFileSchema),
   count: z.number(),
   fileTree: FileTreeNodeArraySchema,
-})
-
-const ExecErrorEventSchema = z.object({
-  message: z.string().optional(),
-  details: z.string().optional(),
 })
 
 const BlockOutputsEventSchema = z.object({
@@ -81,12 +74,11 @@ export interface UseApiExecReturn {
 }
 
 /**
- * Hook to execute scripts via the /api/exec endpoint with SSE streaming
- * Uses executable IDs from the executable registry instead of raw script content
+ * Hook to execute scripts via IPC with streaming event listeners.
+ * Uses executable IDs from the executable registry instead of raw script content.
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const { onFilesCaptured, onOutputsCaptured } = options || {}
-  const { getAuthHeader } = useSession()
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -95,23 +87,15 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     outputs: null,
   })
 
-  const eventSourceRef = useRef<EventSource | null>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const cleanupRef = useRef<(() => void) | null>(null)
 
   const cancel = useCallback(() => {
-    // Track if there was actually something to cancel
-    const hadActiveExecution = eventSourceRef.current !== null || abortControllerRef.current !== null
+    const hadActiveExecution = cleanupRef.current !== null
 
-    // Close SSE connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
-    }
-
-    // Abort fetch request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-      abortControllerRef.current = null
+    // Clean up IPC event subscriptions
+    if (cleanupRef.current) {
+      cleanupRef.current()
+      cleanupRef.current = null
     }
 
     // Only add cancellation log and update state if there was actually an active execution
@@ -119,7 +103,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       setState((prev) => ({
         ...prev,
         status: 'pending',
-        logs: [...prev.logs, createLogEntry('⚠️ Execution cancelled by user')],
+        logs: [...prev.logs, createLogEntry('Execution cancelled by user')],
       }))
     }
   }, [])
@@ -134,163 +118,6 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       outputs: null,
     })
   }, [cancel])
-
-  // Process SSE (Server-Sent Events) stream from the server
-  // Receives and handles all execution events: logs, status updates, exit codes, and errors
-  const processSSEStream = useCallback(async (response: Response) => {
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-
-    if (!reader) {
-      throw new Error('Response body is not readable')
-    }
-
-    let buffer = ''
-
-    // Read the stream
-    while (true) {
-      const { done, value } = await reader.read()
-
-      if (done) {
-        break
-      }
-
-      // Decode the chunk and add to buffer
-      buffer += decoder.decode(value, { stream: true })
-
-      // Process complete SSE messages (separated by \n\n)
-      const messages = buffer.split('\n\n')
-      buffer = messages.pop() || '' // Keep incomplete message in buffer
-
-      for (const message of messages) {
-        if (!message.trim()) continue
-
-        // Parse SSE message format:
-        // event: log
-        // data: {"line":"...", "timestamp":"..."}
-        const lines = message.split('\n')
-        let eventType = 'message'
-        let eventData = ''
-
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            eventType = line.substring(6).trim()
-          } else if (line.startsWith('data:')) {
-            eventData = line.substring(5).trim()
-          }
-        }
-
-        try {
-          const data = JSON.parse(eventData)
-
-          if (eventType === 'log') {
-            const parsed = ExecLogEventSchema.safeParse(data)
-            if (parsed.success) {
-              const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
-              setState((prev) => {
-                // If replace flag is set and we have previous logs, replace the last one
-                if (parsed.data.replace && prev.logs.length > 0) {
-                  const updatedLogs = [...prev.logs]
-                  updatedLogs[updatedLogs.length - 1] = newEntry
-                  return { ...prev, logs: updatedLogs }
-                }
-                // Otherwise append as normal
-                return { ...prev, logs: [...prev.logs, newEntry] }
-              })
-            } else {
-              // Non-critical: show placeholder so user knows output was received
-              console.error('Invalid log event:', parsed.error)
-              setState((prev) => ({
-                ...prev,
-                logs: [...prev.logs, createLogEntry('[Unable to parse log output]')],
-              }))
-            }
-          } else if (eventType === 'status') {
-            const parsed = ExecStatusEventSchema.safeParse(data)
-            if (parsed.success) {
-              setState((prev) => ({
-                ...prev,
-                status: parsed.data.status,
-                exitCode: parsed.data.exitCode,
-              }))
-            } else {
-              // Critical: without status, UI would be stuck in "running" state
-              console.error('Invalid status event:', parsed.error)
-              setState((prev) => ({
-                ...prev,
-                status: 'fail',
-                error: createAppError(
-                  'Failed to parse execution status',
-                  'The server response was malformed. This may indicate a version mismatch.'
-                ),
-              }))
-            }
-          } else if (eventType === 'outputs') {
-            // Block outputs were captured from script execution
-            const parsed = BlockOutputsEventSchema.safeParse(data)
-            if (parsed.success) {
-              // Store outputs in state
-              setState((prev) => ({
-                ...prev,
-                outputs: parsed.data.outputs,
-              }))
-              // Invoke callback if provided
-              if (onOutputsCaptured) {
-                onOutputsCaptured(parsed.data.outputs)
-              }
-            } else {
-              console.error('Invalid outputs event:', parsed.error)
-            }
-          } else if (eventType === 'files_captured') {
-            // Files were captured from script execution
-            const parsed = FilesCapturedEventSchema.safeParse(data)
-            if (parsed.success) {
-              if (onFilesCaptured) {
-                onFilesCaptured(parsed.data)
-              }
-              // Also log that files were captured
-              setState((prev) => ({
-                ...prev,
-                logs: [...prev.logs, createLogEntry(`📁 Captured ${parsed.data.count} file(s) to workspace`)],
-              }))
-            } else {
-              // File tree won't update - show error so user knows to check manually
-              console.error('Invalid files_captured event:', parsed.error)
-              setState((prev) => ({
-                ...prev,
-                error: createAppError(
-                  'Files captured but not displayed',
-                  'Your files were saved successfully, but could not be shown in the file tree. Check the output directory manually.'
-                ),
-                logs: [...prev.logs, createLogEntry('⚠️ Files were captured but could not be displayed')],
-              }))
-            }
-          } else if (eventType === 'done') {
-            // Execution complete
-            break
-          } else if (eventType === 'error') {
-            const parsed = ExecErrorEventSchema.safeParse(data)
-            const errorData = parsed.success ? parsed.data : { message: undefined, details: undefined }
-            setState((prev) => ({
-              ...prev,
-              status: 'fail',
-              error: createAppError(
-                errorData.message || 'Unknown error',
-                errorData.details || 'An error occurred during script execution'
-              ),
-            }))
-          }
-        } catch (e) {
-          // JSON parse error - show to user rather than silently failing
-          console.error('Failed to parse SSE message:', e, eventData)
-          setState((prev) => ({
-            ...prev,
-            logs: [...prev.logs, createLogEntry(`[Malformed server response: ${eventType}]`)],
-          }))
-        }
-      }
-    }
-  }, [onFilesCaptured, onOutputsCaptured])
 
   // Shared execution logic for both registry and live-reload modes
   const executeScript = useCallback(async (
@@ -314,58 +141,56 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       outputs: null,
     })
 
+    // Subscribe to IPC streaming events before starting execution
+    const unsubs: (() => void)[] = []
+
+    unsubs.push(window.api.on('exec:log', (data: unknown) => {
+      const parsed = ExecLogEventSchema.safeParse(data)
+      if (parsed.success) {
+        const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+        setState((prev) => ({
+          ...prev,
+          logs: parsed.data.replace && prev.logs.length > 0
+            ? [...prev.logs.slice(0, -1), newEntry]
+            : [...prev.logs, newEntry],
+        }))
+      }
+    }))
+
+    unsubs.push(window.api.on('exec:outputs', (data: unknown) => {
+      const parsed = BlockOutputsEventSchema.safeParse(data)
+      if (parsed.success) {
+        setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
+        options?.onOutputsCaptured?.(parsed.data.outputs)
+      }
+    }))
+
+    unsubs.push(window.api.on('exec:files-captured', (data: unknown) => {
+      const parsed = FilesCapturedEventSchema.safeParse(data)
+      if (parsed.success) {
+        options?.onFilesCaptured?.(parsed.data)
+      }
+    }))
+
+    unsubs.push(window.api.on('exec:status', (data: unknown) => {
+      const parsed = ExecStatusEventSchema.safeParse(data)
+      if (parsed.success) {
+        setState((prev) => ({
+          ...prev,
+          status: parsed.data.status as ExecState['status'],
+          exitCode: parsed.data.exitCode ?? null,
+        }))
+      }
+    }))
+
+    const cleanup = () => {
+      for (const unsub of unsubs) unsub()
+    }
+    cleanupRef.current = cleanup
+
     try {
-      // Subscribe to IPC streaming events before starting execution
-      const unsubLog = window.api.on('exec:log', (data: unknown) => {
-        const parsed = LogEventSchema.safeParse(data)
-        if (parsed.success) {
-          const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
-          setState((prev) => ({
-            ...prev,
-            logs: parsed.data.replace && prev.logs.length > 0
-              ? [...prev.logs.slice(0, -1), newEntry]
-              : [...prev.logs, newEntry],
-          }))
-        }
-      })
-      const unsubOutputs = window.api.on('exec:outputs', (data: unknown) => {
-        const parsed = OutputsEventSchema.safeParse(data)
-        if (parsed.success) {
-          setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
-          options?.onOutputsCaptured?.(parsed.data.outputs)
-        }
-      })
-      const unsubFiles = window.api.on('exec:files-captured', (data: unknown) => {
-        const parsed = FilesCapturedEventSchema.safeParse(data)
-        if (parsed.success) {
-          options?.onFilesCaptured?.(parsed.data)
-        }
-      })
-      const unsubStatus = window.api.on('exec:status', (data: unknown) => {
-        const parsed = StatusEventSchema.safeParse(data)
-        if (parsed.success) {
-          setState((prev) => ({
-            ...prev,
-            status: parsed.data.status as ExecState['status'],
-            exitCode: parsed.data.exitCode ?? null,
-          }))
-        }
-      })
-
-      try {
-        await window.api.invoke('exec:run', payload)
-      } finally {
-        unsubLog()
-        unsubOutputs()
-        unsubFiles()
-        unsubStatus()
-      }
+      await window.api.invoke('exec:run', payload)
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        // Cancelled by user, already handled in cancel()
-        return
-      }
-
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       setState((prev) => ({
         ...prev,
@@ -377,9 +202,10 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
       }))
     } finally {
-      abortControllerRef.current = null
+      cleanup()
+      cleanupRef.current = null
     }
-  }, [cancel, processSSEStream, getAuthHeader])
+  }, [cancel, options])
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
