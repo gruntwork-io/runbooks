@@ -22,42 +22,38 @@ export function registerWatchHandlers(): void {
         throw new Error("No runbook path provided and none configured")
       }
 
-      // Create the watcher stream and store it
+      // Create the watcher stream and store it, then fork stream consumption
+      // into a background fiber so the handler can return immediately.
       await runtime.runPromise(
         Effect.gen(function* () {
           const watcherStream = yield* createWatcher(runbookPath)
           setFileWatcher(watcherStream)
 
-          // Fork a fiber to consume events and forward to the renderer.
-          // We use runFork so the stream runs in the background.
-          yield* Stream.runForEach(watcherStream, (changeEvent) =>
-            Effect.gen(function* () {
-              // Re-parse the executable registry on file changes
-              if (
-                changeEvent.path === runbookPath ||
-                changeEvent.path.endsWith(".mdx")
-              ) {
-                const registry = yield* Effect.either(
-                  ExecutableRegistry.create(runbookPath),
-                )
-                if (registry._tag === "Right") {
-                  setExecutableRegistry(registry.right)
+          yield* Effect.forkDaemon(
+            Stream.runForEach(watcherStream, (changeEvent) =>
+              Effect.gen(function* () {
+                // Re-parse the executable registry on file changes
+                if (
+                  changeEvent.path === runbookPath ||
+                  changeEvent.path.endsWith(".mdx")
+                ) {
+                  const registry = yield* Effect.either(
+                    ExecutableRegistry.create(runbookPath),
+                  )
+                  if (registry._tag === "Right") {
+                    setExecutableRegistry(registry.right)
+                  }
                 }
-              }
 
-              event.sender.send("watch:file-change", {
-                type: changeEvent.type,
-                path: changeEvent.path,
-              })
-            }),
-          ).pipe(
-            // Ignore errors from the watcher stream (e.g. if it closes)
-            Effect.ignore,
+                event.sender.send("watch:file-change", {
+                  type: changeEvent.type,
+                  path: changeEvent.path,
+                })
+              }),
+            ).pipe(Effect.ignore),
           )
         }),
-      ).catch(() => {
-        // Watcher stream ended or errored -- this is expected on cleanup
-      })
+      )
 
       return { ok: true as const }
     },

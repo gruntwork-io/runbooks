@@ -31,7 +31,8 @@ export interface IpcChannelMap {
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
 
   // Execution
-  "exec:run": { params: ExecRequest; result: { status: string; exitCode: number } }
+  "exec:run": { params: ExecRequest; result: { status: { status: string; exitCode: number } | null } }
+  "exec:cancel": { params: void; result: { ok: true } }
 
   // Boilerplate
   "boilerplate:variables": {
@@ -171,9 +172,11 @@ export interface SessionMetadata {
 }
 
 export interface ExecRequest {
-  executableId: string
-  componentId: string
-  env?: Record<string, string>
+  executableId?: string
+  componentId?: string
+  templateVarValues?: Record<string, unknown>
+  envVarsOverride?: Record<string, string>
+  usePty?: boolean
 }
 
 export interface BoilerplateConfig {

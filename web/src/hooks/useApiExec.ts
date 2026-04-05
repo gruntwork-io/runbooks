@@ -121,12 +121,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
   // Shared execution logic for both registry and live-reload modes
   const executeScript = useCallback(async (
-    payload: { 
-      executable_id?: string; 
-      component_id?: string; 
-      template_var_values: Record<string, unknown>;
-      env_vars_override?: Record<string, string>;
-      use_pty?: boolean;
+    payload: {
+      executableId?: string;
+      componentId?: string;
+      templateVarValues: Record<string, unknown>;
+      envVarsOverride?: Record<string, string>;
+      usePty?: boolean;
     }
   ) => {
     // Cancel any existing execution
@@ -210,11 +210,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
     (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean) => {
-      executeScript({ 
-        executable_id: executableId, 
-        template_var_values: templateVarValues,
-        env_vars_override: envVarsOverride,
-        use_pty: usePty,
+      executeScript({
+        executableId,
+        templateVarValues,
+        envVarsOverride,
+        usePty,
       })
     },
     [executeScript]
@@ -228,11 +228,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
     (componentId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean) => {
-      executeScript({ 
-        component_id: componentId, 
-        template_var_values: templateVarValues,
-        env_vars_override: envVarsOverride,
-        use_pty: usePty,
+      executeScript({
+        componentId,
+        templateVarValues,
+        envVarsOverride,
+        usePty,
       })
     },
     [executeScript]

@@ -102,10 +102,10 @@ describe('useApiExec state machine', () => {
 
     // Verify invoke was called with correct payload
     expect(mock.api.invoke).toHaveBeenCalledWith('exec:run', {
-      executable_id: 'test-executable',
-      template_var_values: { region: 'us-west-2' },
-      env_vars_override: undefined,
-      use_pty: undefined,
+      executableId: 'test-executable',
+      templateVarValues: { region: 'us-west-2' },
+      envVarsOverride: undefined,
+      usePty: undefined,
     })
 
     // Simulate IPC events from main process

@@ -15,6 +15,7 @@ import {
 } from "./runtime.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
+import { containsPathTraversal, isContainedIn } from "../../../src/path-validation.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
@@ -100,6 +101,14 @@ export function registerRunbookHandlers(): void {
     async (_event, params: { runbookPath: string; assetPath: string }) => {
       const runbookDir = path.dirname(params.runbookPath)
       const fullPath = path.join(runbookDir, params.assetPath)
+
+      // Validate path traversal
+      if (containsPathTraversal(params.assetPath)) {
+        throw new Error("Asset path contains directory traversal")
+      }
+      if (!isContainedIn(fullPath, runbookDir)) {
+        throw new Error("Asset path escapes runbook directory")
+      }
 
       // Validate asset extension
       if (!isAllowedAssetExtension(params.assetPath)) {

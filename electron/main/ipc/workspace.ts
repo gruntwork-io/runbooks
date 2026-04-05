@@ -4,6 +4,7 @@
  * Provides file tree listing, directory listing, file reading, change
  * detection, and worktree registration/activation.
  */
+import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 import {
@@ -12,6 +13,7 @@ import {
   readWorkspaceFile,
   getWorkspaceChanges,
 } from "../../../src/domain/workspace/workspace.ts"
+import { validateRelativePathIn } from "../../../src/path-validation.ts"
 
 export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
@@ -35,7 +37,10 @@ export function registerWorkspaceHandlers(): void {
       params: { worktreePath: string; filePath: string },
     ) => {
       return runtime.runPromise(
-        readWorkspaceFile(params.worktreePath, params.filePath),
+        Effect.gen(function* () {
+          yield* validateRelativePathIn(params.filePath, params.worktreePath)
+          return yield* readWorkspaceFile(params.worktreePath, params.filePath)
+        }),
       )
     },
   )

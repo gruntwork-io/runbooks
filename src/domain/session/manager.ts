@@ -272,6 +272,22 @@ export class SessionManager {
   }
 
   /**
+   * Get the current execution context without token validation.
+   * Used by IPC handlers where authentication is unnecessary (process-local).
+   */
+  getExecContext(): Effect.Effect<SessionExecContext, SessionNotFoundError, never> {
+    return Effect.gen(this, function* () {
+      if (this.session === null) {
+        return yield* new SessionNotFoundError()
+      }
+      return {
+        env: mapToRecord(this.session.env),
+        workDir: this.session.workingDir,
+      }
+    })
+  }
+
+  /**
    * Remove a specific token from the session (tab close cleanup).
    * Returns true if the token was found and removed.
    */
