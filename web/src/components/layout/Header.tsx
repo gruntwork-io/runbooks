@@ -79,8 +79,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
   const isRemote = localPath && localPath !== pathName;
   const localDir = getDirectoryPath(localPath) || localPath;
 
-  // Strip protocol prefix for compact display on small viewports
-  const shortPathName = pathName.replace(/^https?:\/\//, '');
+  const baseName = pathName.split(/[/\\]/).filter(Boolean).pop() || pathName;
 
   const handleDownloadRaw = async () => {
     const logsMap = getAllLogs();
@@ -102,10 +101,10 @@ export function Header({ pathName, localPath }: HeaderProps) {
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
           <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
-            {pathName}
+            {baseName}
           </div>
           <div className="md:hidden text-xs text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
-            {shortPathName}
+            {baseName}
           </div>
           {isRemote && (
             <TooltipProvider delayDuration={0}>
