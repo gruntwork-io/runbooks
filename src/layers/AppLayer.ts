@@ -25,9 +25,9 @@ const BaseLive = Layer.mergeAll(
 )
 
 /**
- * Git layer requires ProcessSpawner from BaseLive.
+ * Git layer requires ProcessSpawner — provide it explicitly from BaseLive.
  */
-const GitLive = GitCliClientLive
+const GitLive = Layer.provide(GitCliClientLive, ChildProcessSpawnerLive)
 
 /**
  * Full application layer with all services wired together.
@@ -35,4 +35,4 @@ const GitLive = GitCliClientLive
  * Usage:
  *   Effect.runPromise(myProgram.pipe(Effect.provide(AppLive)))
  */
-export const AppLive = BaseLive.pipe(Layer.provideMerge(GitLive))
+export const AppLive = Layer.mergeAll(BaseLive, GitLive)

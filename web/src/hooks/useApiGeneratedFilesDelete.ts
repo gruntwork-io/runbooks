@@ -33,21 +33,7 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
     setDeleteSuccess(null);
 
     try {
-      const response = await fetch('/api/generated-files/delete', {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        setDeleteError({
-          message: errorData?.error || 'Failed to delete files',
-          details: errorData?.details,
-        });
-        setIsDeleting(false);
-        return false;
-      }
-
-      const data: GeneratedFilesDeleteResult = await response.json();
+      const data: GeneratedFilesDeleteResult = await window.api.invoke('generated-files:delete');
       setDeleteSuccess(data);
       setIsDeleting(false);
       return true;

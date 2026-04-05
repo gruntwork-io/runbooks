@@ -75,9 +75,9 @@ Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environm
 
 This means you can write scripts with proper cleanup logic and still have environment changes persist to subsequent blocks.
 
-### Multiple Windows
+### Single Session
 
-If you open the same runbook in multiple windows, they all share the same environment. Changes made in one window are visible in all others — like having multiple terminal windows connected to the same shell session.
+The Runbooks app uses a single window and a single session. All scripts within a runbook share the same environment state.
 
 ### Concurrent Script Execution
 

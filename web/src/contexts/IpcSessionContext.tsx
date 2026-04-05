@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react'
 import { useApi } from './ApiContext'
 import { IpcSessionContext } from './IpcSessionContext.types'
+import { SessionContext } from './SessionContext.types'
 
 interface IpcSessionProviderProps {
   children: ReactNode
@@ -71,9 +72,16 @@ export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
     }
   }, [api])
 
+  // Provide both the new IpcSessionContext and the legacy SessionContext so that
+  // existing components using useSession() (which reads SessionContext) continue to work.
+  // getAuthHeader returns an empty object because IPC is process-local — no auth needed.
+  const legacyValue = { isReady, resetSession, error, getAuthHeader: () => ({}) as Record<string, never> }
+
   return (
-    <IpcSessionContext.Provider value={{ isReady, resetSession, error }}>
-      {children}
-    </IpcSessionContext.Provider>
+    <SessionContext.Provider value={legacyValue}>
+      <IpcSessionContext.Provider value={{ isReady, resetSession, error }}>
+        {children}
+      </IpcSessionContext.Provider>
+    </SessionContext.Provider>
   )
 }

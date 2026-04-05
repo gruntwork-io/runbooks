@@ -9,6 +9,8 @@ Runbooks includes a built-in testing framework that lets you validate that your 
 
 To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks-cli test /path/to/runbook` or `runbooks-cli test ./...` to run the tests. Tests are meant to run locally or in CI.
 
+The test runner is a standalone Node.js CLI included in the Runbooks repository. After building the project (`just build`), invoke it as `node dist/cli/index.js test`. The examples below use `runbooks-cli` as shorthand for this invocation.
+
 ## Quick Start
 
 1. Generate a test configuration for your runbook:
@@ -592,13 +594,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - uses: jdx/mise-action@v2
 
-      - name: Install runbooks-cli
-        run: npm install -g @gruntwork-io/runbooks-cli
+      - name: Install dependencies and build
+        run: |
+          bun install
+          electron-vite build
       
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -607,9 +608,8 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       
       - name: Run runbook tests
-        run: runbooks-cli test ./runbooks/... --output junit --output-file results.xml
+        run: node dist/cli/index.js test ./runbooks/... --output junit --output-file results.xml
         env:
-          # Map OIDC credentials to RUNBOOKS_TEST_ prefix
           RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
           RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
           RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
@@ -631,9 +631,13 @@ test-runbooks:
     RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
     RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
     RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
+  before_script:
+    - curl -fsSL https://mise.jdx.dev/install.sh | sh
+    - mise install
+    - bun install
+    - electron-vite build
   script:
-    - npm install -g @gruntwork-io/runbooks-cli
-    - runbooks-cli test ./runbooks/... --output junit --output-file results.xml
+    - node dist/cli/index.js test ./runbooks/... --output junit --output-file results.xml
   artifacts:
     reports:
       junit: results.xml

@@ -49,20 +49,13 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
     if (!sessionReady) return []
     try {
-      const response = await fetch(`/api/workspace/dirs?path=${encodeURIComponent(absPath)}`, {
-        headers: { ...getAuthHeader() },
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => null)
-        throw new Error(data?.error ?? `Failed to fetch directories (${response.status})`)
-      }
-      const data = await response.json()
+      const data = await window.api.invoke<{ dirs?: string[] }>('workspace:dirs', { worktreePath: absPath })
       return data.dirs ?? []
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch directories')
       return []
     }
-  }, [sessionReady, getAuthHeader])
+  }, [sessionReady])
 
   // Build the composed path from dropdown selections
   const composedPath = useMemo(() => {

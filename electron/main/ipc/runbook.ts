@@ -21,7 +21,17 @@ import type { RunbookConfig } from "../../../src/types.ts"
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (_event, params: { path: string; watchMode?: boolean }) => {
+    async (_event, params?: { path?: string; watchMode?: boolean }) => {
+      // If no path provided, return current config without loading a runbook
+      if (!params?.path) {
+        return {
+          content: "",
+          contentHash: "",
+          config: runbookConfig,
+          warnings: [],
+        }
+      }
+
       const runbookPath = params.path
       const config: RunbookConfig = {
         localPath: runbookPath,

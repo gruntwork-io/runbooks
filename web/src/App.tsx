@@ -10,11 +10,11 @@ import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
 import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
 import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/layout/GeneratedFilesAlert'
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
-import { useGetRunbook } from './hooks/useApiGetRunbook'
+import { useIpcGetRunbook } from './hooks/useIpcGetRunbook'
 import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useWatchMode } from './hooks/useWatchMode'
-import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
+import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
 import { cn } from './lib/utils'
 
@@ -26,10 +26,10 @@ function App() {
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   
   // Use the useApi hook to fetch runbook data
-  const getRunbookResult = useGetRunbook()
-  
+  const getRunbookResult = useIpcGetRunbook()
+
   // Check for existing generated files when runbook loads
-  const generatedFilesCheck = useApiGeneratedFilesCheck()
+  const generatedFilesCheck = useIpcGeneratedFilesCheck()
   
   // Get error counts from the error reporting context (populated by MDX components)
   const { errorCount, warningCount, clearAllErrors } = useErrorReporting()

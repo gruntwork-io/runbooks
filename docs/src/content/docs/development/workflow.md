@@ -6,13 +6,13 @@ If you're developing the Runbooks tool itself, this guide covers the day-to-day 
 
 ## Prerequisites
 
-All dependencies are managed via [mise](https://mise.jdx.dev/). Install mise, then run:
+All tools are managed via [mise](https://mise.jdx.dev/). Install mise, then run:
 
 ```bash
 mise install
 ```
 
-This installs everything you need: [just](https://github.com/casey/just) (task runner) and [bun](https://bun.sh/) (JavaScript runtime and package manager).
+This installs everything you need: Node.js, bun, and [just](https://github.com/casey/just) (command runner).
 
 ## Running the Dev Server
 

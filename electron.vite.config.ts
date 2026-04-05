@@ -5,7 +5,9 @@ import path from "path"
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({
+      exclude: ["electron-updater"],
+    })],
     build: {
       outDir: "dist/main",
       rollupOptions: {
@@ -22,6 +24,10 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: path.resolve(__dirname, "electron/preload/index.ts"),
+        },
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].cjs",
         },
       },
     },

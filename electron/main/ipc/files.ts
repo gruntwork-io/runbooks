@@ -21,20 +21,22 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     "generated-files:check",
-    async (_event, params: { outputPath: string }) => {
+    async (_event, params?: { outputPath?: string }) => {
       const workingDir = await getWorkingDir()
+      const outputPath = params?.outputPath ?? "generated"
       return runtime.runPromise(
-        checkGeneratedFiles(workingDir, params.outputPath),
+        checkGeneratedFiles(workingDir, outputPath),
       )
     },
   )
 
   ipcMain.handle(
     "generated-files:delete",
-    async (_event, params: { outputPath: string }) => {
+    async (_event, params?: { outputPath?: string }) => {
       const workingDir = await getWorkingDir()
+      const outputPath = params?.outputPath ?? "generated"
       return runtime.runPromise(
-        deleteGeneratedFiles(workingDir, params.outputPath),
+        deleteGeneratedFiles(workingDir, outputPath),
       )
     },
   )

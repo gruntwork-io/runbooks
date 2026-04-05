@@ -427,28 +427,13 @@ export function useScriptExecution({
     }
     
     try {
-      const response = await fetch('/api/boilerplate/render-inline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          templateFiles,
-          inputs,
-        }),
-        signal: abortController.signal
+      const responseData = await window.api.invoke<{ renderedFiles: Record<string, { content: string }> }>('boilerplate:render-inline', {
+        templateFiles,
+        inputs,
       })
 
       // Check if component is still mounted before updating state
       if (!isMountedRef.current) return
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const errorMessage = errorData?.error || 'Failed to render script'
-        setRenderError(createAppError(errorMessage, errorData?.details))
-        setIsRendering(false)
-        return
-      }
-
-      const responseData = await response.json()
       const renderedFiles = responseData.renderedFiles
       
       // Check if we got the expected file structure

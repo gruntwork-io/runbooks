@@ -1,49 +1,37 @@
 ---
-title: watch
+title: Watch Mode
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-# Watch mode
+# Watch Mode
 
 Watch mode monitors a `runbook.mdx` file (and its scripts, checks, or template files) for changes and automatically reloads the runbook in the app.
 
 This feature is intended for **authors** of runbooks.
 
 <Aside type="caution">
-When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the UI, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to always restart the app when you make a template or script change.
+When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the UI, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to restart the app when you make a template or script change.
 </Aside>
 
 ## Activating watch mode
 
 Watch mode can be activated in two ways:
 
-1. **Via the CLI** when opening a runbook:
+1. **Via the command line** when launching the app:
    ```bash
-   runbooks open --watch RUNBOOK_SOURCE [flags]
+   runbooks --watch RUNBOOK_SOURCE
    ```
 
 2. **Via the app menu** -- toggle watch mode from the application menu while a runbook is open.
 
 ## Arguments
 
-- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file or the directory containing a `runbook.mdx` file. See [runbooks open](/commands/open) for supported remote URL formats.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file or the directory containing a `runbook.mdx` file. See [Opening a runbook](/commands/open) for supported remote URL formats.
 
 <Aside type="note">
 When watching a remote runbook, file watching operates on the local downloaded copy. Changes to the remote repository will not be detected automatically.
 </Aside>
-
-## Flags
-
-When using `runbooks open --watch`, the following flags are available (in addition to all `runbooks open` flags):
-
-- `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
-  - All relative paths are resolved from this directory
-  - Can be absolute or relative to current directory
-  - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
-- `--output-path <path>` - Directory where generated files will be written (default: `generated`)
-  - Resolved relative to the working directory
-- `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
 

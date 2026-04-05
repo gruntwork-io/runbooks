@@ -64,13 +64,13 @@ For public repositories, no authentication is needed. For private repositories, 
 
 ## Flags
 
+- `--watch` - Enable [watch mode](/commands/watch) for live-reload during authoring.
 - `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
   - All relative paths are resolved from this directory
   - Can be absolute or relative to current directory
   - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
-- `--watch` - Enable watch mode for live-reload during authoring. See [watch mode](/commands/watch) for details.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
@@ -78,9 +78,11 @@ For public repositories, no authentication is needed. For private repositories, 
 When you run `runbooks open`:
 
 1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
-2. **Launches the Electron app** - Opens the Runbooks desktop app and loads the specified runbook
+2. **Launches the app** - Opens the Runbooks desktop window and loads the specified runbook
 3. **Renders the runbook** - The app parses and renders the `runbook.mdx` file, providing an interactive UI for the runbook's steps, scripts, and forms
 4. **Keeps running** - The app continues running until you close the window
+
+If the app is already running, a second invocation focuses the existing window and opens the new runbook in it.
 
 ## Troubleshooting
 

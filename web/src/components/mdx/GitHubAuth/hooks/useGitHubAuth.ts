@@ -32,7 +32,7 @@ export function useGitHubAuth({
   detectCredentials = ['env', 'cli'],
 }: UseGitHubAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
-  const { getAuthHeader, isReady: sessionReady } = useSession()
+  const { isReady: sessionReady } = useSession()
 
   // Core auth state
   const [authMethod, setAuthMethod] = useState<GitHubAuthMethod>('oauth')
@@ -99,20 +99,7 @@ export function useGitHubAuth({
 
     // Also set in session environment for blocks that don't specify githubAuthId
     try {
-      const response = await fetch('/api/session/env', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify({ env: outputs }),
-      })
-      if (!response.ok) {
-        const message = 'Credentials saved, but session sync failed. Blocks without githubAuthId may not receive credentials.'
-        console.warn('Failed to set session environment variables:', response.status, response.statusText)
-        setSessionEnvWarning(message)
-        return { authenticated: true, sessionEnvSynced: false }
-      }
+      await window.api.invoke('session:set-env', { env: outputs })
       setSessionEnvWarning(null)
       return { authenticated: true, sessionEnvSynced: true }
     } catch (error) {
@@ -121,18 +108,12 @@ export function useGitHubAuth({
       setSessionEnvWarning(message)
       return { authenticated: true, sessionEnvSynced: false }
     }
-  }, [id, registerOutputs, getAuthHeader])
+  }, [id, registerOutputs])
 
   // Validate a token via the GitHub API
   const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string }> => {
     try {
-      const response = await fetch('/api/github/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token })
-      })
-
-      const data = await response.json()
+      const data = await window.api.invoke('github:validate', { token })
       return {
         valid: data.valid,
         user: data.user,
@@ -151,20 +132,11 @@ export function useGitHubAuth({
   // Try to detect credentials from environment variables
   const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string; foundButInvalid?: boolean }> => {
     try {
-      const response = await fetch('/api/github/env-credentials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify({
-          envVar: '',
-          prefix: options?.prefix || '',
-          githubAuthId: id,
-        })
+      const data = await window.api.invoke('github:env-credentials', {
+        envVar: '',
+        prefix: options?.prefix || '',
+        githubAuthId: id,
       })
-
-      const data = await response.json()
 
       if (!data.found) {
         return { success: false, error: data.error }
@@ -179,24 +151,16 @@ export function useGitHubAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [getAuthHeader, id])
+  }, [id])
 
   // Try to detect credentials from GitHub CLI
   const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean }> => {
     try {
-      const response = await fetch('/api/github/cli-credentials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-      })
-
-      const data: GitHubCliCredentialsResponse = await response.json()
+      const data: GitHubCliCredentialsResponse = await window.api.invoke('github:cli-credentials', {})
 
       if (!isCliAuthFound(data)) {
         // Check if token was found but invalid (error contains "invalid")
-        const foundButInvalid = data.error?.toLowerCase().includes('invalid') || 
+        const foundButInvalid = data.error?.toLowerCase().includes('invalid') ||
                                 data.error?.toLowerCase().includes('expired')
         return { success: false, error: data.error, foundButInvalid }
       }
@@ -205,7 +169,7 @@ export function useGitHubAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
     }
-  }, [getAuthHeader])
+  }, [])
 
   // Try to detect credentials from block outputs
   const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitHubUserInfo; error?: string }> => {
@@ -423,29 +387,13 @@ export function useGitHubAuth({
     const poll = async () => {
       if (oauthPollingCancelledRef.current) return
 
-      const authHeader = getAuthHeader()
-      if (!authHeader.Authorization) {
-        setAuthStatus('failed')
-        setErrorMessage('Session not ready. Please wait a moment and try again.')
-        return
-      }
-
       try {
-        const response = await fetch('/api/github/oauth/poll', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeader,
-          },
-          body: JSON.stringify({
-            clientId: effectiveClientId,
-            deviceCode,
-          })
+        const data = await window.api.invoke('github:oauth-poll', {
+          clientId: effectiveClientId,
+          deviceCode,
         })
 
         if (oauthPollingCancelledRef.current) return
-
-        const data = await response.json()
 
         if (data.status === 'pending' && attempts < maxAttempts) {
           attempts++
@@ -479,7 +427,7 @@ export function useGitHubAuth({
     }
 
     poll()
-  }, [effectiveClientId, getAuthHeader, registerCredentials])
+  }, [effectiveClientId, registerCredentials])
 
   // Start OAuth device flow
   const startOAuth = useCallback(async () => {
@@ -493,16 +441,10 @@ export function useGitHubAuth({
     oauthPollingCancelledRef.current = false
 
     try {
-      const response = await fetch('/api/github/oauth/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: effectiveClientId,
-          scopes: oauthScopes,
-        })
+      const data = await window.api.invoke('github:oauth-start', {
+        clientId: effectiveClientId,
+        scopes: oauthScopes,
       })
-
-      const data = await response.json()
 
       if (data.error) {
         setAuthStatus('failed')

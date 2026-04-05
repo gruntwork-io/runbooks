@@ -315,40 +315,51 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     })
 
     try {
-      // Create abort controller for fetch request
-      const abortController = new AbortController()
-      abortControllerRef.current = abortController
-
-      // Send POST request to /api/exec
-      const response = await fetch('/api/exec', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify(payload),
-        signal: abortController.signal,
+      // Subscribe to IPC streaming events before starting execution
+      const unsubLog = window.api.on('exec:log', (data: unknown) => {
+        const parsed = LogEventSchema.safeParse(data)
+        if (parsed.success) {
+          const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+          setState((prev) => ({
+            ...prev,
+            logs: parsed.data.replace && prev.logs.length > 0
+              ? [...prev.logs.slice(0, -1), newEntry]
+              : [...prev.logs, newEntry],
+          }))
+        }
+      })
+      const unsubOutputs = window.api.on('exec:outputs', (data: unknown) => {
+        const parsed = OutputsEventSchema.safeParse(data)
+        if (parsed.success) {
+          setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
+          options?.onOutputsCaptured?.(parsed.data.outputs)
+        }
+      })
+      const unsubFiles = window.api.on('exec:files-captured', (data: unknown) => {
+        const parsed = FilesCapturedEventSchema.safeParse(data)
+        if (parsed.success) {
+          options?.onFilesCaptured?.(parsed.data)
+        }
+      })
+      const unsubStatus = window.api.on('exec:status', (data: unknown) => {
+        const parsed = StatusEventSchema.safeParse(data)
+        if (parsed.success) {
+          setState((prev) => ({
+            ...prev,
+            status: parsed.data.status as ExecState['status'],
+            exitCode: parsed.data.exitCode ?? null,
+          }))
+        }
       })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const errorMessage = errorData?.error || `HTTP error: ${response.status}`
-
-        setState((prev) => ({
-          ...prev,
-          status: 'fail',
-          error: createAppError(
-            errorMessage,
-            errorData?.details || 'Failed to execute script on the server'
-          ),
-          logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
-        }))
-
-        return
+      try {
+        await window.api.invoke('exec:run', payload)
+      } finally {
+        unsubLog()
+        unsubOutputs()
+        unsubFiles()
+        unsubStatus()
       }
-
-      // Process the SSE stream
-      await processSSEStream(response)
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         // Cancelled by user, already handled in cancel()

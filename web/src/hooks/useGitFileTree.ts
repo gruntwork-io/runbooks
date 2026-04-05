@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useGitWorkTree } from '../contexts/useGitWorkTree'
-import { useSession } from '../contexts/useSession'
 
 /**
  * A workspace tree node (structure only, no content).
@@ -45,7 +44,6 @@ interface UseGitFileTreeResult {
  */
 export function useGitFileTree(): UseGitFileTreeResult {
   const { activeWorkTree, treeVersion } = useGitWorkTree()
-  const { getAuthHeader } = useSession()
   const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,20 +66,7 @@ export function useGitFileTree(): UseGitFileTreeResult {
     setError(null)
 
     try {
-      const response = await fetch(
-        `/api/workspace/tree?path=${encodeURIComponent(localPath)}`,
-        {
-          headers: { ...getAuthHeader() },
-          signal: controller.signal,
-        }
-      )
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.details || data.error || `Failed to load file tree (${response.status})`)
-      }
-
-      const data: WorkspaceTreeResponse = await response.json()
+      const data: WorkspaceTreeResponse = await window.api.invoke('workspace:tree', { worktreePath: localPath })
       setTree(data.tree)
       setTotalFiles(data.totalFiles)
     } catch (err) {
@@ -94,7 +79,7 @@ export function useGitFileTree(): UseGitFileTreeResult {
     } finally {
       setIsLoading(false)
     }
-  }, [getAuthHeader])
+  }, [])
 
   // Fetch when active worktree changes (show spinner) or treeVersion bumps (silent refresh)
   const prevTreeVersionRef = useRef(treeVersion)
@@ -133,18 +118,7 @@ export function useGitFileTree(): UseGitFileTreeResult {
     const absolutePath = `${basePath}/${subPath}`
 
     try {
-      const response = await fetch(
-        `/api/workspace/tree?path=${encodeURIComponent(absolutePath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        console.error(`Failed to load subtree for "${nodeId}": ${response.status}`, text)
-        return
-      }
-
-      const data: WorkspaceTreeResponse = await response.json()
+      const data: WorkspaceTreeResponse = await window.api.invoke('workspace:tree', { worktreePath: absolutePath })
       const prefixed = prefixTreeIds(data.tree, nodeId)
 
       setTree(prev => {
@@ -154,7 +128,7 @@ export function useGitFileTree(): UseGitFileTreeResult {
     } catch (err) {
       console.error(`Failed to fetch subtree for "${nodeId}":`, err)
     }
-  }, [activeWorkTree, getAuthHeader])
+  }, [activeWorkTree])
 
   return { tree, isLoading, error, totalFiles, refetch, fetchSubtree }
 }

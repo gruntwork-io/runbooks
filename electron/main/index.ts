@@ -1,3 +1,10 @@
+// Suppress the CSP security warning in development — Vite's HMR requires
+// inline scripts which are incompatible with a strict CSP. The production
+// build sets a proper CSP via session.webRequest headers.
+if (process.env.ELECTRON_RENDERER_URL) {
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
+}
+
 import { app, BrowserWindow, shell, ipcMain, dialog } from "electron"
 import { createMainWindow, focusOrCreateWindow, getMainWindow } from "./window.ts"
 import { setupApplicationMenu } from "./menu.ts"

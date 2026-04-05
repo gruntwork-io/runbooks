@@ -4,7 +4,7 @@
  * Centralizes window creation and access so that other modules (menu, updater,
  * CLI open-file) can obtain the main window without circular imports.
  */
-import { BrowserWindow } from "electron"
+import { BrowserWindow, session } from "electron"
 import path from "path"
 
 let mainWindow: BrowserWindow | null = null
@@ -20,7 +20,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
+      preload: path.join(__dirname, "../preload/index.cjs"),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -28,6 +28,21 @@ export function createMainWindow(): BrowserWindow {
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
     show: false,
   })
+
+  // Set Content Security Policy in production to silence the Electron security
+  // warning. Skipped in dev because Vite's HMR requires inline scripts.
+  if (!process.env.ELECTRON_RENDERER_URL) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:",
+          ],
+        },
+      })
+    })
+  }
 
   // Avoid white flash — only show once content is painted.
   mainWindow.on("ready-to-show", () => {

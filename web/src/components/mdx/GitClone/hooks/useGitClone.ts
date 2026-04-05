@@ -1,32 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { z } from 'zod'
-import { useSession } from '@/contexts/useSession'
+import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
-
-// Zod schemas for SSE events (reuse same format as exec)
-const LogEventSchema = z.object({
-  line: z.string(),
-  timestamp: z.string(),
-  replace: z.boolean().optional(),
-})
-
-const StatusEventSchema = z.object({
-  status: z.enum(['success', 'warn', 'fail']),
-  exitCode: z.number(),
-})
-
-const CloneResultEventSchema = z.object({
-  fileCount: z.number(),
-  absolutePath: z.string(),
-  relativePath: z.string(),
-})
-
-const OutputsEventSchema = z.object({
-  outputs: z.record(z.string(), z.string()),
-})
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
@@ -41,7 +18,7 @@ interface UseGitCloneOptions {
 }
 
 export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
-  const { getAuthHeader, isReady: sessionReady } = useSession()
+  const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   // State
@@ -78,112 +55,66 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
 
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
-    if (!sessionReady) return
     try {
-      const response = await fetch('/api/session', {
-        headers: { ...getAuthHeader() },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.workingDir) {
-          setWorkingDir(data.workingDir)
-        }
+      const data = await api.invoke('session:get')
+      if (data.workingDir) {
+        setWorkingDir(data.workingDir)
       }
     } catch {
       // Non-critical — path preview just won't show
     }
-  }, [sessionReady, getAuthHeader])
+  }, [api])
 
   // Detect if a GitHub token is available in the session
   const checkGitHubToken = useCallback(async () => {
-    if (!sessionReady) return
-
     // Fetch working dir in parallel
     fetchWorkingDir()
 
     try {
-      const response = await fetch('/api/github/orgs', {
-        headers: {
-          ...getAuthHeader(),
-        },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        // If we got orgs back (even just the user), we have a token
-        setHasGitHubToken(!data.error && data.orgs?.length > 0)
-      }
+      const orgs = await api.invoke('github:orgs')
+      // If we got orgs back (even just the user), we have a token
+      setHasGitHubToken(Array.isArray(orgs) && orgs.length > 0)
     } catch {
       setHasGitHubToken(false)
     } finally {
       setTokenChecked(true)
       setCloneStatus('ready')
     }
-  }, [sessionReady, getAuthHeader, fetchWorkingDir])
+  }, [api, fetchWorkingDir])
 
   // Fetch GitHub organizations
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
     try {
-      const response = await fetch('/api/github/orgs', {
-        headers: {
-          ...getAuthHeader(),
-        },
-      })
-
-      if (!response.ok) return []
-
-      const data = await response.json()
-      return data.orgs ?? []
+      const orgs = await api.invoke('github:orgs')
+      return orgs ?? []
     } catch {
       return []
     }
-  }, [getAuthHeader])
+  }, [api])
 
   // Fetch GitHub repositories for an owner
-  const fetchRepos = useCallback(async (owner: string, query?: string): Promise<GitHubRepo[]> => {
+  const fetchRepos = useCallback(async (owner: string, _query?: string): Promise<GitHubRepo[]> => {
     try {
-      const params = new URLSearchParams({ owner })
-      if (query) params.set('query', query)
-
-      const response = await fetch(`/api/github/repos?${params.toString()}`, {
-        headers: {
-          ...getAuthHeader(),
-        },
-      })
-
-      if (!response.ok) return []
-
-      const data = await response.json()
-      return data.repos ?? []
+      const repos = await api.invoke('github:repos', { org: owner })
+      return repos ?? []
     } catch {
       return []
     }
-  }, [getAuthHeader])
+  }, [api])
 
   // Fetch GitHub refs (branches + tags) for a repo
-  const fetchRefs = useCallback(async (owner: string, repo: string, query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
+  const fetchRefs = useCallback(async (owner: string, repo: string, _query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
     try {
-      const params = new URLSearchParams({ owner, repo })
-      if (query) params.set('query', query)
-
-      const response = await fetch(`/api/github/refs?${params.toString()}`, {
-        headers: {
-          ...getAuthHeader(),
-        },
-      })
-
-      if (!response.ok) return { refs: [], totalCount: 0, hasMore: false }
-
-      const data = await response.json()
+      const refs = await api.invoke('github:refs', { owner, repo })
       return {
-        refs: data.refs ?? [],
-        totalCount: data.totalCount ?? 0,
-        hasMore: data.hasMore ?? false,
+        refs: refs ?? [],
+        totalCount: refs?.length ?? 0,
+        hasMore: false,
       }
     } catch {
       return { refs: [], totalCount: 0, hasMore: false }
     }
-  }, [getAuthHeader])
+  }, [api])
 
   // Process SSE stream from clone endpoint
   const processSSEStream = useCallback(async (response: Response) => {
@@ -287,33 +218,48 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
       if (usePty !== undefined) body.use_pty = usePty
       if (force) body.force = true
 
-      const response = await fetch('/api/git/clone', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+      // Subscribe to streaming events before starting the clone
+      const unsubLog = window.api.on('git:clone-progress', (data: { line: string; timestamp?: string; replace?: boolean }) => {
+        const parsed = LogEventSchema.safeParse(data)
+        if (parsed.success) {
+          const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+          setLogs(prev => {
+            if (parsed.data.replace && prev.length > 0) {
+              return [...prev.slice(0, -1), newEntry]
+            }
+            return [...prev, newEntry]
+          })
+        }
       })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
+      try {
+        const result = await window.api.invoke<{
+          status: string
+          error?: string
+          fileCount?: number
+          absolutePath?: string
+          relativePath?: string
+          outputs?: Record<string, string>
+        }>('git:clone', body)
 
-        // Directory already exists — signal caller to prompt
-        if (response.status === 409 && errorData?.error === 'directory_exists') {
+        if (result.error === 'directory_exists') {
           setCloneStatus('ready')
           return 'directory_exists'
         }
 
-        const msg = errorData?.message || errorData?.error || `Server error (${response.status})`
-        setErrorMessage(msg)
-        setCloneStatus('fail')
-        setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
-        return
+        if (result.status === 'success') {
+          if (result.outputs) {
+            registerOutputs(id, result.outputs)
+          }
+          setCloneResult(result as unknown as typeof cloneResult)
+          setCloneStatus('success')
+        } else {
+          setErrorMessage(result.error || 'Clone failed')
+          setCloneStatus('fail')
+        }
+      } finally {
+        unsubLog()
       }
-
-      await processSSEStream(response)
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
