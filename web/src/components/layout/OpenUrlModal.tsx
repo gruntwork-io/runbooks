@@ -15,29 +15,54 @@ interface OpenUrlModalProps {
   onOpenChange: (open: boolean) => void
 }
 
+const REMOTE_PREFIXES = ['http://', 'https://', 'git::']
+const REMOTE_SHORTHAND = /^(github\.com|gitlab\.com)\//
+
+function looksLikeRemoteUrl(input: string): boolean {
+  const trimmed = input.trim()
+  if (REMOTE_PREFIXES.some((p) => trimmed.startsWith(p))) return true
+  if (REMOTE_SHORTHAND.test(trimmed)) return true
+  return false
+}
+
 export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
   const api = useApi()
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
+  const reset = useCallback(() => {
+    setUrl('')
+    setError(null)
+    setIsLoading(false)
+  }, [])
+
+  const handleClose = useCallback(() => {
+    reset()
+    onOpenChange(false)
+  }, [reset, onOpenChange])
+
   const handleSubmit = useCallback(async () => {
     const trimmed = url.trim()
     if (!trimmed) return
+
+    if (!looksLikeRemoteUrl(trimmed)) {
+      setError('Please enter a GitHub, GitLab, or git:: URL')
+      return
+    }
 
     setError(null)
     setIsLoading(true)
 
     try {
       await api.invoke('runbook:open-remote', { url: trimmed })
-      setUrl('')
+      reset()
       onOpenChange(false)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to open remote runbook')
-    } finally {
       setIsLoading(false)
     }
-  }, [url, api, onOpenChange])
+  }, [url, api, onOpenChange, reset])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -50,7 +75,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
   )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Open from URL</DialogTitle>
@@ -82,9 +107,8 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
         <DialogFooter>
           <button
             type="button"
-            onClick={() => onOpenChange(false)}
+            onClick={handleClose}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            disabled={isLoading}
           >
             Cancel
           </button>

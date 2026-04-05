@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useIpc } from './useIpc'
 import type { UseIpcReturn } from './useIpc'
 import type { GetFileReturn } from './useApiGetFile'
@@ -16,8 +16,10 @@ function normalizePayload(data: OpenRunbookPayload): { path: string; remoteSourc
  * IPC hook to fetch the runbook file data.
  *
  * 1. On mount, fetches the CLI config to get the initial runbook path.
+ *    If a remote URL was provided via CLI, the main process resolves it
+ *    and sends a "file:open-runbook" event once the clone is ready.
  * 2. Listens for "file:open-runbook" events (sent by main process on CLI launch,
- *    second-instance, macOS open-file, or File > Open menu).
+ *    second-instance, macOS open-file, menu, or runbook:open-remote handler).
  * 3. Passes the path to "runbook:get" IPC channel.
  */
 export function useIpcGetRunbook(): UseIpcReturn<GetFileReturn> {
@@ -25,16 +27,12 @@ export function useIpcGetRunbook(): UseIpcReturn<GetFileReturn> {
   const [runbookPath, setRunbookPath] = useState<string | null>(null)
   const [remoteSource, setRemoteSource] = useState<string | undefined>(undefined)
 
-  // Fetch CLI config on mount to get the initial runbook path or remote URL
+  // Fetch CLI config on mount to get the initial runbook path.
+  // Remote URLs are handled by the main process (index.ts) which sends
+  // file:open-runbook after resolving, so we only handle local paths here.
   useEffect(() => {
-    api.invoke<{ runbookPath?: string; remoteUrl?: string }>('native:get-cli-config').then((config) => {
-      if (config?.remoteUrl) {
-        // Remote URL — trigger resolution via IPC, the main process will
-        // send file:open-runbook once resolved.
-        api.invoke('runbook:open-remote', { url: config.remoteUrl }).catch((err: unknown) => {
-          console.error('[useIpcGetRunbook] Failed to open remote URL:', err)
-        })
-      } else if (config?.runbookPath) {
+    api.invoke<{ runbookPath?: string }>('native:get-cli-config').then((config) => {
+      if (config?.runbookPath) {
         setRunbookPath(config.runbookPath)
       }
     })
