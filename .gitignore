@@ -17,6 +17,7 @@ generated/*
 coverage.out
 *.test
 dist/
+out/
 
 # Keep TODOs local for now
 TODO/

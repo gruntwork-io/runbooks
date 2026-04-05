@@ -25,6 +25,7 @@ export function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
     },
+    icon: path.join(__dirname, "../../build/icon.png"),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
     show: false,
   })

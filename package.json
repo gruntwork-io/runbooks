@@ -70,7 +70,7 @@
     "@vitejs/plugin-react-swc": "^4.0.1",
     "@playwright/test": "1.56.1",
     "@testing-library/jest-dom": "^6.0.0",
-    "@testing-library/react": "^14.0.0",
+    "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.0.0",
     "@types/mixpanel-browser": "^2.66.0",
     "@types/node": "^24.0.0",
@@ -86,7 +86,7 @@
   },
   "build": {
     "appId": "io.gruntwork.runbooks",
-    "productName": "Gruntwork Runbooks",
+    "productName": "Runbooks",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "out",
@@ -136,7 +136,7 @@
       "icon": "build/icons",
       "mimeTypes": ["text/mdx"],
       "desktop": {
-        "StartupWMClass": "gruntwork-runbooks"
+        "entry": "StartupWMClass=gruntwork-runbooks"
       }
     },
     "deb": {

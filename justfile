@@ -22,6 +22,16 @@ build:
 package: build
     mise x node -- npx electron-builder
 
+# Package for local testing (re-signs with ad-hoc identity for macOS compatibility)
+package-local: build
+    #!/usr/bin/env bash
+    CSC_IDENTITY_AUTO_DISCOVERY=false mise x node -- npx electron-builder
+    if [[ "$(uname)" == "Darwin" ]]; then
+        for app in out/mac*/Runbooks.app; do
+            [ -d "$app" ] && codesign --force --deep --sign - "$app"
+        done
+    fi
+
 # Remove build artifacts
 clean:
     rm -rf dist out
