@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "bunx playwright test",
+    "test:e2e": "bunx playwright test --config web/playwright.config.ts",
     "test:electron-e2e": "bunx playwright test --config electron/e2e/playwright.config.ts"
   },
   "dependencies": {

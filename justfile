@@ -47,7 +47,8 @@ test-unit:
 
 # Run Playwright E2E tests
 test-e2e: build
-    mise x bun -- bunx playwright test
+    mise x bun -- bunx playwright test --config web/playwright.config.ts
+    mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts
 
 # Run automated runbook tests
 test-runbooks: build
