@@ -159,15 +159,24 @@ app.whenReady().then(() => {
 })
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit()
-  }
+  app.quit()
 })
 
-app.on("will-quit", () => {
+app.on("will-quit", (event) => {
   // Dispose the Effect managed runtime to clean up background fibers,
-  // file watchers, etc.
-  runtime.dispose().catch((err) => {
-    console.error("[main] Error disposing runtime:", err)
-  })
+  // file watchers, etc. Use a timeout to avoid blocking shutdown if a
+  // fiber never completes.
+  event.preventDefault()
+  const timeout = setTimeout(() => {
+    app.exit(0)
+  }, 2000)
+  runtime
+    .dispose()
+    .catch((err) => {
+      console.error("[main] Error disposing runtime:", err)
+    })
+    .finally(() => {
+      clearTimeout(timeout)
+      app.exit(0)
+    })
 })
