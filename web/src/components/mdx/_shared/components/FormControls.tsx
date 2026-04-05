@@ -548,7 +548,7 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
   const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
-  const currentTuple = Array.isArray(value) ? value : new Array(elementKeys.length).fill('')
+  const currentTuple = Array.isArray(value) ? value : Array.from({ length: elementKeys.length }, () => '')
 
   const updateElement = (index: number, newValue: unknown) => {
     const updated = [...currentTuple]

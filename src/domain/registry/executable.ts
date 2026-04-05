@@ -15,8 +15,6 @@ import * as path from "node:path"
 import { FileSystem } from "../../services/FileSystem.js"
 import {
   ExecutableNotFoundError,
-  FileNotFoundError,
-  RegistryError,
 } from "../../errors/index.js"
 import {
   findFencedCodeBlockRanges,
@@ -35,7 +33,7 @@ const SCRIPT_COMPONENT_TYPES = ["Command", "Check"] as const
  * All component types scanned for registry/validation purposes.
  * Includes non-script components used by HasComponent checks.
  */
-const ALL_COMPONENT_TYPES = [
+const _ALL_COMPONENT_TYPES = [
   "Command",
   "Check",
   "Template",

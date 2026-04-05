@@ -23,7 +23,7 @@ interface DirLevel {
 }
 
 export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPickerOptions) {
-  const { getAuthHeader, isReady: sessionReady } = useSession()
+  const { getAuthHeader: _getAuthHeader, isReady: sessionReady } = useSession()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   const [levels, setLevels] = useState<DirLevel[]>([])

@@ -195,7 +195,7 @@ export const resolveClonePaths = (
   url: string,
   workingDir: string,
 ) =>
-  Effect.gen(function* () {
+  Effect.sync(() => {
     let dirName: string
 
     if (localPath) {

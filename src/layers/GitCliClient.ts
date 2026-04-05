@@ -160,7 +160,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           const originalUrl = urlLines[0] ?? ""
           const authedUrl = injectTokenIntoUrl(originalUrl, options.token)
           yield* runGit(spawner, ["remote", "set-url", remote, authedUrl], repoPath)
-          const result = yield* runGit(spawner, args, repoPath).pipe(
+          yield* runGit(spawner, args, repoPath).pipe(
             Effect.ensuring(
               runGit(spawner, ["remote", "set-url", remote, originalUrl], repoPath).pipe(
                 Effect.catchAll(() => Effect.void),

@@ -62,7 +62,7 @@ test-docs:
 
 # Lint with oxlint
 lint:
-    mise x bun -- bunx oxlint .
+    mise x bun -- bunx oxlint . --ignore-pattern '**/*.astro' --ignore-pattern 'testdata/**'
 
 # Format with oxfmt (when available, placeholder for now)
 fmt:

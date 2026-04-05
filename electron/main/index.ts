@@ -5,9 +5,8 @@ if (process.env.ELECTRON_RENDERER_URL) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
 }
 
-import { app, BrowserWindow, shell, ipcMain, dialog, protocol, net } from "electron"
+import { app, shell, ipcMain, dialog, protocol, net } from "electron"
 import * as path from "path"
-import * as fs from "fs"
 import { createMainWindow, focusOrCreateWindow, getMainWindow } from "./window.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"

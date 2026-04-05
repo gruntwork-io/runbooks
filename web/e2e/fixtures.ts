@@ -149,10 +149,12 @@ export const test = base.extend<RunbookServerFixture>({
     await use(messages);
   },
 
+  // eslint-disable-next-line no-empty-pattern
   serverPort: [async ({}, use) => {
     await use(await findFreePort());
   }, { scope: "test" }],
 
+  // eslint-disable-next-line no-empty-pattern
   workDir: [async ({}, use, testInfo) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
     await use(dir);

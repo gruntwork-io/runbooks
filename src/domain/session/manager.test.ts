@@ -140,7 +140,7 @@ describe("SessionManager", () => {
 
     it("prunes oldest token when at capacity", async () => {
       await run(mgr.createSession("/work"), {})
-      const firstToken = (await Effect.runPromise(mgr.validateToken(
+      const _firstToken = (await Effect.runPromise(mgr.validateToken(
         // get the token from createSession - we need to join 19 more times
         // Actually, let's create and then join until capacity
         "" // dummy

@@ -5,7 +5,7 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, manifestStore, runbookConfig } from "./runtime.ts"
+import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,

@@ -10,7 +10,7 @@ import { Effect, Stream } from "effect"
 import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
-import { FileReadError, FileWriteError, PathValidationError } from "../../errors/index.js"
+import { PathValidationError } from "../../errors/index.js"
 import type {
   GeneratedFilesCheckResponse,
   GeneratedFilesDeleteResponse,

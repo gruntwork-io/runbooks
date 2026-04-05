@@ -15,7 +15,6 @@ import { Effect, Stream } from "effect"
 import crypto from "node:crypto"
 
 import { FileSystem } from "../../services/FileSystem.js"
-import { FileReadError } from "../../errors/index.js"
 import type {
   ManifestEntry,
   TemplateManifest,

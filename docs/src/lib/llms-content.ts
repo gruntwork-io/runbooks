@@ -17,7 +17,7 @@ interface SidebarGroup {
 }
 type SidebarEntry = SidebarLink | SidebarGroup;
 
-interface Route {
+interface _Route {
   slug: string;
   id: string;
   entry: {

@@ -3,7 +3,6 @@ import { FileSystem } from "../services/FileSystem.ts"
 import type { WalkEntry } from "../services/FileSystem.ts"
 import {
   FileNotFoundError,
-  FileReadError,
   FileWriteError,
 } from "../errors/index.ts"
 

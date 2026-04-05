@@ -6,7 +6,7 @@ import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
 
-const CloneCloneLogEventSchema = z.object({
+const _CloneCloneLogEventSchema = z.object({
   line: z.string(),
   timestamp: z.string().optional(),
   replace: z.boolean().optional(),
