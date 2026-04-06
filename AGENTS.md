@@ -16,7 +16,7 @@
   /services     — Effect service definitions (Context.Tag + interface)
   /layers       — Live implementations (only place that imports SDKs/node APIs)
   /domain       — Business logic (uses services via yield*, never imports node APIs)
-  /errors       — Typed error classes (Data.TaggedError)
+  /errors       — Error barrel file (typed errors are co-located with their domain modules)
   /test-utils   — Test layers with mock implementations
 /cli            — Node.js CLI (test runner), reuses src/ modules directly
 /web            — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4
@@ -108,9 +108,9 @@ just test-runbooks   # Runbook integration tests via CLI
 just test-docs       # Spellcheck + link check
 
 # Runbook testing
-node dist/cli/index.js test init /path/to/runbook   # Generate runbook_test.yml
-node dist/cli/index.js test /path/to/runbook         # Run tests for one runbook
-node dist/cli/index.js test ./testdata/...           # Run all runbook tests
+node dist/main/cli.js test init /path/to/runbook   # Generate runbook_test.yml
+node dist/main/cli.js test /path/to/runbook         # Run tests for one runbook
+node dist/main/cli.js test ./testdata/...           # Run all runbook tests
 
 # Code quality
 just lint            # oxlint
@@ -281,10 +281,10 @@ A healthy test suite is a portfolio, not a monoculture:
 
 Every new runbook must have an automated test. Follow the [testing guide](docs/src/content/docs/authoring/testing.mdx).
 
-1. Generate a test config: `node dist/cli/index.js test init /path/to/runbook`
+1. Generate a test config: `node dist/main/cli.js test init /path/to/runbook`
 2. This creates `runbook_test.yml` next to your `runbook.mdx`
 3. Edit the YAML to customize inputs, steps, and assertions
-4. Run the test: `node dist/cli/index.js test /path/to/runbook`
+4. Run the test: `node dist/main/cli.js test /path/to/runbook`
 
 Look at `testdata/sample-runbooks/my-first-runbook/runbook_test.yml` for a well-commented reference example.
 

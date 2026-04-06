@@ -17,7 +17,7 @@ For additional information on Runbooks, or to see it in action, check out the [R
 ## Project status
 
 > [!NOTE]
-> As of December 2025, Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
+> Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
 
 ## Security concerns
 
