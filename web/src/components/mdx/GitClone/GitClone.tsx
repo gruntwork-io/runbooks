@@ -604,7 +604,7 @@ function GitClone({
         <div className="mt-4 space-y-2">
           <ViewOutputs
             outputs={registeredOutputs}
-            autoOpen={registeredOutputs !== null && Object.keys(registeredOutputs).length > 0}
+            autoOpen={false}
           />
         </div>
       )}
