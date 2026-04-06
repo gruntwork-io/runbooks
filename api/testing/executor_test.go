@@ -731,11 +731,11 @@ func TestExecuteGitClone_Success(t *testing.T) {
 	require.NotNil(t, cloneResult, "should have a step result for clone-test")
 	assert.True(t, cloneResult.Passed)
 	assert.Equal(t, "success", cloneResult.ActualStatus)
-	assert.NotEmpty(t, cloneResult.Outputs["CLONE_PATH"])
-	assert.Equal(t, "2", cloneResult.Outputs["FILE_COUNT"]) // README.md + src/main.go
+	assert.NotEmpty(t, cloneResult.Outputs["clone_path"])
+	assert.Equal(t, "2", cloneResult.Outputs["file_count"]) // README.md + src/main.go
 
 	// Verify cloned files exist on disk
-	clonePath := cloneResult.Outputs["CLONE_PATH"]
+	clonePath := cloneResult.Outputs["clone_path"]
 	_, err = os.Stat(filepath.Join(clonePath, "README.md"))
 	assert.NoError(t, err, "README.md should exist in clone")
 	_, err = os.Stat(filepath.Join(clonePath, "src/main.go"))
@@ -799,11 +799,11 @@ func TestExecuteGitClone_WithRef(t *testing.T) {
 	}
 	require.NotNil(t, cloneResult)
 	assert.True(t, cloneResult.Passed)
-	assert.Equal(t, "feature", cloneResult.Outputs["REF"])
-	assert.Equal(t, "2", cloneResult.Outputs["FILE_COUNT"]) // main.txt + feature.txt
+	assert.Equal(t, "feature", cloneResult.Outputs["ref"])
+	assert.Equal(t, "2", cloneResult.Outputs["file_count"]) // main.txt + feature.txt
 
 	// Verify the feature branch file exists
-	clonePath := cloneResult.Outputs["CLONE_PATH"]
+	clonePath := cloneResult.Outputs["clone_path"]
 	_, err = os.Stat(filepath.Join(clonePath, "feature.txt"))
 	assert.NoError(t, err, "feature.txt should exist when cloning the feature branch")
 }
@@ -847,7 +847,7 @@ func TestExecuteGitClone_SparseCheckout(t *testing.T) {
 	require.NotNil(t, cloneResult)
 	assert.True(t, cloneResult.Passed)
 
-	clonePath := cloneResult.Outputs["CLONE_PATH"]
+	clonePath := cloneResult.Outputs["clone_path"]
 	// Sparse checkout should have docs/ files
 	_, err = os.Stat(filepath.Join(clonePath, "docs/README.md"))
 	assert.NoError(t, err, "docs/README.md should exist in sparse checkout")

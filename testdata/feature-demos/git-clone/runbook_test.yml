@@ -15,10 +15,10 @@ tests:
     assertions:
       - type: output_exists
         block: clone-subdir
-        output: FILE_COUNT
+        output: file_count
       - type: output_exists
         block: clone-subdir
-        output: CLONE_PATH
+        output: clone_path
       - type: dir_exists
         path: "../runbooks-docs"
 

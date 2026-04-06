@@ -2,12 +2,13 @@ import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle, Info, Copy, Ch
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ViewLogs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { copyTextToClipboard } from "@/lib/utils"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useOutputs } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { CloneResultDisplay } from "./components/CloneResult"
@@ -136,6 +137,13 @@ function GitClone({
     fetchRepos,
     fetchRefs,
   } = useGitClone({ id, gitHubAuthId })
+
+  // Get registered outputs for this block
+  const outputValues = useOutputs(id)
+  const registeredOutputs = useMemo(() => {
+    if (!outputValues || outputValues.length === 0) return null
+    return Object.fromEntries(outputValues.map(o => [o.name, o.value]))
+  }, [outputValues])
 
   // Form state — initialized from resolved values
   const [gitUrl, setGitUrl] = useState(resolvedUrl)
@@ -587,6 +595,16 @@ function GitClone({
             status={cloneStatus === 'running' ? 'running' : cloneStatus === 'success' ? 'success' : cloneStatus === 'fail' ? 'fail' : 'pending'}
             autoOpen={cloneStatus === 'running'}
             blockId={id}
+          />
+        </div>
+      )}
+
+      {/* View Outputs - below logs */}
+      {cloneStatus === 'success' && (
+        <div className="mt-4 space-y-2">
+          <ViewOutputs
+            outputs={registeredOutputs}
+            autoOpen={false}
           />
         </div>
       )}

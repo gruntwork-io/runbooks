@@ -1494,10 +1494,10 @@ func (e *TestExecutor) executeGitClone(block api.ParsedComponent, step TestStep,
 	fileCount := api.CountFiles(absolutePath)
 
 	// Store outputs
-	result.Outputs["CLONE_PATH"] = absolutePath
-	result.Outputs["FILE_COUNT"] = fmt.Sprintf("%d", fileCount)
+	result.Outputs["clone_path"] = absolutePath
+	result.Outputs["file_count"] = fmt.Sprintf("%d", fileCount)
 	if ref != "" {
-		result.Outputs["REF"] = ref
+		result.Outputs["ref"] = ref
 	}
 
 	// Store in block outputs for downstream access

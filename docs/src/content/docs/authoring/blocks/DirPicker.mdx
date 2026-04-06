@@ -123,7 +123,7 @@ The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using blo
 
 ### How It Works
 
-1. DirPicker resolves its root directory from `rootDir` (if set) or by reading the `CLONE_PATH` output of the referenced `<GitClone>` block once the clone completes.
+1. DirPicker resolves its root directory from `rootDir` (if set) or by reading the `clone_path` output of the referenced `<GitClone>` block once the clone completes.
 2. It fetches the immediate subdirectories via `GET /api/workspace/dirs`.
 3. Each dropdown selection triggers a fetch for the next level's subdirectories, building a cascading drill-down.
 4. An editable text input below the dropdowns shows the composed path. Users can edit this directly for full control.
