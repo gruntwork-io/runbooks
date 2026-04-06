@@ -371,15 +371,16 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 
 		// Send outputs event so the block can register outputs in RunbookContext
 		outputs := map[string]string{
-			"CLONE_PATH": absolutePath,
-			"FILE_COUNT": fmt.Sprintf("%d", fileCount),
+			"clone_path": absolutePath,
+			"file_count": fmt.Sprintf("%d", fileCount),
+			"repo_url":   req.URL,
 		}
 		if req.Ref != "" {
-			outputs["REF"] = req.Ref
+			outputs["ref"] = req.Ref
 		}
 		if owner, repo := parseOwnerRepoFromURL(req.URL); owner != "" {
-			outputs["REPO_OWNER"] = owner
-			outputs["REPO_NAME"] = repo
+			outputs["repo_owner"] = owner
+			outputs["repo_name"] = repo
 		}
 		sse.outputs(outputs)
 		sse.status("success", 0)

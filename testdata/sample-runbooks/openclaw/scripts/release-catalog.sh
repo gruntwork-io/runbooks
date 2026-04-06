@@ -9,7 +9,7 @@ set -e
 DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
 
 MODULE_NAME="{{ .inputs.ModuleName }}"
-CATALOG_DIR="{{ .outputs.clone_catalog.CLONE_PATH }}"
+CATALOG_DIR="{{ .outputs.clone_catalog.clone_path }}"
 RELEASE_TAG="{{ .inputs.ReleaseTag }}"
 
 if [[ "$DRY_RUN" == "true" ]]; then

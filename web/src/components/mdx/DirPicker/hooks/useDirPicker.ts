@@ -39,7 +39,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     if (!gitCloneId) return null
     const normalizedId = normalizeBlockId(gitCloneId)
     const blockData = allOutputs[normalizedId]
-    return blockData?.values?.CLONE_PATH ?? null
+    return blockData?.values?.clone_path ?? null
   }, [rootDir, gitCloneId, allOutputs])
 
   // Whether the root directory is available (immediately if rootDir is set, otherwise when GitClone completes)
