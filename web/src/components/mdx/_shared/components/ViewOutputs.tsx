@@ -100,7 +100,7 @@ export function ViewOutputs({
 
       {/* Outputs Table */}
       {showOutputs && (
-        <div className="border-t border-gray-200 p-3 bg-gray-50 max-h-64 overflow-y-auto">
+        <div className="border-t border-gray-200 p-3 bg-gray-50 max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200">
