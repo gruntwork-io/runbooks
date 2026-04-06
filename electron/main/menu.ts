@@ -6,11 +6,77 @@
  */
 import { app, Menu, dialog, shell, type MenuItemConstructorOptions } from "electron"
 import { getMainWindow } from "./window.ts"
+import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 
 const isMac = process.platform === "darwin"
 
 const DOCS_URL = "https://docs.gruntwork.io/runbooks"
 const ISSUES_URL = "https://github.com/gruntwork-io/runbooks/issues"
+
+function buildCliMenuItems(): MenuItemConstructorOptions[] {
+  return [
+    {
+      label: "Install 'runbooks' command in PATH",
+      click: async () => {
+        try {
+          const status = await checkCliInstall()
+          if (status.installed) {
+            dialog.showMessageBox({
+              type: "info",
+              title: "CLI Already Installed",
+              message: `The 'runbooks' command is already installed at ${status.symlinkPath}.`,
+            })
+            return
+          }
+          const result = await installCli()
+          dialog.showMessageBox({
+            type: "info",
+            title: "CLI Installed",
+            message: `The 'runbooks' command was installed successfully.`,
+            detail: `You can now run 'runbooks' from any terminal.\nInstalled at: ${result.symlinkPath}`,
+          })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          // User cancelled the admin dialog — do nothing
+          if (message.includes("User canceled") || message.includes("dismissed")) return
+          dialog.showErrorBox(
+            "CLI Installation Failed",
+            `Could not install the 'runbooks' command:\n\n${message}`,
+          )
+        }
+      },
+    },
+    {
+      label: "Uninstall 'runbooks' command from PATH",
+      click: async () => {
+        try {
+          const status = await checkCliInstall()
+          if (!status.installed) {
+            dialog.showMessageBox({
+              type: "info",
+              title: "CLI Not Installed",
+              message: "The 'runbooks' command is not currently installed.",
+            })
+            return
+          }
+          await uninstallCli()
+          dialog.showMessageBox({
+            type: "info",
+            title: "CLI Uninstalled",
+            message: "The 'runbooks' command has been removed from your PATH.",
+          })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          if (message.includes("User canceled") || message.includes("dismissed")) return
+          dialog.showErrorBox(
+            "CLI Uninstall Failed",
+            `Could not uninstall the 'runbooks' command:\n\n${message}`,
+          )
+        }
+      },
+    },
+  ]
+}
 
 function buildTemplate(): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = []
@@ -29,6 +95,8 @@ function buildTemplate(): MenuItemConstructorOptions[] {
             getMainWindow()?.webContents.send("menu:preferences")
           },
         },
+        { type: "separator" },
+        ...buildCliMenuItems(),
         { type: "separator" },
         { role: "services" },
         { type: "separator" },
@@ -135,6 +203,11 @@ function buildTemplate(): MenuItemConstructorOptions[] {
         label: "Report Issue",
         click: () => shell.openExternal(ISSUES_URL),
       },
+      // On non-macOS, CLI items go in the Help menu
+      ...(!isMac ? [
+        { type: "separator" as const },
+        ...buildCliMenuItems(),
+      ] : []),
     ],
   })
 

@@ -97,6 +97,9 @@
     "files": [
       "dist/**/*"
     ],
+    "extraResources": [
+      { "from": "resources/bin", "to": "bin", "filter": ["**/*"] }
+    ],
     "publish": {
       "provider": "github",
       "owner": "gruntwork-io",

@@ -122,6 +122,20 @@ export interface IpcChannelMap {
   // Telemetry
   "telemetry:config": { params: void; result: { enabled: boolean; token?: string } }
 
+  // CLI
+  "cli:check-install": {
+    params: void
+    result: { installed: boolean; symlinkPath?: string; targetPath?: string; platform: string }
+  }
+  "cli:install": {
+    params: void
+    result: { ok: true; symlinkPath: string }
+  }
+  "cli:uninstall": {
+    params: void
+    result: { ok: true }
+  }
+
   // Native (Electron-only)
   "native:open-external": { params: { url: string }; result: { ok: true } }
   "native:show-open-dialog": {

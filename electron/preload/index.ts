@@ -16,6 +16,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   "workspace:tree", "workspace:dirs", "workspace:file", "workspace:changes",
   "workspace:register", "workspace:set-active",
   "generated-files:check", "generated-files:delete",
+  "cli:check-install", "cli:install", "cli:uninstall",
   "file:read",
   "watch:subscribe",
   "telemetry:config",

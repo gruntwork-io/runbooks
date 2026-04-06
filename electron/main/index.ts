@@ -12,6 +12,7 @@ import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
+import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 
@@ -100,6 +101,11 @@ ipcMain.handle("native:get-app-info", () => ({
   platform: process.platform,
   arch: process.arch,
 }))
+
+// CLI symlink management
+ipcMain.handle("cli:check-install", () => checkCliInstall())
+ipcMain.handle("cli:install", () => installCli())
+ipcMain.handle("cli:uninstall", () => uninstallCli())
 
 ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,
