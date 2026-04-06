@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from 'lucide-react'
 import { useApi } from '@/contexts/ApiContext'
+import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg'
 
 interface WelcomeScreenProps {
   onOpenUrl?: () => void
@@ -33,7 +34,7 @@ export function WelcomeScreen({ onOpenUrl }: WelcomeScreenProps) {
     <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
       <div className="text-center max-w-lg mx-auto px-6">
         <img
-          src="/runbooks-logo-dark-color.svg"
+          src={logoDarkColor}
           alt="Gruntwork Runbooks"
           className="h-20 mx-auto mb-6"
         />

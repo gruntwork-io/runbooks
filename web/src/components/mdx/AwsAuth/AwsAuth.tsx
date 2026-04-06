@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react"
 import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
+import awsLogo from '@/assets/aws-logo.svg'
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -179,7 +180,7 @@ function AwsAuth({
         <div className="flex-1">
           {/* Title row with AWS logo */}
           <div className="flex items-center gap-3 mb-2">
-            <img src="/aws-logo.svg" alt="AWS" className="h-6" />
+            <img src={awsLogo} alt="AWS" className="h-6" />
             <div className="text-md font-bold text-gray-700">
               <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>

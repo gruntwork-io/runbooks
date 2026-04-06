@@ -1,5 +1,7 @@
 import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
 import { ChevronDown, Download, Info, Check, FolderOpen, Copy, type LucideProps } from 'lucide-react';
+import logoDarkAlpha from '@/assets/runbooks-logo-dark-alpha.svg';
+import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -97,7 +99,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
     <>
       <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
         <div className="absolute left-20 top-1/2 transform -translate-y-1/2">
-          <img src="/runbooks-logo-dark-alpha.svg" alt="Gruntwork Runbooks" className="h-8" />
+          <img src={logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" />
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
           <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
@@ -161,7 +163,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
           <div className="relative">
             <AlertDialogHeader>
               <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img src="/runbooks-logo-dark-color.svg" alt="Gruntwork Runbooks" className="h-16 mb-2" />
+              <img src={logoDarkColor} alt="Gruntwork Runbooks" className="h-16 mb-2" />
               
               <AlertDialogDescription className="text-left space-y-4">
                 <p>Runbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>
