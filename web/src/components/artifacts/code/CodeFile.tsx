@@ -55,7 +55,8 @@ export const CodeFile = ({
           fontSize: '12px',
           border: '1px solid #ddd',
           borderRadius: '2px',
-          padding: '14px 0px'
+          padding: '14px 0px',
+          overflowX: 'auto'
         }}
         lineNumberStyle={{
           color: '#999',

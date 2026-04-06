@@ -408,7 +408,8 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
                 margin: 0,
                 borderRadius: 0,
                 border: 'none',
-                padding: '14px 0px'
+                padding: '14px 0px',
+                overflowX: 'auto'
               }}
               lineNumberStyle={{
                 color: '#999',
