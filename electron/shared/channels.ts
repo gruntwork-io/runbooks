@@ -142,6 +142,7 @@ export interface IpcChannelMap {
     params: { properties: string[]; filters?: Array<{ name: string; extensions: string[] }> }
     result: { filePaths: string[] }
   }
+  "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
   "native:get-app-info": { params: void; result: { version: string; platform: string; arch: string } }
   "native:get-cli-config": {
     params: void

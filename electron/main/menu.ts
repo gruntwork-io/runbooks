@@ -120,7 +120,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
           const win = getMainWindow()
           if (!win) return
           const result = await dialog.showOpenDialog(win, {
-            properties: ["openFile"],
+            properties: ["openFile", "openDirectory"],
             filters: [
               { name: "Runbook files", extensions: ["mdx", "md"] },
               { name: "All Files", extensions: ["*"] },

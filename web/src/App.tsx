@@ -30,6 +30,10 @@ function App() {
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
 
+  const handleOpenRunbook = useCallback(async () => {
+    await api.invoke('native:open-runbook-dialog')
+  }, [api])
+
   // Listen for "Open from URL" menu command
   useEffect(() => {
     const cleanup = api.on('menu:open-url-prompt', () => {
@@ -229,7 +233,7 @@ function App() {
             </div>
           </div>
         ) : !getRunbookResult.data ? (
-          <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} />
+          <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
           <>
             {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}

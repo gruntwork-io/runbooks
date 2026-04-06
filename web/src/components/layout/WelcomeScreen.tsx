@@ -5,9 +5,10 @@ import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg'
 
 interface WelcomeScreenProps {
   onOpenUrl?: () => void
+  onOpenRunbook?: () => void
 }
 
-export function WelcomeScreen({ onOpenUrl }: WelcomeScreenProps) {
+export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) {
   const api = useApi()
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
   const [cliLoading, setCliLoading] = useState(false)
@@ -43,15 +44,19 @@ export function WelcomeScreen({ onOpenUrl }: WelcomeScreenProps) {
         </p>
 
         <div className="grid gap-4 text-left">
-          <div className="flex items-start gap-3 p-4 rounded-lg border border-gray-200 bg-gray-50">
+          <button
+            type="button"
+            onClick={onOpenRunbook}
+            className="flex items-start gap-3 p-4 rounded-lg border border-gray-200 bg-gray-50 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer w-full"
+          >
             <FileText className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-gray-700">File &gt; Open Runbook</p>
+              <p className="text-sm font-medium text-gray-700">Open Runbook</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                Or press <kbd className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-mono text-[10px]">&#8984;O</kbd> to open a <code className="text-[11px] bg-gray-200 px-1 rounded">.mdx</code> file
+                Browse for a runbook file or directory, or press <kbd className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-mono text-[10px]">&#8984;O</kbd>
               </p>
             </div>
-          </div>
+          </button>
 
           <button
             type="button"
@@ -112,7 +117,7 @@ export function WelcomeScreen({ onOpenUrl }: WelcomeScreenProps) {
             <div>
               <p className="text-sm font-medium text-gray-700">Drag &amp; drop</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                Drop a <code className="text-[11px] bg-gray-200 px-1 rounded">.mdx</code> file onto this window
+                Drop a runbook file or directory onto this window
               </p>
             </div>
           </div>

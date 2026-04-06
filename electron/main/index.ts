@@ -96,6 +96,22 @@ ipcMain.handle(
   },
 )
 
+ipcMain.handle("native:open-runbook-dialog", async () => {
+  const win = getMainWindow()
+  if (!win) return { ok: false }
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile", "openDirectory"],
+    filters: [
+      { name: "Runbook files", extensions: ["mdx", "md"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  })
+  if (!result.canceled && result.filePaths.length > 0) {
+    win.webContents.send("file:open-runbook", { path: result.filePaths[0] })
+  }
+  return { ok: true }
+})
+
 ipcMain.handle("native:get-app-info", () => ({
   version: app.getVersion(),
   platform: process.platform,
