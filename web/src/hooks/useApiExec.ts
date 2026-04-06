@@ -87,6 +87,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   })
 
   const cleanupRef = useRef<(() => void) | null>(null)
+  const executionGenRef = useRef(0)
 
   const cancel = useCallback(() => {
     const hadActiveExecution = cleanupRef.current !== null
@@ -128,8 +129,9 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       usePty?: boolean;
     }
   ) => {
-    // Cancel any existing execution
+    // Cancel any existing execution and bump generation
     cancel()
+    const generation = ++executionGenRef.current
 
     // Reset state for new execution
     setState({
@@ -190,19 +192,25 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     try {
       await window.api.invoke('exec:run', payload)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      setState((prev) => ({
-        ...prev,
-        status: 'fail',
-        error: createAppError(
-          'An unexpected error occurred while executing the script',
-          errorMessage
-        ),
-        logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
-      }))
+      // Only update state if this execution is still current
+      if (generation === executionGenRef.current) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        setState((prev) => ({
+          ...prev,
+          status: 'fail',
+          error: createAppError(
+            'An unexpected error occurred while executing the script',
+            errorMessage
+          ),
+          logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
+        }))
+      }
     } finally {
-      cleanup()
-      cleanupRef.current = null
+      // Only clean up if this execution is still current (not superseded)
+      if (generation === executionGenRef.current) {
+        cleanup()
+        cleanupRef.current = null
+      }
     }
   }, [cancel, options])
 

@@ -95,10 +95,10 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
   const getExecutableByComponentId = (componentId: string): Executable | null => {
     if (!registry) return null
 
-    // Find executable by component_id
+    // Find executable by componentId
     for (const executableId in registry) {
       const executable = registry[executableId]
-      if (executable && executable.component_id === componentId) {
+      if (executable && executable.componentId === componentId) {
         return executable
       }
     }

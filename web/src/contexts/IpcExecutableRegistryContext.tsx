@@ -74,7 +74,7 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
 
     for (const executableId in registry) {
       const executable = registry[executableId]
-      if (executable && executable.component_id === componentId) {
+      if (executable && executable.componentId === componentId) {
         return executable
       }
     }

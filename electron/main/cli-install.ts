@@ -119,9 +119,13 @@ export async function installCli(): Promise<{ ok: true; symlinkPath: string }> {
   return installUnix(target)
 }
 
+function shellEscapePath(value: string): string {
+  return value.replace(/'/g, "'\\''")
+}
+
 async function installUnix(target: string): Promise<{ ok: true; symlinkPath: string }> {
   const symlinkPath = getSymlinkPath()
-  const cmd = `mkdir -p '${SYMLINK_DIR}' && ln -sf '${target}' '${symlinkPath}'`
+  const cmd = `mkdir -p '${shellEscapePath(SYMLINK_DIR)}' && ln -sf '${shellEscapePath(target)}' '${shellEscapePath(symlinkPath)}'`
 
   if (process.platform === "darwin") {
     await execFile("osascript", [

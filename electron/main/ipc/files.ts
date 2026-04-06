@@ -22,11 +22,18 @@ export function registerFileHandlers(): void {
       }
       const workingDir = await getWorkingDir()
       const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
-      if (!isContainedIn(params.path, workingDir) &&
-          (!runbookDir || !isContainedIn(params.path, runbookDir))) {
+
+      // Resolve relative paths against the runbook directory
+      let resolvedPath = params.path
+      if (!path.isAbsolute(params.path) && runbookDir) {
+        resolvedPath = path.resolve(runbookDir, params.path)
+      }
+
+      if (!isContainedIn(resolvedPath, workingDir) &&
+          (!runbookDir || !isContainedIn(resolvedPath, runbookDir))) {
         throw new Error("Path outside allowed directories")
       }
-      return runtime.runPromise(readFileMetadata(params.path))
+      return runtime.runPromise(readFileMetadata(resolvedPath))
     },
   )
 

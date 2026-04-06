@@ -49,7 +49,7 @@ function App() {
   const generatedFilesCheck = useIpcGeneratedFilesCheck()
   
   // Get error counts from the error reporting context (populated by MDX components)
-  const { errorCount, warningCount, clearAllErrors } = useErrorReporting()
+  const { errors, errorCount, warningCount, clearAllErrors } = useErrorReporting()
   
   // Clear errors when runbook content changes (to avoid stale errors)
   useEffect(() => {
@@ -170,9 +170,10 @@ function App() {
         
         {/* Error Summary Banner */}
         {(errorCount > 0 || warningCount > 0) && (
-          <ErrorSummaryBanner 
-            errorCount={errorCount} 
-            warningCount={warningCount} 
+          <ErrorSummaryBanner
+            errors={errors}
+            errorCount={errorCount}
+            warningCount={warningCount}
             className="fixed top-15 left-1/2 -translate-x-1/2 z-50 shadow-md max-w-2xl"
           />
         )}

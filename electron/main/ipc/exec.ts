@@ -31,116 +31,129 @@ function shellEscape(value: string): string {
 // ---------------------------------------------------------------------------
 
 let activeExecFiber: Fiber.RuntimeFiber<any, any> | null = null
+let execRunning = false
+
+async function cancelActiveExecution(): Promise<void> {
+  if (activeExecFiber) {
+    await runtime.runPromise(Fiber.interrupt(activeExecFiber)).catch(() => {})
+    activeExecFiber = null
+  }
+  execRunning = false
+}
 
 export function registerExecHandlers(): void {
   ipcMain.handle(
     "exec:run",
     async (event, params: ExecRequest) => {
-      // Cancel any existing execution
-      if (activeExecFiber) {
-        await runtime.runPromise(Fiber.interrupt(activeExecFiber)).catch(() => {})
-        activeExecFiber = null
+      // Cancel any existing execution — check both the fiber and the guard
+      if (execRunning || activeExecFiber) {
+        await cancelActiveExecution()
       }
 
-      const fiber = await runtime.runPromise(
-        Effect.fork(
-          Effect.scoped(
-            Effect.gen(function* () {
-              // Get execution context from the session (no token needed for IPC)
-              const context = yield* sessionManager.getExecContext()
+      // Set guard synchronously before the async fork to prevent races
+      execRunning = true
 
-              // Resolve the executable from the registry
-              if (!executableRegistry) {
-                throw new Error("No runbook loaded")
-              }
+      try {
+        const fiber = await runtime.runPromise(
+          Effect.fork(
+            Effect.scoped(
+              Effect.gen(function* () {
+                // Get execution context from the session (no token needed for IPC)
+                const context = yield* sessionManager.getExecContext()
 
-              const executableId = params.executableId ?? params.componentId ?? ""
-              const executable = yield* executableRegistry.getExecutable(executableId)
-
-              // Render template variables into the script content with shell escaping
-              let scriptContent = executable.content
-              if (params.templateVarValues) {
-                for (const [key, value] of Object.entries(params.templateVarValues)) {
-                  const placeholder = `{{.${key}}}`
-                  scriptContent = scriptContent.replaceAll(placeholder, shellEscape(String(value)))
+                // Resolve the executable from the registry
+                if (!executableRegistry) {
+                  throw new Error("No runbook loaded")
                 }
-              }
 
-              // Get the active worktree path for REPO_FILES
-              const workTreePath = sessionManager.getActiveWorkTreePath()
+                const executableId = params.executableId ?? params.componentId ?? ""
+                const executable = yield* executableRegistry.getExecutable(executableId)
 
-              // Determine output path from runbook config
-              const outputPath = runbookConfig.localPath
-                ? runbookConfig.localPath.replace(/\/[^/]+$/, "/output")
-                : ""
-
-              // Execute the script and get the event stream
-              const eventStream: Stream.Stream<ExecEvent, any, any> = yield* executeScript(
-                scriptContent,
-                executable.language,
-                params,
-                context,
-                workTreePath,
-                outputPath,
-              )
-
-              // Consume the stream, forwarding events to the renderer
-              let finalStatus: ExecStatusEvent | null = null
-
-              yield* Stream.runForEach(eventStream, (execEvent) =>
-                Effect.gen(function* () {
-                  switch (execEvent._tag) {
-                    case "log":
-                      event.sender.send("exec:log", execEvent.event)
-                      break
-                    case "status":
-                      finalStatus = execEvent.event
-                      event.sender.send("exec:status", execEvent.event)
-                      break
-                    case "outputs":
-                      event.sender.send("exec:outputs", execEvent.event)
-                      break
-                    case "files_captured":
-                      event.sender.send("exec:files-captured", execEvent.event)
-                      break
-                    case "env_captured": {
-                      const filteredEnv = filterCapturedEnv(execEvent.env)
-                      yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
-                      break
-                    }
-                    case "done":
-                      break
+                // Render template variables into the script content with shell escaping
+                let scriptContent = executable.content
+                if (params.templateVarValues) {
+                  for (const [key, value] of Object.entries(params.templateVarValues)) {
+                    const placeholder = `{{.${key}}}`
+                    scriptContent = scriptContent.replaceAll(placeholder, shellEscape(String(value)))
                   }
-                }),
-              )
+                }
 
-              return { status: finalStatus }
-            }),
+                // Get the active worktree path for REPO_FILES
+                const workTreePath = sessionManager.getActiveWorkTreePath()
+
+                // Determine output path from runbook config
+                const outputPath = runbookConfig.localPath
+                  ? runbookConfig.localPath.replace(/\/[^/]+$/, "/output")
+                  : ""
+
+                // Execute the script and get the event stream
+                const eventStream: Stream.Stream<ExecEvent, any, any> = yield* executeScript(
+                  scriptContent,
+                  executable.language,
+                  params,
+                  context,
+                  workTreePath,
+                  outputPath,
+                )
+
+                // Consume the stream, forwarding events to the renderer
+                let finalStatus: ExecStatusEvent | null = null
+
+                yield* Stream.runForEach(eventStream, (execEvent) =>
+                  Effect.gen(function* () {
+                    switch (execEvent._tag) {
+                      case "log":
+                        event.sender.send("exec:log", execEvent.event)
+                        break
+                      case "status":
+                        finalStatus = execEvent.event
+                        event.sender.send("exec:status", execEvent.event)
+                        break
+                      case "outputs":
+                        event.sender.send("exec:outputs", execEvent.event)
+                        break
+                      case "files_captured":
+                        event.sender.send("exec:files-captured", execEvent.event)
+                        break
+                      case "env_captured": {
+                        const filteredEnv = filterCapturedEnv(execEvent.env)
+                        yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
+                        break
+                      }
+                      case "done":
+                        break
+                    }
+                  }),
+                )
+
+                return { status: finalStatus }
+              }),
+            ),
           ),
-        ),
-      )
+        )
 
-      activeExecFiber = fiber
+        // Store fiber reference immediately after fork (before await)
+        activeExecFiber = fiber
 
-      const exit = await runtime.runPromise(Fiber.await(fiber))
-      activeExecFiber = null
+        const exit = await runtime.runPromise(Fiber.await(fiber))
 
-      if (exit._tag === "Failure" && Cause.isInterruptedOnly(exit.cause)) {
-        return { status: null, cancelled: true }
+        if (exit._tag === "Failure" && Cause.isInterruptedOnly(exit.cause)) {
+          return { status: null, cancelled: true }
+        }
+
+        return Exit.match(exit, {
+          onSuccess: (value) => value,
+          onFailure: (cause) => { throw Cause.squash(cause) },
+        })
+      } finally {
+        activeExecFiber = null
+        execRunning = false
       }
-
-      return Exit.match(exit, {
-        onSuccess: (value) => value,
-        onFailure: (cause) => { throw Cause.squash(cause) },
-      })
     },
   )
 
   ipcMain.handle("exec:cancel", async () => {
-    if (activeExecFiber) {
-      await runtime.runPromise(Fiber.interrupt(activeExecFiber)).catch(() => {})
-      activeExecFiber = null
-    }
+    await cancelActiveExecution()
     return { ok: true as const }
   })
 }

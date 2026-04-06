@@ -7,7 +7,9 @@
  */
 import { autoUpdater } from "electron-updater"
 import { app, dialog } from "electron"
+import { makeLogger } from "./logger.ts"
 
+const log = makeLogger("updater")
 const isDev = !app.isPackaged
 
 const UPDATE_CHECK_DELAY_MS = 10_000
@@ -15,7 +17,7 @@ const UPDATE_CHECK_DELAY_MS = 10_000
 /** Initialize the auto-updater. Call once on app ready. */
 export function initAutoUpdater(): void {
   if (isDev) {
-    console.log("[updater] Skipping auto-update in development mode")
+    log.info("Skipping auto-update in development mode")
     return
   }
 
@@ -24,11 +26,11 @@ export function initAutoUpdater(): void {
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on("checking-for-update", () => {
-    console.log("[updater] Checking for update…")
+    log.info("Checking for update…")
   })
 
   autoUpdater.on("update-available", (info) => {
-    console.log(`[updater] Update available: ${info.version}`)
+    log.info(`Update available: ${info.version}`)
     dialog
       .showMessageBox({
         type: "info",
@@ -42,15 +44,15 @@ export function initAutoUpdater(): void {
   })
 
   autoUpdater.on("update-not-available", () => {
-    console.log("[updater] No update available")
+    log.info("No update available")
   })
 
   autoUpdater.on("download-progress", (progress) => {
-    console.log(`[updater] Download progress: ${Math.round(progress.percent)}%`)
+    log.info(`Download progress: ${Math.round(progress.percent)}%`)
   })
 
   autoUpdater.on("update-downloaded", (info) => {
-    console.log(`[updater] Update downloaded: ${info.version}`)
+    log.info(`Update downloaded: ${info.version}`)
     dialog
       .showMessageBox({
         type: "info",
@@ -67,13 +69,13 @@ export function initAutoUpdater(): void {
   })
 
   autoUpdater.on("error", (err) => {
-    console.error("[updater] Error:", err.message)
+    log.error("Error:", err.message)
   })
 
   // Delay the first check so the window has time to appear.
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.error("[updater] Check failed:", err.message)
+      log.error("Check failed:", err.message)
     })
   }, UPDATE_CHECK_DELAY_MS)
 }

@@ -170,6 +170,7 @@ export interface IpcEventMap {
   "watch:file-change": { type: "reload" }
   "git:clone-progress": { line: string; timestamp: string }
   "git:push-progress": { line: string; timestamp: string }
+  "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
 }
 

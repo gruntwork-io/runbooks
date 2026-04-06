@@ -18,6 +18,9 @@ import {
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
+import { isContainedIn } from "../../../src/path-validation.ts"
+import { PathTraversalError } from "../../../src/errors/index.ts"
+import { validateSessionPath } from "./path-guard.ts"
 
 export function registerGitHandlers(): void {
   ipcMain.handle(
@@ -28,7 +31,7 @@ export function registerGitHandlers(): void {
         url: string
         localPath?: string
         ref?: string
-        token?: string
+        credentials?: { token: string }
       },
     ) => {
       return runtime.runPromise(
@@ -41,9 +44,19 @@ export function registerGitHandlers(): void {
             session.workingDir,
           )
 
+          // Validate clone destination is within the session working dir
+          if (!isContainedIn(paths.absolutePath, session.workingDir)) {
+            return yield* Effect.fail(
+              new PathTraversalError({
+                path: paths.absolutePath,
+                message: "clone destination is outside session working directory",
+              }),
+            )
+          }
+
           const options: CloneOptions = {
             ref: params.ref,
-            token: params.token,
+            token: params.credentials?.token,
           }
 
           // Get the progress stream
@@ -84,7 +97,7 @@ export function registerGitHandlers(): void {
     async (
       event,
       params: {
-        repoPath: string
+        worktreePath: string
         remote: string
         branch: string
         token?: string
@@ -93,6 +106,8 @@ export function registerGitHandlers(): void {
     ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
+          yield* validateSessionPath(params.worktreePath)
+
           const options: PushOptions = {
             token: params.token,
             setUpstream: params.setUpstream,
@@ -104,7 +119,7 @@ export function registerGitHandlers(): void {
           })
 
           yield* pushBranch(
-            params.repoPath,
+            params.worktreePath,
             params.remote,
             params.branch,
             options,
@@ -134,9 +149,12 @@ export function registerGitHandlers(): void {
 
   ipcMain.handle(
     "git:delete-branch",
-    async (_event, params: { repoPath: string; branch: string }) => {
+    async (_event, params: { worktreePath: string; branch: string }) => {
       return runtime.runPromise(
-        deleteBranch(params.repoPath, params.branch),
+        Effect.gen(function* () {
+          yield* validateSessionPath(params.worktreePath)
+          return yield* deleteBranch(params.worktreePath, params.branch)
+        }),
       )
     },
   )

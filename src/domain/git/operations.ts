@@ -2,6 +2,7 @@
  * Git operations — clone, push, branch management, and pull request creation.
  * Port of api/git_clone.go and api/github_pull_request.go.
  */
+import path from "path"
 import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type {
@@ -211,11 +212,11 @@ export const resolveClonePaths = (
     }
 
     // Build absolute path
-    const isAbsolute = dirName.startsWith("/")
-    const absolutePath = isAbsolute ? dirName : `${workingDir}/${dirName}`
+    const isAbsolute = path.isAbsolute(dirName)
+    const absolutePath = isAbsolute ? path.resolve(dirName) : path.resolve(workingDir, dirName)
 
     // Compute relative path from working directory
-    const relativePath = isAbsolute ? dirName : dirName
+    const relativePath = isAbsolute ? path.relative(workingDir, absolutePath) : dirName
 
     return { absolutePath, relativePath } as ResolvedClonePaths
   })

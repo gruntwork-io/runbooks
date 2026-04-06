@@ -202,8 +202,8 @@ export function useScriptExecution({
     if (!execRegistryEnabled) return false
     
     const executable = getExecutableByComponentId(componentId)
-    if (!executable?.script_content_hash) return false
-    
+    if (!executable?.contentHash) return false
+
     // For inline commands, compare computed hash against registry hash
     if (command) {
       // If the hash we have is not for the current command, we can't know the drift status yet.
@@ -211,12 +211,12 @@ export function useScriptExecution({
       if (commandHashResult?.command !== command) {
         return false
       }
-      return commandHashResult.hash !== executable.script_content_hash
+      return commandHashResult.hash !== executable.contentHash
     }
-    
+
     // For file-based scripts, compare file hash against registry hash
     if (!fileData?.contentHash) return false
-    return fileData.contentHash !== executable.script_content_hash
+    return fileData.contentHash !== executable.contentHash
   }, [execRegistryEnabled, command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present

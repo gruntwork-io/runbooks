@@ -15,6 +15,9 @@ import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
+import { makeLogger } from "./logger.ts"
+
+const log = makeLogger("main")
 
 // ---------------------------------------------------------------------------
 // Register the runbook-asset protocol as privileged so it can be used in img
@@ -49,7 +52,7 @@ if (!gotLock) {
           })
         })
         .catch((err) => {
-          console.error("[main] Failed to resolve remote URL:", err)
+          log.error("Failed to resolve remote URL:", err)
         })
     } else if (secondArgs.runbookPath) {
       win.webContents.send("file:open-runbook", { path: secondArgs.runbookPath })
@@ -191,7 +194,7 @@ app.whenReady().then(() => {
           })
         })
         .catch((err) => {
-          console.error("[main] Failed to resolve remote URL:", err)
+          log.error("Failed to resolve remote URL:", err)
         })
     })
   } else if (cliConfig.runbookPath) {
@@ -224,7 +227,7 @@ app.on("will-quit", (event) => {
   runtime
     .dispose()
     .catch((err) => {
-      console.error("[main] Error disposing runtime:", err)
+      log.error("Error disposing runtime:", err)
     })
     .finally(() => {
       clearTimeout(timeout)

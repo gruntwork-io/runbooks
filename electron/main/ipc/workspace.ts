@@ -14,19 +14,30 @@ import {
   getWorkspaceChanges,
 } from "../../../src/domain/workspace/workspace.ts"
 import { validateRelativePathIn } from "../../../src/path-validation.ts"
+import { validateSessionPath } from "./path-guard.ts"
 
 export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
     "workspace:tree",
     async (_event, params: { worktreePath: string }) => {
-      return runtime.runPromise(getWorkspaceTree(params.worktreePath))
+      return runtime.runPromise(
+        Effect.gen(function* () {
+          yield* validateSessionPath(params.worktreePath)
+          return yield* getWorkspaceTree(params.worktreePath)
+        }),
+      )
     },
   )
 
   ipcMain.handle(
     "workspace:dirs",
     async (_event, params: { worktreePath: string }) => {
-      return runtime.runPromise(getWorkspaceDirs(params.worktreePath))
+      return runtime.runPromise(
+        Effect.gen(function* () {
+          yield* validateSessionPath(params.worktreePath)
+          return yield* getWorkspaceDirs(params.worktreePath)
+        }),
+      )
     },
   )
 
@@ -38,6 +49,7 @@ export function registerWorkspaceHandlers(): void {
     ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
+          yield* validateSessionPath(params.worktreePath)
           yield* validateRelativePathIn(params.filePath, params.worktreePath)
           return yield* readWorkspaceFile(params.worktreePath, params.filePath)
         }),
@@ -52,23 +64,29 @@ export function registerWorkspaceHandlers(): void {
       params: { worktreePath: string; singleFile?: string },
     ) => {
       return runtime.runPromise(
-        getWorkspaceChanges(params.worktreePath, params.singleFile),
+        Effect.gen(function* () {
+          yield* validateSessionPath(params.worktreePath)
+          if (params.singleFile) {
+            yield* validateRelativePathIn(params.singleFile, params.worktreePath)
+          }
+          return yield* getWorkspaceChanges(params.worktreePath, params.singleFile)
+        }),
       )
     },
   )
 
   ipcMain.handle(
     "workspace:register",
-    async (_event, params: { path: string }) => {
-      sessionManager.registerWorkTreePath(params.path)
+    async (_event, params: { worktreePath: string }) => {
+      sessionManager.registerWorkTreePath(params.worktreePath)
       return { ok: true as const }
     },
   )
 
   ipcMain.handle(
     "workspace:set-active",
-    async (_event, params: { path: string }) => {
-      sessionManager.setActiveWorkTreePath(params.path)
+    async (_event, params: { worktreePath: string }) => {
+      sessionManager.setActiveWorkTreePath(params.worktreePath)
       return { ok: true as const }
     },
   )

@@ -1,9 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
+import type { IpcChannelMap, IpcEventMap, InvokeChannel, EventChannel } from "../shared/channels.ts"
 
-// Allowlists derived from IpcChannelMap and IpcEventMap in electron/shared/channels.ts.
-// Keep these in sync when adding new channels.
-
-const ALLOWED_INVOKE_CHANNELS = new Set([
+// Derive allowlists from the channel type definitions — no manual sync needed.
+const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "runbook:get", "runbook:open-remote", "runbook:executables", "runbook:assets",
   "session:create", "session:join", "session:get", "session:reset", "session:delete", "session:set-env",
   "exec:run", "exec:cancel",
@@ -23,13 +22,19 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   "native:open-external", "native:show-open-dialog", "native:open-runbook-dialog", "native:get-app-info", "native:get-cli-config",
 ])
 
-const ALLOWED_EVENT_CHANNELS = new Set([
+const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
   "exec:log", "exec:status", "exec:outputs", "exec:files-captured", "exec:error",
   "watch:file-change",
   "git:clone-progress", "git:push-progress",
   "file:open-runbook",
   "menu:open-url-prompt",
 ])
+
+export interface TypedApi {
+  invoke<C extends InvokeChannel>(channel: C, ...args: IpcChannelMap[C]["params"] extends void ? [] : [IpcChannelMap[C]["params"]]): Promise<IpcChannelMap[C]["result"]>
+  on<C extends EventChannel>(channel: C, callback: (payload: IpcEventMap[C]) => void): () => void
+  once<C extends EventChannel>(channel: C, callback: (payload: IpcEventMap[C]) => void): void
+}
 
 contextBridge.exposeInMainWorld("api", {
   invoke: (channel: string, ...args: unknown[]) => {
@@ -58,4 +63,4 @@ contextBridge.exposeInMainWorld("api", {
     }
     ipcRenderer.once(channel, (_event, ...args) => callback(...args))
   },
-})
+} satisfies Record<keyof TypedApi, unknown>)

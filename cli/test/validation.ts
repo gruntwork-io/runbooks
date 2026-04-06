@@ -50,10 +50,10 @@ interface BoilerplateVariable {
 
 interface ParsedValidations {
   required: boolean
-  minLength: number
-  maxLength: number
-  min: number
-  max: number
+  minLength: number | undefined
+  maxLength: number | undefined
+  min: number | undefined
+  max: number | undefined
   pattern: string
   email: boolean
   url: boolean
@@ -544,8 +544,8 @@ function lowercaseFirst(s: string): string {
 
 function parseValidations(variable: BoilerplateVariable): ParsedValidations {
   const result: ParsedValidations = {
-    required: false, minLength: 0, maxLength: 0,
-    min: 0, max: 0, pattern: "", email: false, url: false,
+    required: false, minLength: undefined, maxLength: undefined,
+    min: undefined, max: undefined, pattern: "", email: false, url: false,
   }
 
   if (!variable.validations) return result
@@ -591,10 +591,10 @@ function validateValue(
 
     case "string": {
       const strVal = String(value)
-      if (constraints.minLength > 0 && strVal.length < constraints.minLength) {
+      if (constraints.minLength !== undefined && strVal.length < constraints.minLength) {
         errors.push({ inputKey: key, message: `Length ${strVal.length} is less than minimum ${constraints.minLength}` })
       }
-      if (constraints.maxLength > 0 && strVal.length > constraints.maxLength) {
+      if (constraints.maxLength !== undefined && strVal.length > constraints.maxLength) {
         errors.push({ inputKey: key, message: `Length ${strVal.length} exceeds maximum ${constraints.maxLength}` })
       }
       if (constraints.pattern) {
@@ -622,10 +622,10 @@ function validateValue(
         errors.push({ inputKey: key, message: `Expected integer, got ${typeof value}` })
         break
       }
-      if (constraints.min !== 0 && value < constraints.min) {
+      if (constraints.min !== undefined && value < constraints.min) {
         errors.push({ inputKey: key, message: `Value ${value} is less than minimum ${constraints.min}` })
       }
-      if (constraints.max !== 0 && value > constraints.max) {
+      if (constraints.max !== undefined && value > constraints.max) {
         errors.push({ inputKey: key, message: `Value ${value} exceeds maximum ${constraints.max}` })
       }
       break

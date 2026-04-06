@@ -23,6 +23,7 @@ import type {
   RenderInlineRequest,
   BoilerplateRequest,
 } from "../../../src/types.ts"
+import { validateSessionPath } from "./path-guard.ts"
 
 export function registerBoilerplateHandlers(): void {
   ipcMain.handle(
@@ -32,11 +33,14 @@ export function registerBoilerplateHandlers(): void {
         Effect.gen(function* () {
           let yamlContent: string
 
+          let resolvedTemplatePath: string | undefined
+
           if (params.boilerplateContent) {
             yamlContent = params.boilerplateContent
           } else if (params.templatePath) {
+            resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
             const fs = yield* FileSystem
-            yamlContent = yield* fs.readFile(params.templatePath)
+            yamlContent = yield* fs.readFile(resolvedTemplatePath)
           } else {
             throw new Error("Either templatePath or boilerplateContent is required")
           }
@@ -44,9 +48,9 @@ export function registerBoilerplateHandlers(): void {
           const config = yield* parseBoilerplateConfig(yamlContent)
 
           // Extract output dependencies from template files if we have a path
-          if (params.templatePath) {
+          if (resolvedTemplatePath) {
             const fs = yield* FileSystem
-            const templateDir = params.templatePath.replace(/\/[^/]+$/, "")
+            const templateDir = resolvedTemplatePath.replace(/\/[^/]+$/, "")
             const entries = yield* Effect.either(fs.readdir(templateDir))
 
             if (entries._tag === "Right") {
@@ -93,6 +97,9 @@ export function registerBoilerplateHandlers(): void {
               params.outputPath ?? "output",
             )
           }
+
+          // Validate output directory stays within session scope
+          yield* validateSessionPath(outputDir)
 
           // Get old manifest for diff detection
           const templateId = params.templateId ?? params.templatePath
@@ -178,6 +185,7 @@ export function registerBoilerplateHandlers(): void {
               params.outputPath,
             )
 
+            yield* validateSessionPath(outputDir)
             yield* fs.mkdir(outputDir, { recursive: true })
 
             for (const [name, rendered] of Object.entries(renderedFiles)) {
