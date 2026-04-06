@@ -70,7 +70,7 @@ interface BoilerplateConfig {
 const KNOWN_BLOCK_TYPES = new Set([
   "Check", "Command", "Inputs", "Template", "TemplateInline",
   "AwsAuth", "GitHubAuth", "GitClone", "GitHubPullRequest",
-  "TfModule", "DirPicker", "Admonition",
+  "DirPicker", "Admonition",
 ])
 
 // ---------------------------------------------------------------------------

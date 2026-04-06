@@ -1,5 +1,5 @@
 /**
- * Shared hook for input-collecting MDX blocks (Inputs, TfModule).
+ * Shared hook for input-collecting MDX blocks (Inputs).
  *
  * These blocks follow the same lifecycle — register a unique ID, fetch or
  * receive a BoilerplateConfig, render a form, and submit the collected values
@@ -22,7 +22,7 @@ import { useTelemetry } from '@/contexts/useTelemetry'
 interface UseInputRegistrationOptions {
   /** Unique component ID used for registration, error reporting, and form submission. */
   id: string
-  /** Block type identifier (e.g. "Inputs", "TfModule") for telemetry and the ID registry. */
+  /** Block type identifier (e.g. "Inputs") for telemetry and the ID registry. */
   componentType: BlockComponentType
   /** Parsed variable definitions that drive form state; null while still loading. */
   boilerplateConfig: BoilerplateConfig | null
@@ -48,7 +48,7 @@ interface UseInputRegistrationReturn {
 }
 
 /**
- * Shared hook for input-collecting components (Inputs, TfModule).
+ * Shared hook for input-collecting components (Inputs).
  *
  * Encapsulates the common lifecycle:
  * 1. Component ID registration and duplicate detection

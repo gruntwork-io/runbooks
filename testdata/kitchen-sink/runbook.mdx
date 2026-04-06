@@ -1,0 +1,646 @@
+---
+title: Kitchen Sink Test Runbook
+---
+
+# Kitchen Sink Test Runbook
+
+This runbook exercises every feature of Runbooks to validate the Electron rewrite. Walk through each section and confirm everything renders and functions correctly.
+
+---
+
+## 1. Markdown Rendering
+
+### Text Formatting
+
+**Bold text**, *italic text*, ***bold italic***, ~~strikethrough~~, and `inline code`.
+
+### Lists
+
+**Unordered:**
+- Item 1
+- Item 2
+  - Nested 2.1
+  - Nested 2.2
+- Item 3
+
+**Ordered:**
+1. First
+2. Second
+   1. Nested numbered
+   2. Another nested
+3. Third
+
+### Code Blocks
+
+```go
+func main() {
+    fmt.Println("Hello from Go!")
+}
+```
+
+```python
+def hello():
+    print("Hello from Python!")
+```
+
+```bash
+echo "Hello from Bash!"
+```
+
+### Tables
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Markdown | Working | Full GFM support |
+| Blocks | Working | All types |
+| Templates | Working | Boilerplate engine |
+
+### Blockquotes
+
+> This is a blockquote.
+>
+> > Nested blockquote!
+
+### Task Lists
+
+- [x] Completed task
+- [ ] Incomplete task
+
+### Links
+
+[Runbooks Documentation](https://runbooks.gruntwork.io)
+
+---
+
+## 2. Admonitions
+
+<Admonition type="note" title="Note" description="This is a **note** admonition with _inline markdown_." />
+
+<Admonition type="info" title="Info" description="This is an **info** admonition." />
+
+<Admonition type="warning" title="Warning" description="This is a **warning** admonition." closable={true} />
+
+<Admonition type="danger" title="Danger" description="This is a **danger** admonition. Requires confirmation." confirmationText="I understand the risks" />
+
+---
+
+## 3. All Variable Types & Validations
+
+This Inputs block exercises every variable type and validation rule.
+
+<Inputs id="all-types">
+```yaml
+variables:
+  - name: plain_string
+    type: string
+    description: A plain string with a default
+    default: "hello world"
+
+  - name: required_string
+    type: string
+    description: This field is required
+    validations:
+      - required
+
+  - name: email_field
+    type: string
+    description: Must be a valid email address
+    default: "user@example.com"
+    validations:
+      - email
+
+  - name: url_field
+    type: string
+    description: Must be a valid URL
+    default: "https://example.com"
+    validations:
+      - url
+
+  - name: regex_field
+    type: string
+    description: "Must match ^[A-Z]{3}$ (three uppercase letters)"
+    default: "ABC"
+    validations:
+      - type: regex
+        regex: "^[A-Z]{3}$"
+
+  - name: length_field
+    type: string
+    description: Must be 2-10 characters
+    default: "hello"
+    validations:
+      - type: length
+        min: 2
+        max: 10
+
+  - name: semver_field
+    type: string
+    description: Must be a valid semver
+    default: "1.2.3"
+    validations:
+      - semver
+
+  - name: alpha_field
+    type: string
+    description: Alphabetic characters only
+    default: "abcdef"
+    validations:
+      - alpha
+
+  - name: digit_field
+    type: string
+    description: Digits only
+    default: "12345"
+    validations:
+      - digit
+
+  - name: alphanumeric_field
+    type: string
+    description: Alphanumeric characters only
+    default: "abc123"
+    validations:
+      - alphanumeric
+
+  - name: int_field
+    type: int
+    description: An integer input
+    default: 42
+
+  - name: bool_field
+    type: bool
+    description: A boolean toggle
+    default: true
+
+  - name: enum_field
+    type: enum
+    description: Pick an environment
+    options:
+      - dev
+      - staging
+      - prod
+    default: dev
+
+  - name: list_field
+    type: list
+    description: A dynamic list of items
+
+  - name: map_field
+    type: map
+    description: A key-value map
+
+  - name: secret_field
+    type: string
+    description: A sensitive password field (should be masked)
+    sensitive: true
+    default: "s3cret"
+```
+</Inputs>
+
+---
+
+## 4. Simple Commands
+
+### Inline Command
+
+<Command
+  id="simple-inline-cmd"
+  command="echo 'Hello from an inline command!'"
+  title="Simple Inline Command"
+  description="Tests the simplest possible command"
+  successMessage="Inline command **succeeded**!"
+  failMessage="Inline command failed."
+  runningMessage="Running inline command..."
+/>
+
+### Command from Script
+
+<Command
+  id="setup-outputs"
+  path="scripts/setup-outputs.sh"
+  title="Setup Block Outputs"
+  description="Runs a script that writes key=value pairs to `$RUNBOOK_OUTPUT`"
+  successMessage="Outputs produced: account_id, region, project_name"
+  failMessage="Script failed."
+/>
+
+### Command with inputsId
+
+<Command
+  id="cmd-with-inputs"
+  command="echo 'String: {{ .inputs.plain_string }}, Int: {{ .inputs.int_field }}, Bool: {{ .inputs.bool_field }}, Enum: {{ .inputs.enum_field }}'"
+  inputsId="all-types"
+  title="Command Using Inputs: {{ .inputs.enum_field }}"
+  description="Reads from the all-types Inputs block. Current env: **{{ .inputs.enum_field }}**"
+/>
+
+---
+
+## 5. Block Outputs
+
+The `setup-outputs` command above wrote outputs. Now let's consume them downstream.
+
+### Consuming Outputs in Description
+
+<Command
+  id="consume-outputs"
+  command="echo 'Working in account {{ .outputs.setup_outputs.account_id }} in {{ .outputs.setup_outputs.region }}'"
+  title="Consume Block Outputs"
+  description="Account: {{ .outputs.setup_outputs.account_id }}, Region: {{ .outputs.setup_outputs.region }}"
+  successMessage="Successfully read outputs from setup-outputs block!"
+/>
+
+### Command with Inline Inputs + Outputs
+
+<Command
+  id="cmd-inline-inputs"
+  path="scripts/mixed-inputs-outputs.sh"
+  title="Command with Inline Inputs"
+  description="Uses both inline inputs and outputs from `setup-outputs`"
+>
+  <Inputs id="inline-cmd-vars">
+    ```yaml
+    variables:
+      - name: Greeting
+        type: string
+        description: A greeting to repeat
+        default: "Howdy"
+      - name: Count
+        type: int
+        description: How many times to greet
+        default: 3
+    ```
+  </Inputs>
+</Command>
+
+---
+
+## 6. Complex Outputs (JSON Lists & Maps)
+
+<Command
+  id="list-complex-data"
+  path="scripts/list-complex-data.sh"
+  title="Produce Complex Outputs"
+  description="Outputs JSON lists and maps via `$RUNBOOK_OUTPUT`"
+  successMessage="Complex data produced!"
+/>
+
+### Iterating Over a List
+
+<TemplateInline id="users-list" outputPath="users.txt">
+```txt
+=== Organization Users ===
+{{- range (fromJson .outputs.list_complex_data.users) }}
+- {{ . }}
+{{- end }}
+```
+</TemplateInline>
+
+### Iterating Over a Map
+
+<TemplateInline id="teams-list" outputPath="teams.yaml">
+```yaml
+teams:
+{{- range $teamName, $teamData := (fromJson .outputs.list_complex_data.teams) }}
+  {{ $teamName }}:
+    lead: {{ $teamData.lead }}
+    members:
+    {{- range $teamData.members }}
+      - {{ . }}
+    {{- end }}
+{{- end }}
+```
+</TemplateInline>
+
+---
+
+## 7. Check Blocks
+
+### Successful Check
+
+<Check
+  id="check-pass"
+  path="checks/simple-pass.sh"
+  title="Check That Passes"
+  description="This check exits 0 (success)"
+  successMessage="Check **passed** as expected!"
+  failMessage="This should not appear."
+/>
+
+### Warning Check (Exit Code 2)
+
+<Check
+  id="check-warn"
+  path="checks/simple-warn.sh"
+  title="Check That Warns"
+  description="This check exits 2 (warning)"
+  successMessage="This should not appear."
+  warnMessage="Warning detected! Something needs attention."
+  failMessage="This should not appear either."
+/>
+
+### Check with Inline Inputs
+
+<Check
+  id="check-with-inputs"
+  command="echo 'Checking tool version: {{ .inputs.ToolVersion }}' && exit 0"
+  title="Parameterized Check"
+  description="A check with an inline Inputs form"
+  successMessage="Version {{ .inputs.ToolVersion }} looks good!"
+  failMessage="Version check failed."
+>
+  <Inputs id="check-tool-inputs">
+    ```yaml
+    variables:
+      - name: ToolVersion
+        type: string
+        description: Expected tool version
+        default: "1.0.0"
+        validations:
+          - required
+          - semver
+    ```
+  </Inputs>
+</Check>
+
+---
+
+## 8. Template Block
+
+This Template reads from `templates/sample-config/` which has a `boilerplate.yml` with `x-section` grouping. It also references outputs from `setup-outputs`, testing output dependency tracking.
+
+<Template id="sample-config" path="templates/sample-config" />
+
+---
+
+## 9. TemplateInline
+
+### Simple TemplateInline with inputsId
+
+<TemplateInline id="simple-inline-tpl" inputsId="all-types" outputPath="summary.txt">
+```txt
+Project Summary
+===============
+String: {{ .inputs.plain_string }}
+Environment: {{ .inputs.enum_field }}
+Integer: {{ .inputs.int_field }}
+Boolean: {{ .inputs.bool_field }}
+```
+</TemplateInline>
+
+### TemplateInline with Block Outputs
+
+<TemplateInline id="output-preview" outputPath="account-info.txt">
+```txt
+Account Information
+===================
+Account ID: {{ .outputs.setup_outputs.account_id }}
+Region:     {{ .outputs.setup_outputs.region }}
+Project:    {{ .outputs.setup_outputs.project_name }}
+```
+</TemplateInline>
+
+### TemplateInline with generateFile
+
+<TemplateInline id="gen-file-tpl" inputsId="all-types" outputPath="generated.yaml" generateFile={true}>
+```yaml
+name: {{ .inputs.plain_string }}
+env: {{ .inputs.enum_field }}
+port: {{ .inputs.int_field }}
+```
+</TemplateInline>
+
+### Combining Inputs and Outputs
+
+<TemplateInline id="combined-tpl" inputsId="all-types" outputPath="combined.json">
+```json
+{
+  "project": "{{ .inputs.plain_string }}",
+  "environment": "{{ .inputs.enum_field }}",
+  "account_id": "{{ .outputs.setup_outputs.account_id }}",
+  "region": "{{ .outputs.setup_outputs.region }}"
+}
+```
+</TemplateInline>
+
+---
+
+## 10. Environment & Working Directory Persistence
+
+### Set Environment Variables
+
+<Command
+  id="set-env"
+  path="scripts/use-env-persistence.sh"
+  title="Set Environment Variables"
+  description="Exports `KS_ENV_VAR` and `KS_COUNTER`. These should persist to subsequent blocks."
+  successMessage="Environment variables exported!"
+/>
+
+### Verify Environment Persistence
+
+<Check
+  id="verify-env"
+  path="checks/verify-env.sh"
+  title="Verify Env Vars Persisted"
+  description="Checks that `KS_ENV_VAR` and `KS_COUNTER` from the previous block are available."
+  successMessage="Environment variables persisted!"
+  failMessage="Environment variables did NOT persist. Run the block above first."
+/>
+
+### Change Working Directory
+
+<Command
+  id="change-dir"
+  path="scripts/change-workdir.sh"
+  title="Change Working Directory"
+  description="Changes the working directory to `/tmp`."
+  successMessage="Working directory changed to /tmp!"
+/>
+
+### Verify Working Directory Persistence
+
+<Check
+  id="verify-workdir"
+  path="checks/verify-workdir.sh"
+  title="Verify Working Directory"
+  description="Confirms the working directory is still `/tmp`."
+  successMessage="Working directory persisted!"
+  failMessage="Working directory did not persist."
+/>
+
+---
+
+## 11. File Capture ($GENERATED_FILES)
+
+<Command
+  id="capture-files"
+  path="scripts/generate-files.sh"
+  title="Generate and Capture Files"
+  description="Writes files to `$GENERATED_FILES`. Check the Generated Files panel after running."
+  successMessage="Files generated! Check the Generated Files panel."
+  failMessage="File generation failed."
+/>
+
+---
+
+## 12. Script Logging
+
+<Command
+  id="logging-demo"
+  path="scripts/logging-demo.sh"
+  title="Script Logging Demo"
+  description="Exercises `log_info`, `log_warn`, `log_error`, and `log_debug`"
+  successMessage="All log levels exercised!"
+/>
+
+---
+
+## 13. Multiple inputsId (Merging)
+
+When `inputsId` is an array, variables from later Inputs blocks override earlier ones.
+
+<Inputs id="defaults-merge">
+```yaml
+variables:
+  - name: color
+    type: string
+    description: Favorite color
+    default: "blue"
+  - name: size
+    type: string
+    description: T-shirt size
+    default: "medium"
+```
+</Inputs>
+
+<Inputs id="overrides-merge">
+```yaml
+variables:
+  - name: size
+    type: string
+    description: "T-shirt size (this override should win)"
+    default: "large"
+```
+</Inputs>
+
+<Command
+  id="merged-inputs-cmd"
+  inputsId={["defaults-merge", "overrides-merge"]}
+  command="echo 'Color: {{ .inputs.color }}, Size: {{ .inputs.size }}'"
+  title="Merged Inputs"
+  description="Uses `inputsId` as an array. Color comes from first, size should show the override value."
+/>
+
+---
+
+## 14. Auth Blocks
+
+These render the authentication UI. Skip if you don't have credentials -- the blocks below use mock commands.
+
+<AwsAuth
+  id="aws-auth-test"
+  title="AWS Authentication (Optional)"
+  description="Tests AwsAuth block rendering."
+  defaultRegion="us-west-2"
+  detectCredentials={false}
+/>
+
+<GitHubAuth
+  id="gh-auth-test"
+  title="GitHub Authentication (Optional)"
+  description="Tests GitHubAuth block rendering."
+/>
+
+### Command with awsAuthId
+
+<Command
+  id="aws-cmd"
+  command="echo 'AWS auth context would be active here'"
+  title="AWS-Authenticated Command"
+  description="This command is gated on AWS authentication."
+  awsAuthId="aws-auth-test"
+  successMessage="AWS command ran!"
+/>
+
+### Command with githubAuthId
+
+<Command
+  id="gh-cmd"
+  command="echo 'GitHub auth context would be active here'"
+  title="GitHub-Authenticated Command"
+  description="This command is gated on GitHub authentication."
+  githubAuthId="gh-auth-test"
+  successMessage="GitHub command ran!"
+/>
+
+---
+
+## 15. GitClone
+
+<GitClone
+  id="clone-test"
+  title="Clone a Repository"
+  description="Tests the GitClone block. Enter a public repo URL to clone."
+  prefilledUrl="https://github.com/gruntwork-io/runbooks.git"
+  prefilledRef="main"
+  showFileTree={true}
+/>
+
+---
+
+## 16. GitHubPullRequest
+
+<GitHubPullRequest
+  id="pr-test"
+  githubAuthId="gh-auth-test"
+  title="Create a Pull Request"
+  description="Tests the GitHubPullRequest block rendering."
+  prefilledPullRequestTitle="Test PR from Kitchen Sink"
+  prefilledPullRequestDescription="## Summary\n- Generated by the kitchen sink test runbook"
+  prefilledPullRequestLabels={["test", "kitchen-sink"]}
+  prefilledBranchName="test/kitchen-sink"
+/>
+
+---
+
+## 17. DirPicker
+
+<DirPicker
+  id="dir-picker-test"
+  rootDir="."
+  title="Pick a Directory"
+  description="Tests the DirPicker block with labels."
+  pathLabel="Target Path"
+  pathLabelDescription="Choose a directory to inspect"
+  dirLabels={["Category", "Subcategory"]}
+/>
+
+---
+
+## 18. Template Expressions in Block Props
+
+This section confirms that `{{ .inputs.* }}` and `{{ .outputs.* }}` resolve correctly in `title` and `description` props across various block types.
+
+<Command
+  id="expr-test"
+  command="echo 'Expressions resolved successfully'"
+  inputsId="all-types"
+  title="Deploy to {{ .inputs.enum_field }}"
+  description="Project **{{ .inputs.plain_string }}** deploying to account {{ .outputs.setup_outputs.account_id }} in {{ .outputs.setup_outputs.region }}"
+  successMessage="Expressions in props work!"
+/>
+
+<Check
+  id="expr-check"
+  command="exit 0"
+  inputsId="all-types"
+  title="Validate {{ .inputs.enum_field }} environment"
+  description="Checking account {{ .outputs.setup_outputs.account_id }}"
+  successMessage="Expression check passed!"
+/>
+
+---
+
+## Done!
+
+If every section above rendered correctly and all Commands/Checks ran as expected, the Electron rewrite is in good shape.

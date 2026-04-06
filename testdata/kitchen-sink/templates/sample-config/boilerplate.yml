@@ -1,0 +1,31 @@
+variables:
+  - name: app_name
+    type: string
+    description: Application name
+    default: "my-app"
+    validations:
+      - required
+    x-section: Application Settings
+
+  - name: port
+    type: int
+    description: Application port
+    default: 8080
+    x-section: Application Settings
+
+  - name: enable_tls
+    type: bool
+    description: Enable TLS encryption
+    default: false
+    x-section: Security Settings
+
+  - name: log_level
+    type: enum
+    description: Logging verbosity
+    options:
+      - debug
+      - info
+      - warn
+      - error
+    default: info
+    x-section: Application Settings

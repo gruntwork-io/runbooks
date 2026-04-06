@@ -61,7 +61,6 @@ const ENDPOINT_TO_CHANNEL: Record<string, string> = {
   '/api/git/pull-request': 'git:pull-request',
   '/api/git/branch': 'git:delete-branch',
   '/api/exec': 'exec:run',
-  '/api/tf/parse': 'tf:parse',
 };
 
 function resolveChannel(endpoint: string): string | null {

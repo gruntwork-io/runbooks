@@ -290,20 +290,6 @@ The `<GitHubPullRequest>` block supports template expressions in:
 />
 ```
 
-### TfModule with Template Expressions
-
-The `<TfModule>` block supports template expressions in its display props:
-
-```mdx
-<TfModule
-  id="vpc-module-demo"
-  inputsId="tagging-inputs"
-  source="../modules/vpc"
-  title="Configure VPC for {{ .inputs.environment }}"
-  description="Deploy VPC in account {{ .outputs.create_account.account_id }}, region {{ .outputs.create_account.region }}"
-/>
-```
-
 ### AwsAuth and GitHubAuth
 
 These blocks support template expressions only in display props (`title`, `description`), which are used for customizing the authentication UI:

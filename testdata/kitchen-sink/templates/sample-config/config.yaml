@@ -1,0 +1,11 @@
+# Generated Configuration
+app:
+  name: "{{ .app_name }}"
+  port: {{ .port }}
+  tls_enabled: {{ .enable_tls }}
+  log_level: "{{ .log_level }}"
+
+# Values from block outputs (dependency tracking test)
+infrastructure:
+  account_id: "{{ .outputs.setup_outputs.account_id }}"
+  region: "{{ .outputs.setup_outputs.region }}"
