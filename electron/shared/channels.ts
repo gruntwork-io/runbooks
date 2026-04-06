@@ -172,6 +172,7 @@ export interface IpcEventMap {
   "git:push-progress": { line: string; timestamp: string }
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
+  "registry:updated": void
 }
 
 // ---------------------------------------------------------------------------

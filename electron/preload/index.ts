@@ -28,6 +28,7 @@ const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
   "git:clone-progress", "git:push-progress",
   "file:open-runbook",
   "menu:open-url-prompt",
+  "registry:updated",
 ])
 
 export interface TypedApi {

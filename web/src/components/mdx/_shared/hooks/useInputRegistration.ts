@@ -99,6 +99,17 @@ export function useInputRegistration({
     }, {} as Record<string, unknown>)
   }, [formState])
 
+  // Register default values immediately so downstream components referencing
+  // this block via inputsId can resolve template expressions before the user
+  // explicitly submits.
+  const hasRegisteredDefaults = useRef(false)
+  useEffect(() => {
+    if (boilerplateConfig && Object.keys(initialData).length > 0 && !hasRegisteredDefaults.current) {
+      hasRegisteredDefaults.current = true
+      registerInputs(id, initialData, boilerplateConfig)
+    }
+  }, [id, boilerplateConfig, initialData, registerInputs])
+
   // 5. Error effect — report config/setup issues to the global banner.
   // apiError is intentionally omitted here; it is rendered inline by the component (e.g., ErrorDisplay).
   useEffect(() => {

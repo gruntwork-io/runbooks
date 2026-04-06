@@ -26,8 +26,10 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
   const [useExecutableRegistry, setUseExecutableRegistry] = useState(true)
   const api = useApi()
 
-  const fetchRegistry = useCallback(async () => {
-    setLoading(true)
+  const fetchRegistry = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+    }
     setError(null)
 
     try {
@@ -69,6 +71,18 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
     }
   }, [useExecutableRegistry, fetchRegistry])
 
+  // Re-fetch registry when the main process signals it has been rebuilt.
+  // Use silent mode to avoid blocking the UI (which would unmount App and
+  // trigger an infinite remount loop).
+  useEffect(() => {
+    const cleanup = api.on('registry:updated', () => {
+      if (useExecutableRegistry) {
+        fetchRegistry(true)
+      }
+    })
+    return cleanup
+  }, [api, useExecutableRegistry, fetchRegistry])
+
   const getExecutableByComponentId = (componentId: string): Executable | null => {
     if (!registry) return null
 
@@ -82,33 +96,9 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
     return null
   }
 
-  // Show error state if registry fails to load
-  if (error) {
-    return (
-      <div className="p-8 text-center bg-red-50 border-2 border-red-600 m-8 rounded-lg w-2xl mx-auto">
-        <h2 className="text-red-600 text-2xl font-semibold mb-3">{error.message}</h2>
-        <p className="text-lg mb-2">{error.details}</p>
-        <p className="text-gray-600 text-sm mt-2 w-xl text-center mx-auto">
-          The executable registry is a list of all the "executables" like files, scripts, or commands in the runbook. We use the executable registry so that only Runbook-authored executables are actually executed, not arbitrary scripts. The Executable Registry loads at runtime, but it looks like we hit an error trying to do that.
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-6 px-6 py-3 text-base bg-red-600 text-white rounded cursor-pointer hover:bg-red-700 transition-colors"
-        >
-          Reload Page
-        </button>
-      </div>
-    )
-  }
-
-  // Show loading state
-  if (loading) {
-    return (
-      <div className="p-8 text-center text-gray-600">
-        <p>Loading executable registry...</p>
-      </div>
-    )
-  }
+  // Don't block rendering while loading or on error — the registry is populated
+  // asynchronously after runbook:get completes and sends registry:updated. Individual
+  // components handle the missing-executable case gracefully.
 
   const value: ExecutableRegistryContextValue = {
     registry,

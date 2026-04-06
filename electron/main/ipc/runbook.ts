@@ -54,6 +54,12 @@ export function registerRunbookHandlers(): void {
       )
       setExecutableRegistry(registry)
 
+      // Notify the renderer that the registry has been rebuilt
+      const win = getMainWindow()
+      if (win) {
+        win.webContents.send("registry:updated")
+      }
+
       const ext = path.extname(runbookPath).replace(/^\./, "")
 
       return {

@@ -54,8 +54,11 @@ export function registerExecHandlers(): void {
       execRunning = true
 
       try {
+        // Use forkDaemon so the fiber survives the parent scope,
+        // then await it explicitly. Plain Effect.fork would get
+        // interrupted when the parent runPromise scope closes.
         const fiber = await runtime.runPromise(
-          Effect.fork(
+          Effect.forkDaemon(
             Effect.scoped(
               Effect.gen(function* () {
                 // Get execution context from the session (no token needed for IPC)
@@ -132,7 +135,7 @@ export function registerExecHandlers(): void {
           ),
         )
 
-        // Store fiber reference immediately after fork (before await)
+        // Store fiber reference for cancellation support
         activeExecFiber = fiber
 
         const exit = await runtime.runPromise(Fiber.await(fiber))
