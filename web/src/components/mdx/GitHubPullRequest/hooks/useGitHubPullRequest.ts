@@ -149,16 +149,21 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
 
       // Invoke the IPC command
       await window.api.invoke(opts.channel, opts.body)
+
+      // Clean up listeners after a short delay to allow late-arriving
+      // IPC events to be delivered (event.sender.send events arrive
+      // asynchronously after invoke resolves).
+      setTimeout(() => {
+        for (const unsub of unsubscribers) unsub()
+      }, 200)
+      isRunningRef.current = false
     } catch (error) {
       const msg = error instanceof Error ? error.message : `${opts.errorPrefix} failed`
       opts.onError(msg)
       setStatus(opts.errorStatus)
       setLogs(prev => [...prev, createLogEntry(`${opts.errorPrefix}: ${msg}`)])
-    } finally {
-      // Unsubscribe from all events
-      for (const unsub of unsubscribers) {
-        unsub()
-      }
+      // Clean up listeners immediately on error (no more events expected)
+      for (const unsub of unsubscribers) unsub()
       isRunningRef.current = false
     }
   }, [id, registerOutputs])

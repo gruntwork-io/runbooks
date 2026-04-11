@@ -149,33 +149,34 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
         }
       })
 
-      try {
-        const result = await window.api.invoke<{
-          status: string
-          error?: string
-          fileCount?: number
-          absolutePath?: string
-          relativePath?: string
-          outputs?: Record<string, string>
-        }>('git:clone', body)
+      const result = await window.api.invoke<{
+        status: string
+        error?: string
+        fileCount?: number
+        absolutePath?: string
+        relativePath?: string
+        outputs?: Record<string, string>
+      }>('git:clone', body)
 
-        if (result.error === 'directory_exists') {
-          setCloneStatus('ready')
-          return 'directory_exists'
-        }
+      // Clean up progress listener after a short delay to allow
+      // late-arriving IPC events to be delivered (event.sender.send
+      // events arrive asynchronously after invoke resolves).
+      setTimeout(() => unsubLog(), 200)
 
-        if (result.status === 'success') {
-          if (result.outputs) {
-            registerOutputs(id, result.outputs)
-          }
-          setCloneResult(result as unknown as typeof cloneResult)
-          setCloneStatus('success')
-        } else {
-          setErrorMessage(result.error || 'Clone failed')
-          setCloneStatus('fail')
+      if (result.error === 'directory_exists') {
+        setCloneStatus('ready')
+        return 'directory_exists'
+      }
+
+      if (result.status === 'success') {
+        if (result.outputs) {
+          registerOutputs(id, result.outputs)
         }
-      } finally {
-        unsubLog()
+        setCloneResult(result as unknown as typeof cloneResult)
+        setCloneStatus('success')
+      } else {
+        setErrorMessage(result.error || 'Clone failed')
+        setCloneStatus('fail')
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
