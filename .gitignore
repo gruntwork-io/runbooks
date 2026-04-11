@@ -34,3 +34,6 @@ TODO/
 
 # Ignore downloaded dependencies
 node_modules/*
+
+# Ignore additional binaries
+resources/bin/*

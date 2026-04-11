@@ -14,16 +14,20 @@ dev-runbook path="testdata/my-first-runbook":
 
 # --- Build ---
 
-# Build the Electron app
+# Build the Electron app (main + preload + renderer)
 build:
     mise x node -- npx electron-vite build
 
+# Compile the test CLI as a standalone binary (no Node.js required)
+compile-test-cli:
+    mise x bun -- bun build --compile --outfile resources/bin/runbooks-test cli/index.ts
+
 # Package the Electron app for distribution
-package: build
+package: build compile-test-cli
     mise x node -- npx electron-builder
 
 # Package for local testing (re-signs with ad-hoc identity for macOS compatibility)
-package-local: build
+package-local: build compile-test-cli
     #!/usr/bin/env bash
     CSC_IDENTITY_AUTO_DISCOVERY=false mise x node -- npx electron-builder
     if [[ "$(uname)" == "Darwin" ]]; then
@@ -34,7 +38,7 @@ package-local: build
 
 # Remove build artifacts
 clean:
-    rm -rf dist out
+    rm -rf dist out resources/bin/runbooks-test
 
 # --- Test ---
 
@@ -45,14 +49,14 @@ test: test-unit test-e2e test-runbooks test-docs
 test-unit:
     mise x bun -- bun run vitest run
 
-# Run Playwright E2E tests
+# Run Playwright E2E tests (requires build)
 test-e2e: build
     mise x bun -- bunx playwright test --config web/playwright.config.ts
-    mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts
+    mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
-# Run automated runbook tests
-test-runbooks: build
-    mise x node -- node dist/main/cli.js test testdata/...
+# Run automated runbook tests via compiled CLI
+test-runbooks: build compile-test-cli
+    resources/bin/runbooks-test test testdata/...
 
 # Run docs tests (spellcheck + link check)
 test-docs:

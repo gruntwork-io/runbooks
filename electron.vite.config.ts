@@ -13,7 +13,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: path.resolve(__dirname, "electron/main/index.ts"),
-          cli: path.resolve(__dirname, "cli/index.ts"),
         },
       },
     },
