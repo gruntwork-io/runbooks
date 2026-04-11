@@ -3,7 +3,7 @@
  * Port of api/git_clone.go and api/github_pull_request.go.
  */
 import path from "path"
-import { Effect, Stream } from "effect"
+import { Effect, Stream, Chunk } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type {
   CloneOptions,
@@ -12,6 +12,7 @@ import type {
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
+import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 
 // ---------------------------------------------------------------------------
@@ -226,24 +227,19 @@ export const resolveClonePaths = (
 // ---------------------------------------------------------------------------
 
 /**
- * Count files in a directory, excluding the .git directory.
+ * Count tracked files in a git repository using `git ls-files`.
+ * Falls back to 0 if the command fails (e.g., not a git repo).
  */
 export const countFiles = (dir: string) =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem
-
-    let count = 0
-    yield* fs.walk(dir).pipe(
-      Stream.filter((entry) => entry.isFile && !entry.relativePath.startsWith(".git/") && entry.relativePath !== ".git"),
-      Stream.runForEach(() =>
-        Effect.sync(() => {
-          count++
-        }),
-      ),
-    )
-
-    return count
-  })
+    const spawner = yield* ProcessSpawner
+    const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir })
+    const chunks = yield* Stream.runCollect(proc.output)
+    const lines = Chunk.toArray(chunks)
+    const code = yield* proc.exitCode
+    if (code !== 0) return 0
+    return lines.filter((l) => l.source === "stdout" && l.line.trim() !== "").length
+  }).pipe(Effect.catchAll(() => Effect.succeed(0)))
 
 // ---------------------------------------------------------------------------
 // URL Parsing

@@ -10,6 +10,7 @@ import {
   runtime,
   runbookConfig,
   executableRegistry,
+  sessionManager,
   setExecutableRegistry,
   setRunbookConfig,
 } from "./runtime.ts"
@@ -44,6 +45,12 @@ export function registerRunbookHandlers(): void {
         useExecutableRegistry: true,
       }
       setRunbookConfig(config)
+
+      // Update the session's working directory to the runbook's parent dir.
+      // The session may have been created with '.' before the runbook path
+      // was known.
+      const runbookDir = path.dirname(runbookPath)
+      sessionManager.setWorkingDir(runbookDir)
 
       // Read the runbook file content
       const fileData = await runtime.runPromise(readFileMetadata(runbookPath))

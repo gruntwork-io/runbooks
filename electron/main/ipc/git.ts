@@ -8,8 +8,8 @@
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
+import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
-  cloneRepository,
   resolveClonePaths,
   countFiles,
   deleteBranch,
@@ -19,6 +19,8 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
+import * as fs from "node:fs"
+function debugLog(msg: string) { fs.appendFileSync("/tmp/runbooks-git-debug.log", new Date().toISOString() + " " + msg + "\n") }
 import { PathTraversalError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
 
@@ -35,6 +37,7 @@ export function registerGitHandlers(): void {
       },
     ) => {
       return runtime.runPromise(
+        Effect.scoped(
         Effect.gen(function* () {
           // Resolve clone destination paths
           const session = yield* sessionManager.getSession()
@@ -59,35 +62,64 @@ export function registerGitHandlers(): void {
             token: params.credentials?.token,
           }
 
-          // Get the progress stream
-          const progressStream = yield* cloneRepository(
-            params.url,
-            paths.absolutePath,
-            options,
-          )
+          // Clone the repository using direct process spawning.
+          // We avoid the GitClient's stream-based API because
+          // Stream.runCollect hangs in Electron's runtime.runPromise.
+          const spawner = yield* ProcessSpawner
+          const cloneArgs = ["clone", "--progress"]
+          if (options.ref) cloneArgs.push("--branch", options.ref)
 
-          // Stream progress events to the renderer
-          yield* Stream.runForEach(progressStream, (progress) =>
+          const effectiveUrl = options.token
+            ? (() => { try { const u = new URL(params.url); u.username = "x-access-token"; u.password = options.token!; return u.toString(); } catch { return params.url; } })()
+            : params.url
+
+          cloneArgs.push(effectiveUrl, paths.absolutePath)
+
+          // debugLog("[git:clone] spawning git process...")
+          const proc = yield* spawner.spawn("git", cloneArgs, {})
+
+          // debugLog("[git:clone] draining output stream...")
+          yield* Stream.runForEach(proc.output, (line) =>
             Effect.sync(() => {
               event.sender.send("git:clone-progress", {
-                line: progress.line,
-                timestamp: progress.timestamp,
+                line: line.line,
+                timestamp: new Date().toISOString(),
               })
             }),
           )
 
-          // Count files in the cloned repo
+          // debugLog("[git:clone] getting exit code...")
+          const exitCode = yield* proc.exitCode
+          // debugLog("[git:clone] exit code: " + exitCode)
+          if (exitCode !== 0) {
+            return yield* Effect.fail(
+              new PathTraversalError({
+                path: paths.absolutePath,
+                message: `git clone failed with exit code ${exitCode}`,
+              }),
+            )
+          }
+
+          event.sender.send("git:clone-progress", {
+            line: "Clone complete. Counting files...",
+            timestamp: new Date().toISOString(),
+          })
+
+          // Count tracked files using `git ls-files` (fast, ~10ms)
           const fileCount = yield* countFiles(paths.absolutePath)
 
           // Register the worktree path
           sessionManager.registerWorkTreePath(paths.absolutePath)
+          // debugLog("[git:clone] registered worktree, returning result")
 
           return {
             absolutePath: paths.absolutePath,
             relativePath: paths.relativePath,
             fileCount,
+            status: "success" as const,
           }
         }),
+        ),
       )
     },
   )

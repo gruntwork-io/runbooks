@@ -222,6 +222,17 @@ export class SessionManager {
   }
 
   /**
+   * Update the session's working directory.
+   * Called when the runbook loads and we know the actual path.
+   */
+  setWorkingDir(dir: string): void {
+    if (this.session) {
+      this.session.workingDir = dir
+      this.session.initialWorkDir = dir
+    }
+  }
+
+  /**
    * Reset the session to its initial environment and working directory.
    */
   resetSession() {
