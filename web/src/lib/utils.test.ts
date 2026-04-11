@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getDirectoryPath } from './utils'
+import { getDirectoryPath, normalizeBlockId } from './utils'
 
 describe('getDirectoryPath', () => {
   it('should extract directory path from file path with extension', () => {
@@ -64,5 +64,35 @@ describe('getDirectoryPath', () => {
     expect(getDirectoryPath('relative/path/file.txt')).toBe('relative/path')
     expect(getDirectoryPath('./local/file.txt')).toBe('./local')
     expect(getDirectoryPath('../parent/file.txt')).toBe('../parent')
+  })
+})
+
+describe('normalizeBlockId', () => {
+  it('replaces hyphens with underscores', () => {
+    expect(normalizeBlockId('create-account')).toBe('create_account')
+  })
+
+  it('leaves underscores unchanged', () => {
+    expect(normalizeBlockId('create_account')).toBe('create_account')
+  })
+
+  it('handles mixed hyphens and underscores', () => {
+    expect(normalizeBlockId('my-block_id')).toBe('my_block_id')
+  })
+
+  it('handles multiple consecutive hyphens', () => {
+    expect(normalizeBlockId('a--b---c')).toBe('a__b___c')
+  })
+
+  it('returns empty string for empty input', () => {
+    expect(normalizeBlockId('')).toBe('')
+  })
+
+  it('preserves case', () => {
+    expect(normalizeBlockId('My-Block')).toBe('My_Block')
+  })
+
+  it('handles IDs with no hyphens', () => {
+    expect(normalizeBlockId('simpleblock')).toBe('simpleblock')
   })
 })

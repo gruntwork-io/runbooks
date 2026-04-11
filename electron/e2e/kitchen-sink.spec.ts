@@ -25,6 +25,9 @@ const KITCHEN_SINK = path.join(ROOT, "testdata/kitchen-sink")
 let app: ElectronApplication
 let page: Page
 
+// Collect console errors during the entire test suite
+const consoleErrors: string[] = []
+
 test.beforeAll(async () => {
   app = await electron.launch({
     args: [MAIN_ENTRY, KITCHEN_SINK],
@@ -36,6 +39,14 @@ test.beforeAll(async () => {
   })
 
   page = await app.firstWindow()
+
+  // Capture console errors for the duration of the test suite
+  page.on("console", (msg) => {
+    if (msg.type() === "error") {
+      consoleErrors.push(msg.text())
+    }
+  })
+
   await page.waitForLoadState("domcontentloaded")
 
   // Wait for the runbook MDX content to compile and render.
@@ -81,6 +92,19 @@ test.describe("Markdown Rendering", () => {
     const quote = page.locator("blockquote").first()
     await expect(quote).toBeVisible()
   })
+
+  test("renders lists", async () => {
+    // Unordered
+    const ul = page.locator("ul").first()
+    await expect(ul).toBeVisible()
+    // Ordered
+    const ol = page.locator("ol").first()
+    await expect(ol).toBeVisible()
+  })
+
+  test("renders links", async () => {
+    await expect(page.getByText("Runbooks Documentation")).toBeVisible()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -95,6 +119,10 @@ test.describe("Admonitions", () => {
     await expect(page.getByText("This is a warning admonition", { exact: false })).toBeVisible()
     await expect(page.getByText("This is a danger admonition", { exact: false })).toBeVisible()
   })
+
+  test("danger admonition has confirmation button", async () => {
+    await expect(page.getByText("I understand the risks")).toBeVisible()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -108,6 +136,34 @@ test.describe("Inputs", () => {
     await expect(page.getByText("An integer input")).toBeVisible()
     await expect(page.getByText("A boolean toggle")).toBeVisible()
     await expect(page.getByText("Pick an environment")).toBeVisible()
+  })
+
+  test("all-types form has default values pre-populated", async () => {
+    const allTypesBlock = page.locator('[data-testid="all-types"]')
+    await allTypesBlock.scrollIntoViewIfNeeded()
+
+    // String default
+    const plainString = allTypesBlock.locator('[data-testid="field-plain_string"] input')
+    await expect(plainString).toHaveValue("hello world")
+
+    // Integer default
+    const intField = allTypesBlock.locator('[data-testid="field-int_field"] input')
+    await expect(intField).toHaveValue("42")
+
+    // Email default
+    const emailField = allTypesBlock.locator('[data-testid="field-email_field"] input')
+    await expect(emailField).toHaveValue("user@example.com")
+  })
+
+  test("sensitive field is masked", async () => {
+    const allTypesBlock = page.locator('[data-testid="all-types"]')
+    const secretField = allTypesBlock.locator('[data-testid="field-secret_field"] input')
+    await expect(secretField).toHaveAttribute("type", "password")
+  })
+
+  test("renders merging inputs blocks", async () => {
+    await expect(page.locator('[data-testid="defaults-merge"]')).toBeVisible()
+    await expect(page.locator('[data-testid="overrides-merge"]')).toBeVisible()
   })
 })
 
@@ -132,6 +188,21 @@ test.describe("Commands", () => {
     await expect(page.getByText("Setup Block Outputs")).toBeVisible()
   })
 
+  test("renders the command with inputsId", async () => {
+    await expect(page.locator('[data-testid="cmd-with-inputs"]')).toBeVisible()
+  })
+
+  test("renders the consume-outputs command", async () => {
+    await expect(page.locator('[data-testid="consume-outputs"]')).toBeVisible()
+  })
+
+  test("renders the inline-inputs command with nested form", async () => {
+    const section = page.locator('[data-testid="cmd-inline-inputs"]')
+    await expect(section).toBeVisible()
+    // Should have the nested Inputs form rendered
+    await expect(page.locator('[data-testid="inline-cmd-vars"]')).toBeVisible()
+  })
+
   test("inline command has a Run button", async () => {
     // Find the simple inline command section and its Run button
     const cmdSection = page.locator('[data-testid="simple-inline-cmd"]')
@@ -139,23 +210,30 @@ test.describe("Commands", () => {
     await expect(runButton).toBeVisible()
   })
 
-  test("can execute the simple inline command to completion", async () => {
-    // Dismiss the trust confirmation if it appears
-    const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
-    if (await trustButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await trustButton.click()
-      await expect(trustButton).not.toBeVisible({ timeout: 5_000 })
-    }
+  test("renders complex outputs command", async () => {
+    await expect(page.locator('[data-testid="list-complex-data"]')).toBeVisible()
+    await expect(page.getByText("Produce Complex Outputs")).toBeVisible()
+  })
 
-    const cmdSection = page.locator('[data-testid="simple-inline-cmd"]')
-    await cmdSection.scrollIntoViewIfNeeded()
-    const runButton = cmdSection.getByRole("button", { name: "Run" })
-    await runButton.click()
+  test("renders merged-inputs command", async () => {
+    await expect(page.locator('[data-testid="merged-inputs-cmd"]')).toBeVisible()
+    await expect(page.getByText("Merged Inputs")).toBeVisible()
+  })
 
-    // Wait for the command to complete with a success message
-    await expect(cmdSection.getByText("succeeded", { exact: false })).toBeVisible({
-      timeout: 15_000,
-    })
+  test("renders expression-test command", async () => {
+    await expect(page.locator('[data-testid="expr-test"]')).toBeVisible()
+  })
+
+  test("renders all environment and workdir commands", async () => {
+    await expect(page.locator('[data-testid="set-env"]')).toBeVisible()
+    await expect(page.locator('[data-testid="change-dir"]')).toBeVisible()
+    await expect(page.locator('[data-testid="capture-files"]')).toBeVisible()
+    await expect(page.locator('[data-testid="logging-demo"]')).toBeVisible()
+  })
+
+  test("auth-gated commands are visible", async () => {
+    await expect(page.locator('[data-testid="aws-cmd"]')).toBeVisible()
+    await expect(page.locator('[data-testid="gh-cmd"]')).toBeVisible()
   })
 })
 
@@ -178,8 +256,6 @@ test.describe("Path Resolution", () => {
     // Script commands should show their script content, not file-read errors
     const cmdSection = page.locator('[data-testid="setup-outputs"]')
     await expect(cmdSection).toBeVisible()
-    const errorInSection = cmdSection.getByText("Error", { exact: false })
-    // Allow "Error" in description text but not error banners
     const errorBanners = cmdSection.locator(".bg-red-50")
     await expect(errorBanners).toHaveCount(0)
   })
@@ -193,6 +269,34 @@ test.describe("Check Blocks", () => {
   test("renders check blocks", async () => {
     await expect(page.getByText("Check That Passes")).toBeVisible()
     await expect(page.getByText("Check That Warns")).toBeVisible()
+  })
+
+  test("check blocks have Check buttons", async () => {
+    const checkPass = page.locator('[data-testid="check-pass"]')
+    await checkPass.scrollIntoViewIfNeeded()
+    await expect(checkPass.getByRole("button", { name: "Check" })).toBeVisible()
+
+    const checkWarn = page.locator('[data-testid="check-warn"]')
+    await checkWarn.scrollIntoViewIfNeeded()
+    await expect(checkWarn.getByRole("button", { name: "Check" })).toBeVisible()
+  })
+
+  test("parameterized check renders with inline form", async () => {
+    const section = page.locator('[data-testid="check-with-inputs"]')
+    await expect(section).toBeVisible()
+    await expect(page.locator('[data-testid="check-tool-inputs"]')).toBeVisible()
+  })
+
+  test("expression check renders", async () => {
+    await expect(page.locator('[data-testid="expr-check"]')).toBeVisible()
+  })
+
+  test("verify-env check renders", async () => {
+    await expect(page.locator('[data-testid="verify-env"]')).toBeVisible()
+  })
+
+  test("verify-workdir check renders", async () => {
+    await expect(page.locator('[data-testid="verify-workdir"]')).toBeVisible()
   })
 })
 
@@ -208,25 +312,256 @@ test.describe("Templates", () => {
     await expect(heading).toBeVisible()
   })
 
+  test("template block renders", async () => {
+    const tpl = page.locator('[data-testid="sample-config"]')
+    await tpl.scrollIntoViewIfNeeded()
+    await expect(tpl).toBeVisible()
+  })
+
   test("template inline section heading renders", async () => {
     const heading = page.getByText("9. TemplateInline", { exact: false })
     await heading.scrollIntoViewIfNeeded()
     await expect(heading).toBeVisible()
   })
+
+  test("all template inline blocks render", async () => {
+    await expect(page.locator('[data-testid="simple-inline-tpl"]')).toBeVisible()
+    await expect(page.locator('[data-testid="output-preview"]')).toBeVisible()
+    await expect(page.locator('[data-testid="gen-file-tpl"]')).toBeVisible()
+    await expect(page.locator('[data-testid="combined-tpl"]')).toBeVisible()
+  })
+
+  test("template inline blocks show no errors", async () => {
+    for (const id of ["simple-inline-tpl", "output-preview", "gen-file-tpl", "combined-tpl"]) {
+      const block = page.locator(`[data-testid="${id}"]`)
+      const errorBanner = block.locator(".bg-red-50")
+      await expect(errorBanner).toHaveCount(0)
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
-// 8. Error Summary Banner
+// 8. Auth Blocks
 // ---------------------------------------------------------------------------
 
-test.describe("Error Summary Banner", () => {
-  test("no path-related or executable errors remain", async () => {
+test.describe("Auth Blocks", () => {
+  test("AwsAuth block renders", async () => {
+    const block = page.locator('[data-testid="aws-auth-test"]')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    await expect(page.getByText("AWS Authentication (Optional)")).toBeVisible()
+  })
+
+  test("GitHubAuth block renders", async () => {
+    const block = page.locator('[data-testid="gh-auth-test"]')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    await expect(page.getByText("GitHub Authentication (Optional)")).toBeVisible()
+  })
+
+  test("AwsAuth block has no errors", async () => {
+    const block = page.locator('[data-testid="aws-auth-test"]')
+    const errorBanner = block.locator(".bg-red-50")
+    await expect(errorBanner).toHaveCount(0)
+  })
+
+  test("GitHubAuth block has no errors", async () => {
+    const block = page.locator('[data-testid="gh-auth-test"]')
+    const errorBanner = block.locator(".bg-red-50")
+    await expect(errorBanner).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 9. GitClone
+// ---------------------------------------------------------------------------
+
+test.describe("GitClone Block", () => {
+  test("renders with prefilled URL", async () => {
+    const block = page.locator('[data-testid="clone-test"]')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    // Scope to the block to avoid matching hint text elsewhere
+    await expect(block.getByText("Clone a Repository")).toBeVisible()
+  })
+
+  test("has no errors", async () => {
+    const block = page.locator('[data-testid="clone-test"]')
+    const errorBanner = block.locator(".bg-red-50")
+    await expect(errorBanner).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 10. GitHubPullRequest
+// ---------------------------------------------------------------------------
+
+test.describe("GitHubPullRequest Block", () => {
+  test("renders", async () => {
+    const block = page.locator('[data-testid="pr-test"]')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    await expect(page.getByText("Create a Pull Request")).toBeVisible()
+  })
+
+  test("has no errors", async () => {
+    const block = page.locator('[data-testid="pr-test"]')
+    const errorBanner = block.locator(".bg-red-50")
+    await expect(errorBanner).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 11. DirPicker
+// ---------------------------------------------------------------------------
+
+test.describe("DirPicker Block", () => {
+  test("renders with labels", async () => {
+    const block = page.locator('[data-testid="dir-picker-test"]')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    await expect(page.getByText("Pick a Directory")).toBeVisible()
+  })
+
+  test("has no errors", async () => {
+    const block = page.locator('[data-testid="dir-picker-test"]')
+    const errorBanner = block.locator(".bg-red-50")
+    await expect(errorBanner).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 12. All Blocks Present (comprehensive check)
+// ---------------------------------------------------------------------------
+
+test.describe("All Blocks Present", () => {
+  // Every block ID from the kitchen-sink runbook
+  const allBlockIds = [
+    // Inputs
+    "all-types",
+    "defaults-merge",
+    "overrides-merge",
+    "inline-cmd-vars",
+    "check-tool-inputs",
+    // Commands
+    "simple-inline-cmd",
+    "setup-outputs",
+    "cmd-with-inputs",
+    "consume-outputs",
+    "cmd-inline-inputs",
+    "list-complex-data",
+    "set-env",
+    "change-dir",
+    "capture-files",
+    "logging-demo",
+    "merged-inputs-cmd",
+    "aws-cmd",
+    "gh-cmd",
+    "expr-test",
+    // Checks
+    "check-pass",
+    "check-warn",
+    "check-with-inputs",
+    "verify-env",
+    "verify-workdir",
+    "expr-check",
+    // Templates
+    "sample-config",
+    "simple-inline-tpl",
+    "output-preview",
+    "gen-file-tpl",
+    "combined-tpl",
+    // TemplateInline complex data
+    "users-list",
+    "teams-list",
+    // Auth
+    "aws-auth-test",
+    "gh-auth-test",
+    // Git
+    "clone-test",
+    "pr-test",
+    // DirPicker
+    "dir-picker-test",
+  ]
+
+  for (const id of allBlockIds) {
+    test(`block "${id}" is present`, async () => {
+      const block = page.locator(`[data-testid="${id}"]`)
+      await expect(block).toBeAttached()
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 13. No Errors (comprehensive)
+// ---------------------------------------------------------------------------
+
+test.describe("Error-Free Rendering", () => {
+  test("no 'Executable not found' errors", async () => {
+    await expect(page.getByText("Executable not found", { exact: false })).toHaveCount(0)
+  })
+
+  test("no 'Path outside allowed directories' errors", async () => {
+    await expect(page.getByText("Path outside allowed directories", { exact: false })).toHaveCount(0)
+  })
+
+  test("no 'path is outside session working directory' errors", async () => {
+    await expect(page.getByText("path is outside session working directory", { exact: false })).toHaveCount(0)
+  })
+
+  test("no MDX compilation errors", async () => {
+    await expect(page.locator('[data-testid="mdx-error"]')).toHaveCount(0)
+  })
+
+  test("no inline error banners across any block", async () => {
+    // Error display components use a specific test ID pattern
+    const errorDisplays = page.locator('[data-testid^="error-"]')
+    await expect(errorDisplays).toHaveCount(0)
+  })
+
+  test("error summary banner shows zero issues", async () => {
     // Scroll to top to check for the banner
     await page.evaluate(() => window.scrollTo(0, 0))
+    // The banner only renders when there are errors/warnings.
+    // If it's not present at all, that means 0 issues — which is the happy path.
+    const banner = page.getByText("This runbook has issues:", { exact: false })
+    await expect(banner).toHaveCount(0)
+  })
 
-    // These critical errors should never appear
-    await expect(page.getByText("Path outside allowed directories", { exact: false })).toHaveCount(0)
-    await expect(page.getByText("Executable not found", { exact: false })).toHaveCount(0)
-    await expect(page.getByText("path is outside session working directory", { exact: false })).toHaveCount(0)
+  test("no console errors during rendering", async () => {
+    // Filter out known non-critical errors (e.g., favicon 404, CSP for external images)
+    const critical = consoleErrors.filter(
+      (err) =>
+        !err.includes("favicon") &&
+        !err.includes("DevTools") &&
+        !err.includes("Electron Security Warning") &&
+        !err.includes("Content Security Policy"),
+    )
+    expect(critical).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 14. Command Execution (smoke test)
+// ---------------------------------------------------------------------------
+
+test.describe("Command Execution", () => {
+  test("can execute the simple inline command to completion", async () => {
+    // Dismiss the trust confirmation if it appears
+    const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
+    if (await trustButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await trustButton.click()
+      await expect(trustButton).not.toBeVisible({ timeout: 5_000 })
+    }
+
+    const cmdSection = page.locator('[data-testid="simple-inline-cmd"]')
+    await cmdSection.scrollIntoViewIfNeeded()
+    const runButton = cmdSection.getByRole("button", { name: "Run" })
+    await runButton.click()
+
+    // Wait for the command to complete with a success message
+    await expect(cmdSection.getByText("succeeded", { exact: false })).toBeVisible({
+      timeout: 15_000,
+    })
   })
 })

@@ -89,8 +89,8 @@ export function registerExecHandlers(): void {
                   ? runbookConfig.localPath.replace(/\/[^/]+$/, "/output")
                   : ""
 
-                // Execute the script and get the event stream
-                const eventStream: Stream.Stream<ExecEvent, any, any> = yield* executeScript(
+                // Execute the script — returns log stream + completion effect
+                const { logStream, completionEffect } = yield* executeScript(
                   scriptContent,
                   executable.language,
                   params,
@@ -99,35 +99,42 @@ export function registerExecHandlers(): void {
                   outputPath,
                 )
 
-                // Consume the stream, forwarding events to the renderer
-                let finalStatus: ExecStatusEvent | null = null
-
-                yield* Stream.runForEach(eventStream, (execEvent) =>
-                  Effect.gen(function* () {
-                    switch (execEvent._tag) {
-                      case "log":
-                        event.sender.send("exec:log", execEvent.event)
-                        break
-                      case "status":
-                        finalStatus = execEvent.event
-                        event.sender.send("exec:status", execEvent.event)
-                        break
-                      case "outputs":
-                        event.sender.send("exec:outputs", execEvent.event)
-                        break
-                      case "files_captured":
-                        event.sender.send("exec:files-captured", execEvent.event)
-                        break
-                      case "env_captured": {
-                        const filteredEnv = filterCapturedEnv(execEvent.env)
-                        yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
-                        break
-                      }
-                      case "done":
-                        break
-                    }
+                // Phase 1: Drain log events to renderer in real-time
+                yield* Stream.runForEach(logStream, (logEvent) =>
+                  Effect.sync(() => {
+                    event.sender.send("exec:log", logEvent.event)
                   }),
                 )
+
+                // Phase 2: After process output is complete, run completion
+                // (exit code, outputs, env capture, file capture)
+                let finalStatus: ExecStatusEvent | null = null
+                const completionEvents = yield* completionEffect
+
+                for (const execEvent of completionEvents) {
+                  switch (execEvent._tag) {
+                    case "log":
+                      event.sender.send("exec:log", execEvent.event)
+                      break
+                    case "status":
+                      finalStatus = execEvent.event
+                      event.sender.send("exec:status", execEvent.event)
+                      break
+                    case "outputs":
+                      event.sender.send("exec:outputs", execEvent.event)
+                      break
+                    case "files_captured":
+                      event.sender.send("exec:files-captured", execEvent.event)
+                      break
+                    case "env_captured": {
+                      const filteredEnv = filterCapturedEnv(execEvent.env)
+                      yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
+                      break
+                    }
+                    case "done":
+                      break
+                  }
+                }
 
                 return { status: finalStatus }
               }),

@@ -40,6 +40,21 @@ export function registerBoilerplateHandlers(): void {
           } else if (params.templatePath) {
             resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
             const fs = yield* FileSystem
+
+            // If the path is a directory, look for boilerplate.yml inside it
+            const stat = yield* fs.stat(resolvedTemplatePath)
+            if (stat.isDirectory) {
+              // Try boilerplate.yml, then boilerplate.yaml
+              const ymlPath = `${resolvedTemplatePath}/boilerplate.yml`
+              const yamlPath = `${resolvedTemplatePath}/boilerplate.yaml`
+              const ymlExists = yield* Effect.either(fs.stat(ymlPath))
+              if (ymlExists._tag === "Right") {
+                resolvedTemplatePath = ymlPath
+              } else {
+                resolvedTemplatePath = yamlPath
+              }
+            }
+
             yamlContent = yield* fs.readFile(resolvedTemplatePath)
           } else {
             throw new Error("Either templatePath or boilerplateContent is required")

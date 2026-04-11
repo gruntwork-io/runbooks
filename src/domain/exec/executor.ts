@@ -176,7 +176,7 @@ export const executeScript = (
       env: execEnv,
     })
 
-    // Phase 1: Stream log lines from process output
+    // Stream log lines from process output in real-time
     const logStream = Stream.map(process.output, (outputLine): ExecEvent => ({
       _tag: "log",
       event: {
@@ -186,98 +186,89 @@ export const executeScript = (
       },
     }))
 
-    // Phase 2: After output stream completes, handle completion (exit status,
-    // block outputs, env capture, file capture)
-    const completionStream = Stream.unwrap(
-      Effect.gen(function* () {
-        // Wait for the process to exit, with a timeout
-        const exitResult = yield* process.exitCode.pipe(
-          Effect.timeoutFail({
-            duration: EXEC_TIMEOUT_MS,
-            onTimeout: () => new ExecTimeoutError({ timeoutMs: EXEC_TIMEOUT_MS }),
-          }),
-          Effect.either,
-        )
+    // After output stream completes, build completion events.
+    // We use Stream.concat with a Schedule.spaced(0) drain to avoid
+    // the race condition where emit.end() and exitCode resolve in the
+    // same microtask.
+    const completionEffect = Effect.gen(function* () {
+      // Wait for the process to exit
+      const exitResult = yield* process.exitCode.pipe(
+        Effect.timeoutFail({
+          duration: EXEC_TIMEOUT_MS,
+          onTimeout: () => new ExecTimeoutError({ timeoutMs: EXEC_TIMEOUT_MS }),
+        }),
+        Effect.either,
+      )
 
-        // Determine if we timed out
-        const timedOut = exitResult._tag === "Left" && exitResult.left._tag === "ExecTimeoutError"
-        const exitCode = exitResult._tag === "Right" ? exitResult.right : -1
+      const timedOut = exitResult._tag === "Left" && exitResult.left._tag === "ExecTimeoutError"
+      const exitCode = exitResult._tag === "Right" ? exitResult.right : -1
 
-        // If timed out, kill the process
-        if (timedOut) {
-          yield* process.kill.pipe(Effect.ignore)
+      if (timedOut) {
+        yield* process.kill.pipe(Effect.ignore)
+      }
+
+      const statusEvent = determineExitStatus(exitCode, timedOut)
+      const isSuccessOrWarn = statusEvent.status === "success" || statusEvent.status === "warn"
+
+      const events: ExecEvent[] = []
+
+      if (timedOut) {
+        events.push({
+          _tag: "log",
+          event: {
+            line: `Script execution timed out after ${EXEC_TIMEOUT_MS / 1000 / 60} minutes`,
+            timestamp: new Date().toISOString(),
+          },
+        })
+      }
+
+      events.push({ _tag: "status", event: statusEvent })
+
+      if (isSuccessOrWarn) {
+        const outputs = yield* parseBlockOutputs(outputFilePath)
+        if (Object.keys(outputs).length > 0) {
+          events.push({ _tag: "outputs", event: { outputs } })
         }
+      }
 
-        const statusEvent = determineExitStatus(exitCode, timedOut)
-        const isSuccessOrWarn = statusEvent.status === "success" || statusEvent.status === "warn"
+      if (isSuccessOrWarn && scriptSetup.isBashScript) {
+        const captured = yield* parseEnvCapture(
+          scriptSetup.envCapturePath,
+          scriptSetup.pwdCapturePath,
+        )
+        if (captured.env) {
+          events.push({
+            _tag: "env_captured",
+            env: captured.env,
+            pwd: captured.pwd,
+          })
+        }
+      }
 
-        const completionEvents: ExecEvent[] = []
+      if (isSuccessOrWarn) {
+        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(
+          filesDir,
+          outputPath,
+        ).pipe(Effect.catchAll(() => Effect.succeed([] as CapturedFile[])))
 
-        // Add timeout log message if applicable
-        if (timedOut) {
-          completionEvents.push({
-            _tag: "log",
+        if (capturedFiles.length > 0) {
+          events.push({
+            _tag: "files_captured",
             event: {
-              line: `Script execution timed out after ${EXEC_TIMEOUT_MS / 1000 / 60} minutes`,
-              timestamp: new Date().toISOString(),
+              files: capturedFiles,
+              count: capturedFiles.length,
+              fileTree: null,
             },
           })
         }
+      }
 
-        // Add status event
-        completionEvents.push({ _tag: "status", event: statusEvent })
+      events.push({ _tag: "done" })
 
-        // Parse and emit block outputs on success/warn
-        if (isSuccessOrWarn) {
-          const outputs = yield* parseBlockOutputs(outputFilePath)
-          if (Object.keys(outputs).length > 0) {
-            completionEvents.push({
-              _tag: "outputs",
-              event: { outputs },
-            })
-          }
-        }
+      return events
+    })
 
-        // Capture environment changes from bash scripts
-        if (isSuccessOrWarn && scriptSetup.isBashScript) {
-          const captured = yield* parseEnvCapture(
-            scriptSetup.envCapturePath,
-            scriptSetup.pwdCapturePath,
-          )
-          if (captured.env) {
-            completionEvents.push({
-              _tag: "env_captured",
-              env: captured.env,
-              pwd: captured.pwd,
-            })
-          }
-        }
-
-        // Capture files from GENERATED_FILES directory
-        if (isSuccessOrWarn) {
-          const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(
-            filesDir,
-            outputPath,
-          ).pipe(Effect.catchAll(() => Effect.succeed([] as CapturedFile[])))
-
-          if (capturedFiles.length > 0) {
-            completionEvents.push({
-              _tag: "files_captured",
-              event: {
-                files: capturedFiles,
-                count: capturedFiles.length,
-                fileTree: null,
-              },
-            })
-          }
-        }
-
-        // Done event
-        completionEvents.push({ _tag: "done" })
-
-        return Stream.fromIterable(completionEvents)
-      }),
-    )
-
-    return Stream.concat(logStream, completionStream)
+    // Return the log stream and completion effect separately so the IPC
+    // handler can consume them in two phases (avoiding Stream.concat issues)
+    return { logStream, completionEffect }
   })

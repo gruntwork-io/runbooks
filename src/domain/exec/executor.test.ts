@@ -42,7 +42,7 @@ async function collectEvents(
 
   const program = Effect.scoped(
     Effect.gen(function* () {
-      const stream = yield* executeScript(
+      const { logStream, completionEffect } = yield* executeScript(
         scriptContent,
         language,
         { envVarsOverride },
@@ -50,12 +50,17 @@ async function collectEvents(
         workTreePath,
         outputPath,
       )
-      return yield* Stream.runCollect(stream)
+      // Collect log events from stream
+      const logChunk = yield* Stream.runCollect(logStream)
+      const logEvents = Array.from(logChunk)
+      // Run completion to get remaining events
+      const completionEvents = yield* completionEffect
+      return [...logEvents, ...completionEvents]
     }),
   )
 
-  const chunk = await Effect.runPromise(program.pipe(Effect.provide(layer)))
-  return Array.from(chunk)
+  const events = await Effect.runPromise(program.pipe(Effect.provide(layer)))
+  return events
 }
 
 // ---------------------------------------------------------------------------
