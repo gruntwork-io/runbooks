@@ -98,11 +98,7 @@ test.describe("Execution Flow", () => {
     await waitForSuccess("check-pass")
   })
 
-  // TODO: This test hangs after the 2nd sequential execution. The script runs and
-  // produces output, but the Effect fiber never resumes from Effect.async/Effect.promise
-  // callbacks within forkDaemon. Needs investigation of Effect runtime + forkDaemon
-  // interaction with Node.js promise/callback resolution.
-  test.skip("run setup-outputs and verify outputs produced", async () => {
+  test("run setup-outputs and verify outputs produced", async () => {
     await runBlock("setup-outputs")
     await waitForSuccess("setup-outputs")
 
@@ -118,13 +114,7 @@ test.describe("Execution Flow", () => {
     await expect(section.getByText("Warning detected", { exact: false })).toBeVisible()
   })
 
-  // The following tests are skipped due to a known issue: after ~4 sequential
-  // script executions, the Effect fiber/stream runtime stops propagating
-  // completion events. This needs investigation into the Effect.forkDaemon +
-  // Fiber.await lifecycle in electron/main/ipc/exec.ts.
-  // TODO: Fix the daemon fiber lifecycle leak and unskip these tests.
-
-  test.skip("run set-env then verify-env for environment persistence", async () => {
+  test("run set-env then verify-env for environment persistence", async () => {
     await runBlock("set-env")
     await waitForSuccess("set-env")
 
@@ -132,7 +122,7 @@ test.describe("Execution Flow", () => {
     await waitForSuccess("verify-env")
   })
 
-  test.skip("run change-dir then verify-workdir for working directory persistence", async () => {
+  test("run change-dir then verify-workdir for working directory persistence", async () => {
     await runBlock("change-dir")
     await waitForSuccess("change-dir")
 
@@ -140,12 +130,12 @@ test.describe("Execution Flow", () => {
     await waitForSuccess("verify-workdir")
   })
 
-  test.skip("run capture-files and verify file generation", async () => {
+  test("run capture-files and verify file generation", async () => {
     await runBlock("capture-files")
     await waitForSuccess("capture-files")
   })
 
-  test.skip("run logging-demo and verify completion", async () => {
+  test("run logging-demo and verify completion", async () => {
     await runBlock("logging-demo")
     await waitForSuccess("logging-demo")
   })

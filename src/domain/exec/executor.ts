@@ -127,10 +127,12 @@ export const executeScript = (
   outputPath: string,
 ) =>
   Effect.gen(function* () {
+    // console.log("[executor] step 1: getting services")
     const fs = yield* FileSystem
     const spawner = yield* ProcessSpawner
     const env = yield* Environment
 
+    // console.log("[executor] step 2: creating output temp dir")
     // Create temp file for block outputs (RUNBOOK_OUTPUT)
     const outputDir = yield* fs.mkdtemp("runbook-output-")
     const outputFilePath = `${outputDir}/output.txt`
@@ -139,12 +141,14 @@ export const executeScript = (
       fs.rm(outputDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    // console.log("[executor] step 3: creating files temp dir")
     // Create temp directory for file capture (GENERATED_FILES)
     const filesDir = yield* fs.mkdtemp("runbook-files-")
     yield* Effect.addFinalizer(() =>
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    // console.log("[executor] step 4: preparing script")
     // Prepare script for execution (handles interpreter detection, env capture wrapping, temp files)
     const scriptSetup: ScriptSetup = yield* prepareScript(scriptContent, language)
 
@@ -170,12 +174,17 @@ export const executeScript = (
     // Build command arguments: [...interpreterArgs, scriptPath]
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
+    // console.log("[executor] step 5: spawning process:", scriptSetup.interpreter, cmdArgs[cmdArgs.length - 1])
     // Spawn the process
     const process = yield* spawner.spawn(scriptSetup.interpreter, cmdArgs, {
       cwd: sessionContext.workDir || undefined,
       env: execEnv,
     })
 
+    // Kill the child process when the scope closes (e.g. on cancellation)
+    yield* Effect.addFinalizer(() => process.kill.pipe(Effect.ignore))
+
+    // console.log("[executor] step 6: building streams")
     // Stream log lines from process output in real-time
     const logStream = Stream.map(process.output, (outputLine): ExecEvent => ({
       _tag: "log",
@@ -186,10 +195,10 @@ export const executeScript = (
       },
     }))
 
-    // After output stream completes, build completion events.
-    // We use Stream.concat with a Schedule.spaced(0) drain to avoid
-    // the race condition where emit.end() and exitCode resolve in the
-    // same microtask.
+    // Build completion events as an Effect that runs after logs drain.
+    // We return logStream and completionEffect separately because
+    // Stream.concat is unreliable within forkDaemon + Effect.scoped —
+    // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
       // Wait for the process to exit
       const exitResult = yield* process.exitCode.pipe(
@@ -268,7 +277,5 @@ export const executeScript = (
       return events
     })
 
-    // Return the log stream and completion effect separately so the IPC
-    // handler can consume them in two phases (avoiding Stream.concat issues)
     return { logStream, completionEffect }
   })

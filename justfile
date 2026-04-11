@@ -45,9 +45,16 @@ clean:
 # Run all tests
 test: test-unit test-e2e test-runbooks test-docs
 
-# Run unit tests (Vitest)
-test-unit:
-    mise x bun -- bun run vitest run
+# Run backend unit tests (Bun test runner)
+test-backend:
+    mise x bun -- bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**'
+
+# Run web unit tests (Vitest — jsdom)
+test-web:
+    cd web && mise x bun -- bun run vitest run
+
+# Run all unit tests
+test-unit: test-backend test-web
 
 # Run Playwright E2E tests (requires build)
 test-e2e: build

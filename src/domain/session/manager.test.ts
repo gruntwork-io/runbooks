@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach } from "bun:test"
 import { Effect } from "effect"
 import { SessionManager, filterCapturedEnv } from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"

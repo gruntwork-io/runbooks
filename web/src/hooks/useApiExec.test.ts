@@ -243,7 +243,7 @@ describe('useApiExec state machine', () => {
     expect(result.current.state.exitCode).toBe(2)
   })
 
-  it('cleans up event subscriptions after execution completes', async () => {
+  it('cleans up event subscriptions on next execution', async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
@@ -263,11 +263,21 @@ describe('useApiExec state machine', () => {
 
     await waitFor(() => expect(result.current.state.status).toBe('success'))
 
-    // After completion, new events on exec:log should NOT update state
+    // Listeners persist after completion (to allow late-arriving IPC events).
+    // They are cleaned up when the next execution starts (via cancel()).
     const logCountAfter = result.current.state.logs.length
     act(() => {
-      mock.emit('exec:log', { line: 'should be ignored', timestamp: '2024-01-01T00:00:00Z' })
+      mock.emit('exec:log', { line: 'late arriving', timestamp: '2024-01-01T00:00:00Z' })
     })
-    expect(result.current.state.logs.length).toBe(logCountAfter)
+    // Late events still update state (this is intentional — prevents the
+    // race where event.sender.send arrives after invoke resolves)
+    expect(result.current.state.logs.length).toBe(logCountAfter + 1)
+
+    // Starting a new execution cleans up old listeners
+    act(() => {
+      result.current.execute('second-run')
+    })
+    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.logs).toEqual([]) // Fresh state
   })
 })

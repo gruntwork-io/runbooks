@@ -1,0 +1,15 @@
+{
+  "name": "@runbooks/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "yaml": "^2.8.1",
+    "effect": "^3.21.0",
+    "@runbooks/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
+  }
+}

@@ -25,48 +25,49 @@ const impl: ProcessSpawnerShape = {
           proc.stdin.end()
         }
 
-        // Use "unbounded" buffer to avoid backpressure deadlocks — the
-        // emit.single() / emit.end() methods return Promises, and Node.js
-        // event callbacks cannot await them. With an unbounded buffer the
-        // promises resolve immediately so fire-and-forget is safe.
-        const output: Stream.Stream<OutputLine> = Stream.async<OutputLine>((emit) => {
-          if (proc.stdout) {
-            const stdoutRl = readline.createInterface({ input: proc.stdout })
-            stdoutRl.on("line", (line) => {
-              emit.single({ line, source: "stdout" as const })
-            })
-          }
+        // Collect output lines eagerly. We do NOT use Effect streams
+        // (Stream.async, Stream.asyncPush) because they have a fundamental
+        // issue: emit.end() called from a Node.js event callback does not
+        // reliably terminate the stream within Effect's runtime after
+        // multiple sequential invocations. Instead, we collect lines into
+        // an array and resolve a Promise when the process closes.
+        const collectedLines: OutputLine[] = []
 
-          if (proc.stderr) {
-            const stderrRl = readline.createInterface({ input: proc.stderr })
-            stderrRl.on("line", (line) => {
-              emit.single({ line, source: "stderr" as const })
-            })
-          }
+        if (proc.stdout) {
+          const stdoutRl = readline.createInterface({ input: proc.stdout })
+          stdoutRl.on("line", (line) => {
+            collectedLines.push({ line, source: "stdout" as const })
+          })
+        }
 
-          proc.on("close", () => {
-            emit.end()
+        if (proc.stderr) {
+          const stderrRl = readline.createInterface({ input: proc.stderr })
+          stderrRl.on("line", (line) => {
+            collectedLines.push({ line, source: "stderr" as const })
           })
+        }
 
-          proc.on("error", () => {
-            emit.end()
-          })
-        }, "unbounded")
-
-        // Register the close/error listener eagerly (synchronously) so we
-        // capture the exit code even if the process finishes before the
-        // Effect is evaluated. Effect.promise is lazy — if we created the
-        // Promise inside it, a fast-exiting process would fire "close"
-        // before the listener was attached.
-        const exitCodePromise = new Promise<number>((resolve) => {
-          proc.on("close", (code) => {
-            resolve(code ?? 1)
-          })
-          proc.on("error", () => {
-            resolve(1)
-          })
+        // Single exit promise — eagerly registered to never miss the event.
+        const exitPromise = new Promise<number>((resolve) => {
+          proc.on("close", (code) => resolve(code ?? 1))
+          proc.on("error", () => resolve(1))
         })
-        const exitCode: Effect.Effect<number> = Effect.promise(() => exitCodePromise)
+
+        // Output: wait for exit, then return collected lines.
+        // Uses Effect.tryPromise to bridge the Node.js Promise.
+        const output: Stream.Stream<OutputLine> = Stream.fromEffect(
+          Effect.tryPromise({
+            try: () => exitPromise.then(() => [...collectedLines]),
+            catch: () => new SpawnError({ command, cause: new Error("Process failed") }),
+          }),
+        ).pipe(
+          Stream.flatMap((lines) => Stream.fromIterable(lines)),
+        )
+
+        const exitCode: Effect.Effect<number> = Effect.tryPromise({
+          try: () => exitPromise,
+          catch: () => new SpawnError({ command, cause: new Error("Process failed") }),
+        }) as unknown as Effect.Effect<number>
 
         const kill: Effect.Effect<void> = Effect.sync(() => {
           proc.kill()

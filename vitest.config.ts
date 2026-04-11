@@ -1,20 +1,5 @@
 /// <reference types="vitest" />
-import { defineConfig } from "vitest/config"
-
-export default defineConfig({
-  test: {
-    globals: true,
-    include: [
-      "src/**/*.test.ts",
-      "electron/**/*.test.ts",
-    ],
-    exclude: ["node_modules/**", "web/**", "docs/**"],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "lcov", "html"],
-      reportsDirectory: "./coverage",
-      include: ["src/**/*.ts", "electron/**/*.ts"],
-      exclude: ["**/*.test.ts", "**/test-utils/**"],
-    },
-  },
-})
+// Backend tests use `bun test` (see justfile / package.json).
+// This config exists only for web/ frontend tests via Vitest.
+// Prefer running: bun run test:web  (or)  vitest run --config web/vitest.config.ts
+export { default } from "./web/vitest.config.ts"

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect } from "bun:test"
 import { Effect, Exit, Layer } from "effect"
 import { detectEnvCredentials, confirmEnvCredentials } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"

@@ -92,6 +92,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const cancel = useCallback(() => {
     const hadActiveExecution = cleanupRef.current !== null
 
+    // Signal the backend to cancel the active execution (kill child process)
+    if (hadActiveExecution) {
+      window.api.invoke('exec:cancel').catch(() => {})
+    }
+
     // Clean up IPC event subscriptions
     if (cleanupRef.current) {
       cleanupRef.current()
@@ -146,6 +151,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     const unsubs: (() => void)[] = []
 
     unsubs.push(window.api.on('exec:log', (data: unknown) => {
+      // console.log('[useApiExec] exec:log received')
       const parsed = ExecLogEventSchema.safeParse(data)
       if (parsed.success) {
         const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
@@ -174,6 +180,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     }))
 
     unsubs.push(window.api.on('exec:status', (data: unknown) => {
+      // console.log('[useApiExec] exec:status received:', JSON.stringify(data))
       const parsed = ExecStatusEventSchema.safeParse(data)
       if (parsed.success) {
         setState((prev) => ({
@@ -191,6 +198,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
     try {
       await window.api.invoke('exec:run', payload)
+      // The invoke resolved, but IPC events (exec:status, exec:outputs) sent
+      // by the handler via event.sender.send() may still be in flight. Do NOT
+      // clean up listeners here — they need to stay alive to receive the
+      // events. Cleanup happens on the next execution (via cancel()) or
+      // on component unmount.
     } catch (error) {
       // Only update state if this execution is still current
       if (generation === executionGenRef.current) {
@@ -204,10 +216,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           ),
           logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
         }))
-      }
-    } finally {
-      // Only clean up if this execution is still current (not superseded)
-      if (generation === executionGenRef.current) {
+        // Clean up listeners on error (no more events expected)
         cleanup()
         cleanupRef.current = null
       }
