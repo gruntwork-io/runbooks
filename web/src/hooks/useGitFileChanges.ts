@@ -53,7 +53,7 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     inFlightRef.current = true
 
     try {
-      const data: WorkspaceChangesResponse = await window.api.invoke('workspace:changes', { worktreePath: localPath })
+      const data = await window.api.invoke('workspace:changes', { worktreePath: localPath }) as unknown as WorkspaceChangesResponse
 
       // Smart skipping: don't update state if response is identical
       const text = JSON.stringify(data)
@@ -105,7 +105,7 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     if (!activeWorkTree) return
 
     try {
-      const data: WorkspaceChangesResponse = await window.api.invoke('workspace:changes', { worktreePath: activeWorkTree.localPath, singleFile: filePath })
+      const data = await window.api.invoke('workspace:changes', { worktreePath: activeWorkTree.localPath, singleFile: filePath }) as unknown as WorkspaceChangesResponse
       if (data.changes && data.changes.length > 0) {
         const fullChange = data.changes[0]
         // Merge the full diff into the existing changes array

@@ -427,7 +427,7 @@ export function useScriptExecution({
     }
     
     try {
-      const responseData = await window.api.invoke<{ renderedFiles: Record<string, { content: string }> }>('boilerplate:render-inline', {
+      const responseData = await window.api.invoke('boilerplate:render-inline', {
         templateFiles,
         inputs,
       })

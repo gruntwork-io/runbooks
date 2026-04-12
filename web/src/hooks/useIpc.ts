@@ -46,8 +46,8 @@ export function useIpc<T>(
 
   const performInvoke = useCallback(async (invokeParams?: unknown) => {
     try {
-      const result = await api.invoke<T>(channel, invokeParams)
-      setData(result)
+      const result = await (api as any).invoke(channel, invokeParams)
+      setData(result as T)
       setIsLoading(false)
     } catch (err: unknown) {
       setIsLoading(false)

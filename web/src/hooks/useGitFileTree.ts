@@ -66,7 +66,7 @@ export function useGitFileTree(): UseGitFileTreeResult {
     setError(null)
 
     try {
-      const data: WorkspaceTreeResponse = await window.api.invoke('workspace:tree', { worktreePath: localPath })
+      const data = await window.api.invoke('workspace:tree', { worktreePath: localPath }) as unknown as WorkspaceTreeResponse
       setTree(data.tree)
       setTotalFiles(data.totalFiles)
     } catch (err) {
@@ -118,7 +118,7 @@ export function useGitFileTree(): UseGitFileTreeResult {
     const absolutePath = `${basePath}/${subPath}`
 
     try {
-      const data: WorkspaceTreeResponse = await window.api.invoke('workspace:tree', { worktreePath: absolutePath })
+      const data = await window.api.invoke('workspace:tree', { worktreePath: absolutePath }) as unknown as WorkspaceTreeResponse
       const prefixed = prefixTreeIds(data.tree, nodeId)
 
       setTree(prev => {

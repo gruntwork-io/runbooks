@@ -93,7 +93,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
     try {
       const orgs = await api.invoke('github:orgs')
-      return orgs ?? []
+      return (orgs as unknown as GitHubOrg[]) ?? []
     } catch {
       return []
     }
@@ -103,7 +103,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
   const fetchRepos = useCallback(async (owner: string, _query?: string): Promise<GitHubRepo[]> => {
     try {
       const repos = await api.invoke('github:repos', { org: owner })
-      return repos ?? []
+      return (repos as unknown as GitHubRepo[]) ?? []
     } catch {
       return []
     }
@@ -113,9 +113,10 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
   const fetchRefs = useCallback(async (owner: string, repo: string, _query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
     try {
       const refs = await api.invoke('github:refs', { owner, repo })
+      const typedRefs = (refs as unknown as GitHubRef[]) ?? []
       return {
-        refs: refs ?? [],
-        totalCount: refs?.length ?? 0,
+        refs: typedRefs,
+        totalCount: typedRefs.length,
         hasMore: false,
       }
     } catch {
@@ -157,14 +158,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
       })
       unsubLogRef.current = unsubLog
 
-      const result = await window.api.invoke<{
-        status: string
-        error?: string
-        fileCount?: number
-        absolutePath?: string
-        relativePath?: string
-        outputs?: Record<string, string>
-      }>('git:clone', body)
+      const result = await window.api.invoke('git:clone', body as any)
 
       if (result.error === 'directory_exists') {
         setCloneStatus('ready')

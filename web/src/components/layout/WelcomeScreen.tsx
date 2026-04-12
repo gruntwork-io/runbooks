@@ -14,7 +14,7 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
   const [cliLoading, setCliLoading] = useState(false)
 
   useEffect(() => {
-    api.invoke<{ installed: boolean }>('cli:check-install')
+    api.invoke('cli:check-install')
       .then((result) => setCliInstalled(result.installed))
       .catch(() => setCliInstalled(false))
   }, [api])

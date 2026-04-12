@@ -10,13 +10,13 @@ import type { RunbooksAPI } from '@/contexts/ApiContext'
  */
 export function createMockApi(responses: Record<string, unknown> = {}): RunbooksAPI {
   return {
-    invoke: async <T>(channel: string): Promise<T> => {
+    invoke: (async (channel: string) => {
       if (channel in responses) {
-        return responses[channel] as T
+        return responses[channel]
       }
       throw new Error(`No mock response for channel: ${channel}`)
-    },
-    on: () => () => {},
-    once: () => {},
+    }) as RunbooksAPI["invoke"],
+    on: (() => () => {}) as RunbooksAPI["on"],
+    once: (() => {}) as RunbooksAPI["once"],
   }
 }

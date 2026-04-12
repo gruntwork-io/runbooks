@@ -68,7 +68,7 @@ export interface BlockInputs {
  */
 export interface TemplateValue {
   name: string
-  type: BoilerplateVariableType
+  type: BoilerplateVariableType | string
   value: unknown
 }
 

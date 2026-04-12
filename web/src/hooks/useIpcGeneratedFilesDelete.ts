@@ -36,7 +36,7 @@ export function useIpcGeneratedFilesDelete(): UseIpcGeneratedFilesDeleteReturn {
     setDeleteSuccess(null)
 
     try {
-      const data = await api.invoke<GeneratedFilesDeleteResult>('generated-files:delete')
+      const data = await api.invoke('generated-files:delete') as unknown as GeneratedFilesDeleteResult
       setDeleteSuccess(data)
       setIsDeleting(false)
       return true

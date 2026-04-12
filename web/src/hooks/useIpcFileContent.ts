@@ -62,7 +62,7 @@ export function useIpcFileContent(): UseIpcFileContentResult {
     setError(null)
 
     try {
-      const data = await api.invoke<FileContentResult>('workspace:file', { filePath })
+      const data = await api.invoke('workspace:file', { worktreePath: '.', filePath }) as unknown as FileContentResult
 
       // Evict oldest entry if cache is full
       if (cache.size >= MAX_CACHE_SIZE) {

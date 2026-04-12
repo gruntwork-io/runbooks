@@ -24,7 +24,7 @@ const defaultScriptExecution = {
   hasGitHubAuthDependency: true,
   isRendering: false,
   renderError: null,
-  status: "pending" as const,
+  status: "pending" as string,
   logs: [],
   execError: null,
   execute: vi.fn(),

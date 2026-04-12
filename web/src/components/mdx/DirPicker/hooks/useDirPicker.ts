@@ -49,7 +49,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
     if (!sessionReady) return []
     try {
-      const data = await window.api.invoke<{ dirs?: string[] }>('workspace:dirs', { worktreePath: absPath })
+      const data = await window.api.invoke('workspace:dirs', { worktreePath: absPath })
       return data.dirs ?? []
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch directories')

@@ -116,9 +116,9 @@ export function useGitHubAuth({
       const data = await window.api.invoke('github:validate', { token })
       return {
         valid: data.valid,
-        user: data.user,
+        user: data.user as GitHubUserInfo | undefined,
         scopes: data.scopes,
-        tokenType: data.tokenType,
+        tokenType: data.tokenType as GitHubTokenType | undefined,
         error: data.error
       }
     } catch (error) {
@@ -147,7 +147,7 @@ export function useGitHubAuth({
         return { success: false, error: data.error, foundButInvalid: true }
       }
 
-      return { success: true, user: data.user, scopes: data.scopes, tokenType: data.tokenType }
+      return { success: true, user: data.user as GitHubUserInfo | undefined, scopes: data.scopes, tokenType: data.tokenType as GitHubTokenType | undefined }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
@@ -156,7 +156,7 @@ export function useGitHubAuth({
   // Try to detect credentials from GitHub CLI
   const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean }> => {
     try {
-      const data: GitHubCliCredentialsResponse = await window.api.invoke('github:cli-credentials', {})
+      const data = await window.api.invoke('github:cli-credentials', {} as Record<string, never>) as unknown as GitHubCliCredentialsResponse
 
       if (!isCliAuthFound(data)) {
         // Check if token was found but invalid (error contains "invalid")
@@ -404,10 +404,10 @@ export function useGitHubAuth({
           oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
         } else if (data.status === 'complete') {
           // Success!
-          await registerCredentials(data.accessToken, data.user)
+          await registerCredentials(data.accessToken!, data.user as unknown as GitHubUserInfo)
           if (oauthPollingCancelledRef.current) return
           setAuthStatus('authenticated')
-          setUserInfo(data.user)
+          setUserInfo(data.user as unknown as GitHubUserInfo)
         } else if (data.status === 'expired') {
           if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')

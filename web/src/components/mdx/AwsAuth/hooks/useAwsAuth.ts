@@ -536,8 +536,8 @@ export function useAwsAuth({
   const loadAwsProfiles = useCallback(async () => {
     setLoadingProfiles(true)
     try {
-      const data = await window.api.invoke('aws:profiles', {})
-      const profileList: ProfileInfo[] = data.profiles || []
+      const data = await window.api.invoke('aws:profiles', {} as Record<string, never>)
+      const profileList: ProfileInfo[] = (data.profiles as unknown as ProfileInfo[]) || []
       setProfiles(profileList)
       const firstUsable = profileList.find(p => p.authType === 'static' || p.authType === 'assume_role')
       if (firstUsable) {
@@ -612,15 +612,15 @@ export function useAwsAuth({
           attempts++
           setTimeout(poll, 2000)
         } else if (data.status === 'select_account') {
-          setSsoAccessToken(data.accessToken)
-          setSsoAccounts(data.accounts || [])
+          setSsoAccessToken(data.accessToken ?? null)
+          setSsoAccounts((data.accounts ?? []) as unknown as SSOAccount[])
           setAuthStatus('select_account')
         } else if (data.status === 'success') {
           setAuthStatus('authenticated')
           setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
           registerCredentials({
-            accessKeyId: data.accessKeyId,
-            secretAccessKey: data.secretAccessKey,
+            accessKeyId: data.accessKeyId!,
+            secretAccessKey: data.secretAccessKey!,
             sessionToken: data.sessionToken,
             region: selectedDefaultRegion
           })
@@ -679,7 +679,7 @@ export function useAwsAuth({
 
     try {
       const data = await window.api.invoke('aws:sso-roles', {
-        accessToken: ssoAccessToken,
+        accessToken: ssoAccessToken!,
         accountId: account.accountId,
         region: ssoRegion,
       })
@@ -713,7 +713,7 @@ export function useAwsAuth({
 
     try {
       const data = await window.api.invoke('aws:sso-complete', {
-        accessToken: ssoAccessToken,
+        accessToken: ssoAccessToken!,
         accountId: selectedSsoAccount.accountId,
         roleName: selectedSsoRole,
         region: ssoRegion,
@@ -723,8 +723,8 @@ export function useAwsAuth({
         setAuthStatus('authenticated')
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         registerCredentials({
-          accessKeyId: data.accessKeyId,
-          secretAccessKey: data.secretAccessKey,
+          accessKeyId: data.accessKeyId!,
+          secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,
           region: selectedDefaultRegion
         })
@@ -763,14 +763,14 @@ export function useAwsAuth({
     setErrorMessage(null)
 
     try {
-      const data = await window.api.invoke('aws:profile-auth', { profile: selectedProfile.name })
+      const data = await window.api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name })
 
       if (data.valid) {
         setAuthStatus('authenticated')
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
         registerCredentials({
-          accessKeyId: data.accessKeyId,
-          secretAccessKey: data.secretAccessKey,
+          accessKeyId: data.accessKeyId!,
+          secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,
           region: selectedDefaultRegion
         })

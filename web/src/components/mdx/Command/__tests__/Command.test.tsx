@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
@@ -11,9 +11,9 @@ import Command from "../Command"
 const defaultScriptExecution = {
   sourceCode: 'echo "hello"',
   language: "bash",
-  fileError: null,
+  fileError: null as { message: string; details?: string } | null,
   inputValues: {},
-  inputDependencies: [],
+  inputDependencies: [] as string[],
   unmetInputDependencies: [],
   hasAllInputDependencies: true,
   inlineInputsId: null,
@@ -21,15 +21,15 @@ const defaultScriptExecution = {
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
   templateContext: { inputs: {}, outputs: {} },
-  unmetAwsAuthDependency: null,
+  unmetAwsAuthDependency: null as { blockId: string } | null,
   hasAwsAuthDependency: true,
-  unmetGitHubAuthDependency: null,
+  unmetGitHubAuthDependency: null as { blockId: string } | null,
   hasGitHubAuthDependency: true,
   isRendering: false,
-  renderError: null,
-  status: "pending" as const,
+  renderError: null as { message: string; details?: string } | null,
+  status: "pending" as string,
   logs: [],
-  execError: null,
+  execError: null as { message: string; details?: string } | null,
   execute: vi.fn(),
   cancel: vi.fn(),
   outputs: null,

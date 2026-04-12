@@ -13,13 +13,13 @@ export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
     params: { path: string; watchMode?: boolean; remoteSource?: string }
-    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode: boolean; warnings: string[]; remoteSource?: string }
+    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string; useExecutableRegistry?: boolean }
   }
   "runbook:open-remote": {
     params: { url: string }
     result: { path: string; remoteSource: string }
   }
-  "runbook:executables": { params: void; result: Executable[] }
+  "runbook:executables": { params: void; result: { executables: Record<string, Executable>; warnings?: string[] } }
   "runbook:assets": { params: { filepath: string }; result: { data: Buffer; mimeType: string } }
 
   // Session
@@ -40,53 +40,156 @@ export interface IpcChannelMap {
     result: BoilerplateConfig
   }
   "boilerplate:render": { params: RenderRequest; result: RenderResponse }
-  "boilerplate:render-inline": { params: RenderInlineRequest; result: RenderInlineResponse }
+  "boilerplate:render-inline": { params: RenderInlineRequest; result: { renderedFiles: Record<string, { content: string; name?: string; path?: string; language?: string; size?: number; isTruncated?: boolean }>; message?: string; fileTree?: unknown; meta?: unknown } }
 
   // AWS Authentication
   "aws:validate": {
-    params: { accessKeyId: string; secretAccessKey: string; sessionToken?: string; region: string }
+    params: { accessKeyId?: string; secretAccessKey?: string; sessionToken?: string; region?: string; credentials?: AwsCredentials }
     result: { valid: boolean; accountId?: string; accountName?: string; arn?: string; error?: string }
   }
-  "aws:profiles": { params: void; result: ProfileInfo[] }
-  "aws:sso-start": {
-    params: { startUrl: string; region: string }
-    result: { verificationUri: string; userCode: string; deviceCode: string; clientId: string; clientSecret: string }
+  "aws:profiles": {
+    params: Record<string, never>
+    result: { profiles: ProfileInfo[] }
   }
-  "aws:sso-roles": { params: { accessToken: string; accountId: string }; result: { roles: SsoRole[] } }
+  "aws:sso-start": {
+    params: { startUrl: string; region: string; accountId?: string; roleName?: string }
+    result: { verificationUri: string; userCode: string; deviceCode: string; clientId: string; clientSecret: string; error?: string }
+  }
+  "aws:sso-roles": {
+    params: { accessToken: string; accountId: string; region?: string }
+    result: { roles: SsoRole[]; error?: string }
+  }
   "aws:sso-poll": {
-    params: { clientId: string; clientSecret: string; deviceCode: string }
-    result: { accessToken?: string; pending?: boolean }
+    params: { clientId: string; clientSecret: string; deviceCode: string; region?: string; accountId?: string; roleName?: string }
+    result: {
+      status?: string
+      accessToken?: string
+      pending?: boolean
+      accounts?: SsoAccount[]
+      accountId?: string
+      accountName?: string
+      arn?: string
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      error?: string
+    }
   }
   "aws:sso-complete": {
     params: { accessToken: string; accountId: string; roleName: string; region: string }
-    result: { credentials: AwsCredentials }
+    result: {
+      credentials?: AwsCredentials
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      accountId?: string
+      accountName?: string
+      arn?: string
+      error?: string
+    }
   }
-  "aws:env-credentials": { params: void; result: { detected: boolean; credentials?: AwsCredentials } }
-  "aws:env-credentials-confirm": { params: void; result: { ok: true } }
-  "aws:profile-auth": { params: { profileName: string }; result: { credentials: AwsCredentials } }
-  "aws:check-region": { params: { region: string }; result: { enabled: boolean } }
+  "aws:env-credentials": {
+    params: { prefix?: string; defaultRegion?: string }
+    result: {
+      found?: boolean
+      detected?: boolean
+      valid?: boolean
+      credentials?: AwsCredentials
+      accountId?: string
+      accountName?: string
+      arn?: string
+      region?: string
+      hasSessionToken?: boolean
+      warning?: string
+      error?: string
+    }
+  }
+  "aws:env-credentials-confirm": {
+    params: { prefix?: string; defaultRegion?: string }
+    result: {
+      valid?: boolean
+      error?: string
+      accountId?: string
+      accountName?: string
+      arn?: string
+      accessKeyId?: string
+      secretAccessKey?: string
+      region?: string
+      sessionToken?: string
+    }
+  }
+  "aws:profile-auth": {
+    params: { profileName: string; profile?: string }
+    result: {
+      valid?: boolean
+      credentials?: AwsCredentials
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      accountId?: string
+      accountName?: string
+      arn?: string
+      error?: string
+    }
+  }
+  "aws:check-region": {
+    params: { region: string; accessKeyId?: string; secretAccessKey?: string; sessionToken?: string; credentials?: AwsCredentials }
+    result: { enabled: boolean; warning?: string }
+  }
 
   // GitHub Authentication
-  "github:validate": { params: { token: string }; result: { valid: boolean; user?: GitHubUser } }
+  "github:validate": {
+    params: { token: string }
+    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string }
+  }
   "github:oauth-start": {
     params: { clientId: string; scopes: string[] }
-    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number }
+    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; error?: string }
   }
   "github:oauth-poll": {
     params: { clientId: string; deviceCode: string }
-    result: { token?: string; pending?: boolean }
+    result: {
+      status?: string
+      token?: string
+      pending?: boolean
+      accessToken?: string
+      user?: GitHubUser
+      slowDown?: boolean
+      error?: string
+    }
   }
-  "github:env-credentials": { params: void; result: { detected: boolean; token?: string } }
-  "github:cli-credentials": { params: void; result: { detected: boolean; token?: string } }
+  "github:env-credentials": {
+    params: { envVar?: string; prefix?: string; githubAuthId?: string }
+    result: {
+      found: boolean
+      valid?: boolean
+      token?: string
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+    }
+  }
+  "github:cli-credentials": {
+    params: Record<string, never>
+    result: {
+      found: boolean
+      token?: string
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+    }
+  }
   "github:orgs": { params: void; result: GitHubOrg[] }
   "github:repos": { params: { org: string }; result: GitHubRepo[] }
   "github:refs": { params: { owner: string; repo: string }; result: GitHubRef[] }
-  "github:labels": { params: { owner: string; repo: string }; result: string[] }
+  "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
 
   // Git Operations
   "git:clone": {
     params: GitCloneRequest
-    result: { fileCount: number; absolutePath: string; relativePath: string }
+    result: { status: string; error?: string; fileCount?: number; absolutePath?: string; relativePath?: string; outputs?: Record<string, string> }
   }
   "git:push": { params: { worktreePath: string; remote: string; branch: string }; result: { ok: true } }
   "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } }
@@ -95,23 +198,23 @@ export interface IpcChannelMap {
   // Workspace
   "workspace:tree": {
     params: { worktreePath: string; subpath?: string }
-    result: WorkspaceTreeNode[]
+    result: { tree: WorkspaceTreeNode[]; totalFiles: number; gitInfo?: { branch: string; remoteUrl: string; commitSha: string } }
   }
-  "workspace:dirs": { params: { worktreePath: string }; result: string[] }
+  "workspace:dirs": { params: { worktreePath: string }; result: { dirs?: string[] } }
   "workspace:file": {
     params: { worktreePath: string; filePath: string }
     result: WorkspaceFileResponse
   }
   "workspace:changes": {
-    params: { worktreePath: string }
-    result: { changes: WorkspaceChange[]; gitInfo: GitInfo }
+    params: { worktreePath: string; singleFile?: string }
+    result: { changes: WorkspaceChange[]; totalChanges: number; tooManyChanges?: boolean }
   }
   "workspace:register": { params: { worktreePath: string }; result: { ok: true } }
   "workspace:set-active": { params: { worktreePath: string }; result: { ok: true } }
 
   // Generated Files
   "generated-files:check": { params: void; result: { hasFiles: boolean; fileCount: number } }
-  "generated-files:delete": { params: void; result: { ok: true } }
+  "generated-files:delete": { params: void; result: { ok: true; success?: boolean; deletedCount?: number; message?: string } }
 
   // File Operations
   "file:read": { params: { path: string }; result: FileData }
@@ -120,7 +223,7 @@ export interface IpcChannelMap {
   "watch:subscribe": { params: void; result: { ok: true } }
 
   // Telemetry
-  "telemetry:config": { params: void; result: { enabled: boolean; token?: string } }
+  "telemetry:config": { params: void; result: { enabled: boolean; token?: string; anonymousId?: string; version?: string } }
 
   // CLI
   "cli:check-install": {
@@ -170,6 +273,11 @@ export interface IpcEventMap {
   "watch:file-change": { type: "reload" }
   "git:clone-progress": { line: string; timestamp: string }
   "git:push-progress": { line: string; timestamp: string }
+  "git:log": { line: string; timestamp: string; replace?: boolean }
+  "git:status": { status: string; exitCode: number }
+  "git:pr-result": { prUrl: string; prNumber: number; branchName: string }
+  "git:outputs": { outputs: Record<string, string> }
+  "git:error": { message?: string; code?: string; branchName?: string }
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "registry:updated": void
@@ -192,6 +300,7 @@ export interface Executable {
   content: string
   language: string
   hash: string
+  componentId?: string
 }
 
 export interface SessionMetadata {
@@ -240,8 +349,12 @@ export interface RenderResponse {
 }
 
 export interface RenderInlineRequest {
-  template: string
-  variables: Record<string, unknown>
+  template?: string
+  templateFiles?: Record<string, string>
+  variables?: Record<string, unknown>
+  inputs?: Array<{ name: string; value: unknown }>
+  generateFile?: boolean
+  outputPath?: string
 }
 
 export interface RenderInlineResponse {
@@ -258,6 +371,12 @@ export interface ProfileInfo {
 export interface SsoRole {
   roleName: string
   accountId: string
+}
+
+export interface SsoAccount {
+  accountId: string
+  accountName: string
+  emailAddress?: string
 }
 
 export interface AwsCredentials {
@@ -292,9 +411,13 @@ export interface GitHubRef {
 
 export interface GitCloneRequest {
   url: string
-  localPath: string
+  localPath?: string
+  local_path?: string
   ref?: string
+  repo_path?: string
   credentials?: { token: string }
+  use_pty?: boolean
+  force?: boolean
 }
 
 export interface PullRequestRequest {
@@ -322,6 +445,7 @@ export interface WorkspaceFileResponse {
   language?: string
   isBinary: boolean
   path: string
+  size: number
 }
 
 export interface WorkspaceChange {

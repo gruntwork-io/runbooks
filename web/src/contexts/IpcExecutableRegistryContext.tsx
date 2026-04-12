@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createAppError } from '@/types/error'
 import type { AppError } from '@/types/error'
-import { type Executable, type ExecutableRegistry, type ExecutableRegistryResponse } from '@/types/executable'
+import { type Executable, type ExecutableRegistry } from '@/types/executable'
 import { ExecutableRegistryContext, type ExecutableRegistryContextValue } from './ExecutableRegistryContext.types'
 import { useApi } from './ApiContext'
 
@@ -33,8 +33,8 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
     setError(null)
 
     try {
-      const data: ExecutableRegistryResponse = await api.invoke('runbook:executables')
-      setRegistry(data.executables)
+      const data = await api.invoke('runbook:executables')
+      setRegistry(data.executables as unknown as ExecutableRegistry)
       setWarnings(data.warnings || [])
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
@@ -52,7 +52,7 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
   useEffect(() => {
     const fetchRunbookInfo = async () => {
       try {
-        const data = await api.invoke<{ useExecutableRegistry?: boolean }>('runbook:get')
+        const data = await api.invoke('runbook:get', { path: '' })
         setUseExecutableRegistry(data.useExecutableRegistry ?? true)
       } catch {
         // If we can't determine the mode, assume registry mode as the safe default

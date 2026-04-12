@@ -126,7 +126,6 @@ function GitHubPullRequest({
     labels,
     labelsLoading,
     githubAuthMet,
-    sessionReady,
     createPullRequest,
     pushChanges,
     deleteBranch,
@@ -216,11 +215,11 @@ function GitHubPullRequest({
 
   // Determine effective status (override pending → ready when deps met)
   const effectiveStatus: PRBlockStatus = useMemo(() => {
-    if (status === 'pending' && githubAuthMet && activeWorkTree && sessionReady) {
+    if (status === 'pending' && githubAuthMet && activeWorkTree) {
       return 'ready'
     }
     return status
-  }, [status, githubAuthMet, activeWorkTree, sessionReady])
+  }, [status, githubAuthMet, activeWorkTree])
 
   // Fetch labels when ready
   useEffect(() => {

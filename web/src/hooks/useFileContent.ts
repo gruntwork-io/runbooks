@@ -58,7 +58,7 @@ export function useFileContent(): UseFileContentResult {
     setError(null)
 
     try {
-      const data: FileContentResult = await window.api.invoke('workspace:file', { filePath })
+      const data: FileContentResult = await window.api.invoke('workspace:file', { worktreePath: '.', filePath }) as unknown as FileContentResult
 
       if (cache.size >= MAX_CACHE_SIZE) {
         const oldestKey = cache.keys().next().value

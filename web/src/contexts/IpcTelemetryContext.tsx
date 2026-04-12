@@ -52,7 +52,8 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
 
     const fetchConfig = async () => {
       try {
-        const data = await api.invoke<TelemetryConfig>('telemetry:config')
+        const rawData = await api.invoke('telemetry:config')
+        const data: TelemetryConfig = { enabled: rawData.enabled, anonymousId: rawData.anonymousId ?? '', version: rawData.version ?? '' }
         setConfig(data)
 
         // Initialize Mixpanel if telemetry is enabled and token is configured

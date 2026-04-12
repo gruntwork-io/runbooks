@@ -56,7 +56,7 @@ export function useIpcGitFileChanges(): UseIpcGitFileChangesResult {
     inFlightRef.current = true
 
     try {
-      const data = await api.invoke<WorkspaceChangesResponse>('workspace:changes', { worktreePath: localPath })
+      const data = await api.invoke('workspace:changes', { worktreePath: localPath }) as unknown as WorkspaceChangesResponse
       const text = JSON.stringify(data)
 
       // Smart skipping: don't update state if response is identical
@@ -109,10 +109,10 @@ export function useIpcGitFileChanges(): UseIpcGitFileChangesResult {
     if (!activeWorkTree) return
 
     try {
-      const data = await api.invoke<WorkspaceChangesResponse>(
+      const data = await api.invoke(
         'workspace:changes',
         { worktreePath: activeWorkTree.localPath, singleFile: filePath }
-      )
+      ) as unknown as WorkspaceChangesResponse
       if (data.changes && data.changes.length > 0) {
         const fullChange = data.changes[0]
         setChanges(prev =>

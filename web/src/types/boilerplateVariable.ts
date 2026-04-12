@@ -2,9 +2,9 @@
 export interface BoilerplateVariable {
   name: string;
   description: string;
-  type: BoilerplateVariableType;
-  default: unknown;
-  required: boolean;
+  type: BoilerplateVariableType | string;
+  default?: unknown;
+  required?: boolean;
   options?: string[];
   validations?: ValidationRule[];
   sensitive?: boolean;
@@ -28,7 +28,7 @@ export enum BoilerplateVariableType {
 // Validation rule for a boilerplate variable
 export interface ValidationRule {
   type: BoilerplateValidationType
-  message: string
+  message?: string
   args?: unknown[]
 }
 

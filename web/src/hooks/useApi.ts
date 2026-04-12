@@ -74,7 +74,7 @@ function resolveChannel(endpoint: string): string | null {
  */
 export function useApi<T>(
   endpoint: string,
-  method: HttpMethod = 'GET',
+  _method: HttpMethod = 'GET',
   body?: Record<string, unknown>,
   debounceTimeout?: number,
   _extraHeaders?: Record<string, string>,
@@ -101,8 +101,8 @@ export function useApi<T>(
     }
 
     try {
-      const result = await api.invoke<T>(channel, requestBody ?? undefined);
-      setData(result);
+      const result = await (api as any).invoke(channel, requestBody ?? undefined);
+      setData(result as T);
       setError(null);
     } catch (err: unknown) {
       setError(createAppError(

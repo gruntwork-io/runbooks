@@ -91,7 +91,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     setLabelsLoading(true)
     try {
       const data = await window.api.invoke('github:labels', { owner, repo })
-      setLabels(data.labels ?? [])
+      setLabels((data.labels ?? []).map(name => ({ name, color: '', description: undefined })))
     } catch {
       // Non-critical
     } finally {
@@ -168,7 +168,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       activeUnsubscribersRef.current = unsubscribers
 
       // Invoke the IPC command
-      await window.api.invoke(opts.channel, opts.body)
+      await (window.api as any).invoke(opts.channel, opts.body)
 
       // Clean up listeners after a short delay to allow late-arriving
       // IPC events to be delivered (event.sender.send events arrive
@@ -244,7 +244,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   // Delete a local branch and reset to ready state
   const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
     try {
-      await window.api.invoke('git:delete-branch', { localPath, branchName })
+      await window.api.invoke('git:delete-branch', { worktreePath: localPath, branch: branchName })
 
       setErrorMessage(null)
       setErrorCode(null)
