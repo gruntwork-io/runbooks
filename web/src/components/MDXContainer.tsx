@@ -101,12 +101,12 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
           >
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
-              <Admonition 
-                type="warning" 
-                title="**Make sure you trust this Runbook!**" 
+              <Admonition
+                type="warning"
+                title="**Make sure you trust this Runbook!**"
                 confirmationText="I trust this Runbook"
                 allowPermanentHide={true}
-                storageKey="security-banner"
+                storageKey={`security-banner-${runbookPath || 'default'}`}
               >
                 <p>Runbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this Runbook and carefully review embedded code snippets before running them.</p>
                 <p>If you do not trust this Runbook, do not run it.</p>

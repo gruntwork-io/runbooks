@@ -263,15 +263,14 @@ describe('useApiExec state machine', () => {
 
     await waitFor(() => expect(result.current.state.status).toBe('success'))
 
-    // Listeners persist after completion (to allow late-arriving IPC events).
-    // They are cleaned up when the next execution starts (via cancel()).
+    // After the invoke resolves, listeners are cleaned up on the next
+    // macrotask (setTimeout(0)). By the time waitFor settles above, that
+    // cleanup has already run, so late events are no longer accepted.
     const logCountAfter = result.current.state.logs.length
     act(() => {
       mock.emit('exec:log', { line: 'late arriving', timestamp: '2024-01-01T00:00:00Z' })
     })
-    // Late events still update state (this is intentional — prevents the
-    // race where event.sender.send arrives after invoke resolves)
-    expect(result.current.state.logs.length).toBe(logCountAfter + 1)
+    expect(result.current.state.logs.length).toBe(logCountAfter)
 
     // Starting a new execution cleans up old listeners
     act(() => {

@@ -15,6 +15,7 @@ import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
+import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("main")
@@ -83,7 +84,13 @@ if (cliConfig.watch) {
 // Native IPC handlers (Electron-only, no backend dependency)
 // ---------------------------------------------------------------------------
 
+const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
+
 ipcMain.handle("native:open-external", async (_event, params: { url: string }) => {
+  const parsed = new URL(params.url) // throws on invalid URLs
+  if (!ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
+    throw new Error(`Blocked open-external for scheme: ${parsed.protocol}`)
+  }
   await shell.openExternal(params.url)
   return { ok: true as const }
 })
@@ -168,9 +175,11 @@ app.whenReady().then(() => {
     const runbookDir = path.dirname(runbookConfig.localPath)
     const assetPath = path.join(runbookDir, assetRelative)
 
-    // Security: ensure the resolved path is within the runbook directory
+    // Security: ensure the resolved path is within the runbook directory.
+    // Uses isContainedIn which appends path.sep to prevent prefix-matching
+    // bypass (e.g. /tmp/my-runbook-evil matching /tmp/my-runbook).
     const resolved = path.resolve(assetPath)
-    if (!resolved.startsWith(path.resolve(runbookDir))) {
+    if (!isContainedIn(resolved, path.resolve(runbookDir))) {
       return new Response("Forbidden", { status: 403 })
     }
 

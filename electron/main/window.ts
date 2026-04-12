@@ -4,7 +4,7 @@
  * Centralizes window creation and access so that other modules (menu, updater,
  * CLI open-file) can obtain the main window without circular imports.
  */
-import { BrowserWindow, session } from "electron"
+import { BrowserWindow, session, shell } from "electron"
 import path from "path"
 
 let mainWindow: BrowserWindow | null = null
@@ -30,8 +30,10 @@ export function createMainWindow(): BrowserWindow {
     show: false,
   })
 
-  // Set Content Security Policy in production to silence the Electron security
-  // warning. Skipped in dev because Vite's HMR requires inline scripts.
+  // Set Content Security Policy in production. In dev the CSP is omitted
+  // entirely because Vite's HMR requires inline scripts that a strict policy
+  // would block. The production CSP still needs 'unsafe-eval' because the
+  // MDX runtime compiler requires dynamic code evaluation.
   if (!process.env.ELECTRON_RENDERER_URL) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
@@ -44,6 +46,27 @@ export function createMainWindow(): BrowserWindow {
       })
     })
   }
+
+  // Prevent the renderer from opening new Electron windows (e.g. target="_blank"
+  // links). Instead, open the URL in the user's default browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: "deny" }
+  })
+
+  // Block in-page navigations that would take the renderer away from the app.
+  // In dev, allow same-origin navigations so Vite HMR works normally.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (process.env.ELECTRON_RENDERER_URL) {
+      try {
+        const devOrigin = new URL(process.env.ELECTRON_RENDERER_URL).origin
+        if (new URL(url).origin === devOrigin) return
+      } catch { /* fall through to block */ }
+    }
+    // Production, or a cross-origin navigation in dev — open externally.
+    event.preventDefault()
+    shell.openExternal(url)
+  })
 
   // Avoid white flash — only show once content is painted.
   mainWindow.on("ready-to-show", () => {

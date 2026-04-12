@@ -19,7 +19,7 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
-import { PathTraversalError } from "../../../src/errors/index.ts"
+import { PathTraversalError, GitError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
 
 export function registerGitHandlers(): void {
@@ -91,9 +91,10 @@ export function registerGitHandlers(): void {
           // debugLog("[git:clone] exit code: " + exitCode)
           if (exitCode !== 0) {
             return yield* Effect.fail(
-              new PathTraversalError({
-                path: paths.absolutePath,
-                message: `git clone failed with exit code ${exitCode}`,
+              new GitError({
+                command: "git clone",
+                stderr: `clone to ${paths.absolutePath} failed`,
+                exitCode,
               }),
             )
           }
