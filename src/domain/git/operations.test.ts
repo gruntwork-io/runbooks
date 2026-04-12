@@ -180,12 +180,14 @@ describe("resolveClonePaths", () => {
 describe("countFiles", () => {
   it("counts files excluding .git", async () => {
     const layer = makeTestLayer({
-      files: {
-        "/repo/file1.txt": "a",
-        "/repo/file2.txt": "b",
-        "/repo/.git/config": "git config",
-        "/repo/.git/HEAD": "ref: refs/heads/main",
-      },
+      commands: [
+        {
+          command: "git",
+          args: ["ls-files"],
+          outputLines: ["file1.txt", "file2.txt"],
+          exitCode: 0,
+        },
+      ],
     })
     const count = await Effect.runPromise(
       countFiles("/repo").pipe(Effect.provide(layer)),

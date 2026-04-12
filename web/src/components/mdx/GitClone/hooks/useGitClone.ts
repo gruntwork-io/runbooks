@@ -1,9 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
+
+const CloneLogEventSchema = z.object({
+  line: z.string(),
+  timestamp: z.string().optional(),
+  replace: z.boolean().optional(),
+})
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
@@ -126,6 +133,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
 
     const controller = new AbortController()
     abortControllerRef.current = controller
+    let unsubLog: (() => void) | null = null
 
     try {
       const body: Record<string, unknown> = { url }
@@ -136,7 +144,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
       if (force) body.force = true
 
       // Subscribe to streaming events before starting the clone
-      const unsubLog = window.api.on('git:clone-progress', (data: { line: string; timestamp?: string; replace?: boolean }) => {
+      unsubLog = window.api.on('git:clone-progress', (data: { line: string; timestamp?: string; replace?: boolean }) => {
         const parsed = CloneLogEventSchema.safeParse(data)
         if (parsed.success) {
           const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
@@ -157,11 +165,6 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
         relativePath?: string
         outputs?: Record<string, string>
       }>('git:clone', body)
-
-      // Clean up progress listener after a short delay to allow
-      // late-arriving IPC events to be delivered (event.sender.send
-      // events arrive asynchronously after invoke resolves).
-      setTimeout(() => unsubLog(), 200)
 
       if (result.error === 'directory_exists') {
         setCloneStatus('ready')
@@ -190,6 +193,12 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
       setCloneStatus('fail')
       setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
     } finally {
+      // Clean up progress listener after a short delay to allow
+      // late-arriving IPC events to be delivered.
+      if (unsubLog) {
+        const unsub = unsubLog
+        setTimeout(() => unsub(), 200)
+      }
       abortControllerRef.current = null
     }
   }, [api, id, registerOutputs])

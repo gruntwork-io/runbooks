@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
@@ -55,6 +55,11 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
 
   // Track whether an operation is in progress for cancellation
   const isRunningRef = useRef(false)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => { isMountedRef.current = false }
+  }, [])
 
   // Check if githubAuthId dependency is met
   const githubAuthMet = useMemo((): boolean => {
@@ -103,6 +108,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       // Subscribe to IPC events BEFORE invoking the command
       unsubscribers.push(
         window.api.on('git:log', (data: unknown) => {
+          if (!isMountedRef.current) return
           const parsed = LogEventSchema.safeParse(data)
           if (parsed.success) {
             const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
@@ -115,6 +121,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
           }
         }),
         window.api.on('git:status', (data: unknown) => {
+          if (!isMountedRef.current) return
           const parsed = StatusEventSchema.safeParse(data)
           if (parsed.success) {
             if (parsed.data.status === 'success') {
@@ -125,18 +132,21 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
           }
         }),
         window.api.on('git:pr-result', (data: unknown) => {
+          if (!isMountedRef.current) return
           const parsed = PRResultEventSchema.safeParse(data)
           if (parsed.success) {
             setPRResult(parsed.data)
           }
         }),
         window.api.on('git:outputs', (data: unknown) => {
+          if (!isMountedRef.current) return
           const parsed = OutputsEventSchema.safeParse(data)
           if (parsed.success) {
             registerOutputs(id, parsed.data.outputs)
           }
         }),
         window.api.on('git:error', (data: unknown) => {
+          if (!isMountedRef.current) return
           const errorData = data as { message?: string; code?: string; branchName?: string }
           setErrorMessage(errorData.message || 'Operation failed')
           setErrorCode(errorData.code || null)
@@ -158,10 +168,12 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       }, 200)
       isRunningRef.current = false
     } catch (error) {
-      const msg = error instanceof Error ? error.message : `${opts.errorPrefix} failed`
-      opts.onError(msg)
-      setStatus(opts.errorStatus)
-      setLogs(prev => [...prev, createLogEntry(`${opts.errorPrefix}: ${msg}`)])
+      if (isMountedRef.current) {
+        const msg = error instanceof Error ? error.message : `${opts.errorPrefix} failed`
+        opts.onError(msg)
+        setStatus(opts.errorStatus)
+        setLogs(prev => [...prev, createLogEntry(`${opts.errorPrefix}: ${msg}`)])
+      }
       // Clean up listeners immediately on error (no more events expected)
       for (const unsub of unsubscribers) unsub()
       isRunningRef.current = false

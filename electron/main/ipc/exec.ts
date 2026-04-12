@@ -36,7 +36,13 @@ function shellEscapeDeep(obj: Record<string, unknown>): Record<string, unknown> 
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value === "string") {
       result[key] = shellEscape(value)
-    } else if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      result[key] = value.map((item) => {
+        if (typeof item === "string") return shellEscape(item)
+        if (item !== null && typeof item === "object") return shellEscapeDeep(item as Record<string, unknown>)
+        return item
+      })
+    } else if (value !== null && typeof value === "object") {
       result[key] = shellEscapeDeep(value as Record<string, unknown>)
     } else {
       result[key] = value

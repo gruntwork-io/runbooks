@@ -88,6 +88,19 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
     fetchConfig()
   }, [api])
 
+  // Reset block tracking when a new runbook is opened so telemetry fires again
+  useEffect(() => {
+    const cleanup = api.on('file:open-runbook', () => {
+      hasSentRunbookLoadedRef.current = false
+      blockCountsRef.current = {}
+      if (blockAggregateTimerRef.current) {
+        clearTimeout(blockAggregateTimerRef.current)
+        blockAggregateTimerRef.current = null
+      }
+    })
+    return cleanup
+  }, [api])
+
   // Cleanup aggregation timer on unmount
   useEffect(() => {
     return () => {

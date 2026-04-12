@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run vite",
     "build": "bun run tsc -b && bun run vite build",
-    "lint": "bun run eslint .",
+    "lint": "oxlint .",
     "preview": "bun run vite preview",
     "start": "bun run dev",
     "test": "bun run vitest run",
@@ -54,10 +54,9 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
-    "@eslint/js": "^9.35.0",
     "@playwright/test": "1.56.1",
     "@testing-library/jest-dom": "^6.0.0",
-    "@testing-library/react": "^14.0.0",
+    "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.0.0",
     "@types/mixpanel-browser": "^2.66.0",
     "@types/node": "^24.5.2",
@@ -65,15 +64,10 @@
     "@types/react-dom": "^19.1.9",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react-swc": "^4.0.1",
-    "eslint": "^9.35.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.20",
-    "globals": "^16.4.0",
     "jsdom": "^23.0.0",
     "tw-animate-css": "^1.3.8",
     "typescript": "~5.8.3",
-    "typescript-eslint": "^8.43.0",
     "vite": "^7.1.6",
-    "vitest": "^1.0.0"
+    "vitest": "^3.0.0"
   }
 }

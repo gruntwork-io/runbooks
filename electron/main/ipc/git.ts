@@ -19,8 +19,6 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
-import * as fs from "node:fs"
-function debugLog(msg: string) { fs.appendFileSync("/tmp/runbooks-git-debug.log", new Date().toISOString() + " " + msg + "\n") }
 import { PathTraversalError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
 
