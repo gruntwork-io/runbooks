@@ -1,7 +1,7 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
@@ -148,6 +148,15 @@ function App() {
   const content = getRunbookResult.data?.content || ''
   const runbookPath = getDirectoryPath(getRunbookResult.data?.path || '')
 
+  // Track whether we've ever successfully loaded runbook content.
+  // Once true, never let loading/error states unmount MDXContainer — doing so
+  // would destroy all block outputs (and user-edited inputs) stored in
+  // RunbookContextProvider's React state, causing "Waiting for outputs" warnings.
+  const hasEverLoadedRef = useRef(false)
+  if (content) {
+    hasEverLoadedRef.current = true
+  }
+
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
     setShowGeneratedFilesAlert(false);
@@ -178,15 +187,19 @@ function App() {
           />
         )}
         
-        {/* Loading and Error States */}
-        {getRunbookResult.isLoading ? (
+        {/* Loading and Error States
+             Once content has successfully loaded (hasEverLoadedRef), skip these
+             branches so MDXContainer is never unmounted. A transient isLoading
+             flash (e.g. from useIpc effect re-firing) would otherwise destroy
+             all block outputs and user-edited inputs stored in React state. */}
+        {getRunbookResult.isLoading && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading runbook...</p>
             </div>
           </div>
-        ) : generatedFilesCheck.error ? (
+        ) : generatedFilesCheck.error && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-xl mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-left">
@@ -212,7 +225,7 @@ function App() {
               </div>
             </div>
           </div>
-        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) ? (
+        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -224,8 +237,8 @@ function App() {
                 <p className="text-sm text-red-600 mb-4">
                   {getRunbookResult.error?.details}
                 </p>
-                <button 
-                  onClick={() => window.location.reload()} 
+                <button
+                  onClick={() => window.location.reload()}
                   className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                 >
                   Retry
@@ -233,7 +246,7 @@ function App() {
               </div>
             </div>
           </div>
-        ) : !getRunbookResult.data ? (
+        ) : !getRunbookResult.data && !hasEverLoadedRef.current ? (
           <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
           <>

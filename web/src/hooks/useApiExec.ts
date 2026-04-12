@@ -73,6 +73,16 @@ export interface UseApiExecReturn {
   reset: () => void
 }
 
+// ---------------------------------------------------------------------------
+// Global execution ID
+// ---------------------------------------------------------------------------
+// Only one script can execute at a time (the main process cancels any active
+// execution before starting a new one). This counter lets each hook instance
+// know whether *it* owns the current execution. Listeners registered by a
+// previous execution will see that `activeExecId` has moved on and silently
+// discard events that belong to a newer run.
+let activeExecId = 0
+
 /**
  * Hook to execute scripts via IPC with streaming event listeners.
  * Uses executable IDs from the executable registry instead of raw script content.
@@ -138,6 +148,10 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     cancel()
     const generation = ++executionGenRef.current
 
+    // Claim global ownership so that listeners from previously-run blocks
+    // (which are still subscribed) will silently discard our events.
+    const execId = ++activeExecId
+
     // Reset state for new execution
     setState({
       logs: [],
@@ -147,11 +161,13 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       outputs: null,
     })
 
-    // Subscribe to IPC streaming events before starting execution
+    // Subscribe to IPC streaming events before starting execution.
+    // Each listener guards against stale delivery: if another block has
+    // started a newer execution (activeExecId moved on), we ignore the event.
     const unsubs: (() => void)[] = []
 
     unsubs.push(window.api.on('exec:log', (data: unknown) => {
-      // console.log('[useApiExec] exec:log received')
+      if (activeExecId !== execId) return
       const parsed = ExecLogEventSchema.safeParse(data)
       if (parsed.success) {
         const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
@@ -165,6 +181,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     }))
 
     unsubs.push(window.api.on('exec:outputs', (data: unknown) => {
+      if (activeExecId !== execId) return
       const parsed = BlockOutputsEventSchema.safeParse(data)
       if (parsed.success) {
         setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
@@ -173,6 +190,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     }))
 
     unsubs.push(window.api.on('exec:files-captured', (data: unknown) => {
+      if (activeExecId !== execId) return
       const parsed = FilesCapturedEventSchema.safeParse(data)
       if (parsed.success) {
         options?.onFilesCaptured?.(parsed.data)
@@ -180,7 +198,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     }))
 
     unsubs.push(window.api.on('exec:status', (data: unknown) => {
-      // console.log('[useApiExec] exec:status received:', JSON.stringify(data))
+      if (activeExecId !== execId) return
       const parsed = ExecStatusEventSchema.safeParse(data)
       if (parsed.success) {
         setState((prev) => ({
@@ -198,11 +216,15 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
     try {
       await window.api.invoke('exec:run', payload)
-      // The invoke resolved, but IPC events (exec:status, exec:outputs) sent
-      // by the handler via event.sender.send() may still be in flight. Do NOT
-      // clean up listeners here — they need to stay alive to receive the
-      // events. Cleanup happens on the next execution (via cancel()) or
-      // on component unmount.
+      // The invoke resolved — the main process has sent all events.
+      // Schedule listener cleanup on the next macrotask so any IPC events
+      // still queued in the renderer's event loop are dispatched first.
+      setTimeout(() => {
+        if (generation === executionGenRef.current) {
+          cleanup()
+          cleanupRef.current = null
+        }
+      }, 0)
     } catch (error) {
       // Only update state if this execution is still current
       if (generation === executionGenRef.current) {
