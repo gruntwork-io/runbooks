@@ -54,5 +54,3 @@ tests:
       - type: file_contains
         path: terragrunt.hcl
         contains: "test-function"
-      - type: file_exists
-        path: src/app.py

@@ -893,6 +893,15 @@ export class TestExecutor {
     // For now, we attempt a simple file-copy-with-substitution approach.
     try {
       const vars = this.buildTemplateVars()
+      // Template blocks expect variables at top level ({{ .config_name }}),
+      // not nested under inputs ({{ .inputs.config_name }}).
+      // Merge this block's inputs into the top level of vars.
+      for (const [key, value] of Object.entries(this.testInputs)) {
+        const parts = key.split(".", 2)
+        if (parts.length === 2 && parts[0] === block.id) {
+          vars[parts[1]] = value
+        }
+      }
       this.renderTemplateDir(templatePath, outputDir, vars)
     } catch (e: unknown) {
       result.passed = false; result.actualStatus = "error"

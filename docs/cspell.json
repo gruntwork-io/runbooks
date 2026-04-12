@@ -44,7 +44,8 @@
     "worktree",
     "WORKTREE",
     "glab",
-    "logomark"
+    "logomark",
+    "sandboxed"
   ],
   "ignorePaths": [
     "node_modules",

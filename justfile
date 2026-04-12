@@ -51,13 +51,18 @@ test-backend:
 
 # Run web unit tests (Vitest — jsdom)
 test-web:
-    cd web && mise x bun -- bun run vitest run
+    cd web && mise x bun -- bun install --frozen-lockfile && mise x bun -- bun run vitest run
 
 # Run all unit tests
 test-unit: test-backend test-web
 
 # Run Playwright E2E tests (requires build)
 test-e2e: build
+    mise x bun -- bunx playwright test --config web/playwright.config.ts
+    mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
+
+# Run Playwright E2E tests without rebuilding (CI calls `just build` separately)
+test-e2e-run:
     mise x bun -- bunx playwright test --config web/playwright.config.ts
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 

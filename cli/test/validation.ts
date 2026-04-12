@@ -512,8 +512,11 @@ function extractTemplateContent(content: string): string {
 }
 
 function resolveBoilerplatePath(runbookDir: string, templatePath: string): string {
-  const fullDir = path.join(runbookDir, templatePath)
-  return path.join(fullDir, "boilerplate.yml")
+  const fullPath = path.join(runbookDir, templatePath)
+  if (templatePath.endsWith("boilerplate.yml")) {
+    return fullPath
+  }
+  return path.join(fullPath, "boilerplate.yml")
 }
 
 function loadBoilerplateConfig(configPath: string): BoilerplateConfig {

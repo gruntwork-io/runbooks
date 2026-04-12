@@ -60,6 +60,7 @@ export function extractProp(props: string, propName: string): string {
     new RegExp(`${propName}=\\{\`([^\`]*)\`\\}`, ""),
     new RegExp(`${propName}=\\{"([^"]*)"\\}`, ""),
     new RegExp(`${propName}=\\{'([^']*)'\\}`, ""),
+    new RegExp(`${propName}=\\{(true|false)\\}`, ""),
   ]
 
   for (const re of patterns) {
