@@ -56,9 +56,15 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   // Track whether an operation is in progress for cancellation
   const isRunningRef = useRef(false)
   const isMountedRef = useRef(true)
+  // Store active event unsubscribers so unmount can clean them up
+  const activeUnsubscribersRef = useRef<Array<() => void>>([])
 
   useEffect(() => {
-    return () => { isMountedRef.current = false }
+    return () => {
+      isMountedRef.current = false
+      for (const unsub of activeUnsubscribersRef.current) unsub()
+      activeUnsubscribersRef.current = []
+    }
   }, [])
 
   // Check if githubAuthId dependency is met
@@ -101,6 +107,9 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     errorStatus: PRBlockStatus
     errorPrefix: string
   }) => {
+    // Clear any stale unsubscribers from a previous run
+    for (const unsub of activeUnsubscribersRef.current) unsub()
+    activeUnsubscribersRef.current = []
     const unsubscribers: Array<() => void> = []
     isRunningRef.current = true
 
@@ -156,6 +165,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
           setStatus('fail')
         }),
       )
+      activeUnsubscribersRef.current = unsubscribers
 
       // Invoke the IPC command
       await window.api.invoke(opts.channel, opts.body)
@@ -165,6 +175,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       // asynchronously after invoke resolves).
       setTimeout(() => {
         for (const unsub of unsubscribers) unsub()
+        activeUnsubscribersRef.current = []
       }, 200)
       isRunningRef.current = false
     } catch (error) {
@@ -176,6 +187,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       }
       // Clean up listeners immediately on error (no more events expected)
       for (const unsub of unsubscribers) unsub()
+      activeUnsubscribersRef.current = []
       isRunningRef.current = false
     }
   }, [id, registerOutputs])

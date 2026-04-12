@@ -105,7 +105,7 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     if (!activeWorkTree) return
 
     try {
-      const data: WorkspaceChangesResponse = await window.api.invoke('workspace:changes', { worktreePath: activeWorkTree.localPath, file: filePath })
+      const data: WorkspaceChangesResponse = await window.api.invoke('workspace:changes', { worktreePath: activeWorkTree.localPath, singleFile: filePath })
       if (data.changes && data.changes.length > 0) {
         const fullChange = data.changes[0]
         // Merge the full diff into the existing changes array

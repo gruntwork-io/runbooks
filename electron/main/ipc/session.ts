@@ -4,6 +4,7 @@
  * Bridges Electron ipcMain to the SessionManager domain module.
  * All handlers are process-local and trusted -- no token validation needed.
  */
+import path from "path"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 
@@ -11,8 +12,12 @@ export function registerSessionHandlers(): void {
   ipcMain.handle(
     "session:create",
     async (_event, params: { workingDir: string }) => {
+      const resolved = path.resolve(params.workingDir)
+      if (resolved === path.parse(resolved).root) {
+        throw new Error("workingDir must not be a filesystem root")
+      }
       return runtime.runPromise(
-        sessionManager.createSession(params.workingDir),
+        sessionManager.createSession(resolved),
       )
     },
   )

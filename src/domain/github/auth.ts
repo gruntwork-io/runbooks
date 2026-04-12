@@ -113,23 +113,29 @@ export const detectCliCredentials = () =>
 
     const result = yield* Effect.either(
       Effect.gen(function* () {
-        const process = yield* spawner.spawn("gh", ["auth", "token"])
+        const proc = yield* spawner.spawn("gh", ["auth", "token"])
 
-        // Collect stdout lines with a timeout
+        // Collect stdout lines with a timeout, ensuring the process is
+        // killed when we're done (success, failure, or timeout).
         const lines: string[] = []
-        yield* process.output.pipe(
-          Stream.filter((line) => line.source === "stdout"),
-          Stream.take(1),
-          Stream.runForEach((line) =>
-            Effect.sync(() => {
-              lines.push(line.line.trim())
-            }),
-          ),
-          Effect.timeout(GH_CLI_TIMEOUT_MS),
-        )
+        const exitCode = yield* Effect.ensuring(
+          Effect.gen(function* () {
+            yield* proc.output.pipe(
+              Stream.filter((line) => line.source === "stdout"),
+              Stream.take(1),
+              Stream.runForEach((line) =>
+                Effect.sync(() => {
+                  lines.push(line.line.trim())
+                }),
+              ),
+              Effect.timeout(GH_CLI_TIMEOUT_MS),
+            )
 
-        const exitCode = yield* process.exitCode.pipe(
-          Effect.timeout(GH_CLI_TIMEOUT_MS),
+            return yield* proc.exitCode.pipe(
+              Effect.timeout(GH_CLI_TIMEOUT_MS),
+            )
+          }),
+          proc.kill.pipe(Effect.ignore),
         )
 
         if (exitCode !== 0 || lines.length === 0) {

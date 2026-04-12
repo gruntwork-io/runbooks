@@ -75,13 +75,9 @@ function isFrontendCurrent(webDir: string): boolean {
 }
 
 /**
- * Playwright global setup: ensures the Go binary is built before tests run.
- *
- * This mirrors `task build` but calls `go build` directly so there's no
- * dependency on the `task` CLI being installed.
+ * Playwright global setup: ensures the Electron app is built before tests run.
  */
 export default function globalSetup() {
-  const binaryPath = path.join(REPO_ROOT, "runbooks");
   const webDir = path.join(REPO_ROOT, "web");
   const distDir = path.join(webDir, "dist");
 
@@ -94,13 +90,9 @@ export default function globalSetup() {
     fs.writeFileSync(path.join(distDir, FINGERPRINT_FILE), fingerprint + "\n");
   }
 
-  // Build the Go binary
-  console.log("[global-setup] Building Go binary...");
-  execSync("go build -o runbooks .", { cwd: REPO_ROOT, stdio: "inherit" });
+  // Build the Electron app
+  console.log("[global-setup] Building Electron app...");
+  execSync("npx electron-vite build", { cwd: REPO_ROOT, stdio: "inherit" });
 
-  if (!fs.existsSync(binaryPath)) {
-    throw new Error(`Expected binary at ${binaryPath} but it was not found`);
-  }
-
-  console.log("[global-setup] Binary ready at", binaryPath);
+  console.log("[global-setup] Build complete.");
 }

@@ -64,7 +64,7 @@ export function useIpcGitFileTree(): UseIpcGitFileTreeResult {
     setError(null)
 
     try {
-      const data = await api.invoke<WorkspaceTreeResponse>('workspace:tree', { path: localPath })
+      const data = await api.invoke<WorkspaceTreeResponse>('workspace:tree', { worktreePath: localPath })
 
       // Ignore stale responses
       if (currentFetchId !== fetchIdRef.current) return
@@ -114,7 +114,7 @@ export function useIpcGitFileTree(): UseIpcGitFileTreeResult {
     const absolutePath = `${basePath}/${subPath}`
 
     try {
-      const data = await api.invoke<WorkspaceTreeResponse>('workspace:tree', { path: absolutePath })
+      const data = await api.invoke<WorkspaceTreeResponse>('workspace:tree', { worktreePath: absolutePath })
       const prefixed = prefixTreeIds(data.tree, nodeId)
 
       setTree(prev => {

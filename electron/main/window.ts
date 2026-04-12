@@ -7,6 +7,8 @@
 import { BrowserWindow, session, shell } from "electron"
 import path from "path"
 
+const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
+
 let mainWindow: BrowserWindow | null = null
 
 /**
@@ -48,9 +50,15 @@ export function createMainWindow(): BrowserWindow {
   }
 
   // Prevent the renderer from opening new Electron windows (e.g. target="_blank"
-  // links). Instead, open the URL in the user's default browser.
+  // links). Instead, open the URL in the user's default browser if it uses a
+  // safe scheme.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    try {
+      const parsed = new URL(url)
+      if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
+        shell.openExternal(url)
+      }
+    } catch { /* ignore invalid URLs */ }
     return { action: "deny" }
   })
 
@@ -63,9 +71,15 @@ export function createMainWindow(): BrowserWindow {
         if (new URL(url).origin === devOrigin) return
       } catch { /* fall through to block */ }
     }
-    // Production, or a cross-origin navigation in dev — open externally.
+    // Production, or a cross-origin navigation in dev — open externally if
+    // the scheme is allowed.
     event.preventDefault()
-    shell.openExternal(url)
+    try {
+      const parsed = new URL(url)
+      if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
+        shell.openExternal(url)
+      }
+    } catch { /* ignore invalid URLs */ }
   })
 
   // Avoid white flash — only show once content is painted.

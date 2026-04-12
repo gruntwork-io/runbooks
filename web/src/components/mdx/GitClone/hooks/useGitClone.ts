@@ -37,8 +37,8 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
   const [tokenChecked, setTokenChecked] = useState(false)
   const [workingDir, setWorkingDir] = useState<string | null>(null)
 
-  // Abort controller for cancelling clone
-  const abortControllerRef = useRef<AbortController | null>(null)
+  // Ref to the progress listener unsubscriber so cancel() can clean up
+  const unsubLogRef = useRef<(() => void) | null>(null)
 
   // Check if gitHubAuthId dependency is met
   const gitHubAuthMet = useMemo((): boolean => {
@@ -131,8 +131,6 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     setCloneResult(null)
     setErrorMessage(null)
 
-    const controller = new AbortController()
-    abortControllerRef.current = controller
     let unsubLog: (() => void) | null = null
 
     try {
@@ -143,7 +141,8 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
       if (usePty !== undefined) body.use_pty = usePty
       if (force) body.force = true
 
-      // Subscribe to streaming events before starting the clone
+      // Subscribe to streaming events before starting the clone.
+      // Store in ref so cancel() can unsubscribe.
       unsubLog = window.api.on('git:clone-progress', (data: { line: string; timestamp?: string; replace?: boolean }) => {
         const parsed = CloneLogEventSchema.safeParse(data)
         if (parsed.success) {
@@ -156,6 +155,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
           })
         }
       })
+      unsubLogRef.current = unsubLog
 
       const result = await window.api.invoke<{
         status: string
@@ -182,12 +182,6 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
         setCloneStatus('fail')
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
-        setCloneStatus('ready')
-        return
-      }
-
       const msg = error instanceof Error ? error.message : 'An unexpected error occurred'
       setErrorMessage(msg)
       setCloneStatus('fail')
@@ -199,16 +193,18 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
         const unsub = unsubLog
         setTimeout(() => unsub(), 200)
       }
-      abortControllerRef.current = null
+      unsubLogRef.current = null
     }
   }, [api, id, registerOutputs])
 
-  // Cancel an in-progress clone
+  // Cancel an in-progress clone by unsubscribing from progress events
   const cancel = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-      abortControllerRef.current = null
+    if (unsubLogRef.current) {
+      unsubLogRef.current()
+      unsubLogRef.current = null
     }
+    setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
+    setCloneStatus('ready')
   }, [])
 
   // Reset the block to ready state

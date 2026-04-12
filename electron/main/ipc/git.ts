@@ -15,6 +15,7 @@ import {
   deleteBranch,
   createPullRequest,
   pushBranch,
+  isValidGitURL,
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
@@ -37,6 +38,17 @@ export function registerGitHandlers(): void {
       return runtime.runPromise(
         Effect.scoped(
         Effect.gen(function* () {
+          // Validate the clone URL before any other processing
+          if (!isValidGitURL(params.url)) {
+            return yield* Effect.fail(
+              new GitError({
+                command: "git clone",
+                stderr: `invalid or disallowed git URL: ${params.url}`,
+                exitCode: 1,
+              }),
+            )
+          }
+
           // Resolve clone destination paths
           const session = yield* sessionManager.getSession()
           const paths = yield* resolveClonePaths(

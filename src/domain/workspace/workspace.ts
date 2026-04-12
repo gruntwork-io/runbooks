@@ -257,15 +257,10 @@ const buildWorkspaceTreeRecursive = (
 
         if (fileCount.value > MAX_WORKSPACE_FILES) {
           return yield* Effect.fail(
-            new (yield* Effect.sync(() =>
-              // Dynamically construct a FileReadError to signal "too many files"
-              // while keeping the service boundary clean.
-              class extends Error {
-                readonly _tag = "FileReadError" as const
-                readonly path = fullPath
-                readonly cause = `too many files: exceeded limit of ${MAX_WORKSPACE_FILES}`
-              },
-            ))() as unknown as FileReadError,
+            new FileReadError({
+              path: fullPath,
+              cause: `too many files: exceeded limit of ${MAX_WORKSPACE_FILES}`,
+            }),
           )
         }
 
@@ -480,6 +475,10 @@ export const getWorkspaceChanges = (
     const totalChanges = statusEntries.length
     const tooManyChanges = totalChanges > MAX_CHANGED_FILES
 
+    if (tooManyChanges) {
+      return { changes: [], totalChanges, tooManyChanges: true }
+    }
+
     const changes: WorkspaceFileChange[] = []
 
     for (const entry of statusEntries) {
@@ -505,8 +504,8 @@ export const getWorkspaceChanges = (
         diffTruncated: false,
       }
 
-      // In lightweight (too many changes) or binary mode, skip file I/O
-      if (tooManyChanges || binary) {
+      // In binary mode, skip file I/O
+      if (binary) {
         changes.push(change)
         continue
       }
@@ -525,10 +524,6 @@ export const getWorkspaceChanges = (
       }
 
       changes.push(change)
-    }
-
-    if (tooManyChanges) {
-      return { changes: [], totalChanges, tooManyChanges: true }
     }
 
     return { changes, totalChanges, tooManyChanges: false }

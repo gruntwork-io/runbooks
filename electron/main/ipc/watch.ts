@@ -11,12 +11,18 @@ import { runtime, runbookConfig, setFileWatcher } from "./runtime.ts"
 import { createWatcher } from "../../../src/watcher.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { setExecutableRegistry } from "./runtime.ts"
+import { validateSessionPath } from "./path-guard.ts"
 
 export function registerWatchHandlers(): void {
   ipcMain.handle(
     "watch:subscribe",
     async (event, params: { runbookPath: string }) => {
-      const runbookPath = params.runbookPath || runbookConfig.localPath
+      // Prefer the already-trusted runbookConfig.localPath; only use the
+      // renderer-supplied path if it passes validation.
+      let runbookPath = runbookConfig.localPath
+      if (params.runbookPath && params.runbookPath !== runbookPath) {
+        runbookPath = await runtime.runPromise(validateSessionPath(params.runbookPath))
+      }
 
       if (!runbookPath) {
         throw new Error("No runbook path provided and none configured")

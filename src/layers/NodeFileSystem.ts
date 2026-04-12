@@ -148,8 +148,9 @@ const impl: FileSystemShape = {
 
   watch: (paths: string[]) =>
     Stream.async<FileChangeEvent, FileWatchError>((emit) => {
+      let watcher: ReturnType<typeof chokidarWatch> | null = null
       try {
-        const watcher = chokidarWatch(paths, { ignoreInitial: true })
+        watcher = chokidarWatch(paths, { ignoreInitial: true })
 
         const handler = (type: FileChangeEvent["type"]) => (filePath: string) => {
           emit.single({ type, path: filePath })
@@ -164,6 +165,9 @@ const impl: FileSystemShape = {
       } catch (err) {
         emit.fail(new FileWatchError({ cause: err }))
       }
+
+      // Return cleanup effect to close the watcher when the stream terminates
+      return Effect.promise(() => watcher?.close() ?? Promise.resolve())
     }),
 }
 

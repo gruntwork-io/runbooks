@@ -36,6 +36,12 @@ export function registerRunbookHandlers(): void {
         }
       }
 
+      // Reject filesystem roots to prevent overly broad trust anchors
+      const resolvedInput = path.resolve(params.path)
+      if (resolvedInput === path.parse(resolvedInput).root) {
+        throw new Error("runbook path must not be a filesystem root")
+      }
+
       // Resolve the path — if it's a directory, look for runbook.mdx inside it
       const runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
       const config: RunbookConfig = {
