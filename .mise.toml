@@ -2,6 +2,7 @@
 node = "24"
 bun = "1.3"
 just = "1.48.1"
+oxlint = "1.59.0"
 
 [env]
 ELECTRON_ENABLE_LOGGING = "1"

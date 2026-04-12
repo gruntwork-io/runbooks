@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: ["**"]
   pull_request:
-    branches: ['**']
+    branches: ["**"]
 
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
         run: bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**'
 
       - name: Run web unit tests
-        run: cd web && vitest run --reporter=verbose
+        run: cd web && bun install --frozen-lockfile && vitest run --reporter=verbose
 
   test-build:
     name: Build Verification
@@ -59,7 +59,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build Electron app
-        run: electron-vite build
+        run: mise x node -- npx electron-vite build
 
   test-e2e:
     name: E2E Tests
@@ -94,7 +94,7 @@ jobs:
         run: bunx playwright install-deps chromium
 
       - name: Build Electron app
-        run: electron-vite build
+        run: mise x node -- npx electron-vite build
 
       - name: Run Playwright tests
         run: bunx playwright test
@@ -175,7 +175,15 @@ jobs:
 
   ci-summary:
     name: CI Summary
-    needs: [lint-typecheck, test-unit, test-build, test-e2e, test-runbooks, test-docs]
+    needs:
+      [
+        lint-typecheck,
+        test-unit,
+        test-build,
+        test-e2e,
+        test-runbooks,
+        test-docs,
+      ]
     runs-on: ubuntu-latest
     if: always()
     steps:
