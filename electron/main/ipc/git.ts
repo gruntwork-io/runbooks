@@ -128,6 +128,9 @@ export function registerGitHandlers(): void {
             relativePath: paths.relativePath,
             fileCount,
             status: "success" as const,
+            outputs: {
+              clone_path: paths.absolutePath,
+            },
           }
         }),
         ),
