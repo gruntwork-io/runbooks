@@ -1,0 +1,35 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+
+tests:
+  - name: commands-run-in-sequence
+    description: |
+      cd-subdir and verify-cwd both execute successfully. Backend coverage
+      for the UI test that used to live in web/e2e/test-sample-runbooks.spec.ts.
+
+      TODO: Assert that verify-cwd sees the drifted PWD (i.e. CWD
+      propagation works end-to-end). The runbooks-test executor currently
+      does not persist each Command's final CWD across steps (cli/test/
+      executor.ts:157 sets sessionWorkDir once and never updates it from
+      the wrapBashScript pwd capture). When that gap closes, add:
+        assertions:
+          - type: output_matches
+            block: verify-cwd
+            output: cwd
+            pattern: "/subdir$"
+    steps:
+      - block: cd-subdir
+        expect: success
+      - block: verify-cwd
+        expect: success
+      - block: clone-after-cd
+        expect: skip
+
+    # TODO: issue #94 regression (GitClone after cd resolves paths relative to
+    # initial workDir, not drifted CWD) — currently covered only via the
+    # Playwright overwrite-dialog test. Restoring a backend assertion here
+    # requires pre-test fixture support (a local bare repo) which isn't yet
+    # available in runbooks-test. Tracked as gap #4 in the E2E reshuffle plan.
