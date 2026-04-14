@@ -1211,8 +1211,8 @@ export class TestExecutor {
     // Count files
     const fileCount = this.countFilesRecursive(destPath)
 
-    result.outputs = { CLONE_PATH: destPath, FILE_COUNT: String(fileCount) }
-    if (ref) result.outputs["REF"] = ref
+    result.outputs = { clone_path: destPath, file_count: String(fileCount) }
+    if (ref) result.outputs["ref"] = ref
 
     const outputMap = new Map<string, string>()
     for (const [k, v] of Object.entries(result.outputs)) outputMap.set(k, v)
