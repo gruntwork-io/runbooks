@@ -28,8 +28,8 @@ import type { ScriptSetup } from "./script.ts"
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Execution timeout in milliseconds (5 minutes). */
-const EXEC_TIMEOUT_MS = 5 * 60 * 1000
+/** Default execution timeout in milliseconds (5 minutes). Overridable per-request via `ExecRequest.timeoutMs`. */
+const DEFAULT_EXEC_TIMEOUT_MS = 5 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // Execution Event Types
@@ -148,6 +148,9 @@ export const executeScript = (
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    // Resolve the effective execution timeout: per-request override, falling back to the default.
+    const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
+
     // console.log("[executor] step 4: preparing script")
     // Prepare script for execution (handles interpreter detection, env capture wrapping, temp files)
     const scriptSetup: ScriptSetup = yield* prepareScript(scriptContent, language)
@@ -203,8 +206,8 @@ export const executeScript = (
       // Wait for the process to exit
       const exitResult = yield* process.exitCode.pipe(
         Effect.timeoutFail({
-          duration: EXEC_TIMEOUT_MS,
-          onTimeout: () => new ExecTimeoutError({ timeoutMs: EXEC_TIMEOUT_MS }),
+          duration: effectiveTimeoutMs,
+          onTimeout: () => new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs }),
         }),
         Effect.either,
       )
@@ -225,7 +228,7 @@ export const executeScript = (
         events.push({
           _tag: "log",
           event: {
-            line: `Script execution timed out after ${EXEC_TIMEOUT_MS / 1000 / 60} minutes`,
+            line: `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`,
             timestamp: new Date().toISOString(),
           },
         })
