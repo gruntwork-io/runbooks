@@ -7,6 +7,7 @@ if (process.env.ELECTRON_RENDERER_URL) {
 
 import { app, shell, ipcMain, dialog, protocol, net } from "electron"
 import * as path from "path"
+import * as fs from "fs"
 import { createMainWindow, focusOrCreateWindow, getMainWindow } from "./window.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
@@ -69,10 +70,29 @@ const cliConfig = parseCliArgs()
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
+//
+// If the CLI path is a directory, resolve it to the runbook.mdx inside so that
+// `runbookConfig.localPath` is always a concrete file path. The runbook-asset
+// protocol handler computes the asset directory via `path.dirname(localPath)`;
+// leaving `localPath` as a directory would make `path.dirname` return its
+// *parent*, causing asset 404s on any image request that races ahead of the
+// renderer's `runbook:get` IPC call (which later re-resolves the path).
 if (cliConfig.runbookPath) {
+  let resolvedPath = cliConfig.runbookPath
+  try {
+    if (fs.statSync(resolvedPath).isDirectory()) {
+      const candidate = path.join(resolvedPath, "runbook.mdx")
+      if (fs.existsSync(candidate)) {
+        resolvedPath = candidate
+      }
+    }
+  } catch {
+    // stat may fail (e.g. path doesn't exist yet); leave as-is and let the
+    // renderer's runbook:get call surface the error.
+  }
   setRunbookConfig({
     ...runbookConfig,
-    localPath: cliConfig.runbookPath,
+    localPath: resolvedPath,
     isWatchMode: cliConfig.watch,
   })
 }

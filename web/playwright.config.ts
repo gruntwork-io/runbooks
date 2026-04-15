@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
+  workers: process.env.CI ? 2 : undefined,
   // MDX compiles client-side, so give each test enough time for
   // Electron startup + React render + MDX compilation.
   timeout: 30_000,

@@ -60,10 +60,18 @@ export const test = base.extend<RunbookAppFixture>({
         ? runbookPath
         : path.join(REPO_ROOT, runbookPath);
 
+      const userDataDir = path.join(workDir, "user-data");
+      fs.mkdirSync(userDataDir, { recursive: true });
+
       app = await electron.launch({
         // --no-sandbox is required on Linux CI (Ubuntu 24.04+) where AppArmor
         // blocks unprivileged user namespaces and chrome-sandbox isn't SUID.
-        args: [MAIN_ENTRY, "--no-sandbox", "--working-dir", workDir, absRunbookPath],
+        // --user-data-dir gives each test its own Chromium profile so parallel
+        // Playwright workers don't collide on Electron's single-instance lock
+        // (SingletonLock in the shared userData dir) which would cause the
+        // second process to app.quit() before firstWindow() resolves.
+        // Chromium switches must come AFTER MAIN_ENTRY in Electron's argv.
+        args: [MAIN_ENTRY, "--no-sandbox", `--user-data-dir=${userDataDir}`, "--working-dir", workDir, absRunbookPath],
         env: {
           ...process.env,
           ELECTRON_NO_UPDATER: "1",
