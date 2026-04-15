@@ -24,9 +24,19 @@ export function registerGitHubHandlers(): void {
   ipcMain.handle(
     "github:validate",
     async (_event, params: { token: string }) => {
-      const user = await runtime.runPromise(validateToken(params.token))
       const tokenType = detectTokenType(params.token)
-      return { user, tokenType }
+      try {
+        const { user, scopes } = await runtime.runPromise(
+          validateToken(params.token),
+        )
+        return { valid: true, user, scopes, tokenType }
+      } catch (err) {
+        return {
+          valid: false,
+          tokenType,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
     },
   )
 
@@ -56,15 +66,33 @@ export function registerGitHubHandlers(): void {
       return { found: false as const }
     }
 
-    const user = await runtime.runPromise(validateToken(token))
     const tokenType = detectTokenType(token)
 
-    // Inject the token into the session environment
-    await runtime.runPromise(
-      sessionManager.appendToEnv({ GITHUB_TOKEN: token }),
-    )
+    try {
+      const { user, scopes } = await runtime.runPromise(validateToken(token))
 
-    return { found: true as const, token, user, tokenType }
+      // Inject the token into the session environment
+      await runtime.runPromise(
+        sessionManager.appendToEnv({ GITHUB_TOKEN: token }),
+      )
+
+      return {
+        found: true as const,
+        valid: true as const,
+        token,
+        user,
+        scopes,
+        tokenType,
+      }
+    } catch (err) {
+      return {
+        found: true as const,
+        valid: false as const,
+        token,
+        tokenType,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
   })
 
   ipcMain.handle("github:cli-credentials", async () => {
@@ -73,10 +101,18 @@ export function registerGitHubHandlers(): void {
       return { found: false as const }
     }
 
-    const user = await runtime.runPromise(validateToken(token))
     const tokenType = detectTokenType(token)
 
-    return { found: true as const, token, user, tokenType }
+    try {
+      const { user, scopes } = await runtime.runPromise(validateToken(token))
+      return { found: true as const, token, user, scopes, tokenType }
+    } catch (err) {
+      return {
+        found: true as const,
+        tokenType,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
   })
 
   ipcMain.handle(

@@ -95,6 +95,9 @@ export function registerBoilerplateHandlers(): void {
           const renderer = yield* BoilerplateRenderer
           const fs = yield* FileSystem
 
+          // Resolve template path (may be relative to the runbook directory)
+          const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
+
           // Resolve output directory
           const session = yield* sessionManager.getSession()
           const workingDir = session.workingDir
@@ -123,7 +126,7 @@ export function registerBoilerplateHandlers(): void {
 
           // Render the template
           yield* renderer.renderTemplate(
-            params.templatePath,
+            resolvedTemplatePath,
             outputDir,
             params.variables,
           )

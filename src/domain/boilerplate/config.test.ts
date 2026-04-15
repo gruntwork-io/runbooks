@@ -105,6 +105,34 @@ variables:
     expect(result.variables[0].validations[0].type).toBe("required")
   })
 
+  it("accepts the YAML shorthand validation form (bare string)", async () => {
+    const result = await parse(`
+variables:
+  - name: name
+    validations:
+      - required
+`)
+    expect(result.variables[0].required).toBe(true)
+    expect(result.variables[0].validations).toHaveLength(1)
+    expect(result.variables[0].validations[0].type).toBe("required")
+  })
+
+  it("accepts a mix of shorthand and long-form validation entries", async () => {
+    const result = await parse(`
+variables:
+  - name: site
+    validations:
+      - required
+      - type: url
+        description: "Must be a URL"
+`)
+    expect(result.variables[0].required).toBe(true)
+    expect(result.variables[0].validations).toHaveLength(2)
+    expect(result.variables[0].validations[0].type).toBe("required")
+    expect(result.variables[0].validations[1].type).toBe("url")
+    expect(result.variables[0].validations[1].message).toBe("Must be a URL")
+  })
+
   it("maps multiple validation types", async () => {
     const result = await parse(`
 variables:
@@ -215,6 +243,89 @@ variables:
 `)
     expect(result.variables).toHaveLength(1)
     expect(result.variables[0].name).toBe("valid")
+  })
+
+  it("returns empty skipFiles when skip_files is absent", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+`)
+    expect(result.skipFiles).toEqual([])
+  })
+
+  it("parses a valid skip_files block", async () => {
+    const result = await parse(`
+variables: []
+skip_files:
+  - path: a.txt
+    if: "{{ eq .inputs.mode \\"prod\\" }}"
+  - path: b.txt
+  - path: sub/dir/c.txt
+    if: "{{ .inputs.flag }}"
+`)
+    expect(result.skipFiles).toEqual([
+      { path: "a.txt", if: '{{ eq .inputs.mode "prod" }}' },
+      { path: "b.txt" },
+      { path: "sub/dir/c.txt", if: "{{ .inputs.flag }}" },
+    ])
+  })
+
+  it("drops skip_files entries that are missing a path and warns", async () => {
+    const originalWarn = console.warn
+    const warnings: string[] = []
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "))
+    }
+    try {
+      const result = await parse(`
+variables: []
+skip_files:
+  - path: ok.txt
+  - if: "{{ .inputs.x }}"
+  - path: ""
+  - path: also-ok.txt
+    if: "{{ .inputs.y }}"
+`)
+      expect(result.skipFiles).toEqual([
+        { path: "ok.txt" },
+        { path: "also-ok.txt", if: "{{ .inputs.y }}" },
+      ])
+      expect(warnings.length).toBeGreaterThanOrEqual(2)
+      // Both dropped entries should mention their index / path issue.
+      expect(warnings.some((w) => w.includes("skip_files[1]"))).toBe(true)
+      expect(warnings.some((w) => w.includes("skip_files[2]"))).toBe(true)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  it("warns and ignores when skip_files is not a list", async () => {
+    const originalWarn = console.warn
+    const warnings: string[] = []
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "))
+    }
+    try {
+      const result = await parse(`
+variables: []
+skip_files: "not-a-list"
+`)
+      expect(result.skipFiles).toEqual([])
+      expect(warnings.some((w) => w.includes("skip_files must be a list"))).toBe(
+        true,
+      )
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  it("parses skip_files when there are no variables", async () => {
+    const result = await parse(`
+skip_files:
+  - path: solo.txt
+`)
+    expect(result.variables).toEqual([])
+    expect(result.skipFiles).toEqual([{ path: "solo.txt" }])
   })
 })
 
