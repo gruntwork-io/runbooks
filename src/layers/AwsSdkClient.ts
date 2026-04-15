@@ -9,7 +9,7 @@ import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts"
 import { IAMClient, ListAccountAliasesCommand } from "@aws-sdk/client-iam"
 import { SSOClient, GetRoleCredentialsCommand, ListAccountsCommand, ListAccountRolesCommand } from "@aws-sdk/client-sso"
 import { SSOOIDCClient, RegisterClientCommand, StartDeviceAuthorizationCommand, CreateTokenCommand } from "@aws-sdk/client-sso-oidc"
-import { AccountClient, GetContactInformationCommand } from "@aws-sdk/client-account"
+import { AccountClient, GetRegionOptStatusCommand } from "@aws-sdk/client-account"
 import { parse as parseIni } from "ini"
 import { AwsClient } from "../services/AwsClient.ts"
 import type {
@@ -258,13 +258,18 @@ const impl: AwsClientShape = {
     Effect.tryPromise({
       try: async (): Promise<boolean> => {
         const client = new AccountClient({
-          region,
+          region: "us-east-1",
           credentials: makeCredentialsProvider(creds),
         })
-        await client.send(new GetContactInformationCommand({}))
-        return true
+        const resp = await client.send(
+          new GetRegionOptStatusCommand({ RegionName: region }),
+        )
+        return (
+          resp.RegionOptStatus === "ENABLED" ||
+          resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
+        )
       },
-      catch: () => false,
+      catch: () => true,
     }) as Effect.Effect<boolean, AwsAuthError>,
 }
 
