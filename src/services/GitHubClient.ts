@@ -8,6 +8,12 @@ export interface GitHubUser {
   readonly email?: string
 }
 
+export interface GitHubTokenValidation {
+  readonly user: GitHubUser
+  /** Scopes parsed from the X-OAuth-Scopes response header. Undefined for fine-grained PATs and GitHub App tokens. */
+  readonly scopes?: string[]
+}
+
 export interface DeviceFlowStart {
   readonly deviceCode: string
   readonly userCode: string
@@ -56,7 +62,7 @@ export interface PullRequestResult {
 export type GitHubTokenType = "classic_pat" | "fine_grained_pat" | "oauth" | "github_app" | "unknown"
 
 export interface GitHubClientShape {
-  readonly validateToken: (token: string) => Effect.Effect<GitHubUser, GitHubApiError>
+  readonly validateToken: (token: string) => Effect.Effect<GitHubTokenValidation, GitHubApiError>
   readonly detectTokenType: (token: string) => GitHubTokenType
   readonly startOAuthDeviceFlow: (clientId: string, scopes: string[]) => Effect.Effect<DeviceFlowStart, GitHubApiError>
   readonly pollOAuthToken: (clientId: string, deviceCode: string) => Effect.Effect<OAuthPollResult, GitHubApiError>
