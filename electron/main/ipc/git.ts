@@ -5,6 +5,8 @@
  * event.sender.send(). Pull request creation and branch deletion are
  * simple request-response handlers.
  */
+import { existsSync } from "node:fs"
+import { rm } from "node:fs/promises"
 import { Cause, Effect, Exit, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
@@ -65,6 +67,7 @@ export function registerGitHandlers(): void {
         localPath?: string
         ref?: string
         credentials?: { token: string }
+        force?: boolean
       },
     ) => {
       return runAndUnwrap(
@@ -97,6 +100,26 @@ export function registerGitHandlers(): void {
                 message: "clone destination is outside session working directory",
               }),
             )
+          }
+
+          // If the destination already exists, either surface directory_exists
+          // so the renderer can prompt the user, or delete it when force=true
+          // (from "Delete & Clone"). The isContainedIn check above gates the
+          // rm so a malformed localPath cannot wipe anything outside the
+          // session working dir.
+          if (existsSync(paths.absolutePath)) {
+            if (!params.force) {
+              return { error: "directory_exists" as const }
+            }
+            yield* Effect.tryPromise({
+              try: () => rm(paths.absolutePath, { recursive: true, force: true }),
+              catch: (e) =>
+                new GitError({
+                  command: "rm -rf",
+                  stderr: e instanceof Error ? e.message : String(e),
+                  exitCode: 1,
+                }),
+            })
           }
 
           const options: CloneOptions = {

@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel, createLocalBareRepo } from "./fixtures";
+import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 
 /**
  * End-to-end tests for the sample runbooks in testdata/sample-runbooks/.
@@ -573,22 +573,13 @@ test.describe("sample-runbooks/next-app", () => {
 // exists" confirmation dialog must appear with working Delete & Clone /
 // Cancel buttons.
 //
-// NOTE: This test is currently .fixme because two backend pieces needed to
-// reach the dialog aren't wired up in the Electron rewrite yet:
-//   1. src/domain/git/operations.ts:isValidGitURL rejects file:// URLs, so
-//      we can't seed the test from a local bare repo without network.
-//   2. electron/main/ipc/git.ts never returns { error: 'directory_exists' }
-//      — the renderer hook in
-//      web/src/components/mdx/GitClone/hooks/useGitClone.ts expects it, but
-//      the backend currently only surfaces a generic GitError on clone
-//      failure, so the overwrite dialog never triggers.
-// Unfix once both gaps close; the test body below is the intended shape.
+// Uses the public gruntwork-io/runbooks-test repo (the same fixture the
+// test-runbooks job already depends on) so the test needs no GitHub
+// credentials. Network-dependent, so the first clone gets a generous
+// timeout.
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/dual-clone", () => {
-  test.fixme("overwrite confirmation dialog appears when cloning into an occupied directory", async ({ launchRunbook, workDir, consoleMessages }) => {
-    // Create a local bare git repo so we can clone without GitHub credentials.
-    const bareRepoPath = createLocalBareRepo(workDir);
-
+  test("overwrite confirmation dialog appears when cloning into an occupied directory", async ({ launchRunbook, consoleMessages }) => {
     const page = await launchRunbook("testdata/sample-runbooks/dual-clone");
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -597,19 +588,22 @@ test.describe("sample-runbooks/dual-clone", () => {
 
     const cloneBlock = page.getByTestId("clone-after-cd");
     const urlInput = cloneBlock.getByRole("textbox").first();
-    await urlInput.fill(`file://${bareRepoPath}`);
+    await urlInput.fill("https://github.com/gruntwork-io/runbooks-test.git");
     // Set an explicit local path so the clone destination is predictable.
     await cloneBlock.getByText("Additional Settings").click();
     const localPathInput = cloneBlock.getByPlaceholder("Defaults to repo name");
     await localPathInput.fill("target-repo");
 
     // First clone: succeeds and populates <workDir>/target-repo.
-    await cloneBlock.getByRole("button", { name: "Clone" }).click();
-    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await cloneBlock.getByRole("button", { name: "Clone", exact: true }).click();
+    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 45_000 });
+
+    // Reset back to the form so a second Clone can be triggered.
+    await cloneBlock.getByRole("button", { name: "Clone again" }).click();
 
     // Second clone to the same path: backend returns directory_exists, UI
     // should show the overwrite confirmation dialog.
-    await cloneBlock.getByRole("button", { name: "Clone" }).click();
+    await cloneBlock.getByRole("button", { name: "Clone", exact: true }).click();
     await expect(cloneBlock.getByText("Local path already exists")).toBeVisible({ timeout: 5_000 });
     await expect(cloneBlock.getByRole("button", { name: "Delete & Clone" })).toBeVisible();
     await expect(cloneBlock.getByRole("button", { name: "Cancel" })).toBeVisible();
