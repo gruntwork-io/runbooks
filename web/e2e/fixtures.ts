@@ -61,7 +61,9 @@ export const test = base.extend<RunbookAppFixture>({
         : path.join(REPO_ROOT, runbookPath);
 
       app = await electron.launch({
-        args: [MAIN_ENTRY, "--working-dir", workDir, absRunbookPath],
+        // --no-sandbox is required on Linux CI (Ubuntu 24.04+) where AppArmor
+        // blocks unprivileged user namespaces and chrome-sandbox isn't SUID.
+        args: [MAIN_ENTRY, "--no-sandbox", "--working-dir", workDir, absRunbookPath],
         env: {
           ...process.env,
           ELECTRON_NO_UPDATER: "1",
