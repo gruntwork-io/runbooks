@@ -70,41 +70,79 @@ async function paginateAll<T>(
   return results
 }
 
+// GitHub App installation tokens (ghs_) can't call /user — GitHub returns
+// 403 "Resource not accessible by integration" because the token has no user
+// context. Probe /installation/repositories instead and synthesize an
+// identity from the installation owner.
+async function validateInstallationToken(
+  token: string,
+): Promise<GitHubTokenValidation> {
+  const resp = await githubFetch(
+    `${API_BASE}/installation/repositories?per_page=1`,
+    { token },
+  )
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    throw new GitHubApiError({
+      status: resp.status,
+      message: body || resp.statusText,
+    })
+  }
+  const data = (await resp.json()) as {
+    total_count: number
+    repositories: Array<{ owner?: { login?: string } }>
+  }
+  const ownerLogin = data.repositories[0]?.owner?.login
+  return {
+    user: {
+      login: ownerLogin ? `${ownerLogin}[bot]` : "github-app[bot]",
+      name: "GitHub App Installation",
+    },
+  }
+}
+
+async function validateUserToken(
+  token: string,
+): Promise<GitHubTokenValidation> {
+  const resp = await githubFetch(`${API_BASE}/user`, { token })
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    throw new GitHubApiError({
+      status: resp.status,
+      message: body || resp.statusText,
+    })
+  }
+  const data = (await resp.json()) as {
+    login: string
+    name?: string
+    avatar_url?: string
+    email?: string
+  }
+  const scopeHeader = resp.headers.get("x-oauth-scopes")
+  const scopes = scopeHeader
+    ? scopeHeader
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    : undefined
+  return {
+    user: {
+      login: data.login,
+      name: data.name,
+      avatarUrl: data.avatar_url,
+      email: data.email,
+    },
+    scopes,
+  }
+}
+
 const impl: GitHubClientShape = {
   validateToken: (token: string) =>
     Effect.tryPromise({
-      try: async (): Promise<GitHubTokenValidation> => {
-        const resp = await githubFetch(`${API_BASE}/user`, { token })
-        if (!resp.ok) {
-          const body = await resp.text().catch(() => "")
-          throw new GitHubApiError({
-            status: resp.status,
-            message: body || resp.statusText,
-          })
-        }
-        const data = (await resp.json()) as {
-          login: string
-          name?: string
-          avatar_url?: string
-          email?: string
-        }
-        const scopeHeader = resp.headers.get("x-oauth-scopes")
-        const scopes = scopeHeader
-          ? scopeHeader
-              .split(",")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0)
-          : undefined
-        return {
-          user: {
-            login: data.login,
-            name: data.name,
-            avatarUrl: data.avatar_url,
-            email: data.email,
-          },
-          scopes,
-        }
-      },
+      try: async (): Promise<GitHubTokenValidation> =>
+        token.startsWith("ghs_")
+          ? validateInstallationToken(token)
+          : validateUserToken(token),
       catch: (err) =>
         err instanceof GitHubApiError
           ? err

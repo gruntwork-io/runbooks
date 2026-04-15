@@ -4,6 +4,7 @@
  * Bridges Electron ipcMain to the GitHub auth domain module, providing token
  * validation, OAuth device flow, credential detection, and repository queries.
  */
+import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 import {
@@ -19,6 +20,22 @@ import {
   listLabels,
   DEFAULT_GITHUB_OAUTH_CLIENT_ID,
 } from "../../../src/domain/github/auth.ts"
+
+/**
+ * Resolve the GitHub token from the current session's environment. The env
+ * is populated by github:env-credentials / github:cli-credentials / user
+ * paste, and is the single source of truth for "which token do API calls
+ * use" — the renderer never sees the token directly.
+ */
+const getSessionToken = () =>
+  Effect.gen(function* () {
+    const session = yield* sessionManager.getSession()
+    const token = session.env.get("GITHUB_TOKEN")
+    if (!token) {
+      return yield* Effect.fail(new Error("No GitHub token available in session"))
+    }
+    return token
+  })
 
 export function registerGitHubHandlers(): void {
   ipcMain.handle(
@@ -115,18 +132,23 @@ export function registerGitHubHandlers(): void {
     }
   })
 
-  ipcMain.handle(
-    "github:orgs",
-    async (_event, params: { token: string }) => {
-      return runtime.runPromise(listOrgs(params.token))
-    },
-  )
+  ipcMain.handle("github:orgs", async () => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const token = yield* getSessionToken()
+        return yield* listOrgs(token)
+      }),
+    )
+  })
 
   ipcMain.handle(
     "github:repos",
-    async (_event, params: { token: string; org: string; query?: string }) => {
+    async (_event, params: { org: string; query?: string }) => {
       return runtime.runPromise(
-        listRepos(params.token, params.org, params.query),
+        Effect.gen(function* () {
+          const token = yield* getSessionToken()
+          return yield* listRepos(token, params.org, params.query)
+        }),
       )
     },
   )
@@ -135,22 +157,25 @@ export function registerGitHubHandlers(): void {
     "github:refs",
     async (
       _event,
-      params: { token: string; owner: string; repo: string; query?: string },
+      params: { owner: string; repo: string; query?: string },
     ) => {
       return runtime.runPromise(
-        listRefs(params.token, params.owner, params.repo, params.query),
+        Effect.gen(function* () {
+          const token = yield* getSessionToken()
+          return yield* listRefs(token, params.owner, params.repo, params.query)
+        }),
       )
     },
   )
 
   ipcMain.handle(
     "github:labels",
-    async (
-      _event,
-      params: { token: string; owner: string; repo: string },
-    ) => {
+    async (_event, params: { owner: string; repo: string }) => {
       return runtime.runPromise(
-        listLabels(params.token, params.owner, params.repo),
+        Effect.gen(function* () {
+          const token = yield* getSessionToken()
+          return yield* listLabels(token, params.owner, params.repo)
+        }),
       )
     },
   )

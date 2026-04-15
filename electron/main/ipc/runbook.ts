@@ -13,6 +13,7 @@ import {
   sessionManager,
   setExecutableRegistry,
   setRunbookConfig,
+  cliWorkingDir,
 } from "./runtime.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
@@ -54,9 +55,12 @@ export function registerRunbookHandlers(): void {
 
       // Update the session's working directory to the runbook's parent dir.
       // The session may have been created with '.' before the runbook path
-      // was known.
-      const runbookDir = path.dirname(runbookPath)
-      sessionManager.setWorkingDir(runbookDir)
+      // was known. Skip when --working-dir was explicitly supplied on the CLI,
+      // so E2E tests can pin the session to an isolated temp dir.
+      if (!cliWorkingDir) {
+        const runbookDir = path.dirname(runbookPath)
+        sessionManager.setWorkingDir(runbookDir)
+      }
 
       // Read the runbook file content
       const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
