@@ -19,6 +19,7 @@ import type {
   ValidationRule,
   Section,
   OutputDependency,
+  SkipFileRule,
 } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -50,8 +51,14 @@ interface RawVariable {
   "x-section"?: string
 }
 
+interface RawSkipFile {
+  path?: unknown
+  if?: unknown
+}
+
 interface RawConfig {
   variables?: RawVariable[]
+  skip_files?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +190,56 @@ function buildSections(
 }
 
 // ---------------------------------------------------------------------------
+// skip_files parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the top-level `skip_files:` block, if any. Each entry is a
+ * `{ path, if? }` record; malformed entries are dropped with a
+ * `console.warn` rather than throwing so a nonsense config keeps rendering
+ * files instead of crashing the whole render.
+ */
+function parseSkipFiles(raw: unknown): SkipFileRule[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) {
+    console.warn(
+      `[boilerplate config] skip_files must be a list, got ${typeof raw}; ignoring.`,
+    )
+    return []
+  }
+
+  const out: SkipFileRule[] = []
+  for (let idx = 0; idx < raw.length; idx++) {
+    const entry = raw[idx] as RawSkipFile | null | undefined
+    if (!entry || typeof entry !== "object") {
+      console.warn(
+        `[boilerplate config] skip_files[${idx}] is not an object; dropping entry.`,
+      )
+      continue
+    }
+    const pathVal = entry.path
+    if (typeof pathVal !== "string" || pathVal.length === 0) {
+      console.warn(
+        `[boilerplate config] skip_files[${idx}] missing or invalid "path"; dropping entry.`,
+      )
+      continue
+    }
+    const rule: SkipFileRule = { path: pathVal }
+    if (entry.if !== undefined) {
+      if (typeof entry.if !== "string") {
+        console.warn(
+          `[boilerplate config] skip_files[${idx}] "if" must be a string; ignoring condition.`,
+        )
+      } else {
+        rule.if = entry.if
+      }
+    }
+    out.push(rule)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // Main parser
 // ---------------------------------------------------------------------------
 
@@ -210,6 +267,7 @@ export function parseBoilerplateConfig(yamlContent: string) {
         variables: [],
         sections: [],
         outputDependencies: [],
+        skipFiles: raw ? parseSkipFiles(raw.skip_files) : [],
       } satisfies BoilerplateConfig
     }
 
@@ -263,11 +321,13 @@ export function parseBoilerplateConfig(yamlContent: string) {
     }
 
     const sections = buildSections(rawVars)
+    const skipFiles = parseSkipFiles(raw.skip_files)
 
     return {
       variables,
       sections,
       outputDependencies: [],
+      skipFiles,
     } satisfies BoilerplateConfig
   })
 }
