@@ -14,7 +14,7 @@ import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
-import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+import { runtime, setRunbookConfig, runbookConfig, setCliWorkingDir } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
@@ -67,6 +67,7 @@ if (!gotLock) {
 // ---------------------------------------------------------------------------
 
 const cliConfig = parseCliArgs()
+setCliWorkingDir(cliConfig.workingDir)
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
