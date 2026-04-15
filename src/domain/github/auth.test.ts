@@ -18,8 +18,12 @@ describe("detectTokenType", () => {
     expect(detectTokenType("gho_abc123")).toBe("oauth")
   })
 
-  it("identifies GitHub App token", () => {
+  it("identifies GitHub App installation token", () => {
     expect(detectTokenType("ghs_abc123")).toBe("github_app")
+  })
+
+  it("identifies GitHub App user-to-server token", () => {
+    expect(detectTokenType("ghu_abc123")).toBe("github_app")
   })
 
   it("returns unknown for unrecognized prefix", () => {

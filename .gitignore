@@ -17,6 +17,7 @@ generated/*
 coverage.out
 *.test
 dist/
+testdata/**/output
 out/
 test-results/
 
