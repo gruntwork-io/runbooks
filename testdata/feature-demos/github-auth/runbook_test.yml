@@ -16,40 +16,34 @@ settings:
 
 tests:
   - name: happy-path
-    description: Standard successful execution
+    description: Authenticate and verify against the GitHub API using whichever
+      token is in the env (user PAT via RUNBOOKS_GITHUB_TOKEN, or a ghs_
+      installation token via GITHUB_TOKEN). verify-auth.sh branches on the
+      token prefix to hit the correct endpoint.
 
     inputs:
-      # repo_url: string - the repository to clone
       repo-config.repo_url: "https://github.com/gruntwork-io/runbooks-test.git"
-      # clone_path: string - relative path within temp working directory
       repo-config.clone_path: "./cloned-repo"
 
     steps:
-      # Note: Order matters! Blocks that produce outputs must run before
-      # blocks that consume them via {{ .outputs.x.y }}
-      # All blocks below are commented out, so this test runs all blocks
-      # in document order. Uncomment specific blocks to run only those.
+      - block: gh-auth
+        expect: success
 
-      # - block: gh-auth
-      #   # Set expect: skip if not testing GitHub auth
-      #   # Or set RUNBOOKS_GITHUB_TOKEN env var
-      #   expect: skip
+      - block: verify-auth
+        expect: success
 
-      # - block: verify-auth
-      #   expect: success
+      # clone-repo is intentionally not exercised here: runbooks-test is a
+      # private fixture only the user PAT can reach. GitClone coverage with
+      # both token types belongs in the git-clone demo.
 
-      # - block: clone-repo
-      #   expect: success
-
-    assertions:
-      # TemplateInline blocks automatically validate their output dependencies.
-      # Add additional assertions to validate test results:
-      # - type: file_exists
-      #   path: generated/README.md
-      # - type: file_contains
-      #   path: generated/README.md
-      #   contains: "expected content"
-
-    # cleanup:
-    #   - command: rm -rf /tmp/test-resources
-    #   - path: cleanup/teardown.sh
+  - name: skip-without-credentials
+    description: With no token in the env, gh-auth skips and dependents skip too.
+    env:
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+      RUNBOOKS_GITHUB_TOKEN: ""
+    steps:
+      - block: gh-auth
+        expect: skip
+      - block: verify-auth
+        expect: skip
