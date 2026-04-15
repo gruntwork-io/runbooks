@@ -96,10 +96,29 @@ export interface OutputDependency {
   fullPath: string
 }
 
+export interface SkipFileRule {
+  /**
+   * Relative path (from the template root) of the file to conditionally skip.
+   *
+   * PR3 supports exact-match only — no glob / regex support yet.
+   */
+  path: string
+  /**
+   * Optional Go-template expression (rendered against the same `variables`
+   * object as the file contents) that decides whether the file is skipped.
+   *
+   * Truthy → skip. Falsy / empty / "false" / "0" → keep.
+   *
+   * When `if` is absent the file is always skipped.
+   */
+  if?: string
+}
+
 export interface BoilerplateConfig {
   variables: BoilerplateVariable[]
   sections: Section[]
   outputDependencies: OutputDependency[]
+  skipFiles: SkipFileRule[]
 }
 
 // ---------------------------------------------------------------------------
