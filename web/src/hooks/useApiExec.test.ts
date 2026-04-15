@@ -106,6 +106,7 @@ describe('useApiExec state machine', () => {
       templateVarValues: { region: 'us-west-2' },
       envVarsOverride: undefined,
       usePty: undefined,
+      timeoutMs: undefined,
     })
 
     // Simulate IPC events from main process
