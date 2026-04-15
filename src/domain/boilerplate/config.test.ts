@@ -105,6 +105,34 @@ variables:
     expect(result.variables[0].validations[0].type).toBe("required")
   })
 
+  it("accepts the YAML shorthand validation form (bare string)", async () => {
+    const result = await parse(`
+variables:
+  - name: name
+    validations:
+      - required
+`)
+    expect(result.variables[0].required).toBe(true)
+    expect(result.variables[0].validations).toHaveLength(1)
+    expect(result.variables[0].validations[0].type).toBe("required")
+  })
+
+  it("accepts a mix of shorthand and long-form validation entries", async () => {
+    const result = await parse(`
+variables:
+  - name: site
+    validations:
+      - required
+      - type: url
+        description: "Must be a URL"
+`)
+    expect(result.variables[0].required).toBe(true)
+    expect(result.variables[0].validations).toHaveLength(2)
+    expect(result.variables[0].validations[0].type).toBe("required")
+    expect(result.variables[0].validations[1].type).toBe("url")
+    expect(result.variables[0].validations[1].message).toBe("Must be a URL")
+  })
+
   it("maps multiple validation types", async () => {
     const result = await parse(`
 variables:
