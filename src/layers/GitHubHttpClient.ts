@@ -5,7 +5,7 @@ import { Effect, Layer } from "effect"
 import { GitHubClient } from "../services/GitHubClient.ts"
 import type {
   GitHubClientShape,
-  GitHubUser,
+  GitHubTokenValidation,
   GitHubTokenType,
   DeviceFlowStart,
   OAuthPollResult,
@@ -73,18 +73,36 @@ async function paginateAll<T>(
 const impl: GitHubClientShape = {
   validateToken: (token: string) =>
     Effect.tryPromise({
-      try: async (): Promise<GitHubUser> => {
-        const data = await githubJson<{
+      try: async (): Promise<GitHubTokenValidation> => {
+        const resp = await githubFetch(`${API_BASE}/user`, { token })
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => "")
+          throw new GitHubApiError({
+            status: resp.status,
+            message: body || resp.statusText,
+          })
+        }
+        const data = (await resp.json()) as {
           login: string
           name?: string
           avatar_url?: string
           email?: string
-        }>(`${API_BASE}/user`, { token })
+        }
+        const scopeHeader = resp.headers.get("x-oauth-scopes")
+        const scopes = scopeHeader
+          ? scopeHeader
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+          : undefined
         return {
-          login: data.login,
-          name: data.name,
-          avatarUrl: data.avatar_url,
-          email: data.email,
+          user: {
+            login: data.login,
+            name: data.name,
+            avatarUrl: data.avatar_url,
+            email: data.email,
+          },
+          scopes,
         }
       },
       catch: (err) =>
