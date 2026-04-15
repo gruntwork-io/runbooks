@@ -3,20 +3,17 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
+  workers: process.env.CI ? 2 : undefined,
   // MDX compiles client-side, so give each test enough time for
-  // server startup + React render + MDX compilation.
+  // Electron startup + React render + MDX compilation.
   timeout: 30_000,
   reporter: [["list"], ["./e2e/trace-reporter.ts"]],
   use: {
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [
-    {
-      name: "chromium",
-      use: { browserName: "chromium" },
-    },
-  ],
-  // Build the Go binary before running any tests.
+  // No browser projects — tests launch the Electron app directly via
+  // _electron.launch() (see e2e/fixtures.ts).
+  // Build the Electron app before running any tests.
   globalSetup: "./e2e/global-setup.ts",
 });

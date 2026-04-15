@@ -16,7 +16,7 @@ A Command block that changes directory should affect subsequent Command blocks.
 
 <Command
     id="verify-cwd"
-    command="pwd"
+    command='pwd; echo "cwd=$(pwd)" >> "${RUNBOOK_OUTPUT:-/dev/null}"'
     title="Verify CWD"
     description="Should show that we're now inside subdir"
 />
