@@ -1,0 +1,20 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+
+tests:
+  - name: happy-path
+    description: |
+      Exercise the pre-flight check and the deploy command. Mirrors the
+      "runs check and command blocks" Playwright test.
+    inputs:
+      service-config.ServiceName: "my-service"
+      service-config.Environment: "dev"
+      service-config.EnableMonitoring: true
+    steps:
+      - block: check-node
+        expect: success
+      - block: deploy
+        expect: success

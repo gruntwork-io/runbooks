@@ -31,6 +31,8 @@ interface UseScriptExecutionProps {
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
   usePty?: boolean
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout applies. */
+  timeoutMs?: number
 }
 
 // Re-export for backwards compatibility
@@ -132,6 +134,7 @@ export function useScriptExecution({
   children,
   componentType,
   usePty,
+  timeoutMs,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -566,12 +569,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty)
+      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty)
+      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, usePty])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, usePty, timeoutMs])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

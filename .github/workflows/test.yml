@@ -76,6 +76,11 @@ jobs:
       - name: Ensure Electron binary is installed
         run: node node_modules/electron/install.js
 
+      - name: Fix Electron chrome-sandbox permissions
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
       - name: Get Playwright version
         id: pw-version
         run: echo "version=$(bunx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
@@ -108,9 +113,12 @@ jobs:
         uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
-          path: playwright-report/
+          name: playwright-results
+          path: |
+            web/test-results/
+            electron/e2e/test-results/
           retention-days: 30
+          if-no-files-found: ignore
 
   test-runbooks:
     name: Runbook Tests
@@ -153,6 +161,31 @@ jobs:
           RUNBOOKS_GITHUB_TOKEN: ${{ secrets.RUNBOOKS_GITHUB_TOKEN }}
         run: resources/bin/runbooks-test test testdata/...
 
+  test-runbooks-app-token:
+    name: Runbook Tests (GitHub App Token)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile test CLI
+        run: just compile-test-cli
+
+      - name: Run GitHub auth flows with installation token
+        env:
+          # No RUNBOOKS_GITHUB_TOKEN: force the executor's fallback chain
+          # (RUNBOOKS_GITHUB_TOKEN -> GITHUB_TOKEN -> GH_TOKEN) to land on the
+          # ghs_ installation token, exercising validateInstallationToken.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: resources/bin/runbooks-test test testdata/feature-demos/github-auth/...
+
   test-docs:
     name: Documentation Tests
     runs-on: ubuntu-latest
@@ -174,6 +207,7 @@ jobs:
         test-build,
         test-e2e,
         test-runbooks,
+        test-runbooks-app-token,
         test-docs,
       ]
     runs-on: ubuntu-latest
@@ -186,9 +220,10 @@ jobs:
           BUILD_RESULT: ${{ needs.test-build.result }}
           E2E_RESULT: ${{ needs.test-e2e.result }}
           RUNBOOKS_RESULT: ${{ needs.test-runbooks.result }}
+          RUNBOOKS_APP_RESULT: ${{ needs.test-runbooks-app-token.result }}
           DOCS_RESULT: ${{ needs.test-docs.result }}
         run: |
-          for result in "$LINT_RESULT" "$UNIT_RESULT" "$BUILD_RESULT" "$E2E_RESULT" "$RUNBOOKS_RESULT" "$DOCS_RESULT"; do
+          for result in "$LINT_RESULT" "$UNIT_RESULT" "$BUILD_RESULT" "$E2E_RESULT" "$RUNBOOKS_RESULT" "$RUNBOOKS_APP_RESULT" "$DOCS_RESULT"; do
             if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
               echo "CI failed!"
               exit 1

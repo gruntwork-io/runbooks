@@ -5,7 +5,9 @@
  * event.sender.send(). Pull request creation and branch deletion are
  * simple request-response handlers.
  */
-import { Effect, Stream } from "effect"
+import { existsSync } from "node:fs"
+import { rm } from "node:fs/promises"
+import { Cause, Effect, Exit, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
@@ -23,6 +25,38 @@ import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
 
+/**
+ * Run an Effect program and surface typed failures as plain Errors whose
+ * message carries the real failure detail (e.g. git stderr).
+ *
+ * Effect's TaggedError inherits from Error but leaves `.message` empty, so
+ * across the IPC boundary the renderer would otherwise only see "An error
+ * has occurred". Unwrapping the Cause here and rethrowing a regular Error
+ * keeps the real message flowing through Electron's IPC serialization.
+ */
+async function runAndUnwrap<A, E extends { _tag: string }>(
+  program: Effect.Effect<A, E, never>,
+): Promise<A> {
+  const exit = await runtime.runPromiseExit(program)
+  if (Exit.isSuccess(exit)) return exit.value
+
+  const failure = Cause.failureOption(exit.cause)
+  if (failure._tag === "Some") {
+    const err = failure.value as GitError | PathTraversalError | { _tag: string }
+    if (err._tag === "GitError") {
+      const gitErr = err as GitError
+      throw new Error(
+        gitErr.stderr || `git ${gitErr.command} failed (exit ${gitErr.exitCode})`,
+      )
+    }
+    if (err._tag === "PathTraversalError") {
+      throw new Error((err as PathTraversalError).message)
+    }
+    throw new Error(String(err))
+  }
+  throw new Error(Cause.pretty(exit.cause))
+}
+
 export function registerGitHandlers(): void {
   ipcMain.handle(
     "git:clone",
@@ -33,9 +67,10 @@ export function registerGitHandlers(): void {
         localPath?: string
         ref?: string
         credentials?: { token: string }
+        force?: boolean
       },
     ) => {
-      return runtime.runPromise(
+      return runAndUnwrap(
         Effect.scoped(
         Effect.gen(function* () {
           // Validate the clone URL before any other processing
@@ -67,6 +102,26 @@ export function registerGitHandlers(): void {
             )
           }
 
+          // If the destination already exists, either surface directory_exists
+          // so the renderer can prompt the user, or delete it when force=true
+          // (from "Delete & Clone"). The isContainedIn check above gates the
+          // rm so a malformed localPath cannot wipe anything outside the
+          // session working dir.
+          if (existsSync(paths.absolutePath)) {
+            if (!params.force) {
+              return { error: "directory_exists" as const }
+            }
+            yield* Effect.tryPromise({
+              try: () => rm(paths.absolutePath, { recursive: true, force: true }),
+              catch: (e) =>
+                new GitError({
+                  command: "rm -rf",
+                  stderr: e instanceof Error ? e.message : String(e),
+                  exitCode: 1,
+                }),
+            })
+          }
+
           const options: CloneOptions = {
             ref: params.ref,
             token: params.credentials?.token,
@@ -89,8 +144,10 @@ export function registerGitHandlers(): void {
           const proc = yield* spawner.spawn("git", cloneArgs, {})
 
           // debugLog("[git:clone] draining output stream...")
+          const stderrLines: string[] = []
           yield* Stream.runForEach(proc.output, (line) =>
             Effect.sync(() => {
+              if (line.source === "stderr") stderrLines.push(line.line)
               event.sender.send("git:clone-progress", {
                 line: line.line,
                 timestamp: new Date().toISOString(),
@@ -102,10 +159,11 @@ export function registerGitHandlers(): void {
           const exitCode = yield* proc.exitCode
           // debugLog("[git:clone] exit code: " + exitCode)
           if (exitCode !== 0) {
+            const stderr = stderrLines.join("\n").trim()
             return yield* Effect.fail(
               new GitError({
                 command: "git clone",
-                stderr: `clone to ${paths.absolutePath} failed`,
+                stderr: stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`,
                 exitCode,
               }),
             )
@@ -150,7 +208,7 @@ export function registerGitHandlers(): void {
         setUpstream?: boolean
       },
     ) => {
-      return runtime.runPromise(
+      return runAndUnwrap(
         Effect.gen(function* () {
           yield* validateSessionPath(params.worktreePath)
 
@@ -189,14 +247,14 @@ export function registerGitHandlers(): void {
       params: { token: string } & CreatePullRequestParams,
     ) => {
       const { token, ...prParams } = params
-      return runtime.runPromise(createPullRequest(token, prParams))
+      return runAndUnwrap(createPullRequest(token, prParams))
     },
   )
 
   ipcMain.handle(
     "git:delete-branch",
     async (_event, params: { worktreePath: string; branch: string }) => {
-      return runtime.runPromise(
+      return runAndUnwrap(
         Effect.gen(function* () {
           yield* validateSessionPath(params.worktreePath)
           return yield* deleteBranch(params.worktreePath, params.branch)

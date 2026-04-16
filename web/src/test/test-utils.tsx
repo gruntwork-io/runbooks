@@ -2,14 +2,17 @@ import type { ReactNode } from 'react'
 import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { ErrorReportingProvider } from '@/contexts/ErrorReportingContext'
-import { TelemetryProvider } from '@/contexts/TelemetryContext'
+import { TelemetryContext, defaultContextValue } from '@/contexts/TelemetryContext.types'
 
 /**
  * Wraps children in all required context providers for component tests.
+ *
+ * Telemetry is provided via the raw context with a disabled default so tests
+ * don't trigger an IPC init path that isn't what's under test here.
  */
 export function TestWrapper({ children, remoteSource }: { children: ReactNode; remoteSource?: string }) {
   return (
-    <TelemetryProvider>
+    <TelemetryContext.Provider value={defaultContextValue}>
       <ErrorReportingProvider>
         <ComponentIdRegistryProvider>
           <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
@@ -17,6 +20,6 @@ export function TestWrapper({ children, remoteSource }: { children: ReactNode; r
           </RunbookContextProvider>
         </ComponentIdRegistryProvider>
       </ErrorReportingProvider>
-    </TelemetryProvider>
+    </TelemetryContext.Provider>
   )
 }

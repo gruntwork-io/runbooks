@@ -29,6 +29,8 @@ interface CommandProps {
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
   usePty?: boolean
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (5 minutes) applies. */
+  timeoutMs?: number
 }
 
 function Command({
@@ -45,6 +47,7 @@ function Command({
   runningMessage = "Running...",
   children,
   usePty,
+  timeoutMs,
 }: CommandProps) {
   // Validate required props
   const validationError = useMemo((): AppError | null => {
@@ -101,6 +104,7 @@ function Command({
     children,
     componentType: 'command',
     usePty,
+    timeoutMs,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component

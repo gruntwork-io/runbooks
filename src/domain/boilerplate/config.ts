@@ -19,6 +19,7 @@ import type {
   ValidationRule,
   Section,
   OutputDependency,
+  SkipFileRule,
 } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -43,15 +44,21 @@ interface RawVariable {
   default?: unknown
   options?: string[]
   sensitive?: boolean
-  validations?: RawValidation[]
+  validations?: (RawValidation | string)[]
   // Runbooks x-extensions (ignored by Boilerplate itself)
   "x-schema"?: Record<string, string>
   "x-schema-instance-label"?: string
   "x-section"?: string
 }
 
+interface RawSkipFile {
+  path?: unknown
+  if?: unknown
+}
+
 interface RawConfig {
   variables?: RawVariable[]
+  skip_files?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +91,9 @@ function mapValidationType(raw: string): BoilerplateValidationType {
   return VALIDATION_TYPE_MAP[lower] ?? "custom"
 }
 
-function extractValidations(rawValidations: RawValidation[] | undefined): {
+function extractValidations(
+  rawValidations: (RawValidation | string)[] | undefined,
+): {
   validations: ValidationRule[]
   isRequired: boolean
 } {
@@ -96,25 +105,31 @@ function extractValidations(rawValidations: RawValidation[] | undefined): {
   const validations: ValidationRule[] = []
 
   for (const rv of rawValidations) {
-    const typeName = rv.type ?? ""
+    // Accept the YAML shorthand form (`- required`) alongside the long form
+    // (`- type: required`). The upstream gruntwork-io/boilerplate library
+    // supports both; the Go parser on main inherited that via delegation.
+    const normalized: RawValidation =
+      typeof rv === "string" ? { type: rv } : rv
+
+    const typeName = normalized.type ?? ""
     const mapped = mapValidationType(typeName)
 
     if (mapped === "required") {
       isRequired = true
     }
 
-    const args: unknown[] = rv.args ? [...rv.args] : []
+    const args: unknown[] = normalized.args ? [...normalized.args] : []
 
     // Pull structured args from shorthand fields when explicit args are absent
     if (args.length === 0) {
-      if (rv.regex !== undefined) args.push(rv.regex)
-      if (rv.min !== undefined) args.push(rv.min)
-      if (rv.max !== undefined) args.push(rv.max)
+      if (normalized.regex !== undefined) args.push(normalized.regex)
+      if (normalized.min !== undefined) args.push(normalized.min)
+      if (normalized.max !== undefined) args.push(normalized.max)
     }
 
     validations.push({
       type: mapped,
-      message: rv.description ?? rv.message ?? "",
+      message: normalized.description ?? normalized.message ?? "",
       args,
     })
   }
@@ -183,6 +198,56 @@ function buildSections(
 }
 
 // ---------------------------------------------------------------------------
+// skip_files parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the top-level `skip_files:` block, if any. Each entry is a
+ * `{ path, if? }` record; malformed entries are dropped with a
+ * `console.warn` rather than throwing so a nonsense config keeps rendering
+ * files instead of crashing the whole render.
+ */
+function parseSkipFiles(raw: unknown): SkipFileRule[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) {
+    console.warn(
+      `[boilerplate config] skip_files must be a list, got ${typeof raw}; ignoring.`,
+    )
+    return []
+  }
+
+  const out: SkipFileRule[] = []
+  for (let idx = 0; idx < raw.length; idx++) {
+    const entry = raw[idx] as RawSkipFile | null | undefined
+    if (!entry || typeof entry !== "object") {
+      console.warn(
+        `[boilerplate config] skip_files[${idx}] is not an object; dropping entry.`,
+      )
+      continue
+    }
+    const pathVal = entry.path
+    if (typeof pathVal !== "string" || pathVal.length === 0) {
+      console.warn(
+        `[boilerplate config] skip_files[${idx}] missing or invalid "path"; dropping entry.`,
+      )
+      continue
+    }
+    const rule: SkipFileRule = { path: pathVal }
+    if (entry.if !== undefined) {
+      if (typeof entry.if !== "string") {
+        console.warn(
+          `[boilerplate config] skip_files[${idx}] "if" must be a string; ignoring condition.`,
+        )
+      } else {
+        rule.if = entry.if
+      }
+    }
+    out.push(rule)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // Main parser
 // ---------------------------------------------------------------------------
 
@@ -210,6 +275,7 @@ export function parseBoilerplateConfig(yamlContent: string) {
         variables: [],
         sections: [],
         outputDependencies: [],
+        skipFiles: raw ? parseSkipFiles(raw.skip_files) : [],
       } satisfies BoilerplateConfig
     }
 
@@ -263,11 +329,13 @@ export function parseBoilerplateConfig(yamlContent: string) {
     }
 
     const sections = buildSections(rawVars)
+    const skipFiles = parseSkipFiles(raw.skip_files)
 
     return {
       variables,
       sections,
       outputDependencies: [],
+      skipFiles,
     } satisfies BoilerplateConfig
   })
 }

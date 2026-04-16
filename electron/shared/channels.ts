@@ -315,6 +315,8 @@ export interface ExecRequest {
   templateVarValues?: Record<string, unknown>
   envVarsOverride?: Record<string, string>
   usePty?: boolean
+  /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
+  timeoutMs?: number
 }
 
 export interface BoilerplateConfig {

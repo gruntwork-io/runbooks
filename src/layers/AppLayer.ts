@@ -20,9 +20,13 @@ const BaseLive = Layer.mergeAll(
   ProcessEnvironmentLive,
   AwsSdkClientLive,
   GitHubHttpClientLive,
-  WasmBoilerplateLive,
   MixpanelTelemetryLive,
 )
+
+/**
+ * Boilerplate renderer requires FileSystem — provide it from NodeFileSystemLive.
+ */
+const BoilerplateLive = Layer.provide(WasmBoilerplateLive, NodeFileSystemLive)
 
 /**
  * Git layer requires ProcessSpawner — provide it explicitly from BaseLive.
@@ -35,4 +39,4 @@ const GitLive = Layer.provide(GitCliClientLive, ChildProcessSpawnerLive)
  * Usage:
  *   Effect.runPromise(myProgram.pipe(Effect.provide(AppLive)))
  */
-export const AppLive = Layer.mergeAll(BaseLive, GitLive)
+export const AppLive = Layer.mergeAll(BaseLive, GitLive, BoilerplateLive)

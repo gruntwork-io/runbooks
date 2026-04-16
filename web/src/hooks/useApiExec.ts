@@ -67,8 +67,8 @@ export interface UseApiExecOptions {
 
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean) => void
+  execute: (executableId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => void
+  executeByComponentId: (componentId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => void
   cancel: () => void
   reset: () => void
 }
@@ -142,6 +142,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       templateVarValues: Record<string, unknown>;
       envVarsOverride?: Record<string, string>;
       usePty?: boolean;
+      timeoutMs?: number;
     }
   ) => {
     // Cancel any existing execution and bump generation
@@ -247,12 +248,13 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean) => {
+    (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => {
       executeScript({
         executableId,
         templateVarValues,
         envVarsOverride,
         usePty,
+        timeoutMs,
       })
     },
     [executeScript]
@@ -265,12 +267,13 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).
   const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean) => {
+    (componentId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => {
       executeScript({
         componentId,
         templateVarValues,
         envVarsOverride,
         usePty,
+        timeoutMs,
       })
     },
     [executeScript]

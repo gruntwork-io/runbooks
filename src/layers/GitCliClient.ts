@@ -275,7 +275,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     status: (repoPath: string) =>
       Effect.gen(function* () {
-        const lines = yield* runGit(spawner, ["status", "--porcelain"], repoPath)
+        const lines = yield* runGit(spawner, ["status", "--porcelain", "--untracked-files=all"], repoPath)
         return lines
           .filter((l) => l.trim().length > 0)
           .map((line): StatusEntry => ({
@@ -292,7 +292,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     hasChanges: (repoPath: string) =>
       Effect.gen(function* () {
-        const lines = yield* runGit(spawner, ["status", "--porcelain"], repoPath)
+        const lines = yield* runGit(spawner, ["status", "--porcelain", "--untracked-files=all"], repoPath)
         return lines.some((l) => l.trim().length > 0)
       }),
 

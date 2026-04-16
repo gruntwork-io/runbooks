@@ -41,14 +41,14 @@ export const validateToken = (token: string) =>
  *   ghp_        -> classic_pat
  *   github_pat_ -> fine_grained_pat
  *   gho_        -> oauth
- *   ghs_        -> github_app
+ *   ghs_, ghu_  -> github_app  (installation token / user-to-server)
  *   (other)     -> unknown
  */
 export const detectTokenType = (token: string): GitHubTokenType => {
   if (token.startsWith("ghp_")) return "classic_pat"
   if (token.startsWith("github_pat_")) return "fine_grained_pat"
   if (token.startsWith("gho_")) return "oauth"
-  if (token.startsWith("ghs_")) return "github_app"
+  if (token.startsWith("ghs_") || token.startsWith("ghu_")) return "github_app"
   return "unknown"
 }
 
