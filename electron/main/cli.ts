@@ -20,6 +20,8 @@ export interface CliConfig {
   outputPath: string | null
   /** Disable telemetry. */
   noTelemetry: boolean
+  /** Freeze the executable registry in watch mode (don't rebuild on file changes). */
+  disableLiveFileReload: boolean
 }
 
 /**
@@ -41,6 +43,7 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
     workingDir: null,
     outputPath: null,
     noTelemetry: false,
+    disableLiveFileReload: false,
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -61,6 +64,8 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
       config.outputPath = path.resolve(args[++i])
     } else if (arg === "--no-telemetry") {
       config.noTelemetry = true
+    } else if (arg === "--disable-live-file-reload") {
+      config.disableLiveFileReload = true
     } else if (
       !arg.startsWith("-") &&
       !arg.endsWith(".js") &&

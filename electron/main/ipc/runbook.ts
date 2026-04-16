@@ -50,6 +50,7 @@ export function registerRunbookHandlers(): void {
         remoteSourceURL: params.remoteSource,
         isWatchMode: params.watchMode ?? false,
         useExecutableRegistry: true,
+        disableLiveFileReload: runbookConfig.disableLiveFileReload,
       }
       setRunbookConfig(config)
 

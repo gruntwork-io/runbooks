@@ -59,5 +59,18 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath).toBeNull()
     expect(config.remoteUrl).toBeNull()
     expect(config.watch).toBe(false)
+    expect(config.disableLiveFileReload).toBe(false)
+  })
+
+  it("parses --disable-live-file-reload flag", () => {
+    const config = parseCliArgs(["electron", "--disable-live-file-reload"])
+    expect(config.disableLiveFileReload).toBe(true)
+  })
+
+  it("parses --disable-live-file-reload with --watch", () => {
+    const config = parseCliArgs(["electron", "--watch", "--disable-live-file-reload", "./path/to/runbook.mdx"])
+    expect(config.watch).toBe(true)
+    expect(config.disableLiveFileReload).toBe(true)
+    expect(config.runbookPath).toContain("runbook.mdx")
   })
 })

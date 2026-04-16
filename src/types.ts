@@ -275,6 +275,7 @@ export interface RunbookConfig {
   remoteSourceURL?: string
   isWatchMode: boolean
   useExecutableRegistry: boolean
+  disableLiveFileReload?: boolean
 }
 
 // ---------------------------------------------------------------------------

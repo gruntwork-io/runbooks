@@ -95,10 +95,11 @@ if (cliConfig.runbookPath) {
     ...runbookConfig,
     localPath: resolvedPath,
     isWatchMode: cliConfig.watch,
+    disableLiveFileReload: cliConfig.disableLiveFileReload,
   })
 }
 if (cliConfig.watch) {
-  setRunbookConfig({ ...runbookConfig, isWatchMode: true })
+  setRunbookConfig({ ...runbookConfig, isWatchMode: true, disableLiveFileReload: cliConfig.disableLiveFileReload })
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +162,7 @@ ipcMain.handle("native:get-cli-config", () => ({
   workingDir: cliConfig.workingDir,
   outputPath: cliConfig.outputPath,
   noTelemetry: cliConfig.noTelemetry,
+  disableLiveFileReload: cliConfig.disableLiveFileReload,
 }))
 
 // ---------------------------------------------------------------------------

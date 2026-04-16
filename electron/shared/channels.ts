@@ -256,6 +256,7 @@ export interface IpcChannelMap {
       workingDir?: string
       outputPath?: string
       noTelemetry?: boolean
+      disableLiveFileReload?: boolean
     }
   }
 }

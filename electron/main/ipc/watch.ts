@@ -38,10 +38,13 @@ export function registerWatchHandlers(): void {
           yield* Effect.forkDaemon(
             Stream.runForEach(watcherStream, (changeEvent) =>
               Effect.gen(function* () {
-                // Re-parse the executable registry on file changes
+                // Re-parse the executable registry on file changes unless
+              // --disable-live-file-reload was passed (keeps the registry
+              // frozen at startup so only pre-validated scripts can run).
                 if (
-                  changeEvent.path === runbookPath ||
-                  changeEvent.path.endsWith(".mdx")
+                  !runbookConfig.disableLiveFileReload &&
+                  (changeEvent.path === runbookPath ||
+                  changeEvent.path.endsWith(".mdx"))
                 ) {
                   const registry = yield* Effect.either(
                     ExecutableRegistry.create(runbookPath),
