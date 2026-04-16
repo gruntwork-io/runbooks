@@ -18,8 +18,14 @@ import { runtime, setRunbookConfig, runbookConfig, setCliWorkingDir } from "./ip
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
+import { populateShellEnv } from "./shell-env.ts"
 
 const log = makeLogger("main")
+
+// Pre-populate process.env from the user's login shell so that PATH and
+// other profile-driven vars are visible to scripts we spawn. Must run
+// before SessionManager captures process.env on first runbook load.
+populateShellEnv()
 
 // ---------------------------------------------------------------------------
 // Register the runbook-asset protocol as privileged so it can be used in img
