@@ -39,7 +39,6 @@ const POLL_INTERVAL_MS = 3000
 /**
  * IPC hook that polls for git changes in the active worktree.
  * Polls every 3 seconds, skips if the previous request is still in-flight.
- * Replaces useGitFileChanges which used HTTP GET /api/workspace/changes.
  */
 export function useIpcGitFileChanges(): UseIpcGitFileChangesResult {
   const { activeWorkTree, treeVersion } = useGitWorkTree()

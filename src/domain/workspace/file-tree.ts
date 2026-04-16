@@ -1,6 +1,4 @@
 /**
- * Directory tree building -- TypeScript port of api/file_tree.go.
- *
  * Recursively scans a directory and returns a `FileTreeResult` with content
  * inlined for non-binary files under 512 KB. Enforces a 500-file limit and
  * reports heavy directories (threshold 300 files) so the frontend can warn

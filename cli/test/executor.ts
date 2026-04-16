@@ -1,8 +1,7 @@
 /**
  * Test execution engine.
- * Port of api/testing/executor.go.
  *
- * Runs runbook tests in headless mode — parses the MDX, executes blocks in
+ * Runs runbook tests in headless mode: parses the MDX, executes blocks in
  * document order, captures outputs, and validates assertions.
  */
 import * as fs from "node:fs"

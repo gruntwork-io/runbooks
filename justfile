@@ -20,7 +20,16 @@ build:
 
 # Compile the test CLI as a standalone binary (no Node.js required)
 compile-test-cli:
+    #!/usr/bin/env bash
+    set -euo pipefail
     mise x bun -- bun build --compile --outfile resources/bin/runbooks-test cli/index.ts
+    # Bun's --compile embeds a malformed LC_CODE_SIGNATURE placeholder on macOS,
+    # which breaks electron-builder's hardened-runtime signing
+    # ("invalid or unsupported format for signature"). Strip it so downstream
+    # codesign --force can overwrite cleanly. See oven-sh/bun#7208.
+    if [[ "$(uname)" == "Darwin" ]]; then
+        codesign --remove-signature resources/bin/runbooks-test 2>/dev/null || true
+    fi
 
 # Package the Electron app for distribution
 package: build compile-test-cli

@@ -1,5 +1,5 @@
 /**
- * Remote URL parsing ported from api/remote_source.go + api/remote_token.go.
+ * Remote URL parsing.
  *
  * Handles OpenTofu-style git:: URLs, GitHub/GitLab shorthand, and browser URLs.
  */

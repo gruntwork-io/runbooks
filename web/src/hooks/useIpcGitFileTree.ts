@@ -42,7 +42,6 @@ interface UseIpcGitFileTreeResult {
 /**
  * IPC hook that fetches the structure-only file tree for the active git worktree.
  * Re-fetches automatically when the active worktree changes.
- * Replaces useGitFileTree which used HTTP GET /api/workspace/tree.
  */
 export function useIpcGitFileTree(): UseIpcGitFileTreeResult {
   const { activeWorkTree, treeVersion } = useGitWorkTree()

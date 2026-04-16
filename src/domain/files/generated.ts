@@ -1,5 +1,5 @@
 /**
- * Generated files management — TypeScript port of api/generated_files.go.
+ * Generated files management.
  *
  * Provides functions to check whether an output directory contains generated
  * files and to delete them. All file-system access goes through the FileSystem

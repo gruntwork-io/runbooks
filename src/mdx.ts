@@ -1,7 +1,3 @@
-/**
- * MDX fence/block detection ported from api/mdx.go.
- */
-
 /** Matches fence marker lines (``` or ~~~) with optional leading whitespace. */
 const FENCE_LINE_REGEX = /^\s*(?:```|~~~)/gm
 

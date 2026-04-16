@@ -8,10 +8,8 @@ interface IpcSessionProviderProps {
 }
 
 /**
- * Provider component that manages session lifecycle via Electron IPC.
- *
- * Unlike the HTTP SessionContext, there is no Bearer token management here.
- * IPC is process-local and inherently trusted — authentication is unnecessary.
+ * Manages session lifecycle via Electron IPC. IPC is process-local and
+ * inherently trusted, so there is no Bearer token management.
  *
  * Session flow:
  * 1. On mount: Try to join an existing session (session:join)
@@ -57,9 +55,8 @@ export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
     }
   }, [api])
 
-  // Provide both the new IpcSessionContext and the legacy SessionContext so that
-  // existing components using useSession() (which reads SessionContext) continue to work.
-  // getAuthHeader returns an empty object because IPC is process-local — no auth needed.
+  // Provide both IpcSessionContext and SessionContext so useSession() keeps working.
+  // getAuthHeader returns an empty object because IPC is process-local.
   const legacyValue = { isReady, resetSession, error, getAuthHeader: () => ({}) as Record<string, never> }
 
   return (

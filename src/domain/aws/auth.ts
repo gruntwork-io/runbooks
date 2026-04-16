@@ -1,6 +1,5 @@
 /**
  * AWS authentication logic.
- * Port of api/aws_auth.go.
  */
 import { Effect } from "effect"
 import { AwsClient } from "../../services/AwsClient.ts"
@@ -51,8 +50,7 @@ export const validateCredentials = (creds: AwsCredentials, _region: string) =>
  * not both present.
  *
  * An optional `envVarName` can be provided to check for a custom env var name
- * that holds the access key ID (not typically used but supported for parity
- * with the Go implementation).
+ * that holds the access key ID.
  */
 export const detectEnvCredentials = (envVarName?: string) =>
   Effect.gen(function* () {

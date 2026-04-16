@@ -1,6 +1,5 @@
 /**
- * Executable registry — TypeScript port of api/executable_registry.go +
- * api/executable_handler.go.
+ * Executable registry.
  *
  * Scans a runbook MDX file for executable components (Command, Check, etc.)
  * and maintains an in-memory registry of all executables. Only registered

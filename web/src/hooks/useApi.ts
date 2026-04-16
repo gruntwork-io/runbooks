@@ -69,8 +69,8 @@ function resolveChannel(endpoint: string): string | null {
 }
 
 /**
- * Hook that wraps IPC calls with the same interface as the old fetch-based useApi.
- * All /api/* endpoints are mapped to IPC channels via ENDPOINT_TO_CHANNEL.
+ * Hook that wraps IPC calls. All /api/* endpoints are mapped to IPC channels
+ * via ENDPOINT_TO_CHANNEL.
  */
 export function useApi<T>(
   endpoint: string,

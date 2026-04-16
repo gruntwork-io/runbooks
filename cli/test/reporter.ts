@@ -1,6 +1,5 @@
 /**
  * Test result reporters: human-readable text and JUnit XML.
- * Port of api/testing/reporter.go.
  */
 import * as fs from "node:fs"
 import * as path from "node:path"

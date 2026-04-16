@@ -1,6 +1,5 @@
 /**
- * Git operations — clone, push, branch management, and pull request creation.
- * Port of api/git_clone.go and api/github_pull_request.go.
+ * Git operations: clone, push, branch management, and pull request creation.
  */
 import path from "path"
 import { Effect, Stream, Chunk } from "effect"

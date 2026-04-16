@@ -1,6 +1,3 @@
-/**
- * Path security checks ported from api/path_validation.go.
- */
 import path from "path"
 import { Effect } from "effect"
 import { PathTraversalError, PathValidationError } from "./errors/index.ts"

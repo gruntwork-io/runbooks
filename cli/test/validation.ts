@@ -1,6 +1,5 @@
 /**
  * Input validation for runbook test run.
- * Port of api/testing/validation.go.
  *
  * Parses MDX component blocks, validates their configuration, and validates
  * test input values against boilerplate variable schemas.

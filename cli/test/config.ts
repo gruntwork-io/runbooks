@@ -1,6 +1,5 @@
 /**
  * Test configuration types and YAML parser.
- * Port of api/testing/config.go.
  */
 import * as fs from "node:fs"
 import YAML from "yaml"

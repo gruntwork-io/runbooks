@@ -1,6 +1,5 @@
 /**
  * Fuzz value generator for test inputs.
- * Port of api/testing/fuzz.go.
  */
 import crypto from "node:crypto"
 import type { FuzzConfig, InputValue } from "./config.ts"

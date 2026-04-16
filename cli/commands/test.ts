@@ -1,6 +1,5 @@
 /**
- * Test command — discovers runbooks, runs tests, reports results.
- * Port of cmd/test.go.
+ * Test command: discovers runbooks, runs tests, reports results.
  */
 import * as fs from "node:fs"
 import * as path from "node:path"

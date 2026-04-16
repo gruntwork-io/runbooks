@@ -3,7 +3,6 @@ import { useApi } from '@/contexts/ApiContext'
 
 /**
  * IPC hook to enable watch mode - listens for file changes via IPC events.
- * Replaces useWatchMode which used SSE via EventSource.
  */
 export function useIpcWatchMode(onFileChange: () => void, isWatchMode: boolean = false) {
   const api = useApi()

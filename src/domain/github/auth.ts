@@ -1,6 +1,5 @@
 /**
  * GitHub authentication logic.
- * Port of api/github_auth.go.
  */
 import { Effect, Stream } from "effect"
 import { GitHubClient } from "../../services/GitHubClient.ts"

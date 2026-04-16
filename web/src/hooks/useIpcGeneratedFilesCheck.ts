@@ -13,7 +13,6 @@ export interface GeneratedFilesCheckResult {
 
 /**
  * IPC hook to check if generated files exist in the output directory.
- * Replaces useApiGeneratedFilesCheck which used HTTP GET /api/generated-files/check.
  */
 export function useIpcGeneratedFilesCheck(): UseIpcReturn<GeneratedFilesCheckResult> {
   return useIpc<GeneratedFilesCheckResult>('generated-files:check')

@@ -291,10 +291,6 @@ export interface IpcEventMap {
 export type InvokeChannel = keyof IpcChannelMap
 export type EventChannel = keyof IpcEventMap
 
-// ---------------------------------------------------------------------------
-// Placeholder types — will be replaced by src/types.ts as modules are built
-// ---------------------------------------------------------------------------
-
 export interface Executable {
   id: string
   type: string

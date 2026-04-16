@@ -1,6 +1,4 @@
 /**
- * File watcher ported from api/watcher.go.
- *
  * Watches the directory containing a runbook file for write/create events,
  * debounced at 300ms to coalesce rapid changes (e.g. editor save + format).
  */
@@ -24,8 +22,7 @@ const DEBOUNCE_MS = 300
  * Creates a debounced file watcher stream for a runbook.
  *
  * Watches the parent directory of `runbookPath` and emits
- * FileChangeEvent items for "add" and "change" events only
- * (matching the Go version's Write + Create filter).
+ * FileChangeEvent items for "add" and "change" events only.
  *
  * The stream is debounced: after a burst of changes, only the
  * last event within the 300ms window is emitted.

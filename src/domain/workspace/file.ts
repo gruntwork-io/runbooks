@@ -1,5 +1,5 @@
 /**
- * File reading utilities -- TypeScript port of api/file.go.
+ * File reading utilities.
  *
  * Provides file metadata reading with truncation, runbook path resolution,
  * language detection from extension, asset extension whitelisting, and

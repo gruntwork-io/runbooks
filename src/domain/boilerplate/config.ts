@@ -1,10 +1,7 @@
 /**
- * Boilerplate config parsing — TypeScript port of api/boilerplate_config.go.
+ * Boilerplate config parsing.
  *
- * Unlike the Go implementation which delegates to gruntwork-io/boilerplate for
- * YAML parsing, this TypeScript version parses the boilerplate.yml directly
- * using the `yaml` npm package. This avoids pulling in heavy Go-specific
- * indirect dependencies while achieving the same result.
+ * Parses boilerplate.yml directly using the `yaml` npm package.
  */
 
 import { Effect } from "effect"
@@ -158,7 +155,7 @@ function coerceVarType(raw: string | undefined): BoilerplateVarType {
 }
 
 // ---------------------------------------------------------------------------
-// Section grouping (mirrors Go extractSectionGroupings / groupIntoSections)
+// Section grouping
 // ---------------------------------------------------------------------------
 
 function buildSections(
@@ -349,8 +346,7 @@ export function parseBoilerplateConfig(yamlContent: string) {
  * blockRegex finds all {{ }} template blocks, then depRegex scans within each
  * block for `.outputs.X.Y` references.
  *
- * IMPORTANT: Keep in sync with the Go implementation in
- * api/boilerplate_config.go and the TypeScript frontend in
+ * Keep in sync with the frontend extractor in
  * web/src/lib/extractTemplateDependencies.ts.
  */
 const OUTPUT_DEP_BLOCK_REGEX = /\{\{-?([\s\S]*?)-?\}\}/g

@@ -5,7 +5,6 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 
 /**
  * IPC hook to fetch boilerplate config/variables for a template.
- * Replaces useApiGetBoilerplateConfig which used HTTP POST /api/boilerplate/variables.
  */
 export function useIpcGetBoilerplateConfig(
   templatePath?: string,

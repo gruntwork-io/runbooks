@@ -1,5 +1,5 @@
 /**
- * Mixpanel telemetry ported from api/telemetry/telemetry.go.
+ * Mixpanel telemetry.
  *
  * Singleton pattern: call init() once at startup, then track()/trackCommand()/trackError().
  * Telemetry is anonymous (SHA256 of hostname+username) and can be disabled via

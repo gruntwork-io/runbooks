@@ -10,13 +10,8 @@ interface IpcExecutableRegistryProviderProps {
 }
 
 /**
- * Electron IPC version of ExecutableRegistryProvider.
- *
- * Key differences from the HTTP version:
- * - No health check — in Electron the backend is the same process, always reachable.
- * - Uses api.invoke('runbook:executables') instead of fetch('/api/runbook/executables').
- * - Uses api.invoke('runbook:get') instead of fetch('/api/runbook').
- * - Error UI omits "start backend server" instructions since Electron IS the backend.
+ * Provides the executable registry for the current runbook via Electron IPC.
+ * No health check is needed: the backend runs in the same process.
  */
 export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistryProviderProps) {
   const [registry, setRegistry] = useState<ExecutableRegistry | null>(null)

@@ -1,8 +1,7 @@
 /**
- * Unified template dependency extraction for the new {{ .inputs.X }} / {{ .outputs.X.Y }} syntax.
+ * Unified template dependency extraction for {{ .inputs.X }} / {{ .outputs.X.Y }} syntax.
  *
- * Replaces the old dual-extractor system (extractTemplateVariables + extractOutputDependencies)
- * with a single-pass parser that classifies dependencies by namespace prefix.
+ * Single-pass parser that classifies dependencies by namespace prefix.
  *
  * Used by useTemplateDependencies hook and any block that needs to discover what
  * template expressions its props/content contain.

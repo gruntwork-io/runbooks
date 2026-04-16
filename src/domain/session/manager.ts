@@ -1,6 +1,4 @@
 /**
- * Session management — TypeScript port of api/session.go.
- *
  * A SessionManager manages a single session with multiple tokens (max 20) for
  * concurrent browser tabs. Environment changes made by scripts persist across
  * block executions. All browser tabs share the same session ("one runbook = one

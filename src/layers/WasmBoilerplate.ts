@@ -7,8 +7,8 @@
  * `{{ EXPR | fn arg | fn2 }}` with a small function table.
  *
  * The engine is a hand-rolled tokenizer + block-parser that builds an AST and
- * walks it against a scope stack — this matters once `range` nests inside
- * `range` inside `if`, where regex substitution previously broke.
+ * walks it against a scope stack. This correctly handles `range` nested
+ * inside `range` inside `if`.
  */
 import path from "node:path"
 import { Effect, Layer } from "effect"
@@ -1091,7 +1091,7 @@ function evaluateSkipCondition(
 
 /**
  * Decide whether a given relative path should be skipped, based on the
- * config's `skipFiles` list. Exact-match only in PR3 — no glob / regex.
+ * config's `skipFiles` list. Exact-match only; no glob or regex support.
  */
 function shouldSkipFile(
   relativePath: string,
@@ -1191,7 +1191,7 @@ function renderTemplateImpl(
     // Iterative DFS using a queue of (sourceDir, relativeSegments,
     // sourceSegments). `sourceSegments` tracks the *pre-render* path from
     // templateDir so skip_files can be matched against the template source
-    // path (exact-match only in PR3 — no globs).
+    // path (exact-match only, no globs).
     type Frame = {
       sourceDir: string
       relativeSegments: string[]
@@ -1234,9 +1234,9 @@ function renderTemplateImpl(
         const childRelativeSegments = [...relativeSegments, renderedName]
         const childSourceSegments = [...sourceSegments, entry.name]
 
-        // skip_files check: PR3 supports exact-match only on the raw
-        // (pre-render) relative path. Directories aren't checked — only
-        // files — to mirror Go boilerplate semantics.
+        // skip_files check: exact-match only on the raw (pre-render)
+        // relative path. Only files are checked, not directories, to mirror
+        // Go boilerplate semantics.
         if (
           entry.isFile &&
           skipFiles.length > 0 &&

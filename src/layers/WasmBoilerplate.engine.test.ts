@@ -1,7 +1,6 @@
 /**
- * PR2 tests: hand-rolled block-parser template engine. Covers `if`/`else if`
- * predicates beyond truthy, pipe-with-function-table, and scoped `range`
- * nesting.
+ * Template engine tests: covers `if`/`else if` predicates beyond truthy,
+ * pipe-with-function-table, and scoped `range` nesting.
  *
  * These tests exercise the renderer through the public `renderFile` Effect so
  * they go through the same Layer wiring as the IPC handler.

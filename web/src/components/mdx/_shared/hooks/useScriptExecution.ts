@@ -35,7 +35,6 @@ interface UseScriptExecutionProps {
   timeoutMs?: number
 }
 
-// Re-export for backwards compatibility
 export type { BlockOutput } from '@/lib/templateUtils'
 /** @deprecated Use BlockOutput instead */
 export type UnmetOutputDependency = BlockOutput
@@ -45,7 +44,6 @@ export interface UnmetAuthDependency {
   blockId: string
 }
 
-// Keep old names as aliases for backwards compatibility
 export type UnmetAwsAuthDependency = UnmetAuthDependency
 export type UnmetGitHubAuthDependency = UnmetAuthDependency
 

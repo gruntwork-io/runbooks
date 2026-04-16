@@ -33,7 +33,6 @@ const MAX_CACHE_SIZE = 50
 /**
  * IPC hook for lazy-loading individual file content from the workspace.
  * Includes an in-memory LRU cache (max 50 entries).
- * Replaces useFileContent which used HTTP GET /api/workspace/file.
  */
 export function useIpcFileContent(): UseIpcFileContentResult {
   const api = useApi()

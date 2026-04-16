@@ -5,7 +5,6 @@ import type { GetFileReturn } from './useApiGetFile'
 
 /**
  * IPC hook to fetch file content by path.
- * Replaces useGetFile which used HTTP POST /api/file.
  */
 export function useIpcGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {
   const shouldActuallyFetch = shouldFetch && Boolean(path)

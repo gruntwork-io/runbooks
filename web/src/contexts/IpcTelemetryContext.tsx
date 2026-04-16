@@ -1,6 +1,4 @@
 /**
- * IPC version of TelemetryContext — fetches config via Electron IPC instead of HTTP.
- *
  * Telemetry is enabled by default but can be disabled via:
  *   - Environment variable: RUNBOOKS_TELEMETRY_DISABLE=1
  *   - CLI flag: --no-telemetry

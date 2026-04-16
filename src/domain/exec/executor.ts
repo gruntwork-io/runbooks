@@ -1,6 +1,5 @@
 /**
  * Script execution orchestration.
- * Port of api/exec.go and api/exec_stream.go.
  */
 import { Effect, Stream } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"

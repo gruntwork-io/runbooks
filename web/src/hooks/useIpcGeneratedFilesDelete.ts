@@ -22,7 +22,6 @@ export interface UseIpcGeneratedFilesDeleteReturn {
 
 /**
  * IPC hook to delete generated files from the output directory.
- * Replaces useApiGeneratedFilesDelete which used HTTP DELETE /api/generated-files/delete.
  */
 export function useIpcGeneratedFilesDelete(): UseIpcGeneratedFilesDeleteReturn {
   const api = useApi()

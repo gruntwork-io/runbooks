@@ -11,12 +11,7 @@ interface IpcGitWorkTreeProviderProps {
 }
 
 /**
- * Electron IPC version of GitWorkTreeProvider.
- *
- * Key differences from the HTTP version:
- * - Uses api.invoke('workspace:set-active', ...) instead of fetch.
- * - Uses api.invoke('workspace:register', ...) instead of fetch.
- * - No auth headers — IPC is process-local and trusted.
+ * Manages registered git worktrees and the active worktree via Electron IPC.
  */
 export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ children }) => {
   const [workTrees, setWorkTrees] = useState<GitWorkTree[]>([])

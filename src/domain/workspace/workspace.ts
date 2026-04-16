@@ -1,5 +1,5 @@
 /**
- * Workspace operations -- TypeScript port of api/workspace.go.
+ * Workspace operations.
  *
  * Provides structure-only file trees with gitignore awareness, directory
  * listing, single-file reading (with binary/image detection), and git

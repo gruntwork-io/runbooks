@@ -1,7 +1,3 @@
-/**
- * Shared TypeScript interfaces ported from api/types.go.
- */
-
 // ---------------------------------------------------------------------------
 // File types
 // ---------------------------------------------------------------------------
@@ -99,8 +95,7 @@ export interface OutputDependency {
 export interface SkipFileRule {
   /**
    * Relative path (from the template root) of the file to conditionally skip.
-   *
-   * PR3 supports exact-match only — no glob / regex support yet.
+   * Exact-match only; globs and regex are not supported.
    */
   path: string
   /**

@@ -27,7 +27,6 @@ interface UseIpcBoilerplateRenderResult extends UseIpcReturn<BoilerplateRenderRe
 
 /**
  * IPC hook for rendering boilerplate templates.
- * Replaces useApiBoilerplateRender which used HTTP POST /api/boilerplate/render.
  *
  * @param templatePath - Path to the boilerplate template directory (required)
  * @param templateId - Unique ID of the Template component (required)
