@@ -35,15 +35,100 @@ compile-test-cli:
 package: build compile-test-cli
     mise x node -- npx electron-builder
 
-# Package for local testing (re-signs with ad-hoc identity for macOS compatibility)
+# Package for local testing. electron-builder on this host has no Developer ID
+# cert, and both `identity=null` and `CSC_IDENTITY_AUTO_DISCOVERY=false` make it
+# skip signing entirely — leaving Electron Inc's Team ID on the framework and
+# crashing at launch on macOS 14+/Sequoia. Workaround: build the unpacked .app
+# only, manually ad-hoc sign it leaf-first, then repackage the DMG ourselves
+# so the installer actually contains the signed bundle.
 package-local: build compile-test-cli
     #!/usr/bin/env bash
-    CSC_IDENTITY_AUTO_DISCOVERY=false mise x node -- npx electron-builder
-    if [[ "$(uname)" == "Darwin" ]]; then
-        for app in out/mac*/Runbooks.app; do
-            [ -d "$app" ] && codesign --force --deep --sign - "$app"
-        done
+    set -euo pipefail
+
+    # 1. Build unpacked .app bundles (no DMG/zip yet).
+    CSC_IDENTITY_AUTO_DISCOVERY=false mise x node -- npx electron-builder --mac --dir
+
+    if [[ "$(uname)" != "Darwin" ]]; then
+        exit 0
     fi
+
+    ENTITLEMENTS="build/entitlements.mac.plist"
+    INHERIT_ENTITLEMENTS="build/entitlements.mac.inherit.plist"
+
+    # Sign every Mach-O file directly inside a directory (non-recursive).
+    sign_mach_o_files_in() {
+        local dir="$1"
+        [ -d "$dir" ] || return 0
+        find "$dir" -type f -print0 | while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q "Mach-O"; then
+                codesign --force --sign - --timestamp=none --options runtime "$f"
+            fi
+        done
+    }
+
+    for app in out/mac*/Runbooks.app; do
+        [ -d "$app" ] || continue
+        echo "Ad-hoc signing $app"
+        frameworks_dir="$app/Contents/Frameworks"
+
+        # 2a. Loose dylibs / .node addons directly under Frameworks/
+        for f in "$frameworks_dir"/*.dylib "$frameworks_dir"/*.node; do
+            [ -f "$f" ] && codesign --force --sign - --timestamp=none --options runtime "$f"
+        done
+
+        # 2b. Framework bundles: leaves (Helpers/, Libraries/) → main binary → bundle.
+        for fw in "$frameworks_dir"/*.framework; do
+            [ -d "$fw" ] || continue
+            versions="$fw/Versions/A"
+            fw_name="$(basename "$fw" .framework)"
+
+            sign_mach_o_files_in "$versions/Helpers"
+            sign_mach_o_files_in "$versions/Libraries"
+
+            if [ -f "$versions/$fw_name" ]; then
+                codesign --force --sign - --timestamp=none --options runtime "$versions/$fw_name"
+            fi
+            codesign --force --sign - --timestamp=none --options runtime "$fw"
+        done
+
+        # 2c. Helper .app bundles.
+        for helper in "$frameworks_dir"/*.app; do
+            [ -d "$helper" ] || continue
+            helper_name="$(basename "$helper" .app)"
+            if [ -f "$helper/Contents/MacOS/$helper_name" ]; then
+                codesign --force --sign - --timestamp=none --options runtime \
+                    --entitlements "$INHERIT_ENTITLEMENTS" \
+                    "$helper/Contents/MacOS/$helper_name"
+            fi
+            codesign --force --sign - --timestamp=none --options runtime \
+                --entitlements "$INHERIT_ENTITLEMENTS" "$helper"
+        done
+
+        # 2d. Outer app bundle.
+        codesign --force --sign - --timestamp=none --options runtime \
+            --entitlements "$ENTITLEMENTS" "$app"
+
+        echo "Verifying $app"
+        codesign --verify --deep --strict --verbose=2 "$app"
+
+        # 3. Build a DMG ourselves from the now-signed .app.
+        arch_suffix="$(basename "$(dirname "$app")")"   # mac-arm64 | mac
+        case "$arch_suffix" in
+            mac-arm64) arch="arm64" ;;
+            mac)       arch="x64"   ;;
+            *)         arch="${arch_suffix#mac-}" ;;
+        esac
+        dmg_out="out/Runbooks-0.1.0-local-${arch}.dmg"
+        rm -f "$dmg_out"
+
+        staging="$(mktemp -d)"
+        cp -R "$app" "$staging/"
+        ln -s /Applications "$staging/Applications"
+        hdiutil create -volname "Runbooks" -srcfolder "$staging" \
+            -ov -format UDZO "$dmg_out" >/dev/null
+        rm -rf "$staging"
+        echo "Built $dmg_out"
+    done
 
 # Remove build artifacts
 clean:
