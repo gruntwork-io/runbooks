@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { useApi } from './ApiContext'
 import { IpcSessionContext } from './IpcSessionContext.types'
 import { SessionContext } from './SessionContext.types'
@@ -11,38 +11,15 @@ interface IpcSessionProviderProps {
  * Manages session lifecycle via Electron IPC. IPC is process-local and
  * inherently trusted, so there is no Bearer token management.
  *
- * Session flow:
- * 1. On mount: Try to join an existing session (session:join)
- * 2. If no session exists: Create a new one (session:create)
+ * The session is created lazily in the main process the first time a runbook
+ * is loaded (see runbook:get), using the runbook's parent directory as the
+ * working dir. That way the session's workingDir is always meaningful for
+ * scripts — we don't need a placeholder here.
  */
 export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
-  const [isReady, setIsReady] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const [isReady] = useState(true)
+  const [error] = useState<Error | null>(null)
   const api = useApi()
-
-  // Track if initialization has started to prevent double-init in StrictMode
-  const initStartedRef = useRef(false)
-
-  // Initialize session on mount
-  useEffect(() => {
-    if (initStartedRef.current) {
-      return
-    }
-    initStartedRef.current = true
-
-    const initSession = async () => {
-      try {
-        await api.invoke('session:create', { workingDir: '.' })
-        setIsReady(true)
-      } catch (err) {
-        console.error('[IpcSessionContext] Session initialization failed:', err)
-        setError(err instanceof Error ? err : new Error(String(err)))
-        setIsReady(true)
-      }
-    }
-
-    initSession()
-  }, [api])
 
   // Reset the session to its initial environment state
   const resetSession = useCallback(async (): Promise<void> => {

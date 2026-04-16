@@ -5,6 +5,7 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
+import * as fs from "fs"
 import * as path from "path"
 import {
   runtime,
@@ -54,13 +55,22 @@ export function registerRunbookHandlers(): void {
       }
       setRunbookConfig(config)
 
-      // Update the session's working directory to the runbook's parent dir.
-      // The session may have been created with '.' before the runbook path
-      // was known. Skip when --working-dir was explicitly supplied on the CLI,
-      // so E2E tests can pin the session to an isolated temp dir.
-      if (!cliWorkingDir) {
-        const runbookDir = path.dirname(runbookPath)
-        sessionManager.setWorkingDir(runbookDir)
+      // Ensure a session exists, rooted at the runbook's parent directory.
+      // Sessions are created lazily on first runbook load so the working dir
+      // is always meaningful for scripts (not a placeholder). --working-dir
+      // on the CLI overrides the runbook dir so E2E tests can isolate
+      // generated files in a temp dir. realpath'ing keeps macOS /var and
+      // /private/var paths aligned with the rest of the pipeline.
+      let sessionDir = cliWorkingDir ?? path.dirname(runbookPath)
+      try {
+        sessionDir = fs.realpathSync(sessionDir)
+      } catch {
+        // Path may not exist yet — fall back to the lexical resolution.
+      }
+      if (!sessionManager.hasSession()) {
+        await runtime.runPromise(sessionManager.createSession(sessionDir))
+      } else if (!cliWorkingDir) {
+        sessionManager.setWorkingDir(sessionDir)
       }
 
       // Read the runbook file content
