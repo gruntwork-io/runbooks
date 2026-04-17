@@ -13,7 +13,13 @@ export interface GeneratedFilesCheckResult {
 
 /**
  * IPC hook to check if generated files exist in the output directory.
+ *
+ * The underlying `generated-files:check` handler requires an active session
+ * (created when a runbook is opened), so callers should disable this hook
+ * until a runbook has loaded to avoid SessionNotFoundError.
  */
-export function useIpcGeneratedFilesCheck(): UseIpcReturn<GeneratedFilesCheckResult> {
-  return useIpc<GeneratedFilesCheckResult>('generated-files:check')
+export function useIpcGeneratedFilesCheck(
+  options?: { disabled?: boolean },
+): UseIpcReturn<GeneratedFilesCheckResult> {
+  return useIpc<GeneratedFilesCheckResult>('generated-files:check', undefined, options)
 }

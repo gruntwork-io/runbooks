@@ -45,8 +45,12 @@ function App() {
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useIpcGetRunbook()
 
-  // Check for existing generated files when runbook loads
-  const generatedFilesCheck = useIpcGeneratedFilesCheck()
+  // Check for existing generated files when runbook loads.
+  // Disabled until a runbook is open — the IPC handler requires a session,
+  // which only exists after the main process has loaded a runbook.
+  const generatedFilesCheck = useIpcGeneratedFilesCheck({
+    disabled: !getRunbookResult.data,
+  })
   
   // Get error counts from the error reporting context (populated by MDX components)
   const { errors, errorCount, warningCount, clearAllErrors } = useErrorReporting()
