@@ -62,13 +62,10 @@ export function registerFileHandlers(): void {
 
 /**
  * Helper to get the current working directory from the session.
- * Falls back to process.cwd() if no session exists.
+ * Throws if no session exists — file ops should never run before a
+ * runbook has been loaded (which is what creates the session).
  */
 async function getWorkingDir(): Promise<string> {
-  try {
-    const metadata = await runtime.runPromise(sessionManager.getMetadata())
-    return metadata.workingDir
-  } catch {
-    return process.cwd()
-  }
+  const metadata = await runtime.runPromise(sessionManager.getMetadata())
+  return metadata.workingDir
 }

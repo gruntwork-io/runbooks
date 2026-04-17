@@ -4,7 +4,7 @@ import type { IpcChannelMap, IpcEventMap, InvokeChannel, EventChannel } from "..
 // Derive allowlists from the channel type definitions — no manual sync needed.
 const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "runbook:get", "runbook:open-remote", "runbook:executables", "runbook:assets",
-  "session:create", "session:join", "session:get", "session:reset", "session:delete", "session:set-env",
+  "session:join", "session:get", "session:reset", "session:delete", "session:set-env",
   "exec:run", "exec:cancel",
   "boilerplate:variables", "boilerplate:render", "boilerplate:render-inline",
   "aws:validate", "aws:profiles", "aws:sso-start", "aws:sso-roles", "aws:sso-poll", "aws:sso-complete",

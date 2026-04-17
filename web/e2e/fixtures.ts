@@ -24,11 +24,16 @@ type RunbookAppFixture = {
    * Launch the Electron app with the given runbook and return its first
    * window. The runbook path may be absolute or relative to the repo root.
    * The app is automatically closed at the end of the test.
+   *
+   * The runbook's parent directory is copied into a per-test temp dir before
+   * launch, so generated files land in isolation. The app's session working
+   * dir is always `dirname(runbookPath)` — by copying the runbook into a
+   * temp dir, we get isolation for free without passing --working-dir.
    */
   launchRunbook: (runbookPath: string) => Promise<Page>;
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[];
-  /** Temporary working directory forwarded to the app via --working-dir. */
+  /** Temporary directory that holds the copied runbook and per-test user-data. */
   workDir: string;
 };
 
@@ -59,6 +64,14 @@ export const test = base.extend<RunbookAppFixture>({
         ? runbookPath
         : path.join(REPO_ROOT, runbookPath);
 
+      // Copy the runbook's parent directory into workDir so the app's
+      // session working dir (= dirname(runbookPath)) is the isolated temp
+      // dir. Generated files land there and don't pollute the repo.
+      const srcDir = path.dirname(absRunbookPath);
+      const runbookDest = path.join(workDir, "runbook");
+      fs.cpSync(srcDir, runbookDest, { recursive: true });
+      const copiedRunbookPath = path.join(runbookDest, path.basename(absRunbookPath));
+
       const userDataDir = path.join(workDir, "user-data");
       fs.mkdirSync(userDataDir, { recursive: true });
 
@@ -70,7 +83,7 @@ export const test = base.extend<RunbookAppFixture>({
         // (SingletonLock in the shared userData dir) which would cause the
         // second process to app.quit() before firstWindow() resolves.
         // Chromium switches must come AFTER MAIN_ENTRY in Electron's argv.
-        args: [MAIN_ENTRY, "--no-sandbox", `--user-data-dir=${userDataDir}`, "--working-dir", workDir, absRunbookPath],
+        args: [MAIN_ENTRY, "--no-sandbox", `--user-data-dir=${userDataDir}`, copiedRunbookPath],
         env: {
           ...process.env,
           ELECTRON_NO_UPDATER: "1",

@@ -28,7 +28,19 @@ export function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
     },
     icon: path.join(__dirname, "../../build/icon.png"),
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
+    // Frameless on all platforms so our custom Header acts as the drag handle.
+    // macOS keeps its inset traffic lights; Windows/Linux get an Electron-drawn
+    // min/max/close overlay in the top-right. Height matches the renderer
+    // header's min-h-16 (64px), and the colors approximate --color-bg-default
+    // (hsl(48, 33%, 97%)) and text-gray-500 so the overlay blends in.
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform !== "darwin" && {
+      titleBarOverlay: {
+        color: "#FAF9F5",
+        symbolColor: "#6B7280",
+        height: 64,
+      },
+    }),
     show: false,
   })
 

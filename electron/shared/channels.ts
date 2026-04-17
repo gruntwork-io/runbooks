@@ -23,7 +23,6 @@ export interface IpcChannelMap {
   "runbook:assets": { params: { filepath: string }; result: { data: Buffer; mimeType: string } }
 
   // Session
-  "session:create": { params: { workingDir: string }; result: { token: string } }
   "session:join": { params: void; result: { token: string } }
   "session:get": { params: void; result: SessionMetadata }
   "session:reset": { params: void; result: { ok: true } }
@@ -253,7 +252,6 @@ export interface IpcChannelMap {
       runbookPath?: string
       remoteUrl?: string
       watch?: boolean
-      workingDir?: string
       outputPath?: string
       noTelemetry?: boolean
       disableLiveFileReload?: boolean

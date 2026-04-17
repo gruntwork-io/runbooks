@@ -14,7 +14,6 @@ import {
   sessionManager,
   setExecutableRegistry,
   setRunbookConfig,
-  cliWorkingDir,
 } from "./runtime.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
@@ -55,13 +54,10 @@ export function registerRunbookHandlers(): void {
       }
       setRunbookConfig(config)
 
-      // Ensure a session exists, rooted at the runbook's parent directory.
-      // Sessions are created lazily on first runbook load so the working dir
-      // is always meaningful for scripts (not a placeholder). --working-dir
-      // on the CLI overrides the runbook dir so E2E tests can isolate
-      // generated files in a temp dir. realpath'ing keeps macOS /var and
-      // /private/var paths aligned with the rest of the pipeline.
-      let sessionDir = cliWorkingDir ?? path.dirname(runbookPath)
+      // The session's working dir is always the runbook's parent directory.
+      // realpath'ing keeps macOS /var and /private/var paths aligned with
+      // the rest of the pipeline (containment checks elsewhere realpath too).
+      let sessionDir = path.dirname(runbookPath)
       try {
         sessionDir = fs.realpathSync(sessionDir)
       } catch {
@@ -69,7 +65,7 @@ export function registerRunbookHandlers(): void {
       }
       if (!sessionManager.hasSession()) {
         await runtime.runPromise(sessionManager.createSession(sessionDir))
-      } else if (!cliWorkingDir) {
+      } else {
         sessionManager.setWorkingDir(sessionDir)
       }
 

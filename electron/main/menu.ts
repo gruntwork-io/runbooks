@@ -4,9 +4,11 @@
  * Builds a platform-appropriate menu bar with standard edit/view/window items
  * plus app-specific actions (Open Runbook, docs links, etc.).
  */
+import * as path from "path"
 import { app, Menu, dialog, shell, type MenuItemConstructorOptions } from "electron"
 import { getMainWindow } from "./window.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
+import { runbookConfig } from "./ipc/runtime.ts"
 
 const isMac = process.platform === "darwin"
 
@@ -121,6 +123,9 @@ function buildTemplate(): MenuItemConstructorOptions[] {
           if (!win) return
           const result = await dialog.showOpenDialog(win, {
             properties: ["openFile", "openDirectory"],
+            defaultPath: runbookConfig.localPath
+              ? path.dirname(runbookConfig.localPath)
+              : undefined,
             filters: [
               { name: "Runbook files", extensions: ["mdx", "md"] },
               { name: "All Files", extensions: ["*"] },

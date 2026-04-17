@@ -14,8 +14,6 @@ export interface CliConfig {
   remoteUrl: string | null
   /** Enable watch mode for live-reloading. */
   watch: boolean
-  /** Override the working directory for runbook execution. */
-  workingDir: string | null
   /** Override the output path for generated files. */
   outputPath: string | null
   /** Disable telemetry. */
@@ -40,7 +38,6 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
     runbookPath: null,
     remoteUrl: null,
     watch: false,
-    workingDir: null,
     outputPath: null,
     noTelemetry: false,
     disableLiveFileReload: false,
@@ -58,8 +55,6 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
       }
     } else if (arg === "--watch") {
       config.watch = true
-    } else if (arg === "--working-dir" && i + 1 < args.length) {
-      config.workingDir = path.resolve(args[++i])
     } else if (arg === "--output-path" && i + 1 < args.length) {
       config.outputPath = path.resolve(args[++i])
     } else if (arg === "--no-telemetry") {

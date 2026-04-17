@@ -14,7 +14,7 @@ import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
-import { runtime, setRunbookConfig, runbookConfig, setCliWorkingDir } from "./ipc/runtime.ts"
+import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
@@ -73,7 +73,6 @@ if (!gotLock) {
 // ---------------------------------------------------------------------------
 
 const cliConfig = parseCliArgs()
-setCliWorkingDir(cliConfig.workingDir)
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -128,17 +127,29 @@ ipcMain.handle(
   async (_event, params: { properties: Array<"openFile" | "openDirectory" | "multiSelections">; filters?: Electron.FileFilter[] }) => {
     const result = await dialog.showOpenDialog({
       properties: params.properties,
+      defaultPath: getDialogDefaultPath(),
       filters: params.filters,
     })
     return { filePaths: result.filePaths }
   },
 )
 
+// Open dialogs at the current runbook's directory when one is loaded, so the
+// file browser lands where the user expects. Falls back to undefined (OS
+// default) on cold launch before any runbook has been opened.
+function getDialogDefaultPath(): string | undefined {
+  if (runbookConfig.localPath) {
+    return path.dirname(runbookConfig.localPath)
+  }
+  return undefined
+}
+
 ipcMain.handle("native:open-runbook-dialog", async () => {
   const win = getMainWindow()
   if (!win) return { ok: false }
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile", "openDirectory"],
+    defaultPath: getDialogDefaultPath(),
     filters: [
       { name: "Runbook files", extensions: ["mdx", "md"] },
       { name: "All Files", extensions: ["*"] },
@@ -165,7 +176,6 @@ ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
-  workingDir: cliConfig.workingDir,
   outputPath: cliConfig.outputPath,
   noTelemetry: cliConfig.noTelemetry,
   disableLiveFileReload: cliConfig.disableLiveFileReload,

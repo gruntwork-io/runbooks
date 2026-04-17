@@ -46,18 +46,6 @@ export function setRunbookConfig(config: RunbookConfig): void {
   runbookConfig = config
 }
 
-/**
- * Working directory explicitly supplied on the command line via --working-dir.
- * When set, it pins the session's workingDir and prevents the runbook loader
- * from overriding it with the runbook's parent directory. Used by E2E tests
- * to isolate generated files in a temp dir.
- */
-export let cliWorkingDir: string | null = null
-
-export function setCliWorkingDir(dir: string | null): void {
-  cliWorkingDir = dir
-}
-
 /** Active file watcher stream -- non-null when watch mode is active. */
 export let fileWatcher: Stream.Stream<FileChangeEvent, FileWatchError> | null = null
 
