@@ -161,6 +161,19 @@ function App() {
     hasEverLoadedRef.current = true
   }
 
+  // Listen for "Close Runbook" menu command. useIpcGetRunbook clears its
+  // own state; here we drop the "has ever loaded" latch and any error
+  // banners so the WelcomeScreen renders again.
+  useEffect(() => {
+    const cleanup = api.on('menu:close-runbook', () => {
+      hasEverLoadedRef.current = false
+      clearAllErrors()
+      setShowGeneratedFilesAlert(false)
+      setAlertDismissedThisSession(false)
+    })
+    return cleanup
+  }, [api, clearAllErrors])
+
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
     setShowGeneratedFilesAlert(false);

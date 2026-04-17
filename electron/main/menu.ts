@@ -146,6 +146,14 @@ function buildTemplate(): MenuItemConstructorOptions[] {
         },
       },
       { type: "separator" },
+      {
+        label: "Close Runbook",
+        accelerator: "CmdOrCtrl+Shift+W",
+        click: () => {
+          getMainWindow()?.webContents.send("menu:close-runbook")
+        },
+      },
+      { type: "separator" },
       isMac ? { role: "close" } : { role: "quit" },
     ],
   })

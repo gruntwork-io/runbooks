@@ -56,11 +56,18 @@ export function useApiBoilerplateRender(
     return null;
   }, [templatePath, templateId, variables, shouldFetch, target]);
 
+  // Always lazy: we never want useApi's body-change auto-fetch to dispatch
+  // a render. Render is driven exclusively through `autoRender` (the
+  // debounced path). Before lazy mode, flipping `shouldFetch` true on
+  // Generate fired one render immediately AND a second via debouncedRequest
+  // from Template's auto-render effect — doubling the work on every click.
   const apiResult = useApi<BoilerplateRenderResult>(
-    shouldFetch ? '/api/boilerplate/render' : '', // Empty endpoint when shouldFetch is false
-    'POST', 
+    shouldFetch ? '/api/boilerplate/render' : '',
+    'POST',
     requestBody || undefined,
-    200 // 200ms debounce timeout
+    200, // 200ms debounce timeout
+    undefined,
+    true, // lazy
   );
 
   // Auto-render function using the debounced request

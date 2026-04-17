@@ -94,29 +94,41 @@ export function useApi<T>(
 
   const channel = useMemo(() => resolveChannel(endpoint), [endpoint]);
 
+  // Monotonic request counter. Each call gets a sequence number; when a
+  // response comes back we only commit it to state if it's still the latest
+  // request — this prevents a slow earlier call from overwriting the result
+  // of a newer one (classic "stale closure" race), and gives the main
+  // process a clean signal to ignore superseded render results.
+  const requestSeqRef = useRef(0);
+
   const performInvoke = useCallback(async (requestBody?: Record<string, unknown>) => {
     if (!channel) {
-      console.log('[useApi] performInvoke skipped: no channel', { endpoint });
       setIsLoading(false);
       return;
     }
 
-    console.log('[useApi] invoking', channel, requestBody);
+    const seq = ++requestSeqRef.current;
     try {
       const result = await (api as any).invoke(channel, requestBody ?? undefined);
-      console.log('[useApi] resolved', channel, { hasResult: result !== undefined });
+      // Superseded: main interrupted this call because a newer one arrived.
+      // Leave state alone — the newer call will drive it.
+      if (result && typeof result === 'object' && (result as { superseded?: boolean }).superseded) {
+        return;
+      }
+      if (seq !== requestSeqRef.current) return;
       setData(result as T);
       setError(null);
     } catch (err: unknown) {
+      if (seq !== requestSeqRef.current) return;
       console.error('[useApi] rejected', channel, err);
       setError(createAppError(
         err instanceof Error ? err.message : 'An unexpected error occurred',
         `IPC call to ${channel} failed`,
       ));
     } finally {
-      setIsLoading(false);
+      if (seq === requestSeqRef.current) setIsLoading(false);
     }
-  }, [api, channel, endpoint]);
+  }, [api, channel]);
 
   const debouncedRequest = useCallback((newBody?: Record<string, unknown>) => {
     if (timeoutRef.current) {

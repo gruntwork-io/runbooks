@@ -3,7 +3,7 @@
  *
  * Provides config parsing, template rendering, and inline template rendering.
  */
-import { Effect } from "effect"
+import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
@@ -110,6 +110,16 @@ function flattenVariables(
   return result
 }
 
+/**
+ * Tracks in-flight render fibers per `templateId`. When a new render starts
+ * for a templateId that's already rendering, we interrupt the old fiber —
+ * which kills the boilerplate subprocess via `Effect.onInterrupt` in
+ * `runBoilerplate` — so rapid input edits don't queue a backlog of stale
+ * renders. The interrupted call resolves to a sentinel that the renderer
+ * layer can ignore (the superseding call will drive the UI state).
+ */
+const activeRenders = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>()
+
 export function registerBoilerplateHandlers(): void {
   ipcMain.handle(
     "boilerplate:variables",
@@ -186,130 +196,163 @@ export function registerBoilerplateHandlers(): void {
   ipcMain.handle(
     "boilerplate:render",
     async (_event, params: RenderRequest) => {
+      const templateId = params.templateId ?? params.templatePath
+      const t0 = Date.now()
       console.log("[ipc boilerplate:render] invoked", {
         templatePath: params.templatePath,
-        templateId: params.templateId,
+        templateId,
         target: params.target,
         varKeys: params.variables ? Object.keys(params.variables) : [],
       })
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          const renderer = yield* BoilerplateRenderer
-          const fs = yield* FileSystem
 
-          // Resolve template path (may be relative to the runbook directory)
-          console.log("[ipc boilerplate:render] validating path", params.templatePath)
-          const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
-          console.log("[ipc boilerplate:render] resolved template path", resolvedTemplatePath)
+      // Interrupt any in-flight render for this same templateId. The prior
+      // fiber's Effect.onInterrupt will kill its boilerplate subprocess and
+      // clean up its tempdir via the outer Effect.ensuring.
+      const prior = activeRenders.get(templateId)
+      if (prior) {
+        console.log("[ipc boilerplate:render] superseding in-flight render", { templateId })
+        await Effect.runPromise(Fiber.interrupt(prior).pipe(Effect.ignore))
+      }
 
-          // Resolve output directory
-          const session = yield* sessionManager.getSession()
-          const workingDir = session.workingDir
+      const program = Effect.gen(function* () {
+        const renderer = yield* BoilerplateRenderer
+        const fs = yield* FileSystem
 
-          let outputDir: string
-          if (params.target === "worktree") {
-            const workTreePath = sessionManager.getActiveWorkTreePath()
-            if (!workTreePath) {
-              throw new Error("No active worktree registered")
-            }
-            outputDir = workTreePath
-          } else {
-            outputDir = yield* resolveToAbsolutePath(
-              workingDir,
-              params.outputPath ?? "output",
-            )
+        const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
+
+        // Resolve output directory
+        const session = yield* sessionManager.getSession()
+        const workingDir = session.workingDir
+
+        let outputDir: string
+        if (params.target === "worktree") {
+          const workTreePath = sessionManager.getActiveWorkTreePath()
+          if (!workTreePath) {
+            throw new Error("No active worktree registered")
           }
-
-          // Validate output directory stays within session scope
-          console.log("[ipc boilerplate:render] outputDir", outputDir)
-          yield* validateSessionPath(outputDir)
-
-          const templateId = params.templateId ?? params.templatePath
-
-          // Render the template into a tempdir, then diff-apply into the real
-          // outputDir. This keeps manifest work bounded to just the files this
-          // template actually produced — so it's safe (and fast) even when
-          // `outputDir` is a full git worktree.
-          const tempRenderDir = yield* fs.mkdtemp("boilerplate-render-")
-          console.log("[ipc boilerplate:render] rendering to temp", {
-            src: resolvedTemplatePath,
-            tmp: tempRenderDir,
-          })
-
-          // Boilerplate's `--var-file` looks up variable names at the root
-          // of the YAML. Our UI sends { inputs: {...}, outputs: {...} } to
-          // support `{{ .inputs.X }}` / `{{ .outputs.block.X }}` template
-          // syntax, but the CLI also needs each variable at the root for
-          // legacy `{{ .X }}` syntax and for its own "variable has no default"
-          // check. Mirror main's `applyBackwardCompatibility` behavior:
-          // flatten `inputs.*` to the top level (non-destructively, so
-          // explicit root-level keys win), and keep the `inputs`/`outputs`
-          // namespaces intact.
-          const flattenedVariables = flattenVariables(params.variables)
-
-          const renderAndApply = Effect.gen(function* () {
-            yield* renderer.renderTemplate(
-              resolvedTemplatePath,
-              tempRenderDir,
-              flattenedVariables,
-            )
-            console.log("[ipc boilerplate:render] render complete, diffing")
-
-            // Build the new manifest from the tempdir (small, fast).
-            const newEntries = yield* buildManifestFromDirectory(tempRenderDir)
-
-            // Compare against the prior render's manifest for this templateId.
-            const oldManifest = manifestStore.get(templateId)
-            const oldEntries = oldManifest?.files ?? []
-            const diff = computeDiff(oldEntries, newEntries)
-            console.log("[ipc boilerplate:render] diff", {
-              created: diff.created.length,
-              modified: diff.modified.length,
-              orphaned: diff.orphaned.length,
-              unchanged: diff.unchanged.length,
-            })
-
-            // Patch the real outputDir: delete orphans, write created/modified.
-            const applied = yield* applyDiff(diff, tempRenderDir, outputDir)
-            console.log("[ipc boilerplate:render] applied diff", applied)
-
-            // Save new manifest for the next render.
-            manifestStore.set(templateId, {
-              templateId,
-              outputDir,
-              files: newEntries,
-            })
-
-            // For worktree target the UI discards fileTree and just refreshes
-            // via invalidateGitFileTree, so skip the expensive walk.
-            let treeNodes: unknown[] = []
-            let treeMeta: unknown = { totalFiles: 0, truncatedTree: false, heavyDirs: [] }
-            if (params.target !== "worktree") {
-              const built = yield* buildFileTree(outputDir)
-              treeNodes = built.tree as unknown[]
-              treeMeta = built.meta
-            }
-
-            return {
-              message: `Template rendered to ${outputDir}`,
-              outputDir,
-              templatePath: params.templatePath,
-              fileTree: treeNodes,
-              meta: treeMeta,
-              deletedFiles: diff.orphaned,
-              createdFiles: diff.created,
-              modifiedFiles: diff.modified,
-              skippedFiles: diff.unchanged,
-            }
-          })
-
-          return yield* renderAndApply.pipe(
-            Effect.ensuring(
-              fs.rm(tempRenderDir, { recursive: true, force: true }).pipe(Effect.ignore),
-            ),
+          outputDir = workTreePath
+        } else {
+          outputDir = yield* resolveToAbsolutePath(
+            workingDir,
+            params.outputPath ?? "output",
           )
-        }),
-      )
+        }
+        yield* validateSessionPath(outputDir)
+
+        // Render the template into a tempdir, then diff-apply into the real
+        // outputDir. This keeps manifest work bounded to just the files this
+        // template actually produced — so it's safe (and fast) even when
+        // `outputDir` is a full git worktree.
+        const tempRenderDir = yield* fs.mkdtemp("boilerplate-render-")
+
+        // Boilerplate's `--var-file` looks up variable names at the root
+        // of the YAML. Our UI sends { inputs: {...}, outputs: {...} } to
+        // support `{{ .inputs.X }}` / `{{ .outputs.block.X }}` template
+        // syntax, but the CLI also needs each variable at the root for
+        // legacy `{{ .X }}` syntax and for its own "variable has no default"
+        // check. Mirror main's `applyBackwardCompatibility` behavior:
+        // flatten `inputs.*` to the top level (non-destructively, so
+        // explicit root-level keys win), and keep the `inputs`/`outputs`
+        // namespaces intact.
+        const flattenedVariables = flattenVariables(params.variables)
+
+        const renderAndApply = Effect.gen(function* () {
+          const tRender = Date.now()
+          yield* renderer.renderTemplate(
+            resolvedTemplatePath,
+            tempRenderDir,
+            flattenedVariables,
+          )
+          const dRender = Date.now() - tRender
+
+          const tManifest = Date.now()
+          const newEntries = yield* buildManifestFromDirectory(tempRenderDir)
+          const dManifest = Date.now() - tManifest
+
+          const oldManifest = manifestStore.get(templateId)
+          const oldEntries = oldManifest?.files ?? []
+          const diff = computeDiff(oldEntries, newEntries)
+
+          const tApply = Date.now()
+          const applied = yield* applyDiff(diff, tempRenderDir, outputDir)
+          const dApply = Date.now() - tApply
+
+          manifestStore.set(templateId, { templateId, outputDir, files: newEntries })
+
+          // For worktree target the UI discards fileTree and just refreshes
+          // via invalidateGitFileTree, so skip the expensive walk.
+          let treeNodes: unknown[] = []
+          let treeMeta: unknown = { totalFiles: 0, truncatedTree: false, heavyDirs: [] }
+          const tTree = Date.now()
+          if (params.target !== "worktree") {
+            const built = yield* buildFileTree(outputDir)
+            treeNodes = built.tree as unknown[]
+            treeMeta = built.meta
+          }
+          const dTree = Date.now() - tTree
+
+          console.log("[ipc boilerplate:render] timing(ms)", {
+            templateId,
+            render: dRender,
+            manifest: dManifest,
+            apply: dApply,
+            tree: dTree,
+            total: Date.now() - t0,
+            files: newEntries.length,
+            created: diff.created.length,
+            modified: diff.modified.length,
+            orphaned: diff.orphaned.length,
+            unchanged: diff.unchanged.length,
+            applied,
+          })
+
+          return {
+            message: `Template rendered to ${outputDir}`,
+            outputDir,
+            templatePath: params.templatePath,
+            fileTree: treeNodes,
+            meta: treeMeta,
+            deletedFiles: diff.orphaned,
+            createdFiles: diff.created,
+            modifiedFiles: diff.modified,
+            skippedFiles: diff.unchanged,
+          }
+        })
+
+        return yield* renderAndApply.pipe(
+          Effect.ensuring(
+            fs.rm(tempRenderDir, { recursive: true, force: true }).pipe(Effect.ignore),
+          ),
+        )
+      })
+
+      const fiber = runtime.runFork(program)
+      activeRenders.set(templateId, fiber as Fiber.RuntimeFiber<unknown, unknown>)
+
+      try {
+        // Use Fiber.await (returns an Exit) instead of Fiber.join so we can
+        // distinguish interruption (= superseded by a newer request) from a
+        // real failure. Superseded calls resolve to a sentinel that the
+        // client's useApi treats as "ignore, the newer call will update UI".
+        const exit = await runtime.runPromise(Fiber.await(fiber))
+        if (Exit.isSuccess(exit)) {
+          return exit.value
+        }
+        if (Cause.isInterruptedOnly(exit.cause)) {
+          console.log("[ipc boilerplate:render] superseded, discarding result", {
+            templateId,
+            elapsed: Date.now() - t0,
+          })
+          return { superseded: true } as const
+        }
+        throw Cause.squash(exit.cause)
+      } finally {
+        // Only clear if *our* fiber is still the registered one — a superseding
+        // call may have already registered a newer fiber under this templateId.
+        if (activeRenders.get(templateId) === (fiber as Fiber.RuntimeFiber<unknown, unknown>)) {
+          activeRenders.delete(templateId)
+        }
+      }
     },
   )
 

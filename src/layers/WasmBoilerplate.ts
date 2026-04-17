@@ -1133,29 +1133,37 @@ function runBoilerplate(
       ),
     )
 
-    // Drain output (the spawner collects lines and emits them once the
-    // process exits; stderr lines carry user-facing error detail).
-    const lines = yield* Stream.runCollect(proc.output).pipe(
-      Effect.catchAll(() => Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([])),
-    )
-    const stderrLines: string[] = []
-    for (const l of lines) {
-      if (l.source === "stderr") stderrLines.push(l.line)
-    }
-
-    const code = yield* proc.exitCode.pipe(
-      Effect.catchAll(() => Effect.succeed(1)),
-    )
-    if (code !== 0) {
-      const stderrText = stderrLines.join("\n").trim()
-      return yield* Effect.fail(
-        new RenderError({
-          message: stderrText.length > 0
-            ? `boilerplate exited with code ${code}: ${stderrText}`
-            : `boilerplate exited with code ${code}`,
-        }),
+    // Wait for the subprocess to finish, but if our fiber is interrupted
+    // (e.g. a newer render superseded this one), kill the subprocess so we
+    // stop paying for CPU/network we no longer want. Without this, a stale
+    // boilerplate CLI run would keep running in the background.
+    return yield* Effect.gen(function* () {
+      // Drain output (the spawner collects lines and emits them once the
+      // process exits; stderr lines carry user-facing error detail).
+      const lines = yield* Stream.runCollect(proc.output).pipe(
+        Effect.catchAll(() =>
+          Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
+        ),
       )
-    }
+      const stderrLines: string[] = []
+      for (const l of lines) {
+        if (l.source === "stderr") stderrLines.push(l.line)
+      }
+
+      const code = yield* proc.exitCode.pipe(
+        Effect.catchAll(() => Effect.succeed(1)),
+      )
+      if (code !== 0) {
+        const stderrText = stderrLines.join("\n").trim()
+        return yield* Effect.fail(
+          new RenderError({
+            message: stderrText.length > 0
+              ? `boilerplate exited with code ${code}: ${stderrText}`
+              : `boilerplate exited with code ${code}`,
+          }),
+        )
+      }
+    }).pipe(Effect.onInterrupt(() => proc.kill))
   })
 }
 

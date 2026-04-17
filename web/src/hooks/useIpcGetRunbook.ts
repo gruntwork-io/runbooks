@@ -26,6 +26,7 @@ export function useIpcGetRunbook(): UseIpcReturn<GetFileReturn> {
   const api = useApi()
   const [runbookPath, setRunbookPath] = useState<string | null>(null)
   const [remoteSource, setRemoteSource] = useState<string | undefined>(undefined)
+  const [isClosed, setIsClosed] = useState(false)
 
   // Fetch CLI config on mount to get the initial runbook path.
   // Remote URLs are handled by the main process (index.ts) which sends
@@ -38,14 +39,23 @@ export function useIpcGetRunbook(): UseIpcReturn<GetFileReturn> {
     })
   }, [api])
 
-  // Listen for "file:open-runbook" events from the main process
+  // Listen for runbook open/close events from the main process
   useEffect(() => {
-    const cleanup = api.on('file:open-runbook', (data: OpenRunbookPayload) => {
+    const cleanupOpen = api.on('file:open-runbook', (data: OpenRunbookPayload) => {
       const payload = normalizePayload(data)
       setRunbookPath(payload.path)
       setRemoteSource(payload.remoteSource)
+      setIsClosed(false)
     })
-    return cleanup
+    const cleanupClose = api.on('menu:close-runbook', () => {
+      setRunbookPath(null)
+      setRemoteSource(undefined)
+      setIsClosed(true)
+    })
+    return () => {
+      cleanupOpen()
+      cleanupClose()
+    }
   }, [api])
 
   // Call runbook:get with the path once we have it
@@ -55,5 +65,10 @@ export function useIpcGetRunbook(): UseIpcReturn<GetFileReturn> {
     { disabled: !runbookPath }
   )
 
+  // When closed, override stale data/error from the underlying useIpc so
+  // callers see a fresh "no runbook loaded" state.
+  if (isClosed) {
+    return { ...result, data: null, error: null, isLoading: false }
+  }
   return result
 }

@@ -245,6 +245,7 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
+  "native:close-runbook": { params: void; result: { ok: true } }
   "native:get-app-info": { params: void; result: { version: string; platform: string; arch: string } }
   "native:get-cli-config": {
     params: void
@@ -279,6 +280,7 @@ export interface IpcEventMap {
   "git:error": { message?: string; code?: string; branchName?: string }
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
+  "menu:close-runbook": void
   "registry:updated": void
 }
 

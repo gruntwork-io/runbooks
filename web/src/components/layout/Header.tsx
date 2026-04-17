@@ -1,5 +1,5 @@
 import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
-import { ChevronDown, Download, Info, Check, FolderOpen, Copy, type LucideProps } from 'lucide-react';
+import { ChevronDown, Download, Info, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
 import logoDarkAlpha from '@/assets/runbooks-logo-dark-alpha.svg';
 import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useLogs } from '@/contexts/useLogs';
+import { useApi } from '@/contexts/ApiContext';
 import { getDirectoryPath } from '@/lib/utils';
 import {
   createLogsZipRaw,
@@ -76,6 +77,12 @@ export function Header({ pathName, localPath }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const { getAllLogs, hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
+  const api = useApi();
+
+  const hasRunbookOpen = Boolean(pathName);
+  const handleCloseRunbook = () => {
+    api.invoke('native:close-runbook');
+  };
 
   // On Windows/Linux, Electron draws min/max/close controls via titleBarOverlay
   // in the top-right (~140px wide). Shift the Menu further from the edge on
@@ -159,6 +166,15 @@ export function Header({ pathName, localPath }: HeaderProps) {
               >
                 <Download className="size-4" />
                 Download logs (JSON)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleCloseRunbook}
+                disabled={!hasRunbookOpen}
+                className={!hasRunbookOpen ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <X className="size-4" />
+                Close Runbook
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>

@@ -161,6 +161,14 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
   return { ok: true }
 })
 
+// Triggered by the in-app "Close Runbook" menu item (Header dropdown).
+// Routes through main so it uses the same channel as the native menu item —
+// renderers listen for "menu:close-runbook" regardless of origin.
+ipcMain.handle("native:close-runbook", () => {
+  getMainWindow()?.webContents.send("menu:close-runbook")
+  return { ok: true } as const
+})
+
 ipcMain.handle("native:get-app-info", () => ({
   version: app.getVersion(),
   platform: process.platform,
