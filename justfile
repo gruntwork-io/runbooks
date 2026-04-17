@@ -131,8 +131,16 @@ package-local: build compile-test-cli
     done
 
 # Remove build artifacts
+# Retries because macOS Finder can recreate .DS_Store between readdir and rmdir,
+# causing "Directory not empty" on the first pass.
 clean:
-    rm -rf dist out resources/bin/runbooks-test
+    #!/usr/bin/env bash
+    set -u
+    for i in 1 2 3; do
+        rm -rf dist out resources/bin/runbooks-test && exit 0
+        sleep 0.3
+    done
+    exit 1
 
 # --- Test ---
 

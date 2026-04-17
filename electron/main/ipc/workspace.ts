@@ -51,9 +51,16 @@ export function registerWorkspaceHandlers(): void {
     ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
-          yield* validateRelativePathIn(params.filePath, params.worktreePath)
-          return yield* readWorkspaceFile(params.worktreePath, params.filePath)
+          // Accept either shape: an absolute filePath (the UI's default, since
+          // file-tree items carry absolute localPaths), or a relative filePath
+          // rooted at worktreePath. In both cases we resolve to an absolute
+          // path and validate it against session scope — matches main's
+          // `/api/workspace/file?path=<abs>` behavior.
+          const absFilePath = path.isAbsolute(params.filePath)
+            ? params.filePath
+            : path.join(params.worktreePath, params.filePath)
+          yield* validateSessionPath(absFilePath)
+          return yield* readWorkspaceFile("", absFilePath)
         }),
       )
     },

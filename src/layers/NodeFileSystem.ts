@@ -118,33 +118,36 @@ const impl: FileSystemShape = {
     }),
 
   walk: (dir: string) =>
-    Stream.asyncScoped<WalkEntry, FileReadError>((emit) =>
-      Effect.tryPromise({
-        try: async () => {
-          const walkDir = async (currentDir: string): Promise<void> => {
-            const entries = await fs.readdir(currentDir, { withFileTypes: true })
-            for (const entry of entries) {
-              const fullPath = path.join(currentDir, entry.name)
-              const relativePath = path.relative(dir, fullPath)
-              const stat = await fs.stat(fullPath)
-              await emit.single({
-                path: fullPath,
-                relativePath,
-                isFile: entry.isFile(),
-                isDirectory: entry.isDirectory(),
-                size: stat.size,
-              })
-              if (entry.isDirectory()) {
-                await walkDir(fullPath)
-              }
-            }
+    // NOTE: This uses `Stream.async` (not `asyncScoped`) on purpose. In
+    // `asyncScoped` the consumer only begins pulling after `register`
+    // completes — so doing the full emit loop inside register deadlocks once
+    // the internal queue fills (default bound: 16). `Stream.async` kicks off
+    // register synchronously and emits/pulls run concurrently. We also pass
+    // `"unbounded"` so `emit.single` never blocks on a slow consumer.
+    Stream.async<WalkEntry, FileReadError>((emit) => {
+      const walkDir = async (currentDir: string): Promise<void> => {
+        const entries = await fs.readdir(currentDir, { withFileTypes: true })
+        for (const entry of entries) {
+          const fullPath = path.join(currentDir, entry.name)
+          const relativePath = path.relative(dir, fullPath)
+          const stat = await fs.stat(fullPath)
+          await emit.single({
+            path: fullPath,
+            relativePath,
+            isFile: entry.isFile(),
+            isDirectory: entry.isDirectory(),
+            size: stat.size,
+          })
+          if (entry.isDirectory()) {
+            await walkDir(fullPath)
           }
-          await walkDir(dir)
-          emit.end()
-        },
-        catch: (err) => new FileReadError({ path: dir, cause: err }),
-      }),
-    ),
+        }
+      }
+      walkDir(dir).then(
+        () => emit.end(),
+        (err) => emit.fail(new FileReadError({ path: dir, cause: err })),
+      )
+    }, "unbounded"),
 
   watch: (paths: string[]) =>
     Stream.async<FileChangeEvent, FileWatchError>((emit) => {

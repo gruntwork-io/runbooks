@@ -96,15 +96,19 @@ export function useApi<T>(
 
   const performInvoke = useCallback(async (requestBody?: Record<string, unknown>) => {
     if (!channel) {
+      console.log('[useApi] performInvoke skipped: no channel', { endpoint });
       setIsLoading(false);
       return;
     }
 
+    console.log('[useApi] invoking', channel, requestBody);
     try {
       const result = await (api as any).invoke(channel, requestBody ?? undefined);
+      console.log('[useApi] resolved', channel, { hasResult: result !== undefined });
       setData(result as T);
       setError(null);
     } catch (err: unknown) {
+      console.error('[useApi] rejected', channel, err);
       setError(createAppError(
         err instanceof Error ? err.message : 'An unexpected error occurred',
         `IPC call to ${channel} failed`,
@@ -112,7 +116,7 @@ export function useApi<T>(
     } finally {
       setIsLoading(false);
     }
-  }, [api, channel]);
+  }, [api, channel, endpoint]);
 
   const debouncedRequest = useCallback((newBody?: Record<string, unknown>) => {
     if (timeoutRef.current) {

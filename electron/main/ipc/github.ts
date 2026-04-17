@@ -73,7 +73,51 @@ export function registerGitHubHandlers(): void {
     "github:oauth-poll",
     async (_event, params: { clientId?: string; deviceCode: string }) => {
       const clientId = params.clientId ?? DEFAULT_GITHUB_OAUTH_CLIENT_ID
-      return runtime.runPromise(pollOAuthToken(clientId, params.deviceCode))
+      try {
+        const result = await runtime.runPromise(
+          pollOAuthToken(clientId, params.deviceCode),
+        )
+
+        if (result.pending) {
+          return { status: "pending" as const }
+        }
+
+        if (!result.token) {
+          return { status: "failed" as const, error: "No access token returned" }
+        }
+
+        const tokenType = detectTokenType(result.token)
+        const { user, scopes } = await runtime.runPromise(
+          validateToken(result.token),
+        )
+
+        await runtime.runPromise(
+          sessionManager.appendToEnv({
+            GITHUB_TOKEN: result.token,
+            GITHUB_USER: user.login,
+          }),
+        )
+
+        return {
+          status: "complete" as const,
+          accessToken: result.token,
+          user,
+          scopes,
+          tokenType,
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (message.includes("expired_token") || message.includes("expired")) {
+          return { status: "expired" as const, error: message }
+        }
+        if (message.includes("access_denied")) {
+          return { status: "failed" as const, error: "Authorization was denied" }
+        }
+        if (message.includes("slow_down")) {
+          return { status: "pending" as const, slowDown: true }
+        }
+        return { status: "failed" as const, error: message }
+      }
     },
   )
 

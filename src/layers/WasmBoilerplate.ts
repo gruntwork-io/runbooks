@@ -1,23 +1,28 @@
 /**
- * TypeScript implementation of the BoilerplateRenderer service.
+ * BoilerplateRenderer implementation.
  *
- * Renders Go text/template-compatible strings with variable substitution.
- * Supports: {{ .path.to.value }}, {{ if EXPR }}...{{ else if EXPR }}...{{ else }}...{{ end }},
+ * Two concerns live here:
+ *
+ *  - `renderFile`: pure-TS Go text/template-compatible engine, used by
+ *    `<TemplateInline>` for live preview of inline template snippets. We can't
+ *    shell out per keystroke, so a small hand-rolled renderer handles this.
+ *
+ *  - `renderTemplate`: shells out to the `boilerplate` CLI. This covers the
+ *    full boilerplate feature surface (dependencies, skip_files, hooks,
+ *    partials, all built-in functions) without us maintaining a reimplementation.
+ *
+ * The inline engine supports: {{ .path.to.value }}, {{ if EXPR }}...{{ end }},
  * {{ range ... }}...{{ end }}, {{ fromJson .x }}, {{ toJson .x }}, and pipes
- * `{{ EXPR | fn arg | fn2 }}` with a small function table.
- *
- * The engine is a hand-rolled tokenizer + block-parser that builds an AST and
- * walks it against a scope stack. This correctly handles `range` nested
- * inside `range` inside `if`.
+ * `{{ EXPR | fn arg | fn2 }}` with a small function table. It is not a
+ * complete Go text/template and is intentionally minimal.
  */
 import path from "node:path"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { BoilerplateRenderer } from "../services/BoilerplateRenderer.ts"
 import type { BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
 import { FileSystem } from "../services/FileSystem.ts"
+import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { RenderError } from "../errors/index.ts"
-import { parseBoilerplateConfig } from "../domain/boilerplate/config.ts"
-import type { SkipFileRule } from "../types.ts"
 
 // ---------------------------------------------------------------------------
 // Variable resolution
@@ -1037,289 +1042,119 @@ function renderGoTemplate(
 }
 
 // ---------------------------------------------------------------------------
-// Template directory walker
+// Subprocess-backed renderTemplate
 // ---------------------------------------------------------------------------
 
 /**
- * Files literally named one of these are configuration metadata, not template
- * sources, and must be skipped at every directory level during the walk.
- */
-const BOILERPLATE_CONFIG_NAMES = new Set(["boilerplate.yml", "boilerplate.yaml"])
-
-/**
- * Evaluate a `skip_files[*].if` expression against the given variables.
- * Wraps the expression in `{{ }}` if the caller omitted them (both shapes are
- * commonly seen in Go boilerplate configs).
+ * Location of the `boilerplate` binary.
  *
- * Result semantics:
- *  - undefined / empty / "false" / "0" render  → keep the file (falsy)
- *  - anything else                             → skip the file (truthy)
+ * Resolution order:
+ *   1. `BOILERPLATE_BIN` env var (absolute path or bare command name)
+ *   2. Bare `boilerplate` — relies on the user's PATH
  *
- * A template that fails to render logs a warning and returns `false` (keep the
- * file) — a nonsense expression must never crash the whole render.
+ * The binary is invoked in non-interactive mode with `--disable-dependency-prompt`,
+ * so dependencies (remote templates) are pulled in without any stdin prompts.
  */
-function evaluateSkipCondition(
-  expr: string,
-  variables: Record<string, unknown>,
-  skipPath: string,
-): boolean {
-  // Accept both `{{ eq .x "y" }}` and the bare `eq .x "y"` shapes for
-  // convenience — wrapping a bare expression lets renderGoTemplate handle it.
-  const needsWrap = !/\{\{.*\}\}/s.test(expr)
-  const source = needsWrap ? `{{ ${expr} }}` : expr
-
-  let rendered: string
-  const prevStrict = strictUnknownFunctions
-  strictUnknownFunctions = true
-  try {
-    rendered = renderGoTemplate(source, variables)
-  } catch (err) {
-    console.warn(
-      `[boilerplate renderTemplate] skip_files entry "${skipPath}" condition failed to render; keeping file. Reason: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    )
-    return false
-  } finally {
-    strictUnknownFunctions = prevStrict
-  }
-
-  const trimmed = rendered.trim()
-  if (trimmed === "" || trimmed === "false" || trimmed === "0") return false
-  return true
+function resolveBoilerplateBinary(): string {
+  const env = process.env.BOILERPLATE_BIN
+  if (env && env.length > 0) return env
+  return "boilerplate"
 }
 
 /**
- * Decide whether a given relative path should be skipped, based on the
- * config's `skipFiles` list. Exact-match only; no glob or regex support.
- */
-function shouldSkipFile(
-  relativePath: string,
-  skipFiles: SkipFileRule[],
-  variables: Record<string, unknown>,
-): boolean {
-  for (const rule of skipFiles) {
-    if (rule.path !== relativePath) continue
-    if (rule.if === undefined) return true
-    if (evaluateSkipCondition(rule.if, variables, rule.path)) return true
-  }
-  return false
-}
-
-/**
- * Render a single path segment through the Go-template engine. Used for both
- * filenames and directory names. An empty rendered segment is a deliberate
- * "skip" marker (matches Go boilerplate `skip_files` semantics for
- * conditional filenames).
- */
-function renderPathSegment(
-  segment: string,
-  variables: Record<string, unknown>,
-): string {
-  return renderGoTemplate(segment, variables)
-}
-
-/**
- * Render an entire template directory tree to an output directory.
+ * Write a YAML file containing the rendered variables for `--var-file`.
  *
- * Walks `templateDir` recursively; for each entry:
- *  - skips `boilerplate.yml` / `boilerplate.yaml` at every level
- *  - renders every path segment as a Go template; if any rendered segment is
- *    the empty string, the entry is skipped entirely
- *  - validates the resolved on-disk path stays within `outputDir`
- *  - mkdir -p's the file's parent directory before writing
- *  - renders text contents through the same Go-template engine
- *
- * Errors are wrapped as `RenderError` with the offending path included.
+ * Boilerplate accepts arbitrarily-nested YAML values, so we let the `yaml`
+ * package handle all primitives + nested maps/arrays. The file is written to
+ * a unique path under `os.tmpdir()` and is the caller's responsibility to rm.
  */
-function renderTemplateImpl(
-  templateDir: string,
-  outputDir: string,
+function writeVarFile(
   variables: Record<string, unknown>,
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
-
-    // Pre-resolve the output root so the scope guard compares apples to apples.
-    const resolvedOutputDir = path.resolve(outputDir)
-    const outputDirWithSep = resolvedOutputDir + path.sep
-
-    // Ensure the output root exists up-front so an empty template still
-    // produces a usable (empty) directory.
-    yield* fs.mkdir(resolvedOutputDir, { recursive: true }).pipe(
+    const YAML = yield* Effect.promise(() => import("yaml"))
+    const yamlText = YAML.stringify(variables ?? {})
+    console.log("[boilerplate] var-file YAML (first 1200 chars):\n" + yamlText.slice(0, 1200))
+    const tmpDir = yield* fs.mkdtemp("boilerplate-vars-").pipe(
       Effect.mapError(
         (err) =>
           new RenderError({
-            message: `Failed to create output directory: ${resolvedOutputDir}`,
+            message: "Failed to create temp directory for variables file",
+            cause: err,
+          }),
+      ),
+    )
+    const varFilePath = path.join(tmpDir, "vars.yml")
+    yield* fs.writeFile(varFilePath, yamlText).pipe(
+      Effect.mapError(
+        (err) =>
+          new RenderError({
+            message: `Failed to write variables file: ${varFilePath}`,
+            cause: err,
+          }),
+      ),
+    )
+    return { varFilePath, varFileDir: tmpDir }
+  })
+}
+
+/**
+ * Shell out to the boilerplate CLI to render a template tree.
+ *
+ * Streams stdout/stderr into buffers so that, on non-zero exit, the `stderr`
+ * text can be surfaced through the resulting `RenderError` (makes
+ * configuration mistakes in templates readable in the UI rather than a bare
+ * "exit code 1").
+ */
+function runBoilerplate(
+  templateDir: string,
+  outputDir: string,
+  varFilePath: string,
+) {
+  return Effect.gen(function* () {
+    const spawner = yield* ProcessSpawner
+    const binary = resolveBoilerplateBinary()
+    const args = [
+      "--template-url", templateDir,
+      "--output-folder", outputDir,
+      "--var-file", varFilePath,
+      "--non-interactive",
+      "--disable-dependency-prompt",
+    ]
+
+    const proc = yield* spawner.spawn(binary, args).pipe(
+      Effect.mapError(
+        (err) =>
+          new RenderError({
+            message: `Failed to spawn boilerplate binary "${binary}". Ensure it is installed and on PATH, or set BOILERPLATE_BIN.`,
             cause: err,
           }),
       ),
     )
 
-    // ---------------------------------------------------------------
-    // Load skip_files from the template's boilerplate.yml / .yaml, if
-    // one exists at the template root. Nested configs are intentionally
-    // ignored — skip_files in upstream Go boilerplate lives only at the
-    // root config level.
-    // ---------------------------------------------------------------
-    const skipFiles: SkipFileRule[] = []
-    for (const configName of ["boilerplate.yml", "boilerplate.yaml"]) {
-      const configPath = `${templateDir}/${configName}`
-      const exists = yield* fs.exists(configPath)
-      if (!exists) continue
-      const yamlText = yield* fs.readFile(configPath).pipe(
-        Effect.catchAll(() => Effect.succeed<string | null>(null)),
-      )
-      if (yamlText === null) continue
-      const parsed = yield* parseBoilerplateConfig(yamlText).pipe(
-        Effect.catchAll((err) => {
-          console.warn(
-            `[boilerplate renderTemplate] failed to parse ${configPath}; ignoring skip_files. Reason: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          )
-          return Effect.succeed(null)
+    // Drain output (the spawner collects lines and emits them once the
+    // process exits; stderr lines carry user-facing error detail).
+    const lines = yield* Stream.runCollect(proc.output).pipe(
+      Effect.catchAll(() => Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([])),
+    )
+    const stderrLines: string[] = []
+    for (const l of lines) {
+      if (l.source === "stderr") stderrLines.push(l.line)
+    }
+
+    const code = yield* proc.exitCode.pipe(
+      Effect.catchAll(() => Effect.succeed(1)),
+    )
+    if (code !== 0) {
+      const stderrText = stderrLines.join("\n").trim()
+      return yield* Effect.fail(
+        new RenderError({
+          message: stderrText.length > 0
+            ? `boilerplate exited with code ${code}: ${stderrText}`
+            : `boilerplate exited with code ${code}`,
         }),
       )
-      if (parsed) {
-        skipFiles.push(...parsed.skipFiles)
-      }
-      // Only read the first config found (yml preferred over yaml).
-      break
-    }
-
-    // Iterative DFS using a queue of (sourceDir, relativeSegments,
-    // sourceSegments). `sourceSegments` tracks the *pre-render* path from
-    // templateDir so skip_files can be matched against the template source
-    // path (exact-match only, no globs).
-    type Frame = {
-      sourceDir: string
-      relativeSegments: string[]
-      sourceSegments: string[]
-    }
-    const stack: Frame[] = [
-      { sourceDir: templateDir, relativeSegments: [], sourceSegments: [] },
-    ]
-
-    while (stack.length > 0) {
-      const { sourceDir, relativeSegments, sourceSegments } = stack.pop()!
-
-      const entries = yield* fs.readdirWithTypes(sourceDir).pipe(
-        Effect.mapError(
-          (err) =>
-            new RenderError({
-              message: `Failed to read template directory: ${sourceDir}`,
-              cause: err,
-            }),
-        ),
-      )
-
-      for (const entry of entries) {
-        // Skip boilerplate config files at every level.
-        if (BOILERPLATE_CONFIG_NAMES.has(entry.name)) continue
-
-        // Render the segment name. An empty rendered segment skips the entry.
-        const renderedName = yield* Effect.try({
-          try: () => renderPathSegment(entry.name, variables),
-          catch: (err) =>
-            new RenderError({
-              message: `Failed to render path segment "${entry.name}" under ${sourceDir}`,
-              cause: err,
-            }),
-        })
-
-        if (renderedName === "") continue
-
-        const childSourcePath = `${sourceDir}/${entry.name}`
-        const childRelativeSegments = [...relativeSegments, renderedName]
-        const childSourceSegments = [...sourceSegments, entry.name]
-
-        // skip_files check: exact-match only on the raw (pre-render)
-        // relative path. Only files are checked, not directories, to mirror
-        // Go boilerplate semantics.
-        if (
-          entry.isFile &&
-          skipFiles.length > 0 &&
-          shouldSkipFile(
-            childSourceSegments.join("/"),
-            skipFiles,
-            variables,
-          )
-        ) {
-          continue
-        }
-
-        // Compute and validate the destination path (root-scope guard).
-        const destPath = path.resolve(resolvedOutputDir, ...childRelativeSegments)
-        if (
-          destPath !== resolvedOutputDir &&
-          !destPath.startsWith(outputDirWithSep)
-        ) {
-          return yield* Effect.fail(
-            new RenderError({
-              message: `Refusing to write outside output directory: ${destPath} (template segment "${entry.name}" rendered to "${renderedName}")`,
-            }),
-          )
-        }
-
-        if (entry.isDirectory) {
-          yield* fs.mkdir(destPath, { recursive: true }).pipe(
-            Effect.mapError(
-              (err) =>
-                new RenderError({
-                  message: `Failed to create directory: ${destPath}`,
-                  cause: err,
-                }),
-            ),
-          )
-          stack.push({
-            sourceDir: childSourcePath,
-            relativeSegments: childRelativeSegments,
-            sourceSegments: childSourceSegments,
-          })
-        } else if (entry.isFile) {
-          const rawContent = yield* fs.readFile(childSourcePath).pipe(
-            Effect.mapError(
-              (err) =>
-                new RenderError({
-                  message: `Failed to read template file: ${childSourcePath}`,
-                  cause: err,
-                }),
-            ),
-          )
-
-          const rendered = yield* Effect.try({
-            try: () => renderGoTemplate(rawContent, variables),
-            catch: (err) =>
-              new RenderError({
-                message: `Failed to render template file: ${childSourcePath}`,
-                cause: err,
-              }),
-          })
-
-          // mkdir -p the file's parent before writing.
-          const parentDir = path.dirname(destPath)
-          yield* fs.mkdir(parentDir, { recursive: true }).pipe(
-            Effect.mapError(
-              (err) =>
-                new RenderError({
-                  message: `Failed to create parent directory: ${parentDir}`,
-                  cause: err,
-                }),
-            ),
-          )
-
-          yield* fs.writeFile(destPath, rendered).pipe(
-            Effect.mapError(
-              (err) =>
-                new RenderError({
-                  message: `Failed to write rendered file: ${destPath}`,
-                  cause: err,
-                }),
-            ),
-          )
-        }
-      }
     }
   })
 }
@@ -1329,16 +1164,17 @@ function renderTemplateImpl(
 // ---------------------------------------------------------------------------
 
 /**
- * The renderer needs the FileSystem service to walk the template tree and
- * write outputs. We resolve FileSystem at layer-build time (via `Layer.effect`
- * + `Effect.gen`) and capture it in a closure so the public
- * `renderTemplate` Effect carries no requirements — matching the
- * `BoilerplateRendererShape` contract.
+ * `renderFile` uses the in-process TS template engine for inline previews —
+ * subprocess startup would make per-keystroke rendering intolerable.
+ *
+ * `renderTemplate` shells out to the real `boilerplate` binary for full
+ * feature parity (dependencies, skip_files, hooks, partials, etc).
  */
 export const WasmBoilerplateLive = Layer.effect(
   BoilerplateRenderer,
   Effect.gen(function* () {
     const fs = yield* FileSystem
+    const spawner = yield* ProcessSpawner
 
     const impl: BoilerplateRendererShape = {
       renderFile: (templateContent: string, variables: Record<string, unknown>) =>
@@ -1352,8 +1188,26 @@ export const WasmBoilerplateLive = Layer.effect(
         outputDir: string,
         variables: Record<string, unknown>,
       ) =>
-        renderTemplateImpl(templateDir, outputDir, variables).pipe(
+        Effect.gen(function* () {
+          // Ensure output root exists so boilerplate doesn't trip on it.
+          yield* fs.mkdir(outputDir, { recursive: true }).pipe(
+            Effect.mapError(
+              (err) =>
+                new RenderError({
+                  message: `Failed to create output directory: ${outputDir}`,
+                  cause: err,
+                }),
+            ),
+          )
+
+          const { varFilePath, varFileDir } = yield* writeVarFile(variables)
+          yield* runBoilerplate(templateDir, outputDir, varFilePath).pipe(
+            // Best-effort cleanup — never let a cleanup failure mask a render error.
+            Effect.ensuring(fs.rm(varFileDir, { recursive: true, force: true }).pipe(Effect.ignore)),
+          )
+        }).pipe(
           Effect.provideService(FileSystem, fs),
+          Effect.provideService(ProcessSpawner, spawner),
         ),
     }
 

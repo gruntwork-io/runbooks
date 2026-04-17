@@ -296,6 +296,7 @@ function Template({
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
+    console.log('[Template] handleGenerate called', { id, path, hasConfig: Boolean(boilerplateConfig), localKeys: Object.keys(localVarValues) });
     // Store latest form data
     localVarValuesRef.current = localVarValues;
 
@@ -311,9 +312,10 @@ function Template({
     }
 
     // Trigger the render with merged data
+    console.log('[Template] setShouldRender(true)', { id, mergedKeys: Object.keys(mergedData) });
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
+  }, [id, path, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
 
   // Early return for duplicate ID error
   if (isDuplicate) {

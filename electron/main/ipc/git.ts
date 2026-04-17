@@ -18,6 +18,7 @@ import {
   createPullRequest,
   pushBranch,
   isValidGitURL,
+  parseOwnerRepoFromURL,
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
@@ -181,6 +182,10 @@ export function registerGitHandlers(): void {
           sessionManager.registerWorkTreePath(paths.absolutePath)
           // debugLog("[git:clone] registered worktree, returning result")
 
+          // Surface org/repo from the clone URL so downstream templates can
+          // reference {{ .outputs.<id>.repo_owner }} / .repo_name.
+          const parsed = parseOwnerRepoFromURL(effectiveUrl)
+
           return {
             absolutePath: paths.absolutePath,
             relativePath: paths.relativePath,
@@ -188,6 +193,7 @@ export function registerGitHandlers(): void {
             status: "success" as const,
             outputs: {
               clone_path: paths.absolutePath,
+              ...(parsed ? { repo_owner: parsed.owner, repo_name: parsed.repo } : {}),
             },
           }
         }),

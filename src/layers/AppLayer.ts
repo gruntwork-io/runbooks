@@ -24,9 +24,13 @@ const BaseLive = Layer.mergeAll(
 )
 
 /**
- * Boilerplate renderer requires FileSystem — provide it from NodeFileSystemLive.
+ * Boilerplate renderer requires FileSystem (for var-file + output dir work)
+ * and ProcessSpawner (for shelling out to the boilerplate CLI).
  */
-const BoilerplateLive = Layer.provide(WasmBoilerplateLive, NodeFileSystemLive)
+const BoilerplateLive = Layer.provide(
+  WasmBoilerplateLive,
+  Layer.mergeAll(NodeFileSystemLive, ChildProcessSpawnerLive),
+)
 
 /**
  * Git layer requires ProcessSpawner — provide it explicitly from BaseLive.

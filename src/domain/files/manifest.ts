@@ -11,10 +11,12 @@
  * are rewritten.
  */
 
+import path from "node:path"
 import { Effect, Stream } from "effect"
 import crypto from "node:crypto"
 
 import { FileSystem } from "../../services/FileSystem.js"
+import { isContainedIn, isFilesystemRoot } from "../../path-validation.js"
 import type {
   ManifestEntry,
   TemplateManifest,
@@ -151,4 +153,111 @@ export function computeDiff(
   }
 
   return { orphaned, created, modified, unchanged }
+}
+
+// ---------------------------------------------------------------------------
+// Apply diff — patch the real output directory from a rendered source tree
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of applying a diff.
+ */
+export interface ApplyDiffResult {
+  readonly written: number
+  readonly deleted: number
+}
+
+/**
+ * Copy a single file from sourceDir to outputDir, preserving the relative path
+ * and creating parent directories as needed.
+ */
+function copyFileForManifest(
+  sourceDir: string,
+  outputDir: string,
+  relPath: string,
+) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const srcPath = path.join(sourceDir, relPath)
+    const dstPath = path.join(outputDir, relPath)
+
+    // Use buffer read/write so binary files round-trip intact.
+    const content = yield* fs.readFileBuffer(srcPath)
+    yield* fs.mkdir(path.dirname(dstPath), { recursive: true })
+    yield* fs.writeFile(dstPath, content)
+  })
+}
+
+/**
+ * Walk up from `dir` removing empty directories, stopping at `stopAt`.
+ * Never removes `stopAt` itself, anything outside `stopAt`, or a filesystem
+ * root. Silently ignores removal failures (non-empty, permission, etc.).
+ */
+function cleanupEmptyParentDirs(dir: string, stopAt: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    let current = dir
+    while (current !== stopAt && current !== "." && !isFilesystemRoot(current)) {
+      if (!isContainedIn(current, stopAt)) return
+      const entries = yield* fs.readdir(current).pipe(Effect.either)
+      if (entries._tag === "Left" || entries.right.length > 0) return
+      const removed = yield* fs.rm(current, { recursive: false }).pipe(Effect.either)
+      if (removed._tag === "Left") return
+      current = path.dirname(current)
+    }
+  })
+}
+
+/**
+ * Apply a manifest diff by patching `outputDir` to match `sourceDir`:
+ *  - delete orphaned files (present in the prior manifest but not the new one)
+ *  - copy created and modified files from `sourceDir` to `outputDir`
+ *  - leave unchanged files alone, but recreate them if the user manually
+ *    deleted them between renders
+ *
+ * Orphan scope is manifest-based, so files in `outputDir` that this template
+ * never produced are never touched — safe to run against a shared worktree.
+ */
+export function applyDiff(
+  diff: ManifestDiffResult,
+  sourceDir: string,
+  outputDir: string,
+) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    let written = 0
+    let deleted = 0
+
+    // Delete orphans and clean up any newly-empty parent directories.
+    for (const relPath of diff.orphaned) {
+      const fullPath = path.join(outputDir, relPath)
+      const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
+      if (result._tag === "Right") deleted++
+      yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
+    }
+
+    // Write created files.
+    for (const relPath of diff.created) {
+      yield* copyFileForManifest(sourceDir, outputDir, relPath)
+      written++
+    }
+
+    // Write modified files.
+    for (const relPath of diff.modified) {
+      yield* copyFileForManifest(sourceDir, outputDir, relPath)
+      written++
+    }
+
+    // Unchanged files: skip unless the user manually deleted them on disk.
+    for (const relPath of diff.unchanged) {
+      const fullPath = path.join(outputDir, relPath)
+      const exists = yield* fs.exists(fullPath)
+      if (!exists) {
+        yield* copyFileForManifest(sourceDir, outputDir, relPath)
+        written++
+      }
+    }
+
+    return { written, deleted } satisfies ApplyDiffResult
+  })
 }
