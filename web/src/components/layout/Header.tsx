@@ -42,7 +42,8 @@ function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...pro
     <button
       type="button"
       onClick={onClick}
-      className={`flex-shrink-0 rounded transition-colors cursor-pointer [-webkit-app-region:no-drag] ${className ?? ''}`}
+      className={`flex-shrink-0 rounded transition-colors cursor-pointer ${className ?? ''}`}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       aria-label="Copy local path"
       {...props}
       ref={ref}
@@ -102,9 +103,12 @@ export function Header({ pathName, localPath }: HeaderProps) {
 
   return (
     <>
-      <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 [-webkit-app-region:drag]">
+      <header
+        className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
         <div className="absolute left-20 top-1/2 transform -translate-y-1/2">
-          <img src={logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" />
+          <img src={logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" draggable={false} />
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
           <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
@@ -132,7 +136,10 @@ export function Header({ pathName, localPath }: HeaderProps) {
         </div>
         <div className={`hidden md:block md:absolute ${menuRightClass} md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md`}>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors [-webkit-app-region:no-drag]">
+            <DropdownMenuTrigger
+              className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
               Menu
               <ChevronDown className="size-4" />
             </DropdownMenuTrigger>
