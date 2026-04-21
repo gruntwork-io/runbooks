@@ -18,7 +18,7 @@ import (
 // determineOutputDirectory determines the final output directory based on working directory, CLI config, and API request.
 // workingDir is the base directory for resolving relative paths (set via --working-dir CLI flag or defaults to cwd)
 // cliOutputPath is the path set via the --output-path CLI flag and is trusted (specified by end user)
-// apiRequestOutputPath is the path specified in a component prop in the Runbook and is untrusted (specified by runbook author).
+// apiRequestOutputPath is the path specified in a component prop in the Gruntbook and is untrusted (specified by gruntbook author).
 // If apiRequestOutputPath is provided, it's validated and treated as a subdirectory within the CLI path.
 // Returns the absolute output directory path or an error.
 func determineOutputDirectory(workingDir string, cliOutputPath string, apiRequestOutputPath *string) (string, error) {
@@ -96,7 +96,7 @@ func resolveTargetOutputDir(target string, workingDir string, cliOutputPath stri
 }
 
 // HandleBoilerplateRender renders a boilerplate template with the provided variables
-func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
+func HandleBoilerplateRender(gruntbookPath string, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -122,12 +122,12 @@ func HandleBoilerplateRender(runbookPath string, workingDir string, cliOutputPat
 			return
 		}
 
-		// Extract the directory from the baseRunbookPath (which we assume is a file path)
-		runbookDir := filepath.Dir(runbookPath)
+		// Extract the directory from the baseGruntbookPath (which we assume is a file path)
+		gruntbookDir := filepath.Dir(gruntbookPath)
 
 		// Construct the full template path
-		fullTemplatePath := filepath.Join(runbookDir, req.TemplatePath)
-		slog.Info("Rendering boilerplate template", "baseDir", runbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath, "templateId", req.TemplateID)
+		fullTemplatePath := filepath.Join(gruntbookDir, req.TemplatePath)
+		slog.Info("Rendering boilerplate template", "baseDir", gruntbookDir, "req.TemplatePath", req.TemplatePath, "fullTemplatePath", fullTemplatePath, "templateId", req.TemplateID)
 
 		// Check if the template directory exists
 		if _, err := os.Stat(fullTemplatePath); os.IsNotExist(err) {

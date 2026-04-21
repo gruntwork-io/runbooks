@@ -9,25 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateRunbook_Terragrunt(t *testing.T) {
-	mdxPath, cleanup, err := GenerateRunbook("::terragrunt")
+func TestGenerateGruntbook_Terragrunt(t *testing.T) {
+	mdxPath, cleanup, err := GenerateGruntbook("::terragrunt")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
 
-	assert.True(t, strings.HasSuffix(mdxPath, "runbook.mdx"))
+	assert.True(t, strings.HasSuffix(mdxPath, "gruntbook.mdx"))
 	mdxContent, err := os.ReadFile(mdxPath)
 	require.NoError(t, err)
 
 	mdx := string(mdxContent)
-	assert.Contains(t, mdx, "::cli_runbook_source")
+	assert.Contains(t, mdx, "::cli_gruntbook_source")
 	assert.Contains(t, mdx, "<TfModule")
 	assert.Contains(t, mdx, "<TemplateInline")
 	assert.Contains(t, mdx, "terragrunt.hcl")
 }
 
-func TestGenerateRunbook_Tofu(t *testing.T) {
-	mdxPath, cleanup, err := GenerateRunbook("::tofu")
+func TestGenerateGruntbook_Tofu(t *testing.T) {
+	mdxPath, cleanup, err := GenerateGruntbook("::tofu")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -36,17 +36,17 @@ func TestGenerateRunbook_Tofu(t *testing.T) {
 	require.NoError(t, err)
 
 	mdx := string(mdxContent)
-	assert.Contains(t, mdx, "::cli_runbook_source")
+	assert.Contains(t, mdx, "::cli_gruntbook_source")
 	assert.Contains(t, mdx, "<TfModule")
 	assert.Contains(t, mdx, "main.tf")
 
-	// No supporting files — just runbook.mdx
-	dir, _ := os.ReadDir(mdxPath[:len(mdxPath)-len("runbook.mdx")])
+	// No supporting files — just gruntbook.mdx
+	dir, _ := os.ReadDir(mdxPath[:len(mdxPath)-len("gruntbook.mdx")])
 	assert.Len(t, dir, 1)
 }
 
-func TestGenerateRunbook_TerragruntGitHub(t *testing.T) {
-	mdxPath, cleanup, err := GenerateRunbook("::terragrunt-github")
+func TestGenerateGruntbook_TerragruntGitHub(t *testing.T) {
+	mdxPath, cleanup, err := GenerateGruntbook("::terragrunt-github")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -59,7 +59,7 @@ func TestGenerateRunbook_TerragruntGitHub(t *testing.T) {
 	assert.Contains(t, mdx, "<GitClone")
 	assert.Contains(t, mdx, "<DirPicker")
 	assert.Contains(t, mdx, "<TfModule")
-	assert.Contains(t, mdx, "::cli_runbook_source")
+	assert.Contains(t, mdx, "::cli_gruntbook_source")
 	assert.Contains(t, mdx, "<TemplateInline")
 	assert.Contains(t, mdx, "terragrunt.hcl")
 	assert.Contains(t, mdx, "<GitHubPullRequest")
@@ -68,9 +68,9 @@ func TestGenerateRunbook_TerragruntGitHub(t *testing.T) {
 	assert.Contains(t, mdx, ".outputs.module_vars.MODULE_NAME")
 }
 
-func TestGenerateRunbook_DefaultTemplate(t *testing.T) {
+func TestGenerateGruntbook_DefaultTemplate(t *testing.T) {
 	// Empty string should use terragrunt template
-	mdxPath, cleanup, err := GenerateRunbook("")
+	mdxPath, cleanup, err := GenerateGruntbook("")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	defer cleanup()
@@ -81,8 +81,8 @@ func TestGenerateRunbook_DefaultTemplate(t *testing.T) {
 	assert.Contains(t, string(mdxContent), "terragrunt.hcl")
 }
 
-func TestGenerateRunbook_InvalidTemplate(t *testing.T) {
-	_, _, err := GenerateRunbook("nonexistent")
+func TestGenerateGruntbook_InvalidTemplate(t *testing.T) {
+	_, _, err := GenerateGruntbook("nonexistent")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown template")
 }

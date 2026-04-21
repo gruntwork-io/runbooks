@@ -335,9 +335,9 @@ func TestConvertToJSONSerializable(t *testing.T) {
 }
 
 // boilerplateRequest is a test helper that fires a POST /api/boilerplate/variables with the given body.
-func boilerplateRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
+func boilerplateRequest(t *testing.T, gruntbookPath string, body interface{}) (int, []byte) {
 	t.Helper()
-	return postJSON(t, "/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath), body)
+	return postJSON(t, "/api/boilerplate/variables", HandleBoilerplateRequest(gruntbookPath), body)
 }
 
 func TestHandleBoilerplateRequest(t *testing.T) {
@@ -355,11 +355,11 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 `), 0644)
 	require.NoError(t, err)
 
-	// runbookPath is in the same directory so templatePath="." resolves there
-	runbookPath := filepath.Join(tempDir, "runbook.mdx")
+	// gruntbookPath is in the same directory so templatePath="." resolves there
+	gruntbookPath := filepath.Join(tempDir, "gruntbook.mdx")
 
 	t.Run("valid boilerplate via templatePath", func(t *testing.T) {
-		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+		code, body := boilerplateRequest(t, gruntbookPath, BoilerplateRequest{
 			TemplatePath: ".",
 		})
 
@@ -379,7 +379,7 @@ func TestHandleBoilerplateRequest(t *testing.T) {
     type: int
     default: "42"
 `
-		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+		code, body := boilerplateRequest(t, gruntbookPath, BoilerplateRequest{
 			BoilerplateContent: content,
 		})
 
@@ -393,7 +393,7 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 	})
 
 	t.Run("missing both templatePath and boilerplateContent returns 400", func(t *testing.T) {
-		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{})
+		code, body := boilerplateRequest(t, gruntbookPath, BoilerplateRequest{})
 
 		assert.Equal(t, http.StatusBadRequest, code)
 
@@ -403,7 +403,7 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 	})
 
 	t.Run("non-existent templatePath returns 404", func(t *testing.T) {
-		code, body := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+		code, body := boilerplateRequest(t, gruntbookPath, BoilerplateRequest{
 			TemplatePath: "non-existent-dir",
 		})
 
@@ -415,7 +415,7 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 	})
 
 	t.Run("invalid YAML in boilerplateContent returns 400", func(t *testing.T) {
-		code, _ := boilerplateRequest(t, runbookPath, BoilerplateRequest{
+		code, _ := boilerplateRequest(t, gruntbookPath, BoilerplateRequest{
 			BoilerplateContent: `not: valid: yaml: [unclosed`,
 		})
 
@@ -425,7 +425,7 @@ func TestHandleBoilerplateRequest(t *testing.T) {
 	t.Run("invalid JSON request body returns 400", func(t *testing.T) {
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
-		router.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
+		router.POST("/api/boilerplate/variables", HandleBoilerplateRequest(gruntbookPath))
 
 		req, err := http.NewRequest("POST", "/api/boilerplate/variables", bytes.NewBufferString("not json"))
 		require.NoError(t, err)
@@ -548,7 +548,7 @@ func TestParseBoilerplateConfig_InvalidScenarios(t *testing.T) {
 	}
 }
 
-// Test for x-section extraction (Runbooks extension)
+// Test for x-section extraction (Gruntbooks extension)
 func TestParseBoilerplateConfig_Sections(t *testing.T) {
 	absPath, err := filepath.Abs("../testdata/test-fixtures/boilerplate-yaml/valid-with-sections.yml")
 	require.NoError(t, err)

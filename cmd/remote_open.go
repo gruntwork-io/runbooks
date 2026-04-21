@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"runbooks/api"
+	"github.com/gruntwork-io/runbooks/api"
 
 	"github.com/spf13/cobra"
 )
 
-// validateSourceArg is a Cobra Args validator that provides a clear error when RUNBOOK_SOURCE is missing.
+// validateSourceArg is a Cobra Args validator that provides a clear error when GRUNTBOOK_SOURCE is missing.
 func validateSourceArg(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing required argument: RUNBOOK_SOURCE\n\nProvide a local path or remote URL to a runbook:\n  %s /path/to/runbook\n  %s https://github.com/org/repo/tree/main/runbooks/my-runbook\n", cmd.CommandPath(), cmd.CommandPath())
+		return fmt.Errorf("missing required argument: GRUNTBOOK_SOURCE\n\nProvide a local path or remote URL to a gruntbook:\n  %s /path/to/gruntbook\n  %s https://github.com/org/repo/tree/main/gruntbooks/my-gruntbook\n", cmd.CommandPath(), cmd.CommandPath())
 	}
 	if len(args) > 1 {
 		return fmt.Errorf("expected 1 argument but received %d", len(args))
@@ -27,7 +27,7 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 }
 
 // resolveRemoteSource checks if the given source is a remote URL.
-// If so, downloads the runbook to a temp directory and returns the local path + cleanup func + original remote URL.
+// If so, downloads the gruntbook to a temp directory and returns the local path + cleanup func + original remote URL.
 // If not a remote source, returns the original path unchanged with nil cleanup and empty remoteURL.
 func resolveRemoteSource(source string) (localPath string, cleanup func(), isRemote bool, remoteURL string, err error) {
 	parsed, err := api.ParseRemoteSource(source)
@@ -38,7 +38,7 @@ func resolveRemoteSource(source string) (localPath string, cleanup func(), isRem
 		return source, nil, false, "", nil
 	}
 
-	localPath, cleanup, err = downloadRemoteRunbook(parsed)
+	localPath, cleanup, err = downloadRemoteGruntbook(parsed)
 	if err != nil {
 		return "", nil, false, "", err
 	}
@@ -60,7 +60,7 @@ func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error
 	}
 
 	// Create a temp directory to clone the repo to
-	tempDir, err := os.MkdirTemp("", "runbook-remote-*")
+	tempDir, err := os.MkdirTemp("", "gruntbook-remote-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -96,15 +96,15 @@ func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error
 	return targetDir, cleanup, nil
 }
 
-// downloadRemoteRunbook downloads a runbook from a remote source to a temp directory.
-func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
+// downloadRemoteGruntbook downloads a gruntbook from a remote source to a temp directory.
+func downloadRemoteGruntbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
 	targetDir, cleanup, err := downloadRemoteSource(parsed)
 	if err != nil {
 		return "", nil, err
 	}
 
-	// Make sure the directory contains a runbook.mdx
-	_, rbErr := api.ResolveRunbookPath(targetDir)
+	// Make sure the directory contains a gruntbook.mdx (or legacy runbook.mdx)
+	_, rbErr := api.ResolveGruntbookPath(targetDir)
 	if rbErr != nil {
 		if cleanup != nil {
 			cleanup()
@@ -113,17 +113,17 @@ func downloadRemoteRunbook(parsed *api.ParsedRemoteSource) (string, func(), erro
 		if pathDesc == "" {
 			pathDesc = "(repo root)"
 		}
-		return "", nil, fmt.Errorf("no runbook found at the specified path — expected runbook.mdx in %s", pathDesc)
+		return "", nil, fmt.Errorf("no gruntbook found at the specified path — expected gruntbook.mdx in %s", pathDesc)
 	}
 
-	fmt.Fprintf(os.Stderr, "Runbook downloaded successfully.\n")
+	fmt.Fprintf(os.Stderr, "Gruntbook downloaded successfully.\n")
 	return targetDir, cleanup, nil
 }
 
 // requireGit returns an error if git is not available on PATH.
 func requireGit() error {
 	if _, err := exec.LookPath("git"); err != nil {
-		return fmt.Errorf("git is required to download remote runbooks but was not found on PATH")
+		return fmt.Errorf("git is required to download remote gruntbooks but was not found on PATH")
 	}
 	return nil
 }
@@ -137,10 +137,10 @@ func cloneRepo(parsed *api.ParsedRemoteSource, cloneURL, tempDir, token string) 
 	var cloneErr error
 
 	if parsed.Path != "" {
-		slog.Info("Sparse cloning remote runbook", "host", parsed.Host, "owner", parsed.Owner, "repo", parsed.Repo, "ref", parsed.Ref, "path", parsed.Path)
+		slog.Info("Sparse cloning remote gruntbook", "host", parsed.Host, "owner", parsed.Owner, "repo", parsed.Repo, "ref", parsed.Ref, "path", parsed.Path)
 		output, cloneErr = api.GitSparseCloneSimple(ctx, cloneURL, tempDir, parsed.Path, parsed.Ref)
 	} else {
-		slog.Info("Cloning remote runbook", "host", parsed.Host, "owner", parsed.Owner, "repo", parsed.Repo, "ref", parsed.Ref)
+		slog.Info("Cloning remote gruntbook", "host", parsed.Host, "owner", parsed.Owner, "repo", parsed.Repo, "ref", parsed.Ref)
 		output, cloneErr = api.GitCloneSimple(ctx, cloneURL, tempDir, parsed.Ref)
 	}
 
@@ -159,7 +159,7 @@ func classifyCloneError(cloneErr error, output []byte, token string, parsed *api
 	sanitized := api.SanitizeGitError(errMsg)
 
 	if !isAuthError(sanitized) {
-		return fmt.Errorf("failed to download runbook: %s", sanitized)
+		return fmt.Errorf("failed to download gruntbook: %s", sanitized)
 	}
 
 	repo := fmt.Sprintf("%s/%s/%s", parsed.Host, parsed.Owner, parsed.Repo)
@@ -206,6 +206,6 @@ func warnIfLarge(dir string) {
 
 	const warnThreshold = 50 * 1024 * 1024 // 50MB
 	if totalSize > warnThreshold {
-		fmt.Fprintf(os.Stderr, "Warning: downloaded runbook is large (%d MB)\n", totalSize/(1024*1024))
+		fmt.Fprintf(os.Stderr, "Warning: downloaded gruntbook is large (%d MB)\n", totalSize/(1024*1024))
 	}
 }

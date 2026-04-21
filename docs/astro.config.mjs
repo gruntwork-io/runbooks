@@ -4,15 +4,15 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-	site: 'https://runbooks.gruntwork.io',
+	site: 'https://gruntbooks.gruntwork.io',
 	integrations: [
 		starlight({
-			title: 'Gruntwork Runbooks',
+			title: 'Gruntwork Gruntbooks',
 			logo: {
-				src: './src/assets/runbooks_logo.svg',
+				src: './src/assets/gruntbooks_logo.svg',
 				replacesTitle: true,
 			},
-			description: 'Documentation and guides for Gruntwork Runbooks',
+			description: 'Documentation and guides for Gruntwork Gruntbooks',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/gruntwork-io/runbooks' }],
 			customCss: [
 				'./src/styles/custom.css',
@@ -34,7 +34,7 @@ export default defineConfig({
 					tag: 'meta',
 					attrs: {
 						property: 'og:title',
-						content: 'Gruntwork Runbooks Documentation',
+						content: 'Gruntwork Gruntbooks Documentation',
 					},
 				},
 			],
@@ -52,14 +52,14 @@ export default defineConfig({
 					collapsed: true,
 				},
 			{
-				label: 'Authoring Runbooks',
+				label: 'Authoring Gruntbooks',
 				collapsed: true,
 				items: [
 					'authoring/overview',
-					'authoring/runbook-structure',
+					'authoring/gruntbook-structure',
 					'authoring/markdown',
 					'authoring/inputs-and-outputs',
-					'authoring/opening-runbooks',
+					'authoring/opening-gruntbooks',
 					'authoring/boilerplate',
 					'authoring/testing',
 					{
@@ -79,7 +79,7 @@ export default defineConfig({
 					collapsed: true,
 				},
 				{
-					label: 'Runbooks Pro',
+					label: 'Gruntbooks Pro',
 					autogenerate: { directory: 'pro' },
 					collapsed: true,
 				},

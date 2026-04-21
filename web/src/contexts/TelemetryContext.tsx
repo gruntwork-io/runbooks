@@ -1,20 +1,20 @@
 /**
- * TelemetryContext provides anonymous usage tracking for Runbooks.
- * 
+ * TelemetryContext provides anonymous usage tracking for Gruntbooks.
+ *
  * Telemetry is enabled by default but can be disabled via:
- *   - Environment variable: RUNBOOKS_TELEMETRY_DISABLE=1
+ *   - Environment variable: GRUNTBOOKS_TELEMETRY_DISABLE=1
  *   - CLI flag: --no-telemetry
- * 
- * We collect minimal, anonymous data to improve Runbooks:
+ *
+ * We collect minimal, anonymous data to improve Gruntbooks:
  *   - Commands used (open, watch, serve)
- *   - Block types in runbooks (Command, Check, Template, Inputs)
- * 
+ *   - Block types in gruntbooks (Command, Check, Template, Inputs)
+ *
  * We do NOT collect:
- *   - Runbook content or file paths
+ *   - Gruntbook content or file paths
  *   - Variable values or script contents
  *   - Personal identifiable information
- * 
- * Learn more: https://runbooks.gruntwork.io/security/telemetry/
+ *
+ * Learn more: https://gruntbooks.gruntwork.io/security/telemetry/
  */
 
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'

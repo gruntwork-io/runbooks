@@ -115,7 +115,7 @@ Skip the account/role selection step by pre-configuring them:
 
 ## Multiple AWS Accounts
 
-You can include multiple AwsAuth blocks in a single runbook to authenticate to different AWS accounts:
+You can include multiple AwsAuth blocks in a single gruntbook to authenticate to different AWS accounts:
 
 ```mdx
 <AwsAuth
@@ -231,10 +231,10 @@ Prefixes must follow these rules:
 
 ### Test Prefix
 
-To use a different prefix for automated tests (e.g., to avoid conflicts with local credentials), configure `env_prefix` in your test config file (`runbook_test.yml`) rather than in the MDX:
+To use a different prefix for automated tests (e.g., to avoid conflicts with local credentials), configure `env_prefix` in your test config file (`gruntbook_test.yml`) rather than in the MDX:
 
 ```yaml
-# runbook_test.yml
+# gruntbook_test.yml
 steps:
   - block: aws-auth
     env_prefix: CI_  # Checks CI_AWS_ACCESS_KEY_ID, CI_AWS_SECRET_ACCESS_KEY, etc.
@@ -271,11 +271,11 @@ The Command script should output credentials in standard format:
 
 ```bash
 #!/bin/bash
-CREDS=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name runbook)
-echo "AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.Credentials.AccessKeyId')" >> "$RUNBOOK_OUTPUT"
-echo "AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.Credentials.SecretAccessKey')" >> "$RUNBOOK_OUTPUT"
-echo "AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.Credentials.SessionToken')" >> "$RUNBOOK_OUTPUT"
-echo "AWS_REGION=us-west-2" >> "$RUNBOOK_OUTPUT"  # Optional: override region
+CREDS=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name gruntbook)
+echo "AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.Credentials.AccessKeyId')" >> "$GRUNTBOOK_OUTPUT"
+echo "AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.Credentials.SecretAccessKey')" >> "$GRUNTBOOK_OUTPUT"
+echo "AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.Credentials.SessionToken')" >> "$GRUNTBOOK_OUTPUT"
+echo "AWS_REGION=us-west-2" >> "$GRUNTBOOK_OUTPUT"  # Optional: override region
 ```
 
 The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defaultRegion` prop is used.
@@ -291,7 +291,7 @@ When a user clicks "Use Different Credentials" to reject auto-detected credentia
 
 This ensures that if a user sees credentials for the wrong account (e.g., production when they expected development), those credentials are never used—they were never registered in the first place.
 
-Note that this behavior only applies to the AwsAuth block. If standard AWS environment variables are available and the runbook does not contain any AwsAuth blocks, environment credentials work normally and these AWS credentials will automatically be available to all scripts.
+Note that this behavior only applies to the AwsAuth block. If standard AWS environment variables are available and the gruntbook does not contain any AwsAuth blocks, environment credentials work normally and these AWS credentials will automatically be available to all scripts.
 
 This is one key benefit of the AwsAuth block. It ensures that users are always aware of which AWS account they're about to operate in before any credentials are registered to the session.
 
@@ -299,16 +299,16 @@ This is one key benefit of the AwsAuth block. It ensures that users are always a
 
 ### Credential Protection
 
-When a runbook contains any `<AwsAuth>` blocks, Runbooks automatically **strips AWS credentials from the session** at startup. This means:
+When a gruntbook contains any `<AwsAuth>` blocks, Gruntbooks automatically **strips AWS credentials from the session** at startup. This means:
 
-1. **Before confirmation**: Even if you have `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` set in your terminal, scripts in the runbook cannot access them until you explicitly confirm which account to use
+1. **Before confirmation**: Even if you have `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` set in your terminal, scripts in the gruntbook cannot access them until you explicitly confirm which account to use
 2. **Detection is read-only**: When AwsAuth checks for credentials, it reads from your environment but does NOT register them to the session
 3. **Confirmation registers credentials**: Only after you click "Use These Credentials" are the credentials added to the session and available to subsequent scripts
 
-This design prevents a common and dangerous scenario: you have production credentials set in your terminal, open a runbook intending to work in development, and accidentally run scripts against production.
+This design prevents a common and dangerous scenario: you have production credentials set in your terminal, open a gruntbook intending to work in development, and accidentally run scripts against production.
 
 <Aside type="tip">
-If your runbook does NOT contain any AwsAuth blocks, environment credentials work normally - they're available to all scripts. The protection only activates when AwsAuth is present, since that signals the runbook author wants explicit credential management.
+If your gruntbook does NOT contain any AwsAuth blocks, environment credentials work normally - they're available to all scripts. The protection only activates when AwsAuth is present, since that signals the gruntbook author wants explicit credential management.
 </Aside>
 
 ### Why Confirmation is Required
@@ -323,8 +323,8 @@ The confirmation flow ensures users are aware of which AWS account they're about
 
 ### Credential Handling
 
-- **Credentials stay local**: All authentication happens between your machine and AWS. Credentials are never transmitted to external servers or to Gruntwork (unless your runbook includes scripts that explicitly do this).
-- **Session storage**: Credentials are stored only in your local Runbooks session and are never persisted to disk.
+- **Credentials stay local**: All authentication happens between your machine and AWS. Credentials are never transmitted to external servers or to Gruntwork (unless your gruntbook includes scripts that explicitly do this).
+- **Session storage**: Credentials are stored only in your local Gruntbooks session and are never persisted to disk.
 - **Validation before use**: Credentials are validated via STS GetCallerIdentity before being registered to the session.
 - **Protected until confirmed**: AWS credentials are stripped from the session at startup when AwsAuth blocks are present, and only added back after explicit user confirmation.
 

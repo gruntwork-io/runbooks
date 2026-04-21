@@ -19,11 +19,11 @@ func setupTestRouter(t *testing.T, sm *SessionManager) *gin.Engine {
 	r := gin.New()
 
 	workingDir := t.TempDir()
-	runbookPath := workingDir + "/runbook.mdx"
+	gruntbookPath := workingDir + "/gruntbook.mdx"
 	outputPath := workingDir + "/output"
 
 	// Use the real route setup - this is what we're testing
-	setupCommonRoutes(r, runbookPath, workingDir, outputPath, nil, sm, false)
+	setupCommonRoutes(r, gruntbookPath, workingDir, outputPath, nil, sm, false)
 
 	return r
 }

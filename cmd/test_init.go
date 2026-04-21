@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"runbooks/api"
+	"github.com/gruntwork-io/runbooks/api"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -16,11 +16,11 @@ import (
 
 // testInitCmd represents the test init command
 var testInitCmd = &cobra.Command{
-	Use:   "init <runbook-path>",
-	Short: "Initialize a test configuration for a runbook",
-	Long: `Generate a runbook_test.yml file for a runbook based on its structure.
+	Use:   "init <gruntbook-path>",
+	Short: "Initialize a test configuration for a gruntbook",
+	Long: `Generate a gruntbook_test.yml file for a gruntbook based on its structure.
 
-This command analyzes the runbook's MDX file to discover Check, Command, Template,
+This command analyzes the gruntbook's MDX file to discover Check, Command, Template,
 TemplateInline, Inputs, AwsAuth, and GitHubAuth blocks, then generates a test configuration
 file with reasonable defaults.`,
 	Args: cobra.ExactArgs(1),
@@ -31,36 +31,40 @@ func init() {
 	testCmd.AddCommand(testInitCmd)
 }
 
-// runTestInit generates a test configuration for a runbook
+// runTestInit generates a test configuration for a gruntbook
 func runTestInit(cmd *cobra.Command, args []string) error {
-	runbookPath := args[0]
+	gruntbookPath := args[0]
 
 	// Handle directory or file path
-	info, err := os.Stat(runbookPath)
+	info, err := os.Stat(gruntbookPath)
 	if err != nil {
-		return fmt.Errorf("path not found: %s", runbookPath)
+		return fmt.Errorf("path not found: %s", gruntbookPath)
 	}
 
 	if info.IsDir() {
-		runbookPath = filepath.Join(runbookPath, "runbook.mdx")
+		resolved, err := api.ResolveGruntbookPath(gruntbookPath)
+		if err != nil {
+			return fmt.Errorf("gruntbook not found in directory %s: %w", gruntbookPath, err)
+		}
+		gruntbookPath = resolved
 	}
 
-	// Verify runbook exists
-	if _, err := os.Stat(runbookPath); err != nil {
-		return fmt.Errorf("runbook not found: %s", runbookPath)
+	// Verify gruntbook exists
+	if _, err := os.Stat(gruntbookPath); err != nil {
+		return fmt.Errorf("gruntbook not found: %s", gruntbookPath)
 	}
 
-	dir := filepath.Dir(runbookPath)
-	testConfigPath := filepath.Join(dir, "runbook_test.yml")
+	dir := filepath.Dir(gruntbookPath)
+	testConfigPath := filepath.Join(dir, "gruntbook_test.yml")
 
 	// Check if file already exists (for messaging)
 	_, existsErr := os.Stat(testConfigPath)
 	fileExists := existsErr == nil
 
-	// Parse runbook to find blocks
-	blocks, err := parseRunbookBlocks(runbookPath)
+	// Parse gruntbook to find blocks
+	blocks, err := parseGruntbookBlocks(gruntbookPath)
 	if err != nil {
-		return fmt.Errorf("failed to parse runbook: %w", err)
+		return fmt.Errorf("failed to parse gruntbook: %w", err)
 	}
 
 	// Generate test config
@@ -193,14 +197,14 @@ func parseSimpleBlocks(contentStr, blockType string, seen map[string]bool) []blo
 	return blocks
 }
 
-// parseRunbookBlocks parses the runbook MDX file to find blocks
-func parseRunbookBlocks(path string) ([]blockInfo, error) {
+// parseGruntbookBlocks parses the gruntbook MDX file to find blocks
+func parseGruntbookBlocks(path string) ([]blockInfo, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	runbookDir := filepath.Dir(path)
+	gruntbookDir := filepath.Dir(path)
 	contentStr := string(content)
 
 	// Strip fenced code blocks to avoid false positives from documentation examples
@@ -231,7 +235,7 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 				}
 				// Try to read variables from boilerplate.yml
 				if templatePath != "" {
-					boilerplatePath := filepath.Join(runbookDir, templatePath, "boilerplate.yml")
+					boilerplatePath := filepath.Join(gruntbookDir, templatePath, "boilerplate.yml")
 					if vars, err := parseBoilerplateFile(boilerplatePath); err == nil {
 						block.Variables = vars
 						block.HasInputs = len(vars) > 0
@@ -264,7 +268,7 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 				// Try to get variables from path or inline content
 				if inputsPath != "" {
 					// Read from path
-					fullPath := filepath.Join(runbookDir, inputsPath)
+					fullPath := filepath.Join(gruntbookDir, inputsPath)
 					if vars, err := parseBoilerplateFile(fullPath); err == nil {
 						block.Variables = vars
 					}
@@ -301,7 +305,7 @@ func parseRunbookBlocks(path string) ([]blockInfo, error) {
 				}
 
 				if inputsPath != "" {
-					fullPath := filepath.Join(runbookDir, inputsPath)
+					fullPath := filepath.Join(gruntbookDir, inputsPath)
 					if vars, err := parseBoilerplateFile(fullPath); err == nil {
 						block.Variables = vars
 					}
@@ -529,12 +533,12 @@ func getBlockNames(blocks []blockInfo) []string {
 }
 
 // generateTestConfig generates YAML test configuration
-func generateTestConfig(runbookName string, blocks []blockInfo) string {
+func generateTestConfig(gruntbookName string, blocks []blockInfo) string {
 	var sb strings.Builder
 
 	sb.WriteString("# Test configuration for ")
-	sb.WriteString(runbookName)
-	sb.WriteString("\n# Generated by: runbooks test init\n")
+	sb.WriteString(gruntbookName)
+	sb.WriteString("\n# Generated by: gruntbooks test init\n")
 	sb.WriteString("# Edit this file to customize your tests.\n\n")
 
 	sb.WriteString("version: 1\n\n")
@@ -543,10 +547,10 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 	sb.WriteString("  # Generate files to a temp directory (cleaned up after test)\n")
 	sb.WriteString("  use_temp_working_dir: true\n")
 	sb.WriteString("  # Working directory for script execution (default: temp directory)\n")
-	sb.WriteString("  # working_dir: \".\"  # Use \".\" for runbook directory, or specify a path\n")
+	sb.WriteString("  # working_dir: \".\"  # Use \".\" for gruntbook directory, or specify a path\n")
 	sb.WriteString("  # Test timeout\n")
 	sb.WriteString("  timeout: 5m\n")
-	sb.WriteString("  # Can this runbook's tests run in parallel with others?\n")
+	sb.WriteString("  # Can this gruntbook's tests run in parallel with others?\n")
 	sb.WriteString("  parallelizable: true\n\n")
 
 	sb.WriteString("tests:\n")
@@ -589,7 +593,7 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 
 	// Generate steps (executable blocks: Check, Command, Template, and TemplateInline)
 	// All blocks are commented out by default so tests run all blocks in document order.
-	// This ensures new blocks added to the runbook are automatically included in tests.
+	// This ensures new blocks added to the gruntbook are automatically included in tests.
 	sb.WriteString("    steps:\n")
 	sb.WriteString("      # Note: Order matters! Blocks that produce outputs must run before\n")
 	sb.WriteString("      # blocks that consume them via {{ .outputs.x.y }}\n")
@@ -633,7 +637,7 @@ func generateTestConfig(runbookName string, blocks []blockInfo) string {
 			sb.WriteString(fmt.Sprintf("      # - block: %s\n", b.ID))
 			sb.WriteString("      #   # env_prefix: CI_  # Check CI_GITHUB_TOKEN, etc. instead of standard vars\n")
 			sb.WriteString("      #   # Set expect: skip if not testing GitHub auth\n")
-			sb.WriteString("      #   # Or set RUNBOOKS_GITHUB_TOKEN env var (or GITHUB_TOKEN, GH_TOKEN)\n")
+			sb.WriteString("      #   # Or set GRUNTBOOKS_GITHUB_TOKEN env var (or GITHUB_TOKEN, GH_TOKEN)\n")
 			sb.WriteString("      #   expect: skip\n\n")
 		// Inputs blocks are not executable, so don't add them to steps
 		}

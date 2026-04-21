@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
 import { UnmetDependenciesWarning } from '@/components/mdx/_shared/components/UnmetDependenciesWarning'
-import { useInputs, useAllOutputs, flattenInputs, useRunbookContext } from '@/contexts/useRunbook'
+import { useInputs, useAllOutputs, flattenInputs, useGruntbookContext } from '@/contexts/useGruntbook'
 import { extractTemplateDependencies, extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import type { File, FileTreeNode } from '@/components/artifacts/code/FileTree'
@@ -117,7 +117,7 @@ function TemplateInline({
   const inputValues = useMemo(() => flattenInputs(inputs), [inputs]);
 
   // Track which inputsId blocks haven't registered values yet (for the waiting message)
-  const { blockInputs } = useRunbookContext();
+  const { blockInputs } = useGruntbookContext();
   const unmetInputsIds = useMemo(() => {
     if (!inputsId) return [];
     const ids = Array.isArray(inputsId) ? inputsId : [inputsId];

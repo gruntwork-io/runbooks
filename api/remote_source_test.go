@@ -52,7 +52,19 @@ func TestParseRemoteSource_GitHubBrowserURL(t *testing.T) {
 			},
 		},
 		{
-			name:  "blob URL with runbook.mdx",
+			name:  "blob URL with gruntbook.mdx",
+			input: "https://github.com/gruntwork-io/runbooks/blob/main/runbooks/setup-vpc/gruntbook.mdx",
+			expected: &ParsedRemoteSource{
+				Host:          "github.com",
+				Owner:         "gruntwork-io",
+				Repo:          "runbooks",
+				CloneURL:      "https://github.com/gruntwork-io/runbooks.git",
+				IsBlobURL:     true,
+				rawRefAndPath: "main/runbooks/setup-vpc/gruntbook.mdx",
+			},
+		},
+		{
+			name:  "blob URL with legacy runbook.mdx",
 			input: "https://github.com/gruntwork-io/runbooks/blob/main/runbooks/setup-vpc/runbook.mdx",
 			expected: &ParsedRemoteSource{
 				Host:          "github.com",
@@ -147,7 +159,19 @@ func TestParseRemoteSource_GitLabBrowserURL(t *testing.T) {
 			},
 		},
 		{
-			name:  "blob URL with runbook.mdx",
+			name:  "blob URL with gruntbook.mdx",
+			input: "https://gitlab.com/myorg/myrepo/-/blob/main/runbooks/setup-vpc/gruntbook.mdx",
+			expected: &ParsedRemoteSource{
+				Host:          "gitlab.com",
+				Owner:         "myorg",
+				Repo:          "myrepo",
+				CloneURL:      "https://gitlab.com/myorg/myrepo.git",
+				IsBlobURL:     true,
+				rawRefAndPath: "main/runbooks/setup-vpc/gruntbook.mdx",
+			},
+		},
+		{
+			name:  "blob URL with legacy runbook.mdx",
 			input: "https://gitlab.com/myorg/myrepo/-/blob/main/runbooks/setup-vpc/runbook.mdx",
 			expected: &ParsedRemoteSource{
 				Host:          "gitlab.com",
@@ -331,7 +355,7 @@ func TestParseRemoteSource_LocalPaths(t *testing.T) {
 		{"absolute path", "/home/user/runbooks/setup-vpc"},
 		{"simple directory", "my-runbook"},
 		{"nested relative", "../other/runbook"},
-		{"mdx file", "runbook.mdx"},
+		{"mdx file", "gruntbook.mdx"},
 		{"path with spaces", "my runbook/dir"},
 		{"empty string", ""},
 		{"dot", "."},
@@ -469,6 +493,14 @@ func TestResolveRef_MatchesLongestRef(t *testing.T) {
 		{
 			name:          "blob URL adjusts path to parent directory",
 			refs:          []string{"main"},
+			rawRefAndPath: "main/runbooks/setup-vpc/gruntbook.mdx",
+			isBlobURL:     true,
+			expectedRef:   "main",
+			expectedPath:  "runbooks/setup-vpc",
+		},
+		{
+			name:          "blob URL with legacy runbook.mdx adjusts path to parent directory",
+			refs:          []string{"main"},
 			rawRefAndPath: "main/runbooks/setup-vpc/runbook.mdx",
 			isBlobURL:     true,
 			expectedRef:   "main",
@@ -476,6 +508,14 @@ func TestResolveRef_MatchesLongestRef(t *testing.T) {
 		},
 		{
 			name:          "blob URL with single file adjusts to empty path",
+			refs:          []string{"main"},
+			rawRefAndPath: "main/gruntbook.mdx",
+			isBlobURL:     true,
+			expectedRef:   "main",
+			expectedPath:  "",
+		},
+		{
+			name:          "blob URL with single legacy runbook.mdx file adjusts to empty path",
 			refs:          []string{"main"},
 			rawRefAndPath: "main/runbook.mdx",
 			isBlobURL:     true,
@@ -510,7 +550,9 @@ func TestAdjustBlobPath(t *testing.T) {
 		input    string
 		expected string
 	}{
+		{"runbooks/setup-vpc/gruntbook.mdx", "runbooks/setup-vpc"},
 		{"runbooks/setup-vpc/runbook.mdx", "runbooks/setup-vpc"},
+		{"gruntbook.mdx", ""},
 		{"runbook.mdx", ""},
 		{"deep/nested/path/file.mdx", "deep/nested/path"},
 		{"", ""},
@@ -550,6 +592,23 @@ func TestResolve(t *testing.T) {
 	})
 
 	t.Run("browser blob URL resolves ref and adjusts path to parent dir", func(t *testing.T) {
+		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
+			return []string{"main"}, nil
+		}
+
+		parsed, err := ParseRemoteSource("https://github.com/org/repo/blob/main/infra/vpc/gruntbook.mdx")
+		require.NoError(t, err)
+		require.NotNil(t, parsed)
+		assert.True(t, parsed.IsBlobURL)
+
+		err = parsed.Resolve("")
+		require.NoError(t, err)
+
+		assert.Equal(t, "main", parsed.Ref)
+		assert.Equal(t, "infra/vpc", parsed.Path, "blob path should be adjusted to parent directory")
+	})
+
+	t.Run("browser blob URL with legacy runbook.mdx resolves ref and adjusts path to parent dir", func(t *testing.T) {
 		listRemoteRefsFn = func(cloneURL string) ([]string, error) {
 			return []string{"main"}, nil
 		}

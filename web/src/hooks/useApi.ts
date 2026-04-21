@@ -67,7 +67,7 @@ export function useApi<T>(
         const errorData = await response.json().catch(() => null);
         setError(createAppError(
           errorData?.message || errorData?.error || `HTTP error: ${response.status}`,
-          errorData?.details || `Failed to connect to runbook server at ${fullUrl}. Is the backend server running?`,
+          errorData?.details || `Failed to connect to gruntbook server at ${fullUrl}. Is the backend server running?`,
           {
             specifiedPath: errorData?.specifiedPath,
             currentWorkingDir: errorData?.currentWorkingDir,
@@ -84,7 +84,7 @@ export function useApi<T>(
       setIsLoading(false);
       setError(createAppError(
         err instanceof Error ? err.message : 'An unexpected error occurred',
-        `Failed to connect to runbook server at ${fullUrl}`
+        `Failed to connect to gruntbook server at ${fullUrl}`
       ));
     }
   }, [endpoint, method, fullUrl]);

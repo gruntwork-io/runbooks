@@ -8,22 +8,22 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 ### Homebrew (macOS & Linux)
 
-The quickest way to install Runbooks is via [Homebrew](https://brew.sh/):
+The quickest way to install Gruntbooks is via [Homebrew](https://brew.sh/):
 
 ```bash
-brew install gruntwork-io/tap/runbooks
+brew install gruntwork-io/tap/gruntbooks
 ```
 
 To install a specific version:
 
 ```bash
-brew install gruntwork-io/tap/runbooks@0.5.2
+brew install gruntwork-io/tap/gruntbooks@0.5.2
 ```
 
 To upgrade to the latest version:
 
 ```bash
-brew upgrade gruntwork-io/tap/runbooks
+brew upgrade gruntwork-io/tap/gruntbooks
 ```
 
 ### Installing pre-built binaries
@@ -35,25 +35,25 @@ Alternatively, you can download pre-built binaries from the [GitHub releases pag
     **Using curl (Apple Silicon M1/M2/M3/etc.):**
     ```bash
     # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_darwin_arm64
+    curl -Lo gruntbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_darwin_arm64
 
     # Make it executable
-    chmod +x runbooks
+    chmod +x gruntbooks
 
     # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
+    sudo mv gruntbooks /usr/local/bin/
     ```
     
     **Using curl (Intel Mac):**
     ```bash
     # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_darwin_amd64
+    curl -Lo gruntbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_darwin_amd64
 
     # Make it executable
-    chmod +x runbooks
+    chmod +x gruntbooks
 
     # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
+    sudo mv gruntbooks /usr/local/bin/
     ```
 
     <Aside type="tip">
@@ -65,25 +65,25 @@ Alternatively, you can download pre-built binaries from the [GitHub releases pag
     **Using curl (x86_64/AMD64):**
     ```bash
     # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64
+    curl -Lo gruntbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_linux_amd64
 
     # Make it executable
-    chmod +x runbooks
+    chmod +x gruntbooks
 
     # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
+    sudo mv gruntbooks /usr/local/bin/
     ```
 
     **Using curl (ARM64):**
     ```bash
     # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_arm64
+    curl -Lo gruntbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_linux_arm64
 
     # Make it executable
-    chmod +x runbooks
+    chmod +x gruntbooks
 
     # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
+    sudo mv gruntbooks /usr/local/bin/
     ```
 
     <Aside type="tip">
@@ -95,24 +95,24 @@ Alternatively, you can download pre-built binaries from the [GitHub releases pag
     **Using PowerShell:**
     ```powershell
     # Download the latest release
-    Invoke-WebRequest -Uri "https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_windows_amd64.exe" -OutFile "runbooks.exe"
+    Invoke-WebRequest -Uri "https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_windows_amd64.exe" -OutFile "gruntbooks.exe"
 
     # Move to a directory in your PATH (create if needed)
-    New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\runbooks"
-    Move-Item -Force runbooks.exe "$env:LOCALAPPDATA\runbooks\runbooks.exe"
+    New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\gruntbooks"
+    Move-Item -Force gruntbooks.exe "$env:LOCALAPPDATA\gruntbooks\gruntbooks.exe"
     ```
 
-    Then add `%LOCALAPPDATA%\runbooks` to your PATH:
+    Then add `%LOCALAPPDATA%\gruntbooks` to your PATH:
     1. Press `Win + R`, type `sysdm.cpl`, and press Enter
     2. Go to the **Advanced** tab and click **Environment Variables**
     3. Under "User variables", select **Path** and click **Edit**
-    4. Click **New** and add `%LOCALAPPDATA%\runbooks`
+    4. Click **New** and add `%LOCALAPPDATA%\gruntbooks`
     5. Click **OK** to save
 
     <Aside type="tip">
       Alternatively, you can add to PATH via PowerShell (requires reopening your terminal):
       ```powershell
-      [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\runbooks", "User")
+      [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\gruntbooks", "User")
       ```
     </Aside>
   </TabItem>
@@ -127,7 +127,7 @@ As an alternative to downloading pre-built binaries, you can build the binaries 
 1. Clone the repository:
    ```bash
    git clone https://github.com/gruntwork-io/runbooks.git
-   cd runbooks
+   cd gruntbooks
    ```
 
 2. Build the frontend:
@@ -139,32 +139,32 @@ As an alternative to downloading pre-built binaries, you can build the binaries 
 
 3. Build the binary:
    ```bash
-   go build -o runbooks main.go
+   go build -o gruntbooks main.go
    ```
 
 4. Move the binary to your PATH (optional):
    ```bash
-   sudo mv runbooks /usr/local/bin/
+   sudo mv gruntbooks /usr/local/bin/
    ```
 
 5. Enable execute permissions for your binary
    ```bash
-   chmod u+x /usr/local/bin/runbooks
+   chmod u+x /usr/local/bin/gruntbooks
    ```
 
 6. Verify installation:
    ```bash
-   runbooks
+   gruntbooks
    ```
 
 ### Verifying installation
 
-Once installed, you can verify that `runbooks` is working by running:
+Once installed, you can verify that `gruntbooks` is working by running:
 
 ```bash
-runbooks version
+gruntbooks version
 ```
 
 ## Next
 
-Now that you have Runbooks installed, let's write your first runbook!
+Now that you have Gruntbooks installed, let's write your first gruntbook!

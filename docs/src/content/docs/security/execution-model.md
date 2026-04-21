@@ -1,29 +1,29 @@
 ---
 title: Execution Security Model
-description: Understanding how Runbooks validates and executes scripts in different modes
+description: Understanding how Gruntbooks validates and executes scripts in different modes
 ---
 
 ## Overview
 
-Runbooks executes commands and shell scripts defined your Runbook directly on your local computer with the full set of environment variables present when you launched the Runbooks binary. This is a mandate to take security seriously, and in this section we'll discuss the security measures Runbooks takes to protect users.
+Gruntbooks executes commands and shell scripts defined your Gruntbook directly on your local computer with the full set of environment variables present when you launched the Gruntbooks binary. This is a mandate to take security seriously, and in this section we'll discuss the security measures Gruntbooks takes to protect users.
 
 ## Security measures
 
-Runbooks implements specific techniques to make sure that you only execute "approved" code:
+Gruntbooks implements specific techniques to make sure that you only execute "approved" code:
 
-### Warning to only run Runbooks you trust
+### Warning to only run Gruntbooks you trust
 
-When Runbooks loads, it immediately shows a warning to users to confirm that they trust the Runbook they just opened. This warning will show on every Runbook you open until permanently hide it.
+When Gruntbooks loads, it immediately shows a warning to users to confirm that they trust the Gruntbook they just opened. This warning will show on every Gruntbook you open until permanently hide it.
 
 ### Localhost-Only Binding for the API
 
-The Runbooks backend server (which runs locally on your computer) only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Runbooks server.
+The Gruntbooks backend server (which runs locally on your computer) only accepts connections from `localhost` (127.0.0.1). This prevents remote attacks where a malicious website could send requests to your local Gruntbooks server.
 
 ### Session Token Authentication
 
-Even with localhost-only binding, an additional layer of protection prevents unauthorized script execution. When you open a runbook, the browser receives a cryptographically random session token that must be included with every execution request.
+Even with localhost-only binding, an additional layer of protection prevents unauthorized script execution. When you open a gruntbook, the browser receives a cryptographically random session token that must be included with every execution request.
 
-Without token authentication, any process on your machine could send requests to the local server and execute scripts. The token requirement ensures only browser tabs that loaded the Runbooks UI can trigger execution.
+Without token authentication, any process on your machine could send requests to the local server and execute scripts. The token requirement ensures only browser tabs that loaded the Gruntbooks UI can trigger execution.
 
 If you see "Invalid or expired session token" errors, try refreshing the page to obtain a new token.
 
@@ -43,15 +43,15 @@ If you see "Invalid or expired session token" errors, try refreshing the page to
 
 ### Executable Registry
 
-By default, Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the backend server will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).
+By default, Gruntbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the backend server will only allow execution of scripts and commands defined directly in the Gruntbook you opened (versus running arbitrary scripts).
 
-Here's how it works. When a user runs `runbooks open`, `runbooks watch`, or `runbooks serve`, Runbooks starts the backend server and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
+Here's how it works. When a user runs `gruntbooks open`, `gruntbooks watch`, or `gruntbooks serve`, Gruntbooks starts the backend server and populates the executable registry with all scripts or commands contained in the Gruntbook. To populate the executable registry, Gruntbooks reads your `gruntbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
 
-When you click "Run" in the UI, the frontend sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The backend validates that this executable ID exists in the registry (which was built from your Runbook at startup), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate API requests, they cannot inject arbitrary code because the backend will only execute scripts that were present in your Runbook when the server started. Effectively, the registry acts as a whitelist of approved executables.
+When you click "Run" in the UI, the frontend sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The backend validates that this executable ID exists in the registry (which was built from your Gruntbook at startup), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate API requests, they cannot inject arbitrary code because the backend will only execute scripts that were present in your Gruntbook when the server started. Effectively, the registry acts as a whitelist of approved executables.
 
 ## Execution Modes
 
-Runbooks has three execution modes with different security/convenience trade-offs:
+Gruntbooks has three execution modes with different security/convenience trade-offs:
 
 1. Open/Serve (Executable Registry)
 2. Watch (Live-File-Reload, default)
@@ -59,16 +59,16 @@ Runbooks has three execution modes with different security/convenience trade-off
 
 ### Open and Serve Modes
 ```bash
-runbooks open path/to/runbook.mdx
-runbooks serve path/to/runbook.mdx
+gruntbooks open path/to/gruntbook.mdx
+gruntbooks serve path/to/gruntbook.mdx
 ```
 
 **When to use:**
-- Use `runbooks open` for Runbook consumers who want to guarantee that they are executing exactly what the Runbook author wrote.
-- Use `runbooks serve` for Runbook developers who want to manually run the frontend and don't need hot reloading of executables.
+- Use `gruntbooks open` for Gruntbook consumers who want to guarantee that they are executing exactly what the Gruntbook author wrote.
+- Use `gruntbooks serve` for Gruntbook developers who want to manually run the frontend and don't need hot reloading of executables.
 
 **How it works:**
-1. Server starts and scans the runbook file
+1. Server starts and scans the gruntbook file
 2. Builds an **Executable Registry** containing all `<Check>` and `<Command>` components
 3. Assigns each script a unique ID
 4. At execution time, validates the ID exists in the registry
@@ -80,21 +80,21 @@ runbooks serve path/to/runbook.mdx
 - Changes to scripts require server restart
 
 **Convenience:** Medium
-- When you make local file changes, the Runbook will not honor them automatically; you'll need to re-open the runbook to "activate" any new file changes.
+- When you make local file changes, the Gruntbook will not honor them automatically; you'll need to re-open the gruntbook to "activate" any new file changes.
 
 ### Watch (Default: Live-File-Reload)
 ```bash
-runbooks watch path/to/runbook.mdx
+gruntbooks watch path/to/gruntbook.mdx
 ```
 
 **When to use:**
-- Use `runbooks watch` (the default) for Runbook authors who want to auto-reload their runbook file _and_ all Runbook script files. Since they are actively editing files on their file system, they are presumably ok with having these hot-reloaded.
+- Use `gruntbooks watch` (the default) for Gruntbook authors who want to auto-reload their gruntbook file _and_ all Gruntbook script files. Since they are actively editing files on their file system, they are presumably ok with having these hot-reloaded.
 
 **How it works:**
 1. Server starts _without building an executable registry_
-2. Watches the Runbook file for changes and automatically reloads the UI
+2. Watches the Gruntbook file for changes and automatically reloads the UI
 3. When user clicks "Run" on a script:
-   - Backend reads the runbook file _from disk at that moment_
+   - Backend reads the gruntbook file _from disk at that moment_
    - Parses the file to find the requested component
    - Extracts and executes the script content _from the current file system state_
 4. Essentially, every execution reads fresh from disk
@@ -108,23 +108,23 @@ runbooks watch path/to/runbook.mdx
 **Convenience:** High
 - Script changes take effect immediately
 - No server restart needed
-- Perfect for rapid runbook development
+- Perfect for rapid gruntbook development
 
 ### Watch with `--disable-live-file-reload`
 ```bash
-runbooks watch --disable-live-file-reload path/to/runbook.mdx
+gruntbooks watch --disable-live-file-reload path/to/gruntbook.mdx
 ```
 
 **When to use:**
-- Use `runbooks watch --disable-live-file-reload` if you want the extra security of executable registry validation while authoring runbooks, but be aware of the confusing UX where displayed scripts don't match executed scripts until server restart.
+- Use `gruntbooks watch --disable-live-file-reload` if you want the extra security of executable registry validation while authoring gruntbooks, but be aware of the confusing UX where displayed scripts don't match executed scripts until server restart.
 
 **How it works:**
 1. Same as Open/Serve mode (uses Executable Registry)
-2. Watches the Runbook file for changes
-3. When the Runbook file does change, the frontend UI automatically reloads, but the executable registry does _not_ update.
+2. Watches the Gruntbook file for changes
+3. When the Gruntbook file does change, the frontend UI automatically reloads, but the executable registry does _not_ update.
 4. All scripts -- including inline scripts -- are validated against the registry from startup.
 
-For example, if the Runbook content changes to include an updated inline script, the Runbook will reload and display the new script text, but the Executable Registry will not update. Until you restart the server, clicking "Run" will execute the _old_ script!
+For example, if the Gruntbook content changes to include an updated inline script, the Gruntbook will reload and display the new script text, but the Executable Registry will not update. Until you restart the server, clicking "Run" will execute the _old_ script!
 
 **Security:** High
 - Same security as Open/Serve mode
@@ -147,6 +147,6 @@ Regardless of mode, the actual execution process is:
 7. **Stream output**: Send stdout/stderr back to browser via Server-Sent Events (SSE)
 8. **Clean up**: Delete temporary file
 
-**Security note:** Scripts run with your user's full environment variables and permissions. Runbooks is designed for **trusted runbooks only** - it's meant to streamline tasks you would otherwise run manually in your terminal.
+**Security note:** Scripts run with your user's full environment variables and permissions. Gruntbooks is designed for **trusted gruntbooks only** - it's meant to streamline tasks you would otherwise run manually in your terminal.
 
 For details on interpreter detection, shell limitations, and how environment changes persist across script executions, see [Shell Execution Context](/security/shell-execution-context/).

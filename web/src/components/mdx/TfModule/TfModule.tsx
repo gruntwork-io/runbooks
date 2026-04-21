@@ -8,16 +8,16 @@ import type { AppError } from '@/types/error'
 import { useApiParseTfModule } from '@/hooks/useApiParseTfModule'
 import { useInputRegistration } from '../_shared/hooks/useInputRegistration'
 import { buildHclInputsMap, buildNonDefaultHclInputsMap } from '../_shared/lib/formatHclValue'
-import { useRunbookContext, useTemplateContext, useAllOutputs } from '@/contexts/useRunbook'
+import { useGruntbookContext, useTemplateContext, useAllOutputs } from '@/contexts/useGruntbook'
 import { extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { computeUnmetInputDependencies, computeUnmetOutputDependencies, resolveTemplateReferences } from '@/lib/templateUtils'
 
 /**
  * Special keyword for the source prop that resolves to the remote URL
- * passed to the `runbooks open` CLI command. This enables generic runbooks
+ * passed to the `gruntbooks open` CLI command. This enables generic gruntbooks
  * that work with any OpenTofu module URL.
  */
-const SOURCE_KEYWORD = '::cli_runbook_source'
+const SOURCE_KEYWORD = '::cli_gruntbook_source'
 
 /**
  * TfModule component - parses an OpenTofu module at runtime and collects user input.
@@ -28,14 +28,14 @@ const SOURCE_KEYWORD = '::cli_runbook_source'
  *
  * The source prop accepts both local relative paths and remote URLs:
  * - Local: "../modules/my-vpc"
- * - Colocated: "." (same directory as the runbook)
- * - Dynamic: "::cli_runbook_source" (resolved from the `runbooks open` CLI invocation)
+ * - Colocated: "." (same directory as the gruntbook)
+ * - Dynamic: "::cli_gruntbook_source" (resolved from the `gruntbooks open` CLI invocation)
  * - GitHub shorthand: "github.com/org/modules//vpc?ref=v1.0"
  * - Git prefix: "git::https://github.com/org/repo.git//path?ref=v1.0"
  * - GitHub browser URL: "https://github.com/org/repo/tree/main/modules/vpc"
  *
  * @param props.id - Unique identifier for this component (required)
- * @param props.source - Module source: local path, remote URL, ".", or "::cli_runbook_source" (required)
+ * @param props.source - Module source: local path, remote URL, ".", or "::cli_gruntbook_source" (required)
  */
 interface TfModuleProps {
   id: string
@@ -45,7 +45,7 @@ interface TfModuleProps {
 }
 
 function TfModule({ id, source, inputsId }: TfModuleProps) {
-  const { remoteSource, registerOutputs } = useRunbookContext()
+  const { remoteSource, registerOutputs } = useGruntbookContext()
 
   // Resolve template expressions in the source prop
   const templateCtx = useTemplateContext(inputsId)
@@ -62,7 +62,7 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
   )
   const hasAllDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
-  // Resolve template expressions in source, then resolve ::cli_runbook_source keyword
+  // Resolve template expressions in source, then resolve ::cli_gruntbook_source keyword
   const templateResolvedSource = useMemo(
     () => source ? resolveTemplateReferences(source, templateCtx) : source,
     [source, templateCtx]
@@ -74,7 +74,7 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
     return templateResolvedSource
   }, [templateResolvedSource, remoteSource])
 
-  // Track whether ::cli_runbook_source keyword is missing a remote source
+  // Track whether ::cli_gruntbook_source keyword is missing a remote source
   // Check both raw prop and template-resolved source to catch keyword from templates
   const isMissingRemoteSource = (templateResolvedSource === SOURCE_KEYWORD || source === SOURCE_KEYWORD) && !remoteSource
 
@@ -162,7 +162,7 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
   // Show warning when template dependencies in source prop aren't resolved
   if (!hasAllDependencies) {
     return (
-      <div className="runbook-block p-4 bg-yellow-50 border border-yellow-200 rounded-sm mb-5">
+      <div className="gruntbook-block p-4 bg-yellow-50 border border-yellow-200 rounded-sm mb-5">
         <UnmetDependenciesWarning
           blockType="module"
           unmetInputDeps={unmetInputDeps}
@@ -172,7 +172,7 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
     )
   }
 
-  // Show friendly message when ::cli_runbook_source is used but no remote source is available
+  // Show friendly message when ::cli_gruntbook_source is used but no remote source is available
   if (isMissingRemoteSource) {
     return (
       <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg">
@@ -181,14 +181,14 @@ function TfModule({ id, source, inputsId }: TfModuleProps) {
         </div>
         <div className="text-amber-700 text-sm">
           <p className="mb-2">
-            This runbook uses <code className="bg-amber-100 px-1 rounded">source="::cli_runbook_source"</code>,
-            which expects a remote OpenTofu/Terraform module URL from the <code className="bg-amber-100 px-1 rounded">runbooks open</code> command.
+            This gruntbook uses <code className="bg-amber-100 px-1 rounded">source="::cli_gruntbook_source"</code>,
+            which expects a remote OpenTofu/Terraform module URL from the <code className="bg-amber-100 px-1 rounded">gruntbooks open</code> command.
           </p>
           <p>
-            To use this runbook, run it with a remote module URL:
+            To use this gruntbook, run it with a remote module URL:
           </p>
           <pre className="mt-2 bg-amber-100 p-2 rounded text-xs">
-            runbooks open --tf-runbook . https://github.com/org/repo/tree/main/modules/my-module
+            gruntbooks open --tf-gruntbook . https://github.com/org/repo/tree/main/modules/my-module
           </pre>
         </div>
       </div>

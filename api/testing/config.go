@@ -1,5 +1,5 @@
-// Package testing provides the runbook testing framework.
-// It enables automated testing of runbooks via the `runbooks test` CLI command.
+// Package testing provides the gruntbook testing framework.
+// It enables automated testing of gruntbooks via the `gruntbooks test` CLI command.
 package testing
 
 import (
@@ -10,8 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestConfig represents the complete test configuration for a runbook.
-// This is parsed from runbook_test.yml files.
+// TestConfig represents the complete test configuration for a gruntbook.
+// This is parsed from gruntbook_test.yml files.
 type TestConfig struct {
 	Version  int            `yaml:"version"`
 	Settings TestSettings   `yaml:"settings,omitempty"`
@@ -21,7 +21,7 @@ type TestConfig struct {
 // TestSettings contains global settings for all tests in this config.
 type TestSettings struct {
 	// WorkingDir sets the working directory for script execution and template output.
-	// If empty (default), uses the current directory. Use "." for the runbook directory.
+	// If empty (default), uses the current directory. Use "." for the gruntbook directory.
 	WorkingDir string `yaml:"working_dir,omitempty"`
 	// OutputPath sets the output path for generated files, relative to WorkingDir.
 	// Defaults to "generated".
@@ -32,7 +32,7 @@ type TestSettings struct {
 	UseTempWorkingDir *bool `yaml:"use_temp_working_dir,omitempty"`
 	// Timeout for each test case (default: 5m)
 	Timeout string `yaml:"timeout,omitempty"`
-	// Parallelizable indicates if this runbook's tests can run in parallel with other runbooks.
+	// Parallelizable indicates if this gruntbook's tests can run in parallel with other gruntbooks.
 	// Defaults to true. Pointer allows distinguishing "not set" (nil, defaults to true) from "explicitly false".
 	Parallelizable *bool `yaml:"parallelizable,omitempty"`
 }
@@ -256,14 +256,14 @@ type AssertionResult struct {
 	Message string        `json:"message,omitempty"`
 }
 
-// RunbookTestSuite represents all test results for a runbook.
-type RunbookTestSuite struct {
-	RunbookPath string        `json:"runbookPath"`
-	Duration    time.Duration `json:"duration"`
-	Results     []TestResult  `json:"results"`
-	Passed      int           `json:"passed"`
-	Failed      int           `json:"failed"`
-	Skipped     int           `json:"skipped"`
+// GruntbookTestSuite represents all test results for a gruntbook.
+type GruntbookTestSuite struct {
+	GruntbookPath string        `json:"gruntbookPath"`
+	Duration      time.Duration `json:"duration"`
+	Results       []TestResult  `json:"results"`
+	Passed        int           `json:"passed"`
+	Failed        int           `json:"failed"`
+	Skipped       int           `json:"skipped"`
 }
 
 // LoadConfig loads a test configuration from a YAML file.
@@ -474,7 +474,7 @@ func (s *TestSettings) GetTimeout() time.Duration {
 	return d
 }
 
-// IsParallelizable returns whether this runbook can be tested in parallel with others.
+// IsParallelizable returns whether this gruntbook can be tested in parallel with others.
 func (s *TestSettings) IsParallelizable() bool {
 	if s.Parallelizable == nil {
 		return true // Default to true

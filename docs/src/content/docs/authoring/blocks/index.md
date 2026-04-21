@@ -4,7 +4,7 @@ sidebar:
    order: 5
 ---
 
-Blocks are special React components that you can use in your `runbook.mdx` files to add interactive functionality. They're written like HTML/JSX tags within your markdown.
+Blocks are special React components that you can use in your `gruntbook.mdx` files to add interactive functionality. They're written like HTML/JSX tags within your markdown.
 
 ## Available Blocks
 

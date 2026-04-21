@@ -5,7 +5,7 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
+import { useGruntbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useGruntbook"
 import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { GitHubLogo } from "@/components/mdx/GitHubAuth/components/GitHubLogo"
@@ -65,8 +65,8 @@ function GitHubPullRequest({
   // Git worktree context
   const { activeWorkTree } = useGitWorkTree()
 
-  // Runbook context for metadata; template context for resolving expressions
-  const { runbookName } = useRunbookContext()
+  // Gruntbook context for metadata; template context for resolving expressions
+  const { gruntbookName } = useGruntbookContext()
   const templateCtx = useTemplateContext(inputsId)
   const rawOutputs = useAllOutputs()
 
@@ -171,15 +171,15 @@ function GitHubPullRequest({
     [description, templateCtx]
   )
 
-  // Default commit message includes the runbook name when available
-  const defaultCommitMessage = runbookName
-    ? `Changes from runbook "${runbookName}"`
-    : "Changes from runbook"
+  // Default commit message includes the gruntbook name when available
+  const defaultCommitMessage = gruntbookName
+    ? `Changes from gruntbook "${gruntbookName}"`
+    : "Changes from gruntbook"
 
   // Form state
   const [prTitle, setPRTitle] = useState(resolvedTitle)
   const [prDescription, setPRDescription] = useState(resolvedDescription)
-  const [branchName, setBranchName] = useState(() => resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`)
+  const [branchName, setBranchName] = useState(() => resolvedBranchName || `gruntbook/${Math.floor(Date.now() / 1000)}`)
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage)
   const [selectedLabels, setSelectedLabels] = useState<string[]>(prefilledPullRequestLabels)
 
@@ -275,7 +275,7 @@ function GitHubPullRequest({
     reset()
     setPRTitle(resolvedTitle)
     setPRDescription(resolvedDescription)
-    setBranchName(`runbook/${Math.floor(Date.now() / 1000)}`)
+    setBranchName(`gruntbook/${Math.floor(Date.now() / 1000)}`)
     setCommitMessage(defaultCommitMessage)
     setSelectedLabels(prefilledPullRequestLabels)
     setUserEditedTitle(false)
@@ -317,7 +317,7 @@ function GitHubPullRequest({
   }
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div data-testid={id} className={`gruntbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

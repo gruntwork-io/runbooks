@@ -5,7 +5,7 @@ import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
 import type { AppError } from '@/types/error'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
-import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from '@/contexts/useRunbook'
+import { useGruntbookContext, useInputs, useAllOutputs, flattenInputs } from '@/contexts/useGruntbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -83,8 +83,8 @@ function Template({
   
   // (Worktree/file tree updates are handled by useApiBoilerplateRender via useFileTreeUpdater)
   
-  // Get the runbook context to register our config
-  const { registerInputs } = useRunbookContext();
+  // Get the gruntbook context to register our config
+  const { registerInputs } = useGruntbookContext();
   
   // Get inputs from referenced Inputs components (if any) and convert to values map
   const inputs = useInputs(inputsId);

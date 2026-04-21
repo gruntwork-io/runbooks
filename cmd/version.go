@@ -13,7 +13,7 @@ var versionCmd = &cobra.Command{
 	Long:    `Display version information including version number, git commit, and build date.`,
 	GroupID: "other",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("Runbooks %s (Commit: %s)\n", Version, GitCommit)
+		fmt.Printf("Gruntbooks %s (Commit: %s)\n", Version, GitCommit)
 	},
 }
 

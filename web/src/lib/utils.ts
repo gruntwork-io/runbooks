@@ -16,7 +16,7 @@ export function cn(...inputs: ClassValue[]) {
  * are treated as the same ID.
  * 
  * IMPORTANT: This normalization must be applied consistently:
- * - When registering block outputs (RunbookContext)
+ * - When registering block outputs (GruntbookContext)
  * - When looking up block outputs (Template, TemplateInline)
  * - When checking for ID collisions (ComponentIdRegistry)
  * - When resolving AWS auth dependencies (useScriptExecution)
@@ -67,7 +67,7 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
  * @returns The directory path (e.g., "/path/to") or undefined if input is falsy
  * 
  * @example
- * getDirectoryPath("/path/to/runbook.mdx") // returns "/path/to"
+ * getDirectoryPath("/path/to/gruntbook.mdx") // returns "/path/to"
  * getDirectoryPath("/some/file.txt") // returns "/some"
  * getDirectoryPath("/root") // returns "/"
  * getDirectoryPath("") // returns undefined

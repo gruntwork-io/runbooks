@@ -10,7 +10,7 @@ import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
 import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
 import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/layout/GeneratedFilesAlert'
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
-import { useGetRunbook } from './hooks/useApiGetRunbook'
+import { useGetGruntbook } from './hooks/useApiGetGruntbook'
 import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useWatchMode } from './hooks/useWatchMode'
@@ -25,35 +25,35 @@ function App() {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   
-  // Use the useApi hook to fetch runbook data
-  const getRunbookResult = useGetRunbook()
-  
-  // Check for existing generated files when runbook loads
+  // Use the useApi hook to fetch gruntbook data
+  const getGruntbookResult = useGetGruntbook()
+
+  // Check for existing generated files when gruntbook loads
   const generatedFilesCheck = useApiGeneratedFilesCheck()
-  
+
   // Get error counts from the error reporting context (populated by MDX components)
   const { errorCount, warningCount, clearAllErrors } = useErrorReporting()
-  
-  // Clear errors when runbook content changes (to avoid stale errors)
+
+  // Clear errors when gruntbook content changes (to avoid stale errors)
   useEffect(() => {
-    if (getRunbookResult.data?.content) {
+    if (getGruntbookResult.data?.content) {
       clearAllErrors()
     }
-  }, [getRunbookResult.data?.content, clearAllErrors])
-  
-  // Enable watch mode - refetch runbook when file changes
+  }, [getGruntbookResult.data?.content, clearAllErrors])
+
+  // Enable watch mode - refetch gruntbook when file changes
   const handleFileChange = useCallback(() => {
-    console.log('[App] Runbook file changed, reloading...');
+    console.log('[App] Gruntbook file changed, reloading...');
     
     // Use silent refetch for watch mode, regular refetch for open mode
-    if (getRunbookResult.data?.isWatchMode) {
-      getRunbookResult.silentRefetch();
+    if (getGruntbookResult.data?.isWatchMode) {
+      getGruntbookResult.silentRefetch();
     } else {
-      getRunbookResult.refetch();
+      getGruntbookResult.refetch();
     }
-  }, [getRunbookResult]);
+  }, [getGruntbookResult]);
   
-  useWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
+  useWatchMode(handleFileChange, getGruntbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
@@ -101,16 +101,16 @@ function App() {
     }
   }, [showArtifacts])
   
-  // Show generated files alert (when there are existing generated files before the Runbook was opened) when appropriate
+  // Show generated files alert (when there are existing generated files before the Gruntbook was opened) when appropriate
   useEffect(() => {
     // Only show if:
-    // 1. Runbook has loaded successfully
+    // 1. Gruntbook has loaded successfully
     // 2. Generated files check has completed
     // 3. Files exist in the output directory
     // 4. User hasn't dismissed it this session
     // 5. User hasn't checked "don't ask again" in localStorage
     if (
-      !getRunbookResult.isLoading &&
+      !getGruntbookResult.isLoading &&
       !generatedFilesCheck.isLoading &&
       generatedFilesCheck.data?.hasFiles &&
       !alertDismissedThisSession &&
@@ -119,7 +119,7 @@ function App() {
       setShowGeneratedFilesAlert(true);
     }
   }, [
-    getRunbookResult.isLoading,
+    getGruntbookResult.isLoading,
     generatedFilesCheck.isLoading,
     generatedFilesCheck.data?.hasFiles,
     alertDismissedThisSession,
@@ -127,9 +127,9 @@ function App() {
   
   // Extract commonly used values
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
-  const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ''
-  const content = getRunbookResult.data?.content || ''
-  const runbookPath = getDirectoryPath(getRunbookResult.data?.path || '')
+  const pathName = getGruntbookResult.data?.remoteSource || getGruntbookResult.data?.path || ''
+  const content = getGruntbookResult.data?.content || ''
+  const gruntbookPath = getDirectoryPath(getGruntbookResult.data?.path || '')
 
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
@@ -149,7 +149,7 @@ function App() {
   return (
     <>
       <div className="flex flex-col">
-        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
+        <Header pathName={pathName} localPath={getGruntbookResult.data?.path} />
         
         {/* Error Summary Banner */}
         {(errorCount > 0 || warningCount > 0) && (
@@ -161,11 +161,11 @@ function App() {
         )}
         
         {/* Loading and Error States */}
-        {getRunbookResult.isLoading ? (
+        {getGruntbookResult.isLoading ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading runbook...</p>
+              <p className="text-gray-600">Loading gruntbook...</p>
             </div>
           </div>
         ) : generatedFilesCheck.error ? (
@@ -179,7 +179,7 @@ function App() {
                 <p className="text-red-700 mb-4 text-center">{generatedFilesCheck.error.message}</p>
                 <div className="bg-red-100 rounded-md p-4 text-sm text-red-800">
                   <p className="mb-2">
-                    When you launched Runbooks, you specified an <code className="bg-red-200 px-1 rounded">--output-path</code> of{' '}
+                    When you launched Gruntbooks, you specified an <code className="bg-red-200 px-1 rounded">--output-path</code> of{' '}
                     <code className="bg-red-200 px-1 rounded font-mono">
                       {generatedFilesCheck.error.context?.specifiedPath || '(unknown)'}
                     </code>, but the path must be within the current working directory.
@@ -194,17 +194,17 @@ function App() {
               </div>
             </div>
           </div>
-        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) ? (
+        ) : (getGruntbookResult.error?.message || getGruntbookResult.error?.details) ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6">
                 <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
-                <h3 className="text-lg font-medium text-red-800 mb-2">Failed to Load Runbook</h3>
-                <p className="text-red-700 mb-2">{getRunbookResult.error?.message}</p>
+                <h3 className="text-lg font-medium text-red-800 mb-2">Failed to Load Gruntbook</h3>
+                <p className="text-red-700 mb-2">{getGruntbookResult.error?.message}</p>
                 <p className="text-sm text-red-600 mb-4">
-                  {getRunbookResult.error?.details}
+                  {getGruntbookResult.error?.details}
                 </p>
                 <button 
                   onClick={() => window.location.reload()} 
@@ -249,8 +249,8 @@ function App() {
                 )}>
                   <MDXContainer
                     content={content}
-                    runbookPath={runbookPath}
-                    remoteSource={getRunbookResult.data?.remoteSource}
+                    gruntbookPath={gruntbookPath}
+                    remoteSource={getGruntbookResult.data?.remoteSource}
                     className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
                   />
                   

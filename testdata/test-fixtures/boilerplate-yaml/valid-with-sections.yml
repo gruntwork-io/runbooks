@@ -34,7 +34,7 @@ variables:
     type: string
     description: Function description
 
-  # With schema (Runbooks extension)
+  # With schema (Gruntbooks extension)
   - name: Tags
     type: map
     description: Resource tags

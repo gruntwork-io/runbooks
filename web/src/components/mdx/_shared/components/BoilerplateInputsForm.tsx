@@ -300,8 +300,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 
   // Determine container classes and whether to show submit button based on variant
   const containerClasses = variant === 'embedded' 
-    ? 'runbook-block bg-transparent relative'
-    : 'runbook-block p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 mb-4 relative';
+    ? 'gruntbook-block bg-transparent relative'
+    : 'gruntbook-block p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 mb-4 relative';
   
   const shouldShowSubmitButton = variant === 'embedded' ? false : showSubmitButton;
 

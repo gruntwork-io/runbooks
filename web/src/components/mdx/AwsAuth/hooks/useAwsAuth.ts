@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import { useRunbookContext } from "@/contexts/useRunbook"
+import { useGruntbookContext } from "@/contexts/useGruntbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import type {
@@ -34,7 +34,7 @@ export function useAwsAuth({
   defaultRegion,
   detectCredentials = ['env'],  // Default: auto-detect from env vars
 }: UseAwsAuthOptions) {
-  const { registerOutputs, blockOutputs } = useRunbookContext()
+  const { registerOutputs, blockOutputs } = useGruntbookContext()
   const { getAuthHeader, isReady: sessionReady } = useSession()
 
   // Core auth state

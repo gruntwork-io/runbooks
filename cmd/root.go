@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"runbooks/api"
-	"runbooks/api/telemetry"
+	"github.com/gruntwork-io/runbooks/api"
+	"github.com/gruntwork-io/runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -39,8 +39,8 @@ var (
 	// Global flag to disable telemetry
 	noTelemetry bool
 
-	// Global flag for OpenTofu module runbook/template selection
-	tfRunbook string // --tf-runbook: ::keyword (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom runbook directory
+	// Global flag for OpenTofu module gruntbook/template selection
+	tfGruntbook string // --tf-gruntbook: ::keyword (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom gruntbook directory
 )
 
 // getVersionString returns the full version information
@@ -53,7 +53,7 @@ func getVersionString() string {
 const workingDirKeyword = "::tmp"
 
 // isWorkingDirTmp returns true when the user requested a temporary working directory,
-// either explicitly via --working-dir=::tmp or implicitly (remote runbook with no --working-dir).
+// either explicitly via --working-dir=::tmp or implicitly (remote gruntbook with no --working-dir).
 func isWorkingDirTmp() bool {
 	return workingDir == workingDirKeyword
 }
@@ -63,7 +63,7 @@ func isWorkingDirTmp() bool {
 // Returns the directory path, a cleanup function (nil if no cleanup needed), and an error.
 func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(), error) {
 	if useTempDir || configuredWorkDir == workingDirKeyword {
-		dir, err := os.MkdirTemp("", "runbook-workdir-*")
+		dir, err := os.MkdirTemp("", "gruntbook-workdir-*")
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to create temp working directory: %w", err)
 		}
@@ -84,28 +84,28 @@ func resolveWorkingDir(configuredWorkDir string, useTempDir bool) (string, func(
 	return cwd, nil, nil
 }
 
-// isTfRunbookKeyword returns true if the value is a reserved ::keyword (e.g. "::terragrunt", "::tofu").
-func isTfRunbookKeyword(value string) bool {
+// isTfGruntbookKeyword returns true if the value is a reserved ::keyword (e.g. "::terragrunt", "::tofu").
+func isTfGruntbookKeyword(value string) bool {
 	return strings.HasPrefix(value, "::")
 }
 
-// resolveTfModuleRunbook picks (or generates) a runbook for a TF module.
+// resolveTfModuleGruntbook picks (or generates) a gruntbook for a TF module.
 //
-// It reads the package-level tfRunbook flag (--tf-runbook) to decide what to do:
-//   - If --tf-runbook is a local path (e.g., "./my-runbook"), it uses that custom runbook.
+// It reads the package-level tfGruntbook flag (--tf-gruntbook) to decide what to do:
+//   - If --tf-gruntbook is a local path (e.g., "./my-gruntbook"), it uses that custom gruntbook.
 //     Remote URLs are rejected with a clear error message.
-//   - If --tf-runbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it generates a
-//     runbook from the corresponding built-in template.
-//   - If --tf-runbook is unset, it generates a runbook from the default template.
+//   - If --tf-gruntbook is a ::keyword (e.g., "::terragrunt", "::tofu"), it generates a
+//     gruntbook from the corresponding built-in template.
+//   - If --tf-gruntbook is unset, it generates a gruntbook from the default template.
 //
 // modulePath is always a local filesystem path to the TF module directory. For remote
-// modules (e.g., a GitHub URL), the caller (resolveRunbookOrTfModule) downloads the
+// modules (e.g., a GitHub URL), the caller (resolveGruntbookOrTfModule) downloads the
 // source first and passes the local download path here.
 //
 // remoteSourceURL is the original URL the user provided on the CLI (empty for local
-// modules), propagated for ::cli_runbook_source resolution.
-func resolveTfModuleRunbook(modulePath string, remoteSourceURL string) (resolvedPath string, serverPath string, moduleSourceURL string, cleanup func()) {
-	// Compute the module source URL so ::cli_runbook_source resolves at runtime
+// modules), propagated for ::cli_gruntbook_source resolution.
+func resolveTfModuleGruntbook(modulePath string, remoteSourceURL string) (resolvedPath string, serverPath string, moduleSourceURL string, cleanup func()) {
+	// Compute the module source URL so ::cli_gruntbook_source resolves at runtime
 	moduleSourceURL = remoteSourceURL
 	if moduleSourceURL == "" {
 		absPath, err := filepath.Abs(modulePath)
@@ -116,51 +116,51 @@ func resolveTfModuleRunbook(modulePath string, remoteSourceURL string) (resolved
 		moduleSourceURL = absPath
 	}
 
-	// If --tf-runbook is a local path, use the custom runbook
-	if tfRunbook != "" && !isTfRunbookKeyword(tfRunbook) {
-		parsed, _ := api.ParseRemoteSource(tfRunbook)
+	// If --tf-gruntbook is a local path, use the custom gruntbook
+	if tfGruntbook != "" && !isTfGruntbookKeyword(tfGruntbook) {
+		parsed, _ := api.ParseRemoteSource(tfGruntbook)
 		if parsed != nil {
-			slog.Error("--tf-runbook does not support remote URLs. Use a local path or a built-in template (e.g., ::terragrunt, ::tofu).",
-				"value", tfRunbook)
+			slog.Error("--tf-gruntbook does not support remote URLs. Use a local path or a built-in template (e.g., ::terragrunt, ::tofu).",
+				"value", tfGruntbook)
 			os.Exit(1)
 		}
-		customRunbookPath, err := api.ResolveRunbookPath(tfRunbook)
+		customGruntbookPath, err := api.ResolveGruntbookPath(tfGruntbook)
 		if err != nil {
-			slog.Error("Failed to resolve custom runbook", "path", tfRunbook, "error", err)
+			slog.Error("Failed to resolve custom gruntbook", "path", tfGruntbook, "error", err)
 			os.Exit(1)
 		}
-		slog.Info("Using custom runbook for OpenTofu/Terraform module", "runbook", tfRunbook, "module", moduleSourceURL)
-		return customRunbookPath, tfRunbook, moduleSourceURL, nil
+		slog.Info("Using custom gruntbook for OpenTofu/Terraform module", "gruntbook", tfGruntbook, "module", moduleSourceURL)
+		return customGruntbookPath, tfGruntbook, moduleSourceURL, nil
 	}
 
-	// Otherwise, auto-generate a runbook from the built-in template
-	templateName := tfRunbook // ::keyword like "::terragrunt", "::tofu", or "" for default
-	generatedPath, tfCleanup, genErr := api.GenerateRunbook(templateName)
+	// Otherwise, auto-generate a gruntbook from the built-in template
+	templateName := tfGruntbook // ::keyword like "::terragrunt", "::tofu", or "" for default
+	generatedPath, tfCleanup, genErr := api.GenerateGruntbook(templateName)
 	if genErr != nil {
-		slog.Error("Failed to generate runbook from OpenTofu/Terraform module", "error", genErr)
+		slog.Error("Failed to generate gruntbook from OpenTofu/Terraform module", "error", genErr)
 		os.Exit(1)
 	}
 	return generatedPath, generatedPath, moduleSourceURL, tfCleanup
 }
 
-// resolveRunbookOrTfModule attempts to resolve a runbook at the given path.
-// If no runbook is found but the path is an OpenTofu module, it generates a
-// runbook from the module. Also handles remote URLs — downloads the source first,
-// then checks for a runbook or OpenTofu module.
-// Returns the resolved runbook path, the (possibly updated) server path,
-// the original remote URL (for ::cli_runbook_source resolution in TfModule), and a
+// resolveGruntbookOrTfModule attempts to resolve a gruntbook at the given path.
+// If no gruntbook is found but the path is an OpenTofu module, it generates a
+// gruntbook from the module. Also handles remote URLs — downloads the source first,
+// then checks for a gruntbook or OpenTofu module.
+// Returns the resolved gruntbook path, the (possibly updated) server path,
+// the original remote URL (for ::cli_gruntbook_source resolution in TfModule), and a
 // cleanup function for any generated temp files. Calls os.Exit(1) on errors.
-func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
-	// 1. Try as a local runbook
-	resolvedPath, err := api.ResolveRunbookPath(path)
+func resolveGruntbookOrTfModule(path string) (resolvedPath string, serverPath string, remoteSourceURL string, cleanup func()) {
+	// 1. Try as a local gruntbook
+	resolvedPath, err := api.ResolveGruntbookPath(path)
 	if err == nil {
 		return resolvedPath, path, "", nil
 	}
 
 	// 2. Try as a local OpenTofu module
 	if api.IsBareTfModule(path) {
-		slog.Info("Detected OpenTofu/Terraform module, generating runbook", "path", path)
-		return resolveTfModuleRunbook(path, "" /* local module, no remote source URL */)
+		slog.Info("Detected OpenTofu/Terraform module, generating gruntbook", "path", path)
+		return resolveTfModuleGruntbook(path, "" /* local module, no remote source URL */)
 	}
 
 	// 3. Try as a remote source (GitHub/GitLab URL)
@@ -176,28 +176,28 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 			os.Exit(1)
 		}
 
-		// Check if the downloaded source is a runbook
-		resolvedPath, rbErr := api.ResolveRunbookPath(localPath)
+		// Check if the downloaded source is a gruntbook
+		resolvedPath, rbErr := api.ResolveGruntbookPath(localPath)
 		if rbErr == nil {
 			return resolvedPath, localPath, path, remoteCleanup
 		}
 
 		// Check if the downloaded source is an OpenTofu module
 		if api.IsBareTfModule(localPath) {
-			slog.Info("Detected remote OpenTofu/Terraform module, generating runbook", "url", path)
-			rbPath, srvPath, srcURL, tfCleanup := resolveTfModuleRunbook(localPath, path /* original remote source URL */)
+			slog.Info("Detected remote OpenTofu/Terraform module, generating gruntbook", "url", path)
+			rbPath, srvPath, srcURL, tfCleanup := resolveTfModuleGruntbook(localPath, path /* original remote source URL */)
 			return rbPath, srvPath, srcURL, combineCleanups(tfCleanup, remoteCleanup)
 		}
 
-		// Downloaded but neither a runbook nor a TF module
+		// Downloaded but neither a gruntbook nor a TF module
 		if remoteCleanup != nil {
 			remoteCleanup()
 		}
-		slog.Error("Remote source is not a runbook or OpenTofu module", "url", path)
+		slog.Error("Remote source is not a gruntbook or OpenTofu module", "url", path)
 		os.Exit(1)
 	}
 
-	slog.Error("No runbook or OpenTofu/Terraform module found", "path", path, "error", err)
+	slog.Error("No gruntbook or OpenTofu/Terraform module found", "path", path, "error", err)
 	os.Exit(1)
 	return // unreachable
 }
@@ -205,20 +205,20 @@ func resolveRunbookOrTfModule(path string) (resolvedPath string, serverPath stri
 // serverSetup holds the results of resolving paths and preparing for server start.
 // Returned by resolveForServer, which handles the shared setup for open/watch/serve commands.
 type serverSetup struct {
-	runbookPath     string // The resolved runbook file path
-	serverPath      string // The path to pass to ServerConfig (may differ for generated runbooks)
-	remoteSourceURL string // Original URL for ::cli_runbook_source resolution (empty for local)
+	gruntbookPath   string // The resolved gruntbook file path
+	serverPath      string // The path to pass to ServerConfig (may differ for generated gruntbooks)
+	remoteSourceURL string // Original URL for ::cli_gruntbook_source resolution (empty for local)
 	workingDir      string // Resolved working directory
 	cleanup         func() // Combined cleanup function (nil if no cleanup needed)
 }
 
 // resolveForServer performs the shared setup for all server-launching commands:
-// validates args, resolves working directory, and resolves the runbook or TF module.
+// validates args, resolves working directory, and resolves the gruntbook or TF module.
 // Returns a serverSetup with all paths and a combined cleanup function.
 // Calls os.Exit(1) on errors.
 func resolveForServer(args []string) serverSetup {
 	if len(args) == 0 {
-		slog.Error("Error: You must specify a RUNBOOK_SOURCE (local path, remote URL, or OpenTofu/Terraform module directory)\n")
+		slog.Error("Error: You must specify a GRUNTBOOK_SOURCE (local path, remote URL, or OpenTofu/Terraform module directory)\n")
 		os.Exit(1)
 	}
 	path := args[0]
@@ -229,13 +229,13 @@ func resolveForServer(args []string) serverSetup {
 		os.Exit(1)
 	}
 
-	resolvedPath, serverPath, remoteSourceURL, tfCleanup := resolveRunbookOrTfModule(path)
+	resolvedPath, serverPath, remoteSourceURL, tfCleanup := resolveGruntbookOrTfModule(path)
 
 	// Combine cleanup functions
 	cleanup := combineCleanups(workDirCleanup, tfCleanup)
 
 	return serverSetup{
-		runbookPath:     resolvedPath,
+		gruntbookPath:   resolvedPath,
 		serverPath:      serverPath,
 		remoteSourceURL: remoteSourceURL,
 		workingDir:      resolvedWorkDir,
@@ -264,9 +264,9 @@ func combineCleanups(fns ...func()) func() {
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:     "runbooks",
+	Use:     "gruntbooks",
 	Short:   "Make the knowledge and experience of the few available to the many.",
-	Long:    `Runbooks makes it easy for subject matter experts to capture their knowledge, and easy for others to consume it.`,
+	Long:    `Gruntbooks makes it easy for subject matter experts to capture their knowledge, and easy for others to consume it.`,
 	Version: getVersionString(),
 	// PersistentPreRun is a Cobra lifecycle hook that runs BEFORE the Run function
 	// of any subcommand (open, watch, serve, etc.). It's inherited by all subcommands,
@@ -277,7 +277,7 @@ var rootCmd = &cobra.Command{
 
 		// Print telemetry notice (only if enabled)
 		// Skip for version and help commands to keep output clean
-		if cmd.Name() != "version" && cmd.Name() != "help" && cmd.Name() != "runbooks" {
+		if cmd.Name() != "version" && cmd.Name() != "help" && cmd.Name() != "gruntbooks" {
 			telemetry.PrintNotice()
 		}
 	},
@@ -408,7 +408,7 @@ func formatFlags(cmd *cobra.Command, inherited bool) string {
 func customHelp(cmd *cobra.Command, args []string) {
 	// Print usage
 	fmt.Print("Usage: ")
-	if cmd.Name() == "runbooks" {
+	if cmd.Name() == "gruntbooks" {
 		fmt.Printf("%s [command]\n", cmd.Use)
 	} else {
 		fmt.Printf("%s\n", cmd.UseLine())
@@ -416,13 +416,13 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println()
 
 	// For subcommands, print the long description
-	if cmd.Name() != "runbooks" && cmd.Long != "" {
+	if cmd.Name() != "gruntbooks" && cmd.Long != "" {
 		fmt.Println(cmd.Long)
 		fmt.Println()
 	}
 
 	// For root command, print commands in sections
-	if cmd.Name() == "runbooks" {
+	if cmd.Name() == "gruntbooks" {
 		// Calculate the maximum command name width dynamically
 		maxNameLen := 0
 		for _, subcmd := range cmd.Commands() {
@@ -462,16 +462,16 @@ func customHelp(cmd *cobra.Command, args []string) {
 	}
 
 	// Print inherited/global flags for subcommands
-	if cmd.Name() != "runbooks" && cmd.HasAvailableInheritedFlags() {
+	if cmd.Name() != "gruntbooks" && cmd.HasAvailableInheritedFlags() {
 		fmt.Println("Global Flags:")
 		fmt.Print(formatFlags(cmd, true))
 		fmt.Println()
 	}
 
-	if cmd.Name() == "runbooks" {
+	if cmd.Name() == "gruntbooks" {
 		fmt.Printf("Use \"%s [command] --help\" for more information about a command.\n", cmd.Use)
 		fmt.Println()
-		fmt.Println("To learn more about Runbooks, go to https://runbooks.gruntwork.io.")
+		fmt.Println("To learn more about Gruntbooks, go to https://gruntbooks.gruntwork.io.")
 		fmt.Println()
 	}
 }
@@ -502,11 +502,11 @@ func init() {
 
 	// Add telemetry opt-out flag
 	rootCmd.PersistentFlags().BoolVar(&noTelemetry, "no-telemetry", false,
-		"Disable anonymous telemetry (can also set RUNBOOKS_TELEMETRY_DISABLE=1)")
+		"Disable anonymous telemetry (can also set GRUNTBOOKS_TELEMETRY_DISABLE=1)")
 
-	// Add OpenTofu module runbook flag (handles both ::keywords and custom paths)
-	rootCmd.PersistentFlags().StringVar(&tfRunbook, "tf-runbook", "",
-		"Built-in template (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom runbook for OpenTofu/Terraform modules")
+	// Add OpenTofu module gruntbook flag (handles both ::keywords and custom paths)
+	rootCmd.PersistentFlags().StringVar(&tfGruntbook, "tf-gruntbook", "",
+		"Built-in template (::terragrunt, ::terragrunt-github, ::tofu) or path to a custom gruntbook for OpenTofu/Terraform modules")
 
 	// Hide the completion command from help
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

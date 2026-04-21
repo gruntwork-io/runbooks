@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// FileWatcher manages file watching for runbook files
+// FileWatcher manages file watching for gruntbook files
 type FileWatcher struct {
 	watcher   *fsnotify.Watcher
 	filePath  string
@@ -152,23 +152,33 @@ func HandleWatchSSE(fileWatcher *FileWatcher) gin.HandlerFunc {
 	}
 }
 
-// ResolveRunbookPath resolves the runbook path to an actual file.
-// If it's a directory, it looks for runbook.mdx.
-func ResolveRunbookPath(path string) (string, error) {
+// ResolveGruntbookPath resolves the gruntbook path to an actual file.
+// If it's a directory, it looks for gruntbook.mdx, then falls back to the
+// legacy runbook.mdx filename with a deprecation warning.
+func ResolveGruntbookPath(path string) (string, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return "", err
 	}
 
 	if fileInfo.IsDir() {
-		fullPath := filepath.Join(path, "runbook.mdx")
-		slog.Info("Looking for runbook", "path", fullPath)
-		if _, err := os.Stat(fullPath); err == nil {
-			return fullPath, nil
+		primaryPath := filepath.Join(path, "gruntbook.mdx")
+		slog.Info("Looking for gruntbook", "path", primaryPath)
+		if _, err := os.Stat(primaryPath); err == nil {
+			return primaryPath, nil
 		} else if !os.IsNotExist(err) {
-			return "", fmt.Errorf("error checking for runbook %q: %w", fullPath, err)
+			return "", fmt.Errorf("error checking for gruntbook %q: %w", primaryPath, err)
 		}
-		return "", fmt.Errorf("no runbook found in directory %s (expected runbook.mdx)", path)
+
+		legacyPath := filepath.Join(path, "runbook.mdx")
+		if _, err := os.Stat(legacyPath); err == nil {
+			slog.Warn("Using legacy runbook.mdx filename; rename to gruntbook.mdx", "path", legacyPath)
+			return legacyPath, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("error checking for gruntbook %q: %w", legacyPath, err)
+		}
+
+		return "", fmt.Errorf("no gruntbook found in directory %s (expected gruntbook.mdx)", path)
 	}
 
 	return path, nil

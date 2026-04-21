@@ -12,7 +12,7 @@ The `<Template>` block generates files from a [Gruntwork Boilerplate](/authoring
 <Template id="vpc-setup" path="templates/vpc" />
 ```
 
-This loads the `boilerplate.yml` file from `templates/vpc/boilerplate.yml` (relative to your runbook file), renders a form for the variables, and generates files when the user clicks "Generate".
+This loads the `boilerplate.yml` file from `templates/vpc/boilerplate.yml` (relative to your gruntbook file), renders a form for the variables, and generates files when the user clicks "Generate".
 
 ## vs. TemplateInline
 
@@ -20,7 +20,7 @@ Template and [TemplateInline](/authoring/blocks/templateinline/) both render Boi
 
 | Feature | `<Template>` | `<TemplateInline>` |
 |---------|-------------|-------------------|
-| Template source | Directory with `boilerplate.yml` | Inline in runbook |
+| Template source | Directory with `boilerplate.yml` | Inline in gruntbook |
 | Form rendered | Yes, from `boilerplate.yml` | No form (uses [Inputs](/authoring/blocks/inputs/)) |
 | File generation | Always saves to workspace | Optional (`generateFile={true}`) |
 | Use case | Generate files from template directories | Show preview of single files inline |
@@ -32,7 +32,7 @@ Use `<Template>` when you have a full Boilerplate template directory with multip
 ### Required Props
 
 - `id` (string) - Unique identifier for this component. Used to reference this Template's variables from other blocks.
-- `path` (string) - Path to the boilerplate template directory, relative to the runbook file. The directory must contain a `boilerplate.yml` file.
+- `path` (string) - Path to the boilerplate template directory, relative to the gruntbook file. The directory must contain a `boilerplate.yml` file.
 
 ### Optional Props
 
@@ -127,7 +127,7 @@ variables:
 
 ## Variable Categories
 
-Because a Template has its own `boilerplate.yml` *and* can import variables via `inputsId`, Runbooks needs to decide what happens when both sides define a variable. The result depends on where each variable is defined — Template-only variables are editable, provider-only variables pass through invisibly, and variables defined in both places become read-only. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
+Because a Template has its own `boilerplate.yml` *and* can import variables via `inputsId`, Gruntbooks needs to decide what happens when both sides define a variable. The result depends on where each variable is defined — Template-only variables are editable, provider-only variables pass through invisibly, and variables defined in both places become read-only. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
 
 ## Template File Syntax
 
@@ -160,7 +160,7 @@ Template files can reference outputs from other blocks (e.g., [Command](/authori
 account_id = "{{ .outputs.create_account.account_id }}"
 ```
 
-Runbooks scans template files for output references and disables the Generate button until all upstream blocks have run.
+Gruntbooks scans template files for output references and disables the Generate button until all upstream blocks have run.
 
 For the full guide on producing outputs, consuming them, dependency behavior, and ID naming rules, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
 
@@ -175,7 +175,7 @@ The `<Template>` block works especially well for generating files from structure
 
 ## Complete Example
 
-Here's a complete runbook showing Template with imported variables and validation:
+Here's a complete gruntbook showing Template with imported variables and validation:
 
 `````mdx
 # Deploy a VPC

@@ -43,7 +43,7 @@ Use `<Inputs>` when you need to collect variable values without generating files
 You must provide variables using exactly one of the following methods (but not both):
 
 - **Inline YAML** - Write the variable definitions directly inside the `<Inputs>` tags in the style of a `boilerplate.yml` file.
-- `path` (string) - Path to a directory containing a `boilerplate.yml` file, relative to the runbook.
+- `path` (string) - Path to a directory containing a `boilerplate.yml` file, relative to the gruntbook.
 
 ### Optional Props
 
@@ -86,7 +86,7 @@ Load variables from an external `boilerplate.yml` file:
 <Inputs id="vpc-config" path="templates/vpc" />
 ```
 
-This loads variable definitions from `templates/vpc/boilerplate.yml` relative to your runbook file.
+This loads variable definitions from `templates/vpc/boilerplate.yml` relative to your gruntbook file.
 
 ## Prefilled Variables
 

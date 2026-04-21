@@ -2,7 +2,7 @@
 title: <Admonition>
 ---
 
-The `<Admonition>` block creates callout boxes to highlight important information, warnings, notes, or tips. It helps draw the user's attention to critical information in your runbook.
+The `<Admonition>` block creates callout boxes to highlight important information, warnings, notes, or tips. It helps draw the user's attention to critical information in your gruntbook.
 
 ## Basic Usage
 
@@ -134,7 +134,7 @@ Allow users to permanently hide the admonition:
 <Admonition 
     type="info" 
     title="Welcome!" 
-    description="This is your first time running this runbook."
+    description="This is your first time running this gruntbook."
     confirmationText="I've read the introduction"
     allowPermanentHide={true}
     storageKey="welcome-message"

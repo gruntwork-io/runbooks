@@ -21,7 +21,7 @@ import { useInputRegistration } from '../_shared/hooks/useInputRegistration'
  * - <Command> and <Check> components (for script variable substitution)
  *
  * @param props.id - Unique identifier for this component (required)
- * @param props.path - Path to a boilerplate.yml file (relative to runbook)
+ * @param props.path - Path to a boilerplate.yml file (relative to gruntbook)
  * @param props.children - Inline boilerplate.yml content as YAML code block
  *
  * (Use one of path or children, but not both)

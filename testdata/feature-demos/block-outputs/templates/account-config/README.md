@@ -11,7 +11,7 @@ The account.tf file references outputs from the create-account Command block:
 
 ## How It Works
 
-1. When this Template loads, Runbooks scans the template files for block output patterns
+1. When this Template loads, Gruntbooks scans the template files for block output patterns
 2. These are registered as output dependencies
 3. The Template shows a warning and disables the Generate button until those outputs exist
 4. Once the create-account Command runs and produces outputs, this Template can be generated

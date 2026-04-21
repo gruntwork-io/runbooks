@@ -4,7 +4,7 @@ title: <TemplateInline>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<TemplateInline>` block renders Boilerplate templates directly in your runbook, displaying the rendered output inline. Unlike `<Template>`, which loads templates from a directory, `<TemplateInline>` lets you write template content directly in your runbook file.
+The `<TemplateInline>` block renders Boilerplate templates directly in your gruntbook, displaying the rendered output inline. Unlike `<Template>`, which loads templates from a directory, `<TemplateInline>` lets you write template content directly in your gruntbook file.
 
 ## Basic Usage
 
@@ -31,7 +31,7 @@ TemplateInline and [Template](/authoring/blocks/template/) both render Boilerpla
 
 | Feature | `<TemplateInline>` | `<Template>` |
 |---------|-------------------|--------------|
-| Template source | Inline in runbook | Directory with `boilerplate.yml` |
+| Template source | Inline in gruntbook | Directory with `boilerplate.yml` |
 | Form rendered | No (uses [Inputs](/authoring/blocks/inputs/)) | Yes, from `boilerplate.yml` |
 | File generation | Optional (`generateFile={true}`) | Always saves to workspace |
 | Use case | Show preview of single files inline | Generate files from template directories |
@@ -210,7 +210,7 @@ Region:     {{ .outputs.create_account.region }}
 </TemplateInline>
 `````
 
-Runbooks scans the template content for output references and shows a warning until all upstream blocks have run.
+Gruntbooks scans the template content for output references and shows a warning until all upstream blocks have run.
 
 For the full guide on producing outputs, consuming them, dependency behavior, and ID naming rules, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
 
@@ -247,7 +247,7 @@ Use `generateFile={true}` when you want users to both see the output inline _and
 
 ## Block IDs
 
-Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the runbook and is used for dependency resolution between blocks.
+Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the gruntbook and is used for dependency resolution between blocks.
 
 Learn more about block IDs in the [testing documentation](/authoring/testing/#block-ids).
 

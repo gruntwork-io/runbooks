@@ -530,7 +530,7 @@ func TestFilterCapturedEnv(t *testing.T) {
 		"SHLVL":                    "1",          // Should be filtered
 		"BASH_VERSION":             "5.0",        // Should be filtered (BASH_* prefix)
 		"CUSTOM_VAR":               "custom",
-		"_RUNBOOKS_LOGGING_LOADED": "1",          // Should be filtered (injected guard)
+		"_GRUNTBOOKS_LOGGING_LOADED": "1",          // Should be filtered (injected guard)
 	}
 
 	filtered := FilterCapturedEnv(input)
@@ -556,19 +556,19 @@ func TestFilterCapturedEnv(t *testing.T) {
 	if _, ok := filtered["BASH_VERSION"]; ok {
 		t.Error("BASH_VERSION should be filtered")
 	}
-	if _, ok := filtered["_RUNBOOKS_LOGGING_LOADED"]; ok {
-		t.Error("_RUNBOOKS_LOGGING_LOADED should be filtered")
+	if _, ok := filtered["_GRUNTBOOKS_LOGGING_LOADED"]; ok {
+		t.Error("_GRUNTBOOKS_LOGGING_LOADED should be filtered")
 	}
 }
 
 func TestCaptureEnvironment(t *testing.T) {
 	// Set a test env var
-	os.Setenv("RUNBOOKS_TEST_VAR", "test_value")
-	defer os.Unsetenv("RUNBOOKS_TEST_VAR")
+	os.Setenv("GRUNTBOOKS_TEST_VAR", "test_value")
+	defer os.Unsetenv("GRUNTBOOKS_TEST_VAR")
 
 	env := captureEnvironment()
 
-	if env["RUNBOOKS_TEST_VAR"] != "test_value" {
+	if env["GRUNTBOOKS_TEST_VAR"] != "test_value" {
 		t.Error("captureEnvironment should capture current environment")
 	}
 }
@@ -673,22 +673,22 @@ cd /tmp`
 	wrapped := WrapBashScript(script, "/tmp/env.txt", "/tmp/pwd.txt")
 
 	// Verify wrapper contains necessary components
-	if !strings.Contains(wrapped, "__RUNBOOKS_ENV_CAPTURE_PATH") {
+	if !strings.Contains(wrapped, "__GRUNTBOOKS_ENV_CAPTURE_PATH") {
 		t.Error("Wrapper should contain env capture path variable")
 	}
 
-	if !strings.Contains(wrapped, "__RUNBOOKS_PWD_CAPTURE_PATH") {
+	if !strings.Contains(wrapped, "__GRUNTBOOKS_PWD_CAPTURE_PATH") {
 		t.Error("Wrapper should contain pwd capture path variable")
 	}
 
 	// The wrapper uses builtin trap to set our combined exit handler
 	// This ensures user EXIT traps don't override our env capture
-	if !strings.Contains(wrapped, "builtin trap __runbooks_combined_exit EXIT") {
+	if !strings.Contains(wrapped, "builtin trap __gruntbooks_combined_exit EXIT") {
 		t.Error("Wrapper should set EXIT trap using builtin")
 	}
 
 	// Verify trap interception is set up
-	if !strings.Contains(wrapped, "__RUNBOOKS_USER_EXIT_HANDLER") {
+	if !strings.Contains(wrapped, "__GRUNTBOOKS_USER_EXIT_HANDLER") {
 		t.Error("Wrapper should have user exit handler variable for trap interception")
 	}
 
@@ -697,7 +697,7 @@ cd /tmp`
 	}
 
 	// Verify logging functions are injected
-	if !strings.Contains(wrapped, "_RUNBOOKS_LOGGING_LOADED=1") {
+	if !strings.Contains(wrapped, "_GRUNTBOOKS_LOGGING_LOADED=1") {
 		t.Error("Wrapper should set logging guard variable")
 	}
 	for _, fn := range []string{"log_info()", "log_warn()", "log_error()", "log_debug()", "_log_timestamp()"} {
@@ -707,7 +707,7 @@ cd /tmp`
 	}
 
 	// Verify logging appears before user script
-	loggingIdx := strings.Index(wrapped, "_RUNBOOKS_LOGGING_LOADED=1")
+	loggingIdx := strings.Index(wrapped, "_GRUNTBOOKS_LOGGING_LOADED=1")
 	userScriptIdx := strings.Index(wrapped, "# USER SCRIPT BEGIN")
 	if loggingIdx >= userScriptIdx {
 		t.Error("Logging functions should be injected before user script")
@@ -850,7 +850,7 @@ func TestWrapBashScriptLoggingGuard(t *testing.T) {
 
 	// Script checks that the guard is already set (proving injection happened before user code)
 	script := `#!/bin/bash
-if [ "$_RUNBOOKS_LOGGING_LOADED" = "1" ]; then
+if [ "$_GRUNTBOOKS_LOGGING_LOADED" = "1" ]; then
     echo "GUARD_SET"
 else
     echo "GUARD_NOT_SET"

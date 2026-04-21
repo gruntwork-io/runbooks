@@ -8,7 +8,7 @@ export interface BoilerplateVariable {
   options?: string[];
   validations?: ValidationRule[];
   sensitive?: boolean;
-  // Runbooks extensions (x- prefixed in YAML, ignored by Boilerplate)
+  // Gruntbooks extensions (x- prefixed in YAML, ignored by Boilerplate)
   schema?: Record<string, string>; // For structured maps: field name -> type mapping (YAML: x-schema)
   schemaInstanceLabel?: string; // Custom label for schema instances (YAML: x-schema-instance-label)
   // Which section this variable belongs to. See also: BoilerplateConfig.sections for ordered groupings.

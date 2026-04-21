@@ -83,7 +83,7 @@ type envCaptureConfig struct {
 
 // HandleExecRequest handles the execution of scripts and streams output via SSE.
 // This handler must be used with SessionAuthMiddleware to ensure session context is available.
-func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
+func HandleExecRequest(registry *ExecutableRegistry, gruntbookPath string, useExecutableRegistry bool, workingDir string, cliOutputPath string, sessionManager *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ExecRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -99,8 +99,8 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 			return
 		}
 
-		// Get executable from registry or by parsing runbook
-		executable, err := getExecutable(registry, runbookPath, useExecutableRegistry, req)
+		// Get executable from registry or by parsing gruntbook
+		executable, err := getExecutable(registry, gruntbookPath, useExecutableRegistry, req)
 		if err != nil {
 			c.JSON(err.statusCode, gin.H{"error": err.message})
 			return
@@ -115,7 +115,7 @@ func HandleExecRequest(registry *ExecutableRegistry, runbookPath string, useExec
 
 		// Create a temp directory for file capture (GENERATED_FILES)
 		// Scripts can write files here to have them captured to the output directory
-		filesDir, err2 := os.MkdirTemp("", "runbook-files-*")
+		filesDir, err2 := os.MkdirTemp("", "gruntbook-files-*")
 		if err2 != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create files directory: %v", err2)})
 			return
@@ -205,8 +205,8 @@ type execError struct {
 	message    string
 }
 
-// getExecutable retrieves the executable either from registry or by parsing the runbook
-func getExecutable(registry *ExecutableRegistry, runbookPath string, useExecutableRegistry bool, req ExecRequest) (*Executable, *execError) {
+// getExecutable retrieves the executable either from registry or by parsing the gruntbook
+func getExecutable(registry *ExecutableRegistry, gruntbookPath string, useExecutableRegistry bool, req ExecRequest) (*Executable, *execError) {
 	if useExecutableRegistry {
 		// Registry mode: Validate against registry
 		if req.ExecutableID == "" {
@@ -220,12 +220,12 @@ func getExecutable(registry *ExecutableRegistry, runbookPath string, useExecutab
 		return executable, nil
 	}
 
-	// Live reload mode: Parse runbook on-demand
+	// Live reload mode: Parse gruntbook on-demand
 	if req.ComponentID == "" {
 		return nil, &execError{http.StatusBadRequest, "component_id is required"}
 	}
 
-	executable, err := getExecutableByComponentID(runbookPath, req.ComponentID)
+	executable, err := getExecutableByComponentID(gruntbookPath, req.ComponentID)
 	if err != nil {
 		return nil, &execError{http.StatusBadRequest, fmt.Sprintf("Failed to find component: %v", err)}
 	}
@@ -250,7 +250,7 @@ func prepareScriptContent(executable *Executable, templateVars map[string]any) (
 
 // createOutputFile creates a temporary file for RUNBOOK_OUTPUT
 func createOutputFile() (string, error) {
-	outputFile, err := os.CreateTemp("", "runbook-output-*.txt")
+	outputFile, err := os.CreateTemp("", "gruntbook-output-*.txt")
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file: %w", err)
 	}
@@ -263,15 +263,18 @@ func createOutputFile() (string, error) {
 // Command Setup and Execution
 // =============================================================================
 
-// SetupExecEnvVars appends the standard runbook-managed environment variables to the
+// SetupExecEnvVars appends the standard gruntbook-managed environment variables to the
 // given environment slice. This is the single source of truth for which env vars are
 // injected into script execution, used by both the runtime server and the testing
 // framework. It sets:
-//   - RUNBOOK_OUTPUT: path to the block outputs file (key-value pairs)
+//   - GRUNTBOOK_OUTPUT: path to the block outputs file (key-value pairs)
+//   - RUNBOOK_OUTPUT: legacy alias of GRUNTBOOK_OUTPUT, retained for backward compatibility
 //   - GENERATED_FILES: path to the file capture directory
 //   - REPO_FILES: path to the active git worktree (if one is registered)
 func SetupExecEnvVars(env []string, outputFile, filesDir, workTreePath string) []string {
-	// Add RUNBOOK_OUTPUT environment variable for block outputs (key-value pairs)
+	// GRUNTBOOK_OUTPUT is the canonical env var for block outputs (key-value pairs).
+	// RUNBOOK_OUTPUT is kept as a legacy alias so existing gruntbook scripts continue to work.
+	env = append(env, fmt.Sprintf("GRUNTBOOK_OUTPUT=%s", outputFile))
 	env = append(env, fmt.Sprintf("RUNBOOK_OUTPUT=%s", outputFile))
 
 	// Add GENERATED_FILES environment variable for file capture

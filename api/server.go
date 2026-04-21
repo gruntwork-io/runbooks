@@ -5,16 +5,16 @@ import (
 	"net/http"
 	"strings"
 
-	"runbooks/api/telemetry"
-	"runbooks/web"
+	"github.com/gruntwork-io/runbooks/api/telemetry"
+	"github.com/gruntwork-io/runbooks/web"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
-	// If the runbook contains AwsAuth blocks, strip AWS credentials from session
+func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
+	// If the gruntbook contains AwsAuth blocks, strip AWS credentials from session
 	// at creation time. This ensures users must explicitly confirm which AWS account
 	// they want to use before any scripts can access the credentials.
 	if registry != nil && registry.HasComponent("AwsAuth") {
@@ -36,9 +36,9 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	}
 
 	// Health check endpoint - used by frontend and CLI to detect if backend is running
-	// Includes runbook path so CLI can verify it's talking to the correct server instance
+	// Includes gruntbook path so CLI can verify it's talking to the correct server instance
 	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "runbookPath": runbookPath})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "gruntbookPath": gruntbookPath})
 	})
 
 	// Telemetry configuration endpoint - returns telemetry status for frontend
@@ -47,20 +47,20 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		c.JSON(http.StatusOK, config)
 	})
 
-	// API endpoint to serve the runbook file contents
-	r.POST("/api/file", HandleFileRequest(runbookPath))
+	// API endpoint to serve the gruntbook file contents
+	r.POST("/api/file", HandleFileRequest(gruntbookPath))
 
 	// API endpoint to parse boilerplate.yml files
-	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(runbookPath))
+	r.POST("/api/boilerplate/variables", HandleBoilerplateRequest(gruntbookPath))
 
 	// API endpoint to render boilerplate templates
-	r.POST("/api/boilerplate/render", HandleBoilerplateRender(runbookPath, workingDir, outputPath, sessionManager))
+	r.POST("/api/boilerplate/render", HandleBoilerplateRender(gruntbookPath, workingDir, outputPath, sessionManager))
 
 	// API endpoint to render boilerplate templates from inline template files
 	r.POST("/api/boilerplate/render-inline", HandleBoilerplateRenderInline(workingDir, outputPath, sessionManager))
 
 	// API endpoint to get registered executables
-	r.GET("/api/runbook/executables", HandleExecutablesRequest(registry))
+	r.GET("/api/gruntbook/executables", HandleExecutablesRequest(registry))
 
 	// Session management endpoints
 	//
@@ -89,7 +89,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	protectedAPI := r.Group("/api")
 	protectedAPI.Use(SessionAuthMiddleware(sessionManager))
 	{
-		protectedAPI.POST("/exec", HandleExecRequest(registry, runbookPath, useExecutableRegistry, workingDir, outputPath, sessionManager))
+		protectedAPI.POST("/exec", HandleExecRequest(registry, gruntbookPath, useExecutableRegistry, workingDir, outputPath, sessionManager))
 		// Environment credential detection (read-only, does not register to session)
 		protectedAPI.GET("/aws/env-credentials", HandleAwsEnvCredentials())
 		// Confirm and register detected credentials to session (after user confirmation)
@@ -114,7 +114,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 		protectedAPI.POST("/git/push", HandleGitPush(sessionManager))
 		protectedAPI.DELETE("/git/branch", HandleGitDeleteBranch())
 		// OpenTofu module parsing (reads local files and may clone remote repos with user tokens)
-		protectedAPI.POST("/tf/parse", HandleTfModuleParse(runbookPath))
+		protectedAPI.POST("/tf/parse", HandleTfModuleParse(gruntbookPath))
 		// Workspace endpoints for file tree, file content, and git changes
 		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
 		protectedAPI.GET("/workspace/dirs", HandleWorkspaceDirs())
@@ -142,8 +142,8 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 	r.POST("/api/github/validate", HandleGitHubValidate())     // Validates token, returns user info
 	r.POST("/api/github/oauth/start", HandleGitHubOAuthStart()) // Device flow: returns device code
 
-	// Serve runbook assets (images, PDFs, media files, etc.) from the runbook's assets directory
-	r.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
+	// Serve gruntbook assets (images, PDFs, media files, etc.) from the gruntbook's assets directory
+	r.GET("/gruntbook-assets/*filepath", HandleGruntbookAssetsRequest(gruntbookPath))
 
 	// Serve static assets (CSS, JS, etc.) from the embedded assets directory
 	r.StaticFS("/assets", http.FS(assetsFS))
@@ -167,7 +167,7 @@ func setupCommonRoutes(r *gin.Engine, runbookPath string, workingDir string, out
 
 // ServerConfig holds all configuration for starting the API server.
 type ServerConfig struct {
-	RunbookPath           string
+	GruntbookPath         string
 	Port                  int
 	WorkingDir            string
 	OutputPath            string
@@ -180,9 +180,9 @@ type ServerConfig struct {
 
 // StartServer starts the API server with the given configuration.
 func StartServer(cfg ServerConfig) error {
-	resolvedPath, err := ResolveRunbookPath(cfg.RunbookPath)
+	resolvedPath, err := ResolveGruntbookPath(cfg.GruntbookPath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve runbook path: %w", err)
+		return fmt.Errorf("failed to resolve gruntbook path: %w", err)
 	}
 
 	var registry *ExecutableRegistry
@@ -208,7 +208,7 @@ func StartServer(cfg ServerConfig) error {
 		}))
 	}
 
-	r.GET("/api/runbook", HandleRunbookRequest(RunbookConfig{
+	r.GET("/api/gruntbook", HandleGruntbookRequest(GruntbookConfig{
 		LocalPath:             resolvedPath,
 		IsWatchMode:           cfg.IsWatchMode,
 		UseExecutableRegistry: cfg.UseExecutableRegistry,

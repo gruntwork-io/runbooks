@@ -34,7 +34,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     if (!isBackendHealthy) {
       setError(createAppError(
         'Cannot connect to backend server',
-        'The Runbooks backend server is not responding. It may not be running or may have crashed.',
+        'The Gruntbooks backend server is not responding. It may not be running or may have crashed.',
         undefined,
         'BACKEND_CONNECTION_ERROR'
       ))
@@ -44,7 +44,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
 
     // Backend is healthy, now fetch the registry
     try {
-      const response = await fetch('/api/runbook/executables')
+      const response = await fetch('/api/gruntbook/executables')
       
       if (!response.ok) {
         throw new Error(`Failed to fetch executable registry: ${response.status}`)
@@ -67,9 +67,9 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
   }, [])
 
   useEffect(() => {
-    const fetchRunbookInfo = async () => {
+    const fetchGruntbookInfo = async () => {
       try {
-        const response = await fetch('/api/runbook')
+        const response = await fetch('/api/gruntbook')
         if (response.ok) {
           const data = await response.json()
           setUseExecutableRegistry(data.useExecutableRegistry ?? true)
@@ -80,7 +80,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
         setUseExecutableRegistry(true)
       }
     }
-    fetchRunbookInfo()
+    fetchGruntbookInfo()
   }, [])
 
   useEffect(() => {
@@ -116,21 +116,21 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
         <p className="text-lg mb-2">{error.details}</p>
         {isConnectionError ? (
           <div className="text-gray-600 text-sm mt-4 w-xl text-center mx-auto space-y-2">
-            <p>The Runbooks backend server needs to be running for this page to work.</p>
+            <p>The Gruntbooks backend server needs to be running for this page to work.</p>
             <p>Start it with one of these commands:</p>
             <code className="block bg-gray-100 p-2 rounded mt-2 font-mono text-sm">
-              runbooks open /path/to/your-runbook
+              gruntbooks open /path/to/your-gruntbook
             </code>
             <code className="block bg-gray-100 p-2 rounded font-mono text-sm">
-              runbooks watch /path/to/your-runbook
+              gruntbooks watch /path/to/your-gruntbook
             </code>
             <code className="block bg-gray-100 p-2 rounded font-mono text-sm">
-              runbooks serve /path/to/your-runbook
+              gruntbooks serve /path/to/your-gruntbook
             </code>
           </div>
         ) : (
           <p className="text-gray-600 text-sm mt-2 w-xl text-center mx-auto">
-            The executable registry is a list of all the "executables" like files, scripts, or commands in the runbook. We use the executable registry so that only Runbook-authored execuables are actually executed, not arbitrary scripts. The Executable Registry loads at runtime, but it looks like we hit an error trying to do that.
+            The executable registry is a list of all the "executables" like files, scripts, or commands in the gruntbook. We use the executable registry so that only gruntbook-authored execuables are actually executed, not arbitrary scripts. The Executable Registry loads at runtime, but it looks like we hit an error trying to do that.
           </p>
         )}
         <button

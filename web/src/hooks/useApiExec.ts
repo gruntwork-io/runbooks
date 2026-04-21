@@ -385,7 +385,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
   // Execute script by component ID (used in live-reload mode)
   // Unlike execute() which uses pre-validated executable IDs from the registry,
-  // this sends the component ID to the backend, which then reads the runbook file
+  // this sends the component ID to the backend, which then reads the gruntbook file
   // from disk on-demand, parses it to find the component, and executes its script.
   // This allows script changes to take effect immediately without restarting the server,
   // but bypasses registry validation (only use with --live-file-reload flag).

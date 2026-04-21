@@ -13,20 +13,20 @@ import (
 	"strings"
 	"time"
 
-	"runbooks/api"
+	"github.com/gruntwork-io/runbooks/api"
 )
 
 // =============================================================================
 // Block Types
 // =============================================================================
 //
-// Runbooks uses "blocks" to describe the building blocks of a runbook.
+// Gruntbooks uses "blocks" to describe the building blocks of a gruntbook.
 // Each block type has specific behavior during test execution.
 
 // BlockType identifies a type of MDX block.
 type BlockType string
 
-// Known block types supported by runbooks test.
+// Known block types supported by gruntbooks test.
 const (
 	BlockTypeCheck          BlockType = "Check"
 	BlockTypeCommand        BlockType = "Command"
@@ -121,9 +121,9 @@ type AuthDependency struct {
 	AuthBlockType BlockType // The type of auth block (for error messages)
 }
 
-// TestExecutor runs runbook tests in headless mode.
+// TestExecutor runs gruntbook tests in headless mode.
 type TestExecutor struct {
-	runbookPath string
+	gruntbookPath string
 	workingDir  string // Working directory for script execution and template output base
 	outputPath  string // Output path relative to workingDir (default: "generated")
 	registry    *api.ExecutableRegistry
@@ -141,10 +141,10 @@ type TestExecutor struct {
 	// Test environment variables from the current test case
 	testEnv map[string]string // envVarName -> value
 
-	// Parsed TemplateInline blocks from the runbook
+	// Parsed TemplateInline blocks from the gruntbook
 	templateInlines map[string]*TemplateInlineBlock // blockID -> block info
 
-	// Parsed Template blocks from the runbook
+	// Parsed Template blocks from the gruntbook
 	templates map[string]*TemplateBlock // blockID -> block info
 
 	// Track block states for dependency checking (currently auth blocks only)
@@ -180,7 +180,7 @@ func (e *TestExecutor) getenv(key string) string {
 	return os.Getenv(key)
 }
 
-// TemplateInlineBlock holds information about a TemplateInline block parsed from the runbook
+// TemplateInlineBlock holds information about a TemplateInline block parsed from the gruntbook
 type TemplateInlineBlock struct {
 	ID           string
 	Content      string // The template content (between the tags)
@@ -190,10 +190,10 @@ type TemplateInlineBlock struct {
 	GenerateFile bool   // Whether to write the file to disk
 }
 
-// TemplateBlock holds information about a Template block parsed from the runbook
+// TemplateBlock holds information about a Template block parsed from the gruntbook
 type TemplateBlock struct {
 	ID           string
-	TemplatePath string // The path prop (relative to runbook directory)
+	TemplatePath string // The path prop (relative to gruntbook directory)
 	InputsID     string // The inputsId prop (may be empty)
 	Target       string // The target prop: "generated" (default) or "worktree"
 }
@@ -231,14 +231,14 @@ func WithWorkingDir(dir string) ExecutorOption {
 	}
 }
 
-// NewTestExecutor creates a new test executor for a runbook.
+// NewTestExecutor creates a new test executor for a gruntbook.
 // workingDir is the base directory for script execution and template output.
 // outputPath is the path relative to workingDir where generated files will be written (default: "generated").
-func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...ExecutorOption) (*TestExecutor, error) {
-	// Create executable registry to parse the runbook
-	registry, err := api.NewExecutableRegistry(runbookPath)
+func NewTestExecutor(gruntbookPath, workingDir, outputPath string, opts ...ExecutorOption) (*TestExecutor, error) {
+	// Create executable registry to parse the gruntbook
+	registry, err := api.NewExecutableRegistry(gruntbookPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse runbook: %w", err)
+		return nil, fmt.Errorf("failed to parse gruntbook: %w", err)
 	}
 
 	// Create session manager
@@ -250,25 +250,25 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 	}
 
 	// Create input validator (config errors are reported during test execution, not here)
-	validator, err := NewInputValidator(runbookPath)
+	validator, err := NewInputValidator(gruntbookPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create input validator: %w", err)
 	}
 
-	// Parse TemplateInline blocks from the runbook
-	templateInlines, err := parseTemplateInlineBlocks(runbookPath)
+	// Parse TemplateInline blocks from the gruntbook
+	templateInlines, err := parseTemplateInlineBlocks(gruntbookPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse TemplateInline blocks: %w", err)
 	}
 
-	// Parse Template blocks from the runbook
-	templates, err := parseTemplateBlocks(runbookPath)
+	// Parse Template blocks from the gruntbook
+	templates, err := parseTemplateBlocks(gruntbookPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Template blocks: %w", err)
 	}
 
 	// Parse auth dependencies (blocks that reference auth blocks)
-	authDeps, err := parseAuthDependencies(runbookPath)
+	authDeps, err := parseAuthDependencies(gruntbookPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse auth dependencies: %w", err)
 	}
@@ -279,7 +279,7 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 	}
 
 	e := &TestExecutor{
-		runbookPath:          runbookPath,
+		gruntbookPath:        gruntbookPath,
 		workingDir:           workingDir,
 		outputPath:           outputPath,
 		registry:             registry,
@@ -302,9 +302,9 @@ func NewTestExecutor(runbookPath, workingDir, outputPath string, opts ...Executo
 	return e, nil
 }
 
-// parseTemplateInlineBlocks parses TemplateInline blocks from a runbook MDX file
-func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBlock, error) {
-	content, err := os.ReadFile(runbookPath)
+// parseTemplateInlineBlocks parses TemplateInline blocks from a gruntbook MDX file
+func parseTemplateInlineBlocks(gruntbookPath string) (map[string]*TemplateInlineBlock, error) {
+	content, err := os.ReadFile(gruntbookPath)
 	if err != nil {
 		return nil, err
 	}
@@ -350,9 +350,9 @@ func parseTemplateInlineBlocks(runbookPath string) (map[string]*TemplateInlineBl
 	return blocks, nil
 }
 
-// parseTemplateBlocks parses Template blocks from a runbook MDX file
-func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) {
-	content, err := os.ReadFile(runbookPath)
+// parseTemplateBlocks parses Template blocks from a gruntbook MDX file
+func parseTemplateBlocks(gruntbookPath string) (map[string]*TemplateBlock, error) {
+	content, err := os.ReadFile(gruntbookPath)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +391,7 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 	return blocks, nil
 }
 
-// parseAuthDependencies scans a runbook for blocks that depend on auth blocks.
+// parseAuthDependencies scans a gruntbook for blocks that depend on auth blocks.
 //
 // It looks for Check/Command blocks with props like:
 //
@@ -400,8 +400,8 @@ func parseTemplateBlocks(runbookPath string) (map[string]*TemplateBlock, error) 
 //
 // Returns a map of blockID -> AuthDependency for use during test execution.
 // When an auth block is skipped, its dependent blocks are also skipped.
-func parseAuthDependencies(runbookPath string) (map[string]AuthDependency, error) {
-	content, err := os.ReadFile(runbookPath)
+func parseAuthDependencies(gruntbookPath string) (map[string]AuthDependency, error) {
+	content, err := os.ReadFile(gruntbookPath)
 	if err != nil {
 		return nil, err
 	}
@@ -489,21 +489,21 @@ func extractTemplateContent(content string) string {
 	return strings.TrimSpace(content)
 }
 
-// PrintRunbookHeader prints a prominent header for the runbook being tested.
+// PrintGruntbookHeader prints a prominent header for the gruntbook being tested.
 // Call this before running tests in verbose mode.
-func (e *TestExecutor) PrintRunbookHeader() {
+func (e *TestExecutor) PrintGruntbookHeader() {
 	if !e.verbose {
 		return
 	}
 
-	relPath, _ := filepath.Rel(".", e.runbookPath)
+	relPath, _ := filepath.Rel(".", e.gruntbookPath)
 	if relPath == "" {
-		relPath = e.runbookPath
+		relPath = e.gruntbookPath
 	}
 
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════════════════════════════════")
-	fmt.Printf("║ RUNBOOK: %s\n", relPath)
+	fmt.Printf("║ GRUNTBOOK: %s\n", relPath)
 	fmt.Println("╚══════════════════════════════════════════════════════════════════════════════")
 }
 
@@ -564,7 +564,7 @@ func (e *TestExecutor) RunTest(tc TestCase) TestResult {
 	}
 
 	// Backfill any missing inputs with defaults from Inputs block schemas.
-	// This allows tests to omit inputs that have defaults defined in the runbook.
+	// This allows tests to omit inputs that have defaults defined in the gruntbook.
 	for inputsID, schema := range e.validator.GetAllSchemas() {
 		for varName, variable := range schema.Variables {
 			key := fmt.Sprintf("%s.%s", inputsID, varName)
@@ -860,7 +860,7 @@ func (e *TestExecutor) getConfigErrorForBlock(block api.ParsedComponent, registr
 			return e.validator.GetConfigError(block.Type, block.ID)
 		}
 		// Unknown block type - this is a configuration error
-		return fmt.Sprintf("unknown block type %q is not supported by runbooks test", block.Type)
+		return fmt.Sprintf("unknown block type %q is not supported by gruntbooks test", block.Type)
 	}
 }
 
@@ -959,7 +959,7 @@ func (e *TestExecutor) dispatchBlock(block api.ParsedComponent, step TestStep, s
 		if executable == nil {
 			result.Passed = false
 			result.ActualStatus = "error"
-			result.Error = fmt.Sprintf("block %q not found in runbook", block.ID)
+			result.Error = fmt.Sprintf("block %q not found in gruntbook", block.ID)
 			result.Duration = time.Since(start)
 			if e.verbose {
 				fmt.Printf("  Error: %s\n", result.Error)
@@ -1202,9 +1202,9 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 		Outputs:        make(map[string]string),
 	}
 
-	// Resolve template path relative to runbook directory
-	runbookDir := filepath.Dir(e.runbookPath)
-	templatePath := filepath.Join(runbookDir, block.TemplatePath)
+	// Resolve template path relative to gruntbook directory
+	gruntbookDir := filepath.Dir(e.gruntbookPath)
+	templatePath := filepath.Join(gruntbookDir, block.TemplatePath)
 
 	// Build template variables from test inputs
 	vars := e.buildTemplateVars()
@@ -1295,14 +1295,14 @@ func (e *TestExecutor) executeTemplate(step TestStep, block *TemplateBlock, star
 }
 
 // DefaultGitHubAuthEnvVar is the default environment variable for GitHub tokens in tests.
-// Using RUNBOOKS_GITHUB_TOKEN instead of GITHUB_TOKEN prevents accidentally using
+// Using GRUNTBOOKS_GITHUB_TOKEN instead of GITHUB_TOKEN prevents accidentally using
 // credentials from an authenticated session when running tests.
-const DefaultGitHubAuthEnvVar = "RUNBOOKS_GITHUB_TOKEN"
+const DefaultGitHubAuthEnvVar = "GRUNTBOOKS_GITHUB_TOKEN"
 
 // executeGitHubAuth handles GitHubAuth block execution in test mode.
 // It looks for GitHub tokens in environment variables and injects them into the session.
 // If env_prefix is set on the test step, it checks {prefix}GITHUB_TOKEN and {prefix}GH_TOKEN.
-// Otherwise it falls back to RUNBOOKS_GITHUB_TOKEN, then GITHUB_TOKEN, then GH_TOKEN.
+// Otherwise it falls back to GRUNTBOOKS_GITHUB_TOKEN, then GITHUB_TOKEN, then GH_TOKEN.
 // If no token is found, the block is marked as skipped.
 func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestStep, start time.Time) StepResult {
 	result := StepResult{
@@ -1311,13 +1311,13 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 		Outputs:        make(map[string]string),
 	}
 
-	// Get prefix from test step config (env_prefix field in runbook_test.yml)
+	// Get prefix from test step config (env_prefix field in gruntbook_test.yml)
 	prefix := step.EnvPrefix
 
 	var token string
 	var tokenSource string
 
-	// Use e.getenv so that test environment overrides from runbook_test.yml
+	// Use e.getenv so that test environment overrides from gruntbook_test.yml
 	// are respected (e.g., clearing GITHUB_TOKEN to force a skip).
 	getenv := e.getenv
 
@@ -1333,7 +1333,7 @@ func (e *TestExecutor) executeGitHubAuth(block api.ParsedComponent, step TestSte
 			}
 		}
 	} else {
-		// Default behavior: check RUNBOOKS_GITHUB_TOKEN first, then standard vars
+		// Default behavior: check GRUNTBOOKS_GITHUB_TOKEN first, then standard vars
 		token = getenv(DefaultGitHubAuthEnvVar)
 		if token != "" {
 			tokenSource = DefaultGitHubAuthEnvVar
@@ -1667,11 +1667,11 @@ func (e *TestExecutor) executeAwsAuth(block api.ParsedComponent, step TestStep, 
 	}
 
 	// Build a getenv function that consults testEnv first, then falls back to os.Getenv.
-	// This ensures that env overrides from runbook_test.yml are respected during
+	// This ensures that env overrides from gruntbook_test.yml are respected during
 	// credential detection (e.g., clearing AWS_PROFILE to force a skip).
 	getenv := e.getenv
 
-	// Get prefix from test step config (env_prefix field in runbook_test.yml)
+	// Get prefix from test step config (env_prefix field in gruntbook_test.yml)
 	prefix := step.EnvPrefix
 
 	// Detect credentials from all possible sources
@@ -1945,7 +1945,7 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	scriptContent = rendered
 
 	// Create temp files for outputs and file capture
-	outputFile, err := os.CreateTemp("", "runbook-output-*.txt")
+	outputFile, err := os.CreateTemp("", "gruntbook-output-*.txt")
 	if err != nil {
 		return "error", -1, nil, "", fmt.Errorf("failed to create output file: %w", err)
 	}
@@ -1953,13 +1953,13 @@ func (e *TestExecutor) executeBlock(executable *api.Executable) (string, int, ma
 	outputFile.Close()
 	defer os.Remove(outputFilePath)
 
-	filesDir, err := os.MkdirTemp("", "runbook-files-*")
+	filesDir, err := os.MkdirTemp("", "gruntbook-files-*")
 	if err != nil {
 		return "error", -1, nil, "", fmt.Errorf("failed to create files directory: %w", err)
 	}
 	defer os.RemoveAll(filesDir)
 
-	// Prepare script for execution using the same helper as the runbook server
+	// Prepare script for execution using the same helper as the gruntbook server
 	// This handles interpreter detection, env capture wrapping, and temp file creation
 	scriptSetup, err := api.PrepareScriptForExecution(scriptContent, executable.Language)
 	if err != nil {
@@ -2100,13 +2100,13 @@ func improveTemplateError(err error) string {
 			"Common causes:\n"+
 			"  - The TfModule source path points to a module that doesn't exist (check the relative path)\n"+
 			"  - The TfModule block's inputsId is not correctly referenced by this template\n"+
-			"  - `runbooks test` does not yet support TfModule for this runbook")
+			"  - `gruntbooks test` does not yet support TfModule for this gruntbook")
 	case "outputs":
 		return fmt.Sprintf("template references {{.outputs}} but no block outputs are available. "+
 			"Make sure the blocks that produce outputs run before this template in your test steps")
 	default:
 		return fmt.Sprintf("template references {{.%s}} but that variable is not defined. "+
-			"Check that the variable name matches an input in your test config (inputs section of runbook_test.yml) "+
+			"Check that the variable name matches an input in your test config (inputs section of gruntbook_test.yml) "+
 			"or is provided by an upstream block", missingKey)
 	}
 }
@@ -2201,8 +2201,8 @@ func (e *TestExecutor) runCleanup(action CleanupAction) error {
 	if action.Command != "" {
 		script = action.Command
 	} else if action.Path != "" {
-		runbookDir := filepath.Dir(e.runbookPath)
-		scriptPath := filepath.Join(runbookDir, action.Path)
+		gruntbookDir := filepath.Dir(e.gruntbookPath)
+		scriptPath := filepath.Join(gruntbookDir, action.Path)
 		content, err := os.ReadFile(scriptPath)
 		if err != nil {
 			return fmt.Errorf("failed to read cleanup script: %w", err)
@@ -2213,7 +2213,7 @@ func (e *TestExecutor) runCleanup(action CleanupAction) error {
 	}
 
 	// Create temp script
-	tmpFile, err := os.CreateTemp("", "runbook-cleanup-*.sh")
+	tmpFile, err := os.CreateTemp("", "gruntbook-cleanup-*.sh")
 	if err != nil {
 		return err
 	}

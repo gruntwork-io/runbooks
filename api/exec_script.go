@@ -22,9 +22,9 @@ import (
 // used for local development (via BASH_ENV), while this constant is used for
 // server-side injection into the wrapper.
 const loggingFunctions = `
-# --- Runbooks Logging Functions ---
+# --- Gruntbooks Logging Functions ---
 # (auto-injected; see also scripts/logging.sh for local development)
-_RUNBOOKS_LOGGING_LOADED=1
+_GRUNTBOOKS_LOGGING_LOADED=1
 
 _log_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
@@ -47,7 +47,7 @@ log_debug() {
         printf '[%s] [DEBUG] %s\n' "$(_log_timestamp)" "$*"
     fi
 }
-# --- End Runbooks Logging Functions ---
+# --- End Gruntbooks Logging Functions ---
 `
 
 // ScriptSetup contains the prepared script and related resources for execution.
@@ -128,13 +128,13 @@ func PrepareScriptForExecution(scriptContent string, language string) (*ScriptSe
 	if setup.IsBashScript {
 		// Create temp files for environment capture
 		var err error
-		setup.EnvCapturePath, err = createTempFile("runbook-env-capture-*.txt")
+		setup.EnvCapturePath, err = createTempFile("gruntbook-env-capture-*.txt")
 		if err != nil {
 			setup.Cleanup()
 			return nil, fmt.Errorf("failed to create env capture file: %w", err)
 		}
 
-		setup.PwdCapturePath, err = createTempFile("runbook-pwd-capture-*.txt")
+		setup.PwdCapturePath, err = createTempFile("gruntbook-pwd-capture-*.txt")
 		if err != nil {
 			setup.Cleanup()
 			return nil, fmt.Errorf("failed to create pwd capture file: %w", err)
@@ -226,7 +226,7 @@ func createTempFile(pattern string) (string, error) {
 // createTempScript creates a temporary executable script file
 // Returns the path to the script file (caller must clean up)
 func createTempScript(content string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "runbook-script-*.sh")
+	tmpFile, err := os.CreateTemp("", "gruntbook-script-*.sh")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -251,7 +251,7 @@ func createTempScript(content string) (string, error) {
 // Bash Script Wrapper
 // =============================================================================
 
-// WrapBashScript wraps a user script with Runbooks infrastructure:
+// WrapBashScript wraps a user script with Gruntbooks infrastructure:
 //  1. Environment capture — dumps env vars and pwd to temp files on exit
 //  2. Logging injection — defines log_info, log_warn, log_error, log_debug
 //  3. EXIT trap interception — chains user EXIT traps with our capture handler
@@ -281,14 +281,14 @@ func createTempScript(content string) (string, error) {
 // Logging functions (log_info, log_warn, log_error, log_debug) are injected after the
 // env-capture infrastructure and before the user script, so the user can override them
 // with their own definitions (bash last-definition-wins). A guard variable
-// (_RUNBOOKS_LOGGING_LOADED) prevents double-loading if the user also sources logging.sh.
+// (_GRUNTBOOKS_LOGGING_LOADED) prevents double-loading if the user also sources logging.sh.
 func WrapBashScript(script, envCapturePath, pwdCapturePath string) string {
 	// We use `env -0` to output NUL-terminated entries instead of newline-terminated.
 	// This is critical because environment variable values can contain embedded newlines
 	// (e.g., RSA keys, JSON, multiline strings). Both GNU and BSD/macOS support `env -0`.
 	wrapper := fmt.Sprintf(`#!/bin/bash
 # =============================================================================
-# Runbooks Bash Script Wrapper
+# Gruntbooks Bash Script Wrapper
 # =============================================================================
 # This wrapper injects logging functions and captures environment changes
 # after the user script runs. It intercepts EXIT traps to ensure both user
@@ -302,18 +302,18 @@ func WrapBashScript(script, envCapturePath, pwdCapturePath string) string {
 #   5. On exit: run user's handler first, then capture env
 # =============================================================================
 
-__RUNBOOKS_ENV_CAPTURE_PATH=%q
-__RUNBOOKS_PWD_CAPTURE_PATH=%q
+__GRUNTBOOKS_ENV_CAPTURE_PATH=%q
+__GRUNTBOOKS_PWD_CAPTURE_PATH=%q
 
 # -----------------------------------------------------------------------------
 # Environment capture function
 # Called on exit to dump env vars and working directory to temp files
 # -----------------------------------------------------------------------------
-__runbooks_capture_env() {
+__gruntbooks_capture_env() {
     # Use env -0 for NUL-terminated output to handle values with embedded newlines
     # (e.g., RSA keys, JSON, multiline strings)
-    env -0 > "$__RUNBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
-    pwd > "$__RUNBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
+    env -0 > "$__GRUNTBOOKS_ENV_CAPTURE_PATH" 2>/dev/null
+    pwd > "$__GRUNTBOOKS_PWD_CAPTURE_PATH" 2>/dev/null
 }
 
 # -----------------------------------------------------------------------------
@@ -326,14 +326,14 @@ __runbooks_capture_env() {
 # When user calls: trap "rm -rf $TEMP_DIR" EXIT
 # Our function:
 #   1. Detects it's an EXIT trap
-#   2. Saves the handler to __RUNBOOKS_USER_EXIT_HANDLER
+#   2. Saves the handler to __GRUNTBOOKS_USER_EXIT_HANDLER
 #   3. Returns without setting the actual trap (ours remains active)
 #
 # For non-EXIT traps, we pass through to 'builtin trap' so they work normally.
 # -----------------------------------------------------------------------------
 
 # Store user's EXIT trap handler (if they set one)
-__RUNBOOKS_USER_EXIT_HANDLER=""
+__GRUNTBOOKS_USER_EXIT_HANDLER=""
 
 # Override the trap builtin to intercept EXIT handlers
 trap() {
@@ -359,13 +359,13 @@ trap() {
         local handler="$1"
         if [[ "$handler" == "-" ]]; then
             # trap - EXIT: reset to default (clear user handler)
-            __RUNBOOKS_USER_EXIT_HANDLER=""
+            __GRUNTBOOKS_USER_EXIT_HANDLER=""
         elif [[ -z "$handler" ]]; then
             # trap '' EXIT: ignore signal (clear user handler)
-            __RUNBOOKS_USER_EXIT_HANDLER=""
+            __GRUNTBOOKS_USER_EXIT_HANDLER=""
         else
             # Save user's handler to call during exit
-            __RUNBOOKS_USER_EXIT_HANDLER="$handler"
+            __GRUNTBOOKS_USER_EXIT_HANDLER="$handler"
         fi
         return 0
     fi
@@ -378,23 +378,23 @@ trap() {
 # Combined exit handler
 # Runs when script exits to execute user cleanup AND capture environment
 # -----------------------------------------------------------------------------
-__runbooks_combined_exit() {
+__gruntbooks_combined_exit() {
     local exit_code=$?
 
     # Run user's EXIT handler first (if any), so their cleanup happens
-    if [[ -n "$__RUNBOOKS_USER_EXIT_HANDLER" ]]; then
-        eval "$__RUNBOOKS_USER_EXIT_HANDLER" || true
+    if [[ -n "$__GRUNTBOOKS_USER_EXIT_HANDLER" ]]; then
+        eval "$__GRUNTBOOKS_USER_EXIT_HANDLER" || true
     fi
 
     # Then capture environment (after user's changes but before exit)
-    __runbooks_capture_env
+    __gruntbooks_capture_env
 
     # Preserve the original exit code
     exit $exit_code
 }
 
 # Set our combined exit handler using 'builtin trap' to bypass our override
-builtin trap __runbooks_combined_exit EXIT
+builtin trap __gruntbooks_combined_exit EXIT
 
 # =============================================================================
 # Logging Functions
@@ -630,7 +630,7 @@ func CopyFile(src, dst string) error {
 // Block Output Parsing
 // =============================================================================
 
-// ParseBlockOutputs reads the RUNBOOK_OUTPUT file and parses key=value pairs.
+// ParseBlockOutputs reads the GRUNTBOOK_OUTPUT file and parses key=value pairs.
 // Format: one key=value per line, keys must match ^[a-zA-Z_][a-zA-Z0-9_]*$
 // Returns a map of outputs, or empty map if file is empty/missing.
 // This function is exported for use by the testing package.

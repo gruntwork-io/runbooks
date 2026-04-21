@@ -3,7 +3,7 @@ import type { UseApiReturn } from './useApi';
 import { useMemo } from 'react';
 import type { BoilerplateConfig } from '@/types/boilerplateConfig';
 
-// API response wrapper for hooks that specifically request the runbook file data
+// API response wrapper for hooks that specifically request the gruntbook file data
 export function useApiGetBoilerplateConfig(
   templatePath?: string, 
   boilerplateContent?: string,

@@ -1,6 +1,6 @@
 #!/bin/bash
 # This script demonstrates using BOTH standard inputs and block outputs.
-# See the syntax comparison table in the runbook for details.
+# See the syntax comparison table in the gruntbook for details.
 
 echo "Tagging resources..."
 echo ""
@@ -24,4 +24,4 @@ echo ""
 echo "Successfully tagged resources for {{ .inputs.owner }} in the {{ .inputs.environment }} environment!"
 
 # Output combined values for potential downstream use
-echo "tag_summary=$TAG_SUMMARY" >> "$RUNBOOK_OUTPUT"
+echo "tag_summary=$TAG_SUMMARY" >> "$GRUNTBOOK_OUTPUT"

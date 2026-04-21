@@ -81,7 +81,7 @@ function isFrontendCurrent(webDir: string): boolean {
  * dependency on the `task` CLI being installed.
  */
 export default function globalSetup() {
-  const binaryPath = path.join(REPO_ROOT, "runbooks");
+  const binaryPath = path.join(REPO_ROOT, "gruntbooks");
   const webDir = path.join(REPO_ROOT, "web");
   const distDir = path.join(webDir, "dist");
 
@@ -96,7 +96,7 @@ export default function globalSetup() {
 
   // Build the Go binary
   console.log("[global-setup] Building Go binary...");
-  execSync("go build -o runbooks .", { cwd: REPO_ROOT, stdio: "inherit" });
+  execSync("go build -o gruntbooks .", { cwd: REPO_ROOT, stdio: "inherit" });
 
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Expected binary at ${binaryPath} but it was not found`);

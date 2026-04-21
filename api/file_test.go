@@ -14,15 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// runbookRequest is a test helper that creates a gin router with HandleRunbookRequest,
-// fires a GET /runbook, and returns the parsed JSON response.
-func runbookRequest(t *testing.T, cfg RunbookConfig) (int, map[string]interface{}) {
+// gruntbookRequest is a test helper that creates a gin router with HandleGruntbookRequest,
+// fires a GET /gruntbook, and returns the parsed JSON response.
+func gruntbookRequest(t *testing.T, cfg GruntbookConfig) (int, map[string]interface{}) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/runbook", HandleRunbookRequest(cfg))
+	router.GET("/gruntbook", HandleGruntbookRequest(cfg))
 
-	req, err := http.NewRequest("GET", "/runbook", nil)
+	req, err := http.NewRequest("GET", "/gruntbook", nil)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -36,14 +36,14 @@ func runbookRequest(t *testing.T, cfg RunbookConfig) (int, map[string]interface{
 	return w.Code, response
 }
 
-func TestHandleRunbookRequest(t *testing.T) {
+func TestHandleGruntbookRequest(t *testing.T) {
 	tempDir := t.TempDir()
-	testContent := "This is test content for the runbook handler"
+	testContent := "This is test content for the gruntbook handler"
 	testFile := filepath.Join(tempDir, "test-file.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0644))
 
 	t.Run("returns file content with full response shape", func(t *testing.T) {
-		code, resp := runbookRequest(t, RunbookConfig{
+		code, resp := gruntbookRequest(t, GruntbookConfig{
 			LocalPath:             testFile,
 			UseExecutableRegistry: true,
 		})
@@ -54,13 +54,13 @@ func TestHandleRunbookRequest(t *testing.T) {
 		assert.Equal(t, true, resp["useExecutableRegistry"])
 		assert.NotEmpty(t, resp["contentHash"])
 		assert.NotNil(t, resp["size"])
-		// remoteSource and isWatchMode should be absent for a basic local runbook
+		// remoteSource and isWatchMode should be absent for a basic local gruntbook
 		assert.Empty(t, resp["remoteSource"])
 		assert.Empty(t, resp["isWatchMode"])
 	})
 
 	t.Run("file not found returns 404", func(t *testing.T) {
-		code, _ := runbookRequest(t, RunbookConfig{
+		code, _ := gruntbookRequest(t, GruntbookConfig{
 			LocalPath:             filepath.Join(tempDir, "non-existent.txt"),
 			UseExecutableRegistry: true,
 		})
@@ -70,8 +70,8 @@ func TestHandleRunbookRequest(t *testing.T) {
 	t.Run("includes remoteSource when RemoteSourceURL is set", func(t *testing.T) {
 		// RemoteSourceURL is provenance metadata passed through to the response as-is;
 		// the handler never fetches it. The actual remote download happens upstream in remote_open.
-		remoteURL := "https://github.com/org/repo/tree/main/runbooks/setup-vpc"
-		code, resp := runbookRequest(t, RunbookConfig{
+		remoteURL := "https://github.com/org/repo/tree/main/gruntbooks/setup-vpc"
+		code, resp := gruntbookRequest(t, GruntbookConfig{
 			LocalPath:             testFile,
 			RemoteSourceURL:       remoteURL,
 			UseExecutableRegistry: true,
@@ -81,18 +81,18 @@ func TestHandleRunbookRequest(t *testing.T) {
 		assert.Equal(t, remoteURL, resp["remoteSource"])
 	})
 
-	t.Run("omits remoteSource for local runbooks", func(t *testing.T) {
-		code, resp := runbookRequest(t, RunbookConfig{
+	t.Run("omits remoteSource for local gruntbooks", func(t *testing.T) {
+		code, resp := gruntbookRequest(t, GruntbookConfig{
 			LocalPath:             testFile,
 			UseExecutableRegistry: true,
 		})
 
 		assert.Equal(t, 200, code)
-		assert.Empty(t, resp["remoteSource"], "remoteSource should not be in response for local runbooks")
+		assert.Empty(t, resp["remoteSource"], "remoteSource should not be in response for local gruntbooks")
 	})
 
 	t.Run("includes isWatchMode when enabled", func(t *testing.T) {
-		code, resp := runbookRequest(t, RunbookConfig{
+		code, resp := gruntbookRequest(t, GruntbookConfig{
 			LocalPath:             testFile,
 			IsWatchMode:           true,
 			UseExecutableRegistry: true,
@@ -103,7 +103,7 @@ func TestHandleRunbookRequest(t *testing.T) {
 	})
 
 	t.Run("includes warnings when UseExecutableRegistry is false", func(t *testing.T) {
-		code, resp := runbookRequest(t, RunbookConfig{
+		code, resp := gruntbookRequest(t, GruntbookConfig{
 			LocalPath:             testFile,
 			UseExecutableRegistry: false,
 		})
@@ -121,33 +121,33 @@ func TestHandleFileRequest(t *testing.T) {
 	testContent := "This is test content for the file handler"
 	testFile := filepath.Join(tempDir, "test-file.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0644))
-	runbookPath := filepath.Join(tempDir, "runbook.mdx")
+	gruntbookPath := filepath.Join(tempDir, "gruntbook.mdx")
 
-	t.Run("serves file at runbook path directly", func(t *testing.T) {
+	t.Run("serves file at gruntbook path directly", func(t *testing.T) {
 		code, body := fileRequest(t, testFile, `{"path": ""}`)
 		assert.Equal(t, 200, code)
 		assert.Contains(t, body, testContent)
 	})
 
-	t.Run("resolves relative path from runbook directory", func(t *testing.T) {
-		code, body := fileRequest(t, runbookPath, `{"path": "test-file.txt"}`)
+	t.Run("resolves relative path from gruntbook directory", func(t *testing.T) {
+		code, body := fileRequest(t, gruntbookPath, `{"path": "test-file.txt"}`)
 		assert.Equal(t, 200, code)
 		assert.Contains(t, body, testContent)
 	})
 
 	t.Run("returns 404 for non-existent file", func(t *testing.T) {
-		code, _ := fileRequest(t, runbookPath, `{"path": "non-existent.txt"}`)
+		code, _ := fileRequest(t, gruntbookPath, `{"path": "non-existent.txt"}`)
 		assert.Equal(t, 404, code)
 	})
 
 	t.Run("returns 400 for invalid JSON", func(t *testing.T) {
-		code, body := fileRequest(t, runbookPath, `{"path": "test"`)
+		code, body := fileRequest(t, gruntbookPath, `{"path": "test"`)
 		assert.Equal(t, 400, code)
 		assert.Contains(t, body, "Invalid request")
 	})
 
 	t.Run("returns 400 for wrong type", func(t *testing.T) {
-		code, body := fileRequest(t, runbookPath, `{"path": 123}`)
+		code, body := fileRequest(t, gruntbookPath, `{"path": 123}`)
 		assert.Equal(t, 400, code)
 		assert.Contains(t, body, "Invalid request")
 	})
@@ -155,11 +155,11 @@ func TestHandleFileRequest(t *testing.T) {
 
 // fileRequest is a test helper that creates a gin router with HandleFileRequest,
 // fires a POST /file with the given raw JSON body, and returns the status code and body string.
-func fileRequest(t *testing.T, runbookPath string, rawJSON string) (int, string) {
+func fileRequest(t *testing.T, gruntbookPath string, rawJSON string) (int, string) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/file", HandleFileRequest(runbookPath))
+	router.POST("/file", HandleFileRequest(gruntbookPath))
 
 	req, err := http.NewRequest("POST", "/file", bytes.NewBufferString(rawJSON))
 	require.NoError(t, err)
@@ -172,36 +172,36 @@ func fileRequest(t *testing.T, runbookPath string, rawJSON string) (int, string)
 
 func TestHandleFileRequest_PermissionError(t *testing.T) {
 	tempDir := t.TempDir()
-	runbookPath := filepath.Join(tempDir, "runbook.mdx")
+	gruntbookPath := filepath.Join(tempDir, "gruntbook.mdx")
 
 	unreadableFile := filepath.Join(tempDir, "secret.txt")
 	require.NoError(t, os.WriteFile(unreadableFile, []byte("secret"), 0644))
 	require.NoError(t, os.Chmod(unreadableFile, 0000))
 	t.Cleanup(func() { os.Chmod(unreadableFile, 0644) })
 
-	code, body := fileRequest(t, runbookPath, `{"path": "secret.txt"}`)
+	code, body := fileRequest(t, gruntbookPath, `{"path": "secret.txt"}`)
 	assert.Equal(t, 500, code)
 	assert.Contains(t, body, "Failed to read file")
 }
 
-func TestResolveRunbookPath(t *testing.T) {
-	t.Run("directory containing runbook.mdx returns the file path", func(t *testing.T) {
+func TestResolveGruntbookPath(t *testing.T) {
+	t.Run("directory containing gruntbook.mdx returns the file path", func(t *testing.T) {
 		dir := t.TempDir()
-		mdxPath := filepath.Join(dir, "runbook.mdx")
+		mdxPath := filepath.Join(dir, "gruntbook.mdx")
 		require.NoError(t, os.WriteFile(mdxPath, []byte("# Hello"), 0644))
 
-		result, err := ResolveRunbookPath(dir)
+		result, err := ResolveGruntbookPath(dir)
 		require.NoError(t, err)
 		assert.Equal(t, mdxPath, result)
 	})
 
-	t.Run("directory without runbook.mdx returns error", func(t *testing.T) {
+	t.Run("directory without gruntbook.mdx returns error", func(t *testing.T) {
 		dir := t.TempDir()
 
-		_, err := ResolveRunbookPath(dir)
+		_, err := ResolveGruntbookPath(dir)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no runbook found")
-		assert.Contains(t, err.Error(), "expected runbook.mdx")
+		assert.Contains(t, err.Error(), "no gruntbook found")
+		assert.Contains(t, err.Error(), "expected gruntbook.mdx")
 	})
 
 	t.Run("file path is returned as-is", func(t *testing.T) {
@@ -209,13 +209,13 @@ func TestResolveRunbookPath(t *testing.T) {
 		filePath := filepath.Join(dir, "custom-name.mdx")
 		require.NoError(t, os.WriteFile(filePath, []byte("# Hello"), 0644))
 
-		result, err := ResolveRunbookPath(filePath)
+		result, err := ResolveGruntbookPath(filePath)
 		require.NoError(t, err)
 		assert.Equal(t, filePath, result)
 	})
 
 	t.Run("nonexistent path returns error", func(t *testing.T) {
-		_, err := ResolveRunbookPath("/nonexistent/path")
+		_, err := ResolveGruntbookPath("/nonexistent/path")
 		assert.Error(t, err)
 	})
 
@@ -223,17 +223,17 @@ func TestResolveRunbookPath(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "runbook.md"), []byte("# Hello"), 0644))
 
-		_, err := ResolveRunbookPath(dir)
+		_, err := ResolveGruntbookPath(dir)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no runbook found")
+		assert.Contains(t, err.Error(), "no gruntbook found")
 	})
 }
 
-func TestHandleRunbookAssetsRequest(t *testing.T) {
+func TestHandleGruntbookAssetsRequest(t *testing.T) {
 	tempDir := t.TempDir()
 
-	runbookPath := filepath.Join(tempDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte("# Test Runbook"), 0644))
+	gruntbookPath := filepath.Join(tempDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte("# Test Gruntbook"), 0644))
 
 	assetsDir := filepath.Join(tempDir, "assets")
 	require.NoError(t, os.Mkdir(assetsDir, 0755))
@@ -270,7 +270,7 @@ func TestHandleRunbookAssetsRequest(t *testing.T) {
 		{"block script file", "/bad-script.sh", 403, nil, "", "File type not allowed"},
 
 		// Security: path traversal prevention
-		{"block directory traversal", "/../runbook.mdx", 403, nil, "", "Invalid path"},
+		{"block directory traversal", "/../gruntbook.mdx", 403, nil, "", "Invalid path"},
 		{"block encoded traversal", "/%2e%2e/secret.txt", 403, nil, "", "Invalid path"},
 
 		// Error cases
@@ -281,9 +281,9 @@ func TestHandleRunbookAssetsRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			router := gin.New()
-			router.GET("/runbook-assets/*filepath", HandleRunbookAssetsRequest(runbookPath))
+			router.GET("/gruntbook-assets/*filepath", HandleGruntbookAssetsRequest(gruntbookPath))
 
-			req, err := http.NewRequest("GET", "/runbook-assets"+tt.requestPath, nil)
+			req, err := http.NewRequest("GET", "/gruntbook-assets"+tt.requestPath, nil)
 			require.NoError(t, err)
 
 			w := httptest.NewRecorder()

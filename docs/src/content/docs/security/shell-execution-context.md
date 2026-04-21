@@ -1,11 +1,11 @@
 ---
 title: Shell Execution Context
-description: Understanding how Runbooks executes scripts and maintains environment state
+description: Understanding how Gruntbooks executes scripts and maintains environment state
 ---
 
 ## Persistent Environment Model
 
-**Think of Runbooks like a persistent terminal session.** When you run scripts in Check or Command blocks, environment changes carry forward to subsequent blocks — just like typing commands in a terminal.
+**Think of Gruntbooks like a persistent terminal session.** When you run scripts in Check or Command blocks, environment changes carry forward to subsequent blocks — just like typing commands in a terminal.
 
 | What persists | Example |
 |---------------|---------|
@@ -13,7 +13,7 @@ description: Understanding how Runbooks executes scripts and maintains environme
 | Working directory | `cd /path/to/project` changes where later scripts run |
 | Unset variables | `unset DEBUG` removes the variable for later blocks |
 
-This means you can structure your runbook like a workflow:
+This means you can structure your gruntbook like a workflow:
 
 1. **Block 1**: Set up environment (`export AWS_REGION=us-east-1`)
 2. **Block 2**: Run a command that uses `$AWS_REGION`
@@ -52,7 +52,7 @@ export JSON_CONFIG='{
 }'
 ```
 
-Runbooks uses NUL-terminated output (`env -0`) when capturing environment variables, which correctly handles values containing newlines. This works on Linux, macOS, and Windows with Git Bash.
+Gruntbooks uses NUL-terminated output (`env -0`) when capturing environment variables, which correctly handles values containing newlines. This works on Linux, macOS, and Windows with Git Bash.
 
 ### User Trap Support
 
@@ -67,17 +67,17 @@ trap "rm -rf $TEMP_DIR" EXIT
 export RESULT="computed value"
 ```
 
-Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. When your script exits:
+Gruntbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. When your script exits:
 
 1. Your trap handler runs first (cleanup happens)
-2. Runbooks captures the final environment state
+2. Gruntbooks captures the final environment state
 3. The original exit code is preserved
 
 This means you can write scripts with proper cleanup logic and still have environment changes persist to subsequent blocks.
 
 ### Multiple Browser Tabs
 
-If you open the same runbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.
+If you open the same gruntbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.
 
 ### Concurrent Script Execution
 
@@ -98,21 +98,21 @@ For example, if Script B finishes last, the session ends up with `{X=1, Y=3}` �
 
 ### Implementation Notes
 
-The Runbooks server maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
+The Gruntbooks server maintains a single session per gruntbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
 
-The session resets when you restart the Runbooks server. You can also manually reset the environment to its initial state using the session controls in the UI.
+The session resets when you restart the Gruntbooks server. You can also manually reset the environment to its initial state using the session controls in the UI.
 
 ---
 
 ## Built-in Environment Variables
 
-Runbooks exposes the following environment variables to all scripts:
+Gruntbooks exposes the following environment variables to all scripts:
 
 | Variable | Description |
 |----------|-------------|
 | `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
 | `REPO_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
-| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
+| `GRUNTBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
 
 ### Capturing Output Files
 
@@ -156,7 +156,7 @@ Scripts run in a **non-interactive shell**, which affects what's available:
 
 | Feature | Available? | Notes |
 |---------|------------|-------|
-| Environment variables | ✅ Yes | Inherited from Runbooks + changes from previous blocks |
+| Environment variables | ✅ Yes | Inherited from Gruntbooks + changes from previous blocks |
 | Binaries in `$PATH` | ✅ Yes | `git`, `aws`, `terraform`, etc. |
 | Shell aliases | ❌ No | `ll`, `la`, custom aliases |
 | Shell functions | ❌ No | `nvm`, `rvm`, `assume`, etc. |
@@ -216,7 +216,7 @@ nvm --version
 
 ## Interpreter Detection
 
-Runbooks determines which interpreter to use for your script:
+Gruntbooks determines which interpreter to use for your script:
 
 1. **Shebang line** — If your script starts with `#!/bin/bash`, `#!/usr/bin/env python3`, etc., that interpreter is used
 2. **Default** — If no shebang is present, `bash` is used
@@ -242,13 +242,13 @@ set -e
 
 ---
 
-## Demo Runbooks
+## Demo Gruntbooks
 
-The Runbooks repository includes demo runbooks that showcase these execution features:
+The Gruntbooks repository includes demo gruntbooks that showcase these execution features:
 
 ### Persistent Environment Demo
 
-The [`runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/runbook-execution-model) demo demonstrates:
+The [`gruntbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/gruntbook-execution-model) demo demonstrates:
 
 - Setting and reading environment variables across blocks
 - Working directory persistence

@@ -165,7 +165,7 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 
 		commitMessage := req.CommitMessage
 		if commitMessage == "" {
-			commitMessage = "Changes from runbook"
+			commitMessage = "Changes from gruntbook"
 		}
 
 		// Parse owner/repo from URL

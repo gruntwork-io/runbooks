@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"runbooks/api"
-	"runbooks/browser"
+	"github.com/gruntwork-io/runbooks/api"
+	"github.com/gruntwork-io/runbooks/browser"
 )
 
 const (
@@ -19,8 +19,8 @@ const (
 
 // healthResponse represents the JSON response from /api/health
 type healthResponse struct {
-	Status      string `json:"status"`
-	RunbookPath string `json:"runbookPath"`
+	Status        string `json:"status"`
+	GruntbookPath string `json:"gruntbookPath"`
 }
 
 // startServerAndOpen starts the server with the given config, waits for it to become
@@ -29,7 +29,7 @@ func startServerAndOpen(rb serverSetup, config api.ServerConfig) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- api.StartServer(config) }()
 
-	if err := waitForServerReady(config.Port, rb.runbookPath, errCh); err != nil {
+	if err := waitForServerReady(config.Port, rb.gruntbookPath, errCh); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -38,18 +38,18 @@ func startServerAndOpen(rb serverSetup, config api.ServerConfig) {
 }
 
 // waitForServerReady polls the health endpoint until the server is ready or an error occurs.
-// It verifies that the server is serving the expected runbook path to detect if another
+// It verifies that the server is serving the expected gruntbook path to detect if another
 // instance is already running.
 // It returns nil if the server becomes ready, or an error if:
 // - The server exits with an error (received on errCh)
 // - The timeout is reached before the server becomes ready
-// - Another server instance is already running (runbook path mismatch)
+// - Another server instance is already running (gruntbook path mismatch)
 // - Another service is using the port
-func waitForServerReady(port int, expectedRunbookPath string, errCh <-chan error) error {
+func waitForServerReady(port int, expectedGruntbookPath string, errCh <-chan error) error {
 	healthURL := fmt.Sprintf("http://localhost:%d/api/health", port)
 	deadline := time.Now().Add(healthCheckTimeout)
 
-	// Track if something is responding on the port (even if it's not runbooks)
+	// Track if something is responding on the port (even if it's not gruntbooks)
 	portResponding := false
 
 	for time.Now().Before(deadline) {
@@ -73,19 +73,19 @@ func waitForServerReady(port int, expectedRunbookPath string, errCh <-chan error
 
 					var health healthResponse
 					if err := json.Unmarshal(body, &health); err != nil {
-						// Got a 200 OK but not valid runbooks JSON - another service is using the port
-						return fmt.Errorf("port %d is in use by another service (not runbooks)", port)
+						// Got a 200 OK but not valid gruntbooks JSON - another service is using the port
+						return fmt.Errorf("port %d is in use by another service (not gruntbooks)", port)
 					}
 
-					// Verify the runbook path matches
-					if health.RunbookPath != expectedRunbookPath {
-						if health.RunbookPath != "" {
-							return fmt.Errorf("another runbooks instance is already running on port %d, serving: %s", port, health.RunbookPath)
+					// Verify the gruntbook path matches
+					if health.GruntbookPath != expectedGruntbookPath {
+						if health.GruntbookPath != "" {
+							return fmt.Errorf("another gruntbooks instance is already running on port %d, serving: %s", port, health.GruntbookPath)
 						}
-						return fmt.Errorf("another runbooks instance is already running on port %d", port)
+						return fmt.Errorf("another gruntbooks instance is already running on port %d", port)
 					}
 
-					return nil // Server is ready and serving the correct runbook
+					return nil // Server is ready and serving the correct gruntbook
 				}
 				// Got a response but not 200 OK - likely another service
 				// Keep trying in case our server is still starting up
@@ -96,7 +96,7 @@ func waitForServerReady(port int, expectedRunbookPath string, errCh <-chan error
 	}
 
 	if portResponding {
-		return fmt.Errorf("port %d is in use by another service (not runbooks)", port)
+		return fmt.Errorf("port %d is in use by another service (not gruntbooks)", port)
 	}
 	return fmt.Errorf("timeout waiting for server to become ready (waited %v)", healthCheckTimeout)
 }

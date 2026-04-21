@@ -6,13 +6,13 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-Runbooks enables infrastructure experts to scale their expertise. Here are the most common practical scenarios where infrastructure expertise winds up being a painful bottleneck:
+Gruntbooks enables infrastructure experts to scale their expertise. Here are the most common practical scenarios where infrastructure expertise winds up being a painful bottleneck:
 
 ## Developer self-service
 
 It can be painful for app developers to look up how to use an infrastructure pattern, learn enough of the technology to write the code, debug it, and deploy it. Sometimes the pain is too much, so app developers lean on infrastructure experts, which shifts the pain from "learning more than I have capacity for right now" to "waiting for the expert to get back to me."
 
-Runbooks capture a subject matter expert's knowledge and experience in a runbook and enable app developers to easily launch new infrastructure that follows your organization's best practices. For example:
+Gruntbooks capture a subject matter expert's knowledge and experience in a gruntbook and enable app developers to easily launch new infrastructure that follows your organization's best practices. For example:
 
 - Create a new K8s Service
 - Scaffold a new app repo
@@ -35,15 +35,15 @@ One way to think about setting up a landing zone is to solve the following probl
 2. Define a way to create a new AWS account, GCP project, or Azure subscription (e.g. via the cloud API, or as an OpenTofu module)
 3. Present a UI that allows users to configure their desired account/project/subscription
 
-There are well-established solutions for [1] (like defining an OpenTofu module), and [2] (like calling a cloud API). Runbooks can serve as an excellent way to combine [1] and [2] into [3], a configurable, powerful UI that asks users to configure their desired new account/project/subscription (e.g. with an email, name, description), calls the relevant API to provision the account/project/subscription, and then generates the necessary code to install the baseline.
+There are well-established solutions for [1] (like defining an OpenTofu module), and [2] (like calling a cloud API). Gruntbooks can serve as an excellent way to combine [1] and [2] into [3], a configurable, powerful UI that asks users to configure their desired new account/project/subscription (e.g. with an email, name, description), calls the relevant API to provision the account/project/subscription, and then generates the necessary code to install the baseline.
 
-Because Runbooks can ask for a user-entered value like an AWS account ID, you can plumb this value through your generated code and scripts to accomplish whatever you need.
+Because Gruntbooks can ask for a user-entered value like an AWS account ID, you can plumb this value through your generated code and scripts to accomplish whatever you need.
 
-You could even have the runbook provision SSO access, teach the user how to use the newly provisioned resources, guide them to review policies, or give them customized links to access their account, all without coding any custom user interface.
+You could even have the gruntbook provision SSO access, teach the user how to use the newly provisioned resources, guide them to review policies, or give them customized links to access their account, all without coding any custom user interface.
 
 ## Streamline internal processes
 
-Many internal processes are captured as static documentation. But with Runbooks, you can complete the actual process by the time you're doing reading the Runbook! For example:
+Many internal processes are captured as static documentation. But with Gruntbooks, you can complete the actual process by the time you're doing reading the Gruntbook! For example:
 
 - Provision a new AWS Account, configure the account baseline and all networking configurations, and validate everything along the way.
 - Stand up a new customer with all the infrastructure and all the information they need to get started.
@@ -52,14 +52,14 @@ Many internal processes are captured as static documentation. But with Runbooks,
 
 When you create a reusable infrastructure-as-code (IaC) module, the code itself is not enough to be useful. You also need to document how to use the module, show common usage examples, and validate that it works as expected.
 
-Traditional documentation describes your module, but Runbooks can actually collect configuration from the user, generate the module code, and validate that the module was created correctly. For example:
+Traditional documentation describes your module, but Gruntbooks can actually collect configuration from the user, generate the module code, and validate that the module was created correctly. For example:
 
 - Create an SNS topic that notifies a Slack channel
 - Create an SNS topic that notifies an email address
 - Create an SNS topic that notifies a PagerDuty service
 
-You might define one Runbook for each of these, or a single Runbook that can create any of these configurations.
+You might define one Gruntbook for each of these, or a single Gruntbook that can create any of these configurations.
 
 # Next
 
-You're almost done with the intro! As a last step, let's see how [Runbooks compares to alternatives](/intro/runbooks_vs_other/).
+You're almost done with the intro! As a last step, let's see how [Gruntbooks compares to alternatives](/intro/gruntbooks_vs_other/).

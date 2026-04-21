@@ -21,7 +21,7 @@ class TraceReporter implements Reporter {
     );
     if (!trace?.path) return;
 
-    // Extract the directory basename (e.g. "test-sample-runbooks-sampl-...-chromium")
+    // Extract the directory basename (e.g. "test-sample-gruntbooks-sampl-...-chromium")
     // and build a relative path from the download directory.
     const traceDir = path.basename(path.dirname(trace.path));
 

@@ -179,7 +179,7 @@ export function OAuthFlow({
           {showAutoAuthInfo && (
             <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-gray-600 space-y-2">
               <p>
-                Runbooks can automatically detect your GitHub credentials so you don't have to sign in manually each time.
+                Gruntbooks can automatically detect your GitHub credentials so you don't have to sign in manually each time.
               </p>
               <p>
                 <strong>Option 1: GitHub CLI</strong> — Run <code className="bg-gray-200 px-1 rounded text-xs">gh auth login</code> in 
@@ -190,7 +190,7 @@ export function OAuthFlow({
                 your GitHub Personal Access Token.
               </p>
               <p className="text-gray-500">
-                After setting up either option, reload the runbook and Runbooks will detect your credentials automatically.
+                After setting up either option, reload the gruntbook and Gruntbooks will detect your credentials automatically.
               </p>
             </div>
           )}

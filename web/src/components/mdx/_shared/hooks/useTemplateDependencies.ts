@@ -17,7 +17,7 @@
  */
 
 import { useMemo } from 'react'
-import { useInputs, useAllOutputs, flattenInputs } from '@/contexts/useRunbook'
+import { useInputs, useAllOutputs, flattenInputs } from '@/contexts/useGruntbook'
 import {
   flattenBlockOutputs,
   computeUnmetInputDependencies,
@@ -46,7 +46,7 @@ export interface UseTemplateDependenciesResult {
 }
 
 /**
- * Resolves template dependencies against the shared RunbookContext.
+ * Resolves template dependencies against the shared GruntbookContext.
  *
  * Flattens raw storage formats internally:
  * - InputValue[] (from useInputs) → flattenInputs → TemplateInputs

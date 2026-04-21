@@ -19,10 +19,10 @@ type FileRequest struct {
 	Path string `json:"path"`
 }
 
-// RunbookConfig holds the configuration for serving a runbook via the API.
-type RunbookConfig struct {
-	LocalPath             string // Resolved local path to the runbook file
-	RemoteSourceURL       string // Original remote URL (e.g., GitHub URL); empty for local runbooks
+// GruntbookConfig holds the configuration for serving a gruntbook via the API.
+type GruntbookConfig struct {
+	LocalPath             string // Resolved local path to the gruntbook file
+	RemoteSourceURL       string // Original remote URL (e.g., GitHub URL); empty for local gruntbooks
 	IsWatchMode           bool   // Whether live file-watching is enabled
 	UseExecutableRegistry bool   // Whether to use the pre-built executable registry
 }
@@ -76,18 +76,18 @@ var allowedAssetContentTypes = map[string]string{
 // Handlers
 // ---------------------------------------------------------------------------
 
-// HandleRunbookRequest returns the contents of the runbook file directly.
-// This handler is used for GET /api/runbook requests.
-func HandleRunbookRequest(cfg RunbookConfig) gin.HandlerFunc {
+// HandleGruntbookRequest returns the contents of the gruntbook file directly.
+// This handler is used for GET /api/gruntbook requests.
+func HandleGruntbookRequest(cfg GruntbookConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		serveRunbookContent(c, cfg)
+		serveGruntbookContent(c, cfg)
 	}
 }
 
 // HandleFileRequest returns the contents of a file at the given path.
 // The path is expected to be a file path, not a directory.
 // This handler is used for POST /api/file requests with JSON body.
-func HandleFileRequest(runbookPath string) gin.HandlerFunc {
+func HandleFileRequest(gruntbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req FileRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -98,17 +98,17 @@ func HandleFileRequest(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
-		filePath := runbookPath
+		filePath := gruntbookPath
 		if req.Path != "" {
-			filePath = filepath.Join(filepath.Dir(runbookPath), req.Path)
+			filePath = filepath.Join(filepath.Dir(gruntbookPath), req.Path)
 		}
 		serveFileAsJSON(c, filePath)
 	}
 }
 
-// HandleRunbookAssetsRequest serves static assets from the runbook's assets directory.
+// HandleGruntbookAssetsRequest serves static assets from the gruntbook's assets directory.
 // This endpoint serves raw files (images, PDFs, media) with appropriate content types.
-func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
+func HandleGruntbookAssetsRequest(gruntbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestedPath := c.Param("filepath")
 		if requestedPath == "" {
@@ -142,10 +142,10 @@ func HandleRunbookAssetsRequest(runbookPath string) gin.HandlerFunc {
 			return
 		}
 
-		runbookDir := filepath.Dir(runbookPath)
-		fullPath := filepath.Join(runbookDir, "assets", cleanPath)
+		gruntbookDir := filepath.Dir(gruntbookPath)
+		fullPath := filepath.Join(gruntbookDir, "assets", cleanPath)
 
-		assetsDir := filepath.Join(runbookDir, "assets")
+		assetsDir := filepath.Join(gruntbookDir, "assets")
 		relPath, err := filepath.Rel(assetsDir, fullPath)
 		if err != nil || len(relPath) >= 2 && relPath[0:2] == ".." {
 			c.JSON(http.StatusForbidden, gin.H{
@@ -233,8 +233,8 @@ func sendFileError(c *gin.Context, filePath string, err error) {
 	})
 }
 
-// serveRunbookContent serves a runbook file as JSON, adding runbook-specific fields to the response.
-func serveRunbookContent(c *gin.Context, cfg RunbookConfig) {
+// serveGruntbookContent serves a gruntbook file as JSON, adding gruntbook-specific fields to the response.
+func serveGruntbookContent(c *gin.Context, cfg GruntbookConfig) {
 	meta, err := readFileMetadata(cfg.LocalPath)
 	if err != nil {
 		sendFileError(c, cfg.LocalPath, err)
@@ -254,11 +254,11 @@ func serveRunbookContent(c *gin.Context, cfg RunbookConfig) {
 
 	// In live-reload mode, validate for duplicate components on-demand.
 	// In registry mode, warnings are captured once at server startup during registry creation.
-	// In live-reload mode, no registry exists, so we validate on each request for the runbook.
+	// In live-reload mode, no registry exists, so we validate on each request for the gruntbook.
 	if !cfg.UseExecutableRegistry {
-		warnings, err := validateRunbook(cfg.LocalPath)
+		warnings, err := validateGruntbook(cfg.LocalPath)
 		if err != nil {
-			slog.Warn("Failed to validate runbook for duplicates", "error", err)
+			slog.Warn("Failed to validate gruntbook for duplicates", "error", err)
 		} else {
 			response["warnings"] = warnings
 		}

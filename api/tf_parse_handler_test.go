@@ -15,9 +15,9 @@ import (
 )
 
 // tfParseRequest is a test helper that fires a POST /api/tf/parse with the given body.
-func tfParseRequest(t *testing.T, runbookPath string, body interface{}) (int, []byte) {
+func tfParseRequest(t *testing.T, gruntbookPath string, body interface{}) (int, []byte) {
 	t.Helper()
-	return postJSON(t, "/api/tf/parse", HandleTfModuleParse(runbookPath), body)
+	return postJSON(t, "/api/tf/parse", HandleTfModuleParse(gruntbookPath), body)
 }
 
 func TestHandleTfModuleParse_LocalPath(t *testing.T) {
@@ -25,10 +25,10 @@ func TestHandleTfModuleParse_LocalPath(t *testing.T) {
 	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/s3-bucket")
 	require.NoError(t, err)
 
-	// The runbook path is used for relative path resolution — use the fixture parent
-	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
+	// The gruntbook path is used for relative path resolution — use the fixture parent
+	gruntbookPath := filepath.Join(fixtureDir, "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: fixtureDir,
 	})
 
@@ -45,14 +45,14 @@ func TestHandleTfModuleParse_LocalPath(t *testing.T) {
 }
 
 func TestHandleTfModuleParse_RelativePath(t *testing.T) {
-	// Test that relative paths resolve correctly against runbook directory
+	// Test that relative paths resolve correctly against gruntbook directory
 	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules")
 	require.NoError(t, err)
 
-	// Place the "runbook" in the tf-modules parent directory
-	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
+	// Place the "gruntbook" in the tf-modules parent directory
+	gruntbookPath := filepath.Join(fixtureDir, "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: "s3-bucket",
 	})
 
@@ -65,13 +65,13 @@ func TestHandleTfModuleParse_RelativePath(t *testing.T) {
 }
 
 func TestHandleTfModuleParse_DotPath(t *testing.T) {
-	// Test source="." (colocated module) — resolves to the runbook's own directory
+	// Test source="." (colocated module) — resolves to the gruntbook's own directory
 	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/s3-bucket")
 	require.NoError(t, err)
 
-	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
+	gruntbookPath := filepath.Join(fixtureDir, "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: ".",
 	})
 
@@ -85,7 +85,7 @@ func TestHandleTfModuleParse_DotPath(t *testing.T) {
 func TestHandleTfModuleParse_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/runbook.mdx"))
+	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/gruntbook.mdx"))
 
 	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBufferString("not json"))
 	require.NoError(t, err)
@@ -103,14 +103,14 @@ func TestHandleTfModuleParse_InvalidJSON(t *testing.T) {
 
 func TestHandleTfModuleParse_MissingSource(t *testing.T) {
 	// Empty source should fail validation (binding:"required")
-	code, _ := tfParseRequest(t, "/fake/runbook.mdx", map[string]string{})
+	code, _ := tfParseRequest(t, "/fake/gruntbook.mdx", map[string]string{})
 	assert.Equal(t, http.StatusBadRequest, code)
 }
 
 func TestHandleTfModuleParse_NonExistentPath(t *testing.T) {
-	runbookPath := filepath.Join(t.TempDir(), "runbook.mdx")
+	gruntbookPath := filepath.Join(t.TempDir(), "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: "/nonexistent/path/to/module",
 	})
 
@@ -127,9 +127,9 @@ func TestHandleTfModuleParse_FileNotDirectory(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "not-a-directory.tf")
 	require.NoError(t, os.WriteFile(filePath, []byte("variable \"x\" {}"), 0644))
 
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: filePath,
 	})
 
@@ -145,9 +145,9 @@ func TestHandleTfModuleParse_ComplexModule(t *testing.T) {
 	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/lambda-s3-complex")
 	require.NoError(t, err)
 
-	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
+	gruntbookPath := filepath.Join(fixtureDir, "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: fixtureDir,
 	})
 
@@ -181,9 +181,9 @@ func TestHandleTfModuleParse_ModuleWithOutputsAndResources(t *testing.T) {
 	fixtureDir, err := filepath.Abs("../testdata/test-fixtures/tf-modules/s3-bucket")
 	require.NoError(t, err)
 
-	runbookPath := filepath.Join(fixtureDir, "runbook.mdx")
+	gruntbookPath := filepath.Join(fixtureDir, "gruntbook.mdx")
 
-	code, body := tfParseRequest(t, runbookPath, TfParseRequest{
+	code, body := tfParseRequest(t, gruntbookPath, TfParseRequest{
 		Source: fixtureDir,
 	})
 
@@ -203,42 +203,42 @@ func TestHandleTfModuleParse_ModuleWithOutputsAndResources(t *testing.T) {
 func TestResolveModuleSource_AbsolutePath(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	localPath, cleanup, err := resolveModuleSource(tmpDir, "/some/runbook.mdx")
+	localPath, cleanup, err := resolveModuleSource(tmpDir, "/some/gruntbook.mdx")
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 	assert.Equal(t, tmpDir, localPath, "absolute paths should be returned as-is")
 }
 
 func TestResolveModuleSource_RelativePath(t *testing.T) {
-	runbookDir := t.TempDir()
-	runbookPath := filepath.Join(runbookDir, "runbook.mdx")
+	gruntbookDir := t.TempDir()
+	gruntbookPath := filepath.Join(gruntbookDir, "gruntbook.mdx")
 
-	localPath, cleanup, err := resolveModuleSource("../modules/vpc", runbookPath)
+	localPath, cleanup, err := resolveModuleSource("../modules/vpc", gruntbookPath)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 
-	expected := filepath.Join(runbookDir, "../modules/vpc")
-	assert.Equal(t, expected, localPath, "relative paths should resolve against runbook directory")
+	expected := filepath.Join(gruntbookDir, "../modules/vpc")
+	assert.Equal(t, expected, localPath, "relative paths should resolve against gruntbook directory")
 }
 
 func TestResolveModuleSource_DotPath(t *testing.T) {
-	runbookDir := t.TempDir()
-	runbookPath := filepath.Join(runbookDir, "runbook.mdx")
+	gruntbookDir := t.TempDir()
+	gruntbookPath := filepath.Join(gruntbookDir, "gruntbook.mdx")
 
-	localPath, cleanup, err := resolveModuleSource(".", runbookPath)
+	localPath, cleanup, err := resolveModuleSource(".", gruntbookPath)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
-	assert.Equal(t, runbookDir, localPath, "'.' should resolve to the runbook directory")
+	assert.Equal(t, gruntbookDir, localPath, "'.' should resolve to the gruntbook directory")
 }
 
 func TestResolveModuleSource_NestedRelativePath(t *testing.T) {
-	runbookDir := t.TempDir()
-	runbookPath := filepath.Join(runbookDir, "runbook.mdx")
+	gruntbookDir := t.TempDir()
+	gruntbookPath := filepath.Join(gruntbookDir, "gruntbook.mdx")
 
-	localPath, cleanup, err := resolveModuleSource("modules/vpc", runbookPath)
+	localPath, cleanup, err := resolveModuleSource("modules/vpc", gruntbookPath)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 
-	expected := filepath.Join(runbookDir, "modules/vpc")
+	expected := filepath.Join(gruntbookDir, "modules/vpc")
 	assert.Equal(t, expected, localPath)
 }

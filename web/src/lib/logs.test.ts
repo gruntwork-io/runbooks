@@ -175,7 +175,7 @@ describe('parseLogsToStructured', () => {
   it('should handle complex real-world logging demo output', () => {
     const logs = [
       {
-        line: '=========================================\n  Runbooks Logging Demo\n=========================================\n\n[INFO]  This is an informational message\n[WARN]  This is a warning message\n[ERROR] This is an error message',
+        line: '=========================================\n  Gruntbooks Logging Demo\n=========================================\n\n[INFO]  This is an informational message\n[WARN]  This is a warning message\n[ERROR] This is an error message',
         timestamp: '2026-01-04T10:00:00Z',
       },
     ]
@@ -225,7 +225,7 @@ describe('generateLogFilename', () => {
   it('should generate filename with correct format', () => {
     const filename = generateLogFilename('my-block', 'log')
     
-    expect(filename).toMatch(/^runbook-my-block-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}.*\.log$/)
+    expect(filename).toMatch(/^gruntbook-my-block-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}.*\.log$/)
   })
 
   it('should handle different extensions', () => {

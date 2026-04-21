@@ -100,7 +100,7 @@ describe('DirPicker', () => {
 
     // Note: Full integration testing of the cascading dropdowns requires
     // injecting block outputs into the context, which is better tested in
-    // an integration test with the full runbook setup.
+    // an integration test with the full gruntbook setup.
     void user // prevent unused variable lint warning
   })
 })

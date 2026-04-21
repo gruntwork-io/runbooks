@@ -9,26 +9,26 @@ const content = await generateLlmsTxt();
 <StarlightPage
   frontmatter={{
     title: "Author with AI",
-    description: "Copy the full Runbooks documentation to paste into an LLM for help authoring runbooks.",
+    description: "Copy the full Gruntbooks documentation to paste into an LLM for help authoring gruntbooks.",
     tableOfContents: false,
   }}
   hasSidebar={false}
 >
   <div class="llms-page">
     <p class="llms-intro">
-      Use your favorite LLM (ChatGPT, Claude, etc.) to help you write Gruntwork Runbooks.
+      Use your favorite LLM (ChatGPT, Claude, etc.) to help you write Gruntwork Gruntbooks.
     </p>
 
     <h3>How to use it</h3>
     <ol>
       <li>Copy the following prompt into your LLM:
-        <Code code="Write me a runbook that [describe what you want the runbook to do].\nUse the following context to help you write the runbook, which is the complete Runbooks documentation." lang="text" />
+        <Code code="Write me a gruntbook that [describe what you want the gruntbook to do].\nUse the following context to help you write the gruntbook, which is the complete Gruntbooks documentation." lang="text" />
       </li>
       <li>Copy the <strong>LLM context</strong> below and paste it into the same message.</li>
       <li>Send it! The LLM will have full knowledge of all available blocks, props, and conventions.</li>
     </ol>
     <p>
-      For best results, be specific about what your runbook should do: which tools it installs, what inputs it collects,
+      For best results, be specific about what your gruntbook should do: which tools it installs, what inputs it collects,
       what scripts it runs, and what checks it performs.
     </p>
 

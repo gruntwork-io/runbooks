@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"runbooks/api"
+	"github.com/gruntwork-io/runbooks/api"
 
 	"gopkg.in/yaml.v3"
 )
@@ -195,18 +195,18 @@ func (e ConfigErrors) Error() string {
 	return sb.String()
 }
 
-// InputValidator parses component blocks from a runbook, validates their
+// InputValidator parses component blocks from a gruntbook, validates their
 // configurations can be loaded, and validates test inputs against the schemas.
 type InputValidator struct {
-	runbookPath  string
-	schemas      map[string]*InputsBlockSchema // inputsID -> schema
-	configErrors ConfigErrors                  // errors encountered during validation
-	components   []api.ParsedComponent         // all components in document order
+	gruntbookPath string
+	schemas       map[string]*InputsBlockSchema // inputsID -> schema
+	configErrors  ConfigErrors                  // errors encountered during validation
+	components    []api.ParsedComponent         // all components in document order
 }
 
 // validateComponent performs structural validation on a parsed component.
 // This mirrors frontend validation in web/src/components/mdx/*/
-// Note: File existence checks are done separately since they require a runbook directory.
+// Note: File existence checks are done separately since they require a gruntbook directory.
 func validateComponent(comp api.ParsedComponent) []ConfigError {
 	var errors []ConfigError
 
@@ -282,23 +282,23 @@ func validateComponent(comp api.ParsedComponent) []ConfigError {
 	return errors
 }
 
-// NewInputValidator creates a validator for inputs in a runbook.
-func NewInputValidator(runbookPath string) (*InputValidator, error) {
+// NewInputValidator creates a validator for inputs in a gruntbook.
+func NewInputValidator(gruntbookPath string) (*InputValidator, error) {
 	v := &InputValidator{
-		runbookPath:  runbookPath,
-		schemas:      make(map[string]*InputsBlockSchema),
-		configErrors: make(ConfigErrors, 0),
-		components:   make([]api.ParsedComponent, 0),
+		gruntbookPath: gruntbookPath,
+		schemas:       make(map[string]*InputsBlockSchema),
+		configErrors:  make(ConfigErrors, 0),
+		components:    make([]api.ParsedComponent, 0),
 	}
 
 	if err := v.parseAndValidateComponents(); err != nil {
-		return nil, fmt.Errorf("failed to parse runbook components: %w", err)
+		return nil, fmt.Errorf("failed to parse gruntbook components: %w", err)
 	}
 
 	return v, nil
 }
 
-// KnownBlockTypes is the set of block types recognized by runbooks test.
+// KnownBlockTypes is the set of block types recognized by gruntbooks test.
 // Any block not in this set will be reported as an error.
 var KnownBlockTypes = map[string]bool{
 	"Check":          true,
@@ -315,14 +315,14 @@ var KnownBlockTypes = map[string]bool{
 	"Admonition":          true, // Decorative block - validated but not executed
 }
 
-// parseAndValidateComponents discovers and parses all component blocks in the runbook.
+// parseAndValidateComponents discovers and parses all component blocks in the gruntbook.
 func (v *InputValidator) parseAndValidateComponents() error {
-	content, err := os.ReadFile(v.runbookPath)
+	content, err := os.ReadFile(v.gruntbookPath)
 	if err != nil {
 		return err
 	}
 
-	runbookDir := filepath.Dir(v.runbookPath)
+	gruntbookDir := filepath.Dir(v.gruntbookPath)
 	contentStr := string(content)
 
 	// First, detect any unknown block types
@@ -332,7 +332,7 @@ func (v *InputValidator) parseAndValidateComponents() error {
 	var allComponents []api.ParsedComponent
 
 	// Parse and validate Inputs blocks
-	allComponents = append(allComponents, v.parseAndValidateInputsBlocks(contentStr, runbookDir)...)
+	allComponents = append(allComponents, v.parseAndValidateInputsBlocks(contentStr, gruntbookDir)...)
 
 	// Parse and validate Check blocks (file existence checked by ExecutableRegistry)
 	allComponents = append(allComponents, v.parseAndValidateExecutableBlocks(contentStr, "Check")...)
@@ -341,7 +341,7 @@ func (v *InputValidator) parseAndValidateComponents() error {
 	allComponents = append(allComponents, v.parseAndValidateExecutableBlocks(contentStr, "Command")...)
 
 	// Parse and validate Template blocks
-	allComponents = append(allComponents, v.parseAndValidateTemplateBlocks(contentStr, runbookDir)...)
+	allComponents = append(allComponents, v.parseAndValidateTemplateBlocks(contentStr, gruntbookDir)...)
 
 	// Parse and validate TemplateInline blocks
 	allComponents = append(allComponents, v.parseAndValidateTemplateInlineBlocks(contentStr)...)
@@ -392,7 +392,7 @@ func (v *InputValidator) detectUnknownBlocks(contentStr string) {
 		v.configErrors = append(v.configErrors, ConfigError{
 			ComponentType: blockType,
 			ComponentID:   "(unknown)",
-			Message:       fmt.Sprintf("unknown block type %q is not supported by runbooks test", blockType),
+			Message:       fmt.Sprintf("unknown block type %q is not supported by gruntbooks test", blockType),
 		})
 	}
 }
@@ -445,7 +445,7 @@ func sortComponentsByPosition(components []api.ParsedComponent) {
 
 // parseAndValidateInputsBlocks parses and validates all Inputs blocks.
 // Returns parsed components and records any validation errors in configErrors.
-func (v *InputValidator) parseAndValidateInputsBlocks(contentStr, runbookDir string) []api.ParsedComponent {
+func (v *InputValidator) parseAndValidateInputsBlocks(contentStr, gruntbookDir string) []api.ParsedComponent {
 	components := api.ParseComponents(contentStr, "Inputs")
 	var results []api.ParsedComponent
 
@@ -475,7 +475,7 @@ func (v *InputValidator) parseAndValidateInputsBlocks(contentStr, runbookDir str
 
 		configPath := api.ExtractProp(comp.Props, "path")
 		if configPath != "" {
-			_, fullPath := api.ResolveBoilerplatePath(runbookDir, configPath)
+			_, fullPath := api.ResolveBoilerplatePath(gruntbookDir, configPath)
 			cfg, err := loadBoilerplateConfig(fullPath)
 			if err != nil {
 				v.configErrors = append(v.configErrors, ConfigError{
@@ -513,7 +513,7 @@ func (v *InputValidator) parseAndValidateInputsBlocks(contentStr, runbookDir str
 
 // parseAndValidateTemplateBlocks parses and validates Template blocks.
 // Returns parsed components and records any validation errors in configErrors.
-func (v *InputValidator) parseAndValidateTemplateBlocks(contentStr, runbookDir string) []api.ParsedComponent {
+func (v *InputValidator) parseAndValidateTemplateBlocks(contentStr, gruntbookDir string) []api.ParsedComponent {
 	components := api.ParseComponents(contentStr, "Template")
 	var results []api.ParsedComponent
 
@@ -531,7 +531,7 @@ func (v *InputValidator) parseAndValidateTemplateBlocks(contentStr, runbookDir s
 
 		// File-based validation: template directory and boilerplate.yml exist
 		path := api.ExtractProp(comp.Props, "path")
-		templateDir, boilerplatePath := api.ResolveBoilerplatePath(runbookDir, path)
+		templateDir, boilerplatePath := api.ResolveBoilerplatePath(gruntbookDir, path)
 		if _, err := os.Stat(templateDir); err != nil {
 			v.configErrors = append(v.configErrors, ConfigError{
 				ComponentType: "Template",

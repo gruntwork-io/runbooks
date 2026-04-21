@@ -7,7 +7,7 @@ import {
 } from './templateUtils'
 import type { TemplateContext } from './templateUtils'
 import { extractTemplateDependenciesFromString } from './extractTemplateDependencies'
-import type { BlockOutputs } from '@/contexts/RunbookContext'
+import type { BlockOutputs } from '@/contexts/GruntbookContext'
 
 describe('buildRenderVariables', () => {
   it('should wrap user variables under inputs key', () => {

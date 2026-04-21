@@ -20,7 +20,7 @@ import (
 // don't support hyphens in dot notation (e.g., .outputs.create-account fails).
 //
 // This function must be used consistently across both frontend and backend:
-// - Frontend: when registering/looking up outputs (RunbookContext)
+// - Frontend: when registering/looking up outputs (GruntbookContext)
 // - Frontend: when checking output dependencies (Template, TemplateInline)
 // - Backend: when extracting output dependencies from templates
 //
@@ -34,20 +34,20 @@ func normalizeBlockID(id string) string {
 // either a directory containing a boilerplate.yml file, or a direct path to the
 // boilerplate.yml file itself.
 //
-// Example with directory path: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc")
-// returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
+// Example with directory path: ResolveBoilerplatePath("/gruntbooks/my-gruntbook", "templates/vpc")
+// returns ("/gruntbooks/my-gruntbook/templates/vpc", "/gruntbooks/my-gruntbook/templates/vpc/boilerplate.yml")
 //
-// Example with file path: ResolveBoilerplatePath("/runbooks/my-runbook", "templates/vpc/boilerplate.yml")
-// returns ("/runbooks/my-runbook/templates/vpc", "/runbooks/my-runbook/templates/vpc/boilerplate.yml")
-func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boilerplatePath string) {
+// Example with file path: ResolveBoilerplatePath("/gruntbooks/my-gruntbook", "templates/vpc/boilerplate.yml")
+// returns ("/gruntbooks/my-gruntbook/templates/vpc", "/gruntbooks/my-gruntbook/templates/vpc/boilerplate.yml")
+func ResolveBoilerplatePath(gruntbookDir, templatePath string) (templateDir, boilerplatePath string) {
 	// Check if the path already points to a boilerplate config file
 	if strings.HasSuffix(templatePath, "boilerplate.yml") || strings.HasSuffix(templatePath, "boilerplate.yaml") {
-		boilerplatePath = filepath.Join(runbookDir, templatePath)
+		boilerplatePath = filepath.Join(gruntbookDir, templatePath)
 		templateDir = filepath.Dir(boilerplatePath)
 		return
 	}
 	// Otherwise, treat as directory and append boilerplate.yml
-	templateDir = filepath.Join(runbookDir, templatePath)
+	templateDir = filepath.Join(gruntbookDir, templatePath)
 	boilerplatePath = filepath.Join(templateDir, "boilerplate.yml")
 	return
 }
@@ -74,8 +74,8 @@ func ResolveBoilerplatePath(runbookDir, templatePath string) (templateDir, boile
 // BoilerplateVariable represents a single variable from boilerplate.yml
 
 // HandleBoilerplateRequest parses a boilerplate.yml file and returns the variable declarations as JSON
-// @runbookPath is the path to the boilerplate template, relative to the directory containing the runbook file.
-func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
+// @gruntbookPath is the path to the boilerplate template, relative to the directory containing the gruntbook file.
+func HandleBoilerplateRequest(gruntbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Parse the request body
 		var req BoilerplateRequest
@@ -100,12 +100,12 @@ func HandleBoilerplateRequest(runbookPath string) gin.HandlerFunc {
 		var templateDir string // Track the template directory for output dependency scanning
 
 		if req.TemplatePath != "" {
-			// Extract the directory from the runbookPath (which we assume is a file path)
-			runbookDir := filepath.Dir(runbookPath)
+			// Extract the directory from the gruntbookPath (which we assume is a file path)
+			gruntbookDir := filepath.Dir(gruntbookPath)
 
 			// Resolve the template directory and boilerplate.yml path
 			var fullPath string
-			templateDir, fullPath = ResolveBoilerplatePath(runbookDir, req.TemplatePath)
+			templateDir, fullPath = ResolveBoilerplatePath(gruntbookDir, req.TemplatePath)
 			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
 
 			// Check if the file exists
@@ -185,7 +185,7 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 
 	slog.Info("Boilerplate config parsed successfully", "variableCount", len(boilerplateConfig.Variables))
 
-	// Parse raw YAML once to extract all Runbooks x- extension fields
+	// Parse raw YAML once to extract all Gruntbooks x- extension fields
 	rawVars := parseRawXVariables(boilerplateYamlContent)
 	schemas, schemaInstanceLabels, variableToSection := extractXFields(rawVars)
 	sections := extractSectionGroupings(rawVars)
@@ -246,7 +246,7 @@ func parseBoilerplateConfig(boilerplateYamlContent string) (*BoilerplateConfig, 
 	return result, nil
 }
 
-// rawXVariable holds all Runbooks-specific x- extensions from boilerplate.yml.
+// rawXVariable holds all Gruntbooks-specific x- extensions from boilerplate.yml.
 // A single struct avoids re-parsing YAML multiple times for different fields.
 type rawXVariable struct {
 	Name                string            `yaml:"name"`
@@ -294,14 +294,14 @@ func extractXFields(rawVars []rawXVariable) (
 }
 
 // extractSchemasFromYAML returns a map of variable name to schema (field name -> type).
-// YAML property: x-schema (Runbooks extension, ignored by Boilerplate)
+// YAML property: x-schema (Gruntbooks extension, ignored by Boilerplate)
 func extractSchemasFromYAML(yamlContent string) map[string]map[string]string {
 	schemas, _, _ := extractXFields(parseRawXVariables(yamlContent))
 	return schemas
 }
 
 // extractSchemaInstanceLabelsFromYAML returns a map of variable name to schema instance label.
-// YAML property: x-schema-instance-label (Runbooks extension, ignored by Boilerplate)
+// YAML property: x-schema-instance-label (Gruntbooks extension, ignored by Boilerplate)
 func extractSchemaInstanceLabelsFromYAML(yamlContent string) map[string]string {
 	_, labels, _ := extractXFields(parseRawXVariables(yamlContent))
 	return labels

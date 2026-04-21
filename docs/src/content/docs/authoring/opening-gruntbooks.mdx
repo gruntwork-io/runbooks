@@ -1,0 +1,166 @@
+---
+title: Opening Gruntbooks
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `gruntbooks open` command opens a gruntbook in the browser. It accepts two kinds of sources:
+
+1. A **gruntbook** (a directory containing `gruntbook.mdx`), or
+2. An **OpenTofu/Terraform module** (a directory containing `.tf` files).
+
+Either source can be local or remote.
+
+See the [`open` command reference](/commands/open/) for the full list of flags and supported URL formats.
+
+## Opening a Gruntbook
+
+Point the CLI at a directory containing a `gruntbook.mdx`:
+
+```bash
+# Local
+gruntbooks open ./gruntbooks/deploy-rds
+
+# Remote (GitHub URL)
+gruntbooks open https://github.com/org/repo/tree/main/gruntbooks/deploy-rds
+```
+
+Gruntbooks serves the `gruntbook.mdx` in the browser. For remote sources, it downloads just the gruntbook directory via sparse git clone.
+
+## Opening an OpenTofu/Terraform Module
+
+Point the CLI at a directory containing `.tf` files:
+
+```bash
+# Local
+gruntbooks open ./modules/rds
+
+# Remote (GitHub URL)
+gruntbooks open https://github.com/org/repo/tree/main/modules/rds
+
+# Remote (OpenTofu shorthand)
+gruntbooks open github.com/org/repo//modules/rds?ref=v1.0
+```
+
+When Gruntbooks detects `.tf` files (and no `gruntbook.mdx`), it uses a **tf-gruntbook template** to auto-generate a gruntbook that:
+
+1. Parses the module's variables from the `.tf` files
+2. Renders a web form for those variables
+3. Generates output (e.g., a `terragrunt.hcl` file) using the template
+
+By default, the `::terragrunt` built-in template is used. Use the `--tf-gruntbook` flag to select a different [built-in template](#built-in-templates) or [custom template](#custom-templates).
+
+### Built-in Templates
+
+```bash
+gruntbooks open --tf-gruntbook=::terragrunt ./modules/rds
+```
+
+| Template | What it generates | When to use |
+|----------|-------------------|-------------|
+| `::terragrunt` (default) | `terragrunt.hcl` with non-default inputs | Standard Terragrunt workflows |
+| `::terragrunt-github` | `terragrunt.hcl` + GitHub PR | GitOps: clone a repo, pick a directory, generate config, open a PR |
+| `::tofu` | `main.tf` with a `module` block | Plain OpenTofu/Terraform (no Terragrunt) |
+
+<Aside type="tip">
+All three built-in templates use `hcl_inputs_non_default`, which only includes variables whose values differ from the declared defaults. See [`_module` namespace](/authoring/blocks/tfmodule/#the-_module-namespace) for details on `hcl_inputs_non_default` vs `hcl_inputs`.
+</Aside>
+
+### Custom Templates
+
+If the built-in templates don't fit your needs, create your own. A custom template is a **local** directory containing a `gruntbook.mdx` that uses [`<TfModule>`](/authoring/blocks/tfmodule/) with `source="::cli_gruntbook_source"`.
+
+<Aside type="caution">
+`--tf-gruntbook` only accepts local paths — remote URLs are not supported. This is a security measure: a custom template is a full gruntbook that can execute arbitrary scripts on your machine, and fetching one from a remote URL could silently introduce untrusted code. Download and review any third-party template before using it.
+</Aside>
+
+```
+my-custom-template/
+  gruntbook.mdx
+```
+
+Inside `gruntbook.mdx`, the `::cli_gruntbook_source` keyword resolves to whatever module URL was passed on the command line:
+
+`````mdx title="my-custom-template/gruntbook.mdx"
+# Configure Module
+
+<TfModule id="module-vars" source="::cli_gruntbook_source" />
+
+<TemplateInline id="module-config" inputsId="module-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ .inputs._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+Run it with:
+
+```bash
+gruntbooks open --tf-gruntbook ./my-custom-template/ https://github.com/org/repo/tree/main/modules/rds
+```
+
+This example uses `<TemplateInline>` for simplicity, but custom templates can use `<Template>` for multi-file scaffolding and extra variables. See [`<TfModule>` — Template Patterns](/authoring/blocks/tfmodule/#template-patterns) for details.
+
+### What `::cli_gruntbook_source` Resolves To
+
+The keyword resolves to the `GRUNTBOOK_SOURCE` argument you pass on the command line:
+
+| Command | `::cli_gruntbook_source` resolves to |
+|---------|------------------------------------|
+| `gruntbooks open --tf-gruntbook ./tpl/ ./modules/rds` | Absolute path to `./modules/rds` |
+| `gruntbooks open --tf-gruntbook ./tpl/ https://github.com/org/repo/tree/main/modules/rds` | `https://github.com/org/repo/tree/main/modules/rds` |
+| `gruntbooks open --tf-gruntbook ./tpl/ github.com/org/repo//modules/rds?ref=v1.0` | `github.com/org/repo//modules/rds?ref=v1.0` |
+
+If the gruntbook is opened without a module URL (e.g., `gruntbooks open --tf-gruntbook ./tpl/`), `<TfModule>` renders a message explaining how to provide one.
+
+### Colocated Gruntbooks
+
+Module authors can ship a custom gruntbook alongside their `.tf` files by placing a `gruntbook.mdx` in the module directory:
+
+```
+modules/rds/
+  main.tf
+  variables.tf
+  outputs.tf
+  gruntbook.mdx        <-- custom gruntbook
+```
+
+When someone runs `gruntbooks open` on this directory, the colocated `gruntbook.mdx` is served instead of generating one from a template. Inside, use `source="."` to reference the module in the same directory:
+
+`````mdx title="modules/rds/gruntbook.mdx"
+# Configure RDS
+
+<TfModule id="rds-vars" source="." />
+
+<TemplateInline id="rds-config" inputsId="rds-vars" outputPath="terragrunt.hcl" generateFile={true}>
+```hcl
+terraform {
+  source = "{{ .inputs._module.source }}"
+}
+
+inputs = {
+{{- range $name, $hcl := .inputs._module.hcl_inputs }}
+  {{ $name }} = {{ $hcl }}
+{{- end }}
+}
+```
+</TemplateInline>
+`````
+
+This works with both local and remote modules:
+
+```bash
+# Local
+gruntbooks open ./modules/rds
+
+# Remote — still serves the colocated gruntbook.mdx
+gruntbooks open https://github.com/org/repo/tree/main/modules/rds
+```

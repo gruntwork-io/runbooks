@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Runbooks Logging Library
-# https://runbooks.gruntwork.io/authoring/blocks/command#logging
+# Gruntbooks Logging Library
+# https://gruntbooks.gruntwork.io/authoring/blocks/command#logging
 #
-# Provides standardized logging functions for Runbooks scripts:
+# Provides standardized logging functions for Gruntbooks scripts:
 #   log_info  - Informational messages
 #   log_warn  - Warning messages
 #   log_error - Error messages (written to stderr)
@@ -15,10 +15,10 @@
 # =============================================================================
 
 # Guard against multiple sourcing
-if [ -n "${_RUNBOOKS_LOGGING_LOADED:-}" ]; then
+if [ -n "${_GRUNTBOOKS_LOGGING_LOADED:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
-_RUNBOOKS_LOGGING_LOADED=1
+_GRUNTBOOKS_LOGGING_LOADED=1
 
 # -----------------------------------------------------------------------------
 # Helper: Get UTC timestamp in ISO-8601 format
