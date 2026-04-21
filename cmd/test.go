@@ -25,6 +25,7 @@ var (
 	testOutputFormat        string
 	testOutputFile          string
 	testMaxParallel         int
+	testSkip                []string
 )
 
 // testCmd represents the test command
@@ -47,6 +48,7 @@ func init() {
 	testCmd.Flags().StringVar(&testOutputFormat, "output", "text", "Output format (text or junit)")
 	testCmd.Flags().StringVar(&testOutputFile, "output-file", "", "Write output to file (for junit format)")
 	testCmd.Flags().IntVar(&testMaxParallel, "max-parallel", 0, "Maximum number of parallel test executions (0 = auto)")
+	testCmd.Flags().StringSliceVar(&testSkip, "skip", nil, "Skip gruntbooks whose path contains any of these substrings (repeatable or comma-separated)")
 }
 
 // runTest runs the test command
@@ -66,6 +68,10 @@ func runTest(cmd *cobra.Command, args []string) error {
 	gruntbooks, err := discoverGruntbooks(args)
 	if err != nil {
 		return fmt.Errorf("failed to discover gruntbooks: %w", err)
+	}
+
+	if len(testSkip) > 0 {
+		gruntbooks = filterSkipped(gruntbooks, testSkip)
 	}
 
 	if len(gruntbooks) == 0 {
@@ -89,6 +95,24 @@ func runTest(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// filterSkipped removes gruntbooks whose path contains any of the skip substrings.
+func filterSkipped(gruntbooks []string, skip []string) []string {
+	filtered := gruntbooks[:0]
+	for _, gb := range gruntbooks {
+		skipped := false
+		for _, pattern := range skip {
+			if pattern != "" && strings.Contains(gb, pattern) {
+				skipped = true
+				break
+			}
+		}
+		if !skipped {
+			filtered = append(filtered, gb)
+		}
+	}
+	return filtered
 }
 
 // discoverGruntbooks finds gruntbooks based on the provided paths.

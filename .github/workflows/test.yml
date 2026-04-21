@@ -113,9 +113,6 @@ jobs:
   test-gruntbooks:
     name: Test Demo Gruntbooks
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write  # Required for OIDC
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -136,24 +133,13 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.GRUNTBOOKS_TEST_AWS_ROLE_ARN }}
-          aws-region: us-west-2
-
-      - name: Export AWS credentials with test prefix
-        run: |
-          # Export credentials with GRUNTBOOKS_TEST_ prefix for aws-auth tests
-          echo "GRUNTBOOKS_TEST_AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $GITHUB_ENV
-          echo "GRUNTBOOKS_TEST_AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $GITHUB_ENV
-          echo "GRUNTBOOKS_TEST_AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN" >> $GITHUB_ENV
-          echo "GRUNTBOOKS_TEST_AWS_REGION=$AWS_REGION" >> $GITHUB_ENV
-
+      # aws-auth tests exercise the AwsAuth block end-to-end against real AWS
+      # APIs and are excluded from CI. Run them locally with GRUNTBOOKS_TEST_AWS_*
+      # env vars exported — see testdata/feature-demos/aws-auth/gruntbook_test.yml.
       - name: Run gruntbook tests
         env:
           GRUNTBOOKS_GITHUB_TOKEN: ${{ secrets.GRUNTBOOKS_GITHUB_TOKEN }}
-        run: task test:gruntbooks
+        run: task test:gruntbooks -- --skip aws-auth
 
   test-e2e:
     name: Playwright E2E Tests

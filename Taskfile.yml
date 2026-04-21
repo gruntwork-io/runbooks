@@ -78,7 +78,7 @@ tasks:
     desc: Run automated tests for demo gruntbooks
     deps: [build]
     cmds:
-      - ./gruntbooks test ./testdata/...
+      - ./gruntbooks test ./testdata/... {{.CLI_ARGS}}
 
   test:e2e:
     desc: Run Playwright end-to-end tests
