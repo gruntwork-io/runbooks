@@ -6,8 +6,8 @@ package cmd
 import (
 	"log/slog"
 
-	"runbooks/api"
-	"runbooks/api/telemetry"
+	"github.com/gruntwork-io/runbooks/api"
+	"github.com/gruntwork-io/runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
 )
@@ -16,21 +16,21 @@ var disableLiveFileReload bool
 
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
-	Use:   "watch RUNBOOK_SOURCE",
-	Short: "Open a runbook and auto-reload changes (for runbook authors)",
-	Long: `Open the runbook at RUNBOOK_SOURCE with live-reloading enabled.
+	Use:   "watch GRUNTBOOK_SOURCE",
+	Short: "Open a gruntbook and auto-reload changes (for gruntbook authors)",
+	Long: `Open the gruntbook at GRUNTBOOK_SOURCE with live-reloading enabled.
 
-The runbook will automatically reload when changes are detected to
-the underlying runbook.mdx file. By default, script changes take
+The gruntbook will automatically reload when changes are detected to
+the underlying gruntbook.mdx file. By default, script changes take
 effect immediately without server restart (live-file-reload mode).
 
-RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+GRUNTBOOK_SOURCE can be a local path to a gruntbook.mdx file or its
 containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
 module directory.
 
 Examples:
-  runbooks watch ./path/to/runbook
-  runbooks watch https://github.com/org/repo/tree/main/runbooks/rds`,
+  gruntbooks watch ./path/to/gruntbook
+  gruntbooks watch https://github.com/org/repo/tree/main/gruntbooks/rds`,
 	GroupID: "main",
 	Run: func(cmd *cobra.Command, args []string) {
 		telemetry.TrackCommand("watch")
@@ -43,10 +43,10 @@ Examples:
 		// By default, watch mode uses live-file-reload (no registry) for better UX.
 		// If --disable-live-file-reload is true, use the executable registry for better security.
 		useExecutableRegistry := disableLiveFileReload
-		slog.Info("Opening runbook with file watching", "path", rb.serverPath, "workingDir", rb.workingDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
+		slog.Info("Opening gruntbook with file watching", "path", rb.serverPath, "workingDir", rb.workingDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
 
 		startServerAndOpen(rb, api.ServerConfig{
-			RunbookPath:           rb.serverPath,
+			GruntbookPath:         rb.serverPath,
 			Port:                  port,
 			WorkingDir:            rb.workingDir,
 			OutputPath:            outputPath,

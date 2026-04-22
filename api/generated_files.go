@@ -104,7 +104,7 @@ func validateAndGetOutputDirectory(workingDir string, rawOutputPath string) (*ou
 	}
 
 	// Validate the output path against the working directory (not process CWD).
-	// For remote runbooks, the working dir is a temp dir, not the process CWD.
+	// For remote gruntbooks, the working dir is a temp dir, not the process CWD.
 	if err := ValidateAbsolutePathInDir(absoluteOutputPath, workingDir); err != nil {
 		return nil, err
 	}

@@ -282,7 +282,7 @@ func TestApplyDiff(t *testing.T) {
 		}
 	}
 
-	// Create diff (simulating Python to Node.js switch in sample runbook)
+	// Create diff (simulating Python to Node.js switch in sample gruntbook)
 	diff := DiffResult{
 		Orphaned: []string{"src/app.py"},
 		Created:  []string{"src/index.mjs"},

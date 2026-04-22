@@ -4,7 +4,7 @@ import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
-import { useTemplateContext } from "@/contexts/useRunbook"
+import { useTemplateContext } from "@/contexts/useGruntbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
@@ -121,7 +121,7 @@ function DirPicker({
     : 'text-gray-400'
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div data-testid={id} className={`gruntbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

@@ -15,7 +15,7 @@ import { dismissGeneratedFilesAlert } from './utils';
 /**
  * Alert dialog that warns users about existing generated files in the output directory.
  * 
- * When a runbook with boilerplate templates is loaded, this component checks if files
+ * When a gruntbook with boilerplate templates is loaded, this component checks if files
  * already exist in the output directory and prompts the user to either keep or delete them.
  * This prevents accidental overwrites and conflicts with newly generated files.
  * 
@@ -115,7 +115,7 @@ export function GeneratedFilesAlert({
           <AlertDialogDescription>
             There {fileCount === 1 ? 'is' : 'are'} {fileCount} file{fileCount === 1 ? '' : 's'} in{' '}
             the <code className="px-1 py-0.5 bg-muted rounded text-sm break-all">{absoluteOutputPath}/</code> directory. {fileCount === 1 ? 'This' : 'These'} may
-            conflict with the files you generate from the current runbook. Would you like to delete the existing file{fileCount === 1 ? '' : 's'}?
+            conflict with the files you generate from the current gruntbook. Would you like to delete the existing file{fileCount === 1 ? '' : 's'}?
           </AlertDialogDescription>
         </AlertDialogHeader>
 

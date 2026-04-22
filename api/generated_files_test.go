@@ -14,7 +14,7 @@ import (
 )
 
 // setupTestWorkingDir creates a temporary directory to simulate the working directory
-// (the directory from which the user runs `runbooks open ...`). It changes to that directory
+// (the directory from which the user runs `gruntbooks open ...`). It changes to that directory
 // and registers cleanup to restore the original working directory and remove the temp dir.
 // Returns the absolute path to the working directory (with symlinks resolved).
 func setupTestWorkingDir(t *testing.T) string {
@@ -27,7 +27,7 @@ func setupTestWorkingDir(t *testing.T) string {
 	}
 
 	// Create temp directory
-	workingDir, err := os.MkdirTemp("", "runbooks-test-workdir-*")
+	workingDir, err := os.MkdirTemp("", "gruntbooks-test-workdir-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp working directory: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestHandleGeneratedFilesCheck_InvalidAbsolutePaths(t *testing.T) {
 	workingDir := setupTestWorkingDir(t)
 
 	// Create another directory OUTSIDE the working directory for testing
-	outsideDir, err := os.MkdirTemp("", "runbooks-test-outside-*")
+	outsideDir, err := os.MkdirTemp("", "gruntbooks-test-outside-*")
 	if err != nil {
 		t.Fatalf("Failed to create outside directory: %v", err)
 	}

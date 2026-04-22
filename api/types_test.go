@@ -16,7 +16,7 @@ import (
 //   - generateFile="true"  → JSX string attr → JSON string: "true"
 //
 // React handles the MDX → JSON conversion; this test covers the JSON → Go conversion.
-// Runbook authors often mistakenly use the string syntax, so FlexibleBool accepts both.
+// Gruntbook authors often mistakenly use the string syntax, so FlexibleBool accepts both.
 func TestFlexibleBool_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name        string

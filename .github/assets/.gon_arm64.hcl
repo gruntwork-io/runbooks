@@ -1,8 +1,8 @@
 # See https://github.com/gruntwork-io/terraform-aws-ci/blob/main/modules/sign-binary-helpers/
 # for further instructions on how to sign the binary + submitting for notarization.
 
-source = ["./bin/runbooks_darwin_arm64"]
-bundle_id = "io.gruntwork.app.runbooks"
+source = ["./bin/gruntbooks_darwin_arm64"]
+bundle_id = "io.gruntwork.app.gruntbooks"
 
 apple_id {
   username = "@env:AC_USERNAME"
@@ -13,6 +13,6 @@ sign {
 }
 
 zip {
-  output_path = "runbooks_darwin_arm64.zip"
+  output_path = "gruntbooks_darwin_arm64.zip"
 }
 

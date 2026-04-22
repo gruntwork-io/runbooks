@@ -3,7 +3,7 @@
  *
  * These blocks follow the same lifecycle — register a unique ID, fetch or
  * receive a BoilerplateConfig, render a form, and submit the collected values
- * back to the runbook context. This hook extracts that common lifecycle so each
+ * back to the gruntbook context. This hook extracts that common lifecycle so each
  * block only needs to supply its specific config and optional data transforms.
  */
 
@@ -11,7 +11,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { AppError } from '@/types/error'
 import type { BlockComponentType } from '@/contexts/ComponentIdRegistry'
-import { useRunbookContext } from '@/contexts/useRunbook'
+import { useGruntbookContext } from '@/contexts/useGruntbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
@@ -30,7 +30,7 @@ interface UseInputRegistrationOptions {
   validationError: AppError | null
   /** Additional error to report (e.g., inline content parsing failures in Inputs). */
   extraError?: AppError | null
-  /** Transform applied to raw form data before it is registered with the runbook context. */
+  /** Transform applied to raw form data before it is registered with the gruntbook context. */
   enrichFormData?: (formData: Record<string, unknown>) => Record<string, unknown>
 }
 
@@ -81,7 +81,7 @@ export function useInputRegistration({
   // 4. Form state
   const [formState, setFormState] = useState<BoilerplateConfig | null>(null)
   const [hasSubmitted, setHasSubmitted] = useState(false)
-  const { registerInputs } = useRunbookContext()
+  const { registerInputs } = useGruntbookContext()
 
   const hasSetFormState = useRef(false)
   useEffect(() => {

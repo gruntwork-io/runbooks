@@ -1,37 +1,37 @@
 <p align="center">
-  <a href="https://runbooks.gruntwork.io">
+  <a href="https://gruntbooks.gruntwork.io">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="./web/public/runbooks-logo-light-color.svg" height="80">
-      <source media="(prefers-color-scheme: light)" srcset="./web/public/runbooks-logo-dark-color.svg" height="80">
-      <img alt="Gruntwork Runbooks" src="./web/public/runbooks-logo-dark-color.svg" height="80">
+      <source media="(prefers-color-scheme: dark)" srcset="./web/public/gruntbooks-logo-light-color.svg" height="80">
+      <source media="(prefers-color-scheme: light)" srcset="./web/public/gruntbooks-logo-dark-color.svg" height="80">
+      <img alt="Gruntwork Gruntbooks" src="./web/public/gruntbooks-logo-dark-color.svg" height="80">
     </picture>
   </a>
 </p>
 
-<p align="center"><em>Runbooks enables infrastructure experts to scale their expertise.</em></p>
+<p align="center"><em>Gruntbooks enables infrastructure experts to scale their expertise.</em></p>
 
-Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
+Gruntbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use. Gruntbooks (the tool) is what opens them.
 
-For additional information on Runbooks, or to see it in action, check out the [Runbooks docs](https://runbooks.gruntwork.io).
+For additional information on Gruntbooks, or to see it in action, check out the [Gruntbooks docs](https://gruntbooks.gruntwork.io).
 
 ## Project status
 
 > [!NOTE]
-> As of December 2025, Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
+> As of December 2025, Gruntbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
 
 ## Security concerns
 
-Runbooks is designed to streamline the code generation and commands you might otherwise run on your local computer. This has important security implications you should be aware of prior to running Runbooks.
+Gruntbooks is designed to streamline the code generation and commands you might otherwise run on your local computer. This has important security implications you should be aware of prior to running Gruntbooks.
 
 ### Command execution
 
-Runbooks executes commands directly on your local computer with the full set of environment variables present when you launched the `runbooks` binary. For this reason, it is imperative that you **only open Runbooks you trust.** The Runbooks you open contain arbitrary scripts, and while the Runbooks tool always exposes every last line of code that will be executed, it's easy for long scripts to obscure what they're doing.
+Gruntbooks executes commands directly on your local computer with the full set of environment variables present when you launched the `gruntbooks` binary. For this reason, it is imperative that you **only open gruntbooks you trust.** The gruntbooks you open contain arbitrary scripts, and while Gruntbooks always exposes every last line of code that will be executed, it's easy for long scripts to obscure what they're doing.
 
-If you do not trust a Runbook file or you're not sure about the author or origin, do not open the Runbook.
+If you do not trust a gruntbook file or you're not sure about the author or origin, do not open the gruntbook.
 
 ### Protections against arbitrary command execution
 
-Runbooks executes commands when the Runbooks frontend makes API calls the Runbooks backend. Runbooks takes various [security measures](http://runbooks.gruntwork.io/security/execution-model/) to make sure that only commands and scripts that are part of the Runbook can be executed via this API, however there are some modes where these restrictions are relaxed in favor of more convenience. Read the docs to understand the security posture in more depth.
+Gruntbooks executes commands when the Gruntbooks frontend makes API calls the Gruntbooks backend. Gruntbooks takes various [security measures](http://gruntbooks.gruntwork.io/security/execution-model/) to make sure that only commands and scripts that are part of the gruntbook can be executed via this API, however there are some modes where these restrictions are relaxed in favor of more convenience. Read the docs to understand the security posture in more depth.
 
 ## Building
 
@@ -53,7 +53,7 @@ task build
 This will:
 1. Build the frontend (`web/dist`)
 2. Embed the frontend into the Go binary
-3. Output a self-contained `runbooks` binary
+3. Output a self-contained `gruntbooks` binary
 
 Other useful tasks:
 
@@ -95,7 +95,7 @@ task clean      # Remove build artifacts
 
    ```bash
    # Terminal 1: Backend API server
-   task dev:backend RUNBOOK_PATH=testdata/my-first-runbook
+   task dev:backend GRUNTBOOK_PATH=testdata/my-first-gruntbook
 
    # Terminal 2: Frontend dev server (Vite with hot reload)
    task dev:frontend
@@ -110,4 +110,3 @@ This project uses [shadcn/ui](https://ui.shadcn.com/) for unstyled components to
 ```bash
 bunx shadcn@latest add <component_name>
 ```
-

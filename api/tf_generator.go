@@ -8,21 +8,21 @@ import (
 	"regexp"
 	"strings"
 
-	tftmpl "runbooks/templates/tf"
+	tftmpl "github.com/gruntwork-io/runbooks/templates/tf"
 
 	"gopkg.in/yaml.v3"
 )
 
-// GenerateRunbook writes a static MDX runbook from a built-in template.
+// GenerateGruntbook writes a static MDX gruntbook from a built-in template.
 // templateName selects a built-in template ("" = "terragrunt").
-// Returns the path to runbook.mdx and a cleanup function for the temp directory.
-func GenerateRunbook(templateName string) (string, func(), error) {
+// Returns the path to gruntbook.mdx and a cleanup function for the temp directory.
+func GenerateGruntbook(templateName string) (string, func(), error) {
 	tmpl, err := tftmpl.GetTemplate(templateName)
 	if err != nil {
 		return "", nil, err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "runbooks-tf-*")
+	tmpDir, err := os.MkdirTemp("", "gruntbooks-tf-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -33,13 +33,13 @@ func GenerateRunbook(templateName string) (string, func(), error) {
 		}
 	}
 
-	mdxPath := filepath.Join(tmpDir, "runbook.mdx")
+	mdxPath := filepath.Join(tmpDir, "gruntbook.mdx")
 	if err := os.WriteFile(mdxPath, []byte(tmpl.MDXContent()), 0644); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("failed to write runbook.mdx: %w", err)
+		return "", nil, fmt.Errorf("failed to write gruntbook.mdx: %w", err)
 	}
 
-	slog.Info("Generated runbook from template",
+	slog.Info("Generated gruntbook from template",
 		"template", tmpl.Name(),
 		"outputDir", tmpDir,
 	)

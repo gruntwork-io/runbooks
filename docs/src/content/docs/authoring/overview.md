@@ -2,13 +2,13 @@
 title: Overview
 ---
 
-# Authoring Runbooks
+# Authoring Gruntbooks
 
-This section covers everything you need to know to write your own Runbooks.
+This section covers everything you need to know to write your own Gruntbooks.
 
-## What's in a Runbook?
+## What's in a Gruntbook?
 
-A Runbook combines **markdown documentation** with **interactive blocks** that can:
+A Gruntbook combines **markdown documentation** with **interactive blocks** that can:
 
 - Validate the user's current state with automated checks
 - Execute shell commands and scripts
@@ -19,11 +19,11 @@ All of this runs locally on the user's machine through a web interface.
 
 ## Quick start
 
-For an initial walkthrough, see [Write Your First Runbook](/intro/write_your_first_runbook/) for a complete tutorial.
+For an initial walkthrough, see [Write Your First Gruntbook](/intro/write_your_first_gruntbook/) for a complete tutorial.
 
 ## Section Guide
 
-- **[Runbook Structure.](/authoring/runbook-structure/)** Learn the file format and folder organization for Runbooks.
+- **[Gruntbook Structure.](/authoring/gruntbook-structure/)** Learn the file format and folder organization for Gruntbooks.
 - **[Markdown.](/authoring/markdown/)** Reference for supported markdown elements.
 - **[Inputs & Outputs.](/authoring/inputs-and-outputs/)** How data flows between blocks — collecting user input, wiring it with `inputsId`, and passing runtime outputs downstream.
 - **[Boilerplate Templates.](/authoring/boilerplate/)** Guide to template syntax and `boilerplate.yml` files.

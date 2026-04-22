@@ -1,6 +1,6 @@
 import type { BoilerplateVariable } from './boilerplateVariable';
 
-// Section represents a grouping of variables under a section header (Runbooks extension).
+// Section represents a grouping of variables under a section header (Gruntbooks extension).
 // Used for UI rendering (e.g., collapsible sections in the form).
 // See also: BoilerplateVariable.sectionName for per-variable section lookup.
 // YAML property: x-section

@@ -4,7 +4,7 @@ title: Inputs & Outputs
 
 import { Aside } from '@astrojs/starlight/components';
 
-Every runbook has a **global context,** which is the shared collection of key-value pairs that blocks use to communicate. The keys are variables. Blocks can write values to the global context, or read values from the global context.
+Every gruntbook has a **global context,** which is the shared collection of key-value pairs that blocks use to communicate. The keys are variables. Blocks can write values to the global context, or read values from the global context.
 
 There are two ways values are written to the global context:
 
@@ -22,7 +22,7 @@ Variables are the keys in the global context. You reference them in templates, s
 />
 ```
 
-When this block runs, Runbooks resolves `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` from the global context, producing a command like:
+When this block runs, Gruntbooks resolves `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` from the global context, producing a command like:
 
 ```bash
 aws organizations create-account --email alice@example.com --account-name my-account
@@ -30,7 +30,7 @@ aws organizations create-account --email alice@example.com --account-name my-acc
 
 ### Boilerplate variables
 
-Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables work exactly like Boilerplate variables:
+Under the hood, Gruntbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables work exactly like Boilerplate variables:
 
 - The same `{{ .VarName }}` / `{{ .inputs.VarName }}` syntax
 - The same types (`string`, `int`, `bool`, `enum`, `list`, `map`)
@@ -42,7 +42,7 @@ If you've used Boilerplate before, everything you know carries over directly. If
 
 #### Template Syntax: New vs. Legacy
 
-Runbooks supports two template syntaxes for referencing variables:
+Gruntbooks supports two template syntaxes for referencing variables:
 
 - **New syntax (recommended):** `{{ .inputs.VarName }}` for inputs and `{{ .outputs.blockId.outputName }}` for outputs. This explicit namespace syntax makes it clear where values come from.
 - **Legacy syntax (backward compatible):** `{{ .VarName }}` for inputs. This syntax is supported for backward compatibility with existing Boilerplate templates.
@@ -59,7 +59,7 @@ Both syntaxes work simultaneously. When variables are passed under the `inputs` 
 
 ## Input Providers
 
-An **input provider** is a block that collects variable values and makes them available to other blocks. Let's look at the input providers that are available in Runbooks.
+An **input provider** is a block that collects variable values and makes them available to other blocks. Let's look at the input providers that are available in Gruntbooks.
 
 ### \<Inputs\>
 
@@ -94,7 +94,7 @@ The [`<TfModule>`](/authoring/blocks/tfmodule/) block parses an OpenTofu/Terrafo
 <TfModule id="rds-vars" source="../modules/rds" />
 ```
 
-In the above example, there is an OpenTofu or Terraform module at `../modules/rds`. TfModule also supports `source="."` for [colocated runbooks](/authoring/blocks/tfmodule/#colocated-runbooks-source) (runbook lives alongside the `.tf` files) and `source="::cli_runbook_source"` for [generic runbooks](/authoring/blocks/tfmodule/#dynamic-source-from-cli-source) that accept any module URL from the CLI.
+In the above example, there is an OpenTofu or Terraform module at `../modules/rds`. TfModule also supports `source="."` for [colocated gruntbooks](/authoring/blocks/tfmodule/#colocated-gruntbooks-source) (gruntbook lives alongside the `.tf` files) and `source="::cli_gruntbook_source"` for [generic gruntbooks](/authoring/blocks/tfmodule/#dynamic-source-from-cli-source) that accept any module URL from the CLI.
 
 ## Wiring Blocks with `inputsId`
 
@@ -149,7 +149,7 @@ The embedded Inputs can still be referenced by other blocks via `inputsId="greet
 
 When you wire blocks together with `inputsId`, the consuming block receives all the variables from the input provider. For `<Command>`, `<Check>`, and `<TemplateInline>`, this is straightforward: every imported variable is available in the template.
 
-It gets more interesting with `<Template>`, because a Template has its own `boilerplate.yml` that can *also* define variables. When a Template imports from an input provider, Runbooks compares the two sets of variables and handles each one based on where it's defined:
+It gets more interesting with `<Template>`, because a Template has its own `boilerplate.yml` that can *also* define variables. When a Template imports from an input provider, Gruntbooks compares the two sets of variables and handles each one based on where it's defined:
 
 - **If only the Template defines it:**  the variable appears as an editable field in the Template's form. This is how you collect extra inputs (like an environment name or team owner) that the input provider doesn't know about.
 - **If only the input provider defines it:** the variable is passed through to the template engine but doesn't appear in the Template's form. This includes namespaced values like `_module.*` from `<TfModule>`.
@@ -161,23 +161,23 @@ Inputs flow from user forms into blocks. **Outputs** flow in the other direction
 
 ### Producing Outputs
 
-[`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks produce outputs by writing `key=value` pairs to the file specified by the `$RUNBOOK_OUTPUT` environment variable:
+[`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks produce outputs by writing `key=value` pairs to the file specified by the `$GRUNTBOOK_OUTPUT` environment variable:
 
 ```bash
 #!/bin/bash
 ACCOUNT_ID=$(aws organizations create-account ...)
 
-echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
-echo "region=us-west-2" >> "$RUNBOOK_OUTPUT"
+echo "account_id=$ACCOUNT_ID" >> "$GRUNTBOOK_OUTPUT"
+echo "region=us-west-2" >> "$GRUNTBOOK_OUTPUT"
 ```
 
 For complex data (lists, maps), serialize as JSON:
 
 ```bash
-echo 'users=["alice","bob","charlie"]' >> "$RUNBOOK_OUTPUT"
+echo 'users=["alice","bob","charlie"]' >> "$GRUNTBOOK_OUTPUT"
 ```
 
-You don't need to define the `$RUNBOOK_OUTPUT` environment variable in your script. Runbooks will automatically create it for you.
+You don't need to define the `$GRUNTBOOK_OUTPUT` environment variable in your script. Gruntbooks will automatically create it for you.
 
 ### Consuming Outputs
 
@@ -196,7 +196,7 @@ For example, a Command whose `id` is `create-account` that outputs `account_id` 
 This syntax works in `<Command>` and `<Check>` scripts, `<Template>` files, and `<TemplateInline>` content.
 
 <Aside type="note">
-**ID naming:** Block IDs can use hyphens or underscores (e.g., `id="create-account"` or `id="create_account"`). In template syntax, always use underscores. Go templates interpret hyphens as subtraction. IDs that normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same runbook.
+**ID naming:** Block IDs can use hyphens or underscores (e.g., `id="create-account"` or `id="create_account"`). In template syntax, always use underscores. Go templates interpret hyphens as subtraction. IDs that normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same gruntbook.
 </Aside>
 
 ### Iterating Over Complex Outputs
@@ -244,5 +244,5 @@ Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbo
 To run it directly:
 
 ```bash
-runbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs
+gruntbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs
 ```

@@ -35,7 +35,7 @@ type TfVariable struct {
 	Nullable     bool
 	Validations  []TfValidation
 	SourceFile   string
-	GroupComment string           // From # @runbooks:group "Name" comments
+	GroupComment string           // From # @gruntbooks:group "Name" (or legacy @runbooks:group) comments
 }
 
 // TfValidation represents a validation block within an OpenTofu variable.
@@ -222,7 +222,7 @@ func parseTFFile(src []byte, fileName string) ([]TfVariable, error) {
 		return nil, fmt.Errorf("unexpected body type in %s", fileName)
 	}
 
-	// Pre-scan for @runbooks:group comments
+	// Pre-scan for @gruntbooks:group (and legacy @runbooks:group) comments
 	groupComments := extractGroupComments(src)
 
 	var variables []TfVariable
@@ -238,7 +238,7 @@ func parseTFFile(src []byte, fileName string) ([]TfVariable, error) {
 			Nullable:   false, // default
 		}
 
-		// Check for @runbooks:group comment
+		// Check for @gruntbooks:group (or legacy @runbooks:group) comment
 		if group, ok := groupComments[block.DefRange().Start.Line]; ok {
 			v.GroupComment = group
 		}
@@ -305,11 +305,12 @@ func parseTFFile(src []byte, fileName string) ([]TfVariable, error) {
 	return variables, nil
 }
 
-// extractGroupComments scans source for "# @runbooks:group "Name"" comments and maps
+// extractGroupComments scans source for `# @gruntbooks:group "Name"` comments (or the
+// legacy `# @runbooks:group "Name"` form, accepted for backward compatibility) and maps
 // line numbers to group names. The comment applies to the next variable block.
 func extractGroupComments(src []byte) map[int]string {
 	groups := make(map[int]string)
-	re := regexp.MustCompile(`#\s*@runbooks:group\s+"([^"]+)"`)
+	re := regexp.MustCompile(`#\s*@(?:gruntbooks|runbooks):group\s+"([^"]+)"`)
 
 	scanner := bufio.NewScanner(strings.NewReader(string(src)))
 	lineNum := 0
@@ -512,7 +513,7 @@ func MapToBoilerplateConfig(vars []TfVariable) *BoilerplateConfig {
 
 // applySectionNames populates SectionName on each variable from the computed sections.
 // This ensures x-section is written to boilerplate.yml even for filename-based and
-// prefix-based groupings (not just @runbooks:group comments).
+// prefix-based groupings (not just @gruntbooks:group / @runbooks:group comments).
 func applySectionNames(config *BoilerplateConfig) {
 	sectionByVar := make(map[string]string, len(config.Variables))
 	for _, s := range config.Sections {
@@ -829,7 +830,7 @@ func appendSuffix(existing, new string) string {
 
 // buildSections groups variables into sections based on the priority order described in the plan.
 func buildSections(vars []TfVariable) []Section {
-	// Priority 1: @runbooks:group comments
+	// Priority 1: @gruntbooks:group comments (legacy @runbooks:group also accepted)
 	if sections := buildSectionsFromGroups(vars); len(sections) >= 2 {
 		return sections
 	}
@@ -856,7 +857,7 @@ func collectSections(vars []TfVariable, sectionFn func(TfVariable) string) []Sec
 	})
 }
 
-// buildSectionsFromGroups uses @runbooks:group comments to build sections.
+// buildSectionsFromGroups uses @gruntbooks:group (or legacy @runbooks:group) comments to build sections.
 func buildSectionsFromGroups(vars []TfVariable) []Section {
 	return collectSections(vars, func(v TfVariable) string {
 		return v.GroupComment

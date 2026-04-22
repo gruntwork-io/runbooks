@@ -8,7 +8,7 @@ export interface LogsContextType {
   getAllLogs: () => Map<string, LogEntry[]>
   /** Check if any logs exist */
   hasLogs: boolean
-  /** Clear all logs (useful when loading a new runbook) */
+  /** Clear all logs (useful when loading a new gruntbook) */
   clearLogs: () => void
 }
 

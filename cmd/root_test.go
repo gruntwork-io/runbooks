@@ -138,5 +138,5 @@ func TestResolveWorkingDir_TempOverridesConfigured(t *testing.T) {
 
 	// Should be a temp dir, not the configured path
 	assert.NotEqual(t, "/some/configured/path", dir)
-	assert.Contains(t, dir, "runbook-workdir-")
+	assert.Contains(t, dir, "gruntbook-workdir-")
 }

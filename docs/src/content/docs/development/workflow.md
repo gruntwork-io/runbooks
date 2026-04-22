@@ -2,11 +2,11 @@
 title: Development Workflow
 ---
 
-If you're developing the Runbooks tool itself (working on the Go backend or React frontend), you'll want to run two separate processes in different terminals:
+If you're developing the Gruntbooks tool itself (working on the Go backend or React frontend), you'll want to run two separate processes in different terminals:
 
 **Terminal 1 - Backend Server:**
 ```bash
-go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
+go run main.go serve testdata/sample-gruntbooks/demo1/gruntbook.mdx
 ```
 
 This starts the Go backend API server on the default port (7825). Use `--port` to pick a different port.
@@ -31,20 +31,20 @@ This starts the Vite dev server on port 5173 with hot-reloading.
 - Restart the `serve` command (Ctrl+C and run again)
 - Refresh the browser
 
-**Runbook Changes:**
-- Edit the runbook file you're testing with
+**Gruntbook Changes:**
+- Edit the gruntbook file you're testing with
 - Refresh the browser
 - No restart needed
 
 ### Testing Your Changes
 
-Test different runbook features:
+Test different gruntbook features:
 
 ```bash
-# Test with different demo runbooks
-go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
-go run main.go serve testdata/sample-runbooks/demo2/runbook.mdx
-go run main.go serve testdata/sample-runbooks/lambda/runbook.mdx
+# Test with different demo gruntbooks
+go run main.go serve testdata/sample-gruntbooks/demo1/gruntbook.mdx
+go run main.go serve testdata/sample-gruntbooks/demo2/gruntbook.mdx
+go run main.go serve testdata/sample-gruntbooks/lambda/gruntbook.mdx
 ```
 
 ### Building for Production
@@ -59,7 +59,7 @@ This creates optimized files in `/web/dist` that are served by the Go backend in
 
 Build the Go binary:
 ```bash
-go build -o runbooks main.go
+go build -o gruntbooks main.go
 ```
 
 ### Running Tests

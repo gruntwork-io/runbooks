@@ -6,7 +6,7 @@ dist/
 .astro/
 
 # generated assets
-public/my-first-runbook.zip
+public/my-first-gruntbook.zip
 
 # environment variables
 .env

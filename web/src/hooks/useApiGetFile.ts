@@ -11,7 +11,7 @@ export interface GetFileReturn {
   size: number;
   isWatchMode?: boolean;
   warnings?: string[];
-  /** The original remote URL when the runbook was opened from a remote source */
+  /** The original remote URL when the gruntbook was opened from a remote source */
   remoteSource?: string;
 }
 

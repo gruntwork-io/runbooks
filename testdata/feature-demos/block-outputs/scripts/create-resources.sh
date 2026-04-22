@@ -11,4 +11,4 @@ ROLE_ARN="arn:aws:iam::{{ .outputs.create_account.account_id }}:role/MyRole"
 echo "Created IAM role: $ROLE_ARN"
 
 # Output for downstream blocks
-echo "role_arn=$ROLE_ARN" >> "$RUNBOOK_OUTPUT"
+echo "role_arn=$ROLE_ARN" >> "$GRUNTBOOK_OUTPUT"

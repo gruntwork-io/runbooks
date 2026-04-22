@@ -2,9 +2,9 @@
 title: Markdown Support
 ---
 
-# Markdown in Runbooks
+# Markdown in Gruntbooks
 
-Runbooks uses **GitHub-flavored Markdown** (GFM) with full support for common markdown elements. That means you can include any of the following elements in your runbooks.
+Gruntbooks uses **GitHub-flavored Markdown** (GFM) with full support for common markdown elements. That means you can include any of the following elements in your gruntbooks.
 
 ## Supported Elements
 
@@ -78,7 +78,7 @@ Contact support@example.com for help.
 ![Image with title](./assets/image.png "Image title")
 ```
 
-Images are resolved relative to the runbook file location.
+Images are resolved relative to the gruntbook file location.
 
 ### Code Blocks
 
@@ -150,12 +150,12 @@ Footnotes are collected and rendered at the bottom of the document.
 
 ## MDX Features
 
-Because Runbooks supports MDX, you also have access to a few special features beyond standard markdown elements.
+Because Gruntbooks supports MDX, you also have access to a few special features beyond standard markdown elements.
 
 ### Mix Markdown and JSX
 
 ```mdx
-# My Runbook
+# My Gruntbook
 
 Regular markdown text here.
 

@@ -34,9 +34,9 @@ type TfParseResponse struct {
 
 // HandleTfModuleParse parses a .tf module directory and returns a BoilerplateConfig JSON
 // with additional module metadata (folder name, README title, outputs, resources).
-// The source can be a local path (resolved relative to the runbook directory) or a remote
+// The source can be a local path (resolved relative to the gruntbook directory) or a remote
 // git URL (cloned to a temp directory, parsed, then cleaned up).
-func HandleTfModuleParse(runbookPath string) gin.HandlerFunc {
+func HandleTfModuleParse(gruntbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req TfParseRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -49,7 +49,7 @@ func HandleTfModuleParse(runbookPath string) gin.HandlerFunc {
 		}
 
 		// Determine if this is a remote URL or a local path
-		modulePath, cleanup, err := resolveModuleSource(req.Source, runbookPath)
+		modulePath, cleanup, err := resolveModuleSource(req.Source, gruntbookPath)
 		if err != nil {
 			slog.Error("Failed to resolve module source", "source", req.Source, "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -108,24 +108,24 @@ func HandleTfModuleParse(runbookPath string) gin.HandlerFunc {
 }
 
 // resolveModuleSource resolves a module source string to a local filesystem path.
-// For local paths, resolves relative to the runbook directory.
+// For local paths, resolves relative to the gruntbook directory.
 // For remote URLs, clones to a temp directory and returns a cleanup function.
-func resolveModuleSource(source string, runbookPath string) (localPath string, cleanup func(), err error) {
+func resolveModuleSource(source string, gruntbookPath string) (localPath string, cleanup func(), err error) {
 	parsed, err := ParseRemoteSource(source)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid module source %q: %w", source, err)
 	}
 
-	// Local path — resolve relative to the runbook directory (unless already absolute).
+	// Local path — resolve relative to the gruntbook directory (unless already absolute).
 	// Paths with ".." (e.g., "../modules/vpc") are intentionally allowed: the source value
-	// comes from trusted runbook content, and this endpoint requires session auth, which
+	// comes from trusted gruntbook content, and this endpoint requires session auth, which
 	// already grants access to arbitrary command execution via /api/exec.
 	if parsed == nil {
 		if filepath.IsAbs(source) {
 			return source, nil, nil
 		}
-		runbookDir := filepath.Dir(runbookPath)
-		return filepath.Join(runbookDir, source), nil, nil
+		gruntbookDir := filepath.Dir(gruntbookPath)
+		return filepath.Join(gruntbookDir, source), nil, nil
 	}
 
 	// Remote URL — acquire concurrency slot, then clone to temp directory

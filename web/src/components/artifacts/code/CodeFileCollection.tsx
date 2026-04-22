@@ -157,7 +157,7 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
             <h2 className="text-lg font-semibold text-gray-700">Generated Files</h2>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 italic">
               <span>
-                The files below are located in <code className="px-1 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-500 not-italic">{generatedFilesRelativePath}</code> relative to where you ran the runbook
+                The files below are located in <code className="px-1 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-500 not-italic">{generatedFilesRelativePath}</code> relative to where you ran the gruntbook
               </span>
 
               <button

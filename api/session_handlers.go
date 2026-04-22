@@ -147,7 +147,7 @@ func SessionAuthMiddleware(sm *SessionManager) gin.HandlerFunc {
 		}
 		execCtx, valid := sm.ValidateToken(token)
 		if !valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Runbooks."})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired session token. Try refreshing the page or restarting Gruntbooks."})
 			return
 		}
 		c.Set(sessionExecCtxKey, execCtx)

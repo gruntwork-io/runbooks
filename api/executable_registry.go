@@ -13,10 +13,10 @@ import (
 )
 
 // The idea here is we don't want to expose an API that executes arbitrary commands.
-// Instead, we scan a runbook to see what scripts (or "executables") it contains, and
+// Instead, we scan a gruntbook to see what scripts (or "executables") it contains, and
 // then only allow the API to accept requests to execute those executables, albeit with variable values.
 //
-// This ExecutableRegistry is a "registry" of all the executables in a runbook.
+// This ExecutableRegistry is a "registry" of all the executables in a gruntbook.
 
 // ExecutableType represents the source of the executable script
 type ExecutableType string
@@ -40,24 +40,24 @@ type Executable struct {
 	Language          string         `json:"language,omitempty"`
 }
 
-// ExecutableRegistry manages registered executables for a runbook
+// ExecutableRegistry manages registered executables for a gruntbook
 type ExecutableRegistry struct {
-	runbookPath string
+	gruntbookPath string
 	executables map[string]*Executable
 	warnings    []string     // Warnings collected during parsing (e.g., duplicate components)
 	mu          sync.RWMutex // Protects executables map from concurrent access by HTTP handlers
 }
 
 // NewExecutableRegistry creates a new executable registry
-func NewExecutableRegistry(runbookPath string) (*ExecutableRegistry, error) {
+func NewExecutableRegistry(gruntbookPath string) (*ExecutableRegistry, error) {
 	registry := &ExecutableRegistry{
-		runbookPath: runbookPath,
+		gruntbookPath: gruntbookPath,
 		executables: make(map[string]*Executable),
 	}
 
-	// Parse the runbook and register all executables
+	// Parse the gruntbook and register all executables
 	if err := registry.parseAndRegister(); err != nil {
-		return nil, fmt.Errorf("failed to parse runbook: %w", err)
+		return nil, fmt.Errorf("failed to parse gruntbook: %w", err)
 	}
 
 	return registry, nil
@@ -101,24 +101,24 @@ func (r *ExecutableRegistry) GetWarnings() []string {
 	return r.warnings
 }
 
-// parseAndRegister parses the runbook file and registers all executables
+// parseAndRegister parses the gruntbook file and registers all executables
 func (r *ExecutableRegistry) parseAndRegister() error {
-	// Read runbook file
-	content, err := os.ReadFile(r.runbookPath)
+	// Read gruntbook file
+	content, err := os.ReadFile(r.gruntbookPath)
 	if err != nil {
-		return fmt.Errorf("failed to read runbook: %w", err)
+		return fmt.Errorf("failed to read gruntbook: %w", err)
 	}
 
-	runbookContent := string(content)
-	runbookDir := filepath.Dir(r.runbookPath)
+	gruntbookContent := string(content)
+	gruntbookDir := filepath.Dir(r.gruntbookPath)
 
 	// Parse Check components
-	if err := r.parseComponents(runbookContent, runbookDir, "Check"); err != nil {
+	if err := r.parseComponents(gruntbookContent, gruntbookDir, "Check"); err != nil {
 		return fmt.Errorf("failed to parse Check components: %w", err)
 	}
 
 	// Parse Command components
-	if err := r.parseComponents(runbookContent, runbookDir, "Command"); err != nil {
+	if err := r.parseComponents(gruntbookContent, gruntbookDir, "Command"); err != nil {
 		return fmt.Errorf("failed to parse Command components: %w", err)
 	}
 
@@ -210,7 +210,7 @@ func ParseComponents(content, componentType string) []ParsedComponent {
 }
 
 // parseComponents extracts and registers all components of a given type
-func (r *ExecutableRegistry) parseComponents(content, runbookDir, componentType string) error {
+func (r *ExecutableRegistry) parseComponents(content, gruntbookDir, componentType string) error {
 	components := ParseComponents(content, componentType)
 
 	for _, comp := range components {
@@ -224,7 +224,7 @@ func (r *ExecutableRegistry) parseComponents(content, runbookDir, componentType 
 			}
 		} else if path != "" {
 			// File-based command
-			if err := r.registerFileExecutable(comp.ID, componentType, path, runbookDir); err != nil {
+			if err := r.registerFileExecutable(comp.ID, componentType, path, gruntbookDir); err != nil {
 				return err
 			}
 		}
@@ -268,9 +268,9 @@ func (r *ExecutableRegistry) registerInlineExecutable(componentID, componentType
 }
 
 // registerFileExecutable registers a file-based script
-func (r *ExecutableRegistry) registerFileExecutable(componentID, componentType, scriptPath, runbookDir string) error {
-	// Resolve script path relative to runbook
-	fullPath := filepath.Join(runbookDir, scriptPath)
+func (r *ExecutableRegistry) registerFileExecutable(componentID, componentType, scriptPath, gruntbookDir string) error {
+	// Resolve script path relative to gruntbook
+	fullPath := filepath.Join(gruntbookDir, scriptPath)
 
 	// Check if file exists - if not, add warning and skip (don't fail startup)
 	if _, err := os.Stat(fullPath); err != nil {
@@ -419,12 +419,12 @@ func unescapeString(s string) string {
 	return s
 }
 
-// validateRunbook validates a runbook for duplicate components
+// validateGruntbook validates a gruntbook for duplicate components
 // This is used in live-reload mode to provide warnings if duplicate components are detected
-func validateRunbook(filePath string) ([]string, error) {
+func validateGruntbook(filePath string) ([]string, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read runbook: %w", err)
+		return nil, fmt.Errorf("failed to read gruntbook: %w", err)
 	}
 
 	var warnings []string
@@ -489,24 +489,24 @@ func validateComponentType(content, componentType string) []string {
 	return warnings
 }
 
-// getExecutableByComponentID parses the runbook on-demand and returns an Executable for the given component ID
+// getExecutableByComponentID parses the gruntbook on-demand and returns an Executable for the given component ID
 // This is used in live-reload mode to bypass registry validation
-func getExecutableByComponentID(runbookPath, componentID string) (*Executable, error) {
-	content, err := os.ReadFile(runbookPath)
+func getExecutableByComponentID(gruntbookPath, componentID string) (*Executable, error) {
+	content, err := os.ReadFile(gruntbookPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read runbook: %w", err)
+		return nil, fmt.Errorf("failed to read gruntbook: %w", err)
 	}
 
-	runbookDir := filepath.Dir(runbookPath)
+	gruntbookDir := filepath.Dir(gruntbookPath)
 
 	// Try Check components
-	executable, err := findComponentExecutable(string(content), runbookDir, "Check", componentID)
+	executable, err := findComponentExecutable(string(content), gruntbookDir, "Check", componentID)
 	if err == nil {
 		return executable, nil
 	}
 
 	// Try Command components
-	executable, err = findComponentExecutable(string(content), runbookDir, "Command", componentID)
+	executable, err = findComponentExecutable(string(content), gruntbookDir, "Command", componentID)
 	if err == nil {
 		return executable, nil
 	}
@@ -516,7 +516,7 @@ func getExecutableByComponentID(runbookPath, componentID string) (*Executable, e
 
 // findComponentExecutable searches for a component and returns it as an Executable
 // Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
-func findComponentExecutable(content, runbookDir, componentType, targetID string) (*Executable, error) {
+func findComponentExecutable(content, gruntbookDir, componentType, targetID string) (*Executable, error) {
 	re := GetComponentRegex(componentType)
 
 	matches := re.FindAllStringSubmatchIndex(content, -1)
@@ -564,7 +564,7 @@ func findComponentExecutable(content, runbookDir, componentType, targetID string
 			}, nil
 		} else if pathProp != "" {
 			// File executable
-			fullPath := filepath.Join(runbookDir, pathProp)
+			fullPath := filepath.Join(gruntbookDir, pathProp)
 			scriptContent, err := os.ReadFile(fullPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read script file: %w", err)
@@ -585,10 +585,10 @@ func findComponentExecutable(content, runbookDir, componentType, targetID string
 	return nil, fmt.Errorf("component not found")
 }
 
-// HasComponent checks if the runbook contains any components of the given type.
+// HasComponent checks if the gruntbook contains any components of the given type.
 // Components inside fenced code blocks (```...```) are skipped as they are documentation examples.
 func (r *ExecutableRegistry) HasComponent(componentType string) bool {
-	content, err := os.ReadFile(r.runbookPath)
+	content, err := os.ReadFile(r.gruntbookPath)
 	if err != nil {
 		return false
 	}

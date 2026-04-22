@@ -480,7 +480,7 @@ func HandleAwsSsoStart() gin.HandlerFunc {
 		oidcClient := ssooidc.NewFromConfig(cfg)
 
 		// Register client
-		clientName := "runbooks-aws-auth"
+		clientName := "gruntbooks-aws-auth"
 		registerResult, err := oidcClient.RegisterClient(ctx, &ssooidc.RegisterClientInput{
 			ClientName: aws.String(clientName),
 			ClientType: aws.String("public"),

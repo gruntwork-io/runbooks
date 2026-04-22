@@ -6,7 +6,7 @@ This directory contains configuration files used in the release and CI/CD workfl
 
 ### `release-assets-config.json`
 
-Configuration file that defines the release asset matrix for the runbooks binary. It specifies:
+Configuration file that defines the release asset matrix for the gruntbooks binary. It specifies:
 
 - **Platforms**: The target OS/architecture combinations, including which ones require code signing.
 

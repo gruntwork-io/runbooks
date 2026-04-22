@@ -12,5 +12,5 @@ echo "Found users: $USERS"
 echo "Found teams: $TEAMS"
 
 # Output as JSON strings for downstream blocks
-echo "users=$USERS" >> "$RUNBOOK_OUTPUT"
-echo "teams=$TEAMS" >> "$RUNBOOK_OUTPUT"
+echo "users=$USERS" >> "$GRUNTBOOK_OUTPUT"
+echo "teams=$TEAMS" >> "$GRUNTBOOK_OUTPUT"

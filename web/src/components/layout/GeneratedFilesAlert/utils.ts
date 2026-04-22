@@ -1,6 +1,6 @@
 import { shouldShowAlert, setDontShowAgain } from '../../../lib/localStorage';
 
-export const GENERATED_FILES_ALERT_KEY = 'runbooks-dont-ask-generated-files';
+export const GENERATED_FILES_ALERT_KEY = 'gruntbooks-dont-ask-generated-files';
 
 /**
  * Check if the generated files alert should be shown

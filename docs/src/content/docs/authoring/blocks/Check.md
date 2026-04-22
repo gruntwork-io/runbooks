@@ -31,7 +31,7 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 ### Optional Props
 - `description` (string) - Longer description of what's being checked. Supports inline markdown.
 - `command` (string) - Inline command to execute (alternative to `path`)
-- `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
+- `path` (string) - Path to a shell script file relative to the gruntbook (alternative to `command`)
 - `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
 - `githubAuthId` (string) - ID of a [GitHubAuth](/authoring/blocks/githubauth/) block for GitHub credentials. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes.
@@ -141,11 +141,11 @@ The Check block interprets your script's exit codes as follows:
 - **Exit code 1**: Failure ✗ (red)
 - **Exit code 2**: Warning ⚠ (yellow)
 
-These exit codes will determine how the Runbooks UI renders the result of running a script.
+These exit codes will determine how the Gruntbooks UI renders the result of running a script.
 
 ### Logging
 
-Runbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Runbooks UI to parse log levels for filtering and export.
+Gruntbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Gruntbooks UI to parse log levels for filtering and export.
 
 #### Log Levels
 
@@ -177,7 +177,7 @@ log_info "Validation complete"
 
 #### Local Development
 
-Runbooks automatically injects these logging functions into every bash script at runtime — no `source` or `import` is needed. To run these scripts locally outside the Runbooks environment, see the [Command block Local Development guide](/authoring/blocks/command/#local-development).
+Gruntbooks automatically injects these logging functions into every bash script at runtime — no `source` or `import` is needed. To run these scripts locally outside the Gruntbooks environment, see the [Command block Local Development guide](/authoring/blocks/command/#local-development).
 
 ### With Variables
 
@@ -260,7 +260,7 @@ In this example, the check has access to all variables from both `lambda-config`
 
 ### Execution Context
 
-Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your runbook like a workflow where earlier steps set up the environment for later steps.
+Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your gruntbook like a workflow where earlier steps set up the environment for later steps.
 
 Scripts also run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**.
 
@@ -335,7 +335,7 @@ Check blocks can produce **outputs** that downstream blocks can consume. This en
 
 ### Producing Outputs
 
-Scripts write outputs to a file specified by the `$RUNBOOK_OUTPUT` environment variable. Each output is a `key=value` pair on its own line:
+Scripts write outputs to a file specified by the `$GRUNTBOOK_OUTPUT` environment variable. Each output is a `key=value` pair on its own line:
 
 ```bash
 #!/bin/bash
@@ -343,7 +343,7 @@ Scripts write outputs to a file specified by the `$RUNBOOK_OUTPUT` environment v
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # Write outputs for downstream blocks
-echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+echo "account_id=$ACCOUNT_ID" >> "$GRUNTBOOK_OUTPUT"
 exit 0
 ```
 
@@ -426,7 +426,7 @@ generated/
 
 #### How It Works
 
-1. Before your script runs, Runbooks creates a temporary capture directory
+1. Before your script runs, Gruntbooks creates a temporary capture directory
 2. The `$GENERATED_FILES` environment variable points to this directory
 3. Your script writes files to `$GENERATED_FILES`
 4. After successful execution, files are copied to the generated files directory
@@ -475,7 +475,7 @@ The `<Check>` block works especially well for:
 
 - Pre-flight checks
 - Validating `<Command>` blocks
-- Smoke tests that validate a completed Runbook
+- Smoke tests that validate a completed Gruntbook
 
 This might manifest as:
 

@@ -369,7 +369,7 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 			RelativePath: relativePath,
 		})
 
-		// Send outputs event so the block can register outputs in RunbookContext
+		// Send outputs event so the block can register outputs in GruntbookContext
 		outputs := map[string]string{
 			"clone_path": absolutePath,
 			"file_count": fmt.Sprintf("%d", fileCount),

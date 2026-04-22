@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useGetFile } from '@/hooks/useApiGetFile'
-import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type TemplateValue } from '@/contexts/useRunbook'
+import { useInputs, useGruntbookContext, useAllOutputs, flattenInputs, type TemplateValue } from '@/contexts/useGruntbook'
 import { useApiExec } from '@/hooks/useApiExec'
 import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
 import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
@@ -111,10 +111,10 @@ interface UseScriptExecutionReturn {
   execute: () => void
   cancel: () => void
   
-  // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT)
+  // Block outputs (key-value pairs produced by script via $GRUNTBOOK_OUTPUT)
   outputs: Record<string, string> | null
   
-  // Drift detection (script changed on disk since runbook was opened)
+  // Drift detection (script changed on disk since gruntbook was opened)
   hasScriptDrift: boolean
 }
 
@@ -145,8 +145,8 @@ export function useScriptExecution({
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
   
-  // Get runbook context for registering outputs and getting template context
-  const { registerOutputs, getTemplateContext } = useRunbookContext()
+  // Get gruntbook context for registering outputs and getting template context
+  const { registerOutputs, getTemplateContext } = useGruntbookContext()
   
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
@@ -159,7 +159,7 @@ export function useScriptExecution({
   
   // Callback to handle outputs captured from script execution
   const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {
-    // Register outputs in the runbook context so other blocks can access them
+    // Register outputs in the gruntbook context so other blocks can access them
     registerOutputs(componentId, outputValues)
   }, [componentId, registerOutputs])
   
@@ -574,9 +574,9 @@ export function useScriptExecution({
         // Show error to user instead of silently failing
         setRegistryError(createAppError(
           `Executable not found for component "${componentId}"`,
-          'This means that Runbooks attempted to run a script or command that was not defined when Runbooks was first loaded. ' +
-          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path. ' +
-          'Try re-opening your runbook, or check the runbooks server logs for details.'
+          'This means that Gruntbooks attempted to run a script or command that was not defined when Gruntbooks was first loaded. ' +
+          'Common causes include changing a script before re-loading the gruntbook, or syntax errors in the command or script path. ' +
+          'Try re-opening your gruntbook, or check the gruntbooks server logs for details.'
         ))
         return
       }

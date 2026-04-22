@@ -2,7 +2,7 @@
 set -e
 
 REPO_URL="${1:-https://github.com/gruntwork-io/runbooks.git}"
-CLONE_DIR="${2:-runbooks-pty-demo}"
+CLONE_DIR="${2:-gruntbooks-pty-demo}"
 CLONE_PATH="/tmp/$CLONE_DIR"
 
 # Clean up any existing clone

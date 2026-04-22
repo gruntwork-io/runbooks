@@ -21,7 +21,7 @@ import (
 // from executing scripts, even though the server only listens on localhost.
 const MaxTokensPerSession = 20
 
-// Session represents a persistent execution environment for a runbook session.
+// Session represents a persistent execution environment for a gruntbook session.
 // Environment changes made by scripts persist across block executions.
 // Multiple browser tabs can share the same session, each with their own token.
 type Session struct {
@@ -76,7 +76,7 @@ type SessionTokenResponse struct {
 //   - Testability: Each test gets a fresh manager instance
 //
 // The session persists for the lifetime of the server process. All browser
-// tabs share the same session, which matches the mental model of "one runbook
+// tabs share the same session, which matches the mental model of "one gruntbook
 // = one environment" (like having multiple terminal windows to the same shell).
 // Each tab gets its own token, but they all operate on the same environment.
 type SessionManager struct {
@@ -92,7 +92,7 @@ func NewSessionManager() *SessionManager {
 }
 
 // SetProtectedEnvVars configures environment variables that should be stripped
-// from the session at creation time. This is used when the runbook contains
+// from the session at creation time. This is used when the gruntbook contains
 // auth blocks (like AwsAuth) that require explicit user confirmation before
 // credentials can be used. Must be called before CreateSession().
 func (sm *SessionManager) SetProtectedEnvVars(vars []string) {
@@ -134,7 +134,7 @@ func copyEnvMap(src map[string]string) map[string]string {
 
 // CreateSession creates a new session with the current process environment.
 // If a session already exists, it is replaced (all existing tokens invalidated).
-// The initialWorkingDir should be the runbook's directory.
+// The initialWorkingDir should be the gruntbook's directory.
 // If protectedEnvVars were configured via SetProtectedEnvVars(), those vars
 // will be stripped from the session environment (requiring explicit auth to use).
 func (sm *SessionManager) CreateSession(initialWorkingDir string) (*SessionTokenResponse, error) {
@@ -458,7 +458,8 @@ func (sm *SessionManager) GetActiveWorkTreePath() string {
 var excludedEnvVars = map[string]bool{
 	"_":                     true, // Last command
 	"SHLVL":                 true, // Shell level
-	"RUNBOOK_OUTPUT":        true, // Temp file for block outputs, deleted after each execution
+	"GRUNTBOOK_OUTPUT":      true, // Temp file for block outputs, deleted after each execution
+	"RUNBOOK_OUTPUT":        true, // Legacy alias of GRUNTBOOK_OUTPUT
 	"GENERATED_FILES":       true, // Temp directory for file capture, deleted after each execution
 	"REPO_FILES":            true, // Active git worktree path, set per execution
 	"OLDPWD":                true, // Previous directory (we track workdir separately)
@@ -483,11 +484,11 @@ var excludedEnvVars = map[string]bool{
 	"SRANDOM":          	 true, // 32-bit random (bash 5.1+)
 
 	// Internal wrapper variables (must match WrapBashScript in exec_script.go)
-	"__RUNBOOKS_ENV_CAPTURE_PATH":   true,
-	"__RUNBOOKS_PWD_CAPTURE_PATH":   true,
-	"__RUNBOOKS_USER_EXIT_HANDLER":  true, // Stores user's EXIT trap handler
-	"__RUNBOOKS_COMBINED_EXIT":      true, // Our combined exit handler function name
-	"_RUNBOOKS_LOGGING_LOADED":      true, // Guard variable for injected logging functions
+	"__GRUNTBOOKS_ENV_CAPTURE_PATH":   true,
+	"__GRUNTBOOKS_PWD_CAPTURE_PATH":   true,
+	"__GRUNTBOOKS_USER_EXIT_HANDLER":  true, // Stores user's EXIT trap handler
+	"__GRUNTBOOKS_COMBINED_EXIT":      true, // Our combined exit handler function name
+	"_GRUNTBOOKS_LOGGING_LOADED":      true, // Guard variable for injected logging functions
 }
 
 // FilterCapturedEnv filters out shell-internal variables from captured environment.

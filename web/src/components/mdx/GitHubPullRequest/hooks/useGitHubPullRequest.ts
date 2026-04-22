@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import { useSession } from '@/contexts/useSession'
-import { useRunbookContext } from '@/contexts/useRunbook'
+import { useGruntbookContext } from '@/contexts/useGruntbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { PRBlockStatus, PRResult, GitHubLabel } from '../types'
@@ -42,7 +42,7 @@ interface UseGitHubPullRequestOptions {
 
 export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestOptions) {
   const { getAuthHeader, isReady: sessionReady } = useSession()
-  const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
+  const { registerOutputs, blockOutputs: allOutputs } = useGruntbookContext()
 
   // State
   const [status, setStatus] = useState<PRBlockStatus>('pending')

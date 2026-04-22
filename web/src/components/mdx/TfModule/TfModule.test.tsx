@@ -4,7 +4,7 @@ import React from 'react'
 import TfModule from './TfModule'
 import { TestWrapper } from '@/test/test-utils'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import { useRunbookContext } from '@/contexts/useRunbook'
+import { useGruntbookContext } from '@/contexts/useGruntbook'
 
 // Mock the API hook — we don't want actual HTTP calls
 vi.mock('@/hooks/useApiParseTfModule', () => ({
@@ -34,11 +34,11 @@ describe('TfModule', () => {
     mockUseApiParseTfModule.mockReturnValue(mockApiResponse())
   })
 
-  describe('::cli_runbook_source resolution', () => {
-    it('resolves ::cli_runbook_source to remoteSource from context', () => {
+  describe('::cli_gruntbook_source resolution', () => {
+    it('resolves ::cli_gruntbook_source to remoteSource from context', () => {
       render(
         <TestWrapper remoteSource="https://github.com/org/module">
-          <TfModule id="test" source="::cli_runbook_source" />
+          <TfModule id="test" source="::cli_gruntbook_source" />
         </TestWrapper>
       )
 
@@ -49,36 +49,36 @@ describe('TfModule', () => {
       )
     })
 
-    it('shows missing-remote-source banner when ::cli_runbook_source used without remoteSource', () => {
+    it('shows missing-remote-source banner when ::cli_gruntbook_source used without remoteSource', () => {
       render(
         <TestWrapper>
-          <TfModule id="test" source="::cli_runbook_source" />
+          <TfModule id="test" source="::cli_gruntbook_source" />
         </TestWrapper>
       )
 
       expect(screen.getByText('No remote module source available')).toBeInTheDocument()
-      expect(screen.getByText(/source="::cli_runbook_source"/)).toBeInTheDocument()
+      expect(screen.getByText(/source="::cli_gruntbook_source"/)).toBeInTheDocument()
     })
 
-    it('shows missing-remote-source banner when ::cli_runbook_source comes from template variable', () => {
-      // This test uses the RunbookContext's registerInputs to simulate an Inputs block
+    it('shows missing-remote-source banner when ::cli_gruntbook_source comes from template variable', () => {
+      // This test uses the GruntbookContext's registerInputs to simulate an Inputs block
       // that provides a ModuleSource variable with the special keyword value.
       // The TfModule should detect the keyword after template resolution.
       const TestComponent = () => {
-        const { registerInputs } = useRunbookContext()
+        const { registerInputs } = useGruntbookContext()
 
         // Register an input that contains the special keyword
         React.useEffect(() => {
           registerInputs(
             'config',
-            { ModuleSource: '::cli_runbook_source' },
+            { ModuleSource: '::cli_gruntbook_source' },
             {
               variables: [
                 {
                   name: 'ModuleSource',
                   type: BoilerplateVariableType.String,
                   description: 'Module source URL',
-                  default: '::cli_runbook_source',
+                  default: '::cli_gruntbook_source',
                   required: true,
                 }
               ],
@@ -96,11 +96,11 @@ describe('TfModule', () => {
       )
 
       // Should show the missing remote source banner
-      // The template expression {{ .inputs.ModuleSource }} resolves to ::cli_runbook_source
+      // The template expression {{ .inputs.ModuleSource }} resolves to ::cli_gruntbook_source
       expect(screen.getByText('No remote module source available')).toBeInTheDocument()
     })
 
-    it('uses literal source string when source is not ::cli_runbook_source', () => {
+    it('uses literal source string when source is not ::cli_gruntbook_source', () => {
       render(
         <TestWrapper>
           <TfModule id="test" source="../modules/vpc" />
@@ -120,7 +120,7 @@ describe('TfModule', () => {
         </TestWrapper>
       )
 
-      // Should NOT use remoteSource — only ::cli_runbook_source triggers that
+      // Should NOT use remoteSource — only ::cli_gruntbook_source triggers that
       expect(mockUseApiParseTfModule).toHaveBeenCalledWith(
         './local-module',
         true,
@@ -211,7 +211,7 @@ describe('TfModule', () => {
     it('passes enrichFormData to useInputRegistration that adds _module namespace', () => {
       // This test verifies the enrichFormData callback structure by inspecting
       // what the API hook receives. We test the actual data flow through
-      // RunbookContext separately (in RunbookContext.test.tsx).
+      // GruntbookContext separately (in GruntbookContext.test.tsx).
       mockUseApiParseTfModule.mockReturnValue(mockApiResponse({
         data: {
           variables: [
@@ -236,7 +236,7 @@ describe('TfModule', () => {
       // Render succeeds — the form appears
       const { container } = render(
         <TestWrapper remoteSource="https://github.com/org/module">
-          <TfModule id="module-vars" source="::cli_runbook_source" />
+          <TfModule id="module-vars" source="::cli_gruntbook_source" />
         </TestWrapper>
       )
 

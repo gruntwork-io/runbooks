@@ -1,11 +1,11 @@
 #!/bin/bash
 # =============================================================================
 # Logging Demo Script
-# Demonstrates all four logging functions provided by Runbooks
+# Demonstrates all four logging functions provided by Gruntbooks
 # =============================================================================
 
 echo "========================================="
-echo "  Runbooks Logging Demo"
+echo "  Gruntbooks Logging Demo"
 echo "========================================="
 echo ""
 

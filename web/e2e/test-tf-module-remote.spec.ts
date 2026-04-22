@@ -5,9 +5,9 @@ import { fileURLToPath } from "url";
 /**
  * End-to-end tests for opening an OpenTofu/Terraform module.
  *
- * When `runbooks open <path-or-url>` is called with a TF module,
- * the CLI generates a runbook from a built-in template and serves it.
- * The generated runbook should render a TfModule variable form and
+ * When `gruntbooks open <path-or-url>` is called with a TF module,
+ * the CLI generates a gruntbook from a built-in template and serves it.
+ * The generated gruntbook should render a TfModule variable form and
  * a TemplateInline preview without errors.
  */
 
@@ -22,14 +22,14 @@ const TF_MODULE_REMOTE_URL =
 test.describe("TF module (local)", () => {
   test("renders TfModule form and generates terragrunt.hcl after submit", async ({
     page,
-    serveRunbook,
+    serveGruntbook,
     serverPort,
   }) => {
-    await serveRunbook(TF_MODULE_PATH);
+    await serveGruntbook(TF_MODULE_PATH);
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.getByTestId("runbook-content");
+    const markdownBody = page.getByTestId("gruntbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     // The TfModule block should render and show the variable form
@@ -66,14 +66,14 @@ test.describe("TF module (remote)", () => {
 
   test("renders TfModule form and generates terragrunt.hcl after submit", async ({
     page,
-    serveRunbook,
+    serveGruntbook,
     serverPort,
   }) => {
-    await serveRunbook(TF_MODULE_REMOTE_URL);
+    await serveGruntbook(TF_MODULE_REMOTE_URL);
     await page.goto(`http://localhost:${serverPort}/`);
     await deleteFilesIfPrompted(page);
 
-    const markdownBody = page.getByTestId("runbook-content");
+    const markdownBody = page.getByTestId("gruntbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
 
     const moduleBlock = page.getByTestId("module-vars");

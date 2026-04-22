@@ -149,7 +149,7 @@ export function PRForm({
               type="text"
               value={branchName}
               onChange={(e) => setBranchName(e.target.value)}
-              placeholder="runbook/..."
+              placeholder="gruntbook/..."
               disabled={isFormDisabled}
               className={INPUT_CLASS}
             />

@@ -34,15 +34,20 @@ function findFreePort(): Promise<number> {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /** Resolved path to the Go binary at the repo root. */
-const BINARY_PATH = path.join(REPO_ROOT, "runbooks");
+const BINARY_PATH = path.join(REPO_ROOT, "gruntbooks");
 
 /**
  * The server resolves directory paths (e.g. "testdata/demo1") to include the
- * default filename (e.g. "testdata/demo1/runbook.mdx"), so a health-check
- * response may report either form.
+ * default filename (e.g. "testdata/demo1/gruntbook.mdx"), so a health-check
+ * response may report either form. The legacy runbook.mdx filename is also
+ * accepted for backward compatibility.
  */
-function matchesRunbookPath(actual: string, expected: string): boolean {
-  return actual === expected || actual === expected + "/runbook.mdx";
+function matchesGruntbookPath(actual: string, expected: string): boolean {
+  return (
+    actual === expected ||
+    actual === expected + "/gruntbook.mdx" ||
+    actual === expected + "/runbook.mdx"
+  );
 }
 
 /**
@@ -50,9 +55,9 @@ function matchesRunbookPath(actual: string, expected: string): boolean {
  * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
  *
  * When skipPathCheck is true, only the status is verified (useful for
- * remote URLs where the server generates a temp runbook path).
+ * remote URLs where the server generates a temp gruntbook path).
  */
-function waitForServer(port: number, expectedRunbookPath: string, skipPathCheck = false, timeout = HEALTH_TIMEOUT_MS): Promise<void> {
+function waitForServer(port: number, expectedGruntbookPath: string, skipPathCheck = false, timeout = HEALTH_TIMEOUT_MS): Promise<void> {
   const healthURL = `http://localhost:${port}/api/health`;
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeout;
@@ -69,7 +74,7 @@ function waitForServer(port: number, expectedRunbookPath: string, skipPathCheck 
           if (res.statusCode === 200) {
             try {
               const json = JSON.parse(body);
-              if (json.status === "ok" && (skipPathCheck || matchesRunbookPath(json.runbookPath, expectedRunbookPath))) {
+              if (json.status === "ok" && (skipPathCheck || matchesGruntbookPath(json.gruntbookPath, expectedGruntbookPath))) {
                 resolve();
                 return;
               }
@@ -121,12 +126,12 @@ function killProcess(proc: ChildProcess): Promise<void> {
 
 // ---- Custom fixture types ------------------------------------------------
 
-type RunbookServerFixture = {
+type GruntbookServerFixture = {
   /**
-   * Start the runbooks server for the given runbook path.
-   * The path should be relative to the repo root (e.g. "testdata/sample-runbooks/my-first-runbook").
+   * Start the gruntbooks server for the given gruntbook path.
+   * The path should be relative to the repo root (e.g. "testdata/sample-gruntbooks/my-first-gruntbook").
    */
-  serveRunbook: (runbookPath: string) => Promise<void>;
+  serveGruntbook: (gruntbookPath: string) => Promise<void>;
   /** The port the server is listening on (unique per test, OS-assigned). */
   serverPort: number;
   /** Console messages collected from the page during the test. */
@@ -136,13 +141,13 @@ type RunbookServerFixture = {
 };
 
 /**
- * Extend Playwright's `test` with a `serveRunbook` fixture that manages
+ * Extend Playwright's `test` with a `serveGruntbook` fixture that manages
  * the Go server lifecycle and a `consoleMessages` array for assertions.
  *
  * Each test gets a unique OS-assigned port via findFreePort() so
  * multiple tests can run simultaneously without port conflicts.
  */
-export const test = base.extend<RunbookServerFixture>({
+export const test = base.extend<GruntbookServerFixture>({
   // eslint-disable-next-line no-empty-pattern
   consoleMessages: async ({}, use) => {
     const messages: ConsoleMessage[] = [];
@@ -154,27 +159,27 @@ export const test = base.extend<RunbookServerFixture>({
   }, { scope: "test" }],
 
   workDir: [async ({}, use, testInfo) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `gruntbooks-e2e-${testInfo.workerIndex}-`));
     await use(dir);
     fs.rmSync(dir, { recursive: true, force: true });
   }, { scope: "test" }],
 
-  serveRunbook: async ({ page, consoleMessages, serverPort, workDir }, use) => {
+  serveGruntbook: async ({ page, consoleMessages, serverPort, workDir }, use) => {
     let serverProcess: ChildProcess | null = null;
 
     page.on("console", (msg) => consoleMessages.push(msg));
 
-    const start = async (runbookPath: string) => {
+    const start = async (gruntbookPath: string) => {
       serverProcess = spawn(
         BINARY_PATH,
-        ["serve", "--port", String(serverPort), "--working-dir", workDir, runbookPath],
+        ["serve", "--port", String(serverPort), "--working-dir", workDir, gruntbookPath],
         {
           cwd: REPO_ROOT,
           stdio: ["ignore", "pipe", "pipe"],
           detached: true,
           env: {
             ...process.env,
-            RUNBOOKS_TELEMETRY_DISABLE: "1",
+            GRUNTBOOKS_TELEMETRY_DISABLE: "1",
           },
         },
       );
@@ -191,19 +196,19 @@ export const test = base.extend<RunbookServerFixture>({
       let earlyExitHandler: (code: number | null) => void;
       const earlyExit = new Promise<never>((_, reject) => {
         earlyExitHandler = (code) => {
-          reject(new Error(`Server exited with code ${code} before becoming ready (runbook path: ${runbookPath})`));
+          reject(new Error(`Server exited with code ${code} before becoming ready (gruntbook path: ${gruntbookPath})`));
         };
         serverProcess!.on("exit", earlyExitHandler);
       });
 
-      const isRemoteURL = runbookPath.startsWith("http://") || runbookPath.startsWith("https://");
+      const isRemoteURL = gruntbookPath.startsWith("http://") || gruntbookPath.startsWith("https://");
       // Skip path check for remote URLs and local TF modules — both generate
-      // a runbook in a temp directory, so the served path won't match the input.
-      const isTfModule = !runbookPath.endsWith(".mdx");
+      // a gruntbook in a temp directory, so the served path won't match the input.
+      const isTfModule = !gruntbookPath.endsWith(".mdx");
       const skipPathCheck = isRemoteURL || isTfModule;
       const healthTimeout = isRemoteURL ? 30_000 : HEALTH_TIMEOUT_MS;
       try {
-        await Promise.race([waitForServer(serverPort, runbookPath, skipPathCheck, healthTimeout), earlyExit]);
+        await Promise.race([waitForServer(serverPort, gruntbookPath, skipPathCheck, healthTimeout), earlyExit]);
       } finally {
         serverProcess!.removeListener("exit", earlyExitHandler!);
         earlyExit.catch(() => {});
@@ -225,7 +230,7 @@ export type { Page } from "@playwright/test";
 /**
  * If the "Existing Generated Files Detected" dialog appears, click
  * "Delete Files" and wait for it to close. Otherwise do nothing.
- * Call this after page.goto() for runbooks that generate files.
+ * Call this after page.goto() for gruntbooks that generate files.
  *
  * Waits up to 2 seconds for the dialog to appear (it renders
  * asynchronously after an API call), then proceeds immediately
@@ -280,12 +285,12 @@ export function getFilesPanel(page: import("@playwright/test").Page, panel: File
 }
 
 /**
- * Dismiss the "I trust this Runbook" confirmation banner.
+ * Dismiss the "I trust this Gruntbook" confirmation banner.
  * Call this before any test that needs to execute commands or interact with
  * blocks that require trust (e.g. Command, Check).
  */
-export async function trustRunbook(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "I trust this Runbook" }).click();
+export async function trustGruntbook(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "I trust this Gruntbook" }).click();
 }
 
 /**

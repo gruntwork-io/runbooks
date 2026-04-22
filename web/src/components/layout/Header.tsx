@@ -52,7 +52,7 @@ function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...pro
 
 interface HeaderProps {
   pathName: string;
-  /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
+  /** The local filesystem path (may differ from pathName when viewing a remote gruntbook) */
   localPath?: string;
 }
 
@@ -62,7 +62,7 @@ interface HeaderProps {
  * The header uses a responsive design where mobile devices show only the file path
  * centered, while desktop devices show the full layout with branding and navigation.
  *
- * When viewing a remote runbook, pathName will be the remote URL while localPath
+ * When viewing a remote gruntbook, pathName will be the remote URL while localPath
  * will be the temp directory path. A copy button is shown to copy the local path.
  *
  * @param props - The component props
@@ -75,7 +75,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
   const { didCopy, copy } = useCopyToClipboard();
 
   // Show the copy-local-path button when we have a local path that differs from the display name
-  // (i.e., when viewing a remote runbook)
+  // (i.e., when viewing a remote gruntbook)
   const isRemote = localPath && localPath !== pathName;
   const localDir = getDirectoryPath(localPath) || localPath;
 
@@ -98,7 +98,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
     <>
       <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
         <div className="absolute left-5 top-1/2 transform -translate-y-1/2">
-          <img src="/runbooks-logo-dark-alpha.svg" alt="Gruntwork Runbooks" className="h-8" />
+          <img src="/gruntbooks-logo-dark-alpha.svg" alt="Gruntwork Gruntbooks" className="h-8" />
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-12 mr-4 md:mx-40">
           <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
@@ -161,12 +161,12 @@ export function Header({ pathName, localPath }: HeaderProps) {
         <AlertDialogContent>
           <div className="relative">
             <AlertDialogHeader>
-              <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img src="/runbooks-logo-dark-color.svg" alt="Gruntwork Runbooks" className="h-16 mb-2" />
-              
+              <AlertDialogTitle className="sr-only">About Gruntwork Gruntbooks</AlertDialogTitle>
+              <img src="/gruntbooks-logo-dark-color.svg" alt="Gruntwork Gruntbooks" className="h-16 mb-2" />
+
               <AlertDialogDescription className="text-left space-y-4">
-                <p>Runbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>
-                <p>Runbooks is published by <a target="_blank" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" href="https://runbooks.gruntwork.io">Runbooks docs</a> for more information.</p>
+                <p>Gruntbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>
+                <p>Gruntbooks is published by <a target="_blank" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" href="https://gruntbooks.gruntwork.io">Gruntbooks docs</a> for more information.</p>
                 <AlertDialogAction className="block mt-4" onClick={() => setIsAboutDialogOpen(false)}>
                 Close
                 </AlertDialogAction>

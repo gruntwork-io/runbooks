@@ -4,7 +4,7 @@ title: <GitHubPullRequest>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitHubPullRequest>` block provides a streamlined way to create GitHub pull requests directly from a runbook. It integrates with the [`<GitClone>`](/authoring/blocks/gitclone/) block to push changes made during the runbook workflow and open a PR.
+The `<GitHubPullRequest>` block provides a streamlined way to create GitHub pull requests directly from a gruntbook. It integrates with the [`<GitClone>`](/authoring/blocks/gitclone/) block to push changes made during the gruntbook workflow and open a PR.
 
 This block completes the git workflow loop: clone a repository, make changes (via Command, Template, or other blocks), and open a pull request.
 
@@ -29,7 +29,7 @@ Pair with `<GitHubAuth>` and `<GitClone>` to create a complete workflow:
   id="create-pr"
   githubAuthId="gh-auth"
   title="Open Pull Request"
-  description="Create a PR with the changes made in this runbook"
+  description="Create a PR with the changes made in this gruntbook"
 />
 ```
 
@@ -75,7 +75,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the PR title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
-| `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
+| `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `gruntbook/<timestamp>`. |
 
 ### Block Outputs
 

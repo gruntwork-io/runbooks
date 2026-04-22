@@ -23,7 +23,7 @@ echo ""
 cat >> "$REPO_DIR/root.hcl" << 'EOF'
 
 # -------------------------------------------------------
-# Custom configuration added by Runbooks
+# Custom configuration added by Gruntbooks
 # -------------------------------------------------------
 
 locals {

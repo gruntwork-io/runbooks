@@ -1,43 +1,48 @@
 ---
-title: Testing Runbooks
-description: How to write and run automated tests for your runbooks.
+title: Testing Gruntbooks
+description: How to write and run automated tests for your gruntbooks.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Runbooks includes a built-in testing framework that lets you validate that your runbooks work correctly.
+Gruntbooks includes a built-in testing framework that lets you validate that your gruntbooks work correctly.
 
-To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks test /path/to/runbook` or `runbooks test ./...` to run the tests. Test are meant to run locally or in CI.
+To run a test, you define a YAML test configuration file alongside your gruntbook. Then call `gruntbooks test /path/to/gruntbook` or `gruntbooks test ./...` to run the tests. Test are meant to run locally or in CI.
 
 ## Quick Start
 
-1. Generate a test configuration for your runbook:
+1. Generate a test configuration for your gruntbook:
 
 ```bash
-runbooks test init ./my-runbook
+gruntbooks test init ./my-gruntbook
 ```
 
-This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks. You can edit the file to customize the tests if needed.
+This creates `gruntbook_test.yml` with reasonable defaults based on your gruntbook's blocks. You can edit the file to customize the tests if needed.
 
 2. Run the tests:
 
 ```bash
-runbooks test ./my-runbook
+gruntbooks test ./my-gruntbook
 ```
 
 ## Test Configuration
 
-Tests are defined in a `runbook_test.yml` file located in the same directory as your `runbook.mdx` file. Here's an example of a test configuration file:
+Tests are defined in a `gruntbook_test.yml` file located in the same directory as your `gruntbook.mdx` file. Here's an example of a test configuration file:
+
+:::note[Legacy filename]
+For backward compatibility, Gruntbooks also accepts the legacy filename `runbook_test.yml` (with a deprecation warning). Prefer `gruntbook_test.yml` for new gruntbooks.
+:::
+
 
 ```yaml
 version: 1
 
 settings:
   # use_temp_working_dir: true  # Default: use isolated temp directory
-  # working_dir: .              # Alternative: use runbook's directory
+  # working_dir: .              # Alternative: use gruntbook's directory
   # output_path: generated      # Where to write generated files (relative to working_dir)
   timeout: 5m            # Test timeout
-  parallelizable: true   # Can run in parallel with other runbooks
+  parallelizable: true   # Can run in parallel with other gruntbooks
 
 tests:
   - name: happy-path
@@ -79,7 +84,7 @@ tests: [ ... ]          # Required. Array of test cases (minimum 1).
 |-------|------|----------|-------------|
 | `version` | integer | Yes | Configuration version. Must be `1`. |
 | `settings` | object | No | Global settings that apply to all tests. |
-| `tests` | array | Yes | Array of runbook tests to run. At least one test case is required. |
+| `tests` | array | Yes | Array of gruntbook tests to run. At least one test case is required. |
 
 ### Settings Object
 
@@ -95,10 +100,10 @@ settings:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `use_temp_working_dir` | boolean | `true` | Use an isolated temporary directory for test execution. Overrides `working_dir` when `true`. The temp directory is automatically cleaned up after the test. |
-| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. |
+| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the gruntbook's directory. Ignored when `use_temp_working_dir` is `true`. |
 | `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
 | `timeout` | string | `"5m"` | Maximum time for each test case. Uses Go duration format (e.g., `30s`, `5m`, `1h`). |
-| `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. |
+| `parallelizable` | boolean | `true` | Whether this gruntbook's tests can run in parallel with tests from other gruntbooks. |
 
 ### Test Case Object
 
@@ -172,7 +177,7 @@ Each step references a block by its ID. How a block gets its ID depends on the b
 All block types use the explicit `id` prop for identification in test steps.
 
 :::tip
-Run `runbooks test init` to automatically discover all block IDs in your runbook.
+Run `gruntbooks test init` to automatically discover all block IDs in your gruntbook.
 :::
 
 ### Assertion Object
@@ -319,7 +324,7 @@ tests:
     
     env:
       LOG_LEVEL: debug
-      RUNBOOK_DRY_RUN: "false"
+      GRUNTBOOK_DRY_RUN: "false"
     
     inputs:
       # Literal values
@@ -401,7 +406,7 @@ cleanup:
 
 ## Testing AwsAuth Blocks
 
-For runbooks with `<AwsAuth>` blocks, the test framework checks for AWS credentials in environment variables and injects them into the session for dependent blocks to use.
+For gruntbooks with `<AwsAuth>` blocks, the test framework checks for AWS credentials in environment variables and injects them into the session for dependent blocks to use.
 
 By default, the test framework checks for standard AWS environment variables:
 
@@ -417,25 +422,25 @@ It also checks for `AWS_PROFILE` and `AWS_ROLE_ARN` as alternative authenticatio
 To avoid conflicts with your local AWS credentials, use the `env_prefix` option on the test step to specify a prefix for test-only environment variables:
 
 ```yaml
-# runbook_test.yml
+# gruntbook_test.yml
 tests:
   - name: happy-path
     steps:
       - block: aws-auth
-        env_prefix: RUNBOOKS_TEST_
+        env_prefix: GRUNTBOOKS_TEST_
         expect: success
 ```
 
 This tells the test executor to check for the following environment variables:
 
-- `RUNBOOKS_TEST_AWS_ACCESS_KEY_ID`
-- `RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
-- `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
-- `RUNBOOKS_TEST_AWS_REGION`
+- `GRUNTBOOKS_TEST_AWS_ACCESS_KEY_ID`
+- `GRUNTBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
+- `GRUNTBOOKS_TEST_AWS_SESSION_TOKEN`
+- `GRUNTBOOKS_TEST_AWS_REGION`
 
 If no prefixed credentials are found, the executor falls back to standard env vars (`AWS_ACCESS_KEY_ID`, etc.).
 
-The `env_prefix` is configured in the test config file, not in the runbook MDX. This keeps test infrastructure concerns separate from the runtime `detectCredentials` behavior that end users experience.
+The `env_prefix` is configured in the test config file, not in the gruntbook MDX. This keeps test infrastructure concerns separate from the runtime `detectCredentials` behavior that end users experience.
 
 ### CI Example
 
@@ -449,22 +454,22 @@ In CI, set the environment variables before running tests. Example for GitHub Ac
     role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsRole
     aws-region: us-west-2
 
-- name: Run runbook tests
-  run: runbooks test ./runbooks/...
+- name: Run gruntbook tests
+  run: gruntbooks test ./gruntbooks/...
   env:
-    RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-    RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-    RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
-    RUNBOOKS_TEST_AWS_REGION: ${{ env.AWS_REGION }}
+    GRUNTBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+    GRUNTBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+    GRUNTBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+    GRUNTBOOKS_TEST_AWS_REGION: ${{ env.AWS_REGION }}
 ```
 
 ## Testing GitHubAuth Blocks
 
-For runbooks with `<GitHubAuth>` blocks, the test framework checks for GitHub tokens in environment variables.
+For gruntbooks with `<GitHubAuth>` blocks, the test framework checks for GitHub tokens in environment variables.
 
 By default, the test framework checks in this order:
 
-1. `RUNBOOKS_GITHUB_TOKEN` (recommended for tests)
+1. `GRUNTBOOKS_GITHUB_TOKEN` (recommended for tests)
 2. `GITHUB_TOKEN`
 3. `GH_TOKEN`
 
@@ -473,7 +478,7 @@ By default, the test framework checks in this order:
 Similar to AwsAuth, you can use `env_prefix` on the test step to check for custom environment variables:
 
 ```yaml
-# runbook_test.yml
+# gruntbook_test.yml
 tests:
   - name: happy-path
     steps:
@@ -488,51 +493,51 @@ This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
 
 ```yaml
 # .github/workflows/test.yml
-- name: Run runbook tests
-  run: runbooks test ./runbooks/...
+- name: Run gruntbook tests
+  run: gruntbooks test ./gruntbooks/...
   env:
-    RUNBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GRUNTBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Running Tests
 
-When you run a runbook test, the test framework will:
-- Run the runbook in a temporary directory
+When you run a gruntbook test, the test framework will:
+- Run the gruntbook in a temporary directory
 - Capture the output of any scripts or generated files
-- Validate the output of the runbook against the assertions in your test configuration file, if any
+- Validate the output of the gruntbook against the assertions in your test configuration file, if any
 - Return a status code of 0 if the test passed, 1 if the test failed, and 2 if the test was skipped
 
 :::note[Script output differences]
-When scripts run in tests, they execute without a PTY (pseudo-terminal), so you may see less output than when running the runbook interactively. For example, `git clone` shows progress messages ("Receiving objects: 47%...") only when connected to a terminal. In runbook tests, you'll see just the essential output. If you do need verbose output for debugging, many commands have flags to force it (e.g., `git clone --progress`), or just open the runbook and manually run the script.
+When scripts run in tests, they execute without a PTY (pseudo-terminal), so you may see less output than when running the gruntbook interactively. For example, `git clone` shows progress messages ("Receiving objects: 47%...") only when connected to a terminal. In gruntbook tests, you'll see just the essential output. If you do need verbose output for debugging, many commands have flags to force it (e.g., `git clone --progress`), or just open the gruntbook and manually run the script.
 :::
 
-If a runbook test fails, you will see additional details about which block failed and why.
+If a gruntbook test fails, you will see additional details about which block failed and why.
 
-### Single Runbook
+### Single Gruntbook
 
-You can run a test on a single runbook.
+You can run a test on a single gruntbook.
 
 ```bash
-# Run all tests for a runbook
-runbooks test ./my-runbook
+# Run all tests for a gruntbook
+gruntbooks test ./my-gruntbook
 
 # Run a specific test case
-runbooks test ./my-runbook --test happy-path
+gruntbooks test ./my-gruntbook --test happy-path
 
 # Verbose output
-runbooks test ./my-runbook -v
+gruntbooks test ./my-gruntbook -v
 ```
 
-### Multiple Runbooks
+### Multiple Gruntbooks
 
-Use the `...` glob pattern to discover and test all runbooks:
+Use the `...` glob pattern to discover and test all gruntbooks:
 
 ```bash
-# Test all runbooks in a directory tree
-runbooks test ./runbooks/...
+# Test all gruntbooks in a directory tree
+gruntbooks test ./gruntbooks/...
 
 # Control parallel execution
-runbooks test ./runbooks/... --max-parallel 4
+gruntbooks test ./gruntbooks/... --max-parallel 4
 ```
 
 ### CI Output
@@ -540,14 +545,14 @@ runbooks test ./runbooks/... --max-parallel 4
 Generate JUnit XML for CI integration:
 
 ```bash
-runbooks test ./runbooks/... --output junit --output-file results.xml
+gruntbooks test ./gruntbooks/... --output junit --output-file results.xml
 ```
 
 ## Out-of-Order Testing
 
-In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the runbook. You can do this by explicitly specifying the order of the blocks in the test configuration file.
+In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the gruntbook. You can do this by explicitly specifying the order of the blocks in the test configuration file.
 
-Keep in mind, though, that when new blocks are added to the runbook, they will not be included in the test unless you explicitly add them to the test configuration file.
+Keep in mind, though, that when new blocks are added to the gruntbook, they will not be included in the test unless you explicitly add them to the test configuration file.
 
 That's why we recommend leaving the `steps` section empty in your test configuration file if possible. This will ensure that all future blocks are included in the test.
 
@@ -577,8 +582,8 @@ tests:
 <Tabs>
   <TabItem label="GitHub Actions">
 ```yaml
-# .github/workflows/test-runbooks.yml
-name: Test Runbooks
+# .github/workflows/test-gruntbooks.yml
+name: Test Gruntbooks
 
 on: [push, pull_request]
 
@@ -592,10 +597,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up runbooks
+      - name: Set up gruntbooks
         run: |
-          curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
-          chmod +x runbooks
+          curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_linux_amd64 -o gruntbooks
+          chmod +x gruntbooks
       
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -603,14 +608,14 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       
-      - name: Run runbook tests
-        run: ./runbooks test ./runbooks/... --output junit --output-file results.xml
+      - name: Run gruntbook tests
+        run: ./gruntbooks test ./gruntbooks/... --output junit --output-file results.xml
         env:
-          # Map OIDC credentials to RUNBOOKS_TEST_ prefix
-          RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-          RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
-          RUNBOOKS_TEST_AWS_REGION: ${{ vars.AWS_REGION }}
+          # Map OIDC credentials to GRUNTBOOKS_TEST_ prefix
+          GRUNTBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          GRUNTBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          GRUNTBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+          GRUNTBOOKS_TEST_AWS_REGION: ${{ vars.AWS_REGION }}
       
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -622,16 +627,16 @@ jobs:
   <TabItem label="GitLab CI">
 ```yaml
 # .gitlab-ci.yml
-test-runbooks:
+test-gruntbooks:
   stage: test
   variables:
-    RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
-    RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
-    RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
+    GRUNTBOOKS_TEST_AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+    GRUNTBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+    GRUNTBOOKS_TEST_AWS_REGION: $AWS_REGION
   script:
-    - curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
-    - chmod +x runbooks
-    - ./runbooks test ./runbooks/... --output junit --output-file results.xml
+    - curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/gruntbooks_linux_amd64 -o gruntbooks
+    - chmod +x gruntbooks
+    - ./gruntbooks test ./gruntbooks/... --output junit --output-file results.xml
   artifacts:
     reports:
       junit: results.xml
@@ -641,7 +646,7 @@ test-runbooks:
 
 ## Testing with External Dependencies
 
-Runbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach.
+Gruntbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach.
 
 As you ascend the tiers, you will gain more completeness at the expense of slower speed and more complexity. This builds on the concepts of the [traditional test pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
 
@@ -672,9 +677,9 @@ tests:
 
 ### Tier 2: Dry-Run Mode
 
-Dry-run mode tests that script logic works correctly without making any external calls. They leverage the fact that the script was written to support a `RUNBOOK_DRY_RUN` environment variable.
+Dry-run mode tests that script logic works correctly without making any external calls. They leverage the fact that the script was written to support a `GRUNTBOOK_DRY_RUN` environment variable.
 
-Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that the `RUNBOOK_DRY_RUN` environment variable is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
+Use the `GRUNTBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that the `GRUNTBOOK_DRY_RUN` environment variable is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
 
 **In your Command or Check script:**
 
@@ -683,7 +688,7 @@ Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic with
 set -e
 
 # Dry-run support
-DRY_RUN="${RUNBOOK_DRY_RUN:-false}"
+DRY_RUN="${GRUNTBOOK_DRY_RUN:-false}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "[DRY-RUN] Would create PR in $GITHUB_ORG/$REPO_NAME"
@@ -703,7 +708,7 @@ tests:
     description: Test full flow without real API calls
     
     env:
-      RUNBOOK_DRY_RUN: "true"
+      GRUNTBOOK_DRY_RUN: "true"
     
     steps:
       - block: generate-config
@@ -723,7 +728,7 @@ tests:
     
     env:
       # Credentials set in CI environment will automatically be available to the test.
-      # So no need to set them in the runbook_test.yml file.
+      # So no need to set them in the gruntbook_test.yml file.
     
     steps:
       - block: deploy-resources
@@ -737,7 +742,7 @@ tests:
 
 1. **Start with `test init`**: Generate your test configuration automatically, then customize it.
 
-2. **Test happy paths first**: Ensure your runbook works when everything goes right.
+2. **Test happy paths first**: Ensure your gruntbook works when everything goes right.
 
 3. **Test edge cases**: Add tests for expected failures, missing dependencies, and error handling.
 
@@ -749,6 +754,6 @@ tests:
 
 7. **Use CI**: Run tests on every pull request to catch issues early.
 
-8. **Use tiered testing**: For runbooks with external dependencies, use dry-run mode in CI and save integration tests for manual/scheduled runs.
+8. **Use tiered testing**: For gruntbooks with external dependencies, use dry-run mode in CI and save integration tests for manual/scheduled runs.
 
-Finally, note that tests are not free to write or maintain. But it is generally worth the investment to know that your runbooks work as expected. Choose accordingly how much to invest in testing your runbooks.
+Finally, note that tests are not free to write or maintain. But it is generally worth the investment to know that your gruntbooks work as expected. Choose accordingly how much to invest in testing your gruntbooks.

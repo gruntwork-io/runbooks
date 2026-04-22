@@ -3,7 +3,7 @@ import { getDirectoryPath } from './utils'
 
 describe('getDirectoryPath', () => {
   it('should extract directory path from file path with extension', () => {
-    expect(getDirectoryPath('/path/to/runbook.mdx')).toBe('/path/to')
+    expect(getDirectoryPath('/path/to/gruntbook.mdx')).toBe('/path/to')
     expect(getDirectoryPath('/some/file.txt')).toBe('/some')
     expect(getDirectoryPath('/root/document.pdf')).toBe('/root')
   })

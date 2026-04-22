@@ -4,9 +4,9 @@ title: Boilerplate Templates
 
 # Gruntwork Boilerplate
 
-[Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) is a tool for generating files and folders from templates. Runbooks uses Boilerplate under the hood for all template rendering—this includes the `<Template>`, `<TemplateInline>`, `<Inputs>`, `<Command>`, and `<Check>` blocks.
+[Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) is a tool for generating files and folders from templates. Gruntbooks uses Boilerplate under the hood for all template rendering—this includes the `<Template>`, `<TemplateInline>`, `<Inputs>`, `<Command>`, and `<Check>` blocks.
 
-This page covers the aspects of Boilerplate most relevant to Runbook authors. For the complete Boilerplate documentation, see the [official Boilerplate repo](https://github.com/gruntwork-io/boilerplate).
+This page covers the aspects of Boilerplate most relevant to Gruntbook authors. For the complete Boilerplate documentation, see the [official Boilerplate repo](https://github.com/gruntwork-io/boilerplate).
 
 ## Boilerplate in a nutshell
 
@@ -77,9 +77,9 @@ Created by Jane Doe.
 
 That's it! Boilerplate takes your template, substitutes the variables, and writes the output.
 
-## What Boilerplate Does for Runbooks
+## What Boilerplate Does for Gruntbooks
 
-In Runbooks, Boilerplate provides:
+In Gruntbooks, Boilerplate provides:
 
 1. **Variable definitions** — A YAML schema (`boilerplate.yml`) that defines what inputs users need to provide, including types, defaults, and validation rules.
 2. **Template syntax** — Go template syntax for rendering dynamic content in generated files, scripts, and commands.
@@ -87,7 +87,7 @@ In Runbooks, Boilerplate provides:
 
 ## The `boilerplate.yml` File
 
-Every template directory needs a `boilerplate.yml` file that defines the variables users will fill in. Runbooks reads this file to render interactive forms in the UI.
+Every template directory needs a `boilerplate.yml` file that defines the variables users will fill in. Gruntbooks reads this file to render interactive forms in the UI.
 
 ### Basic Structure
 
@@ -382,9 +382,9 @@ prod/
 └── config.yaml
 ```
 
-## Runbooks Extensions
+## Gruntbooks Extensions
 
-Runbooks extends Boilerplate with additional YAML properties (prefixed with `x-`) for enhanced UI rendering. These are ignored by the standard Boilerplate CLI but enable richer form experiences in Runbooks.
+Gruntbooks extends Boilerplate with additional YAML properties (prefixed with `x-`) for enhanced UI rendering. These are ignored by the standard Boilerplate CLI but enable richer form experiences in Gruntbooks.
 
 ### `x-section`
 
@@ -420,7 +420,7 @@ Variables without `x-section` appear in an unnamed section at the top.
 
 Sometimes you want to collect a "map" of key-value pairs from users, where the value is a simple string. But in other cases, you want a _collection_ of values for each key. For example, if you want to prompt a user to declare their current AWS accounts, each AWS account has an email address, account ID, and descriptive name. 
 
-In these scenarios, you can define a _schema_ for `map` type variables so that Runbooks will render a structured form instead of free-form key-value inputs:
+In these scenarios, you can define a _schema_ for `map` type variables so that Gruntbooks will render a structured form instead of free-form key-value inputs:
 
 ```yaml
 - name: AWSAccounts
@@ -451,7 +451,7 @@ Customize the label for each instance of a key-value pair in a schema-based map:
 
 ## Authoring Templates with the CLI
 
-While Runbooks provides a live preview experience, you can also use the Boilerplate CLI directly to test templates during development.
+While Gruntbooks provides a live preview experience, you can also use the Boilerplate CLI directly to test templates during development.
 
 ### Install Boilerplate
 
@@ -572,9 +572,9 @@ resource "aws_cloudwatch_log_group" "lambda" {
 {{- end }}
 ```
 
-## Using Templates in Runbooks
+## Using Templates in Gruntbooks
 
-Once you've created a template, reference it in your runbook:
+Once you've created a template, reference it in your gruntbook:
 
 ```mdx
 # Deploy a Lambda Function

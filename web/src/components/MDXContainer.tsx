@@ -9,7 +9,7 @@ import { Inputs } from '@/components/mdx/Inputs'
 import { Template } from '@/components/mdx/Template'
 import { TemplateInline } from '@/components/mdx/TemplateInline'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
+import { GruntbookContextProvider } from '@/contexts/GruntbookContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
@@ -31,28 +31,28 @@ import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
  * 
  * @param props - The component props
  * @param props.content - The raw markdown/MDX content string to compile and render
- * @param props.runbookPath - The path to the runbook file
+ * @param props.gruntbookPath - The path to the gruntbook file
  * @param props.className - Optional additional CSS classes for styling the container
- 
+
  */
 interface MDXContainerProps {
   content: string
   className?: string
-  runbookPath?: string
+  gruntbookPath?: string
   remoteSource?: string
 }
 
-function MDXContainer({ content, runbookPath, remoteSource, className }: MDXContainerProps) {
+function MDXContainer({ content, gruntbookPath, remoteSource, className }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
-  // Extract runbook name from its directory path (last segment)
+  // Extract gruntbook name from its directory path (last segment)
   // e.g., "testdata/feature-demos/github-pull-request" → "github-pull-request"
-  const runbookName = useMemo(() => {
-    if (!runbookPath) return undefined
-    const segments = runbookPath.replace(/[\\/]+$/, '').split(/[\\/]/)
+  const gruntbookName = useMemo(() => {
+    if (!gruntbookPath) return undefined
+    const segments = gruntbookPath.replace(/[\\/]+$/, '').split(/[\\/]/)
     return segments[segments.length - 1] || undefined
-  }, [runbookPath])
+  }, [gruntbookPath])
 
   // Compile the MDX content into a React component that the browser can render
   useEffect(() => {
@@ -94,28 +94,28 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   }
 
   return (
-    <div data-testid="runbook-content" className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div data-testid="gruntbook-content" className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
-          <CustomMDXComponentErrorBoundary 
+        <GruntbookContextProvider gruntbookName={gruntbookName} remoteSource={remoteSource}>
+          <CustomMDXComponentErrorBoundary
             onError={(error) => setError(error)}
           >
-            {/* Security banner displayed at the top of every runbook */}
+            {/* Security banner displayed at the top of every gruntbook */}
             <div className="mb-4">
-              <Admonition 
-                type="warning" 
-                title="**Make sure you trust this Runbook!**" 
-                confirmationText="I trust this Runbook"
+              <Admonition
+                type="warning"
+                title="**Make sure you trust this Gruntbook!**"
+                confirmationText="I trust this Gruntbook"
                 allowPermanentHide={true}
                 storageKey="security-banner"
               >
-                <p>Runbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this Runbook and carefully review embedded code snippets before running them.</p>
-                <p>If you do not trust this Runbook, do not run it.</p>
+                <p>Gruntbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this gruntbook and carefully review embedded code snippets before running them.</p>
+                <p>If you do not trust this Gruntbook, do not run it.</p>
               </Admonition>
             </div>
             <CustomMDXComponent />
           </CustomMDXComponentErrorBoundary>
-        </RunbookContextProvider>
+        </GruntbookContextProvider>
       </ComponentIdRegistryProvider>
     </div>
   )
@@ -134,7 +134,7 @@ interface RehypeNode {
 }
 
 // Custom rehype plugin to transform asset paths for all media types
-// Transforms ./assets/file.ext to /runbook-assets/file.ext
+// Transforms ./assets/file.ext to /gruntbook-assets/file.ext
 function rehypeTransformAssetPaths() {
   return (tree: RehypeNode) => {
     // Helper function to transform a path if it starts with ./assets/
@@ -142,9 +142,9 @@ function rehypeTransformAssetPaths() {
       if (!path || !path.startsWith('./assets/')) {
         return path
       }
-      // Remove the ./assets/ prefix and prepend /runbook-assets/
+      // Remove the ./assets/ prefix and prepend /gruntbook-assets/
       const assetPath = path.substring('./assets/'.length)
-      return `/runbook-assets/${assetPath}`
+      return `/gruntbook-assets/${assetPath}`
     }
 
     // Walk through the tree and transform asset nodes
@@ -219,7 +219,7 @@ function rehypeTransformAssetPaths() {
 // Front matter is YAML metadata between --- delimiters at the start of the file.
 // Example:
 //   ---
-//   title: My Runbook
+//   title: My Gruntbook
 //   ---
 //   # Content here
 const stripFrontMatter = (content: string): string => {
@@ -300,7 +300,7 @@ class CustomMDXComponentErrorBoundary extends React.Component<
     }
     if (error.message.includes('Expected component')) {
       appError.message = 'Runtime error in MDX component'
-      appError.details = 'Your runbook contains a component that is not supported.\n\n' + error.message
+      appError.details = 'Your gruntbook contains a component that is not supported.\n\n' + error.message
     }
     if (this.props.onError) {
       this.props.onError(appError)

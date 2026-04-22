@@ -129,15 +129,15 @@ export async function generateLlmsTxt(): Promise<string> {
   const sidebar = getSidebar("/", undefined);
 
   const parts: string[] = [
-    "# Gruntwork Runbooks Documentation",
+    "# Gruntwork Gruntbooks Documentation",
     "",
-    "> Gruntwork Runbooks turns your infrastructure expertise into guided",
+    "> Gruntwork Gruntbooks turns your infrastructure expertise into guided",
     "> workflows that any developer can safely execute.",
     ">",
-    "> This document contains the full documentation for authoring and using Runbooks.",
-    "> Paste it into your LLM for complete context when writing runbooks.",
+    "> This document contains the full documentation for authoring and using Gruntbooks.",
+    "> Paste it into your LLM for complete context when writing gruntbooks.",
     "",
-    "Source: https://runbooks.gruntwork.io",
+    "Source: https://gruntbooks.gruntwork.io",
     "",
     "---",
     "",

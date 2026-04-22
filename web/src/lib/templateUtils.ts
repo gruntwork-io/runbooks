@@ -3,7 +3,7 @@
  * Used by Template, TemplateInline, useScriptExecution, GitClone, and other blocks.
  */
 
-import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
+import type { BlockOutputs, TemplateValue } from '@/contexts/GruntbookContext'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { OutputDependency } from '@/lib/extractTemplateDependencies'
 import { normalizeBlockId } from '@/lib/utils'

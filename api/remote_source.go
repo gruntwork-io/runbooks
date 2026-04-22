@@ -12,17 +12,17 @@ import (
 )
 
 // ParsedRemoteSource is the normalized result of parsing any remote URL format.
-// It represents a runbook located in a remote git repository.
+// It represents a gruntbook located in a remote git repository.
 type ParsedRemoteSource struct {
 	Host     string // "github.com" or "gitlab.com"
 	Owner    string // "gruntwork-io"
-	Repo     string // "runbooks"
+	Repo     string // "gruntbooks"
 	Ref      string // "main", "v1.0" — empty if not yet resolved
-	Path     string // "runbooks/setup-vpc" — path within the repo to the runbook dir
+	Path     string // "gruntbooks/setup-vpc" — path within the repo to the gruntbook dir
 	CloneURL string // "https://github.com/gruntwork-io/runbooks.git"
 
 	// IsBlobURL is true when the URL used /blob/ instead of /tree/.
-	// This means the path points to a file (e.g., runbook.mdx) rather than a directory,
+	// This means the path points to a file (e.g., gruntbook.mdx, or the legacy runbook.mdx) rather than a directory,
 	// and ResolveRef should adjust the path to the parent directory.
 	IsBlobURL bool
 
@@ -52,7 +52,7 @@ func (p *ParsedRemoteSource) RawRefAndPath() string {
 // uses git ls-remote to find the correct split.
 //
 // For blob URLs (pointing to a file rather than a directory), the path is also
-// adjusted to the parent directory, since runbooks live in directories.
+// adjusted to the parent directory, since gruntbooks live in directories.
 //
 // token is used to authenticate the ls-remote call if non-empty.
 func (p *ParsedRemoteSource) Resolve(token string) error {
@@ -346,7 +346,7 @@ func resolveRefFallback(rawRefAndPath string, isBlobURL bool) (string, string) {
 }
 
 // AdjustBlobPath adjusts a path from a /blob/ URL to point to the parent directory.
-// For example, "runbooks/setup-vpc/runbook.mdx" becomes "runbooks/setup-vpc".
+// For example, "runbooks/setup-vpc/gruntbook.mdx" becomes "runbooks/setup-vpc".
 // Uses path.Dir (POSIX) intentionally since these are URL/repo paths, not filesystem paths.
 func AdjustBlobPath(p string) string {
 	if p == "" {

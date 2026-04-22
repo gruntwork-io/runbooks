@@ -1,5 +1,5 @@
 # Ignore the binary
-runbooks
+gruntbooks
 
 # Editor directories and files
 .vscode/*

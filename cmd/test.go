@@ -11,26 +11,28 @@ import (
 	"sync"
 	"time"
 
-	runbooktesting "runbooks/api/testing"
+	gruntbookapi "github.com/gruntwork-io/runbooks/api"
+	runbooktesting "github.com/gruntwork-io/runbooks/api/testing"
 
 	"github.com/spf13/cobra"
 )
 
 var (
 	// Test command flags
-	testVerbose            bool
+	testVerbose             bool
 	testShowBoilerplateLogs bool
-	testTestName           string
-	testOutputFormat       string
-	testOutputFile         string
-	testMaxParallel        int
+	testTestName            string
+	testOutputFormat        string
+	testOutputFile          string
+	testMaxParallel         int
+	testSkip                []string
 )
 
 // testCmd represents the test command
 var testCmd = &cobra.Command{
-	Use:     "test <runbook-path>",
-	Short:   "Run automated tests for runbooks",
-	Long:    `Run automated tests for runbooks defined in runbook_test.yml files.`,
+	Use:     "test <gruntbook-path>",
+	Short:   "Run automated tests for gruntbooks",
+	Long:    `Run automated tests for gruntbooks defined in gruntbook_test.yml files.`,
 	GroupID: "other",
 	Args:    cobra.MinimumNArgs(1),
 	RunE:    runTest,
@@ -46,6 +48,7 @@ func init() {
 	testCmd.Flags().StringVar(&testOutputFormat, "output", "text", "Output format (text or junit)")
 	testCmd.Flags().StringVar(&testOutputFile, "output-file", "", "Write output to file (for junit format)")
 	testCmd.Flags().IntVar(&testMaxParallel, "max-parallel", 0, "Maximum number of parallel test executions (0 = auto)")
+	testCmd.Flags().StringSliceVar(&testSkip, "skip", nil, "Skip gruntbooks whose path contains any of these substrings (repeatable or comma-separated)")
 }
 
 // runTest runs the test command
@@ -61,18 +64,22 @@ func runTest(cmd *cobra.Command, args []string) error {
 		suppressAllLogs()
 	}
 
-	// Discover runbooks from args
-	runbooks, err := discoverRunbooks(args)
+	// Discover gruntbooks from args
+	gruntbooks, err := discoverGruntbooks(args)
 	if err != nil {
-		return fmt.Errorf("failed to discover runbooks: %w", err)
+		return fmt.Errorf("failed to discover gruntbooks: %w", err)
 	}
 
-	if len(runbooks) == 0 {
-		return fmt.Errorf("no runbooks found matching %v", args)
+	if len(testSkip) > 0 {
+		gruntbooks = filterSkipped(gruntbooks, testSkip)
+	}
+
+	if len(gruntbooks) == 0 {
+		return fmt.Errorf("no gruntbooks found matching %v", args)
 	}
 
 	// Run tests
-	suites := runTestSuites(runbooks)
+	suites := runTestSuites(gruntbooks)
 
 	// Report results
 	reportResults(suites)
@@ -90,13 +97,31 @@ func runTest(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// discoverRunbooks finds runbooks based on the provided paths.
+// filterSkipped removes gruntbooks whose path contains any of the skip substrings.
+func filterSkipped(gruntbooks []string, skip []string) []string {
+	filtered := gruntbooks[:0]
+	for _, gb := range gruntbooks {
+		skipped := false
+		for _, pattern := range skip {
+			if pattern != "" && strings.Contains(gb, pattern) {
+				skipped = true
+				break
+			}
+		}
+		if !skipped {
+			filtered = append(filtered, gb)
+		}
+	}
+	return filtered
+}
+
+// discoverGruntbooks finds gruntbooks based on the provided paths.
 // Supports:
-// - Direct path to runbook.mdx file
-// - Directory containing runbook.mdx
-// - Glob pattern ending in /... to recursively find runbooks
-func discoverRunbooks(paths []string) ([]string, error) {
-	var runbooks []string
+// - Direct path to gruntbook.mdx file
+// - Directory containing gruntbook.mdx
+// - Glob pattern ending in /... to recursively find gruntbooks
+func discoverGruntbooks(paths []string) ([]string, error) {
+	var gruntbooks []string
 	seen := make(map[string]bool)
 
 	for _, pattern := range paths {
@@ -114,15 +139,20 @@ func discoverRunbooks(paths []string) ([]string, error) {
 				if info.IsDir() {
 					return nil
 				}
-				if filepath.Base(path) == "runbook.mdx" {
-					// Check for runbook_test.yml
+				base := filepath.Base(path)
+				if base == "gruntbook.mdx" || base == "runbook.mdx" {
 					dir := filepath.Dir(path)
-					testConfigPath := filepath.Join(dir, "runbook_test.yml")
-					if _, err := os.Stat(testConfigPath); err == nil {
+					// If a gruntbook.mdx sibling exists, skip the legacy runbook.mdx to avoid duplicates.
+					if base == "runbook.mdx" {
+						if _, err := os.Stat(filepath.Join(dir, "gruntbook.mdx")); err == nil {
+							return nil
+						}
+					}
+					if _, ok := findTestConfigFile(dir); ok {
 						absPath, _ := filepath.Abs(path)
 						if !seen[absPath] {
 							seen[absPath] = true
-							runbooks = append(runbooks, absPath)
+							gruntbooks = append(gruntbooks, absPath)
 						}
 					}
 				}
@@ -140,59 +170,61 @@ func discoverRunbooks(paths []string) ([]string, error) {
 			return nil, fmt.Errorf("path not found: %s", pattern)
 		}
 
-		var runbookPath string
+		var gruntbookPath string
 		if info.IsDir() {
-			// Look for runbook.mdx in directory
-			runbookPath = filepath.Join(pattern, "runbook.mdx")
+			resolved, err := gruntbookapi.ResolveGruntbookPath(pattern)
+			if err != nil {
+				return nil, fmt.Errorf("gruntbook not found in directory %s: %w", pattern, err)
+			}
+			gruntbookPath = resolved
 		} else {
-			runbookPath = pattern
+			gruntbookPath = pattern
 		}
 
-		// Verify runbook exists
-		if _, err := os.Stat(runbookPath); err != nil {
-			return nil, fmt.Errorf("runbook not found: %s", runbookPath)
+		// Verify gruntbook exists
+		if _, err := os.Stat(gruntbookPath); err != nil {
+			return nil, fmt.Errorf("gruntbook not found: %s", gruntbookPath)
 		}
 
 		// Check for test config
-		dir := filepath.Dir(runbookPath)
-		testConfigPath := filepath.Join(dir, "runbook_test.yml")
-		if _, err := os.Stat(testConfigPath); err != nil {
-			fmt.Printf("Warning: no runbook_test.yml found for %s, skipping\n", runbookPath)
+		dir := filepath.Dir(gruntbookPath)
+		if _, ok := findTestConfigFile(dir); !ok {
+			fmt.Printf("Warning: no gruntbook_test.yml found for %s, skipping\n", gruntbookPath)
 			continue
 		}
 
-		absPath, _ := filepath.Abs(runbookPath)
+		absPath, _ := filepath.Abs(gruntbookPath)
 		if !seen[absPath] {
 			seen[absPath] = true
-			runbooks = append(runbooks, absPath)
+			gruntbooks = append(gruntbooks, absPath)
 		}
 	}
 
-	return runbooks, nil
+	return gruntbooks, nil
 }
 
-// runTestSuites runs tests for all discovered runbooks.
-func runTestSuites(runbooks []string) []runbooktesting.RunbookTestSuite {
-	// Group runbooks by parallelizable status
+// runTestSuites runs tests for all discovered gruntbooks.
+func runTestSuites(gruntbooks []string) []runbooktesting.GruntbookTestSuite {
+	// Group gruntbooks by parallelizable status
 	var parallelizable []string
 	var sequential []string
 
-	for _, runbook := range runbooks {
-		config, err := loadTestConfig(runbook)
+	for _, gruntbook := range gruntbooks {
+		config, err := loadTestConfig(gruntbook)
 		if err != nil {
-			fmt.Printf("Error loading config for %s: %v\n", runbook, err)
+			fmt.Printf("Error loading config for %s: %v\n", gruntbook, err)
 			continue
 		}
 		if config.Settings.IsParallelizable() {
-			parallelizable = append(parallelizable, runbook)
+			parallelizable = append(parallelizable, gruntbook)
 		} else {
-			sequential = append(sequential, runbook)
+			sequential = append(sequential, gruntbook)
 		}
 	}
 
-	var suites []runbooktesting.RunbookTestSuite
+	var suites []runbooktesting.GruntbookTestSuite
 
-	// Run parallelizable runbooks concurrently
+	// Run parallelizable gruntbooks concurrently
 	if len(parallelizable) > 0 {
 		maxWorkers := testMaxParallel
 		if maxWorkers <= 0 {
@@ -202,7 +234,7 @@ func runTestSuites(runbooks []string) []runbooktesting.RunbookTestSuite {
 			maxWorkers = len(parallelizable)
 		}
 
-		results := make(chan runbooktesting.RunbookTestSuite, len(parallelizable))
+		results := make(chan runbooktesting.GruntbookTestSuite, len(parallelizable))
 		work := make(chan string, len(parallelizable))
 
 		// Start workers
@@ -211,15 +243,15 @@ func runTestSuites(runbooks []string) []runbooktesting.RunbookTestSuite {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				for runbook := range work {
-					results <- runTestSuite(runbook)
+				for gruntbook := range work {
+					results <- runTestSuite(gruntbook)
 				}
 			}()
 		}
 
 		// Send work
-		for _, runbook := range parallelizable {
-			work <- runbook
+		for _, gruntbook := range parallelizable {
+			work <- gruntbook
 		}
 		close(work)
 
@@ -233,22 +265,22 @@ func runTestSuites(runbooks []string) []runbooktesting.RunbookTestSuite {
 		}
 	}
 
-	// Run sequential runbooks one at a time
-	for _, runbook := range sequential {
-		suites = append(suites, runTestSuite(runbook))
+	// Run sequential gruntbooks one at a time
+	for _, gruntbook := range sequential {
+		suites = append(suites, runTestSuite(gruntbook))
 	}
 
 	return suites
 }
 
-// runTestSuite runs all tests for a single runbook.
-func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
+// runTestSuite runs all tests for a single gruntbook.
+func runTestSuite(gruntbookPath string) runbooktesting.GruntbookTestSuite {
 	start := time.Now()
-	suite := runbooktesting.RunbookTestSuite{
-		RunbookPath: runbookPath,
+	suite := runbooktesting.GruntbookTestSuite{
+		GruntbookPath: gruntbookPath,
 	}
 
-	config, err := loadTestConfig(runbookPath)
+	config, err := loadTestConfig(gruntbookPath)
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "config",
@@ -262,7 +294,7 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 
 	// Determine working directory using the unified model
 	// Precedence: use_temp_working_dir > working_dir > current directory
-	workDir, cleanupWorkDir, err := resolveTestWorkDir(runbookPath, config)
+	workDir, cleanupWorkDir, err := resolveTestWorkDir(gruntbookPath, config)
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "setup",
@@ -281,7 +313,7 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 	outputPath := config.Settings.GetOutputPath()
 
 	// Create executor with unified working directory model
-	executor, err := createExecutor(runbookPath, workDir, outputPath, config.Settings.GetTimeout())
+	executor, err := createExecutor(gruntbookPath, workDir, outputPath, config.Settings.GetTimeout())
 	if err != nil {
 		suite.Results = append(suite.Results, runbooktesting.TestResult{
 			TestCase: "setup",
@@ -294,8 +326,8 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 	}
 	defer executor.Close()
 
-	// Print runbook header in verbose mode
-	executor.PrintRunbookHeader()
+	// Print gruntbook header in verbose mode
+	executor.PrintGruntbookHeader()
 
 	// Run each test case
 	for _, tc := range config.Tests {
@@ -324,20 +356,39 @@ func runTestSuite(runbookPath string) runbooktesting.RunbookTestSuite {
 	return suite
 }
 
-// loadTestConfig loads the test configuration for a runbook.
-func loadTestConfig(runbookPath string) (*runbooktesting.TestConfig, error) {
-	dir := filepath.Dir(runbookPath)
-	configPath := filepath.Join(dir, "runbook_test.yml")
+// loadTestConfig loads the test configuration for a gruntbook.
+func loadTestConfig(gruntbookPath string) (*runbooktesting.TestConfig, error) {
+	dir := filepath.Dir(gruntbookPath)
+	configPath, ok := findTestConfigFile(dir)
+	if !ok {
+		configPath = filepath.Join(dir, "gruntbook_test.yml")
+	}
 	return runbooktesting.LoadConfig(configPath)
+}
+
+// findTestConfigFile looks for a test config file in the given directory,
+// preferring gruntbook_test.yml over the legacy runbook_test.yml name.
+// Returns the path and true if found.
+func findTestConfigFile(dir string) (string, bool) {
+	primary := filepath.Join(dir, "gruntbook_test.yml")
+	if _, err := os.Stat(primary); err == nil {
+		return primary, true
+	}
+	legacy := filepath.Join(dir, "runbook_test.yml")
+	if _, err := os.Stat(legacy); err == nil {
+		slog.Warn("Using legacy runbook_test.yml filename; rename to gruntbook_test.yml", "path", legacy)
+		return legacy, true
+	}
+	return "", false
 }
 
 // resolveTestWorkDir determines the working directory for test execution based on config settings.
 // Precedence: use_temp_working_dir > working_dir > current directory
 // Returns the absolute working directory path, a cleanup function (nil if no cleanup needed), and an error.
-func resolveTestWorkDir(runbookPath string, config *runbooktesting.TestConfig) (string, func(), error) {
+func resolveTestWorkDir(gruntbookPath string, config *runbooktesting.TestConfig) (string, func(), error) {
 	// Check if temp working directory is requested (highest precedence)
 	if config.Settings.ShouldUseTempWorkingDir() {
-		dir, err := os.MkdirTemp("", "runbook-workdir-*")
+		dir, err := os.MkdirTemp("", "gruntbook-workdir-*")
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to create temp working directory: %w", err)
 		}
@@ -348,14 +399,14 @@ func resolveTestWorkDir(runbookPath string, config *runbooktesting.TestConfig) (
 	configuredWorkDir := config.Settings.GetWorkingDir()
 	if configuredWorkDir != "" {
 		if configuredWorkDir == "." {
-			// "." means runbook directory
-			return filepath.Dir(runbookPath), nil, nil
+			// "." means gruntbook directory
+			return filepath.Dir(gruntbookPath), nil, nil
 		}
 		if filepath.IsAbs(configuredWorkDir) {
 			return configuredWorkDir, nil, nil
 		}
-		// Relative path - resolve relative to runbook directory
-		return filepath.Join(filepath.Dir(runbookPath), configuredWorkDir), nil, nil
+		// Relative path - resolve relative to gruntbook directory
+		return filepath.Join(filepath.Dir(gruntbookPath), configuredWorkDir), nil, nil
 	}
 
 	// Default: current directory (where CLI was launched)
@@ -369,16 +420,16 @@ func resolveTestWorkDir(runbookPath string, config *runbooktesting.TestConfig) (
 // createExecutor creates a test executor with the given configuration.
 // workDir is the base working directory for script execution.
 // outputPath is the output path relative to workDir (default: "generated").
-func createExecutor(runbookPath, workDir, outputPath string, timeout time.Duration) (*runbooktesting.TestExecutor, error) {
+func createExecutor(gruntbookPath, workDir, outputPath string, timeout time.Duration) (*runbooktesting.TestExecutor, error) {
 	opts := []runbooktesting.ExecutorOption{
 		runbooktesting.WithTimeout(timeout),
 		runbooktesting.WithVerbose(testVerbose),
 	}
-	return runbooktesting.NewTestExecutor(runbookPath, workDir, outputPath, opts...)
+	return runbooktesting.NewTestExecutor(gruntbookPath, workDir, outputPath, opts...)
 }
 
 // reportResults prints test results to stdout or file.
-func reportResults(suites []runbooktesting.RunbookTestSuite) {
+func reportResults(suites []runbooktesting.GruntbookTestSuite) {
 	var reporter runbooktesting.Reporter
 
 	switch testOutputFormat {

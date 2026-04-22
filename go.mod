@@ -1,4 +1,4 @@
-module runbooks
+module github.com/gruntwork-io/runbooks
 
 go 1.26
 

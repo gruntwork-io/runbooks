@@ -30,14 +30,14 @@ variable "tags" {
   description = "Tags to apply"
 }
 
-# @runbooks:group "Lifecycle"
+# @gruntbooks:group "Lifecycle"
 variable "expiration_days" {
   type        = number
   default     = 0
   description = "Days before expiration"
 }
 
-# @runbooks:group "Lifecycle"
+# @gruntbooks:group "Lifecycle"
 variable "transition_to_glacier_days" {
   type        = number
   default     = 0
@@ -45,35 +45,35 @@ variable "transition_to_glacier_days" {
 }
 ```
 
-Into this runbook input form:
+Into this gruntbook input form:
 
 ![Rendered TfModule form](../../../../assets/screenshots/blocks/tf-module-form.webp)
 
-Note that the OpenTofu/Terraform author can annotate some variables with `# @runbooks:group "Group Name"` comments to group them together under a common heading, in this case "Lifecycle".
+Note that the OpenTofu/Terraform author can annotate some variables with `# @gruntbooks:group "Group Name"` comments to group them together under a common heading, in this case "Lifecycle".
 
 ### Why use TfModule?
 
-The TfModule makes it possible to dynamically render a runbook based on an OpenTofu/Terraform module. For example:
+The TfModule makes it possible to dynamically render a gruntbook based on an OpenTofu/Terraform module. For example:
 
 ```bash
-runbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/test-fixtures/tf-modules/s3-bucket
+gruntbooks open https://github.com/gruntwork-io/runbooks/tree/main/testdata/test-fixtures/tf-modules/s3-bucket
 ```
 
-This means that every OpenTofu/Terraform module you've already defined can be used to generate a runbook that will collect values for the module's variables and then generate any file output format, such as a Terragrunt HCL file, Helm chart YAML file, CloudFormation template, or anything else.
+This means that every OpenTofu/Terraform module you've already defined can be used to generate a gruntbook that will collect values for the module's variables and then generate any file output format, such as a Terragrunt HCL file, Helm chart YAML file, CloudFormation template, or anything else.
 
-The TfModule is a core building block for this use case, but you can also define a custom runbook that will be used to open the module. To learn more about opening runbooks based on OpenTofu/Terraform modules, see the [Opening Runbooks](/authoring/opening-runbooks/) docs.
+The TfModule is a core building block for this use case, but you can also define a custom gruntbook that will be used to open the module. To learn more about opening gruntbooks based on OpenTofu/Terraform modules, see the [Opening Gruntbooks](/authoring/opening-gruntbooks/) docs.
 
 ## Basic Usage
 
-The most common pattern for TfModule is a **generic runbook** that accepts any module URL from the CLI using `::cli_runbook_source`:
+The most common pattern for TfModule is a **generic gruntbook** that accepts any module URL from the CLI using `::cli_gruntbook_source`:
 
 `````mdx
-<TfModule id="module-vars" source="::cli_runbook_source" />
+<TfModule id="module-vars" source="::cli_gruntbook_source" />
 
 <Template id="output" inputsId="module-vars" path="templates/terragrunt" />
 `````
 
-The `::cli_runbook_source` keyword resolves to whatever module URL was passed to `runbooks open`. This lets a single runbook work with any OpenTofu/Terraform module. See [Opening Runbooks](/authoring/opening-runbooks/) for the full guide on custom templates and built-in templates.
+The `::cli_gruntbook_source` keyword resolves to whatever module URL was passed to `gruntbooks open`. This lets a single gruntbook work with any OpenTofu/Terraform module. See [Opening Gruntbooks](/authoring/opening-gruntbooks/) for the full guide on custom templates and built-in templates.
 
 You can also reference a **specific module** by path or URL:
 
@@ -83,10 +83,10 @@ You can also reference a **specific module** by path or URL:
 <Template id="rds-output" inputsId="rds-vars" path="templates/rds" />
 `````
 
-This is useful when you're writing a runbook for a known module. The `<TfModule>` block parses the `.tf` files at `../modules/rds` and renders a web form. The `<Template>` block imports the values via `inputsId` and generates files from the template at `templates/rds`.
+This is useful when you're writing a gruntbook for a known module. The `<TfModule>` block parses the `.tf` files at `../modules/rds` and renders a web form. The `<Template>` block imports the values via `inputsId` and generates files from the template at `templates/rds`.
 
 <Aside type="tip">
-For quick prototyping you can also use [`<TemplateInline>`](/authoring/blocks/templateinline/) to embed template text directly in the runbook. See [Using TemplateInline](#using-templateinline) below.
+For quick prototyping you can also use [`<TemplateInline>`](/authoring/blocks/templateinline/) to embed template text directly in the gruntbook. See [Using TemplateInline](#using-templateinline) below.
 </Aside>
 
 ### vs. Inputs
@@ -105,13 +105,13 @@ Both `<TfModule>` and `<Inputs>` collect user values and publish them to context
 
 ### Supported Source Formats
 
-The `source` prop accepts the same formats as the `runbooks open` CLI command:
+The `source` prop accepts the same formats as the `gruntbooks open` CLI command:
 
 | Format | Example |
 |--------|---------|
 | Local relative path | `../modules/rds` |
 | Colocated (same directory) | `.` |
-| Dynamic from CLI | `::cli_runbook_source` |
+| Dynamic from CLI | `::cli_gruntbook_source` |
 | GitHub shorthand | `github.com/org/repo//modules/rds?ref=v1.0.0` |
 | Git prefix | `git::https://github.com/org/repo.git//modules/rds?ref=v1.0.0` |
 | GitHub browser URL | `https://github.com/org/repo/tree/main/modules/rds` |
@@ -121,21 +121,21 @@ The `source` prop accepts the same formats as the `runbooks open` CLI command:
 For remote sources, use `?ref=v1.0.0` (or a branch/commit) to pin to a specific version. Without a ref, the default branch is used.
 </Aside>
 
-### Colocated Runbooks (`source="."`)
+### Colocated Gruntbooks (`source="."`)
 
-When a module author places a `runbook.mdx` alongside their `.tf` files, they can use `source="."` to reference the module in the same directory. When someone runs `runbooks open` pointing at that directory (locally or via a remote URL), the CLI detects the colocated `runbook.mdx` and serves it instead of auto-generating a generic one.
+When a module author places a `gruntbook.mdx` alongside their `.tf` files, they can use `source="."` to reference the module in the same directory. When someone runs `gruntbooks open` pointing at that directory (locally or via a remote URL), the CLI detects the colocated `gruntbook.mdx` and serves it instead of auto-generating a generic one.
 
-This lets module authors ship a custom, polished runbook experience alongside their module code:
+This lets module authors ship a custom, polished gruntbook experience alongside their module code:
 
 ```
 modules/rds/
 ├── main.tf
 ├── variables.tf
 ├── outputs.tf
-└── runbook.mdx        ← custom runbook
+└── gruntbook.mdx        ← custom gruntbook
 ```
 
-Inside `runbook.mdx`:
+Inside `gruntbook.mdx`:
 
 `````mdx
 # Configure RDS
@@ -157,24 +157,24 @@ inputs = {
 </TemplateInline>
 `````
 
-Anyone can then run this module's custom runbook:
+Anyone can then run this module's custom gruntbook:
 
 ```bash
-runbooks open https://github.com/my-org/infra-modules/tree/main/modules/rds
+gruntbooks open https://github.com/my-org/infra-modules/tree/main/modules/rds
 ```
 
 ### Dynamic Source from CLI
 
-The `::cli_runbook_source` keyword resolves to whatever module URL was passed to the `runbooks open` command (or `runbooks watch` / `runbooks serve`). This enables a **generic runbook** that works with any OpenTofu/Terraform module without hardcoding a specific module path.
+The `::cli_gruntbook_source` keyword resolves to whatever module URL was passed to the `gruntbooks open` command (or `gruntbooks watch` / `gruntbooks serve`). This enables a **generic gruntbook** that works with any OpenTofu/Terraform module without hardcoding a specific module path.
 
 `````mdx
-<TfModule id="module-vars" source="::cli_runbook_source" />
+<TfModule id="module-vars" source="::cli_gruntbook_source" />
 `````
 
-If the runbook is opened without a module URL, `<TfModule>` renders a message explaining how to provide one.
+If the gruntbook is opened without a module URL, `<TfModule>` renders a message explaining how to provide one.
 
 <Aside type="tip">
-For details on built-in templates (`::terragrunt`, `::tofu`, `::terragrunt-github`), custom templates, and the `--tf-runbook` flag, see [Opening Runbooks](/authoring/opening-runbooks/).
+For details on built-in templates (`::terragrunt`, `::tofu`, `::terragrunt-github`), custom templates, and the `--tf-gruntbook` flag, see [Opening Gruntbooks](/authoring/opening-gruntbooks/).
 </Aside>
 
 ## Block Outputs
@@ -246,7 +246,7 @@ _module:
 | **Sensitive** | `sensitive` | Sensitive variables are masked in the form. |
 | **Nullable** | `nullable` | Nullable variables are treated as optional even when they lack a default. |
 | **Source file** | *(derived)* | Which `.tf` file the variable was defined in. Used for filename-based grouping. |
-| **Group comment** | `# @runbooks:group "Name"` | A comment placed directly above a variable block. Used for explicit grouping (see [Variable Grouping](#variable-grouping)). |
+| **Group comment** | `# @gruntbooks:group "Name"` | A comment placed directly above a variable block. Used for explicit grouping (see [Variable Grouping](#variable-grouping)). |
 
 ### Validation Mapping
 
@@ -266,16 +266,16 @@ Validation blocks that don't match any of the patterns above still contribute: i
 
 When `<TfModule>` renders the input form, it automatically "groups" variables into collapsible sections. Grouping is purely a UI feature that organizes a set of variables together under a common heading to help reduce cognitive load on the end user. This is especially useful when a module has many variables and would otherwise render as an endless of form fields. Grouping has no effect on the generated output or template behavior.
 
-So how does Runbooks know which variables to group together? The grouping strategy follows a priority order:
+So how does Gruntbooks know which variables to group together? The grouping strategy follows a priority order:
 
-1. **`@runbooks:group` comments:** explicit groups defined in the `.tf` source
+1. **`@gruntbooks:group` comments:** explicit groups defined in the `.tf` source
 2. **Filename-based:** variables grouped by which `.tf` file they're defined in
 3. **Prefix-based:** variables grouped by shared name prefixes (e.g., `db_*`, `vpc_*`)
 4. **Required vs. Optional:** fallback grouping
 
-### `@runbooks:group` Comments
+### `@gruntbooks:group` Comments
 
-Module authors can explicitly control grouping by adding `# @runbooks:group "Group Name"` comments directly above variable blocks in their `.tf` files:
+Module authors can explicitly control grouping by adding `# @gruntbooks:group "Group Name"` comments directly above variable blocks in their `.tf` files:
 
 ```hcl
 variable "bucket_name" {
@@ -283,14 +283,14 @@ variable "bucket_name" {
   description = "Name of the S3 bucket"
 }
 
-# @runbooks:group "Lifecycle"
+# @gruntbooks:group "Lifecycle"
 variable "expiration_days" {
   type        = number
   default     = 0
   description = "Days before expiration"
 }
 
-# @runbooks:group "Lifecycle"
+# @gruntbooks:group "Lifecycle"
 variable "transition_to_glacier_days" {
   type        = number
   default     = 0
@@ -301,14 +301,14 @@ variable "transition_to_glacier_days" {
 In this example, the two lifecycle variables are grouped together under a "Lifecycle" section. The `bucket_name` variable (with no annotation) appears in an unnamed default section.
 
 <Aside type="tip">
-The `@runbooks:group` annotation is the recommended way to control variable grouping. It's explicit, portable (lives in the module source), and takes priority over all automatic grouping strategies.
+The `@gruntbooks:group` annotation is the recommended way to control variable grouping. It's explicit, portable (lives in the module source), and takes priority over all automatic grouping strategies.
 </Aside>
 
 ## Template Patterns
 
 ### Using `<TemplateInline>`
 
-[`<TemplateInline>`](/authoring/blocks/templateinline/) embeds the template directly in the runbook. It's a good choice for generating a single file because everything is visible and editable in one place with no external files needed.
+[`<TemplateInline>`](/authoring/blocks/templateinline/) embeds the template directly in the gruntbook. It's a good choice for generating a single file because everything is visible and editable in one place with no external files needed.
 
 #### For Terragrunt HCL
 
@@ -431,5 +431,5 @@ Source: `{{ .inputs._module.source }}`
 Because `<Template>` is backed by a `boilerplate.yml`, it renders **its own input form** in addition to the form that `<TfModule>` renders. Any variables defined in `boilerplate.yml` that are *not* provided by TfModule appear as extra editable fields, giving you a way to collect additional user input (e.g., environment name, team owner) that the `.tf` files know nothing about.
 
 <Aside type="note">
-Since both TfModule and Template can define variables, Runbooks merges the two sets. Template-only variables stay editable, TfModule-only variables (including `_module.*`) pass through invisibly, and overlapping variables become read-only. See [Inputs & Outputs — When Variables Overlap](/authoring/inputs-and-outputs/#when-variables-overlap) for the full explanation.
+Since both TfModule and Template can define variables, Gruntbooks merges the two sets. Template-only variables stay editable, TfModule-only variables (including `_module.*`) pass through invisibly, and overlapping variables become read-only. See [Inputs & Outputs — When Variables Overlap](/authoring/inputs-and-outputs/#when-variables-overlap) for the full explanation.
 </Aside>

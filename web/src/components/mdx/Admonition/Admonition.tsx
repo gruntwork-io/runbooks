@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { shouldShowAlert, setDontShowAgain as saveHidePreference } from "@/lib/localStorage"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
-import { useTemplateContext } from "@/contexts/useRunbook"
+import { useTemplateContext } from "@/contexts/useGruntbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 export type AdmonitionType = "note" | "info" | "warning" | "danger"
@@ -148,7 +148,7 @@ export function Admonition({
     return (
       <div
         className={cn(
-          "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
+          "gruntbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
           "bg-red-50 border-red-200 text-red-700"
         )}
       >
@@ -173,7 +173,7 @@ export function Admonition({
   return (
     <div
       className={cn(
-        "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 transition-opacity duration-1000 mb-5",
+        "gruntbook-block rounded-md border p-3 text-sm flex items-start gap-2 transition-opacity duration-1000 mb-5",
         config.bgColor,
         config.borderColor,
         config.textColor,

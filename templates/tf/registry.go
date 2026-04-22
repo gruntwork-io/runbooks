@@ -3,26 +3,26 @@ package tf
 import (
 	"fmt"
 
-	"runbooks/templates/tf/opentofu"
-	"runbooks/templates/tf/terragrunt"
-	terragruntgithub "runbooks/templates/tf/terragrunt-github"
+	"github.com/gruntwork-io/runbooks/templates/tf/opentofu"
+	"github.com/gruntwork-io/runbooks/templates/tf/terragrunt"
+	terragruntgithub "github.com/gruntwork-io/runbooks/templates/tf/terragrunt-github"
 )
 
-// RunbookTemplate defines a built-in runbook template backed by a static MDX file.
-type RunbookTemplate interface {
+// GruntbookTemplate defines a built-in gruntbook template backed by a static MDX file.
+type GruntbookTemplate interface {
 	Name() string
 	MDXContent() string
 }
 
-var templates = map[string]RunbookTemplate{
+var templates = map[string]GruntbookTemplate{
 	"::terragrunt":        &terragrunt.Template{},
 	"::terragrunt-github": &terragruntgithub.Template{},
 	"::tofu":              &opentofu.Template{},
 }
 
-// GetTemplate returns a RunbookTemplate by name.
+// GetTemplate returns a GruntbookTemplate by name.
 // An empty name returns the ::terragrunt template.
-func GetTemplate(name string) (RunbookTemplate, error) {
+func GetTemplate(name string) (GruntbookTemplate, error) {
 	if name == "" {
 		name = "::terragrunt"
 	}

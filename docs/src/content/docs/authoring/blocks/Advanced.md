@@ -8,7 +8,7 @@ This page covers advanced configuration options for Command and Check blocks.
 
 ## Pseudo-Terminal (PTY) Support
 
-By default, Runbooks executes scripts using a pseudo-terminal (PTY) on Unix-like systems. This enables full terminal emulation, which means CLI tools behave as if running in a real terminal.
+By default, Gruntbooks executes scripts using a pseudo-terminal (PTY) on Unix-like systems. This enables full terminal emulation, which means CLI tools behave as if running in a real terminal.
 
 ### Why PTY Matters
 

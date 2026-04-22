@@ -10,7 +10,7 @@ import (
 // This file centralizes path validation logic for output paths.
 //
 // IMPORTANT: These validations offer LIMITED security value and are candidates
-// for future removal. Since runbooks execute arbitrary user scripts that have
+// for future removal. Since gruntbooks execute arbitrary user scripts that have
 // full filesystem access, restricting output paths doesn't create a meaningful
 // security boundary - a user who wants to write outside the output directory
 // could simply do so in a script instead.
@@ -237,7 +237,7 @@ func ValidateAbsolutePathInCwd(path string) error {
 // - You're about to perform file operations (read, write, delete)
 //
 // This is used by generated files validation where the working directory may differ
-// from the process CWD (e.g., when using --working-dir=::tmp or remote runbooks).
+// from the process CWD (e.g., when using --working-dir=::tmp or remote gruntbooks).
 //
 // Checks performed:
 // 1. Path is not empty

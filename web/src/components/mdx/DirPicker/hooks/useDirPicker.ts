@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession } from '@/contexts/useSession'
-import { useRunbookContext } from '@/contexts/useRunbook'
+import { useGruntbookContext } from '@/contexts/useGruntbook'
 import { normalizeBlockId } from '@/lib/utils'
 
 interface UseDirPickerOptions {
@@ -24,7 +24,7 @@ interface DirLevel {
 
 export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPickerOptions) {
   const { getAuthHeader, isReady: sessionReady } = useSession()
-  const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
+  const { registerOutputs, blockOutputs: allOutputs } = useGruntbookContext()
 
   const [levels, setLevels] = useState<DirLevel[]>([])
   const [manualPath, setManualPath] = useState('')

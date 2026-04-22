@@ -7,22 +7,22 @@ import (
 	"log/slog"
 	"os"
 
-	"runbooks/api"
-	"runbooks/api/telemetry"
+	"github.com/gruntwork-io/runbooks/api"
+	"github.com/gruntwork-io/runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
 )
 
 // serveCmd represents the serve command
 var serveCmd = &cobra.Command{
-	Use:   "serve RUNBOOK_SOURCE",
-	Short: "Start the backend API server (for runbook developers)",
-	Long: `Start the backend API server for RUNBOOK_SOURCE.
+	Use:   "serve GRUNTBOOK_SOURCE",
+	Short: "Start the backend API server (for gruntbook developers)",
+	Long: `Start the backend API server for GRUNTBOOK_SOURCE.
 
-This is useful for local development on the Runbooks tool itself.
-Runbook authors and consumers should use 'open' or 'watch' instead.
+This is useful for local development on the Gruntbooks tool itself.
+Gruntbook authors and consumers should use 'open' or 'watch' instead.
 
-RUNBOOK_SOURCE can be a local path to a runbook.mdx file or its
+GRUNTBOOK_SOURCE can be a local path to a gruntbook.mdx file or its
 containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
 module directory.`,
 	GroupID: "other",
@@ -37,7 +37,7 @@ module directory.`,
 		slog.Info("Starting backend server", "workingDir", rb.workingDir, "outputPath", outputPath)
 
 		if err := api.StartServer(api.ServerConfig{
-			RunbookPath:           rb.serverPath,
+			GruntbookPath:         rb.serverPath,
 			Port:                  port,
 			WorkingDir:            rb.workingDir,
 			OutputPath:            outputPath,

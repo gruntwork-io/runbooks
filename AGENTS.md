@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Runbooks** is an open-source tool by [Gruntwork](https://gruntwork.io) that turns interactive MDX documents into executable workflows. Infrastructure experts author "runbooks" — markdown files with embedded React components (called "blocks") — that guide users through multi-step processes like deploying infrastructure, running migrations, or onboarding to AWS. The Go backend executes scripts and commands on the user's local machine while the React frontend renders the interactive UI. The final artifact is a single self-contained Go binary with the frontend embedded.
+**Gruntbooks** is an open-source tool by [Gruntwork](https://gruntwork.io) that turns interactive MDX documents into executable workflows. Infrastructure experts author "gruntbooks" — markdown files with embedded React components (called "blocks") — that guide users through multi-step processes like deploying infrastructure, running migrations, or onboarding to AWS. The Go backend executes scripts and commands on the user's local machine while the React frontend renders the interactive UI. The final artifact is a single self-contained Go binary with the frontend embedded.
 
 ## Project Structure
 
@@ -12,7 +12,7 @@
 /browser      — Browser launcher (opens the local UI)
 /cmd          — CLI commands (Cobra)
 /docs         — Documentation site (Astro + Starlight)
-/testdata     — Sample runbooks, feature demos, and test fixtures
+/testdata     — Sample gruntbooks, feature demos, and test fixtures
 /scripts      — Shared shell scripts
 main.go       — Entrypoint
 Taskfile.yml  — Task runner config
@@ -24,7 +24,7 @@ Taskfile.yml  — Task runner config
 - **Bun** as the javascript runtime
 - **Tailwind CSS 4** for styling
 - **shadcn/ui** (Radix primitives) for accessible UI components
-- **MDX** (`@mdx-js/mdx`) for rendering runbook content
+- **MDX** (`@mdx-js/mdx`) for rendering gruntbook content
 - **Vitest** for unit tests
 - Components live in `web/src/components/`; blocks live in `web/src/components/mdx/`
 - Each block is a directory: `web/src/components/mdx/<BlockName>/` containing the main component, `index.ts`, sub-components, hooks, types, and utils
@@ -49,7 +49,7 @@ Taskfile.yml  — Task runner config
 |------------------|----------------|-------------------------------------------------|
 | **bun**          | npm / yarn     | All JS package management and script running    |
 | **Taskfile.dev** | Make           | See `Taskfile.yml` for available tasks          |
-| **OpenTofu**     | Terraform      | For any IaC examples in runbooks or docs        |
+| **OpenTofu**     | Terraform      | For any IaC examples in gruntbooks or docs        |
 | **prek**         | husky          | Pre-commit hook manager (optional)              |
 
 ### Adding new shadcn/ui components
@@ -66,7 +66,7 @@ task --list
 task build
 
 # Dev servers (run in separate terminals)
-task dev:backend RUNBOOK_PATH=testdata/my-first-runbook
+task dev:backend GRUNTBOOK_PATH=testdata/my-first-gruntbook
 task dev:frontend
 
 # Run all tests
@@ -75,13 +75,13 @@ task test
 # Run tests by category
 task test:backend       # Go tests (go test ./...)
 task test:frontend      # Vitest (bun run test)
-task test:runbooks      # Runbook integration tests
+task test:gruntbooks      # Gruntbook integration tests
 task test:docs          # Spellcheck + link check
 
-# Runbook testing
-runbooks test init /path/to/runbook   # Generate runbook_test.yml
-runbooks test /path/to/runbook        # Run tests for one runbook
-runbooks test ./testdata/...          # Run all runbook tests
+# Gruntbook testing
+gruntbooks test init /path/to/gruntbook   # Generate gruntbook_test.yml
+gruntbooks test /path/to/gruntbook        # Run tests for one gruntbook
+gruntbooks test ./testdata/...          # Run all gruntbook tests
 
 # Docs
 task docs:spellcheck
@@ -116,7 +116,7 @@ When the user asks you to output markdown that itself contains code fences (e.g.
 
 ## Error Reporting in MDX Components
 
-The `useErrorReporting()` hook and `reportError()` function are for **configuration errors only** — problems with how the runbook MDX is written. These trigger the "This runbook has issues" banner.
+The `useErrorReporting()` hook and `reportError()` function are for **configuration errors only** — problems with how the gruntbook MDX is written. These trigger the "This gruntbook has issues" banner.
 
 **DO report** (configuration errors):
 - Duplicate component IDs
@@ -130,7 +130,7 @@ The `useErrorReporting()` hook and `reportError()` function are for **configurat
 - AWS/cloud provider API errors
 - User input validation failures during execution
 
-Runtime errors should be displayed inline within the component (e.g., with an alert box) but should NOT call `reportError()`. The distinction: configuration errors are problems with the runbook itself; runtime errors are problems that occur when a user interacts with a correctly-configured runbook.
+Runtime errors should be displayed inline within the component (e.g., with an alert box) but should NOT call `reportError()`. The distinction: configuration errors are problems with the gruntbook itself; runtime errors are problems that occur when a user interacts with a correctly-configured gruntbook.
 
 ## Testing
 
@@ -209,22 +209,22 @@ A healthy test suite is a portfolio, not a monoculture. Evaluate the overall sha
 
 As codebase size grows, bug density grows disproportionately. The test portfolio should account for this — larger, more complex modules need proportionally more testing investment, not a uniform distribution.
 
-### Writing Tests for Runbooks
+### Writing Tests for Gruntbooks
 
-Every new runbook must have an automated test. Follow the [testing guide](docs/src/content/docs/authoring/testing.mdx).
+Every new gruntbook must have an automated test. Follow the [testing guide](docs/src/content/docs/authoring/testing.mdx).
 
-1. Generate a test config: `runbooks test init /path/to/runbook`
-2. This creates `runbook_test.yml` next to your `runbook.mdx`
+1. Generate a test config: `gruntbooks test init /path/to/gruntbook`
+2. This creates `gruntbook_test.yml` next to your `gruntbook.mdx`
 3. Edit the YAML to customize inputs, steps, and assertions
-4. Run the test: `runbooks test /path/to/runbook`
+4. Run the test: `gruntbooks test /path/to/gruntbook`
 
-Look at `testdata/sample-runbooks/my-first-runbook/runbook_test.yml` for a well-commented reference example.
+Look at `testdata/sample-gruntbooks/my-first-gruntbook/gruntbook_test.yml` for a well-commented reference example.
 
 ### What to Test
 
-- If the runbook has **locally run scripts**, test them
-- If the runbook has **integration tests** (third-party dependencies like AWS), **skip those** in automated tests
-- If a test fails, first see if the problem is with the runbook configuration. If not, then check the runbooks code. Only update the test framework itself if it does not faithfully reproduce how the real codebase behaves. Never "make the tests pass" by weakening the test code. The goal is to catch both runbook misconfigurations and codebase regressions.
+- If the gruntbook has **locally run scripts**, test them
+- If the gruntbook has **integration tests** (third-party dependencies like AWS), **skip those** in automated tests
+- If a test fails, first see if the problem is with the gruntbook configuration. If not, then check the gruntbooks code. Only update the test framework itself if it does not faithfully reproduce how the real codebase behaves. Never "make the tests pass" by weakening the test code. The goal is to catch both gruntbook misconfigurations and codebase regressions.
 
 ## Blocks
 
@@ -237,8 +237,8 @@ When defining a new block, you must add **all** of the following:
 | Frontend component    | `web/src/components/mdx/<BlockName>/`                        |
 | Backend handler (if needed)       | `api/<block_name>.go`                                        |
 | Block documentation   | `docs/src/content/docs/authoring/blocks/<BlockName>.mdx`     |
-| Automated tests       | `testdata/feature-demos/<block-name>/` (runbook + test YAML) |
-| Test framework support| `api/testing/` — `runbooks test init` must detect the block, and `runbooks test` must handle it |
+| Automated tests       | `testdata/feature-demos/<block-name>/` (gruntbook + test YAML) |
+| Test framework support| `api/testing/` — `gruntbooks test init` must detect the block, and `gruntbooks test` must handle it |
 
 #### Block directory structure (frontend)
 
@@ -260,7 +260,7 @@ web/src/components/mdx/<BlockName>/
 - **Simple block:** `web/src/components/mdx/Command/` (frontend), `api/exec.go` (backend)
 - **Complex block with auth:** `web/src/components/mdx/AwsAuth/` (frontend), `api/aws_auth.go` (backend)
 - **Block docs:** `docs/src/content/docs/authoring/blocks/AwsAuth.mdx`
-- **Test config:** `testdata/sample-runbooks/my-first-runbook/runbook_test.yml`
+- **Test config:** `testdata/sample-gruntbooks/my-first-gruntbook/gruntbook_test.yml`
 
 ### Auth Blocks
 
@@ -274,7 +274,7 @@ When making changes to one auth block, evaluate whether the same change should b
 
 ## Backward compatibility
 
-Runbooks is currently in beta and it is acceptable to make sweeping breaking changes if necessary. Later, when we approach 1.0, we will stabilize the interface. Therefore, prefere more elegant mental models and data structures, even if it means we lose backwards compatibility.
+Gruntbooks is currently in beta and it is acceptable to make sweeping breaking changes if necessary. Later, when we approach 1.0, we will stabilize the interface. Therefore, prefere more elegant mental models and data structures, even if it means we lose backwards compatibility.
 
 ### On feature branches
 
@@ -285,7 +285,8 @@ If code or a feature was created on a feature branch, do not prioritize backward
 - **Don't use `npm` or `yarn`** — use `bun` for all JS/TS operations
 - **Don't use Make** — use `task` (Taskfile.dev)
 - **Don't use Terraform** — use OpenTofu for all IaC examples
-- **Don't modify the test framework to make tests pass** — fix the runbook or the codebase instead
+- **Don't modify the test framework to make tests pass** — fix the gruntbook or the codebase instead
+
 - **Don't call `reportError()` for runtime errors** — only for configuration errors (see [Error Reporting](#error-reporting-in-mdx-components))
 - **Don't create blocks without docs, tests, and test framework support** — all four artifacts are required
 - **Don't re-implement codebase logic in tests** — reference the source of truth

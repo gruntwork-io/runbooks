@@ -185,7 +185,7 @@ export const ChangedFilesView = ({
             generated a large number of files (e.g. <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">npm install</code>).
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            Consider revising the runbook to reduce the number of changed files.
+            Consider revising the gruntbook to reduce the number of changed files.
           </p>
         </div>
       </div>

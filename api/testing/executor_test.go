@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"runbooks/api"
+	"github.com/gruntwork-io/runbooks/api"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +22,7 @@ func TestParseAuthDependencies(t *testing.T) {
 		{
 			name: "no auth dependencies",
 			content: `
-# Simple Runbook
+# Simple Gruntbook
 
 <Command id="simple-cmd" command="echo hello" />
 <Check id="simple-check" command="test -f file.txt" />
@@ -121,7 +121,7 @@ func TestParseAuthDependencies(t *testing.T) {
 		{
 			name: "skip auth dependencies inside fenced code blocks",
 			content: `
-# Real runbook content
+# Real gruntbook content
 
 <AwsAuth id="real-auth" />
 <Command id="real-cmd" awsAuthId="real-auth" command="aws s3 ls" />
@@ -285,12 +285,12 @@ Here's an example with nested code:
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a temporary file with the test content
 			tmpDir := t.TempDir()
-			runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-			err := os.WriteFile(runbookPath, []byte(tc.content), 0644)
+			gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+			err := os.WriteFile(gruntbookPath, []byte(tc.content), 0644)
 			require.NoError(t, err)
 
 			// Parse auth dependencies
-			deps, err := parseAuthDependencies(runbookPath)
+			deps, err := parseAuthDependencies(gruntbookPath)
 			require.NoError(t, err)
 
 			// Verify the results
@@ -317,7 +317,7 @@ Here's an example with nested code:
 }
 
 func TestParseAuthDependencies_FileNotFound(t *testing.T) {
-	_, err := parseAuthDependencies("/nonexistent/path/runbook.mdx")
+	_, err := parseAuthDependencies("/nonexistent/path/gruntbook.mdx")
 	require.Error(t, err)
 }
 
@@ -422,10 +422,10 @@ func TestAuthBlockCredentialIsolation(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Create runbook with two AwsAuth blocks
+	// Create gruntbook with two AwsAuth blocks
 	// Each Check block specifies which auth block's credentials to use via awsAuthId
 	// The env_prefix for each auth block is configured in the test config, not the MDX
-	runbookContent := `# Multi-Account Credential Isolation Test
+	gruntbookContent := `# Multi-Account Credential Isolation Test
 
 <AwsAuth
   id="aws-auth-primary"
@@ -458,8 +458,8 @@ func TestAuthBlockCredentialIsolation(t *testing.T) {
   command="echo ACCESS_KEY=$AWS_ACCESS_KEY_ID"
 />
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	err = os.WriteFile(runbookPath, []byte(runbookContent), 0644)
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	err = os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644)
 	require.NoError(t, err)
 
 	// Create test config that runs both auth blocks and both check blocks
@@ -481,7 +481,7 @@ tests:
       - block: check-session
         expect: success
 `
-	configPath := filepath.Join(tmpDir, "runbook_test.yml")
+	configPath := filepath.Join(tmpDir, "gruntbook_test.yml")
 	err = os.WriteFile(configPath, []byte(testConfig), 0644)
 	require.NoError(t, err)
 
@@ -497,7 +497,7 @@ tests:
 	t.Setenv("SECONDARY_AWS_REGION", "eu-west-1")
 
 	// Create executor
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated", WithVerbose(true))
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated", WithVerbose(true))
 	require.NoError(t, err)
 
 	// Parse config
@@ -594,11 +594,11 @@ func TestParseAuthDependencies_GitClone(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-			err := os.WriteFile(runbookPath, []byte(tc.content), 0644)
+			gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+			err := os.WriteFile(gruntbookPath, []byte(tc.content), 0644)
 			require.NoError(t, err)
 
-			deps, err := parseAuthDependencies(runbookPath)
+			deps, err := parseAuthDependencies(gruntbookPath)
 			require.NoError(t, err)
 
 			assert.Equal(t, len(tc.expectedDeps), len(deps))
@@ -657,13 +657,13 @@ func runGit(t *testing.T, dir string, args ...string) {
 // a prefilledUrl is skipped (the user would fill it interactively).
 func TestExecuteGitClone_SkipWhenNoURL(t *testing.T) {
 	tmpDir := t.TempDir()
-	runbookContent := `# GitClone Skip Test
+	gruntbookContent := `# GitClone Skip Test
 <GitClone id="clone-empty" />
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -698,15 +698,15 @@ func TestExecuteGitClone_Success(t *testing.T) {
 	})
 
 	tmpDir := t.TempDir()
-	runbookContent := fmt.Sprintf(`# GitClone Success Test
+	gruntbookContent := fmt.Sprintf(`# GitClone Success Test
 <GitClone id="clone-test" prefilledUrl="%s" />
 
 <Check id="verify-clone" command="test -d $REPO_FILES" />
 `, repoURL)
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -771,13 +771,13 @@ func TestExecuteGitClone_WithRef(t *testing.T) {
 	repoURL := "file://" + bareDir
 
 	tmpDir := t.TempDir()
-	runbookContent := fmt.Sprintf(`# GitClone Ref Test
+	gruntbookContent := fmt.Sprintf(`# GitClone Ref Test
 <GitClone id="clone-ref" prefilledUrl="%s" prefilledRef="feature" />
 `, repoURL)
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -818,13 +818,13 @@ func TestExecuteGitClone_SparseCheckout(t *testing.T) {
 	})
 
 	tmpDir := t.TempDir()
-	runbookContent := fmt.Sprintf(`# GitClone Sparse Test
+	gruntbookContent := fmt.Sprintf(`# GitClone Sparse Test
 <GitClone id="clone-sparse" prefilledUrl="%s" prefilledRepoPath="docs" />
 `, repoURL)
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -865,7 +865,7 @@ func TestExecuteGitClone_SparseCheckout(t *testing.T) {
 // is set, the rendered template is written to disk under the output directory.
 func TestExecuteTemplateInline_GenerateFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	runbookContent := `# TemplateInline GenerateFile Test
+	gruntbookContent := `# TemplateInline GenerateFile Test
 
 <Inputs id="config">
 </Inputs>
@@ -876,10 +876,10 @@ Hello from template
 ` + "```" + `
 </TemplateInline>
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -904,7 +904,7 @@ Hello from template
 // fails when no GitClone has been executed.
 func TestExecuteTemplateInline_WorktreeTarget_NoWorktree(t *testing.T) {
 	tmpDir := t.TempDir()
-	runbookContent := `# TemplateInline Worktree Error Test
+	gruntbookContent := `# TemplateInline Worktree Error Test
 
 <TemplateInline id="config-template" outputPath="config.yaml" generateFile={true} target="worktree">
 ` + "```yaml" + `
@@ -912,10 +912,10 @@ key: value
 ` + "```" + `
 </TemplateInline>
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -939,7 +939,7 @@ func TestExecuteTemplateInline_WorktreeTarget_WithClone(t *testing.T) {
 	})
 
 	tmpDir := t.TempDir()
-	runbookContent := fmt.Sprintf(`# TemplateInline Worktree Test
+	gruntbookContent := fmt.Sprintf(`# TemplateInline Worktree Test
 
 <GitClone id="clone-repo" prefilledUrl="%s" />
 
@@ -949,10 +949,10 @@ Generated content
 `+"```"+`
 </TemplateInline>
 `, repoURL)
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -1003,14 +1003,14 @@ func TestExecuteTemplate_WorktreeTarget_NoWorktree(t *testing.T) {
 		0644,
 	))
 
-	runbookContent := `# Template Worktree Error Test
+	gruntbookContent := `# Template Worktree Error Test
 
 <Template id="my-tmpl" path="templates/my-template" target="worktree" />
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -1089,13 +1089,13 @@ func TestExtractMDXPropValue_BareJSXExpression(t *testing.T) {
 
 func TestGetSessionEnvVar(t *testing.T) {
 	tmpDir := t.TempDir()
-	runbookContent := `# Session Env Test
+	gruntbookContent := `# Session Env Test
 <Check id="noop" command="true" />
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(runbookContent), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(gruntbookContent), 0644))
 
-	executor, err := NewTestExecutor(runbookPath, tmpDir, "generated")
+	executor, err := NewTestExecutor(gruntbookPath, tmpDir, "generated")
 	require.NoError(t, err)
 	defer executor.Close()
 
@@ -1232,10 +1232,10 @@ plain content
 ` + "```" + `
 </TemplateInline>
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(content), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(content), 0644))
 
-	blocks, err := parseTemplateInlineBlocks(runbookPath)
+	blocks, err := parseTemplateInlineBlocks(gruntbookPath)
 	require.NoError(t, err)
 
 	// First block: generateFile=true, target=worktree
@@ -1258,10 +1258,10 @@ func TestParseTemplateBlocks_TargetField(t *testing.T) {
 <Template id="worktree-tmpl" path="templates/my-template" target="worktree" />
 <Template id="default-tmpl" path="templates/other" />
 `
-	runbookPath := filepath.Join(tmpDir, "runbook.mdx")
-	require.NoError(t, os.WriteFile(runbookPath, []byte(content), 0644))
+	gruntbookPath := filepath.Join(tmpDir, "gruntbook.mdx")
+	require.NoError(t, os.WriteFile(gruntbookPath, []byte(content), 0644))
 
-	blocks, err := parseTemplateBlocks(runbookPath)
+	blocks, err := parseTemplateBlocks(gruntbookPath)
 	require.NoError(t, err)
 
 	worktreeBlock := blocks["worktree-tmpl"]

@@ -5,7 +5,7 @@
 TARGET_ACCOUNT_ID="{{ .TargetAccountId }}"
 ROLE_NAME="{{ .RoleName }}"
 ROLE_ARN="arn:aws:iam::${TARGET_ACCOUNT_ID}:role/${ROLE_NAME}"
-SESSION_NAME="runbook-session"
+SESSION_NAME="gruntbook-session"
 
 echo "Attempting to assume role: $ROLE_ARN"
 
@@ -17,9 +17,9 @@ CREDS=$(aws sts assume-role \
 
 if [ $? -eq 0 ]; then
   # Output credentials in the format expected by AwsAuth
-  echo "AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r '.Credentials.AccessKeyId')" >> "$RUNBOOK_OUTPUT"
-  echo "AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r '.Credentials.SecretAccessKey')" >> "$RUNBOOK_OUTPUT"
-  echo "AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r '.Credentials.SessionToken')" >> "$RUNBOOK_OUTPUT"
+  echo "AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r '.Credentials.AccessKeyId')" >> "$GRUNTBOOK_OUTPUT"
+  echo "AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r '.Credentials.SecretAccessKey')" >> "$GRUNTBOOK_OUTPUT"
+  echo "AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r '.Credentials.SessionToken')" >> "$GRUNTBOOK_OUTPUT"
   echo "Successfully assumed role: $ROLE_ARN"
 else
   echo "Failed to assume role: $ROLE_ARN"

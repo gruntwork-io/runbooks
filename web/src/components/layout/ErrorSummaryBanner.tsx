@@ -7,7 +7,7 @@ interface ErrorSummaryBannerProps {
 }
 
 /**
- * A compact banner that summarizes the number of errors and warnings in a runbook.
+ * A compact banner that summarizes the number of errors and warnings in a gruntbook.
  * Prompts users to scroll down to see them inline in each component.
  */
 export function ErrorSummaryBanner({ errorCount, warningCount, className = '' }: ErrorSummaryBannerProps) {
@@ -28,7 +28,7 @@ export function ErrorSummaryBanner({ errorCount, warningCount, className = '' }:
       <div className="flex items-center justify-center gap-6">
         <div className="flex items-center gap-2">
           <span className={`font-medium ${textColor}`}>
-            This runbook has issues:
+            This gruntbook has issues:
           </span>
         </div>
         

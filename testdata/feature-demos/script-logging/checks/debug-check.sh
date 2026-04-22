@@ -4,7 +4,7 @@
 # Demonstrates how DEBUG=true enables verbose log_debug output
 # =============================================================================
 
-# Set DEBUG based on input variable (passed from Runbooks Inputs block)
+# Set DEBUG based on input variable (passed from Gruntbooks Inputs block)
 if [ "{{ .inputs.EnableDebug }}" = "true" ]; then
   export DEBUG=true
 fi

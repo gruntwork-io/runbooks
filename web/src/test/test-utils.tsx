@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
+import { GruntbookContextProvider } from '@/contexts/GruntbookContext'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { ErrorReportingProvider } from '@/contexts/ErrorReportingContext'
 import { TelemetryProvider } from '@/contexts/TelemetryContext'
@@ -12,9 +12,9 @@ export function TestWrapper({ children, remoteSource }: { children: ReactNode; r
     <TelemetryProvider>
       <ErrorReportingProvider>
         <ComponentIdRegistryProvider>
-          <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
+          <GruntbookContextProvider gruntbookName="test" remoteSource={remoteSource}>
             {children}
-          </RunbookContextProvider>
+          </GruntbookContextProvider>
         </ComponentIdRegistryProvider>
       </ErrorReportingProvider>
     </TelemetryProvider>

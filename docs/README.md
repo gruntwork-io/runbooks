@@ -1,6 +1,6 @@
-# Runbooks docs
+# Gruntbooks docs
 
-Runbooks docs are built on [Starlight](https://starlight.astro.build/).
+Gruntbooks docs are built on [Starlight](https://starlight.astro.build/).
 
 ## Running docs locally
 

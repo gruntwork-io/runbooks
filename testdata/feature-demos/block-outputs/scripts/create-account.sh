@@ -11,6 +11,6 @@ echo "Account ID: $ACCOUNT_ID"
 echo "Region: $REGION"
 
 # Output values for downstream blocks
-# The $RUNBOOK_OUTPUT file is set by the runbook server
-echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
-echo "region=$REGION" >> "$RUNBOOK_OUTPUT"
+# The $GRUNTBOOK_OUTPUT file is set by the gruntbook server
+echo "account_id=$ACCOUNT_ID" >> "$GRUNTBOOK_OUTPUT"
+echo "region=$REGION" >> "$GRUNTBOOK_OUTPUT"

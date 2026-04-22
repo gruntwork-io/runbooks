@@ -1,20 +1,20 @@
-// Package telemetry provides anonymous usage tracking for Runbooks.
+// Package telemetry provides anonymous usage tracking for Gruntbooks.
 // Telemetry is enabled by default but can be disabled via:
-//   - Environment variable: RUNBOOKS_TELEMETRY_DISABLE=1
+//   - Environment variable: GRUNTBOOKS_TELEMETRY_DISABLE=1
 //   - CLI flag: --no-telemetry
 //
-// We collect minimal, anonymous data to improve Runbooks:
+// We collect minimal, anonymous data to improve Gruntbooks:
 //   - Commands used (open, watch, serve)
 //   - OS and architecture
-//   - Runbooks version
+//   - Gruntbooks version
 //   - Error types (not content)
 //
 // We do NOT collect:
-//   - Runbook content or file paths
+//   - Gruntbook content or file paths
 //   - Variable values or script contents
 //   - Personal identifiable information
 //
-// Learn more: https://runbooks.gruntwork.io/security/telemetry/
+// Learn more: https://gruntbooks.gruntwork.io/security/telemetry/
 package telemetry
 
 import (
@@ -33,16 +33,16 @@ import (
 
 const (
 	// EnvDisable is the environment variable to disable telemetry
-	EnvDisable = "RUNBOOKS_TELEMETRY_DISABLE"
+	EnvDisable = "GRUNTBOOKS_TELEMETRY_DISABLE"
 
 	// DocsURL is the documentation URL for telemetry
-	DocsURL = "https://runbooks.gruntwork.io/security/telemetry/"
+	DocsURL = "https://gruntbooks.gruntwork.io/security/telemetry/"
 )
 
 var (
-	// MixpanelToken is the project token for Runbooks telemetry
+	// MixpanelToken is the project token for Gruntbooks telemetry
 	// This is set via ldflags at build time:
-	//   go build -ldflags "-X runbooks/api/telemetry.MixpanelToken=your_token"
+	//   go build -ldflags "-X github.com/gruntwork-io/runbooks/api/telemetry.MixpanelToken=your_token"
 	// This is a public token - it only allows sending events, not reading data
 	MixpanelToken = ""
 )
@@ -189,7 +189,7 @@ func generateAnonymousID() string {
 	}
 
 	// Create a hash of hostname + username
-	data := fmt.Sprintf("runbooks:%s:%s", hostname, username)
+	data := fmt.Sprintf("gruntbooks:%s:%s", hostname, username)
 	hash := sha256.Sum256([]byte(data))
 
 	// Return first 16 bytes as hex (32 characters) - enough for uniqueness

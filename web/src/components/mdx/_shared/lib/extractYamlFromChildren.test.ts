@@ -7,7 +7,7 @@ import { extractYamlFromChildren } from './extractYamlFromChildren';
 
 describe('extractYamlFromChildren', () => {
   it('should extract YAML from real MDX compilation and parse it correctly', async () => {
-    // Use the exact same MDX content from the real runbook file
+    // Use the exact same MDX content from the real gruntbook file
     const mdxContent = `<Inputs id="test">
 \`\`\`yaml
 variables:

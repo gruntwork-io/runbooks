@@ -13,7 +13,7 @@ import (
 // Reporter defines the interface for test result reporters.
 type Reporter interface {
 	// Report outputs the test results.
-	Report(suites []RunbookTestSuite) error
+	Report(suites []GruntbookTestSuite) error
 }
 
 // TextReporter outputs human-readable test results.
@@ -31,17 +31,17 @@ func NewTextReporter(w io.Writer, verbose bool) *TextReporter {
 }
 
 // Report outputs the test results in human-readable format.
-func (r *TextReporter) Report(suites []RunbookTestSuite) error {
+func (r *TextReporter) Report(suites []GruntbookTestSuite) error {
 	var totalPassed, totalFailed, totalSkipped int
 	var totalDuration time.Duration
 
 	for _, suite := range suites {
-		relPath, _ := filepath.Rel(".", suite.RunbookPath)
+		relPath, _ := filepath.Rel(".", suite.GruntbookPath)
 		if relPath == "" {
-			relPath = suite.RunbookPath
+			relPath = suite.GruntbookPath
 		}
 
-		// In verbose mode, the runbook header was already shown at the start
+		// In verbose mode, the gruntbook header was already shown at the start
 		// Show a summary section header instead
 		if r.Verbose {
 			fmt.Fprintf(r.Writer, "\n── Summary: %s ──\n", relPath)
@@ -192,12 +192,12 @@ func NewJUnitReporter(w io.Writer) *JUnitReporter {
 }
 
 // Report outputs the test results in JUnit XML format.
-func (r *JUnitReporter) Report(suites []RunbookTestSuite) error {
+func (r *JUnitReporter) Report(suites []GruntbookTestSuite) error {
 	junitSuites := JUnitTestSuites{}
 
 	for _, suite := range suites {
 		js := JUnitTestSuite{
-			Name:     suite.RunbookPath,
+			Name:     suite.GruntbookPath,
 			Tests:    len(suite.Results),
 			Failures: suite.Failed,
 			Skipped:  suite.Skipped,
@@ -207,7 +207,7 @@ func (r *JUnitReporter) Report(suites []RunbookTestSuite) error {
 		for _, result := range suite.Results {
 			tc := JUnitTestCase{
 				Name:      result.TestCase,
-				ClassName: filepath.Base(filepath.Dir(suite.RunbookPath)),
+				ClassName: filepath.Base(filepath.Dir(suite.GruntbookPath)),
 				Time:      result.Duration.Seconds(),
 			}
 
@@ -255,7 +255,7 @@ func (r *JUnitReporter) Report(suites []RunbookTestSuite) error {
 }
 
 // ReportToFile writes test results to a file.
-func ReportToFile(reporter Reporter, suites []RunbookTestSuite, path string) error {
+func ReportToFile(reporter Reporter, suites []GruntbookTestSuite, path string) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)

@@ -5,7 +5,7 @@ import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
-import { useTemplateContext } from "@/contexts/useRunbook"
+import { useTemplateContext } from "@/contexts/useGruntbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
@@ -116,7 +116,7 @@ function AwsAuth({
   // Early return for duplicate ID
   if (isDuplicate) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+      <div className="gruntbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -142,7 +142,7 @@ function AwsAuth({
   // Early return for multiple block sources in detectCredentials
   if (hasMultipleBlockSources) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
+      <div className="gruntbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
         <div className="flex items-center text-red-600">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
@@ -164,7 +164,7 @@ function AwsAuth({
   const showSsoRoleSelector = auth.authStatus === 'select_role' && auth.selectedSsoAccount
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div data-testid={id} className={`gruntbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

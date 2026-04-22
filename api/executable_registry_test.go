@@ -18,7 +18,7 @@ func TestParseComponents(t *testing.T) {
 		{
 			name: "parse single Check with inline command",
 			content: `
-# Test Runbook
+# Test Gruntbook
 
 <Check
 	id="check-git"
@@ -66,7 +66,7 @@ func TestParseComponents(t *testing.T) {
 		{
 			name: "parse multiple components",
 			content: `
-# Multi-Check Runbook
+# Multi-Check Gruntbook
 
 <Check
 	id="check-1"
@@ -290,7 +290,7 @@ echo hello
 
 			// Create registry
 			registry := &ExecutableRegistry{
-				runbookPath: filepath.Join(tmpDir, "runbook.mdx"),
+				gruntbookPath: filepath.Join(tmpDir, "gruntbook.mdx"),
 				executables: make(map[string]*Executable),
 			}
 

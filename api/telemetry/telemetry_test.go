@@ -69,14 +69,14 @@ func TestEnvDisable(t *testing.T) {
 	// Note: We can't fully test Init() multiple times due to sync.Once
 	
 	// Just verify the constant is correct
-	if EnvDisable != "RUNBOOKS_TELEMETRY_DISABLE" {
-		t.Errorf("Expected EnvDisable to be RUNBOOKS_TELEMETRY_DISABLE, got %s", EnvDisable)
+	if EnvDisable != "GRUNTBOOKS_TELEMETRY_DISABLE" {
+		t.Errorf("Expected EnvDisable to be GRUNTBOOKS_TELEMETRY_DISABLE, got %s", EnvDisable)
 	}
 }
 
 func TestDocsURL(t *testing.T) {
 	// Verify the docs URL is set correctly
-	expectedURL := "https://runbooks.gruntwork.io/security/telemetry/"
+	expectedURL := "https://gruntbooks.gruntwork.io/security/telemetry/"
 	if DocsURL != expectedURL {
 		t.Errorf("Expected DocsURL to be %s, got %s", expectedURL, DocsURL)
 	}

@@ -5,7 +5,7 @@ import _ "embed"
 //go:embed terragrunt-github.mdx
 var mdxContent string
 
-// Template generates a runbook that clones a GitHub repo, picks a directory,
+// Template generates a gruntbook that clones a GitHub repo, picks a directory,
 // collects module inputs, generates a terragrunt.hcl, and opens a pull request.
 type Template struct{}
 

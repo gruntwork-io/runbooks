@@ -6,7 +6,7 @@ sidebar:
 
 import { Aside, FileTree } from '@astrojs/starlight/components';
 
-When you use a Runbook, you'll often work with files, whether they're freshly generated from templates, or cloned from a git repository. The **files workspace** (labeled just "Files" in the Runbooks UI) is the panel on the right side of the Runbooks UI where all of these files live.
+When you use a Gruntbook, you'll often work with files, whether they're freshly generated from templates, or cloned from a git repository. The **files workspace** (labeled just "Files" in the Gruntbooks UI) is the panel on the right side of the Gruntbooks UI where all of these files live.
 
 This page explains the two types of files you'll encounter, when each one appears, and how to work with them.
 
@@ -22,7 +22,7 @@ The files workspace can show two different types of files.
 ### Generated files
 
 ##### Why use them
-You want the runbook to generate new files and expect the user will then perform some _out-of-band action_ with the files, such as manually integrating them into a separate project.
+You want the gruntbook to generate new files and expect the user will then perform some _out-of-band action_ with the files, such as manually integrating them into a separate project.
 
 ##### Where they come from
 A [\<Template\>](/authoring/blocks/template/) block generates files when the user clicks "Generate" (the default `target` is `"generated"`). [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) blocks generate files when they run scripts that write to the `$GENERATED_FILES` environment variable.
@@ -36,7 +36,7 @@ After the user clicks "Generate" on a \<Template\> block, or after a \<Command\>
 ### Repository files
 
 ##### Why use them
-You want the user to `git clone` a repository and then create, modify, or delete files in that repo using subsequent blocks in the runbook. Presumably, after git cloning the files and making changes, the runbook will either `git push` the changes or open a pull request on them.
+You want the user to `git clone` a repository and then create, modify, or delete files in that repo using subsequent blocks in the gruntbook. Presumably, after git cloning the files and making changes, the gruntbook will either `git push` the changes or open a pull request on them.
 
 ##### Where they come from
 Initially, the files are cloned from a git repository via a [\<GitClone\>](/authoring/blocks/gitclone/) block.
@@ -50,12 +50,12 @@ The files are stored in a local path (relative to the [working directory](/comma
 After a \<GitClone\> block successfully clones a repository, the files workspace automatically switches to the **Repository** tab to show the cloned files.
 
 <Aside type="tip">
-If a runbook only produces generated files (no git clone), you'll only see the "Generated files" tab. If it only clones a repository, you'll only see the "Repository" tab. When both are present, you can switch between them using the context bar at the top of the workspace.
+If a gruntbook only produces generated files (no git clone), you'll only see the "Generated files" tab. If it only clones a repository, you'll only see the "Repository" tab. When both are present, you can switch between them using the context bar at the top of the workspace.
 </Aside>
 
 ## Generated files
 
-Generated files are new files that the runbook creates on your local machine. There are two main ways they get created:
+Generated files are new files that the gruntbook creates on your local machine. There are two main ways they get created:
 
 ### Template blocks
 
@@ -85,7 +85,7 @@ Any files written to `$GENERATED_FILES` automatically appear in the workspace af
 
 Generated files are persisted to a folder on your local machine — they're not ephemeral or stored in memory.
 
-By default, generated files are written to a `generated/` folder in the working directory (the directory you run the `runbooks` command from):
+By default, generated files are written to a `generated/` folder in the working directory (the directory you run the `gruntbooks` command from):
 
 <FileTree>
 - **generated/** &larr; Created in your working directory
@@ -98,17 +98,17 @@ You can customize the output location with CLI flags:
 
 ```bash
 # Use a specific working directory
-runbooks open my-runbook --working-dir /path/to/project
+gruntbooks open my-gruntbook --working-dir /path/to/project
 
 # Write to a custom subfolder within the working directory
-runbooks open my-runbook --output-path ./infrastructure
+gruntbooks open my-gruntbook --output-path ./infrastructure
 
 # Use an isolated temporary directory (auto-cleaned on exit)
-runbooks open my-runbook --working-dir=::tmp
+gruntbooks open my-gruntbook --working-dir=::tmp
 ```
 
 <Aside type="tip">
-The `--working-dir=::tmp` keyword is useful for sandboxed execution where you don't want generated files to persist after you close the runbook.
+The `--working-dir=::tmp` keyword is useful for sandboxed execution where you don't want generated files to persist after you close the gruntbook.
 </Aside>
 
 ### Subdirectories within templates
@@ -132,7 +132,7 @@ echo '{}' > "$GENERATED_FILES/config/app.json"
 
 ## Repository files
 
-Repository files come from a git repository that was cloned by a [GitClone](/authoring/blocks/gitclone/) block in the runbook. When the clone completes, the workspace automatically switches to the **Repository** tab to show the cloned files.
+Repository files come from a git repository that was cloned by a [GitClone](/authoring/blocks/gitclone/) block in the gruntbook. When the clone completes, the workspace automatically switches to the **Repository** tab to show the cloned files.
 
 The Repository tab has two sub-tabs:
 
@@ -142,7 +142,7 @@ The **All files** tab shows the complete file tree of the cloned repository. Cli
 
 ### Changed files
 
-The **Changed files** tab shows a diff view of any files that have been modified since the repository was cloned. This is useful when subsequent blocks in the runbook (like Command or Template blocks with `target="worktree"`) write files into the cloned repository. You'll see:
+The **Changed files** tab shows a diff view of any files that have been modified since the repository was cloned. This is useful when subsequent blocks in the gruntbook (like Command or Template blocks with `target="worktree"`) write files into the cloned repository. You'll see:
 
 - Which files were added, modified, or deleted
 - Line-by-line additions and deletions (similar to a GitHub pull request diff)
@@ -154,11 +154,11 @@ The "Changed files" tab appears automatically the first time a change is detecte
 
 ### Multiple repositories
 
-If a runbook clones more than one repository (using multiple GitClone blocks), a dropdown appears in the workspace header letting you switch between them.
+If a gruntbook clones more than one repository (using multiple GitClone blocks), a dropdown appears in the workspace header letting you switch between them.
 
 ## Security: Where files can be read and written
 
-Runbooks enforces rules about where files can be read and written:
+Gruntbooks enforces rules about where files can be read and written:
 
 ### Path restrictions
 
@@ -178,11 +178,11 @@ These restrictions apply to template output paths and workspace APIs. Scripts ex
 
 ### Protected directories
 
-Runbooks blocks writes to system-critical directories:
+Gruntbooks blocks writes to system-critical directories:
 
 - `/`, `/etc`, `/usr`, `/bin`, `/var`, `/home`, `/root`
 - `C:\`, `C:\Windows`, `C:\Program Files`, `C:\Users`
 
 ## Next
 
-Now that you understand how the files workspace works, explore the [use cases](/intro/use_cases/) where Runbooks shines.
+Now that you understand how the files workspace works, explore the [use cases](/intro/use_cases/) where Gruntbooks shines.

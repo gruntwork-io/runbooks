@@ -22,13 +22,13 @@ export function CustomOAuthWarning({ clientId, onUseDefault, onContinue }: Custo
             Custom OAuth App
           </h4>
           <p className="text-sm text-amber-700 mb-3">
-            This runbook uses a custom GitHub OAuth app, not the default Gruntwork Runbooks app.
+            This gruntbook uses a custom GitHub OAuth app, not the default Gruntwork Gruntbooks app.
           </p>
           <div className="bg-amber-100/50 rounded px-2 py-1 mb-3 font-mono text-xs text-amber-800">
             Client ID: {displayClientId}
           </div>
           <p className="text-sm text-amber-700 mb-4">
-            Only proceed if you trust the source of this runbook. The token will stay on your machine, 
+            Only proceed if you trust the source of this gruntbook. The token will stay on your machine, 
             but you'll be authorizing a third-party app.
           </p>
           <div className="flex gap-2">

@@ -5,12 +5,12 @@ tasks:
     desc: Build the complete binary with embedded frontend (set MIXPANEL_TOKEN env var to enable telemetry)
     deps: [build:frontend]
     cmds:
-      - go build -ldflags="-X 'runbooks/api/telemetry.MixpanelToken={{.MIXPANEL_TOKEN}}'" -o runbooks .
+      - go build -ldflags="-X 'github.com/gruntwork-io/runbooks/api/telemetry.MixpanelToken={{.MIXPANEL_TOKEN}}'" -o gruntbooks .
     sources:
       - "**/*.go"
       - web/dist/**/*
     generates:
-      - runbooks
+      - gruntbooks
 
   build:frontend:
     desc: Build the frontend (creates web/dist)
@@ -32,7 +32,7 @@ tasks:
     desc: Remove build artifacts
     cmds:
       - rm -rf web/dist
-      - rm -f runbooks
+      - rm -f gruntbooks
 
   dev:frontend:
     desc: "Run the frontend dev server (Vite) - use with dev:backend in another terminal"
@@ -41,16 +41,16 @@ tasks:
       - bun run dev
 
   dev:backend:
-    desc: "Run the backend API server - usage: task dev:backend RUNBOOK_PATH=path/to/runbook"
+    desc: "Run the backend API server - usage: task dev:backend GRUNTBOOK_PATH=path/to/gruntbook"
     cmds:
-      - go run . serve {{.RUNBOOK_PATH | default "testdata/my-first-runbook"}}
+      - go run . serve {{.GRUNTBOOK_PATH | default "testdata/my-first-gruntbook"}}
 
   test:
-    desc: Run all tests (frontend, backend, runbooks, and docs)
+    desc: Run all tests (frontend, backend, gruntbooks, and docs)
     cmds:
       - task: test:backend
       - task: test:frontend
-      - task: test:runbooks
+      - task: test:gruntbooks
       - task: test:docs
 
   test:backend:
@@ -74,11 +74,11 @@ tasks:
       - bun run build
       - bun run linkcheck
 
-  test:runbooks:
-    desc: Run automated tests for demo runbooks
+  test:gruntbooks:
+    desc: Run automated tests for demo gruntbooks
     deps: [build]
     cmds:
-      - ./runbooks test ./testdata/...
+      - ./gruntbooks test ./testdata/... {{.CLI_ARGS}}
 
   test:e2e:
     desc: Run Playwright end-to-end tests

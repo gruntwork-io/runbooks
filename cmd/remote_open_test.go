@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"runbooks/api"
+	"github.com/gruntwork-io/runbooks/api"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"

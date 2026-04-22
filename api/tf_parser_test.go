@@ -26,8 +26,8 @@ func TestIsBareTfModule(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "directory with .tf files and runbook.mdx",
-			files:    []fakeFile{{name: "main.tf"}, {name: "runbook.mdx", content: "# Hello"}},
+			name:     "directory with .tf files and gruntbook.mdx",
+			files:    []fakeFile{{name: "main.tf"}, {name: "gruntbook.mdx", content: "# Hello"}},
 			expected: false,
 		},
 		{
@@ -41,7 +41,7 @@ func TestIsBareTfModule(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "directory without .tf or runbook files",
+			name:     "directory without .tf or gruntbook files",
 			files:    []fakeFile{{name: "readme.md", content: "# Hello"}},
 			expected: false,
 		},

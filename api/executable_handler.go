@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HandleExecutablesRequest returns the registry of all executables and warnings for the runbook
+// HandleExecutablesRequest returns the registry of all executables and warnings for the gruntbook
 // In live-file-reload mode, registry will be nil, and this returns an empty registry
 func HandleExecutablesRequest(registry *ExecutableRegistry) gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -33,7 +33,7 @@ Command blocks and [Check](/authoring/blocks/check/) blocks share many features 
 - `title` (string) - Display title shown in the UI. Supports inline markdown (bold, italic, links, code).
 - `description` (string) - Longer description of what the command does. Supports inline markdown.
 - `command` (string) - Inline command to execute (alternative to `path`)
-- `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
+- `path` (string) - Path to a shell script file relative to the gruntbook (alternative to `command`)
 - `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
 - `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
 - `githubAuthId` (string) - ID of a [GitHubAuth](/authoring/blocks/githubauth/) block for GitHub credentials. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes.
@@ -142,11 +142,11 @@ The Command block interprets your script's exit codes as follows:
 - **Exit code 0**: Success ✓ (green)
 - **Any other exit code**: Failure ✗ (red)
 
-These exit codes will determine how the Runbooks UI renders the result of running a script.
+These exit codes will determine how the Gruntbooks UI renders the result of running a script.
 
 ### Logging
 
-Runbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Runbooks UI to parse log levels for filtering and export.
+Gruntbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Gruntbooks UI to parse log levels for filtering and export.
 
 #### Log Levels
 
@@ -178,10 +178,10 @@ log_info "Deployment complete"
 
 #### Local Development
 
-When running scripts locally (outside the Runbooks UI), the logging functions aren't automatically injected. To simulate the Runbooks environment, run this one-liner in your terminal session (bash or zsh):
+When running scripts locally (outside the Gruntbooks UI), the logging functions aren't automatically injected. To simulate the Gruntbooks environment, run this one-liner in your terminal session (bash or zsh):
 
 ```bash
-mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh && export BASH_ENV=~/.config/runbooks/logging.sh
+mkdir -p ~/.config/gruntbooks && curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/gruntbooks/logging.sh && export BASH_ENV=~/.config/gruntbooks/logging.sh
 ```
 
 This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
@@ -190,14 +190,14 @@ This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-S
 The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also does not read `BASH_ENV` itself, but child `bash` processes will if the variable is exported. Use the fish equivalent:
 
 ```fish
-mkdir -p ~/.config/runbooks; and curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh; and set -gx BASH_ENV ~/.config/runbooks/logging.sh
+mkdir -p ~/.config/gruntbooks; and curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/gruntbooks/logging.sh; and set -gx BASH_ENV ~/.config/gruntbooks/logging.sh
 ```
 
-To make this persistent across sessions, add the following to a fish startup file (e.g., `~/.config/fish/conf.d/runbooks.fish`):
+To make this persistent across sessions, add the following to a fish startup file (e.g., `~/.config/fish/conf.d/gruntbooks.fish`):
 
 ```fish
-if test -f ~/.config/runbooks/logging.sh
-    set -gx BASH_ENV ~/.config/runbooks/logging.sh
+if test -f ~/.config/gruntbooks/logging.sh
+    set -gx BASH_ENV ~/.config/gruntbooks/logging.sh
 end
 ```
 :::
@@ -288,7 +288,7 @@ In this example, the command has access to all variables from both `lambda-confi
 
 ### Execution Context
 
-Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your runbook like a workflow where earlier steps set up the environment for later steps.
+Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your gruntbook like a workflow where earlier steps set up the environment for later steps.
 
 Scripts also run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**.
 
@@ -421,7 +421,7 @@ generated/
 
 #### How It Works
 
-1. Before your script runs, Runbooks creates a temporary capture directory
+1. Before your script runs, Gruntbooks creates a temporary capture directory
 2. The `$GENERATED_FILES` environment variable points to this directory
 3. Your script writes files to `$GENERATED_FILES`
 4. After successful execution, files are copied to the generated files directory
@@ -460,12 +460,12 @@ fi
 
 ## Block Outputs
 
-Commands can produce **outputs** that downstream blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and downstream blocks reference them via `{{ .outputs.<block-id>.<key> }}`.
+Commands can produce **outputs** that downstream blocks consume. Scripts write `key=value` pairs to the `$GRUNTBOOK_OUTPUT` file, and downstream blocks reference them via `{{ .outputs.<block-id>.<key> }}`.
 
 ```bash
 #!/bin/bash
 ACCOUNT_ID=$(aws organizations create-account ...)
-echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
+echo "account_id=$ACCOUNT_ID" >> "$GRUNTBOOK_OUTPUT"
 ```
 
 After a block runs, click **"View Outputs"** below the log viewer to inspect its outputs.
@@ -478,7 +478,7 @@ The `<Command>` block works especially well for mutating the world to a desired 
 
 This might manifest as:
 
-- **Installing tools**: Install tools needed to execute the runbook
+- **Installing tools**: Install tools needed to execute the gruntbook
 - **Configure environment**: Configure the user's environment
 - **Provisioning resources**: Hit an API to provision resource.
 - **Deployments**: Deploy applications or infrastructure to cloud environments

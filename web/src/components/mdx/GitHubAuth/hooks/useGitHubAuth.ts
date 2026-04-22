@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import { useRunbookContext } from "@/contexts/useRunbook"
+import { useGruntbookContext } from "@/contexts/useGruntbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import type {
@@ -31,7 +31,7 @@ export function useGitHubAuth({
   oauthScopes = ['repo'],
   detectCredentials = ['env', 'cli'],
 }: UseGitHubAuthOptions) {
-  const { registerOutputs, blockOutputs } = useRunbookContext()
+  const { registerOutputs, blockOutputs } = useGruntbookContext()
   const { getAuthHeader, isReady: sessionReady } = useSession()
 
   // Core auth state

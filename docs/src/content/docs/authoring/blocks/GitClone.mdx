@@ -46,11 +46,11 @@ You can pre-populate the URL, ref, sparse checkout path, and local path fields. 
 ```mdx
 <GitClone
   id="clone-docs"
-  title="Clone Runbooks Docs"
+  title="Clone Gruntbooks Docs"
   prefilledUrl="https://github.com/gruntwork-io/runbooks"
   prefilledRef="v1.0.0"
   prefilledRepoPath="docs"
-  prefilledLocalPath="./runbooks-docs"
+  prefilledLocalPath="./gruntbooks-docs"
 />
 ```
 
@@ -85,7 +85,7 @@ When `showFileTree` is `true` (the default), the GitClone block registers the cl
 
 - The **All files** tab shows the full file tree of the cloned repository. Click any file to view its contents.
 - The **Changed** tab shows a GitHub PR-style diff view of any files modified after cloning (e.g., by Command or Template blocks).
-- If multiple `<GitClone>` blocks are used in a single runbook, a dropdown in the workspace header lets the user switch between repositories.
+- If multiple `<GitClone>` blocks are used in a single gruntbook, a dropdown in the workspace header lets the user switch between repositories.
 
 Set `showFileTree={false}` if you don't want the cloned repository to appear in the workspace panel (e.g., for helper repositories that the user doesn't need to browse).
 

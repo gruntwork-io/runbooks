@@ -171,7 +171,7 @@ export function downloadFile(
 
 /**
  * Generates a filename for log exports.
- * Format: runbook-{blockId}-{timestamp}.{ext}
+ * Format: gruntbook-{blockId}-{timestamp}.{ext}
  * 
  * @param blockId - The block ID
  * @param extension - The file extension (e.g., 'log', 'json')
@@ -179,7 +179,7 @@ export function downloadFile(
  */
 export function generateLogFilename(blockId: string, extension: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  return `runbook-${blockId}-${timestamp}.${extension}`
+  return `gruntbook-${blockId}-${timestamp}.${extension}`
 }
 
 // =============================================================================
@@ -259,11 +259,11 @@ export async function createLogsZipJson(logsMap: Map<string, LogEntry[]>): Promi
 
 /**
  * Generates a filename for the all-logs zip export.
- * Format: runbook-logs-{timestamp}.zip
+ * Format: gruntbook-logs-{timestamp}.zip
  * 
  * @returns The generated filename
  */
 export function generateAllLogsZipFilename(): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  return `runbook-logs-${timestamp}.zip`
+  return `gruntbook-logs-${timestamp}.zip`
 }

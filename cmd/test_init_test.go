@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func TestParseRunbookBlocks_DocumentOrder(t *testing.T) {
+func TestParseGruntbookBlocks_DocumentOrder(t *testing.T) {
 	// Create a test MDX file with blocks in a specific order
-	content := `# Test Runbook
+	content := `# Test Gruntbook
 
 <Check id="check-1" path="check1.sh" title="First check" />
 
@@ -20,14 +20,14 @@ func TestParseRunbookBlocks_DocumentOrder(t *testing.T) {
 <Command id="cmd-2" command="echo world" title="Second command" />
 `
 	dir := t.TempDir()
-	runbookPath := filepath.Join(dir, "runbook.mdx")
-	if err := os.WriteFile(runbookPath, []byte(content), 0644); err != nil {
+	gruntbookPath := filepath.Join(dir, "gruntbook.mdx")
+	if err := os.WriteFile(gruntbookPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	blocks, err := parseRunbookBlocks(runbookPath)
+	blocks, err := parseGruntbookBlocks(gruntbookPath)
 	if err != nil {
-		t.Fatalf("parseRunbookBlocks failed: %v", err)
+		t.Fatalf("parseGruntbookBlocks failed: %v", err)
 	}
 
 	// Verify document order is preserved
@@ -43,9 +43,9 @@ func TestParseRunbookBlocks_DocumentOrder(t *testing.T) {
 	}
 }
 
-func TestParseRunbookBlocks_NoDuplicates(t *testing.T) {
+func TestParseGruntbookBlocks_NoDuplicates(t *testing.T) {
 	// Create a test MDX file where the same ID could potentially be matched twice
-	content := `# Test Runbook
+	content := `# Test Gruntbook
 
 <Command id="my-command"
     command="echo test"
@@ -65,14 +65,14 @@ func TestParseRunbookBlocks_NoDuplicates(t *testing.T) {
 />
 `
 	dir := t.TempDir()
-	runbookPath := filepath.Join(dir, "runbook.mdx")
-	if err := os.WriteFile(runbookPath, []byte(content), 0644); err != nil {
+	gruntbookPath := filepath.Join(dir, "gruntbook.mdx")
+	if err := os.WriteFile(gruntbookPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	blocks, err := parseRunbookBlocks(runbookPath)
+	blocks, err := parseGruntbookBlocks(gruntbookPath)
 	if err != nil {
-		t.Fatalf("parseRunbookBlocks failed: %v", err)
+		t.Fatalf("parseGruntbookBlocks failed: %v", err)
 	}
 
 	// Count occurrences of each ID
@@ -95,9 +95,9 @@ func TestParseRunbookBlocks_NoDuplicates(t *testing.T) {
 	}
 }
 
-func TestParseRunbookBlocks_NestedInputsOrder(t *testing.T) {
+func TestParseGruntbookBlocks_NestedInputsOrder(t *testing.T) {
 	// Test that nested Inputs blocks appear in document order (after the opening tag of parent)
-	content := `# Test Runbook
+	content := `# Test Gruntbook
 
 <Command id="parent-command"
     command="echo {{ .Name }}"
@@ -113,14 +113,14 @@ func TestParseRunbookBlocks_NestedInputsOrder(t *testing.T) {
 <Check id="after-check" path="check.sh" title="After check" />
 `
 	dir := t.TempDir()
-	runbookPath := filepath.Join(dir, "runbook.mdx")
-	if err := os.WriteFile(runbookPath, []byte(content), 0644); err != nil {
+	gruntbookPath := filepath.Join(dir, "gruntbook.mdx")
+	if err := os.WriteFile(gruntbookPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	blocks, err := parseRunbookBlocks(runbookPath)
+	blocks, err := parseGruntbookBlocks(gruntbookPath)
 	if err != nil {
-		t.Fatalf("parseRunbookBlocks failed: %v", err)
+		t.Fatalf("parseGruntbookBlocks failed: %v", err)
 	}
 
 	// The order should be: parent-command, nested-inputs, after-check
@@ -148,7 +148,7 @@ func TestGenerateTestConfig_StepsInDocumentOrder(t *testing.T) {
 		{ID: "cmd-2", Type: "Command", Position: 500},
 	}
 
-	config := generateTestConfig("test-runbook", blocks)
+	config := generateTestConfig("test-gruntbook", blocks)
 
 	// Verify executable blocks appear in steps in correct order
 	// (Inputs blocks are not executable, so they shouldn't appear in steps)
@@ -187,7 +187,7 @@ func TestGenerateTestConfig_InputsInDocumentOrder(t *testing.T) {
 		{ID: "template-1", Type: "Template", Position: 300, Variables: []variableInfo{{Name: "VarT", Type: "string"}}},
 	}
 
-	config := generateTestConfig("test-runbook", blocks)
+	config := generateTestConfig("test-gruntbook", blocks)
 
 	// Find the order of input block IDs in the generated config
 	var inputOrder []string
@@ -228,23 +228,23 @@ func TestGenerateTestConfig_InputsInDocumentOrder(t *testing.T) {
 	}
 }
 
-func TestParseRunbookBlocks_RealWorldDemo2(t *testing.T) {
-	// Test with the actual demo2 runbook if it exists
-	runbookPath := "testdata/sample-runbooks/demo2/runbook.mdx"
+func TestParseGruntbookBlocks_RealWorldDemo2(t *testing.T) {
+	// Test with the actual demo2 gruntbook if it exists
+	gruntbookPath := "testdata/sample-gruntbooks/demo2/gruntbook.mdx"
 	
 	// Try relative path from workspace root
-	if _, err := os.Stat(runbookPath); os.IsNotExist(err) {
+	if _, err := os.Stat(gruntbookPath); os.IsNotExist(err) {
 		// Try from parent directory (when running from cmd/)
-		runbookPath = "../testdata/sample-runbooks/demo2/runbook.mdx"
+		gruntbookPath = "../testdata/sample-gruntbooks/demo2/gruntbook.mdx"
 	}
 	
-	if _, err := os.Stat(runbookPath); os.IsNotExist(err) {
+	if _, err := os.Stat(gruntbookPath); os.IsNotExist(err) {
 		t.Skip("demo2 not found, skipping real-world test")
 	}
 
-	blocks, err := parseRunbookBlocks(runbookPath)
+	blocks, err := parseGruntbookBlocks(gruntbookPath)
 	if err != nil {
-		t.Fatalf("parseRunbookBlocks failed: %v", err)
+		t.Fatalf("parseGruntbookBlocks failed: %v", err)
 	}
 
 	// Verify no duplicates
