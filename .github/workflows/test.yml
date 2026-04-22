@@ -137,12 +137,12 @@ jobs:
       # APIs and are excluded from CI. Run them locally with GRUNTBOOKS_TEST_AWS_*
       # env vars exported — see testdata/feature-demos/aws-auth/gruntbook_test.yml.
       #
-      # GRUNTBOOKS_GITHUB_TOKEN uses the auto-provided secrets.GITHUB_TOKEN so
-      # github-auth and git-clone tests can exercise the GitHubAuth block on
-      # every PR (including forks) without repo-level secret configuration.
+      # GRUNTBOOKS_GITHUB_TOKEN uses the RUNBOOKS_GITHUB_TOKEN repo secret (a
+      # real PAT). The auto-provided secrets.GITHUB_TOKEN is a bot/integration
+      # token and cannot hit the /user endpoint that verify-auth calls.
       - name: Run gruntbook tests
         env:
-          GRUNTBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GRUNTBOOKS_GITHUB_TOKEN: ${{ secrets.RUNBOOKS_GITHUB_TOKEN }}
         run: task test:gruntbooks -- --skip aws-auth
 
   test-e2e:
