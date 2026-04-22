@@ -7,6 +7,8 @@ export {
     BoilerplateValidationType,
     BoilerplateVarType,
     BoilerplateVariable,
+    GeneratedFilesCheckResponse,
+    GeneratedFilesDeleteResponse,
     OutputDependency,
     Section,
     TfModuleMetadata,

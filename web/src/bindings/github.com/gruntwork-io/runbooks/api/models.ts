@@ -216,6 +216,100 @@ export class BoilerplateVariable {
 }
 
 /**
+ * GeneratedFilesCheckResponse represents the response from the generated files check endpoint
+ */
+export class GeneratedFilesCheckResponse {
+    /**
+     * Whether files exist in the output directory
+     */
+    "hasFiles": boolean;
+
+    /**
+     * Absolute output path that was checked
+     */
+    "absoluteOutputPath": string;
+
+    /**
+     * The CLI-configured output path (as provided to --output-path)
+     */
+    "relativeOutputPath": string;
+
+    /**
+     * Number of files found (0 if directory doesn't exist)
+     */
+    "fileCount": number;
+
+    /** Creates a new GeneratedFilesCheckResponse instance. */
+    constructor($$source: Partial<GeneratedFilesCheckResponse> = {}) {
+        if (!("hasFiles" in $$source)) {
+            this["hasFiles"] = false;
+        }
+        if (!("absoluteOutputPath" in $$source)) {
+            this["absoluteOutputPath"] = "";
+        }
+        if (!("relativeOutputPath" in $$source)) {
+            this["relativeOutputPath"] = "";
+        }
+        if (!("fileCount" in $$source)) {
+            this["fileCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GeneratedFilesCheckResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GeneratedFilesCheckResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GeneratedFilesCheckResponse($$parsedSource as Partial<GeneratedFilesCheckResponse>);
+    }
+}
+
+/**
+ * GeneratedFilesDeleteResponse represents the response from the generated files delete endpoint
+ */
+export class GeneratedFilesDeleteResponse {
+    /**
+     * Whether the deletion was successful
+     */
+    "success": boolean;
+
+    /**
+     * Number of files/folders deleted
+     */
+    "deletedCount": number;
+
+    /**
+     * Human-readable message about the operation
+     */
+    "message": string;
+
+    /** Creates a new GeneratedFilesDeleteResponse instance. */
+    constructor($$source: Partial<GeneratedFilesDeleteResponse> = {}) {
+        if (!("success" in $$source)) {
+            this["success"] = false;
+        }
+        if (!("deletedCount" in $$source)) {
+            this["deletedCount"] = 0;
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GeneratedFilesDeleteResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GeneratedFilesDeleteResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GeneratedFilesDeleteResponse($$parsedSource as Partial<GeneratedFilesDeleteResponse>);
+    }
+}
+
+/**
  * OutputDependency represents a reference to another block's output in a template.
  * These are found by scanning template files for {{ .outputs.blockId.outputName }} patterns.
  */
