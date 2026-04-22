@@ -2,7 +2,7 @@ import '../css/App.css'
 import '../css/github-markdown.css'
 import '../css/github-markdown-light.css'
 import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, Code, AlertTriangle, X } from 'lucide-react'
+import { BookOpen, Code, AlertTriangle } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,6 +79,7 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   const [showCodeButton, setShowCodeButton] = useState(false)
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false)
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false)
+  const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false)
 
   const getGruntbookResult = useGetGruntbook()
 
@@ -178,9 +179,19 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   return (
     <>
       <div className="flex flex-col">
-        <Header pathName={pathName} localPath={getGruntbookResult.data?.path} />
+        <Header
+          pathName={pathName}
+          localPath={getGruntbookResult.data?.path}
+          onClose={onClose ? () => setIsCloseDialogOpen(true) : undefined}
+        />
 
-        {onClose && <CloseGruntbookButton onClose={onClose} />}
+        {onClose && (
+          <CloseGruntbookDialog
+            open={isCloseDialogOpen}
+            onOpenChange={setIsCloseDialogOpen}
+            onClose={onClose}
+          />
+        )}
 
         {(errorCount > 0 || warningCount > 0) && (
           <ErrorSummaryBanner
@@ -331,8 +342,15 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   )
 }
 
-function CloseGruntbookButton({ onClose }: { onClose: () => void }) {
-  const [isOpen, setIsOpen] = useState(false)
+function CloseGruntbookDialog({
+  open,
+  onOpenChange,
+  onClose,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onClose: () => void
+}) {
   const [isClosing, setIsClosing] = useState(false)
 
   const handleConfirm = useCallback(async () => {
@@ -346,21 +364,13 @@ function CloseGruntbookButton({ onClose }: { onClose: () => void }) {
       console.error('[RunbookView] Failed to close gruntbook server:', err)
     } finally {
       setIsClosing(false)
-      setIsOpen(false)
+      onOpenChange(false)
       onClose()
     }
-  }, [onClose])
+  }, [onClose, onOpenChange])
 
   return (
-    <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
-      <button
-        type="button"
-        aria-label="Close gruntbook"
-        onClick={() => setIsOpen(true)}
-        className="fixed top-3 right-3 z-50 p-2 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors cursor-pointer"
-      >
-        <X className="w-5 h-5" />
-      </button>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Close this gruntbook?</AlertDialogTitle>

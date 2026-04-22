@@ -1,5 +1,5 @@
 import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
-import { ChevronDown, Download, Info, Check, FolderOpen, Copy, type LucideProps } from 'lucide-react';
+import { ChevronDown, Download, Info, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -54,6 +54,8 @@ interface HeaderProps {
   pathName: string;
   /** The local filesystem path (may differ from pathName when viewing a remote gruntbook) */
   localPath?: string;
+  /** When set, renders a close (X) button alongside the menu. Desktop-only. */
+  onClose?: () => void;
 }
 
 /**
@@ -69,7 +71,7 @@ interface HeaderProps {
  * @param props.pathName - The display string (remote URL or local path) for the header
  * @param props.localPath - The local filesystem path (for copy button when remote)
  */
-export function Header({ pathName, localPath }: HeaderProps) {
+export function Header({ pathName, localPath, onClose }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const { getAllLogs, hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
@@ -124,7 +126,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
             </TooltipProvider>
           )}
         </div>
-        <div className="hidden md:block md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md">
+        <div className="hidden md:flex md:items-center md:gap-3 md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md">
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors">
               Menu
@@ -154,6 +156,16 @@ export function Header({ pathName, localPath }: HeaderProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {onClose && (
+            <button
+              type="button"
+              aria-label="Close gruntbook"
+              onClick={onClose}
+              className="p-1 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors cursor-pointer"
+            >
+              <X className="size-5" />
+            </button>
+          )}
         </div>
       </header>
 
