@@ -119,11 +119,6 @@ func DetermineExitStatus(err error, ctx context.Context) (int, string) {
 // SSE Event Helpers
 // =============================================================================
 
-// sendSSELog sends a log event via SSE
-func sendSSELog(c *gin.Context, line string) {
-	sendSSELogWithReplace(c, line, false)
-}
-
 // sendSSELogWithReplace sends a log event via SSE with optional replace flag
 // When replace is true, the frontend should replace the previous line instead of appending
 func sendSSELogWithReplace(c *gin.Context, line string, replace bool) {
@@ -155,24 +150,6 @@ func sendSSEError(c *gin.Context, message string) {
 	if flusher, ok := c.Writer.(http.Flusher); ok {
 		flusher.Flush()
 	}
-}
-
-// sendSSEFilesCaptured sends a files_captured event via SSE with the list of captured files
-// and the updated file tree
-func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
-	event := FilesCapturedEvent{
-		Files: capturedFiles,
-		Count: len(capturedFiles),
-	}
-
-	// Build the updated file tree from the output directory
-	if result, err := buildFileTreeWithContentResult(cliOutputPath, ""); err != nil {
-		slog.Warn("Failed to build file tree for SSE event", "error", err)
-	} else {
-		event.FileTree = result.Tree
-	}
-
-	c.SSEvent("files_captured", event)
 }
 
 // sendSSEOutputs sends an outputs event via SSE with the parsed outputs
