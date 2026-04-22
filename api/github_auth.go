@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/gruntwork-io/runbooks/core/ports"
 )
 
 // =============================================================================
@@ -179,7 +181,8 @@ func (r *GitHubCliCredentialsResponse) HasRepoScope() bool {
 // =============================================================================
 
 // HandleGitHubValidate validates a GitHub token by calling the /user endpoint
-func HandleGitHubValidate() gin.HandlerFunc {
+// through the GitHubClient port.
+func HandleGitHubValidate(gh ports.GitHubClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitHubValidateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -201,7 +204,7 @@ func HandleGitHubValidate() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		user, scopes, err := validateGitHubToken(ctx, req.Token)
+		user, scopes, err := gh.ValidateToken(ctx, req.Token)
 		if err != nil {
 			c.JSON(http.StatusOK, GitHubValidateResponse{
 				Valid: false,
@@ -212,10 +215,25 @@ func HandleGitHubValidate() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, GitHubValidateResponse{
 			Valid:     true,
-			User:      user,
+			User:      githubUserInfoFromPort(user),
 			Scopes:    scopes,
 			TokenType: detectGitHubTokenType(req.Token),
 		})
+	}
+}
+
+// githubUserInfoFromPort converts a ports.GitHubUser to the
+// JSON-serializable GitHubUserInfo shape the HTTP API returns. Nil maps
+// to nil so the omitempty JSON field stays clean.
+func githubUserInfoFromPort(u *ports.GitHubUser) *GitHubUserInfo {
+	if u == nil {
+		return nil
+	}
+	return &GitHubUserInfo{
+		Login:     u.Login,
+		Name:      u.Name,
+		AvatarURL: u.AvatarURL,
+		Email:     u.Email,
 	}
 }
 
