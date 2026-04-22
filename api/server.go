@@ -22,13 +22,21 @@ func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, o
 	// If the gruntbook contains AwsAuth blocks, strip AWS credentials from session
 	// at creation time. This ensures users must explicitly confirm which AWS account
 	// they want to use before any scripts can access the credentials.
+	//
+	// Always overwrite (with nil when there's no AwsAuth) instead of only setting
+	// when non-empty, so a SessionManager reused across gruntbooks — e.g. a host
+	// injecting one via ServerConfig.Sessions, or a future serve mode that swaps
+	// registries without rebuilding the manager — doesn't inherit a prior
+	// gruntbook's protection list.
+	var protected []string
 	if registry != nil && registry.HasComponent("AwsAuth") {
-		sessionManager.SetProtectedEnvVars([]string{
+		protected = []string{
 			"AWS_ACCESS_KEY_ID",
 			"AWS_SECRET_ACCESS_KEY",
 			"AWS_SESSION_TOKEN",
-		})
+		}
 	}
+	sessionManager.SetProtectedEnvVars(protected)
 
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
