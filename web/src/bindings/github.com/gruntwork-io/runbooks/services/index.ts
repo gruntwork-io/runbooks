@@ -10,6 +10,7 @@ import * as GitHubService from "./githubservice.js";
 import * as GitService from "./gitservice.js";
 import * as TelemetryService from "./telemetryservice.js";
 import * as TfService from "./tfservice.js";
+import * as WatcherService from "./watcherservice.js";
 import * as WelcomeService from "./welcomeservice.js";
 import * as WorkspaceService from "./workspaceservice.js";
 export {
@@ -22,6 +23,7 @@ export {
     GitService,
     TelemetryService,
     TfService,
+    WatcherService,
     WelcomeService,
     WorkspaceService
 };
@@ -33,5 +35,7 @@ export {
     GitRunResult,
     OpenResult,
     ProfilesResponse,
-    RecentEntry
+    RecentEntry,
+    WatchStartRequest,
+    WatchStartResult
 } from "./models.js";

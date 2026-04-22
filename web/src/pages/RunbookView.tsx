@@ -103,7 +103,11 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
     }
   }, [getGruntbookResult])
 
-  useWatchMode(handleFileChange, getGruntbookResult.data?.isWatchMode ?? false)
+  useWatchMode(
+    handleFileChange,
+    getGruntbookResult.data?.isWatchMode ?? false,
+    getGruntbookResult.data?.path,
+  )
 
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
   const hasFiles = hasGeneratedFiles(fileTree)

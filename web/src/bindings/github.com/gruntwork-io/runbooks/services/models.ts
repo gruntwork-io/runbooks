@@ -329,6 +329,65 @@ export class RecentEntry {
     }
 }
 
+/**
+ * WatchStartRequest is the IPC input for StartWatch.
+ */
+export class WatchStartRequest {
+    /**
+     * Path is the gruntbook file to watch. Resolved through
+     * api.ResolveGruntbookPath so the frontend can pass a directory and
+     * have it land on gruntbook.mdx (or legacy runbook.mdx).
+     */
+    "path": string;
+
+    /** Creates a new WatchStartRequest instance. */
+    constructor($$source: Partial<WatchStartRequest> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchStartRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WatchStartRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchStartRequest($$parsedSource as Partial<WatchStartRequest>);
+    }
+}
+
+/**
+ * WatchStartResult is the IPC output of StartWatch. WatchID is the
+ * handle the frontend uses to subscribe to `watch:<watchID>:change`
+ * events and to call Stop later.
+ */
+export class WatchStartResult {
+    "watchId": string;
+    "resolvedPath": string;
+
+    /** Creates a new WatchStartResult instance. */
+    constructor($$source: Partial<WatchStartResult> = {}) {
+        if (!("watchId" in $$source)) {
+            this["watchId"] = "";
+        }
+        if (!("resolvedPath" in $$source)) {
+            this["resolvedPath"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchStartResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WatchStartResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchStartResult($$parsedSource as Partial<WatchStartResult>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = api$0.GitCloneError.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);

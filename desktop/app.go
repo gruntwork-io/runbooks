@@ -80,6 +80,7 @@ func Run(opts Options) error {
 			application.NewService(svcs.Aws),
 			application.NewService(svcs.GitHub),
 			application.NewService(svcs.Git),
+			application.NewService(svcs.Watcher),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",
