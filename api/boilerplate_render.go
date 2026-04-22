@@ -159,7 +159,7 @@ func RenderBoilerplate(req RenderRequest, gruntbookPath string, workingDir strin
 		return nil, renderErr(http.StatusInternalServerError, "Failed to create output directory", err)
 	}
 
-	slog.Info("Rendering template to output directory", "outputDir", outputDir, "target", req.Target, "variables", req.Variables)
+	slog.Info("Rendering template to output directory", "outputDir", outputDir, "target", req.Target, "variablesCount", len(req.Variables))
 
 	diff, err := RenderWithManifest(req.TemplateID, func() (string, error) {
 		tempDir, tempErr := os.MkdirTemp("", "boilerplate-render-*")
