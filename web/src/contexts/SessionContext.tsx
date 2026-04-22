@@ -88,12 +88,16 @@ export function SessionProvider({ children }: SessionProviderProps) {
       const data: SessionTokenResponse = await response.json()
       return data
     } catch (err) {
-      // Desktop "no gruntbook is open" / missing session is an expected
-      // state during bootstrap — treat it like the HTTP 401 path.
-      if (isDesktop()) {
-        return null
-      }
       console.error('[SessionContext] Failed to join session:', err)
+      // On desktop, the normal "no gruntbook open / no session yet"
+      // case is expressed by SessionService.Join resolving with null
+      // (handled by the early-return inside the try block above). Any
+      // error reaching here is a real failure — propagate so the
+      // initSession catch sets error state instead of silently
+      // continuing into createSession.
+      if (isDesktop()) {
+        throw err
+      }
       return null
     }
   }, [])

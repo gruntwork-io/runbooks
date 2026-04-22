@@ -62,8 +62,12 @@ export function Get(sessionID: string): $CancellablePromise<api$0.SessionMetadat
 /**
  * Join mints an additional token for an already-running session so a
  * second tab (or re-mount after StrictMode) can share env state with
- * the original. Returns nil when no session has been created yet,
- * mirroring the HTTP 401 from HandleJoinSession.
+ * the original. Returns (nil, nil) for both "no gruntbook open" and
+ * "no session created yet" — both are expected bootstrap states,
+ * indistinguishable from the frontend's point of view, and neither
+ * is a real error. Real errors (unexpected SessionManager failures)
+ * still propagate so the frontend can surface them instead of
+ * silently papering over them as "just no session".
  */
 export function Join(): $CancellablePromise<api$0.SessionTokenResponse | null> {
     return $Call.ByID(1225726860).then(($result: any) => {

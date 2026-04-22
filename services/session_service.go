@@ -43,12 +43,16 @@ func (s *SessionService) Create() (*api.SessionTokenResponse, error) {
 
 // Join mints an additional token for an already-running session so a
 // second tab (or re-mount after StrictMode) can share env state with
-// the original. Returns nil when no session has been created yet,
-// mirroring the HTTP 401 from HandleJoinSession.
+// the original. Returns (nil, nil) for both "no gruntbook open" and
+// "no session created yet" — both are expected bootstrap states,
+// indistinguishable from the frontend's point of view, and neither
+// is a real error. Real errors (unexpected SessionManager failures)
+// still propagate so the frontend can surface them instead of
+// silently papering over them as "just no session".
 func (s *SessionService) Join() (*api.SessionTokenResponse, error) {
 	sessions := s.servers.Sessions()
 	if sessions == nil {
-		return nil, fmt.Errorf("no gruntbook is open")
+		return nil, nil
 	}
 	resp, err := sessions.JoinSession()
 	if err != nil {
