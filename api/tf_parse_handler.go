@@ -36,7 +36,7 @@ type TfParseResponse struct {
 // with additional module metadata (folder name, README title, outputs, resources).
 // The source can be a local path (resolved relative to the gruntbook directory) or a remote
 // git URL (cloned to a temp directory, parsed, then cleaned up).
-func HandleTfModuleParse(gruntbookPath string) gin.HandlerFunc {
+func HandleTfModuleParse(gruntbookPath string, tokens *TokenResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req TfParseRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -49,7 +49,7 @@ func HandleTfModuleParse(gruntbookPath string) gin.HandlerFunc {
 		}
 
 		// Determine if this is a remote URL or a local path
-		modulePath, cleanup, err := resolveModuleSource(req.Source, gruntbookPath)
+		modulePath, cleanup, err := resolveModuleSource(req.Source, gruntbookPath, tokens)
 		if err != nil {
 			slog.Error("Failed to resolve module source", "source", req.Source, "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -110,7 +110,10 @@ func HandleTfModuleParse(gruntbookPath string) gin.HandlerFunc {
 // resolveModuleSource resolves a module source string to a local filesystem path.
 // For local paths, resolves relative to the gruntbook directory.
 // For remote URLs, clones to a temp directory and returns a cleanup function.
-func resolveModuleSource(source string, gruntbookPath string) (localPath string, cleanup func(), err error) {
+//
+// tokens may be nil for callers that never pass remote URLs (e.g., unit
+// tests covering only the local-path branches).
+func resolveModuleSource(source string, gruntbookPath string, tokens *TokenResolver) (localPath string, cleanup func(), err error) {
 	parsed, err := ParseRemoteSource(source)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid module source %q: %w", source, err)
@@ -137,7 +140,10 @@ func resolveModuleSource(source string, gruntbookPath string) (localPath string,
 	}
 	releaseSem := func() { <-tfRemoteCloneSem }
 
-	token := GetTokenForHost(parsed.Host)
+	var token string
+	if tokens != nil {
+		token = tokens.TokenForHost(parsed.Host)
+	}
 	if err := parsed.Resolve(token); err != nil {
 		releaseSem()
 		return "", nil, fmt.Errorf("failed to resolve remote ref: %w", err)

@@ -10,10 +10,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gruntwork-io/runbooks/adapters"
 	"github.com/gruntwork-io/runbooks/api"
 
 	"github.com/spf13/cobra"
 )
+
+// cmdTokenResolver returns a TokenResolver backed by the host process's
+// real environment and process spawner. CLI commands that download
+// remote sources use this to authenticate against private git hosts.
+//
+// A new resolver is created per call so the per-resolver CLI cache
+// doesn't outlive the command. Commands that make many lookups in one
+// invocation should hold the returned resolver instead of calling this
+// repeatedly.
+func cmdTokenResolver() *api.TokenResolver {
+	return api.NewTokenResolver(adapters.NewOsEnvironment(), adapters.NewOsProcessSpawner())
+}
 
 // validateSourceArg is a Cobra Args validator that provides a clear error when GRUNTBOOK_SOURCE is missing.
 func validateSourceArg(cmd *cobra.Command, args []string) error {
@@ -54,7 +67,7 @@ func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error
 	}
 
 	// Resolve the remote ref
-	token := api.GetTokenForHost(parsed.Host)
+	token := cmdTokenResolver().TokenForHost(parsed.Host)
 	if err := parsed.Resolve(token); err != nil {
 		return "", nil, err
 	}

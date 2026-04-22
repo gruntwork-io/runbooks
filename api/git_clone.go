@@ -243,7 +243,7 @@ func (w *sseWriter) fail(msg string)  { w.log(msg); w.status("fail", 1); w.done(
 // HandleGitClone performs a git clone operation with real-time SSE streaming.
 // POST /api/git/clone
 // Requires SessionAuthMiddleware.
-func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
+func HandleGitClone(sm *SessionManager, workingDir string, tokens *TokenResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitCloneRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -318,7 +318,7 @@ func HandleGitClone(sm *SessionManager, workingDir string) gin.HandlerFunc {
 		// Inject a git auth token if one is available for this host
 		cloneURL := req.URL
 		if parsed, err := url.Parse(req.URL); err == nil {
-			if token := GetTokenForHost(parsed.Hostname()); token != "" {
+			if token := tokens.TokenForHost(parsed.Hostname()); token != "" {
 				cloneURL = InjectGitToken(req.URL, token)
 			}
 		}

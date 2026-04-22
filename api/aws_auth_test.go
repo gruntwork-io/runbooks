@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gruntwork-io/runbooks/core/ports/fakes"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -23,7 +25,8 @@ func setupTestRouter(t *testing.T, sm *SessionManager) *gin.Engine {
 	outputPath := workingDir + "/output"
 
 	// Use the real route setup - this is what we're testing
-	setupCommonRoutes(r, gruntbookPath, workingDir, outputPath, nil, sm, false)
+	tokens := NewTokenResolver(fakes.NewFakeEnvironment(nil), fakes.NewFakeProcessSpawner())
+	setupCommonRoutes(r, gruntbookPath, workingDir, outputPath, nil, sm, tokens, false)
 
 	return r
 }

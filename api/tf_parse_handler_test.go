@@ -17,7 +17,9 @@ import (
 // tfParseRequest is a test helper that fires a POST /api/tf/parse with the given body.
 func tfParseRequest(t *testing.T, gruntbookPath string, body interface{}) (int, []byte) {
 	t.Helper()
-	return postJSON(t, "/api/tf/parse", HandleTfModuleParse(gruntbookPath), body)
+	// These tests exercise only local-path resolution, so a nil resolver is
+	// safe: resolveModuleSource only touches tokens on the remote-URL branch.
+	return postJSON(t, "/api/tf/parse", HandleTfModuleParse(gruntbookPath, nil), body)
 }
 
 func TestHandleTfModuleParse_LocalPath(t *testing.T) {
@@ -85,7 +87,7 @@ func TestHandleTfModuleParse_DotPath(t *testing.T) {
 func TestHandleTfModuleParse_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/gruntbook.mdx"))
+	router.POST("/api/tf/parse", HandleTfModuleParse("/fake/gruntbook.mdx", nil))
 
 	req, err := http.NewRequest("POST", "/api/tf/parse", bytes.NewBufferString("not json"))
 	require.NoError(t, err)
@@ -203,7 +205,7 @@ func TestHandleTfModuleParse_ModuleWithOutputsAndResources(t *testing.T) {
 func TestResolveModuleSource_AbsolutePath(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	localPath, cleanup, err := resolveModuleSource(tmpDir, "/some/gruntbook.mdx")
+	localPath, cleanup, err := resolveModuleSource(tmpDir, "/some/gruntbook.mdx", nil)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 	assert.Equal(t, tmpDir, localPath, "absolute paths should be returned as-is")
@@ -213,7 +215,7 @@ func TestResolveModuleSource_RelativePath(t *testing.T) {
 	gruntbookDir := t.TempDir()
 	gruntbookPath := filepath.Join(gruntbookDir, "gruntbook.mdx")
 
-	localPath, cleanup, err := resolveModuleSource("../modules/vpc", gruntbookPath)
+	localPath, cleanup, err := resolveModuleSource("../modules/vpc", gruntbookPath, nil)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 
@@ -225,7 +227,7 @@ func TestResolveModuleSource_DotPath(t *testing.T) {
 	gruntbookDir := t.TempDir()
 	gruntbookPath := filepath.Join(gruntbookDir, "gruntbook.mdx")
 
-	localPath, cleanup, err := resolveModuleSource(".", gruntbookPath)
+	localPath, cleanup, err := resolveModuleSource(".", gruntbookPath, nil)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 	assert.Equal(t, gruntbookDir, localPath, "'.' should resolve to the gruntbook directory")
@@ -235,7 +237,7 @@ func TestResolveModuleSource_NestedRelativePath(t *testing.T) {
 	gruntbookDir := t.TempDir()
 	gruntbookPath := filepath.Join(gruntbookDir, "gruntbook.mdx")
 
-	localPath, cleanup, err := resolveModuleSource("modules/vpc", gruntbookPath)
+	localPath, cleanup, err := resolveModuleSource("modules/vpc", gruntbookPath, nil)
 	require.NoError(t, err)
 	assert.Nil(t, cleanup)
 

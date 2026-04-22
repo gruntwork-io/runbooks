@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gruntwork-io/runbooks/core/ports/fakes"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -236,7 +238,10 @@ func TestGitCloneUsesInitialWorkDir(t *testing.T) {
 
 	// Set up a router with the clone handler using the INITIAL working directory
 	router := gin.New()
-	router.POST("/api/git/clone", SessionAuthMiddleware(sm), HandleGitClone(sm, initialWorkDir))
+	// The test supplies no remote URL tokens; a nil-friendly fake resolver
+	// keeps the handler's nil guard unnecessary.
+	tokens := NewTokenResolver(fakes.NewFakeEnvironment(nil), fakes.NewFakeProcessSpawner())
+	router.POST("/api/git/clone", SessionAuthMiddleware(sm), HandleGitClone(sm, initialWorkDir, tokens))
 
 	// Send a clone request — the URL is invalid on purpose (we only care about
 	// the path resolution, not whether the clone actually succeeds). The handler
