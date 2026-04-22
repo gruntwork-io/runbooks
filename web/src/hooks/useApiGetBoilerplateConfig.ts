@@ -43,7 +43,10 @@ export function useApiGetBoilerplateConfig(
       const res = await BoilerplateService.ParseVariables(req);
       if (!res) throw new Error('boilerplate config was empty');
       // IPC response is a class instance; spread to a plain object.
-      return { ...res } as BoilerplateConfig;
+      // Cast via unknown: the generated BoilerplateVarType enum and the
+      // hand-written BoilerplateVariableType share runtime values but
+      // TS treats them as nominally distinct.
+      return { ...res } as unknown as BoilerplateConfig;
     },
     [templatePath, boilerplateContent],
     { lazy: !(isDesktop() && shouldActuallyFetch) },

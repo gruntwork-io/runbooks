@@ -39,7 +39,10 @@ export function useApiParseTfModule(
       // TfParseResponse is a class instance that embeds BoilerplateConfig
       // plus a metadata field — spread flattens both onto a plain object
       // matching BoilerplateConfig's optional metadata field.
-      return { ...res } as BoilerplateConfig;
+      // Cast via unknown: the generated BoilerplateVarType enum and the
+      // hand-written BoilerplateVariableType share runtime values but
+      // TS treats them as nominally distinct.
+      return { ...res } as unknown as BoilerplateConfig;
     },
     [source],
     { lazy: !(isDesktop() && shouldActuallyFetch) },
