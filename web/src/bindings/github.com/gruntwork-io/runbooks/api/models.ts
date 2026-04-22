@@ -364,6 +364,52 @@ export class ConfirmEnvCredentialsResponse {
 }
 
 /**
+ * CreatePullRequestRequest represents the request body for POST /api/git/pull-request
+ */
+export class CreatePullRequestRequest {
+    "title": string;
+    "description": string;
+    "labels"?: string[];
+    "branchName": string;
+    "commitMessage"?: string;
+    "localPath": string;
+    "repoUrl": string;
+
+    /** Creates a new CreatePullRequestRequest instance. */
+    constructor($$source: Partial<CreatePullRequestRequest> = {}) {
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("description" in $$source)) {
+            this["description"] = "";
+        }
+        if (!("branchName" in $$source)) {
+            this["branchName"] = "";
+        }
+        if (!("localPath" in $$source)) {
+            this["localPath"] = "";
+        }
+        if (!("repoUrl" in $$source)) {
+            this["repoUrl"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CreatePullRequestRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CreatePullRequestRequest {
+        const $$createField2_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("labels" in $$parsedSource) {
+            $$parsedSource["labels"] = $$createField2_0($$parsedSource["labels"]);
+        }
+        return new CreatePullRequestRequest($$parsedSource as Partial<CreatePullRequestRequest>);
+    }
+}
+
+/**
  * EnvCredentialsRequest represents a request to read and validate AWS credentials from environment variables
  */
 export class EnvCredentialsRequest {
@@ -710,6 +756,135 @@ export class GeneratedFilesDeleteResponse {
     static createFrom($$source: any = {}): GeneratedFilesDeleteResponse {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new GeneratedFilesDeleteResponse($$parsedSource as Partial<GeneratedFilesDeleteResponse>);
+    }
+}
+
+/**
+ * GitCloneError is the shaped pre-flight failure a Prepare step can
+ * return. Code distinguishes the different transport-level responses
+ * the frontend needs to branch on (in particular directory_exists →
+ * "confirm overwrite?" dialog).
+ */
+export class GitCloneError {
+    "code": string;
+    "message": string;
+    "path"?: string;
+    "absolutePath"?: string;
+
+    /** Creates a new GitCloneError instance. */
+    constructor($$source: Partial<GitCloneError> = {}) {
+        if (!("code" in $$source)) {
+            this["code"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitCloneError instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitCloneError {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitCloneError($$parsedSource as Partial<GitCloneError>);
+    }
+}
+
+/**
+ * GitCloneRequest represents the request body for POST /api/git/clone
+ */
+export class GitCloneRequest {
+    "url": string;
+
+    /**
+     * Branch or tag to clone (uses --branch flag)
+     */
+    "ref"?: string;
+    "repo_path"?: string;
+    "local_path"?: string;
+
+    /**
+     * Whether to use PTY for execution (default: true)
+     */
+    "use_pty"?: boolean | null;
+
+    /**
+     * If true, delete existing destination directory before cloning
+     */
+    "force"?: boolean;
+
+    /** Creates a new GitCloneRequest instance. */
+    constructor($$source: Partial<GitCloneRequest> = {}) {
+        if (!("url" in $$source)) {
+            this["url"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitCloneRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitCloneRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitCloneRequest($$parsedSource as Partial<GitCloneRequest>);
+    }
+}
+
+/**
+ * GitDeleteBranchRequest represents the request body for DELETE /api/git/branch
+ */
+export class GitDeleteBranchRequest {
+    "localPath": string;
+    "branchName": string;
+
+    /** Creates a new GitDeleteBranchRequest instance. */
+    constructor($$source: Partial<GitDeleteBranchRequest> = {}) {
+        if (!("localPath" in $$source)) {
+            this["localPath"] = "";
+        }
+        if (!("branchName" in $$source)) {
+            this["branchName"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitDeleteBranchRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitDeleteBranchRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitDeleteBranchRequest($$parsedSource as Partial<GitDeleteBranchRequest>);
+    }
+}
+
+/**
+ * GitDeleteBranchResponse is the IPC response for DeleteGitBranch. The
+ * legacy HTTP endpoint returned {"deleted": <name>} on success and
+ * {"error": <message>} on failure with a status code; the response
+ * shape here flattens both into one JSON body (Error populated on
+ * failure so the frontend can display it).
+ */
+export class GitDeleteBranchResponse {
+    "deleted"?: string;
+    "code"?: string;
+    "error"?: string;
+
+    /** Creates a new GitDeleteBranchResponse instance. */
+    constructor($$source: Partial<GitDeleteBranchResponse> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitDeleteBranchResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitDeleteBranchResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitDeleteBranchResponse($$parsedSource as Partial<GitDeleteBranchResponse>);
     }
 }
 
@@ -1394,6 +1569,64 @@ export class GitHubValidateResponse {
             $$parsedSource["scopes"] = $$createField2_0($$parsedSource["scopes"]);
         }
         return new GitHubValidateResponse($$parsedSource as Partial<GitHubValidateResponse>);
+    }
+}
+
+/**
+ * GitPullRequestError is the shaped pre-flight failure a PR request
+ * can surface before streaming starts. Code lets the HTTP path pick a
+ * status and the IPC path stay transport-free.
+ */
+export class GitPullRequestError {
+    "code": string;
+    "message": string;
+
+    /** Creates a new GitPullRequestError instance. */
+    constructor($$source: Partial<GitPullRequestError> = {}) {
+        if (!("code" in $$source)) {
+            this["code"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitPullRequestError instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitPullRequestError {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitPullRequestError($$parsedSource as Partial<GitPullRequestError>);
+    }
+}
+
+/**
+ * GitPushRequest represents the request body for POST /api/git/push
+ */
+export class GitPushRequest {
+    "localPath": string;
+    "branchName": string;
+
+    /** Creates a new GitPushRequest instance. */
+    constructor($$source: Partial<GitPushRequest> = {}) {
+        if (!("localPath" in $$source)) {
+            this["localPath"] = "";
+        }
+        if (!("branchName" in $$source)) {
+            this["branchName"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitPushRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitPushRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitPushRequest($$parsedSource as Partial<GitPushRequest>);
     }
 }
 

@@ -7,6 +7,7 @@ import * as ExecService from "./execservice.js";
 import * as FileService from "./fileservice.js";
 import * as GeneratedFilesService from "./generatedfilesservice.js";
 import * as GitHubService from "./githubservice.js";
+import * as GitService from "./gitservice.js";
 import * as TelemetryService from "./telemetryservice.js";
 import * as TfService from "./tfservice.js";
 import * as WelcomeService from "./welcomeservice.js";
@@ -18,6 +19,7 @@ export {
     FileService,
     GeneratedFilesService,
     GitHubService,
+    GitService,
     TelemetryService,
     TfService,
     WelcomeService,
@@ -28,6 +30,7 @@ export {
     DesktopStatus,
     ExecRunResult,
     FileResult,
+    GitRunResult,
     OpenResult,
     ProfilesResponse,
     RecentEntry

@@ -141,6 +141,57 @@ export class FileResult {
 }
 
 /**
+ * GitRunResult is the synchronous return value of the streaming Git
+ * methods (Clone, Push, PullRequest). RunID is what the frontend
+ * subscribes to for `git:<runID>:*` events. Error is populated (with
+ * RunID empty) when pre-flight validation fails so the frontend can
+ * surface the error without attaching listeners.
+ * 
+ * A pointer-to-shaped-error-or-nil is more Go-idiomatic than three
+ * separate return values across IPC, and the Wails TS codegen renders
+ * it as `error?: GitCloneError | GitPullRequestError`.
+ */
+export class GitRunResult {
+    "runId"?: string;
+    "startedAt"?: string;
+
+    /**
+     * CloneError is populated only by Clone and only when pre-flight
+     * validation fails. Typed rather than a generic error so the
+     * frontend can branch on Code=directory_exists and prompt.
+     */
+    "cloneError"?: api$0.GitCloneError | null;
+
+    /**
+     * Error is the generic pre-flight-failed message for Push and
+     * PullRequest. Holds the GitPullRequestError shape in practice.
+     */
+    "error"?: api$0.GitPullRequestError | null;
+
+    /** Creates a new GitRunResult instance. */
+    constructor($$source: Partial<GitRunResult> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitRunResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitRunResult {
+        const $$createField2_0 = $$createType1;
+        const $$createField3_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("cloneError" in $$parsedSource) {
+            $$parsedSource["cloneError"] = $$createField2_0($$parsedSource["cloneError"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
+        }
+        return new GitRunResult($$parsedSource as Partial<GitRunResult>);
+    }
+}
+
+/**
  * OpenResult is the return shape of OpenLocal (and, in later milestones,
  * OpenRemote). Carries everything the frontend needs to navigate from
  * the Welcome screen into the runbook view.
@@ -211,7 +262,7 @@ export class ProfilesResponse {
      * Creates a new ProfilesResponse instance from a string or object.
      */
     static createFrom($$source: any = {}): ProfilesResponse {
-        const $$createField0_0 = $$createType1;
+        const $$createField0_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("profiles" in $$parsedSource) {
             $$parsedSource["profiles"] = $$createField0_0($$parsedSource["profiles"]);
@@ -279,5 +330,9 @@ export class RecentEntry {
 }
 
 // Private type creation functions
-const $$createType0 = api$0.ProfileInfo.createFrom;
-const $$createType1 = $Create.Array($$createType0);
+const $$createType0 = api$0.GitCloneError.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = api$0.GitPullRequestError.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = api$0.ProfileInfo.createFrom;
+const $$createType5 = $Create.Array($$createType4);

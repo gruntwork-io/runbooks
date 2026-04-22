@@ -24,6 +24,7 @@ type Services struct {
 	Exec           *ExecService
 	Aws            *AwsService
 	GitHub         *GitHubService
+	Git            *GitService
 
 	// emitter is the transport services push streaming events through
 	// (exec logs, git clone progress, watcher notifications). Stored
@@ -64,6 +65,7 @@ func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 		Exec:           NewExecService(servers, emitter),
 		Aws:            NewAwsService(servers, adapters.NewSdkAwsClient()),
 		GitHub:         NewGitHubService(servers, adapters.NewHttpGitHubClient()),
+		Git:            NewGitService(servers, emitter),
 		emitter:        emitter,
 	}, nil
 }
