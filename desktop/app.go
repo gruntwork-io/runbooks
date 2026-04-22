@@ -85,10 +85,12 @@ func Run(opts Options) error {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  opts.Title,
-		Width:  opts.Width,
-		Height: opts.Height,
-		URL:    "/",
+		Title:     opts.Title,
+		Width:     opts.Width,
+		Height:    opts.Height,
+		MinWidth:  500,
+		MinHeight: 400,
+		URL:       "/",
 	})
 
 	return app.Run()
