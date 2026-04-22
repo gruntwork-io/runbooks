@@ -181,6 +181,13 @@ type ServerConfig struct {
 	IsWatchMode           bool // When true, enables file watching with SSE notifications
 	ReleaseMode           bool // When true, uses gin release mode (quieter logs for end-users)
 	EnableCORS            bool // When true, allows cross-origin requests (for dev with separate frontend)
+	// Sessions is the shared SessionManager. When non-nil, Gin uses it
+	// instead of creating its own — this is how M4's IPC services and
+	// the legacy Gin handlers see the same session state (env, active
+	// worktree, execution count). Leave nil for standalone CLI uses
+	// (gruntbooks serve on older builds, tests); buildHandler creates
+	// a private one in that case.
+	Sessions *SessionManager
 }
 
 // StartServer starts the API server and blocks until it exits.
@@ -274,7 +281,10 @@ func buildHandler(cfg ServerConfig) (http.Handler, func(), error) {
 		}
 	}
 
-	sessionManager := NewSessionManager()
+	sessionManager := cfg.Sessions
+	if sessionManager == nil {
+		sessionManager = NewSessionManager()
+	}
 
 	// Host-backed adapters for the ports consumed by handlers built in
 	// setupCommonRoutes. A hosted build would swap in tenant-scoped
