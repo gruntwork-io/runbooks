@@ -29,11 +29,13 @@ import * as api$0 from "../api/models.js";
 import * as $models from "./models.js";
 
 /**
- * Create bootstraps a new session scoped to workingDir and returns its
- * token. Replaces POST /api/session.
+ * Create bootstraps a new session and returns its token. The working
+ * directory is taken from the currently-open gruntbook's server
+ * config, matching HandleCreateSession where the HTTP handler
+ * captured it at bind time.
  */
-export function Create(workingDir: string): $CancellablePromise<api$0.SessionTokenResponse | null> {
-    return $Call.ByID(246186680, workingDir).then(($result: any) => {
+export function Create(): $CancellablePromise<api$0.SessionTokenResponse | null> {
+    return $Call.ByID(246186680).then(($result: any) => {
         return $$createType1($result);
     });
 }

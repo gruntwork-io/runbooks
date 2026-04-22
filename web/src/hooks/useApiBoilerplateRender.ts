@@ -29,6 +29,7 @@ interface RenderRequestBody {
   templateId: string;
   variables?: Record<string, unknown>;
   target?: 'generated' | 'worktree';
+  [key: string]: unknown;
 }
 
 // Enhanced return type that includes auto-rendering functionality
