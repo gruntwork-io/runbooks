@@ -64,7 +64,7 @@ func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 		Boilerplate:    &BoilerplateService{servers: servers},
 		Tf:             &TfService{servers: servers},
 		GeneratedFiles: &GeneratedFilesService{servers: servers},
-		Workspace:      &WorkspaceService{},
+		Workspace:      &WorkspaceService{servers: servers},
 		Exec:           NewExecService(servers, emitter),
 		Aws:            NewAwsService(servers, adapters.NewSdkAwsClient()),
 		GitHub:         NewGitHubService(servers, adapters.NewHttpGitHubClient()),
