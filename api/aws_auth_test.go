@@ -26,7 +26,8 @@ func setupTestRouter(t *testing.T, sm *SessionManager) *gin.Engine {
 
 	// Use the real route setup - this is what we're testing
 	tokens := NewTokenResolver(fakes.NewFakeEnvironment(nil), fakes.NewFakeProcessSpawner())
-	setupCommonRoutes(r, gruntbookPath, workingDir, outputPath, nil, sm, tokens, false)
+	awsClient := fakes.NewFakeAwsClient(nil)
+	setupCommonRoutes(r, gruntbookPath, workingDir, outputPath, nil, sm, tokens, awsClient, false)
 
 	return r
 }
