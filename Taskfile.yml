@@ -45,8 +45,20 @@ tasks:
     cmds:
       - go run . serve {{.GRUNTBOOK_PATH | default "testdata/my-first-gruntbook"}}
 
+  desktop:bindings:
+    desc: "Regenerate TypeScript bindings for Wails IPC services (writes to web/src/bindings)"
+    cmds:
+      # AST-based generator discovers every application.NewService()
+      # call and emits TS wrappers. Run this after adding a new service
+      # or changing exported method signatures.
+      - wails3 generate bindings -ts -d web/src/bindings ./...
+    sources:
+      - services/**/*.go
+    generates:
+      - web/src/bindings/**/*.ts
+
   desktop:dev:
-    desc: "Build the frontend and launch the Wails v3 desktop window (M1 preview)"
+    desc: "Build the frontend and launch the Wails v3 desktop window (M2 preview)"
     deps: [build:frontend]
     cmds:
       # Build to a capitalized executable so macOS reads "Gruntbooks" in the
