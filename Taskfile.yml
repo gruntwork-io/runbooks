@@ -45,6 +45,21 @@ tasks:
     cmds:
       - go run . serve {{.GRUNTBOOK_PATH | default "testdata/my-first-gruntbook"}}
 
+  desktop:dev:
+    desc: "Build the frontend and launch the Wails v3 desktop window (M1 preview)"
+    deps: [build:frontend]
+    cmds:
+      - go run . desktop
+
+  desktop:build:mac:
+    desc: "Build a macOS binary with Wails v3 desktop entry point embedded (M1 preview, no .app bundle yet)"
+    deps: [build:frontend]
+    cmds:
+      - mkdir -p bin
+      - go build -o bin/gruntbooks .
+    generates:
+      - bin/gruntbooks
+
   test:
     desc: Run all tests (frontend, backend, gruntbooks, and docs)
     cmds:

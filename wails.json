@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Gruntbooks",
+  "description": "Gruntbooks desktop shell",
+  "author": {
+    "name": "Gruntwork"
+  },
+  "info": {
+    "productName": "Gruntbooks",
+    "productIdentifier": "io.gruntwork.gruntbooks"
+  },
+  "_notes": "Wails v3 does not require this file at runtime; it exists as documented app metadata for future wails3 CLI integration (bindings generation, signed .app bundling). See Taskfile.yml for current desktop:dev / desktop:build:mac entry points."
+}
