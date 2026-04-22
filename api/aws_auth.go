@@ -26,6 +26,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/ini.v1"
 
+	coreaws "github.com/gruntwork-io/runbooks/core/aws"
 	"github.com/gruntwork-io/runbooks/core/ports"
 )
 
@@ -246,10 +247,10 @@ const (
 // Handlers
 // =============================================================================
 
-// HandleAwsValidate validates AWS credentials by calling STS GetCallerIdentity
-// through the AwsClient port. If the user's selected region differs from the
-// validation region, the handler also checks region opt-in status and surfaces
-// a warning.
+// HandleAwsValidate validates AWS credentials. The HTTP handler is a
+// thin adapter: it parses JSON, calls coreaws.Validate, and shapes
+// the result into the JSON response. All credential-handling logic
+// lives in core/aws.
 func HandleAwsValidate(aws ports.AwsClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ValidateCredentialsRequest
@@ -261,68 +262,24 @@ func HandleAwsValidate(aws ports.AwsClient) gin.HandlerFunc {
 			return
 		}
 
-		if req.AccessKeyID == "" || req.SecretAccessKey == "" {
-			c.JSON(http.StatusOK, ValidateCredentialsResponse{
-				Valid: false,
-				Error: "Access Key ID and Secret Access Key are required",
-			})
-			return
-		}
-
-		// Always use us-east-1 for validation — this region is always
-		// enabled. The user's selected default region may be an opt-in
-		// region (e.g. af-south-1) that isn't enabled for their account,
-		// which would make validation fail even with valid credentials.
-		validationRegion := "us-east-1"
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		validationCreds := ports.AwsCredentials{
+		result := coreaws.Validate(ctx, aws, coreaws.ValidateRequest{
 			AccessKeyID:     req.AccessKeyID,
 			SecretAccessKey: req.SecretAccessKey,
 			SessionToken:    req.SessionToken,
-			Region:          validationRegion,
-		}
-		identity, err := aws.ValidateStaticCredentials(ctx, validationCreds)
-		if err != nil {
-			c.JSON(http.StatusOK, ValidateCredentialsResponse{
-				Valid: false,
-				Error: fmt.Sprintf("Invalid credentials: %v", err),
-			})
-			return
-		}
-
-		var warning string
-		if req.Region != "" && req.Region != validationRegion {
-			status, _ := aws.CheckRegionOptInStatus(ctx, validationCreds, req.Region)
-			warning = regionOptInWarning(status, req.Region)
-		}
+			Region:          req.Region,
+		})
 
 		c.JSON(http.StatusOK, ValidateCredentialsResponse{
-			Valid:       true,
-			AccountID:   identity.AccountID,
-			AccountName: identity.AccountName,
-			Arn:         identity.Arn,
-			Warning:     warning,
+			Valid:       result.Valid,
+			AccountID:   result.AccountID,
+			AccountName: result.AccountName,
+			Arn:         result.Arn,
+			Warning:     result.Warning,
+			Error:       result.Error,
 		})
-	}
-}
-
-// regionOptInWarning formats a user-visible warning for a non-enabled
-// region. Returns empty string when the region is enabled or the opt-in
-// status could not be determined (AwsRegionOptInUnknown), mirroring the
-// old SDK-coupled helper's behavior.
-func regionOptInWarning(status ports.AwsRegionOptInStatus, region string) string {
-	switch status {
-	case ports.AwsRegionOptInDisabled:
-		return fmt.Sprintf("The region %s is not enabled for your AWS account. Enable it in the AWS Console under Account Settings > AWS Regions, or choose a different default region.", region)
-	case ports.AwsRegionOptInDisabling:
-		return fmt.Sprintf("The region %s is currently being disabled for your AWS account.", region)
-	case ports.AwsRegionOptInEnabling:
-		return fmt.Sprintf("The region %s is currently being enabled for your AWS account. Please wait a few minutes and try again.", region)
-	default:
-		return ""
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	coregithub "github.com/gruntwork-io/runbooks/core/github"
 	"github.com/gruntwork-io/runbooks/core/ports"
 )
 
@@ -71,20 +72,11 @@ const (
 	GitHubTokenTypeUnknown        GitHubTokenType = "unknown"
 )
 
-// detectGitHubTokenType determines the type of GitHub token by its prefix
+// detectGitHubTokenType is a thin adapter over the domain function in
+// core/github. The api/ alias exists because GitHubTokenType is part
+// of the JSON response shape; the core/ type is the source of truth.
 func detectGitHubTokenType(token string) GitHubTokenType {
-	switch {
-	case strings.HasPrefix(token, "github_pat_"):
-		return GitHubTokenTypeFineGrainedPAT
-	case strings.HasPrefix(token, "ghp_"):
-		return GitHubTokenTypeClassicPAT
-	case strings.HasPrefix(token, "gho_"):
-		return GitHubTokenTypeOAuth
-	case strings.HasPrefix(token, "ghs_"), strings.HasPrefix(token, "ghu_"):
-		return GitHubTokenTypeGitHubApp
-	default:
-		return GitHubTokenTypeUnknown
-	}
+	return GitHubTokenType(coregithub.DetectTokenType(token))
 }
 
 // GitHubValidateResponse represents the response from token validation
@@ -180,8 +172,12 @@ func (r *GitHubCliCredentialsResponse) HasRepoScope() bool {
 // Handlers
 // =============================================================================
 
-// HandleGitHubValidate validates a GitHub token by calling the /user endpoint
-// through the GitHubClient port.
+// HandleGitHubValidate validates a GitHub token. The HTTP handler is
+// a thin adapter: it parses JSON, delegates to coregithub.Validate,
+// and shapes the domain result into the JSON response. Empty tokens
+// return HTTP 400 (the only path that isn't 200) because the UI
+// distinguishes "user forgot to fill in the field" from "GitHub
+// rejected the token."
 func HandleGitHubValidate(gh ports.GitHubClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitHubValidateRequest
@@ -201,23 +197,17 @@ func HandleGitHubValidate(gh ports.GitHubClient) gin.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		user, scopes, err := gh.ValidateToken(ctx, req.Token)
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubValidateResponse{
-				Valid: false,
-				Error: err.Error(),
-			})
-			return
-		}
+		result := coregithub.Validate(ctx, gh, req.Token)
 
 		c.JSON(http.StatusOK, GitHubValidateResponse{
-			Valid:     true,
-			User:      githubUserInfoFromPort(user),
-			Scopes:    scopes,
-			TokenType: detectGitHubTokenType(req.Token),
+			Valid:     result.Valid,
+			User:      githubUserInfoFromPort(result.User),
+			Scopes:    result.Scopes,
+			TokenType: GitHubTokenType(result.TokenType),
+			Error:     result.Error,
 		})
 	}
 }
