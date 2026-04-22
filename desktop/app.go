@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"runtime"
 	"strings"
 
 	"github.com/gruntwork-io/runbooks/services"
@@ -61,7 +62,7 @@ func Run(opts Options) error {
 
 	app := application.New(application.Options{
 		Name:        "Gruntbooks",
-		Description: "Gruntbooks desktop",
+		Description: "Gruntbooks by Gruntwork\n\nInteractive runbooks for DevOps subject-matter experts.",
 		Icon:        iconPNG,
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
@@ -93,7 +94,44 @@ func Run(opts Options) error {
 		URL:       "/",
 	})
 
+	installAppMenu(app)
+
 	return app.Run()
+}
+
+// installAppMenu replaces the default application menu so the macOS
+// "About Gruntbooks" item routes through Wails' ShowAbout (an NSAlert
+// seeded with our embedded icon + description) rather than the
+// native orderFrontStandardAboutPanel: selector, which reads
+// Info.plist and shows a generic folder icon when run as a bare
+// binary. Menu layout otherwise mirrors DefaultApplicationMenu.
+func installAppMenu(app *application.App) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+
+	menu := app.NewMenu()
+
+	appSubmenu := menu.AddSubmenu("Gruntbooks")
+	appSubmenu.Add("About Gruntbooks").OnClick(func(_ *application.Context) {
+		app.Menu.ShowAbout()
+	})
+	appSubmenu.AddSeparator()
+	appSubmenu.AddRole(application.ServicesMenu)
+	appSubmenu.AddSeparator()
+	appSubmenu.AddRole(application.Hide)
+	appSubmenu.AddRole(application.HideOthers)
+	appSubmenu.AddRole(application.UnHide)
+	appSubmenu.AddSeparator()
+	appSubmenu.AddRole(application.Quit)
+
+	menu.AddRole(application.FileMenu)
+	menu.AddRole(application.EditMenu)
+	menu.AddRole(application.ViewMenu)
+	menu.AddRole(application.WindowMenu)
+	menu.AddRole(application.HelpMenu)
+
+	app.Menu.SetApplicationMenu(menu)
 }
 
 // assetHandler returns an http.Handler that:
