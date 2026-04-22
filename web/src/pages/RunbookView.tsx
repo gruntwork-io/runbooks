@@ -2,7 +2,17 @@ import '../css/App.css'
 import '../css/github-markdown.css'
 import '../css/github-markdown-light.css'
 import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, Code, AlertTriangle } from 'lucide-react'
+import { BookOpen, Code, AlertTriangle, X } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog'
 import { Header } from '../components/layout/Header'
 import { ErrorSummaryBanner } from '../components/layout/ErrorSummaryBanner'
 import MDXContainer from '../components/MDXContainer'
@@ -17,12 +27,23 @@ import { useWatchMode } from '../hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from '../hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from '../contexts/useErrorReporting'
 import { cn } from '../lib/utils'
+import * as WelcomeService from '../bindings/github.com/gruntwork-io/runbooks/services/welcomeservice'
 import { SessionProvider } from '../contexts/SessionContext'
 import { ErrorReportingProvider } from '../contexts/ErrorReportingContext'
 import { ExecutableRegistryProvider } from '../contexts/ExecutableRegistryContext'
 import { GeneratedFilesProvider } from '../contexts/GeneratedFilesContext'
 import { GitWorkTreeProvider } from '../contexts/GitWorkTreeContext'
 import { LogsProvider } from '../contexts/LogsContext'
+
+export interface RunbookViewProps {
+  /**
+   * onClose, when provided, renders a close button in the top-right
+   * that returns the user to the Welcome screen after a confirmation
+   * prompt. Omitted in the browser path, where there is no Welcome
+   * screen to go back to.
+   */
+  onClose?: () => void
+}
 
 /**
  * RunbookView renders the full gruntbook experience: header, MDX body,
@@ -34,7 +55,7 @@ import { LogsProvider } from '../contexts/LogsContext'
  * mounting the MDX subtree, and it keeps the provider boundary
  * co-located with the code that actually needs them.
  */
-export function RunbookView() {
+export function RunbookView({ onClose }: RunbookViewProps = {}) {
   return (
     <SessionProvider>
       <ErrorReportingProvider>
@@ -42,7 +63,7 @@ export function RunbookView() {
           <GeneratedFilesProvider>
             <GitWorkTreeProvider>
               <LogsProvider>
-                <RunbookViewBody />
+                <RunbookViewBody onClose={onClose} />
               </LogsProvider>
             </GitWorkTreeProvider>
           </GeneratedFilesProvider>
@@ -52,7 +73,7 @@ export function RunbookView() {
   )
 }
 
-function RunbookViewBody() {
+function RunbookViewBody({ onClose }: RunbookViewProps) {
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
   const [isArtifactsHidden, setIsArtifactsHidden] = useState(true)
   const [showCodeButton, setShowCodeButton] = useState(false)
@@ -158,6 +179,8 @@ function RunbookViewBody() {
     <>
       <div className="flex flex-col">
         <Header pathName={pathName} localPath={getGruntbookResult.data?.path} />
+
+        {onClose && <CloseGruntbookButton onClose={onClose} />}
 
         {(errorCount > 0 || warningCount > 0) && (
           <ErrorSummaryBanner
@@ -305,5 +328,54 @@ function RunbookViewBody() {
         />
       )}
     </>
+  )
+}
+
+function CloseGruntbookButton({ onClose }: { onClose: () => void }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [isClosing, setIsClosing] = useState(false)
+
+  const handleConfirm = useCallback(async () => {
+    setIsClosing(true)
+    try {
+      await WelcomeService.CloseCurrent()
+    } catch (err) {
+      // If shutdown fails we still navigate back to Welcome — the
+      // alternative is stranding the user on a gruntbook they asked to
+      // close. Log for visibility.
+      console.error('[RunbookView] Failed to close gruntbook server:', err)
+    } finally {
+      setIsClosing(false)
+      setIsOpen(false)
+      onClose()
+    }
+  }, [onClose])
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+      <button
+        type="button"
+        aria-label="Close gruntbook"
+        onClick={() => setIsOpen(true)}
+        className="fixed top-3 right-3 z-50 p-2 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors cursor-pointer"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Close this gruntbook?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You’ll return to the Welcome screen. Any unsaved form input
+            or in-progress commands will be lost.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isClosing}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleConfirm} disabled={isClosing}>
+            {isClosing ? 'Closing…' : 'Close gruntbook'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

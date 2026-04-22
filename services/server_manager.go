@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -12,22 +13,17 @@ import (
 //
 // M2 keeps Gin running behind the desktop window — the frontend still
 // reaches the runbook, exec, boilerplate, etc. endpoints over HTTP. The
-// manager exists so we can start Gin lazily (only once the user picks
-// a gruntbook from the Welcome screen) and make sure we only ever have
-// one instance per desktop process, regardless of how many IPC callers
-// trigger Open*.
-//
-// The server currently cannot be stopped cleanly: api.StartServer
-// blocks on r.Run() and gin exposes no shutdown hook. That's fine for
-// M2's single-view scope — once a gruntbook is open, the user quits
-// the whole app to reset. Later milestones that add multi-runbook or
-// in-app runbook-switching will need a proper Shutdown path.
+// manager starts Gin lazily once the user picks a gruntbook from
+// Welcome, and stops it cleanly when the user closes the gruntbook and
+// returns to Welcome (so they can open a different one in the same
+// session).
 type serverManager struct {
-	mu      sync.Mutex
-	started bool
-	port    int
-	config  api.ServerConfig
-	errCh   chan error
+	mu       sync.Mutex
+	started  bool
+	port     int
+	config   api.ServerConfig
+	shutdown func(context.Context) error
+	errCh    <-chan error
 }
 
 // startInfo is the subset of state that Start returns to the caller.
@@ -40,16 +36,16 @@ type startInfo struct {
 	ErrCh <-chan error
 }
 
-// Start boots Gin if it isn't already running. Calling Start a second
-// time with any config is an error: M2 is single-gruntbook-per-desktop.
-// The config's Port is replaced with a kernel-assigned free port so
-// we never collide with a prior `gruntbooks open` on 7825.
+// Start boots Gin if it isn't already running. Returns an error if a
+// server is already running — callers must Stop it first to swap
+// gruntbooks. The config's Port is replaced with a kernel-assigned free
+// port so we never collide with a prior `gruntbooks open` on 7825.
 func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	if sm.started {
-		return nil, fmt.Errorf("gruntbook server is already running for %q; quit and relaunch to open a different gruntbook", sm.config.GruntbookPath)
+		return nil, fmt.Errorf("gruntbook server is already running for %q", sm.config.GruntbookPath)
 	}
 
 	port, err := reserveFreePort()
@@ -58,15 +54,43 @@ func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
 	}
 	cfg.Port = port
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- api.StartServer(cfg) }()
+	shutdown, errCh, err := api.StartServerWithShutdown(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	sm.started = true
 	sm.port = port
 	sm.config = cfg
+	sm.shutdown = shutdown
 	sm.errCh = errCh
 
 	return &startInfo{Port: port, ErrCh: errCh}, nil
+}
+
+// Stop gracefully shuts down the running server and waits for the
+// listener goroutine to exit. It is a no-op when no server is running.
+// The provided context bounds how long to wait for in-flight requests
+// before forcing shutdown.
+func (sm *serverManager) Stop(ctx context.Context) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if !sm.started {
+		return nil
+	}
+
+	shutdownErr := sm.shutdown(ctx)
+	// Drain errCh so the serve goroutine isn't blocked writing.
+	<-sm.errCh
+
+	sm.started = false
+	sm.port = 0
+	sm.config = api.ServerConfig{}
+	sm.shutdown = nil
+	sm.errCh = nil
+
+	return shutdownErr
 }
 
 // Port returns the bound port, or 0 if the server is not running.

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -180,18 +182,66 @@ type ServerConfig struct {
 	EnableCORS            bool // When true, allows cross-origin requests (for dev with separate frontend)
 }
 
-// StartServer starts the API server with the given configuration.
+// StartServer starts the API server and blocks until it exits.
 func StartServer(cfg ServerConfig) error {
+	handler, cleanup, err := buildHandler(cfg)
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	return http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", cfg.Port), handler)
+}
+
+// StartServerWithShutdown starts the API server in a background goroutine
+// and returns a shutdown function plus a channel that fires once the
+// server exits. Used by the desktop path where the user can close a
+// gruntbook and return to the Welcome screen without quitting the app.
+//
+// On a clean shutdown (shutdownFn invoked) errCh receives nil; on any
+// other exit it receives the underlying error.
+func StartServerWithShutdown(cfg ServerConfig) (shutdownFn func(context.Context) error, errCh <-chan error, err error) {
+	handler, cleanup, err := buildHandler(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf("127.0.0.1:%d", cfg.Port),
+		Handler: handler,
+	}
+
+	ch := make(chan error, 1)
+	go func() {
+		serveErr := srv.ListenAndServe()
+		if cleanup != nil {
+			cleanup()
+		}
+		if errors.Is(serveErr, http.ErrServerClosed) {
+			ch <- nil
+		} else {
+			ch <- serveErr
+		}
+	}()
+
+	return srv.Shutdown, ch, nil
+}
+
+// buildHandler wires up the Gin engine and any resources it owns
+// (currently just the file watcher in watch mode). The returned cleanup
+// function must be invoked once serving stops.
+func buildHandler(cfg ServerConfig) (http.Handler, func(), error) {
 	resolvedPath, err := ResolveGruntbookPath(cfg.GruntbookPath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve gruntbook path: %w", err)
+		return nil, nil, fmt.Errorf("failed to resolve gruntbook path: %w", err)
 	}
 
 	var registry *ExecutableRegistry
 	if cfg.UseExecutableRegistry {
 		registry, err = NewExecutableRegistry(resolvedPath)
 		if err != nil {
-			return fmt.Errorf("failed to create executable registry: %w", err)
+			return nil, nil, fmt.Errorf("failed to create executable registry: %w", err)
 		}
 	}
 
@@ -224,18 +274,19 @@ func StartServer(cfg ServerConfig) error {
 		RemoteSourceURL:       cfg.RemoteSourceURL,
 	}))
 
+	var cleanup func()
 	if cfg.IsWatchMode {
 		fileWatcher, err := NewFileWatcher(resolvedPath)
 		if err != nil {
-			return fmt.Errorf("failed to create file watcher: %w", err)
+			return nil, nil, fmt.Errorf("failed to create file watcher: %w", err)
 		}
-		defer fileWatcher.Close()
+		cleanup = func() { fileWatcher.Close() }
 		r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 	}
 
 	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, tokens, awsClient, ghClient, cfg.UseExecutableRegistry)
 
-	return r.Run(fmt.Sprintf("127.0.0.1:%d", cfg.Port))
+	return r, cleanup, nil
 }
 
 // newGinEngine creates a gin engine with the appropriate mode.

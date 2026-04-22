@@ -26,6 +26,15 @@ import * as application$0 from "../../../wailsapp/wails/v3/pkg/application/model
 import * as $models from "./models.js";
 
 /**
+ * CloseCurrent stops the running backend server so the user can return
+ * to the Welcome screen and open a different gruntbook in the same
+ * session. A no-op if no server is running.
+ */
+export function CloseCurrent(): $CancellablePromise<void> {
+    return $Call.ByID(905616297);
+}
+
+/**
  * HandleSecondInstance is the Wails OnSecondInstanceLaunch callback.
  * M2 policy: ignore the second invocation's args (we can't swap out a
  * running Gin server) and bring the existing window forward. Exported

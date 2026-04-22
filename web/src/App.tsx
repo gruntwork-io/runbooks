@@ -117,7 +117,7 @@ function App() {
     return <Welcome onOpened={handleOpened} />
   }
 
-  return <RunbookView />
+  return <RunbookView onClose={isDesktop() ? handleBackToWelcome : undefined} />
 }
 
 /**

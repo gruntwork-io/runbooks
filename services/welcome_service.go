@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,11 @@ import (
 	"github.com/gruntwork-io/runbooks/api"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// closeShutdownTimeout caps how long we wait for in-flight requests to
+// drain when closing a gruntbook. The backend holds no long-polling
+// connections in M2, so 5s is plenty.
+const closeShutdownTimeout = 5 * time.Second
 
 // OpenResult is the return shape of OpenLocal (and, in later milestones,
 // OpenRemote). Carries everything the frontend needs to navigate from
@@ -169,6 +175,19 @@ func (s *WelcomeService) OpenLocal(path string) (*OpenResult, error) {
 		DisplayPath:   abs,
 		Port:          info.Port,
 	}, nil
+}
+
+// CloseCurrent stops the running backend server so the user can return
+// to the Welcome screen and open a different gruntbook in the same
+// session. A no-op if no server is running.
+func (s *WelcomeService) CloseCurrent() error {
+	ctx, cancel := context.WithTimeout(context.Background(), closeShutdownTimeout)
+	defer cancel()
+	if err := s.servers.Stop(ctx); err != nil {
+		return fmt.Errorf("stop gruntbook server: %w", err)
+	}
+	slog.Info("Closed gruntbook")
+	return nil
 }
 
 // ListRecent returns the recent-gruntbooks list, most-recent-first.

@@ -68,6 +68,11 @@ export function Welcome({ onOpened }: WelcomeProps) {
     <div className="min-h-screen w-full flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-2xl">
         <header className="text-center mb-10">
+          <img
+            src="/gruntbooks-logomark-dark.svg"
+            alt=""
+            className="mx-auto mb-4 h-20 w-auto"
+          />
           <h1 className="text-4xl font-semibold tracking-tight mb-2">Gruntbooks</h1>
           <p className="text-muted-foreground text-base">
             Open a gruntbook to run it, or pick up where you left off.
