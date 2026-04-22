@@ -1,5 +1,5 @@
-import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
-import { ChevronDown, Download, Info, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
+import { type ComponentType, type ComponentPropsWithRef } from 'react';
+import { ChevronDown, Download, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -8,18 +8,9 @@ import {
   TooltipTrigger,
 } from '../ui/tooltip';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../ui/alert-dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useLogs } from '@/contexts/useLogs';
@@ -72,7 +63,6 @@ interface HeaderProps {
  * @param props.localPath - The local filesystem path (for copy button when remote)
  */
 export function Header({ pathName, localPath, onClose }: HeaderProps) {
-  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const { getAllLogs, hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
 
@@ -97,8 +87,7 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
   };
 
   return (
-    <>
-      <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
+    <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
         <div className="absolute left-5 top-1/2 transform -translate-y-1/2">
           <img src="/gruntbooks-logo-dark-alpha.svg" alt="Gruntwork Gruntbooks" className="h-8" />
         </div>
@@ -149,11 +138,6 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
                 <Download className="size-4" />
                 Download logs (JSON)
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
-                <Info className="size-4" />
-                About
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           {onClose && (
@@ -167,26 +151,6 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
             </button>
           )}
         </div>
-      </header>
-
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
-        <AlertDialogContent>
-          <div className="relative">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="sr-only">About Gruntwork Gruntbooks</AlertDialogTitle>
-              <img src="/gruntbooks-logo-dark-color.svg" alt="Gruntwork Gruntbooks" className="h-16 mb-2" />
-
-              <AlertDialogDescription className="text-left space-y-4">
-                <p>Gruntbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>
-                <p>Gruntbooks is published by <a target="_blank" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" href="https://gruntbooks.gruntwork.io">Gruntbooks docs</a> for more information.</p>
-                <AlertDialogAction className="block mt-4" onClick={() => setIsAboutDialogOpen(false)}>
-                Close
-                </AlertDialogAction>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    </header>
   );
 }
