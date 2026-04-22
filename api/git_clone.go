@@ -214,8 +214,8 @@ func PrepareGitClone(req GitCloneRequest, workingDir string, tokens *TokenResolv
 	if err != nil {
 		return nil, &GitCloneError{Code: GitCloneErrPathResolve, Message: "Failed to resolve clone path"}
 	}
-	if !strings.HasPrefix(absClonePath, absWorkDir+string(filepath.Separator)) && absClonePath != absWorkDir {
-		return nil, &GitCloneError{Code: GitCloneErrPathOutside, Message: "Clone path must be within the working directory"}
+	if !strings.HasPrefix(absClonePath, absWorkDir+string(filepath.Separator)) {
+		return nil, &GitCloneError{Code: GitCloneErrPathOutside, Message: "Clone path must be a subdirectory of the working directory"}
 	}
 
 	if _, err := os.Stat(absolutePath); err == nil {
