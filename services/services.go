@@ -1,5 +1,7 @@
 package services
 
+import "github.com/gruntwork-io/runbooks/core/ports"
+
 // Services is the bundle of Wails-IPC services registered with the
 // desktop application. Sibling services share state through private
 // package-level fields (e.g. the serverManager that tracks the
@@ -16,13 +18,22 @@ type Services struct {
 	Tf             *TfService
 	GeneratedFiles *GeneratedFilesService
 	Workspace      *WorkspaceService
+
+	// emitter is the transport services push streaming events through
+	// (exec logs, git clone progress, watcher notifications). Stored
+	// on the container so M4 streaming services pick it up when they
+	// land without another signature change on NewServices.
+	emitter ports.Emitter
 }
 
 // NewServices constructs every Wails-IPC service with a shared
 // serverManager so they all see the same currently-open gruntbook.
 // initialPath is the CLI argument from `gruntbooks desktop PATH`;
-// empty means "show Welcome".
-func NewServices(initialPath string) (*Services, error) {
+// empty means "show Welcome". emitter is the transport for streaming
+// events (exec logs, clone progress, watcher notifications); M3
+// services ignore it, but M4+ streaming services need it at
+// construction, so the container carries it through.
+func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 	recent, err := newRecentStore()
 	if err != nil {
 		return nil, err
@@ -44,5 +55,6 @@ func NewServices(initialPath string) (*Services, error) {
 		Tf:             &TfService{servers: servers},
 		GeneratedFiles: &GeneratedFilesService{servers: servers},
 		Workspace:      &WorkspaceService{},
+		emitter:        emitter,
 	}, nil
 }
