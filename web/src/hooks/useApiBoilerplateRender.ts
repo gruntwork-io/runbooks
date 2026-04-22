@@ -110,9 +110,17 @@ export function useApiBoilerplateRender(
   const [ipcAutoLoading, setIpcAutoLoading] = useState(false);
   const [ipcAutoError, setIpcAutoError] = useState<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic sequence for auto-render calls. Each runIpcRender captures
+  // its seq at start; on completion it discards its result if a newer
+  // seq has since been issued (either by a later run or by the base
+  // result changing). Prevents a slow earlier call from clobbering a
+  // faster later one, and prevents a stale auto-render from masking
+  // a fresh base render.
+  const renderSeqRef = useRef(0);
 
   const runIpcRender = useCallback(
     async (body: RenderRequestBody) => {
+      const seq = ++renderSeqRef.current;
       setIpcAutoLoading(true);
       setIpcAutoError(null);
       try {
@@ -123,12 +131,16 @@ export function useApiBoilerplateRender(
           ...(body.target ? { target: body.target } : {}),
         });
         const res = await BoilerplateService.Render(req);
+        if (seq !== renderSeqRef.current) return;
         if (!res) throw new Error('Render returned null');
         setIpcAutoData(res as unknown as BoilerplateRenderResult);
       } catch (err) {
+        if (seq !== renderSeqRef.current) return;
         setIpcAutoError(err instanceof Error ? err.message : String(err));
       } finally {
-        setIpcAutoLoading(false);
+        if (seq === renderSeqRef.current) {
+          setIpcAutoLoading(false);
+        }
       }
     },
     [],
@@ -149,6 +161,18 @@ export function useApiBoilerplateRender(
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, []);
+
+  // When the base render re-runs (requestBody deps changed) and produces
+  // new data, invalidate any stale auto-render result so the merge below
+  // doesn't keep returning the old one. Bumping renderSeqRef also
+  // discards any in-flight auto-render that was started before the new
+  // base data arrived.
+  useEffect(() => {
+    if (ipcData) {
+      renderSeqRef.current++;
+      setIpcAutoData(null);
+    }
+  }, [ipcData]);
 
   // Merge initial + auto results so callers see the most recent render.
   const ipcEffectiveData = ipcAutoData ?? ipcData ?? null;
