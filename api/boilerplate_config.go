@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -73,11 +74,77 @@ func ResolveBoilerplatePath(gruntbookDir, templatePath string) (templateDir, boi
 
 // BoilerplateVariable represents a single variable from boilerplate.yml
 
+// Sentinel errors returned by ParseBoilerplateRequest. Callers use
+// errors.Is to map to the appropriate response: the HTTP handler picks a
+// status code, the Wails service surfaces them as ordinary IPC errors.
+var (
+	ErrBoilerplateBadRequest = fmt.Errorf("invalid boilerplate request")
+	ErrBoilerplateNotFound   = fmt.Errorf("boilerplate.yml not found")
+	ErrBoilerplateParse      = fmt.Errorf("invalid boilerplate configuration")
+	ErrBoilerplateRead       = fmt.Errorf("failed to read boilerplate file")
+)
+
+// ParseBoilerplateRequest is the transport-agnostic core of the boilerplate
+// variables flow. It takes the raw request + the open gruntbook path and
+// returns the parsed config (with any output-dependency scan results
+// attached). Callers map the returned sentinel errors onto their transport
+// (HTTP status codes, IPC errors, etc.).
+func ParseBoilerplateRequest(req BoilerplateRequest, gruntbookPath string) (*BoilerplateConfig, error) {
+	if req.TemplatePath == "" && req.BoilerplateContent == "" {
+		return nil, fmt.Errorf("%w: either templatePath or boilerplateContent must be provided", ErrBoilerplateBadRequest)
+	}
+
+	var content string
+	var templateDir string // Only set when reading from a template path; drives output-dependency scanning.
+
+	if req.TemplatePath != "" {
+		gruntbookDir := filepath.Dir(gruntbookPath)
+		var fullPath string
+		templateDir, fullPath = ResolveBoilerplatePath(gruntbookDir, req.TemplatePath)
+		slog.Info("Looking for boilerplate file", "fullPath", fullPath)
+
+		if _, statErr := os.Stat(fullPath); os.IsNotExist(statErr) {
+			slog.Error("File not found", "path", fullPath)
+			return nil, fmt.Errorf("%w: tried to load %s", ErrBoilerplateNotFound, fullPath)
+		}
+
+		fileContent, err := os.ReadFile(fullPath)
+		if err != nil {
+			slog.Error("Error reading boilerplate file", "error", err)
+			return nil, fmt.Errorf("%w: %v", ErrBoilerplateRead, err)
+		}
+		content = string(fileContent)
+		slog.Info("Parsing boilerplate config from file", "fullPath", fullPath)
+	} else {
+		content = req.BoilerplateContent
+		slog.Info("Parsing boilerplate config from request body")
+	}
+
+	config, err := parseBoilerplateConfig(content)
+	if err != nil {
+		slog.Error("Error parsing boilerplate config", "error", err)
+		return nil, fmt.Errorf("%w: %v", ErrBoilerplateParse, err)
+	}
+
+	if templateDir != "" {
+		outputDeps, depErr := extractOutputDependenciesFromTemplateDir(templateDir)
+		if depErr != nil {
+			// Best-effort scan; a failure here doesn't invalidate the parsed config.
+			slog.Warn("Failed to extract output dependencies from template directory", "templateDir", templateDir, "error", depErr)
+		} else if len(outputDeps) > 0 {
+			config.OutputDependencies = outputDeps
+			slog.Info("Found output dependencies in template files", "count", len(outputDeps), "dependencies", outputDeps)
+		}
+	}
+
+	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables), "outputDepCount", len(config.OutputDependencies))
+	return config, nil
+}
+
 // HandleBoilerplateRequest parses a boilerplate.yml file and returns the variable declarations as JSON
 // @gruntbookPath is the path to the boilerplate template, relative to the directory containing the gruntbook file.
 func HandleBoilerplateRequest(gruntbookPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Parse the request body
 		var req BoilerplateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -87,91 +154,38 @@ func HandleBoilerplateRequest(gruntbookPath string) gin.HandlerFunc {
 			return
 		}
 
-		// Validate that either templatePath or boilerplateContent is provided
-		if req.TemplatePath == "" && req.BoilerplateContent == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Either templatePath or boilerplateContent must be provided",
+		config, err := ParseBoilerplateRequest(req, gruntbookPath)
+		if err != nil {
+			status, msg := boilerplateErrorStatus(err, req)
+			c.JSON(status, gin.H{
+				"error":   msg,
+				"details": err.Error(),
 			})
 			return
 		}
 
-		var content string
-		var err error
-		var templateDir string // Track the template directory for output dependency scanning
+		c.JSON(http.StatusOK, config)
+	}
+}
 
-		if req.TemplatePath != "" {
-			// Extract the directory from the gruntbookPath (which we assume is a file path)
-			gruntbookDir := filepath.Dir(gruntbookPath)
-
-			// Resolve the template directory and boilerplate.yml path
-			var fullPath string
-			templateDir, fullPath = ResolveBoilerplatePath(gruntbookDir, req.TemplatePath)
-			slog.Info("Looking for boilerplate file", "fullPath", fullPath)
-
-			// Check if the file exists
-			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-				slog.Error("File not found", "path", fullPath)
-				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "boilerplate.yml file not found",
-					"details": "Tried to load: " + fullPath,
-				})
-				return
-			}
-
-			// Read the file contents
-			fileContent, err := os.ReadFile(fullPath)
-			if err != nil {
-				slog.Error("Error reading boilerplate file", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "Failed to read boilerplate file",
-					"details": err.Error(),
-				})
-				return
-			}
-			content = string(fileContent)
-			slog.Info("Parsing boilerplate config from file", "fullPath", fullPath)
-		} else {
-			// Use the provided boilerplate content directly
-			content = req.BoilerplateContent
-			slog.Info("Parsing boilerplate config from request body")
-		}
-
-	// Parse the boilerplate.yml file using the gruntwork-io/boilerplate package
-	config, err := parseBoilerplateConfig(content)
-	if err != nil {
-		slog.Error("Error parsing boilerplate config", "error", err)
-		// We're already inside a parse-error branch (err != nil). The status code
-		// depends on where the content came from:
-		//   - req.BoilerplateContent != "" → the client sent raw YAML inline, so a
-		//     parse failure is a client error (400).
-		//   - Otherwise the YAML was read from a file on disk, so a parse failure
-		//     is an internal server error (500).
-		status := http.StatusInternalServerError
+// boilerplateErrorStatus maps ParseBoilerplateRequest errors to an HTTP
+// status + human-facing message. Parse failures on inline content are a
+// client error; parse failures on a file on disk are an internal error.
+func boilerplateErrorStatus(err error, req BoilerplateRequest) (int, string) {
+	switch {
+	case errors.Is(err, ErrBoilerplateBadRequest):
+		return http.StatusBadRequest, "Either templatePath or boilerplateContent must be provided"
+	case errors.Is(err, ErrBoilerplateNotFound):
+		return http.StatusNotFound, "boilerplate.yml file not found"
+	case errors.Is(err, ErrBoilerplateRead):
+		return http.StatusInternalServerError, "Failed to read boilerplate file"
+	case errors.Is(err, ErrBoilerplateParse):
 		if req.BoilerplateContent != "" {
-			status = http.StatusBadRequest
+			return http.StatusBadRequest, "Invalid boilerplate configuration"
 		}
-		c.JSON(status, gin.H{
-			"error":   "Invalid boilerplate configuration",
-			"details": err.Error(),
-		})
-		return
-	}
-
-	// If we have a template directory, scan for output dependencies in template files
-	if templateDir != "" {
-		outputDeps, err := extractOutputDependenciesFromTemplateDir(templateDir)
-		if err != nil {
-			// Log warning but don't fail - output dependency scanning is best-effort
-			slog.Warn("Failed to extract output dependencies from template directory", "templateDir", templateDir, "error", err)
-		} else if len(outputDeps) > 0 {
-			config.OutputDependencies = outputDeps
-			slog.Info("Found output dependencies in template files", "count", len(outputDeps), "dependencies", outputDeps)
-		}
-	}
-
-	slog.Info("Successfully parsed boilerplate config", "variableCount", len(config.Variables), "outputDepCount", len(config.OutputDependencies))
-	// Return the parsed configuration
-	c.JSON(http.StatusOK, config)
+		return http.StatusInternalServerError, "Invalid boilerplate configuration"
+	default:
+		return http.StatusInternalServerError, "Boilerplate request failed"
 	}
 }
 

@@ -9,9 +9,10 @@ package services
 // This container grows across the M3–M5 migration; for each HTTP
 // endpoint that becomes an IPC method, a new service lands here.
 type Services struct {
-	Welcome   *WelcomeService
-	Telemetry *TelemetryService
-	File      *FileService
+	Welcome     *WelcomeService
+	Telemetry   *TelemetryService
+	File        *FileService
+	Boilerplate *BoilerplateService
 }
 
 // NewServices constructs every Wails-IPC service with a shared
@@ -33,8 +34,9 @@ func NewServices(initialPath string) (*Services, error) {
 	}
 
 	return &Services{
-		Welcome:   welcome,
-		Telemetry: NewTelemetryService(),
-		File:      &FileService{servers: servers},
+		Welcome:     welcome,
+		Telemetry:   NewTelemetryService(),
+		File:        &FileService{servers: servers},
+		Boilerplate: &BoilerplateService{servers: servers},
 	}, nil
 }

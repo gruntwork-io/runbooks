@@ -70,6 +70,7 @@ func Run(opts Options) error {
 			application.NewService(svcs.Welcome),
 			application.NewService(svcs.Telemetry),
 			application.NewService(svcs.File),
+			application.NewService(svcs.Boilerplate),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",
