@@ -2,30 +2,17 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './css/index.css'
 import App from './App.tsx'
-import { GeneratedFilesProvider } from './contexts/GeneratedFilesContext'
-import { GitWorkTreeProvider } from './contexts/GitWorkTreeContext'
-import { ExecutableRegistryProvider } from './contexts/ExecutableRegistryContext'
-import { ErrorReportingProvider } from './contexts/ErrorReportingContext'
 import { TelemetryProvider } from './contexts/TelemetryContext'
-import { LogsProvider } from './contexts/LogsContext'
-import { SessionProvider } from './contexts/SessionContext'
 
+// TelemetryProvider stays at the app root because the Welcome screen
+// benefits from it too (so future "recent gruntbook opened" events are
+// captured regardless of which view the user is in). Every other
+// provider is scoped to RunbookView, since they only exist to support
+// the runbook experience itself.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TelemetryProvider>
-      <SessionProvider>
-        <ErrorReportingProvider>
-          <ExecutableRegistryProvider>
-            <GeneratedFilesProvider>
-              <GitWorkTreeProvider>
-                <LogsProvider>
-                  <App />
-                </LogsProvider>
-              </GitWorkTreeProvider>
-            </GeneratedFilesProvider>
-          </ExecutableRegistryProvider>
-        </ErrorReportingProvider>
-      </SessionProvider>
+      <App />
     </TelemetryProvider>
   </StrictMode>,
 )

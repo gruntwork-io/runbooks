@@ -1,315 +1,138 @@
-import './css/App.css'
-import './css/github-markdown.css'
-import './css/github-markdown-light.css'
-import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, Code, AlertTriangle } from "lucide-react"
-import { Header } from './components/layout/Header'
-import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
-import MDXContainer from './components/MDXContainer'
-import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
-import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
-import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/layout/GeneratedFilesAlert'
-import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
-import { useGetGruntbook } from './hooks/useApiGetGruntbook'
-import { useGeneratedFiles } from './hooks/useGeneratedFiles'
-import { useGitWorkTree } from './contexts/useGitWorkTree'
-import { useWatchMode } from './hooks/useWatchMode'
-import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
-import { useErrorReporting } from './contexts/useErrorReporting'
-import { cn } from './lib/utils'
+import { useCallback, useEffect, useState } from 'react'
+import { Welcome } from './pages/Welcome'
+import { RunbookView } from './pages/RunbookView'
+import * as WelcomeService from './bindings/github.com/gruntwork-io/runbooks/services/welcomeservice'
+import type { OpenResult } from './bindings/github.com/gruntwork-io/runbooks/services/models'
+import { isDesktop } from './lib/wails'
+
+/**
+ * Top-level view state. The browser path (served by `gruntbooks open`
+ * via Gin) has no Welcome screen — it lands straight on the runbook.
+ * The desktop path boots through Status() to decide:
+ *
+ *   - gruntbookOpen=true (unused today but ready for a future where the
+ *     backend starts before the window renders) → runbook
+ *   - initialPath non-empty (`gruntbooks desktop PATH`) → auto-open,
+ *     then runbook
+ *   - otherwise → welcome
+ *
+ * 'error' is only reachable from the auto-open path; the Welcome screen
+ * owns its own inline error UI for user-initiated opens.
+ */
+type AppState =
+  | { kind: 'booting' }
+  | { kind: 'welcome' }
+  | { kind: 'runbook'; result: OpenResult }
+  | { kind: 'error'; message: string }
 
 function App() {
-  const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
-  const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
-  const [showCodeButton, setShowCodeButton] = useState(false);
-  const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
-  const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
-  
-  // Use the useApi hook to fetch gruntbook data
-  const getGruntbookResult = useGetGruntbook()
-
-  // Check for existing generated files when gruntbook loads
-  const generatedFilesCheck = useApiGeneratedFilesCheck()
-
-  // Get error counts from the error reporting context (populated by MDX components)
-  const { errorCount, warningCount, clearAllErrors } = useErrorReporting()
-
-  // Clear errors when gruntbook content changes (to avoid stale errors)
-  useEffect(() => {
-    if (getGruntbookResult.data?.content) {
-      clearAllErrors()
-    }
-  }, [getGruntbookResult.data?.content, clearAllErrors])
-
-  // Enable watch mode - refetch gruntbook when file changes
-  const handleFileChange = useCallback(() => {
-    console.log('[App] Gruntbook file changed, reloading...');
-    
-    // Use silent refetch for watch mode, regular refetch for open mode
-    if (getGruntbookResult.data?.isWatchMode) {
-      getGruntbookResult.silentRefetch();
-    } else {
-      getGruntbookResult.refetch();
-    }
-  }, [getGruntbookResult]);
-  
-  useWatchMode(handleFileChange, getGruntbookResult.data?.isWatchMode ?? false);
-  
-  // Get file tree state to detect when files are generated
-  const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
-  const hasFiles = hasGeneratedFiles(fileTree)
-  
-  // Get git worktree state to detect when a repo is cloned
-  const { workTrees } = useGitWorkTree()
-  const hasWorkTrees = workTrees.length > 0
-  
-  // Show artifacts panel unless user has manually hidden it
-  const showArtifacts = !isArtifactsHidden
-  
-  // Auto-show artifacts panel and switch mobile view when files are generated/regenerated
-  useEffect(() => {
-    if (hasFiles) {
-      setIsArtifactsHidden(false)
-      // Also auto-switch mobile to code view
-      if (activeMobileSection === 'markdown') {
-        setActiveMobileSection('code')
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileTree, hasFiles]) // Don't include activeMobileSection to avoid blocking user's manual toggle
-  
-  // Auto-show artifacts panel when a git worktree is registered (repo cloned)
-  useEffect(() => {
-    if (hasWorkTrees) {
-      setIsArtifactsHidden(false)
-      if (activeMobileSection === 'markdown') {
-        setActiveMobileSection('code')
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasWorkTrees]) // Don't include activeMobileSection to avoid blocking user's manual toggle
-  
-  // Delay showing the "show code" button to avoid awkward appearance during closing animation
-  useEffect(() => {
-    if (!showArtifacts) {
-      const timer = setTimeout(() => {
-        setShowCodeButton(true)
-      }, 500) // 500ms delay
-      return () => clearTimeout(timer)
-    } else {
-      setShowCodeButton(false)
-    }
-  }, [showArtifacts])
-  
-  // Show generated files alert (when there are existing generated files before the Gruntbook was opened) when appropriate
-  useEffect(() => {
-    // Only show if:
-    // 1. Gruntbook has loaded successfully
-    // 2. Generated files check has completed
-    // 3. Files exist in the output directory
-    // 4. User hasn't dismissed it this session
-    // 5. User hasn't checked "don't ask again" in localStorage
-    if (
-      !getGruntbookResult.isLoading &&
-      !generatedFilesCheck.isLoading &&
-      generatedFilesCheck.data?.hasFiles &&
-      !alertDismissedThisSession &&
-      shouldShowGeneratedFilesAlert()
-    ) {
-      setShowGeneratedFilesAlert(true);
-    }
-  }, [
-    getGruntbookResult.isLoading,
-    generatedFilesCheck.isLoading,
-    generatedFilesCheck.data?.hasFiles,
-    alertDismissedThisSession,
-  ]);
-  
-  // Extract commonly used values
-  // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
-  const pathName = getGruntbookResult.data?.remoteSource || getGruntbookResult.data?.path || ''
-  const content = getGruntbookResult.data?.content || ''
-  const gruntbookPath = getDirectoryPath(getGruntbookResult.data?.path || '')
-
-  // Handle closing the generated files alert
-  const handleCloseAlert = () => {
-    setShowGeneratedFilesAlert(false);
-    setAlertDismissedThisSession(true);
-  };
-
-  // Handle successful deletion of generated files
-  const handleFilesDeleted = () => {
-    setShowGeneratedFilesAlert(false);
-    setAlertDismissedThisSession(true);
-    // Clear the file tree so stale generated files (including hidden files/folders
-    // like .github) are removed from the UI after deletion
-    updateGeneratedFileTree(null);
-  };
-
-  return (
-    <>
-      <div className="flex flex-col">
-        <Header pathName={pathName} localPath={getGruntbookResult.data?.path} />
-        
-        {/* Error Summary Banner */}
-        {(errorCount > 0 || warningCount > 0) && (
-          <ErrorSummaryBanner 
-            errorCount={errorCount} 
-            warningCount={warningCount} 
-            className="fixed top-15 left-1/2 -translate-x-1/2 z-50 shadow-md max-w-2xl"
-          />
-        )}
-        
-        {/* Loading and Error States */}
-        {getGruntbookResult.isLoading ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading gruntbook...</p>
-            </div>
-          </div>
-        ) : generatedFilesCheck.error ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center max-w-xl mx-auto p-6">
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-left">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
-                </div>
-                <h3 className="text-lg font-medium text-red-800 mb-2 text-center">Invalid Output Path</h3>
-                <p className="text-red-700 mb-4 text-center">{generatedFilesCheck.error.message}</p>
-                <div className="bg-red-100 rounded-md p-4 text-sm text-red-800">
-                  <p className="mb-2">
-                    When you launched Gruntbooks, you specified an <code className="bg-red-200 px-1 rounded">--output-path</code> of{' '}
-                    <code className="bg-red-200 px-1 rounded font-mono">
-                      {generatedFilesCheck.error.context?.specifiedPath || '(unknown)'}
-                    </code>, but the path must be within the current working directory.
-                  </p>
-                  <p>
-                    Your current working directory is{' '}
-                    <code className="bg-red-200 px-1 rounded font-mono">
-                      {generatedFilesCheck.error.context?.currentWorkingDir || '(unknown)'}
-                    </code>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (getGruntbookResult.error?.message || getGruntbookResult.error?.details) ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center max-w-md mx-auto p-6">
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
-                </div>
-                <h3 className="text-lg font-medium text-red-800 mb-2">Failed to Load Gruntbook</h3>
-                <p className="text-red-700 mb-2">{getGruntbookResult.error?.message}</p>
-                <p className="text-sm text-red-600 mb-4">
-                  {getGruntbookResult.error?.details}
-                </p>
-                <button 
-                  onClick={() => window.location.reload()} 
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
-            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10">
-              <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
-                <ViewContainerToggle
-                  activeView={activeMobileSection}
-                  onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'code')}
-                  views={[
-                    { label: 'Markdown', value: 'markdown', icon: BookOpen },
-                    { label: 'Code', value: 'code', icon: Code }
-                  ]}
-                  className="w-full"
-                />
-              </div>
-            </div>
-
-            {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
-            <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
-              <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 lg:h-[calc(100vh-5rem)] lg:overflow-hidden justify-start lg:justify-center">
-                
-                {/* MDX Container - Single instance with responsive visibility
-                    Desktop: always visible, sizing depends on artifacts panel
-                    Mobile: visible only when 'markdown' tab is active */}
-                <div className={cn(
-                  'relative w-full px-4 lg:px-0 lg:block',
-                  {
-                    'lg:flex-1 lg:max-w-3xl lg:min-w-xl': showArtifacts,
-                    'lg:w-full lg:max-w-4xl': !showArtifacts,
-                    'hidden': activeMobileSection !== 'markdown',
-                  }
-                )}>
-                  <MDXContainer
-                    content={content}
-                    gruntbookPath={gruntbookPath}
-                    remoteSource={getGruntbookResult.data?.remoteSource}
-                    className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
-                  />
-                  
-                  {/* Show code icon button - desktop only, when artifacts panel is hidden */}
-                  {showCodeButton && (
-                    <button
-                      onClick={() => setIsArtifactsHidden(false)}
-                      className="hidden lg:block absolute -right-14 top-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 z-10 cursor-pointer"
-                      title="Show generated files"
-                    >
-                      <Code className="w-5 h-5 text-gray-600" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Artifacts - Desktop layout (grows/shrinks width smoothly) */}
-                <div 
-                  className={`hidden lg:block relative max-w-4xl transition-all duration-700 ease-in-out overflow-hidden ${
-                    showArtifacts ? 'flex-2' : 'w-0'
-                  }`}
-                >
-                  <ArtifactsContainer 
-                    className="absolute top-0 left-0 right-0 h-full" 
-                    onHide={() => setIsArtifactsHidden(true)}
-                    hideContent={!showArtifacts}
-                    absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
-                    relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
-                  />
-                </div>
-
-                {/* Artifacts - Mobile layout (shown when 'code' tab is active) */}
-                <div className={`lg:hidden px-4 ${activeMobileSection === 'code' ? 'block' : 'hidden'}`}>
-                  <div className="w-full h-[calc(100vh-12rem)] border border-gray-200 rounded-lg shadow-md overflow-hidden">
-                    <ArtifactsContainer
-                      className="w-full h-full"
-                      onHide={() => setIsArtifactsHidden(true)}
-                      absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
-                      relativeOutputPath={generatedFilesCheck.data?.relativeOutputPath}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-      
-      {/* Generated Files Alert Dialog */}
-      {generatedFilesCheck.data && (
-        <GeneratedFilesAlert
-          isOpen={showGeneratedFilesAlert}
-          fileCount={generatedFilesCheck.data.fileCount}
-          absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
-          onClose={handleCloseAlert}
-          onDeleted={handleFilesDeleted}
-        />
-      )}
-    </>
+  const [state, setState] = useState<AppState>(() =>
+    isDesktop() ? { kind: 'booting' } : { kind: 'runbook', result: browserOpenResult() },
   )
+
+  useEffect(() => {
+    if (state.kind !== 'booting') return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const status = await WelcomeService.Status()
+        if (cancelled) return
+
+        if (status.gruntbookOpen) {
+          setState({
+            kind: 'runbook',
+            result: {
+              gruntbookPath: status.gruntbookPath,
+              displayPath: status.gruntbookPath,
+              port: status.serverPort,
+            },
+          })
+          return
+        }
+
+        if (status.initialPath) {
+          const result = await WelcomeService.OpenLocal(status.initialPath)
+          if (cancelled) return
+          if (!result) {
+            throw new Error('backend returned no result')
+          }
+          setState({ kind: 'runbook', result })
+          return
+        }
+
+        setState({ kind: 'welcome' })
+      } catch (err) {
+        if (cancelled) return
+        setState({
+          kind: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [state.kind])
+
+  const handleOpened = useCallback((result: OpenResult) => {
+    setState({ kind: 'runbook', result })
+  }, [])
+
+  const handleBackToWelcome = useCallback(() => {
+    setState({ kind: 'welcome' })
+  }, [])
+
+  if (state.kind === 'booting') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading Gruntbooks…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (state.kind === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-semibold mb-2">Couldn’t open that gruntbook</h2>
+          <p className="text-muted-foreground mb-6">{state.message}</p>
+          <button
+            type="button"
+            onClick={handleBackToWelcome}
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 cursor-pointer"
+          >
+            Back to Welcome
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (state.kind === 'welcome') {
+    return <Welcome onOpened={handleOpened} />
+  }
+
+  return <RunbookView onClose={isDesktop() ? handleBackToWelcome : undefined} />
+}
+
+/**
+ * browserOpenResult synthesises an OpenResult for the browser path,
+ * where there is no Welcome screen and the backend is already running
+ * on the same origin. The values are placeholders — RunbookView reads
+ * the actual gruntbook data via the HTTP endpoints that Gin serves
+ * directly when running in browser mode.
+ */
+function browserOpenResult(): OpenResult {
+  return {
+    gruntbookPath: '',
+    displayPath: '',
+    port: 0,
+  }
 }
 
 export default App

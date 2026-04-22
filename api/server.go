@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -180,18 +183,94 @@ type ServerConfig struct {
 	EnableCORS            bool // When true, allows cross-origin requests (for dev with separate frontend)
 }
 
-// StartServer starts the API server with the given configuration.
+// StartServer starts the API server and blocks until it exits.
 func StartServer(cfg ServerConfig) error {
+	handler, cleanup, err := buildHandler(cfg)
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	return http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", cfg.Port), handler)
+}
+
+// ServerHandle bundles the runtime handles returned by
+// StartServerWithShutdown: the bound port, a graceful-shutdown
+// function, and a channel that fires once the server exits.
+type ServerHandle struct {
+	// Port is the TCP port the listener is bound to. When
+	// ServerConfig.Port is 0, the kernel picks a free port and this
+	// field reports which one.
+	Port int
+	// Shutdown gracefully stops the server. The context bounds how long
+	// to wait for in-flight requests to drain before forcing close.
+	Shutdown func(context.Context) error
+	// ErrCh fires exactly once when the server exits: nil on a clean
+	// Shutdown, or the underlying error otherwise.
+	ErrCh <-chan error
+}
+
+// StartServerWithShutdown binds the listener synchronously and then
+// serves in a background goroutine. Binding first (instead of
+// http.ListenAndServe) closes the startup race window where a caller
+// could fire a request before the kernel is queuing connections — by
+// the time this function returns, the listener is already accepting.
+//
+// Used by the desktop path where the user can close a gruntbook and
+// return to the Welcome screen without quitting the app.
+func StartServerWithShutdown(cfg ServerConfig) (*ServerHandle, error) {
+	handler, cleanup, err := buildHandler(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, fmt.Errorf("bind listener on %s: %w", addr, err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	srv := &http.Server{Handler: handler}
+
+	ch := make(chan error, 1)
+	go func() {
+		serveErr := srv.Serve(listener)
+		if cleanup != nil {
+			cleanup()
+		}
+		if errors.Is(serveErr, http.ErrServerClosed) {
+			ch <- nil
+		} else {
+			ch <- serveErr
+		}
+	}()
+
+	return &ServerHandle{
+		Port:     port,
+		Shutdown: srv.Shutdown,
+		ErrCh:    ch,
+	}, nil
+}
+
+// buildHandler wires up the Gin engine and any resources it owns
+// (currently just the file watcher in watch mode). The returned cleanup
+// function must be invoked once serving stops.
+func buildHandler(cfg ServerConfig) (http.Handler, func(), error) {
 	resolvedPath, err := ResolveGruntbookPath(cfg.GruntbookPath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve gruntbook path: %w", err)
+		return nil, nil, fmt.Errorf("failed to resolve gruntbook path: %w", err)
 	}
 
 	var registry *ExecutableRegistry
 	if cfg.UseExecutableRegistry {
 		registry, err = NewExecutableRegistry(resolvedPath)
 		if err != nil {
-			return fmt.Errorf("failed to create executable registry: %w", err)
+			return nil, nil, fmt.Errorf("failed to create executable registry: %w", err)
 		}
 	}
 
@@ -224,18 +303,19 @@ func StartServer(cfg ServerConfig) error {
 		RemoteSourceURL:       cfg.RemoteSourceURL,
 	}))
 
+	var cleanup func()
 	if cfg.IsWatchMode {
 		fileWatcher, err := NewFileWatcher(resolvedPath)
 		if err != nil {
-			return fmt.Errorf("failed to create file watcher: %w", err)
+			return nil, nil, fmt.Errorf("failed to create file watcher: %w", err)
 		}
-		defer fileWatcher.Close()
+		cleanup = func() { fileWatcher.Close() }
 		r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 	}
 
 	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, tokens, awsClient, ghClient, cfg.UseExecutableRegistry)
 
-	return r.Run(fmt.Sprintf("127.0.0.1:%d", cfg.Port))
+	return r, cleanup, nil
 }
 
 // newGinEngine creates a gin engine with the appropriate mode.
