@@ -189,8 +189,8 @@ func HandleGruntbookAssetsRequest(gruntbookPath string) gin.HandlerFunc {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// readFileMetadata reads a file and returns its content and metadata.
-func readFileMetadata(filePath string) (*FileMetadata, error) {
+// ReadFileMetadata reads a file and returns its content and metadata.
+func ReadFileMetadata(filePath string) (*FileMetadata, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -235,7 +235,7 @@ func sendFileError(c *gin.Context, filePath string, err error) {
 
 // serveGruntbookContent serves a gruntbook file as JSON, adding gruntbook-specific fields to the response.
 func serveGruntbookContent(c *gin.Context, cfg GruntbookConfig) {
-	meta, err := readFileMetadata(cfg.LocalPath)
+	meta, err := ReadFileMetadata(cfg.LocalPath)
 	if err != nil {
 		sendFileError(c, cfg.LocalPath, err)
 		return
@@ -269,7 +269,7 @@ func serveGruntbookContent(c *gin.Context, cfg GruntbookConfig) {
 
 // serveFileAsJSON reads a file and returns its content as a JSON response with metadata.
 func serveFileAsJSON(c *gin.Context, filePath string) {
-	meta, err := readFileMetadata(filePath)
+	meta, err := ReadFileMetadata(filePath)
 	if err != nil {
 		sendFileError(c, filePath, err)
 		return

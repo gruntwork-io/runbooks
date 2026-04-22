@@ -66,6 +66,48 @@ export class DesktopStatus {
 }
 
 /**
+ * FileResult is the IPC response shape for Read. Field names are
+ * camelCase to match the HTTP handler's JSON output so the browser
+ * fallback and the IPC path return the same thing to the frontend.
+ */
+export class FileResult {
+    "path": string;
+    "content": string;
+    "contentHash": string;
+    "language": string;
+    "size": number;
+
+    /** Creates a new FileResult instance. */
+    constructor($$source: Partial<FileResult> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("content" in $$source)) {
+            this["content"] = "";
+        }
+        if (!("contentHash" in $$source)) {
+            this["contentHash"] = "";
+        }
+        if (!("language" in $$source)) {
+            this["language"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FileResult($$parsedSource as Partial<FileResult>);
+    }
+}
+
+/**
  * OpenResult is the return shape of OpenLocal (and, in later milestones,
  * OpenRemote). Carries everything the frontend needs to navigate from
  * the Welcome screen into the runbook view.

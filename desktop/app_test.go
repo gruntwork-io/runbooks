@@ -19,11 +19,11 @@ import (
 // HTTP 200 with a non-empty body — the exact markup is a property of
 // whatever dist happens to be embedded when the test runs.
 func TestAssetHandlerFallbackToIndex(t *testing.T) {
-	welcome, err := services.NewWelcomeService("")
+	svcs, err := services.NewServices("")
 	if err != nil {
-		t.Fatalf("NewWelcomeService: %v", err)
+		t.Fatalf("NewServices: %v", err)
 	}
-	handler, err := assetHandler(welcome)
+	handler, err := assetHandler(svcs.Welcome)
 	if err != nil {
 		t.Fatalf("assetHandler returned error: %v", err)
 	}
@@ -45,11 +45,11 @@ func TestAssetHandlerFallbackToIndex(t *testing.T) {
 // surface as 503 Service Unavailable rather than trying to contact a
 // phantom upstream and timing out.
 func TestAPIProxyReturns503WhenServerNotRunning(t *testing.T) {
-	welcome, err := services.NewWelcomeService("")
+	svcs, err := services.NewServices("")
 	if err != nil {
-		t.Fatalf("NewWelcomeService: %v", err)
+		t.Fatalf("NewServices: %v", err)
 	}
-	handler, err := assetHandler(welcome)
+	handler, err := assetHandler(svcs.Welcome)
 	if err != nil {
 		t.Fatalf("assetHandler returned error: %v", err)
 	}

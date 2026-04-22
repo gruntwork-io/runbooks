@@ -49,14 +49,12 @@ type Options struct {
 // closed. Returns any error from the Wails runtime; callers typically
 // log.Fatal on failure.
 func Run(opts Options) error {
-	welcome, err := services.NewWelcomeService(opts.InitialPath)
+	svcs, err := services.NewServices(opts.InitialPath)
 	if err != nil {
-		return fmt.Errorf("build welcome service: %w", err)
+		return fmt.Errorf("build services: %w", err)
 	}
 
-	telemetrySvc := services.NewTelemetryService()
-
-	handler, err := assetHandler(welcome)
+	handler, err := assetHandler(svcs.Welcome)
 	if err != nil {
 		return fmt.Errorf("build asset handler: %w", err)
 	}
@@ -69,12 +67,13 @@ func Run(opts Options) error {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 		Services: []application.Service{
-			application.NewService(welcome),
-			application.NewService(telemetrySvc),
+			application.NewService(svcs.Welcome),
+			application.NewService(svcs.Telemetry),
+			application.NewService(svcs.File),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",
-			OnSecondInstanceLaunch: welcome.HandleSecondInstance,
+			OnSecondInstanceLaunch: svcs.Welcome.HandleSecondInstance,
 		},
 		Assets: application.AssetOptions{
 			Handler: handler,
