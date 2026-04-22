@@ -7,13 +7,15 @@ import * as GeneratedFilesService from "./generatedfilesservice.js";
 import * as TelemetryService from "./telemetryservice.js";
 import * as TfService from "./tfservice.js";
 import * as WelcomeService from "./welcomeservice.js";
+import * as WorkspaceService from "./workspaceservice.js";
 export {
     BoilerplateService,
     FileService,
     GeneratedFilesService,
     TelemetryService,
     TfService,
-    WelcomeService
+    WelcomeService,
+    WorkspaceService
 };
 
 export {

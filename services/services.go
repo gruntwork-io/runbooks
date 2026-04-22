@@ -15,6 +15,7 @@ type Services struct {
 	Boilerplate    *BoilerplateService
 	Tf             *TfService
 	GeneratedFiles *GeneratedFilesService
+	Workspace      *WorkspaceService
 }
 
 // NewServices constructs every Wails-IPC service with a shared
@@ -42,5 +43,6 @@ func NewServices(initialPath string) (*Services, error) {
 		Boilerplate:    &BoilerplateService{servers: servers},
 		Tf:             &TfService{servers: servers},
 		GeneratedFiles: &GeneratedFilesService{servers: servers},
+		Workspace:      &WorkspaceService{},
 	}, nil
 }

@@ -14,5 +14,11 @@ export {
     TfModuleMetadata,
     TfParseRequest,
     TfParseResponse,
-    ValidationRule
+    ValidationRule,
+    WorkspaceChangesResponse,
+    WorkspaceFileChange,
+    WorkspaceFileResponse,
+    WorkspaceGitInfo,
+    WorkspaceTreeNode,
+    WorkspaceTreeResponse
 } from "./models.js";

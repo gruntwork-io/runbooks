@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -129,6 +130,219 @@ var binaryExtensions = map[string]bool{
 }
 
 // =============================================================================
+// Pure functions (shared by HTTP + IPC paths)
+// =============================================================================
+
+// Sentinel errors surfaced by the pure workspace functions so callers
+// can map them onto the appropriate transport response.
+var (
+	ErrWorkspacePathTraversal = fmt.Errorf("invalid path: directory traversal not allowed")
+	ErrWorkspaceNotFound      = fmt.Errorf("path not found")
+	ErrWorkspaceNotDir        = fmt.Errorf("path is not a directory")
+	ErrWorkspaceIsDir         = fmt.Errorf("path is a directory, not a file")
+	ErrWorkspaceTooManyFiles  = fmt.Errorf("too many files")
+)
+
+// statWorkspacePath validates a path string and stats it. Returns the
+// info plus a sentinel error on missing / wrong-kind / traversal cases.
+// Kind is "file" or "directory"; callers use it to pick the matching
+// IsDir check.
+func statWorkspacePath(path string) (os.FileInfo, error) {
+	if ContainsPathTraversal(path) {
+		return nil, ErrWorkspacePathTraversal
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s", ErrWorkspaceNotFound, path)
+		}
+		return nil, fmt.Errorf("failed to stat path %s: %w", path, err)
+	}
+	return info, nil
+}
+
+// GetWorkspaceTree builds the structure-only file tree for a workspace
+// directory, with git metadata attached when the directory is a repo.
+func GetWorkspaceTree(dirPath string) (*WorkspaceTreeResponse, error) {
+	info, err := statWorkspacePath(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: %s", ErrWorkspaceNotDir, dirPath)
+	}
+
+	fileCount := 0
+	tree, err := buildWorkspaceTree(dirPath, "", &fileCount)
+	if err != nil {
+		if strings.Contains(err.Error(), "too many files") {
+			return nil, fmt.Errorf("%w: directory contains more than %s files", ErrWorkspaceTooManyFiles, formatWithCommas(maxWorkspaceFiles))
+		}
+		return nil, fmt.Errorf("failed to build file tree: %w", err)
+	}
+	return &WorkspaceTreeResponse{
+		Tree:       tree,
+		TotalFiles: fileCount,
+		GitInfo:    getGitInfo(dirPath),
+	}, nil
+}
+
+// GetWorkspaceDirs returns the immediate, non-hidden subdirectory names
+// of a directory. Backs the DirPicker cascading-dropdown UI.
+func GetWorkspaceDirs(dirPath string) ([]string, error) {
+	info, err := statWorkspacePath(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: %s", ErrWorkspaceNotDir, dirPath)
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	dirs := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// GetWorkspaceFile returns the contents and metadata for a single
+// file. Images come back as base64 data URIs, known-binary extensions
+// and null-byte-bearing content come back flagged (no content), and
+// files larger than maxFileContentSize come back with IsTooLarge set
+// so the UI can render a "too large to preview" placeholder.
+func GetWorkspaceFile(filePath string) (*WorkspaceFileResponse, error) {
+	info, err := statWorkspacePath(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%w: %s", ErrWorkspaceIsDir, filePath)
+	}
+
+	language := getLanguageFromExtension(filepath.Base(filePath))
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	if info.Size() > maxFileContentSize {
+		return &WorkspaceFileResponse{
+			Path:       filePath,
+			Language:   language,
+			Size:       info.Size(),
+			IsTooLarge: true,
+		}, nil
+	}
+
+	if mimeType, isImage := imageExtensions[ext]; isImage {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %w", err)
+		}
+		return &WorkspaceFileResponse{
+			Path:     filePath,
+			Language: language,
+			Size:     info.Size(),
+			IsImage:  true,
+			MimeType: mimeType,
+			DataUri:  fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(content)),
+		}, nil
+	}
+
+	if binaryExtensions[ext] {
+		return &WorkspaceFileResponse{
+			Path:     filePath,
+			Language: language,
+			Size:     info.Size(),
+			IsBinary: true,
+		}, nil
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	if bytes.Contains(content[:min(len(content), 8192)], []byte{0}) {
+		return &WorkspaceFileResponse{
+			Path:     filePath,
+			Language: language,
+			Size:     info.Size(),
+			IsBinary: true,
+		}, nil
+	}
+
+	return &WorkspaceFileResponse{
+		Path:     filePath,
+		Content:  string(content),
+		Language: language,
+		Size:     info.Size(),
+	}, nil
+}
+
+// GetWorkspaceChanges returns the list of changed files in a git
+// workspace. When singleFile is non-empty, returns only the diff for
+// that file (used by the file-click → diff-view flow); otherwise
+// returns the full change set. Exceeding maxChangedFiles yields a
+// lightweight TooManyChanges response so the UI can warn instead of
+// pulling MB of diff text.
+func GetWorkspaceChanges(dirPath, singleFile string) (*WorkspaceChangesResponse, error) {
+	if ContainsPathTraversal(dirPath) {
+		return nil, ErrWorkspacePathTraversal
+	}
+
+	if singleFile != "" {
+		change, err := getSingleFileDiff(dirPath, singleFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get diff: %w", err)
+		}
+		return &WorkspaceChangesResponse{
+			Changes:      []WorkspaceFileChange{*change},
+			TotalChanges: 1,
+		}, nil
+	}
+
+	changes, err := getAllChanges(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get changes: %w", err)
+	}
+	totalChanges := len(changes)
+	if totalChanges > maxChangedFiles {
+		return &WorkspaceChangesResponse{
+			Changes:        nil,
+			TotalChanges:   totalChanges,
+			TooManyChanges: true,
+		}, nil
+	}
+	return &WorkspaceChangesResponse{
+		Changes:      changes,
+		TotalChanges: totalChanges,
+	}, nil
+}
+
+// workspaceErrorStatus maps the workspace sentinel errors to an HTTP
+// status code and human-readable message. Used by the Gin handlers.
+func workspaceErrorStatus(err error) (int, string) {
+	switch {
+	case errors.Is(err, ErrWorkspacePathTraversal):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, ErrWorkspaceNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, ErrWorkspaceNotDir), errors.Is(err, ErrWorkspaceIsDir):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, ErrWorkspaceTooManyFiles):
+		return http.StatusRequestEntityTooLarge, err.Error()
+	default:
+		return http.StatusInternalServerError, err.Error()
+	}
+}
+
+// =============================================================================
 // Handlers
 // =============================================================================
 
@@ -140,45 +354,13 @@ func HandleWorkspaceTree() gin.HandlerFunc {
 		if !ok {
 			return
 		}
-
-		if ContainsPathTraversal(dirPath) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
-			return
-		}
-
-		// Validate the path exists and is a directory
-		info, ok := statPathOrFail(c, dirPath, "directory")
-		if !ok {
-			return
-		}
-		if !info.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is not a directory", "path": dirPath})
-			return
-		}
-
-		// Build the structure-only tree
-		fileCount := 0
-		tree, err := buildWorkspaceTree(dirPath, "", &fileCount)
+		resp, err := GetWorkspaceTree(dirPath)
 		if err != nil {
-			if strings.Contains(err.Error(), "too many files") {
-				c.JSON(http.StatusRequestEntityTooLarge, gin.H{
-					"error":   "too many files",
-					"details": fmt.Sprintf("Directory contains more than %s files. Try cloning a specific subdirectory.", formatWithCommas(maxWorkspaceFiles)),
-				})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to build file tree: %v", err)})
+			status, msg := workspaceErrorStatus(err)
+			c.JSON(status, gin.H{"error": msg})
 			return
 		}
-
-		// Get git info if this is a git repo
-		gitInfo := getGitInfo(dirPath)
-
-		c.JSON(http.StatusOK, WorkspaceTreeResponse{
-			Tree:       tree,
-			TotalFiles: fileCount,
-			GitInfo:    gitInfo,
-		})
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -191,35 +373,12 @@ func HandleWorkspaceDirs() gin.HandlerFunc {
 		if !ok {
 			return
 		}
-
-		if ContainsPathTraversal(dirPath) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
-			return
-		}
-
-		info, ok := statPathOrFail(c, dirPath, "directory")
-		if !ok {
-			return
-		}
-		if !info.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is not a directory", "path": dirPath})
-			return
-		}
-
-		entries, err := os.ReadDir(dirPath)
+		dirs, err := GetWorkspaceDirs(dirPath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read directory: %v", err)})
+			status, msg := workspaceErrorStatus(err)
+			c.JSON(status, gin.H{"error": msg})
 			return
 		}
-
-		dirs := []string{}
-		for _, entry := range entries {
-			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-				dirs = append(dirs, entry.Name())
-			}
-		}
-
-		sort.Strings(dirs)
 		c.JSON(http.StatusOK, gin.H{"dirs": dirs})
 	}
 }
@@ -232,90 +391,13 @@ func HandleWorkspaceFile() gin.HandlerFunc {
 		if !ok {
 			return
 		}
-
-		if ContainsPathTraversal(filePath) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
-			return
-		}
-
-		// Validate the path exists and is a file
-		info, ok := statPathOrFail(c, filePath, "file")
-		if !ok {
-			return
-		}
-		if info.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is a directory, not a file"})
-			return
-		}
-
-		language := getLanguageFromExtension(filepath.Base(filePath))
-		ext := strings.ToLower(filepath.Ext(filePath))
-
-		// Check file size
-		if info.Size() > maxFileContentSize {
-			c.JSON(http.StatusOK, WorkspaceFileResponse{
-				Path:       filePath,
-				Language:   language,
-				Size:       info.Size(),
-				IsTooLarge: true,
-			})
-			return
-		}
-
-		// Check if it's an image
-		if mimeType, isImage := imageExtensions[ext]; isImage {
-			content, err := os.ReadFile(filePath)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
-				return
-			}
-
-			dataUri := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(content))
-			c.JSON(http.StatusOK, WorkspaceFileResponse{
-				Path:     filePath,
-				Language: language,
-				Size:     info.Size(),
-				IsImage:  true,
-				MimeType: mimeType,
-				DataUri:  dataUri,
-			})
-			return
-		}
-
-		binaryResp := func() {
-			c.JSON(http.StatusOK, WorkspaceFileResponse{
-				Path:     filePath,
-				Language: language,
-				Size:     info.Size(),
-				IsBinary: true,
-			})
-		}
-
-		// Check if it's a known binary extension
-		if binaryExtensions[ext] {
-			binaryResp()
-			return
-		}
-
-		// Read file content
-		content, err := os.ReadFile(filePath)
+		resp, err := GetWorkspaceFile(filePath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
+			status, msg := workspaceErrorStatus(err)
+			c.JSON(status, gin.H{"error": msg})
 			return
 		}
-
-		// Check for binary content (null bytes in first 8KB)
-		if bytes.Contains(content[:min(len(content), 8192)], []byte{0}) {
-			binaryResp()
-			return
-		}
-
-		c.JSON(http.StatusOK, WorkspaceFileResponse{
-			Path:     filePath,
-			Content:  string(content),
-			Language: language,
-			Size:     info.Size(),
-		})
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -327,50 +409,13 @@ func HandleWorkspaceChanges() gin.HandlerFunc {
 		if !ok {
 			return
 		}
-
-		if ContainsPathTraversal(dirPath) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path: directory traversal not allowed"})
-			return
-		}
-
-		// Single file diff mode
-		singleFile := c.Query("file")
-		if singleFile != "" {
-			change, err := getSingleFileDiff(dirPath, singleFile)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to get diff: %v", err)})
-				return
-			}
-			c.JSON(http.StatusOK, WorkspaceChangesResponse{
-				Changes:      []WorkspaceFileChange{*change},
-				TotalChanges: 1,
-			})
-			return
-		}
-
-		// Bulk changes mode
-		changes, err := getAllChanges(dirPath)
+		resp, err := GetWorkspaceChanges(dirPath, c.Query("file"))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to get changes: %v", err)})
+			status, msg := workspaceErrorStatus(err)
+			c.JSON(status, gin.H{"error": msg})
 			return
 		}
-
-		totalChanges := len(changes)
-
-		// Too many changes guard
-		if totalChanges > maxChangedFiles {
-			c.JSON(http.StatusOK, WorkspaceChangesResponse{
-				Changes:        nil,
-				TotalChanges:   totalChanges,
-				TooManyChanges: true,
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, WorkspaceChangesResponse{
-			Changes:      changes,
-			TotalChanges: totalChanges,
-		})
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

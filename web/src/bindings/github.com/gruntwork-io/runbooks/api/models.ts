@@ -577,6 +577,281 @@ export class ValidationRule {
     }
 }
 
+/**
+ * WorkspaceChangesResponse is the response for GET /api/workspace/changes.
+ */
+export class WorkspaceChangesResponse {
+    "changes": WorkspaceFileChange[];
+    "totalChanges": number;
+    "tooManyChanges"?: boolean;
+
+    /** Creates a new WorkspaceChangesResponse instance. */
+    constructor($$source: Partial<WorkspaceChangesResponse> = {}) {
+        if (!("changes" in $$source)) {
+            this["changes"] = [];
+        }
+        if (!("totalChanges" in $$source)) {
+            this["totalChanges"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkspaceChangesResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorkspaceChangesResponse {
+        const $$createField0_0 = $$createType13;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("changes" in $$parsedSource) {
+            $$parsedSource["changes"] = $$createField0_0($$parsedSource["changes"]);
+        }
+        return new WorkspaceChangesResponse($$parsedSource as Partial<WorkspaceChangesResponse>);
+    }
+}
+
+/**
+ * WorkspaceFileChange represents a single file change in a git workspace.
+ */
+export class WorkspaceFileChange {
+    "path": string;
+
+    /**
+     * "added", "modified", "deleted"
+     */
+    "changeType": string;
+    "additions": number;
+    "deletions": number;
+    "originalContent"?: string;
+    "newContent"?: string;
+    "language": string;
+    "isBinary"?: boolean;
+    "diffTruncated"?: boolean;
+
+    /** Creates a new WorkspaceFileChange instance. */
+    constructor($$source: Partial<WorkspaceFileChange> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("changeType" in $$source)) {
+            this["changeType"] = "";
+        }
+        if (!("additions" in $$source)) {
+            this["additions"] = 0;
+        }
+        if (!("deletions" in $$source)) {
+            this["deletions"] = 0;
+        }
+        if (!("language" in $$source)) {
+            this["language"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkspaceFileChange instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorkspaceFileChange {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WorkspaceFileChange($$parsedSource as Partial<WorkspaceFileChange>);
+    }
+}
+
+/**
+ * WorkspaceFileResponse is the response for GET /api/workspace/file.
+ */
+export class WorkspaceFileResponse {
+    "path": string;
+    "content"?: string;
+    "language": string;
+    "size": number;
+    "isImage"?: boolean;
+    "mimeType"?: string;
+    "dataUri"?: string;
+    "isBinary"?: boolean;
+    "isTooLarge"?: boolean;
+
+    /** Creates a new WorkspaceFileResponse instance. */
+    constructor($$source: Partial<WorkspaceFileResponse> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("language" in $$source)) {
+            this["language"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkspaceFileResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorkspaceFileResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WorkspaceFileResponse($$parsedSource as Partial<WorkspaceFileResponse>);
+    }
+}
+
+/**
+ * WorkspaceGitInfo contains git metadata for a workspace.
+ */
+export class WorkspaceGitInfo {
+    "ref": string;
+
+    /**
+     * "branch", "tag", or "commit"
+     */
+    "refType": string;
+    "remoteUrl": string;
+    "commitSha": string;
+
+    /** Creates a new WorkspaceGitInfo instance. */
+    constructor($$source: Partial<WorkspaceGitInfo> = {}) {
+        if (!("ref" in $$source)) {
+            this["ref"] = "";
+        }
+        if (!("refType" in $$source)) {
+            this["refType"] = "";
+        }
+        if (!("remoteUrl" in $$source)) {
+            this["remoteUrl"] = "";
+        }
+        if (!("commitSha" in $$source)) {
+            this["commitSha"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkspaceGitInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorkspaceGitInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WorkspaceGitInfo($$parsedSource as Partial<WorkspaceGitInfo>);
+    }
+}
+
+/**
+ * WorkspaceTreeNode represents a file or folder in the workspace tree (structure only, no content).
+ */
+export class WorkspaceTreeNode {
+    /**
+     * ID is the unique identifier for this node, typically the file path relative to the workspace root.
+     */
+    "id": string;
+
+    /**
+     * Name is the display name of the file or folder (e.g., "main.go", "src").
+     */
+    "name": string;
+
+    /**
+     * Type is either "file" or "folder".
+     */
+    "type": string;
+
+    /**
+     * Size is the file size in bytes. Only set for files, omitted for folders.
+     */
+    "size"?: number;
+
+    /**
+     * Language is the detected programming language of the file (e.g., "go", "typescript").
+     */
+    "language"?: string;
+
+    /**
+     * IsBinary is true when the file is detected as a binary (non-text) file.
+     */
+    "isBinary"?: boolean;
+
+    /**
+     * IsIgnored is true when the file or folder is matched by .gitignore rules.
+     * The frontend renders these with muted styling to indicate they are not tracked by git.
+     */
+    "isIgnored"?: boolean;
+
+    /**
+     * IsLazyLoad is true for folders that contain too many entries to load upfront (>500 children).
+     * The frontend shows a placeholder and fetches the subtree on demand when the user expands the folder.
+     */
+    "isLazyLoad"?: boolean;
+
+    /**
+     * Children contains the nested files and folders within this folder. Empty for files.
+     */
+    "children"?: WorkspaceTreeNode[];
+
+    /** Creates a new WorkspaceTreeNode instance. */
+    constructor($$source: Partial<WorkspaceTreeNode> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkspaceTreeNode instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorkspaceTreeNode {
+        const $$createField8_0 = $$createType15;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("children" in $$parsedSource) {
+            $$parsedSource["children"] = $$createField8_0($$parsedSource["children"]);
+        }
+        return new WorkspaceTreeNode($$parsedSource as Partial<WorkspaceTreeNode>);
+    }
+}
+
+/**
+ * WorkspaceTreeResponse is the response for GET /api/workspace/tree.
+ */
+export class WorkspaceTreeResponse {
+    "tree": WorkspaceTreeNode[];
+    "totalFiles": number;
+    "gitInfo"?: WorkspaceGitInfo | null;
+
+    /** Creates a new WorkspaceTreeResponse instance. */
+    constructor($$source: Partial<WorkspaceTreeResponse> = {}) {
+        if (!("tree" in $$source)) {
+            this["tree"] = [];
+        }
+        if (!("totalFiles" in $$source)) {
+            this["totalFiles"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkspaceTreeResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorkspaceTreeResponse {
+        const $$createField0_0 = $$createType15;
+        const $$createField2_0 = $$createType17;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("tree" in $$parsedSource) {
+            $$parsedSource["tree"] = $$createField0_0($$parsedSource["tree"]);
+        }
+        if ("gitInfo" in $$parsedSource) {
+            $$parsedSource["gitInfo"] = $$createField2_0($$parsedSource["gitInfo"]);
+        }
+        return new WorkspaceTreeResponse($$parsedSource as Partial<WorkspaceTreeResponse>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = BoilerplateVariable.createFrom;
 const $$createType1 = $Create.Array($$createType0);
@@ -590,3 +865,9 @@ const $$createType8 = $Create.Array($$createType7);
 const $$createType9 = $Create.Map($Create.Any, $Create.Any);
 const $$createType10 = TfModuleMetadata.createFrom;
 const $$createType11 = $Create.Array($Create.Any);
+const $$createType12 = WorkspaceFileChange.createFrom;
+const $$createType13 = $Create.Array($$createType12);
+const $$createType14 = WorkspaceTreeNode.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = WorkspaceGitInfo.createFrom;
+const $$createType17 = $Create.Nullable($$createType16);

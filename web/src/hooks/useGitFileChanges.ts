@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useGitWorkTree } from '../contexts/useGitWorkTree'
 import { useSession } from '../contexts/useSession'
+import * as WorkspaceService from '@/bindings/github.com/gruntwork-io/runbooks/services/workspaceservice'
+import { isDesktop } from '@/lib/wails'
 
 /**
  * A file change in the workspace (from git status + diff).
@@ -55,24 +57,33 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     inFlightRef.current = true
 
     try {
-      const response = await fetch(
-        `/api/workspace/changes?path=${encodeURIComponent(localPath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
+      let data: WorkspaceChangesResponse
+      let key: string
+      if (isDesktop()) {
+        const res = await WorkspaceService.Changes(localPath, '')
+        if (!res) return
+        data = { ...res } as WorkspaceChangesResponse
+        key = JSON.stringify(data)
+      } else {
+        const response = await fetch(
+          `/api/workspace/changes?path=${encodeURIComponent(localPath)}`,
+          { headers: { ...getAuthHeader() } }
+        )
 
-      if (!response.ok) {
-        return // Silently retry on next interval
+        if (!response.ok) {
+          return // Silently retry on next interval
+        }
+
+        key = await response.text()
+        data = JSON.parse(key)
       }
-
-      const text = await response.text()
 
       // Smart skipping: don't update state if response is identical
-      if (text === previousResponseRef.current) {
+      if (key === previousResponseRef.current) {
         return
       }
-      previousResponseRef.current = text
+      previousResponseRef.current = key
 
-      const data: WorkspaceChangesResponse = JSON.parse(text)
       setChanges(data.changes || [])
       setTotalChanges(data.totalChanges)
       setTooManyChanges(data.tooManyChanges ?? false)
@@ -117,14 +128,21 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     if (!activeWorkTree) return
 
     try {
-      const response = await fetch(
-        `/api/workspace/changes?path=${encodeURIComponent(activeWorkTree.localPath)}&file=${encodeURIComponent(filePath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
+      let data: WorkspaceChangesResponse
+      if (isDesktop()) {
+        const res = await WorkspaceService.Changes(activeWorkTree.localPath, filePath)
+        if (!res) return
+        data = { ...res } as WorkspaceChangesResponse
+      } else {
+        const response = await fetch(
+          `/api/workspace/changes?path=${encodeURIComponent(activeWorkTree.localPath)}&file=${encodeURIComponent(filePath)}`,
+          { headers: { ...getAuthHeader() } }
+        )
 
-      if (!response.ok) return
+        if (!response.ok) return
 
-      const data: WorkspaceChangesResponse = await response.json()
+        data = await response.json()
+      }
       if (data.changes && data.changes.length > 0) {
         const fullChange = data.changes[0]
         // Merge the full diff into the existing changes array
