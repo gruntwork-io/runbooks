@@ -493,6 +493,9 @@ func RenderBoilerplateInline(req RenderInlineRequest, workingDir string, cliOutp
 	}
 
 	for relPath, content := range req.TemplateFiles {
+		if err := ValidateRelativePathIn(relPath, tempDir); err != nil {
+			return nil, renderErr(http.StatusBadRequest, "invalid template file path", err)
+		}
 		fullPath := filepath.Join(tempDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			slog.Error("Failed to create directory", "path", filepath.Dir(fullPath), "error", err)
