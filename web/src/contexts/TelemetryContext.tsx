@@ -20,6 +20,8 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import mixpanel from 'mixpanel-browser'
 import { TelemetryContext, type TelemetryConfig } from './TelemetryContext.types'
+import * as TelemetryService from '@/bindings/github.com/gruntwork-io/runbooks/services/telemetryservice'
+import { isDesktop } from '@/lib/wails'
 
 // Mixpanel project token (public - only allows sending events, not reading)
 // Set via VITE_MIXPANEL_TOKEN environment variable at build time
@@ -51,35 +53,39 @@ export function TelemetryProvider({ children }: TelemetryProviderProps) {
 
     const fetchConfig = async () => {
       try {
-        const response = await fetch('/api/telemetry/config')
-        if (response.ok) {
-          const data: TelemetryConfig = await response.json()
-          setConfig(data)
+        let data: TelemetryConfig
+        if (isDesktop()) {
+          data = await TelemetryService.Config()
+        } else {
+          const response = await fetch('/api/telemetry/config')
+          if (!response.ok) return
+          data = await response.json()
+        }
+        setConfig(data)
 
-          // Initialize Mixpanel if telemetry is enabled and token is configured
-          if (data.enabled && data.anonymousId && MIXPANEL_TOKEN) {
-            mixpanel.init(MIXPANEL_TOKEN, {
-              // Privacy-focused configuration
-              ip: false, // Don't track IP addresses
-              persistence: 'localStorage',
-              track_pageview: false, // We'll track this manually
-              debug: false,
-            })
+        // Initialize Mixpanel if telemetry is enabled and token is configured
+        if (data.enabled && data.anonymousId && MIXPANEL_TOKEN) {
+          mixpanel.init(MIXPANEL_TOKEN, {
+            // Privacy-focused configuration
+            ip: false, // Don't track IP addresses
+            persistence: 'localStorage',
+            track_pageview: false, // We'll track this manually
+            debug: false,
+          })
 
-            // Identify with the anonymous ID from backend
-            mixpanel.identify(data.anonymousId)
+          // Identify with the anonymous ID from backend
+          mixpanel.identify(data.anonymousId)
 
-            // Set super properties that persist across all events
-            mixpanel.register({
-              version: data.version,
-              platform: 'web',
-            })
+          // Set super properties that persist across all events
+          mixpanel.register({
+            version: data.version,
+            platform: 'web',
+          })
 
-            setIsInitialized(true)
+          setIsInitialized(true)
 
-            // Track page view on initialization
-            mixpanel.track('app_loaded')
-          }
+          // Track page view on initialization
+          mixpanel.track('app_loaded')
         }
       } catch (error) {
         // Silently ignore errors - telemetry should never impact user experience

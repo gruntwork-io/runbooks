@@ -54,6 +54,8 @@ func Run(opts Options) error {
 		return fmt.Errorf("build welcome service: %w", err)
 	}
 
+	telemetrySvc := services.NewTelemetryService()
+
 	handler, err := assetHandler(welcome)
 	if err != nil {
 		return fmt.Errorf("build asset handler: %w", err)
@@ -68,6 +70,7 @@ func Run(opts Options) error {
 		},
 		Services: []application.Service{
 			application.NewService(welcome),
+			application.NewService(telemetrySvc),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",
