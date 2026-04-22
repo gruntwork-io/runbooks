@@ -18,6 +18,7 @@ type Services struct {
 	Tf             *TfService
 	GeneratedFiles *GeneratedFilesService
 	Workspace      *WorkspaceService
+	Exec           *ExecService
 
 	// emitter is the transport services push streaming events through
 	// (exec logs, git clone progress, watcher notifications). Stored
@@ -55,6 +56,7 @@ func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 		Tf:             &TfService{servers: servers},
 		GeneratedFiles: &GeneratedFilesService{servers: servers},
 		Workspace:      &WorkspaceService{},
+		Exec:           NewExecService(servers, emitter),
 		emitter:        emitter,
 	}, nil
 }

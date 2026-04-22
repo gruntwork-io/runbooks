@@ -188,6 +188,13 @@ type ServerConfig struct {
 	// (gruntbooks serve on older builds, tests); buildHandler creates
 	// a private one in that case.
 	Sessions *SessionManager
+
+	// Registry is the shared ExecutableRegistry built from the open
+	// gruntbook. When non-nil, Gin uses it instead of parsing the
+	// gruntbook again — M4's IPC ExecService needs the same registry
+	// Gin is already serving so script lookups match byte-for-byte.
+	// Only populated when UseExecutableRegistry is true.
+	Registry *ExecutableRegistry
 }
 
 // StartServer starts the API server and blocks until it exits.
@@ -273,8 +280,8 @@ func buildHandler(cfg ServerConfig) (http.Handler, func(), error) {
 		return nil, nil, fmt.Errorf("failed to resolve gruntbook path: %w", err)
 	}
 
-	var registry *ExecutableRegistry
-	if cfg.UseExecutableRegistry {
+	registry := cfg.Registry
+	if registry == nil && cfg.UseExecutableRegistry {
 		registry, err = NewExecutableRegistry(resolvedPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create executable registry: %w", err)

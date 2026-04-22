@@ -91,107 +91,44 @@ func HandleExecRequest(registry *ExecutableRegistry, gruntbookPath string, useEx
 			return
 		}
 
-		// Get session context (set by SessionAuthMiddleware)
 		execCtx := GetSessionExecContext(c)
 		if execCtx == nil {
-			// This shouldn't happen if middleware is configured correctly
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session context not found. This is a server configuration error."})
 			return
 		}
 
-		// Get executable from registry or by parsing gruntbook
-		executable, err := getExecutable(registry, gruntbookPath, useExecutableRegistry, req)
+		runCfg := ExecRunConfig{
+			Registry:      registry,
+			GruntbookPath: gruntbookPath,
+			UseRegistry:   useExecutableRegistry,
+			WorkingDir:    workingDir,
+			CliOutputPath: cliOutputPath,
+			Sessions:      sessionManager,
+			ExecCtx:       execCtx,
+		}
+
+		res, cmdConfig, err := RunExecPrepare(req, runCfg)
 		if err != nil {
-			c.JSON(err.statusCode, gin.H{"error": err.message})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		defer res.Cleanup()
 
-		// Prepare script content (render templates if needed)
-		scriptContent, err2 := prepareScriptContent(executable, req.TemplateVarValues)
-		if err2 != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err2.Error()})
-			return
-		}
-
-		// Create a temp directory for file capture (GENERATED_FILES)
-		// Scripts can write files here to have them captured to the output directory
-		filesDir, err2 := os.MkdirTemp("", "gruntbook-files-*")
-		if err2 != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create files directory: %v", err2)})
-			return
-		}
-		defer os.RemoveAll(filesDir)
-
-		// Create a temp file for block outputs (RUNBOOK_OUTPUT)
-		outputFilePath, err2 := createOutputFile()
-		if err2 != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err2.Error()})
-			return
-		}
-		defer os.Remove(outputFilePath)
-
-		// Prepare script for execution (handles interpreter detection, env capture wrapping, temp files)
-		scriptSetup, err2 := PrepareScriptForExecution(scriptContent, executable.Language)
-		if err2 != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err2.Error()})
-			return
-		}
-		defer scriptSetup.Cleanup()
-
-		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 
-		// Create context with 5 minute timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-
-		// Set up command configuration
-		cmdConfig := execCommandConfig{
-			scriptPath:   scriptSetup.ScriptPath,
-			interpreter:  scriptSetup.Interpreter,
-			args:         scriptSetup.Args,
-			execCtx:      execCtx,
-			envVars:      req.EnvVarsOverride,
-			outputFile:   outputFilePath,
-			filesDir:     filesDir,
-			workTreePath: sessionManager.GetActiveWorkTreePath(),
-		}
-
-		// Create channels for streaming output
-		outputChan := make(chan outputLine, 100)
-		doneChan := make(chan error, 1)
-
-		// Determine if PTY should be used (defaults to true if not specified)
-		usePTY := req.UsePTY == nil || *req.UsePTY
-
-		// Start command execution (PTY with fallback to pipes)
-		if err := startCommandExecution(ctx, cmdConfig, usePTY, outputChan, doneChan); err != nil {
-			sendSSEError(c, err.Error())
-			return
-		}
-
-		// Flush writer for SSE
 		flusher, ok := c.Writer.(http.Flusher)
 		if !ok {
 			sendSSEError(c, "Streaming not supported")
 			return
 		}
 
-		// Resolve output path relative to working directory
-		resolvedOutputPath := cliOutputPath
-		if !filepath.IsAbs(cliOutputPath) {
-			resolvedOutputPath = filepath.Join(workingDir, cliOutputPath)
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
 
-		// Stream logs and wait for completion
-		envCaptureConfig := &envCaptureConfig{
-			scriptSetup:    scriptSetup,
-			sessionManager: sessionManager,
-			execCtx:        execCtx,
-		}
-		streamExecutionOutput(c, flusher, outputChan, doneChan, ctx, outputFilePath, filesDir, resolvedOutputPath, envCaptureConfig)
+		sink := NewGinSSEEventSink(c, flusher)
+		RunExecStream(ctx, req, runCfg, res, cmdConfig, sink)
 	}
 }
 
