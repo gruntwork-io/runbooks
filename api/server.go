@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gruntwork-io/runbooks/adapters"
 	"github.com/gruntwork-io/runbooks/api/telemetry"
 	"github.com/gruntwork-io/runbooks/web"
 
@@ -13,7 +14,7 @@ import (
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, useExecutableRegistry bool) {
+func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, tokens *TokenResolver, useExecutableRegistry bool) {
 	// If the gruntbook contains AwsAuth blocks, strip AWS credentials from session
 	// at creation time. This ensures users must explicitly confirm which AWS account
 	// they want to use before any scripts can access the credentials.
@@ -107,14 +108,14 @@ func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, o
 		protectedAPI.GET("/github/repos", HandleGitHubListRepos(sessionManager))
 		protectedAPI.GET("/github/refs", HandleGitHubListRefs(sessionManager))
 		// Git clone endpoint (SSE streaming)
-		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir))
+		protectedAPI.POST("/git/clone", HandleGitClone(sessionManager, workingDir, tokens))
 		// GitHub pull request endpoints
 		protectedAPI.GET("/github/labels", HandleGitHubListLabels(sessionManager))
 		protectedAPI.POST("/git/pull-request", HandleGitPullRequest(sessionManager))
 		protectedAPI.POST("/git/push", HandleGitPush(sessionManager))
 		protectedAPI.DELETE("/git/branch", HandleGitDeleteBranch())
 		// OpenTofu module parsing (reads local files and may clone remote repos with user tokens)
-		protectedAPI.POST("/tf/parse", HandleTfModuleParse(gruntbookPath))
+		protectedAPI.POST("/tf/parse", HandleTfModuleParse(gruntbookPath, tokens))
 		// Workspace endpoints for file tree, file content, and git changes
 		protectedAPI.GET("/workspace/tree", HandleWorkspaceTree())
 		protectedAPI.GET("/workspace/dirs", HandleWorkspaceDirs())
@@ -195,6 +196,11 @@ func StartServer(cfg ServerConfig) error {
 
 	sessionManager := NewSessionManager()
 
+	// Host-backed adapters for the ports consumed by handlers built in
+	// setupCommonRoutes. A hosted build would swap in tenant-scoped
+	// adapters here without changing anything downstream.
+	tokens := NewTokenResolver(adapters.NewOsEnvironment(), adapters.NewOsProcessSpawner())
+
 	r := newGinEngine(cfg.ReleaseMode)
 	r.SetTrustedProxies(nil)
 
@@ -224,7 +230,7 @@ func StartServer(cfg ServerConfig) error {
 		r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 	}
 
-	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, cfg.UseExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, tokens, cfg.UseExecutableRegistry)
 
 	return r.Run(fmt.Sprintf("127.0.0.1:%d", cfg.Port))
 }
