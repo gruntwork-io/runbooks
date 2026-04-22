@@ -149,6 +149,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return {}
   }, [])
 
+  const getToken = useCallback((): string | null => tokenRef.current, [])
+
   // Reset the session to its initial environment state
   const resetSession = useCallback(async (): Promise<void> => {
     if (!tokenRef.current) {
@@ -183,7 +185,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, [])
 
   return (
-    <SessionContext.Provider value={{ isReady, getAuthHeader, resetSession, error }}>
+    <SessionContext.Provider value={{ isReady, getAuthHeader, getToken, resetSession, error }}>
       {children}
     </SessionContext.Provider>
   )

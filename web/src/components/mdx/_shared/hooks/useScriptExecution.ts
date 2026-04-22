@@ -16,6 +16,9 @@ import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutput
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
+import { isDesktop } from '@/lib/wails'
+import * as BoilerplateService from '@/bindings/github.com/gruntwork-io/runbooks/services/boilerplateservice'
+import { RenderInlineRequest } from '@/bindings/github.com/gruntwork-io/runbooks/api/models'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -427,41 +430,60 @@ export function useScriptExecution({
     }
     
     try {
-      const response = await fetch('/api/boilerplate/render-inline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let renderedFiles: Record<string, { content?: string } | undefined> | undefined
+
+      if (isDesktop()) {
+        // Desktop IPC: no AbortController equivalent; isMountedRef guards
+        // stale updates if the component unmounted mid-flight.
+        const req = RenderInlineRequest.createFrom({
           templateFiles,
-          inputs,
-        }),
-        signal: abortController.signal
-      })
+          inputs: inputs as unknown as Parameters<typeof RenderInlineRequest.createFrom>[0]['inputs'],
+        })
+        const res = await BoilerplateService.RenderInline(req)
+        if (!isMountedRef.current) return
+        if (!res) {
+          setRenderError(createAppError('Failed to render script', 'RenderInline returned null'))
+          setIsRendering(false)
+          return
+        }
+        renderedFiles = res.renderedFiles as unknown as Record<string, { content?: string }>
+      } else {
+        const response = await fetch('/api/boilerplate/render-inline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            templateFiles,
+            inputs,
+          }),
+          signal: abortController.signal
+        })
 
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
+        // Check if component is still mounted before updating state
+        if (!isMountedRef.current) return
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const errorMessage = errorData?.error || 'Failed to render script'
-        setRenderError(createAppError(errorMessage, errorData?.details))
-        setIsRendering(false)
-        return
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null)
+          const errorMessage = errorData?.error || 'Failed to render script'
+          setRenderError(createAppError(errorMessage, errorData?.details))
+          setIsRendering(false)
+          return
+        }
+
+        const responseData = await response.json()
+        renderedFiles = responseData.renderedFiles
       }
 
-      const responseData = await response.json()
-      const renderedFiles = responseData.renderedFiles
-      
       // Check if we got the expected file structure
       if (!renderedFiles || !renderedFiles['script.sh']) {
         setRenderError(createAppError(
           'Render response missing expected file',
-          'The API did not return the rendered script.sh file'
+          'The render service did not return the rendered script.sh file'
         ))
         setIsRendering(false)
         return
       }
-      
-      setRenderedScript(renderedFiles['script.sh'].content)
+
+      setRenderedScript(renderedFiles['script.sh']?.content ?? null)
       setIsRendering(false)
     } catch (err) {
       // Check if component is still mounted before updating state

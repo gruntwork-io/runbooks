@@ -1,8 +1,12 @@
 import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
+import { Events } from '@wailsio/runtime'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
 import { useSession } from '@/contexts/useSession'
+import { isDesktop } from '@/lib/wails'
+import * as ExecService from '@/bindings/github.com/gruntwork-io/runbooks/services/execservice'
+import { ExecRequest } from '@/bindings/github.com/gruntwork-io/runbooks/api/models'
 
 // Zod schemas for SSE events
 const ExecLogEventSchema = z.object({
@@ -86,7 +90,7 @@ export interface UseApiExecReturn {
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const { onFilesCaptured, onOutputsCaptured } = options || {}
-  const { getAuthHeader } = useSession()
+  const { getAuthHeader, getToken } = useSession()
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: 'pending',
@@ -98,9 +102,17 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const eventSourceRef = useRef<EventSource | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  // Desktop IPC run tracking: runID returned by ExecService.Run + the
+  // unsubscribe functions for each event topic we're listening on.
+  const runIDRef = useRef<string | null>(null)
+  const ipcUnsubsRef = useRef<Array<() => void>>([])
+
   const cancel = useCallback(() => {
     // Track if there was actually something to cancel
-    const hadActiveExecution = eventSourceRef.current !== null || abortControllerRef.current !== null
+    const hadActiveExecution =
+      eventSourceRef.current !== null ||
+      abortControllerRef.current !== null ||
+      runIDRef.current !== null
 
     // Close SSE connection
     if (eventSourceRef.current) {
@@ -112,6 +124,20 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
+    }
+
+    // Cancel IPC run: unsubscribe event listeners and ask the backend to
+    // stop the running goroutine. Backend Cancel is idempotent.
+    if (ipcUnsubsRef.current.length > 0) {
+      for (const unsub of ipcUnsubsRef.current) unsub()
+      ipcUnsubsRef.current = []
+    }
+    if (runIDRef.current) {
+      const rid = runIDRef.current
+      runIDRef.current = null
+      ExecService.Cancel(rid).catch((err) => {
+        console.error('[useApiExec] IPC cancel failed:', err)
+      })
     }
 
     // Only add cancellation log and update state if there was actually an active execution
@@ -134,6 +160,166 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       outputs: null,
     })
   }, [cancel])
+
+  // Desktop-mode execution: call ExecService.Run over Wails IPC and
+  // subscribe to `exec:<runID>:*` topic events. Mirrors the SSE handler
+  // below in terms of state transitions and Zod validation so both
+  // transports surface identical bugs and error messages.
+  const executeOverIpc = useCallback(
+    async (payload: {
+      executable_id?: string
+      component_id?: string
+      template_var_values: Record<string, unknown>
+      env_vars_override?: Record<string, string>
+      use_pty?: boolean
+    }) => {
+      try {
+        const req = ExecRequest.createFrom({
+          executable_id: payload.executable_id,
+          component_id: payload.component_id,
+          template_var_values: payload.template_var_values,
+          env_vars_override: payload.env_vars_override,
+          use_pty: payload.use_pty,
+        })
+        const token = getToken() ?? ''
+        const result = await ExecService.Run(token, req)
+        if (!result) {
+          setState((prev) => ({
+            ...prev,
+            status: 'fail',
+            error: createAppError('Failed to start execution', 'ExecService.Run returned null'),
+            logs: [...prev.logs, createLogEntry('Error: ExecService.Run returned null')],
+          }))
+          return
+        }
+
+        const runID = result.runId
+        runIDRef.current = runID
+
+        const topic = (event: string) => `exec:${runID}:${event}`
+        const unsubs: Array<() => void> = []
+
+        unsubs.push(
+          Events.On(topic('log'), (ev) => {
+            const parsed = ExecLogEventSchema.safeParse(ev.data)
+            if (!parsed.success) {
+              console.error('Invalid log event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                logs: [...prev.logs, createLogEntry('[Unable to parse log output]')],
+              }))
+              return
+            }
+            const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+            setState((prev) => {
+              if (parsed.data.replace && prev.logs.length > 0) {
+                const updatedLogs = [...prev.logs]
+                updatedLogs[updatedLogs.length - 1] = newEntry
+                return { ...prev, logs: updatedLogs }
+              }
+              return { ...prev, logs: [...prev.logs, newEntry] }
+            })
+          }),
+        )
+
+        unsubs.push(
+          Events.On(topic('status'), (ev) => {
+            const parsed = ExecStatusEventSchema.safeParse(ev.data)
+            if (!parsed.success) {
+              console.error('Invalid status event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                status: 'fail',
+                error: createAppError(
+                  'Failed to parse execution status',
+                  'The desktop app received a malformed status event. This may indicate a version mismatch.',
+                ),
+              }))
+              return
+            }
+            setState((prev) => ({
+              ...prev,
+              status: parsed.data.status,
+              exitCode: parsed.data.exitCode,
+            }))
+          }),
+        )
+
+        unsubs.push(
+          Events.On(topic('outputs'), (ev) => {
+            const parsed = BlockOutputsEventSchema.safeParse(ev.data)
+            if (!parsed.success) {
+              console.error('Invalid outputs event:', parsed.error)
+              return
+            }
+            setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
+            if (onOutputsCaptured) onOutputsCaptured(parsed.data.outputs)
+          }),
+        )
+
+        unsubs.push(
+          Events.On(topic('files_captured'), (ev) => {
+            const parsed = FilesCapturedEventSchema.safeParse(ev.data)
+            if (!parsed.success) {
+              console.error('Invalid files_captured event:', parsed.error)
+              setState((prev) => ({
+                ...prev,
+                error: createAppError(
+                  'Files captured but not displayed',
+                  'Your files were saved successfully, but could not be shown in the file tree. Check the output directory manually.',
+                ),
+                logs: [...prev.logs, createLogEntry('⚠️ Files were captured but could not be displayed')],
+              }))
+              return
+            }
+            if (onFilesCaptured) onFilesCaptured(parsed.data)
+            setState((prev) => ({
+              ...prev,
+              logs: [...prev.logs, createLogEntry(`📁 Captured ${parsed.data.count} file(s) to workspace`)],
+            }))
+          }),
+        )
+
+        unsubs.push(
+          Events.On(topic('error'), (ev) => {
+            const parsed = ExecErrorEventSchema.safeParse(ev.data)
+            const errorData = parsed.success
+              ? parsed.data
+              : { message: undefined, details: undefined }
+            setState((prev) => ({
+              ...prev,
+              status: 'fail',
+              error: createAppError(
+                errorData.message || 'Unknown error',
+                errorData.details || 'An error occurred during script execution',
+              ),
+            }))
+          }),
+        )
+
+        unsubs.push(
+          Events.On(topic('done'), () => {
+            // Release listeners and the run slot. Status event already
+            // transitioned the UI; `done` is just the terminal signal.
+            for (const u of ipcUnsubsRef.current) u()
+            ipcUnsubsRef.current = []
+            runIDRef.current = null
+          }),
+        )
+
+        ipcUnsubsRef.current = unsubs
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        setState((prev) => ({
+          ...prev,
+          status: 'fail',
+          error: createAppError('Failed to start script execution', errorMessage),
+          logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
+        }))
+      }
+    },
+    [getToken, onFilesCaptured, onOutputsCaptured],
+  )
 
   // Process SSE (Server-Sent Events) stream from the server
   // Receives and handles all execution events: logs, status updates, exit codes, and errors
@@ -314,6 +500,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       outputs: null,
     })
 
+    if (isDesktop()) {
+      await executeOverIpc(payload)
+      return
+    }
+
     try {
       // Create abort controller for fetch request
       const abortController = new AbortController()
@@ -368,7 +559,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     } finally {
       abortControllerRef.current = null
     }
-  }, [cancel, processSSEStream, getAuthHeader])
+  }, [cancel, processSSEStream, executeOverIpc, getAuthHeader])
 
   // Execute script by executable ID (used in registry mode)
   const execute = useCallback(
