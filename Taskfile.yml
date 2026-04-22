@@ -65,6 +65,22 @@ tasks:
     generates:
       - bin/Gruntbooks
 
+  desktop:icon:gen:
+    desc: "Regenerate desktop/assets/icon.png and icon.icns from the SVG source (requires rsvg-convert + imagemagick)"
+    dir: desktop/assets
+    cmds:
+      - rsvg-convert -w 1024 -a gruntbooks-logomark-dark.svg -o /tmp/gruntbooks-icon-raw.png
+      - magick /tmp/gruntbooks-icon-raw.png -background none -gravity center -extent 1024x1024 icon.png
+      - mkdir -p /tmp/gruntbooks.iconset
+      - for size in 16 32 128 256 512; do double=$(($$size*2)); magick icon.png -resize $${size}x$${size} /tmp/gruntbooks.iconset/icon_$${size}x$${size}.png; magick icon.png -resize $${double}x$${double} /tmp/gruntbooks.iconset/icon_$${size}x$${size}@2x.png; done
+      - iconutil -c icns /tmp/gruntbooks.iconset -o icon.icns
+      - rm -rf /tmp/gruntbooks.iconset /tmp/gruntbooks-icon-raw.png
+    sources:
+      - gruntbooks-logomark-dark.svg
+    generates:
+      - icon.png
+      - icon.icns
+
   test:
     desc: Run all tests (frontend, backend, gruntbooks, and docs)
     cmds:
