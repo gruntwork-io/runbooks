@@ -107,6 +107,13 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const runIDRef = useRef<string | null>(null)
   const ipcUnsubsRef = useRef<Array<() => void>>([])
 
+  // Cancel-while-starting guard. cancel() flips this to true; the
+  // ExecService.Run resolver checks it before subscribing. Without
+  // this, a cancel issued during the Run await window is lost — the
+  // refs it inspects are still empty, and by the time Run returns the
+  // backend goroutine is already alive with no listeners attached.
+  const runStartCancelledRef = useRef(false)
+
   const cancel = useCallback(() => {
     // Track if there was actually something to cancel
     const hadActiveExecution =
@@ -139,6 +146,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         console.error('[useApiExec] IPC cancel failed:', err)
       })
     }
+
+    // Signal any in-flight ExecService.Run awaiting a runID that the
+    // user has cancelled. The resolver cancels the returned runID
+    // instead of subscribing, so no backend goroutine leaks.
+    runStartCancelledRef.current = true
 
     // Only add cancellation log and update state if there was actually an active execution
     if (hadActiveExecution) {
@@ -173,6 +185,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       env_vars_override?: Record<string, string>
       use_pty?: boolean
     }) => {
+      // Starting a fresh run: clear any stale cancel signal left over
+      // from executeScript's cancel() call. A user-initiated cancel()
+      // between here and the ExecService.Run resolution will re-raise
+      // the flag, and the post-await check below will honor it.
+      runStartCancelledRef.current = false
+
       try {
         const req = ExecRequest.createFrom({
           executable_id: payload.executable_id,
@@ -183,6 +201,19 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         })
         const token = getToken() ?? ''
         const result = await ExecService.Run(token, req)
+
+        // Cancel fired while Run was in flight. Roll back the
+        // just-started backend run and skip subscription setup so no
+        // listeners leak and no runIDRef is registered.
+        if (runStartCancelledRef.current) {
+          if (result?.runId) {
+            ExecService.Cancel(result.runId).catch((err) => {
+              console.error('[useApiExec] IPC late-cancel failed:', err)
+            })
+          }
+          return
+        }
+
         if (!result) {
           setState((prev) => ({
             ...prev,
