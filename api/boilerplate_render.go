@@ -132,6 +132,9 @@ func RenderBoilerplate(req RenderRequest, gruntbookPath string, workingDir strin
 	if req.TemplateID == "" {
 		return nil, renderErr(http.StatusBadRequest, "templateId is required", nil)
 	}
+	if err := ValidateRelativePath(req.TemplatePath); err != nil {
+		return nil, renderErr(http.StatusBadRequest, "invalid templatePath", err)
+	}
 
 	gruntbookDir := filepath.Dir(gruntbookPath)
 	fullTemplatePath := filepath.Join(gruntbookDir, req.TemplatePath)
