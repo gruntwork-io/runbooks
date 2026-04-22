@@ -114,7 +114,7 @@ func installAppMenu(app *application.App) {
 
 	appSubmenu := menu.AddSubmenu("Gruntbooks")
 	appSubmenu.Add("About Gruntbooks").OnClick(func(_ *application.Context) {
-		app.Menu.ShowAbout()
+		showAboutDialog(app)
 	})
 	appSubmenu.AddSeparator()
 	appSubmenu.AddRole(application.ServicesMenu)
@@ -132,6 +132,31 @@ func installAppMenu(app *application.App) {
 	menu.AddRole(application.HelpMenu)
 
 	app.Menu.SetApplicationMenu(menu)
+}
+
+// showAboutDialog opens an NSAlert-based About panel with our embedded
+// icon and buttons that deep-link to the docs site and the GitHub repo.
+// Using the MessageDialog API (rather than app.Menu.ShowAbout) gives us
+// control over buttons so users have a one-click path to both resources.
+// NSAlert dismisses on any button press — that's expected, native About
+// panels typically only have a single action.
+func showAboutDialog(app *application.App) {
+	dialog := app.Dialog.Info()
+	dialog.SetTitle("Gruntbooks")
+	dialog.SetMessage("Gruntbooks by Gruntwork\n\nInteractive runbooks for DevOps subject-matter experts.")
+	dialog.SetIcon(iconPNG)
+	// NSAlert renders buttons right-to-left in the order added to the
+	// underlying list's reverse — Wails' macOS dialog impl reverses
+	// before calling addButtonWithTitle:, so the LAST AddButton call
+	// ends up rightmost. We want OK rightmost (default).
+	dialog.AddButton("Documentation").OnClick(func() {
+		_ = app.Browser.OpenURL("https://gruntbooks.gruntwork.io")
+	})
+	dialog.AddButton("View on GitHub").OnClick(func() {
+		_ = app.Browser.OpenURL("https://github.com/gruntwork-io/gruntbooks")
+	})
+	dialog.AddButton("OK").SetAsDefault()
+	dialog.Show()
 }
 
 // assetHandler returns an http.Handler that:
