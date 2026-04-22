@@ -68,20 +68,6 @@ type WelcomeService struct {
 	initialPath string
 }
 
-// NewWelcomeService builds a WelcomeService ready to be registered with
-// application.NewService. initialPath may be empty.
-func NewWelcomeService(initialPath string) (*WelcomeService, error) {
-	recent, err := newRecentStore()
-	if err != nil {
-		return nil, fmt.Errorf("init recent store: %w", err)
-	}
-	return &WelcomeService{
-		servers:     &serverManager{},
-		recent:      recent,
-		initialPath: initialPath,
-	}, nil
-}
-
 // ServiceName satisfies the optional application.ServiceName interface
 // so the Wails runtime logs this service with a friendly name.
 func (s *WelcomeService) ServiceName() string {

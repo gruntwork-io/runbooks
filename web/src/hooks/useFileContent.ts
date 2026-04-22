@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useSession } from '../contexts/useSession'
+import * as WorkspaceService from '@/bindings/github.com/gruntwork-io/runbooks/services/workspaceservice'
+import { isDesktop } from '@/lib/wails'
 
 interface FileContentResult {
   path: string
@@ -60,17 +62,24 @@ export function useFileContent(): UseFileContentResult {
     setError(null)
 
     try {
-      const response = await fetch(
-        `/api/workspace/file?path=${encodeURIComponent(filePath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
+      let data: FileContentResult
+      if (isDesktop()) {
+        const res = await WorkspaceService.File(filePath)
+        if (!res) throw new Error('workspace file returned empty')
+        data = { ...res } as FileContentResult
+      } else {
+        const response = await fetch(
+          `/api/workspace/file?path=${encodeURIComponent(filePath)}`,
+          { headers: { ...getAuthHeader() } }
+        )
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || `Failed to load file (${response.status})`)
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          throw new Error(errData.error || `Failed to load file (${response.status})`)
+        }
+
+        data = await response.json()
       }
-
-      const data: FileContentResult = await response.json()
 
       if (cache.size >= MAX_CACHE_SIZE) {
         const oldestKey = cache.keys().next().value

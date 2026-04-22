@@ -1,17 +1,14 @@
 import { useState, useCallback } from 'react';
+import * as GeneratedFilesService from '@/bindings/github.com/gruntwork-io/runbooks/services/generatedfilesservice';
+import { isDesktop } from '@/lib/wails';
 
-/**
- * Response from the generated files delete API
- */
+// Response from the generated files delete API
 export interface GeneratedFilesDeleteResult {
   success: boolean;
   deletedCount: number;
   message: string;
 }
 
-/**
- * Return type for the delete hook
- */
 export interface UseApiGeneratedFilesDeleteReturn {
   deleteFiles: () => Promise<boolean>;
   isDeleting: boolean;
@@ -19,9 +16,9 @@ export interface UseApiGeneratedFilesDeleteReturn {
   deleteSuccess: GeneratedFilesDeleteResult | null;
 }
 
-/**
- * Hook to delete generated files from the output directory
- */
+// Deletes all files in the output directory. Uses IPC on desktop;
+// falls back to the Gin DELETE endpoint in the browser until M5.
+// Imperative (not auto-triggering) because the user clicks a button.
 export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<{ message: string; details?: string } | null>(null);
@@ -33,6 +30,15 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
     setDeleteSuccess(null);
 
     try {
+      if (isDesktop()) {
+        const res = await GeneratedFilesService.Delete();
+        if (!res) throw new Error('generated-files delete returned empty');
+        const data: GeneratedFilesDeleteResult = { ...res };
+        setDeleteSuccess(data);
+        setIsDeleting(false);
+        return true;
+      }
+
       const response = await fetch('/api/generated-files/delete', {
         method: 'DELETE',
       });
@@ -68,4 +74,3 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
     deleteSuccess,
   };
 }
-

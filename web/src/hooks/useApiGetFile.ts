@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import { useApi } from './useApi';
+import { useServiceCall } from './useServiceCall';
 import type { UseApiReturn } from './useApi';
+import * as FileService from '@/bindings/github.com/gruntwork-io/runbooks/services/fileservice';
+import { isDesktop } from '@/lib/wails';
 
 // API response wrapper for hooks that specifically request file data
 export interface GetFileReturn {
@@ -16,18 +19,35 @@ export interface GetFileReturn {
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseApiReturn<GetFileReturn> {
-  // Only fetch if we have a path and shouldFetch is true
   const shouldActuallyFetch = shouldFetch && Boolean(path);
-  
-  // Build the request body with the path, memoized to prevent infinite loops
+
+  // Browser mode: the HTTP endpoint remains the source of truth until M5
+  // removes Gin. Build the request body here so the hook short-circuits
+  // when shouldActuallyFetch is false (empty endpoint skips the fetch).
   const requestBody = useMemo(() => {
     return shouldActuallyFetch ? { path } : undefined;
   }, [path, shouldActuallyFetch]);
-  
-  // Use empty endpoint when we shouldn't fetch (prevents API call)
-  return useApi<GetFileReturn>(
-    shouldActuallyFetch ? '/api/file' : '',
+
+  const httpResult = useApi<GetFileReturn>(
+    !isDesktop() && shouldActuallyFetch ? '/api/file' : '',
     'POST',
-    requestBody
+    requestBody,
   );
+
+  // Desktop mode: call the IPC binding. `lazy` prevents the auto-fetch
+  // when we shouldn't be fetching yet.
+  const ipcResult = useServiceCall<GetFileReturn>(
+    async () => {
+      const res = await FileService.Read(path);
+      if (!res) throw new Error(`file not found: ${path}`);
+      // IPC response is a class instance; spread to a plain object so
+      // consumers can rely on the GetFileReturn shape without prototype
+      // quirks.
+      return { ...res };
+    },
+    [path],
+    { lazy: !(isDesktop() && shouldActuallyFetch) },
+  );
+
+  return isDesktop() ? ipcResult : httpResult;
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession } from '@/contexts/useSession'
 import { useGruntbookContext } from '@/contexts/useGruntbook'
 import { normalizeBlockId } from '@/lib/utils'
+import * as WorkspaceService from '@/bindings/github.com/gruntwork-io/runbooks/services/workspaceservice'
+import { isDesktop } from '@/lib/wails'
 
 interface UseDirPickerOptions {
   id: string
@@ -49,6 +51,10 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
     if (!sessionReady) return []
     try {
+      if (isDesktop()) {
+        const res = await WorkspaceService.Dirs(absPath)
+        return res ?? []
+      }
       const response = await fetch(`/api/workspace/dirs?path=${encodeURIComponent(absPath)}`, {
         headers: { ...getAuthHeader() },
       })

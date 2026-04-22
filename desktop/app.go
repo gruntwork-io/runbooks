@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"runtime"
 	"strings"
 
 	"github.com/gruntwork-io/runbooks/services"
@@ -49,29 +50,35 @@ type Options struct {
 // closed. Returns any error from the Wails runtime; callers typically
 // log.Fatal on failure.
 func Run(opts Options) error {
-	welcome, err := services.NewWelcomeService(opts.InitialPath)
+	svcs, err := services.NewServices(opts.InitialPath)
 	if err != nil {
-		return fmt.Errorf("build welcome service: %w", err)
+		return fmt.Errorf("build services: %w", err)
 	}
 
-	handler, err := assetHandler(welcome)
+	handler, err := assetHandler(svcs.Welcome)
 	if err != nil {
 		return fmt.Errorf("build asset handler: %w", err)
 	}
 
 	app := application.New(application.Options{
 		Name:        "Gruntbooks",
-		Description: "Gruntbooks desktop",
+		Description: "Gruntbooks by Gruntwork\n\nInteractive runbooks for DevOps subject-matter experts.",
 		Icon:        iconPNG,
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 		Services: []application.Service{
-			application.NewService(welcome),
+			application.NewService(svcs.Welcome),
+			application.NewService(svcs.Telemetry),
+			application.NewService(svcs.File),
+			application.NewService(svcs.Boilerplate),
+			application.NewService(svcs.Tf),
+			application.NewService(svcs.GeneratedFiles),
+			application.NewService(svcs.Workspace),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",
-			OnSecondInstanceLaunch: welcome.HandleSecondInstance,
+			OnSecondInstanceLaunch: svcs.Welcome.HandleSecondInstance,
 		},
 		Assets: application.AssetOptions{
 			Handler: handler,
@@ -79,13 +86,52 @@ func Run(opts Options) error {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  opts.Title,
-		Width:  opts.Width,
-		Height: opts.Height,
-		URL:    "/",
+		Title:     opts.Title,
+		Width:     opts.Width,
+		Height:    opts.Height,
+		MinWidth:  500,
+		MinHeight: 400,
+		URL:       "/",
 	})
 
+	installAppMenu(app)
+
 	return app.Run()
+}
+
+// installAppMenu replaces the default application menu so the macOS
+// "About Gruntbooks" item routes through Wails' ShowAbout (an NSAlert
+// seeded with our embedded icon + description) rather than the
+// native orderFrontStandardAboutPanel: selector, which reads
+// Info.plist and shows a generic folder icon when run as a bare
+// binary. Menu layout otherwise mirrors DefaultApplicationMenu.
+func installAppMenu(app *application.App) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+
+	menu := app.NewMenu()
+
+	appSubmenu := menu.AddSubmenu("Gruntbooks")
+	appSubmenu.Add("About Gruntbooks").OnClick(func(_ *application.Context) {
+		app.Menu.ShowAbout()
+	})
+	appSubmenu.AddSeparator()
+	appSubmenu.AddRole(application.ServicesMenu)
+	appSubmenu.AddSeparator()
+	appSubmenu.AddRole(application.Hide)
+	appSubmenu.AddRole(application.HideOthers)
+	appSubmenu.AddRole(application.UnHide)
+	appSubmenu.AddSeparator()
+	appSubmenu.AddRole(application.Quit)
+
+	menu.AddRole(application.FileMenu)
+	menu.AddRole(application.EditMenu)
+	menu.AddRole(application.ViewMenu)
+	menu.AddRole(application.WindowMenu)
+	menu.AddRole(application.HelpMenu)
+
+	app.Menu.SetApplicationMenu(menu)
 }
 
 // assetHandler returns an http.Handler that:

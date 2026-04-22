@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useGitWorkTree } from '../contexts/useGitWorkTree'
 import { useSession } from '../contexts/useSession'
+import * as WorkspaceService from '@/bindings/github.com/gruntwork-io/runbooks/services/workspaceservice'
+import { isDesktop } from '@/lib/wails'
 
 /**
  * A workspace tree node (structure only, no content).
@@ -68,20 +70,28 @@ export function useGitFileTree(): UseGitFileTreeResult {
     setError(null)
 
     try {
-      const response = await fetch(
-        `/api/workspace/tree?path=${encodeURIComponent(localPath)}`,
-        {
-          headers: { ...getAuthHeader() },
-          signal: controller.signal,
+      let data: WorkspaceTreeResponse
+      if (isDesktop()) {
+        const res = await WorkspaceService.Tree(localPath)
+        if (controller.signal.aborted) return
+        if (!res) throw new Error('workspace tree returned empty')
+        data = { ...res } as WorkspaceTreeResponse
+      } else {
+        const response = await fetch(
+          `/api/workspace/tree?path=${encodeURIComponent(localPath)}`,
+          {
+            headers: { ...getAuthHeader() },
+            signal: controller.signal,
+          }
+        )
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          throw new Error(errData.details || errData.error || `Failed to load file tree (${response.status})`)
         }
-      )
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.details || data.error || `Failed to load file tree (${response.status})`)
+        data = await response.json()
       }
-
-      const data: WorkspaceTreeResponse = await response.json()
       setTree(data.tree)
       setTotalFiles(data.totalFiles)
     } catch (err) {
@@ -133,18 +143,28 @@ export function useGitFileTree(): UseGitFileTreeResult {
     const absolutePath = `${basePath}/${subPath}`
 
     try {
-      const response = await fetch(
-        `/api/workspace/tree?path=${encodeURIComponent(absolutePath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
+      let data: WorkspaceTreeResponse
+      if (isDesktop()) {
+        const res = await WorkspaceService.Tree(absolutePath)
+        if (!res) {
+          console.error(`Failed to load subtree for "${nodeId}": empty response`)
+          return
+        }
+        data = { ...res } as WorkspaceTreeResponse
+      } else {
+        const response = await fetch(
+          `/api/workspace/tree?path=${encodeURIComponent(absolutePath)}`,
+          { headers: { ...getAuthHeader() } }
+        )
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        console.error(`Failed to load subtree for "${nodeId}": ${response.status}`, text)
-        return
+        if (!response.ok) {
+          const text = await response.text().catch(() => '')
+          console.error(`Failed to load subtree for "${nodeId}": ${response.status}`, text)
+          return
+        }
+
+        data = await response.json()
       }
-
-      const data: WorkspaceTreeResponse = await response.json()
       const prefixed = prefixTreeIds(data.tree, nodeId)
 
       setTree(prev => {
