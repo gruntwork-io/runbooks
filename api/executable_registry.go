@@ -419,9 +419,9 @@ func unescapeString(s string) string {
 	return s
 }
 
-// validateGruntbook validates a gruntbook for duplicate components
+// ValidateGruntbook validates a gruntbook for duplicate components
 // This is used in live-reload mode to provide warnings if duplicate components are detected
-func validateGruntbook(filePath string) ([]string, error) {
+func ValidateGruntbook(filePath string) ([]string, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read gruntbook: %w", err)

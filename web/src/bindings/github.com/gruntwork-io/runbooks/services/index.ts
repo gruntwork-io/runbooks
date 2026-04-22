@@ -8,6 +8,8 @@ import * as FileService from "./fileservice.js";
 import * as GeneratedFilesService from "./generatedfilesservice.js";
 import * as GitHubService from "./githubservice.js";
 import * as GitService from "./gitservice.js";
+import * as RunbookService from "./runbookservice.js";
+import * as SessionService from "./sessionservice.js";
 import * as TelemetryService from "./telemetryservice.js";
 import * as TfService from "./tfservice.js";
 import * as WatcherService from "./watcherservice.js";
@@ -21,6 +23,8 @@ export {
     GeneratedFilesService,
     GitHubService,
     GitService,
+    RunbookService,
+    SessionService,
     TelemetryService,
     TfService,
     WatcherService,
@@ -31,11 +35,14 @@ export {
 export {
     DesktopStatus,
     ExecRunResult,
+    ExecutablesResult,
     FileResult,
     GitRunResult,
+    GruntbookResult,
     OpenResult,
     ProfilesResponse,
     RecentEntry,
+    SessionSetEnvResult,
     WatchStartRequest,
     WatchStartResult
 } from "./models.js";

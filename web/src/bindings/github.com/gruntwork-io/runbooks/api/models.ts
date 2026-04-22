@@ -5,6 +5,10 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../../../time/models.js";
+
 /**
  * AuthType represents the type of authentication for an AWS profile
  */
@@ -532,6 +536,86 @@ export class ExecRequest {
         return new ExecRequest($$parsedSource as Partial<ExecRequest>);
     }
 }
+
+/**
+ * Executable represents a registered script that can be executed
+ */
+export class Executable {
+    "id": string;
+    "type": ExecutableType;
+    "component_id": string;
+
+    /**
+     * "check" or "command"
+     */
+    "component_type": string;
+
+    /**
+     * Hash of script content for drift detection
+     */
+    "script_content_hash": string;
+    "script_path"?: string;
+    "boilerplate_path"?: string;
+
+    /**
+     * Variable names used in template
+     */
+    "template_var_names"?: string[];
+    "language"?: string;
+
+    /** Creates a new Executable instance. */
+    constructor($$source: Partial<Executable> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = ExecutableType.$zero;
+        }
+        if (!("component_id" in $$source)) {
+            this["component_id"] = "";
+        }
+        if (!("component_type" in $$source)) {
+            this["component_type"] = "";
+        }
+        if (!("script_content_hash" in $$source)) {
+            this["script_content_hash"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Executable instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Executable {
+        const $$createField7_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("template_var_names" in $$parsedSource) {
+            $$parsedSource["template_var_names"] = $$createField7_0($$parsedSource["template_var_names"]);
+        }
+        return new Executable($$parsedSource as Partial<Executable>);
+    }
+}
+
+/**
+ * ExecutableType represents the source of the executable script
+ */
+export enum ExecutableType {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * Script defined in MDX via command prop
+     */
+    ExecutableTypeInline = "inline",
+
+    /**
+     * Script loaded from file via path prop
+     */
+    ExecutableTypeFile = "file",
+};
 
 /**
  * File represents a file with its content and metadata
@@ -2502,6 +2586,75 @@ export class Section {
             $$parsedSource["variables"] = $$createField1_0($$parsedSource["variables"]);
         }
         return new Section($$parsedSource as Partial<Section>);
+    }
+}
+
+/**
+ * SessionMetadata is the public-safe subset of Session returned by GET endpoints.
+ * Environment variables are intentionally excluded for security.
+ */
+export class SessionMetadata {
+    "workingDir": string;
+    "executionCount": number;
+    "createdAt": time$0.Time;
+    "lastActivity": time$0.Time;
+
+    /**
+     * Number of active tokens (browser tabs)
+     */
+    "activeTabs": number;
+
+    /** Creates a new SessionMetadata instance. */
+    constructor($$source: Partial<SessionMetadata> = {}) {
+        if (!("workingDir" in $$source)) {
+            this["workingDir"] = "";
+        }
+        if (!("executionCount" in $$source)) {
+            this["executionCount"] = 0;
+        }
+        if (!("createdAt" in $$source)) {
+            this["createdAt"] = null;
+        }
+        if (!("lastActivity" in $$source)) {
+            this["lastActivity"] = null;
+        }
+        if (!("activeTabs" in $$source)) {
+            this["activeTabs"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionMetadata instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionMetadata {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionMetadata($$parsedSource as Partial<SessionMetadata>);
+    }
+}
+
+/**
+ * SessionTokenResponse is returned when creating or restoring a session.
+ */
+export class SessionTokenResponse {
+    "token": string;
+
+    /** Creates a new SessionTokenResponse instance. */
+    constructor($$source: Partial<SessionTokenResponse> = {}) {
+        if (!("token" in $$source)) {
+            this["token"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionTokenResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionTokenResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionTokenResponse($$parsedSource as Partial<SessionTokenResponse>);
     }
 }
 

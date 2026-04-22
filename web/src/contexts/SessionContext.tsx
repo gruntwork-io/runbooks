@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react'
 import { SessionContext } from './SessionContext.types'
+import * as SessionService from '@/bindings/github.com/gruntwork-io/runbooks/services/sessionservice'
+import { isDesktop } from '@/lib/wails'
 
 interface SessionTokenResponse {
   token: string
@@ -11,30 +13,36 @@ interface SessionProviderProps {
 
 /**
  * Provider component that manages session lifecycle for the persistent environment model.
- * 
+ *
  * Session flow:
- * 1. On mount: Try to join existing session (POST /api/session/join)
+ * 1. On mount: Try to join existing session
  * 2. If session exists: Get a new token for this tab
- * 3. If no session exists: Create new session (POST /api/session)
+ * 3. If no session exists: Create new session
  * 4. Store token in memory only (cleared on tab close for security)
- * 
- * This "join first" approach ensures multiple browser tabs share the same session.
- * Each tab gets its own token, but they all operate on the same environment state.
+ *
+ * Desktop (Wails) mode calls SessionService bindings directly; browser
+ * mode falls back to the /api/session HTTP endpoints. M5 removes the
+ * HTTP path when Gin goes away.
  */
 export function SessionProvider({ children }: SessionProviderProps) {
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState<Error | null>(null)
-  
+
   // Token is stored in a ref to avoid re-renders when it changes
   // and to keep it out of React DevTools (security)
   const tokenRef = useRef<string | null>(null)
-  
+
   // Track if initialization has started to prevent double-init in StrictMode
   const initStartedRef = useRef(false)
 
   // Create a new session
   const createSession = useCallback(async (): Promise<SessionTokenResponse | null> => {
     try {
+      if (isDesktop()) {
+        const result = await SessionService.Create()
+        if (!result) return null
+        return { token: result.token }
+      }
       const response = await fetch('/api/session', {
         method: 'POST',
         headers: {
@@ -57,6 +65,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Join an existing session (for new tabs connecting to an existing session)
   const joinSession = useCallback(async (): Promise<SessionTokenResponse | null> => {
     try {
+      if (isDesktop()) {
+        const result = await SessionService.Join()
+        if (!result) return null
+        return { token: result.token }
+      }
       const response = await fetch('/api/session/join', {
         method: 'POST',
         headers: {
@@ -75,6 +88,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
       const data: SessionTokenResponse = await response.json()
       return data
     } catch (err) {
+      // Desktop "no gruntbook is open" / missing session is an expected
+      // state during bootstrap — treat it like the HTTP 401 path.
+      if (isDesktop()) {
+        return null
+      }
       console.error('[SessionContext] Failed to join session:', err)
       return null
     }
@@ -139,6 +157,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
 
     try {
+      if (isDesktop()) {
+        await SessionService.Reset(tokenRef.current)
+        console.log('[SessionContext] Session reset successfully')
+        return
+      }
+
       const response = await fetch('/api/session/reset', {
         method: 'POST',
         headers: {

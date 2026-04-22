@@ -99,6 +99,45 @@ export class ExecRunResult {
 }
 
 /**
+ * ExecutablesResult mirrors the JSON shape previously returned by
+ * GET /api/gruntbook/executables. Live-reload mode (no registry)
+ * returns an empty map + empty warnings rather than an error, matching
+ * the HTTP handler behavior.
+ */
+export class ExecutablesResult {
+    "executables": { [_ in string]?: api$0.Executable | null };
+    "warnings": string[];
+
+    /** Creates a new ExecutablesResult instance. */
+    constructor($$source: Partial<ExecutablesResult> = {}) {
+        if (!("executables" in $$source)) {
+            this["executables"] = {};
+        }
+        if (!("warnings" in $$source)) {
+            this["warnings"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExecutablesResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExecutablesResult {
+        const $$createField0_0 = $$createType2;
+        const $$createField1_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("executables" in $$parsedSource) {
+            $$parsedSource["executables"] = $$createField0_0($$parsedSource["executables"]);
+        }
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField1_0($$parsedSource["warnings"]);
+        }
+        return new ExecutablesResult($$parsedSource as Partial<ExecutablesResult>);
+    }
+}
+
+/**
  * FileResult is the IPC response shape for Read. Field names are
  * camelCase to match the HTTP handler's JSON output so the browser
  * fallback and the IPC path return the same thing to the frontend.
@@ -178,8 +217,8 @@ export class GitRunResult {
      * Creates a new GitRunResult instance from a string or object.
      */
     static createFrom($$source: any = {}): GitRunResult {
-        const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType3;
+        const $$createField2_0 = $$createType5;
+        const $$createField3_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("cloneError" in $$parsedSource) {
             $$parsedSource["cloneError"] = $$createField2_0($$parsedSource["cloneError"]);
@@ -188,6 +227,61 @@ export class GitRunResult {
             $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
         }
         return new GitRunResult($$parsedSource as Partial<GitRunResult>);
+    }
+}
+
+/**
+ * GruntbookResult mirrors the JSON shape previously returned by
+ * GET /api/gruntbook. FileMetadata fields are inlined; gruntbook-
+ * specific flags follow. Pointer/omitempty fields mirror the HTTP
+ * handler's conditional emissions so the frontend's existing
+ * GetFileReturn TS type lines up without rework.
+ */
+export class GruntbookResult {
+    "path": string;
+    "content": string;
+    "contentHash": string;
+    "language": string;
+    "size": number;
+    "useExecutableRegistry": boolean;
+    "isWatchMode"?: boolean;
+    "remoteSource"?: string;
+    "warnings"?: string[];
+
+    /** Creates a new GruntbookResult instance. */
+    constructor($$source: Partial<GruntbookResult> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("content" in $$source)) {
+            this["content"] = "";
+        }
+        if (!("contentHash" in $$source)) {
+            this["contentHash"] = "";
+        }
+        if (!("language" in $$source)) {
+            this["language"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+        if (!("useExecutableRegistry" in $$source)) {
+            this["useExecutableRegistry"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GruntbookResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GruntbookResult {
+        const $$createField8_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField8_0($$parsedSource["warnings"]);
+        }
+        return new GruntbookResult($$parsedSource as Partial<GruntbookResult>);
     }
 }
 
@@ -262,7 +356,7 @@ export class ProfilesResponse {
      * Creates a new ProfilesResponse instance from a string or object.
      */
     static createFrom($$source: any = {}): ProfilesResponse {
-        const $$createField0_0 = $$createType5;
+        const $$createField0_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("profiles" in $$parsedSource) {
             $$parsedSource["profiles"] = $$createField0_0($$parsedSource["profiles"]);
@@ -330,6 +424,36 @@ export class RecentEntry {
 }
 
 /**
+ * SessionSetEnvResult mirrors the {message, count} response from the
+ * HTTP handler. Named shape rather than map so the Wails TS codegen
+ * renders a concrete interface.
+ */
+export class SessionSetEnvResult {
+    "message": string;
+    "count": number;
+
+    /** Creates a new SessionSetEnvResult instance. */
+    constructor($$source: Partial<SessionSetEnvResult> = {}) {
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+        if (!("count" in $$source)) {
+            this["count"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionSetEnvResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionSetEnvResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionSetEnvResult($$parsedSource as Partial<SessionSetEnvResult>);
+    }
+}
+
+/**
  * WatchStartRequest is the IPC input for StartWatch.
  */
 export class WatchStartRequest {
@@ -389,9 +513,13 @@ export class WatchStartResult {
 }
 
 // Private type creation functions
-const $$createType0 = api$0.GitCloneError.createFrom;
+const $$createType0 = api$0.Executable.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = api$0.GitPullRequestError.createFrom;
-const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = api$0.ProfileInfo.createFrom;
-const $$createType5 = $Create.Array($$createType4);
+const $$createType2 = $Create.Map($Create.Any, $$createType1);
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = api$0.GitCloneError.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);
+const $$createType6 = api$0.GitPullRequestError.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = api$0.ProfileInfo.createFrom;
+const $$createType9 = $Create.Array($$createType8);

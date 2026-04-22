@@ -26,6 +26,8 @@ type Services struct {
 	GitHub         *GitHubService
 	Git            *GitService
 	Watcher        *WatcherService
+	Session        *SessionService
+	Runbook        *RunbookService
 
 	// emitter is the transport services push streaming events through
 	// (exec logs, git clone progress, watcher notifications). Stored
@@ -68,6 +70,8 @@ func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 		GitHub:         NewGitHubService(servers, adapters.NewHttpGitHubClient()),
 		Git:            NewGitService(servers, emitter),
 		Watcher:        NewWatcherService(emitter),
+		Session:        &SessionService{servers: servers},
+		Runbook:        &RunbookService{servers: servers},
 		emitter:        emitter,
 	}, nil
 }

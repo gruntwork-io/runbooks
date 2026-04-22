@@ -3,6 +3,8 @@ import { createAppError } from '@/types/error'
 import type { AppError } from '@/types/error'
 import { type Executable, type ExecutableRegistry, type ExecutableRegistryResponse } from '@/types/executable'
 import { ExecutableRegistryContext, type ExecutableRegistryContextValue } from './ExecutableRegistryContext.types'
+import * as RunbookService from '@/bindings/github.com/gruntwork-io/runbooks/services/runbookservice'
+import { isDesktop } from '@/lib/wails'
 
 interface ExecutableRegistryProviderProps {
   children: ReactNode
@@ -29,6 +31,28 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     setLoading(true)
     setError(null)
 
+    if (isDesktop()) {
+      try {
+        const result = await RunbookService.Executables()
+        if (!result) {
+          throw new Error('empty response')
+        }
+        setRegistry((result.executables ?? {}) as ExecutableRegistry)
+        setWarnings(result.warnings ?? [])
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+        setError(createAppError(
+          'Failed to load executable registry',
+          errorMessage,
+          undefined,
+          'REGISTRY_FETCH_FAILED'
+        ))
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     // First, check if the backend is reachable
     const isBackendHealthy = await checkBackendHealth()
     if (!isBackendHealthy) {
@@ -45,7 +69,7 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
     // Backend is healthy, now fetch the registry
     try {
       const response = await fetch('/api/gruntbook/executables')
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch executable registry: ${response.status}`)
       }
@@ -69,6 +93,11 @@ export function ExecutableRegistryProvider({ children }: ExecutableRegistryProvi
   useEffect(() => {
     const fetchGruntbookInfo = async () => {
       try {
+        if (isDesktop()) {
+          const result = await RunbookService.Gruntbook()
+          setUseExecutableRegistry(result?.useExecutableRegistry ?? true)
+          return
+        }
         const response = await fetch('/api/gruntbook')
         if (response.ok) {
           const data = await response.json()
