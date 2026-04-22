@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -194,27 +195,51 @@ func StartServer(cfg ServerConfig) error {
 	return http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", cfg.Port), handler)
 }
 
-// StartServerWithShutdown starts the API server in a background goroutine
-// and returns a shutdown function plus a channel that fires once the
-// server exits. Used by the desktop path where the user can close a
-// gruntbook and return to the Welcome screen without quitting the app.
+// ServerHandle bundles the runtime handles returned by
+// StartServerWithShutdown: the bound port, a graceful-shutdown
+// function, and a channel that fires once the server exits.
+type ServerHandle struct {
+	// Port is the TCP port the listener is bound to. When
+	// ServerConfig.Port is 0, the kernel picks a free port and this
+	// field reports which one.
+	Port int
+	// Shutdown gracefully stops the server. The context bounds how long
+	// to wait for in-flight requests to drain before forcing close.
+	Shutdown func(context.Context) error
+	// ErrCh fires exactly once when the server exits: nil on a clean
+	// Shutdown, or the underlying error otherwise.
+	ErrCh <-chan error
+}
+
+// StartServerWithShutdown binds the listener synchronously and then
+// serves in a background goroutine. Binding first (instead of
+// http.ListenAndServe) closes the startup race window where a caller
+// could fire a request before the kernel is queuing connections — by
+// the time this function returns, the listener is already accepting.
 //
-// On a clean shutdown (shutdownFn invoked) errCh receives nil; on any
-// other exit it receives the underlying error.
-func StartServerWithShutdown(cfg ServerConfig) (shutdownFn func(context.Context) error, errCh <-chan error, err error) {
+// Used by the desktop path where the user can close a gruntbook and
+// return to the Welcome screen without quitting the app.
+func StartServerWithShutdown(cfg ServerConfig) (*ServerHandle, error) {
 	handler, cleanup, err := buildHandler(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	srv := &http.Server{
-		Addr:    fmt.Sprintf("127.0.0.1:%d", cfg.Port),
-		Handler: handler,
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, fmt.Errorf("bind listener on %s: %w", addr, err)
 	}
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	srv := &http.Server{Handler: handler}
 
 	ch := make(chan error, 1)
 	go func() {
-		serveErr := srv.ListenAndServe()
+		serveErr := srv.Serve(listener)
 		if cleanup != nil {
 			cleanup()
 		}
@@ -225,7 +250,11 @@ func StartServerWithShutdown(cfg ServerConfig) (shutdownFn func(context.Context)
 		}
 	}()
 
-	return srv.Shutdown, ch, nil
+	return &ServerHandle{
+		Port:     port,
+		Shutdown: srv.Shutdown,
+		ErrCh:    ch,
+	}, nil
 }
 
 // buildHandler wires up the Gin engine and any resources it owns

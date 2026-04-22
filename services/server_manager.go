@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"net"
 	"sync"
 
 	"github.com/gruntwork-io/runbooks/api"
@@ -38,8 +37,8 @@ type startInfo struct {
 
 // Start boots Gin if it isn't already running. Returns an error if a
 // server is already running — callers must Stop it first to swap
-// gruntbooks. The config's Port is replaced with a kernel-assigned free
-// port so we never collide with a prior `gruntbooks open` on 7825.
+// gruntbooks. The config's Port is forced to 0 so the kernel picks a
+// free port; the actual bound port is reported back in startInfo.Port.
 func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -48,24 +47,20 @@ func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
 		return nil, fmt.Errorf("gruntbook server is already running for %q", sm.config.GruntbookPath)
 	}
 
-	port, err := reserveFreePort()
-	if err != nil {
-		return nil, fmt.Errorf("reserve server port: %w", err)
-	}
-	cfg.Port = port
-
-	shutdown, errCh, err := api.StartServerWithShutdown(cfg)
+	cfg.Port = 0
+	handle, err := api.StartServerWithShutdown(cfg)
 	if err != nil {
 		return nil, err
 	}
+	cfg.Port = handle.Port
 
 	sm.started = true
-	sm.port = port
+	sm.port = handle.Port
 	sm.config = cfg
-	sm.shutdown = shutdown
-	sm.errCh = errCh
+	sm.shutdown = handle.Shutdown
+	sm.errCh = handle.ErrCh
 
-	return &startInfo{Port: port, ErrCh: errCh}, nil
+	return &startInfo{Port: handle.Port, ErrCh: handle.ErrCh}, nil
 }
 
 // Stop gracefully shuts down the running server and waits for the
@@ -106,17 +101,4 @@ func (sm *serverManager) Config() api.ServerConfig {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return sm.config
-}
-
-// reserveFreePort asks the kernel for a free TCP port on 127.0.0.1 and
-// immediately releases it. There's a small race window where another
-// process could grab the port before Gin does, but in practice the
-// gap is microseconds and the symptom (gin fails to bind) is loud.
-func reserveFreePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
