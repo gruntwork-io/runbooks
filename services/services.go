@@ -1,6 +1,9 @@
 package services
 
-import "github.com/gruntwork-io/runbooks/core/ports"
+import (
+	"github.com/gruntwork-io/runbooks/adapters"
+	"github.com/gruntwork-io/runbooks/core/ports"
+)
 
 // Services is the bundle of Wails-IPC services registered with the
 // desktop application. Sibling services share state through private
@@ -19,6 +22,7 @@ type Services struct {
 	GeneratedFiles *GeneratedFilesService
 	Workspace      *WorkspaceService
 	Exec           *ExecService
+	Aws            *AwsService
 
 	// emitter is the transport services push streaming events through
 	// (exec logs, git clone progress, watcher notifications). Stored
@@ -57,6 +61,7 @@ func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 		GeneratedFiles: &GeneratedFilesService{servers: servers},
 		Workspace:      &WorkspaceService{},
 		Exec:           NewExecService(servers, emitter),
+		Aws:            NewAwsService(servers, adapters.NewSdkAwsClient()),
 		emitter:        emitter,
 	}, nil
 }

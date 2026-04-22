@@ -77,6 +77,7 @@ func Run(opts Options) error {
 			application.NewService(svcs.GeneratedFiles),
 			application.NewService(svcs.Workspace),
 			application.NewService(svcs.Exec),
+			application.NewService(svcs.Aws),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",
