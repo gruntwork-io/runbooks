@@ -135,15 +135,6 @@ func (s *WatcherService) run(ctx context.Context, watchID, target string, watche
 	topic := fmt.Sprintf("watch:%s:change", watchID)
 
 	var debounceTimer *time.Timer
-	var lastOp fsnotify.Op
-
-	flush := func() {
-		_ = s.emitter.Emit(topic, WatchChangeEvent{
-			Path: target,
-			Op:   lastOp.String(),
-			At:   time.Now().Format(time.RFC3339),
-		})
-	}
 
 	for {
 		select {
@@ -164,11 +155,19 @@ func (s *WatcherService) run(ctx context.Context, watchID, target string, watche
 				continue
 			}
 			slog.Info("watcher: file change", "path", event.Name, "op", event.Op)
-			lastOp = event.Op
+			// Capture op into a local so the timer goroutine doesn't race
+			// with the next loop iteration updating a shared variable.
+			opStr := event.Op.String()
 			if debounceTimer != nil {
 				debounceTimer.Stop()
 			}
-			debounceTimer = time.AfterFunc(watchDebounce, flush)
+			debounceTimer = time.AfterFunc(watchDebounce, func() {
+				_ = s.emitter.Emit(topic, WatchChangeEvent{
+					Path: target,
+					Op:   opStr,
+					At:   time.Now().Format(time.RFC3339),
+				})
+			})
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
