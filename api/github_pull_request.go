@@ -96,6 +96,31 @@ const (
 	GitPRErrNoToken        = "no_github_token"
 )
 
+// validateGitBranchName rejects branch strings that could be interpreted
+// as refspecs, git flags, or otherwise-dangerous refs before they reach
+// `git checkout -b` / `git push origin <ref>` / `git branch -D`. Modeled
+// after git-check-ref-format(1) with an extra ban on ":" so a caller
+// can't smuggle a refspec like "feature:main" that would push to an
+// unintended remote ref. Returns nil on valid names.
+func validateGitBranchName(name string) error {
+	if name == "" {
+		return fmt.Errorf("branch name is required")
+	}
+	if strings.ContainsAny(name, "\x00 \t\n\r~^:?*[\\") {
+		return fmt.Errorf("branch name contains invalid characters")
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "@{") || strings.Contains(name, "//") {
+		return fmt.Errorf("branch name contains invalid sequence")
+	}
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		return fmt.Errorf("branch name has invalid prefix")
+	}
+	if strings.HasSuffix(name, ".") || strings.HasSuffix(name, ".lock") || strings.HasSuffix(name, "/") {
+		return fmt.Errorf("branch name has invalid suffix")
+	}
+	return nil
+}
+
 // PullRequestPlan is the validated, ready-to-stream form of a
 // CreatePullRequestRequest. It carries the request plus fields derived
 // from it (commit message default, owner/repo parse, resolved token).
@@ -117,6 +142,9 @@ func PreparePullRequest(req CreatePullRequestRequest, sm *SessionManager) (*Pull
 	}
 	if req.BranchName == "" {
 		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "branchName is required"}
+	}
+	if err := validateGitBranchName(req.BranchName); err != nil {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: fmt.Sprintf("Invalid branchName: %v", err)}
 	}
 	if req.LocalPath == "" {
 		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "localPath is required"}
@@ -340,6 +368,9 @@ func PrepareGitPush(req GitPushRequest, sm *SessionManager) (*GitPushPlan, *GitP
 	if req.BranchName == "" {
 		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "branchName is required"}
 	}
+	if err := validateGitBranchName(req.BranchName); err != nil {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: fmt.Sprintf("Invalid branchName: %v", err)}
+	}
 
 	token := getGitHubTokenFromSession(sm)
 	if token == "" {
@@ -474,15 +505,8 @@ func DeleteGitBranch(ctx context.Context, req GitDeleteBranchRequest) GitDeleteB
 	if req.BranchName == "" {
 		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: "branchName is required"}
 	}
-
-	// Reject branch names with suspicious characters (null bytes, spaces, control chars, ~, ^, :, \)
-	if strings.ContainsAny(req.BranchName, "\x00 \t\n~^:\\") {
-		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: "Branch name contains invalid characters"}
-	}
-
-	// Reject branch names that start with "-" (could be interpreted as git flags)
-	if strings.HasPrefix(req.BranchName, "-") {
-		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: "Branch name cannot start with a dash"}
+	if err := validateGitBranchName(req.BranchName); err != nil {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: fmt.Sprintf("Invalid branchName: %v", err)}
 	}
 
 	if protectedBranches[req.BranchName] {
