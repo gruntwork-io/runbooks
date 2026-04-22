@@ -63,8 +63,9 @@ type ValidateResult struct {
 func Validate(ctx context.Context, client ports.GitHubClient, token string) ValidateResult {
 	if token == "" {
 		return ValidateResult{
-			Valid: false,
-			Error: "Token is required",
+			Valid:     false,
+			TokenType: TokenTypeUnknown,
+			Error:     "Token is required",
 		}
 	}
 
