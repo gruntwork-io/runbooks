@@ -60,68 +60,18 @@ type gitHubPRResponse struct {
 // Handlers
 // =============================================================================
 
-// HandleGitHubListLabels returns labels for a given repository.
-// GET /api/github/labels?owner={owner}&repo={repo}
-// Requires SessionAuthMiddleware.
+// HandleGitHubListLabels returns labels for a given repository. Thin
+// shell over ListGitHubLabels (see github_ops.go).
+// GET /api/github/labels?owner={owner}&repo={repo}. Requires
+// SessionAuthMiddleware.
 func HandleGitHubListLabels(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner := c.Query("owner")
-		repo := c.Query("repo")
-		if owner == "" || repo == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "owner and repo query parameters are required"})
-			return
-		}
-
-		if !isValidGitHubOwner(owner) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid owner name"})
-			return
-		}
-
-		if !isValidGitHubRepoName(repo) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository name"})
-			return
-		}
-
-		token := getGitHubTokenFromSession(sm)
-		if token == "" {
-			c.JSON(http.StatusOK, gin.H{"labels": []interface{}{}, "error": "No GitHub token found in session"})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
-
-		apiURL := fmt.Sprintf("%s/repos/%s/%s/labels?per_page=100",
-			GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo))
-
-		resp, err := doGitHubAPIGet(ctx, token, apiURL)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"labels": []interface{}{}, "error": fmt.Sprintf("Failed to fetch labels: %v", err)})
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			c.JSON(http.StatusOK, gin.H{
-				"labels": []interface{}{},
-				"error":  fmt.Sprintf("GitHub API returned status %d: %s", resp.StatusCode, string(body)),
-			})
-			return
-		}
-
-		var rawLabels []struct {
-			Name        string `json:"name"`
-			Color       string `json:"color"`
-			Description string `json:"description"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&rawLabels); err != nil {
-			c.JSON(http.StatusOK, gin.H{"labels": []interface{}{}, "error": "Failed to parse labels response"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"labels": rawLabels})
+		c.JSON(http.StatusOK, ListGitHubLabels(ctx, sm, GitHubListLabelsRequest{
+			Owner: c.Query("owner"),
+			Repo:  c.Query("repo"),
+		}))
 	}
 }
 

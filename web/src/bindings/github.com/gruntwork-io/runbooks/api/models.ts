@@ -6,6 +6,21 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * AuthType represents the type of authentication for an AWS profile
+ */
+export enum AuthType {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    AuthTypeSSO = "sso",
+    AuthTypeStatic = "static",
+    AuthTypeAssumeRole = "assume_role",
+    AuthTypeUnsupported = "unsupported",
+};
+
+/**
  * BoilerplateConfig represents the parsed boilerplate.yml, which is a collection of variables
  */
 export class BoilerplateConfig {
@@ -216,6 +231,395 @@ export class BoilerplateVariable {
 }
 
 /**
+ * CheckRegionRequest represents a request to check if a region is enabled
+ */
+export class CheckRegionRequest {
+    "accessKeyId": string;
+    "secretAccessKey": string;
+    "sessionToken"?: string;
+    "region": string;
+
+    /** Creates a new CheckRegionRequest instance. */
+    constructor($$source: Partial<CheckRegionRequest> = {}) {
+        if (!("accessKeyId" in $$source)) {
+            this["accessKeyId"] = "";
+        }
+        if (!("secretAccessKey" in $$source)) {
+            this["secretAccessKey"] = "";
+        }
+        if (!("region" in $$source)) {
+            this["region"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CheckRegionRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CheckRegionRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CheckRegionRequest($$parsedSource as Partial<CheckRegionRequest>);
+    }
+}
+
+/**
+ * CheckRegionResponse represents the response from region check
+ */
+export class CheckRegionResponse {
+    "enabled": boolean;
+    "status"?: string;
+    "warning"?: string;
+    "error"?: string;
+
+    /** Creates a new CheckRegionResponse instance. */
+    constructor($$source: Partial<CheckRegionResponse> = {}) {
+        if (!("enabled" in $$source)) {
+            this["enabled"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CheckRegionResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CheckRegionResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CheckRegionResponse($$parsedSource as Partial<CheckRegionResponse>);
+    }
+}
+
+/**
+ * ConfirmEnvCredentialsRequest represents a request to confirm and register
+ * detected environment credentials to the session.
+ */
+export class ConfirmEnvCredentialsRequest {
+    "prefix": string;
+    "defaultRegion": string;
+
+    /** Creates a new ConfirmEnvCredentialsRequest instance. */
+    constructor($$source: Partial<ConfirmEnvCredentialsRequest> = {}) {
+        if (!("prefix" in $$source)) {
+            this["prefix"] = "";
+        }
+        if (!("defaultRegion" in $$source)) {
+            this["defaultRegion"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConfirmEnvCredentialsRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConfirmEnvCredentialsRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConfirmEnvCredentialsRequest($$parsedSource as Partial<ConfirmEnvCredentialsRequest>);
+    }
+}
+
+/**
+ * ConfirmEnvCredentialsResponse represents the response from confirming environment credentials.
+ * Unlike the detection endpoint, this DOES return credentials so the frontend can store them
+ * per-block for the awsAuthId feature. This is a calculated security trade-off:
+ * - Credentials are already in the user's shell environment
+ * - Request is localhost-only
+ * - Request requires a session token
+ */
+export class ConfirmEnvCredentialsResponse {
+    "found": boolean;
+    "valid"?: boolean;
+    "accountId"?: string;
+    "accountName"?: string;
+    "arn"?: string;
+    "region"?: string;
+    "hasSessionToken"?: boolean;
+    "warning"?: string;
+    "error"?: string;
+
+    /**
+     * Credentials are returned so frontend can store them per-block for awsAuthId support
+     */
+    "accessKeyId"?: string;
+    "secretAccessKey"?: string;
+    "sessionToken"?: string;
+
+    /** Creates a new ConfirmEnvCredentialsResponse instance. */
+    constructor($$source: Partial<ConfirmEnvCredentialsResponse> = {}) {
+        if (!("found" in $$source)) {
+            this["found"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConfirmEnvCredentialsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConfirmEnvCredentialsResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConfirmEnvCredentialsResponse($$parsedSource as Partial<ConfirmEnvCredentialsResponse>);
+    }
+}
+
+/**
+ * EnvCredentialsRequest represents a request to read and validate AWS credentials from environment variables
+ */
+export class EnvCredentialsRequest {
+    "prefix": string;
+    "awsAuthId": string;
+    "defaultRegion": string;
+
+    /** Creates a new EnvCredentialsRequest instance. */
+    constructor($$source: Partial<EnvCredentialsRequest> = {}) {
+        if (!("prefix" in $$source)) {
+            this["prefix"] = "";
+        }
+        if (!("awsAuthId" in $$source)) {
+            this["awsAuthId"] = "";
+        }
+        if (!("defaultRegion" in $$source)) {
+            this["defaultRegion"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new EnvCredentialsRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): EnvCredentialsRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new EnvCredentialsRequest($$parsedSource as Partial<EnvCredentialsRequest>);
+    }
+}
+
+/**
+ * EnvCredentialsResponse represents the response from environment credential validation
+ * Note: Raw credentials are NEVER returned to the frontend for security
+ */
+export class EnvCredentialsResponse {
+    "found": boolean;
+    "valid"?: boolean;
+    "accountId"?: string;
+
+    /**
+     * Account alias, if available
+     */
+    "accountName"?: string;
+    "arn"?: string;
+    "region"?: string;
+    "hasSessionToken"?: boolean;
+    "warning"?: string;
+    "error"?: string;
+
+    /** Creates a new EnvCredentialsResponse instance. */
+    constructor($$source: Partial<EnvCredentialsResponse> = {}) {
+        if (!("found" in $$source)) {
+            this["found"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new EnvCredentialsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): EnvCredentialsResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new EnvCredentialsResponse($$parsedSource as Partial<EnvCredentialsResponse>);
+    }
+}
+
+/**
+ * ExecRequest represents the request to execute a script
+ */
+export class ExecRequest {
+    /**
+     * Used when useExecutableRegistry=true
+     */
+    "executable_id"?: string;
+
+    /**
+     * Used when useExecutableRegistry=false
+     */
+    "component_id"?: string;
+
+    /**
+     * Values for template variables (includes inputs and outputs namespaces)
+     */
+    "template_var_values": { [_ in string]?: any };
+
+    /**
+     * Environment variables to set for this execution only (overrides session env)
+     */
+    "env_vars_override"?: { [_ in string]?: string };
+
+    /**
+     * Whether to use PTY for execution (default: true). Set to false to use pipes instead.
+     */
+    "use_pty"?: boolean | null;
+
+    /** Creates a new ExecRequest instance. */
+    constructor($$source: Partial<ExecRequest> = {}) {
+        if (!("template_var_values" in $$source)) {
+            this["template_var_values"] = {};
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExecRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExecRequest {
+        const $$createField2_0 = $$createType10;
+        const $$createField3_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("template_var_values" in $$parsedSource) {
+            $$parsedSource["template_var_values"] = $$createField2_0($$parsedSource["template_var_values"]);
+        }
+        if ("env_vars_override" in $$parsedSource) {
+            $$parsedSource["env_vars_override"] = $$createField3_0($$parsedSource["env_vars_override"]);
+        }
+        return new ExecRequest($$parsedSource as Partial<ExecRequest>);
+    }
+}
+
+/**
+ * File represents a file with its content and metadata
+ */
+export class File {
+    /**
+     * Name is the file's base name (e.g., "main.go").
+     */
+    "name": string;
+
+    /**
+     * Path is the file path relative to the output directory (e.g., "src/main.go").
+     */
+    "path": string;
+
+    /**
+     * Content is the full text content of the file. Empty when IsTruncated is true.
+     */
+    "content": string;
+
+    /**
+     * Language is the detected programming language (e.g., "go", "typescript"), used for syntax highlighting.
+     */
+    "language": string;
+
+    /**
+     * Size is the file size in bytes.
+     */
+    "size": number;
+
+    /**
+     * IsTruncated is true when the file content was omitted because it exceeds the size limit (512KB).
+     * The frontend shows a placeholder message instead of the file content.
+     */
+    "isTruncated"?: boolean;
+
+    /** Creates a new File instance. */
+    constructor($$source: Partial<File> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("content" in $$source)) {
+            this["content"] = "";
+        }
+        if (!("language" in $$source)) {
+            this["language"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new File instance from a string or object.
+     */
+    static createFrom($$source: any = {}): File {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new File($$parsedSource as Partial<File>);
+    }
+}
+
+/**
+ * FileTreeNode represents a file or folder in the generated file tree
+ */
+export class FileTreeNode {
+    /**
+     * ID is the unique identifier for this node, typically the file path relative to the output directory.
+     */
+    "id": string;
+
+    /**
+     * Name is the display name of the file or folder (e.g., "main.tf", "modules").
+     */
+    "name": string;
+
+    /**
+     * Type is either "file" or "folder".
+     */
+    "type": string;
+
+    /**
+     * Children contains the nested files and folders within this folder. Empty for files.
+     */
+    "children"?: FileTreeNode[];
+
+    /**
+     * File holds the file content and metadata. Only present for file nodes, nil for folders.
+     */
+    "file"?: File | null;
+
+    /** Creates a new FileTreeNode instance. */
+    constructor($$source: Partial<FileTreeNode> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileTreeNode instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileTreeNode {
+        const $$createField3_0 = $$createType12;
+        const $$createField4_0 = $$createType14;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("children" in $$parsedSource) {
+            $$parsedSource["children"] = $$createField3_0($$parsedSource["children"]);
+        }
+        if ("file" in $$parsedSource) {
+            $$parsedSource["file"] = $$createField4_0($$parsedSource["file"]);
+        }
+        return new FileTreeNode($$parsedSource as Partial<FileTreeNode>);
+    }
+}
+
+/**
+ * FlexibleBool is a boolean type that can be unmarshaled from both JSON boolean and string values.
+ * This handles cases where MDX authors write generateFile="true" instead of generateFile={true}.
+ */
+export type FlexibleBool = boolean;
+
+/**
  * GeneratedFilesCheckResponse represents the response from the generated files check endpoint
  */
 export class GeneratedFilesCheckResponse {
@@ -310,6 +714,761 @@ export class GeneratedFilesDeleteResponse {
 }
 
 /**
+ * GitHubCliCredentialsResponse represents the response from GitHub CLI credential detection
+ */
+export class GitHubCliCredentialsResponse {
+    "user"?: GitHubUserInfo | null;
+    "scopes"?: string[];
+    "error"?: string;
+
+    /** Creates a new GitHubCliCredentialsResponse instance. */
+    constructor($$source: Partial<GitHubCliCredentialsResponse> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubCliCredentialsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubCliCredentialsResponse {
+        const $$createField0_0 = $$createType16;
+        const $$createField1_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("user" in $$parsedSource) {
+            $$parsedSource["user"] = $$createField0_0($$parsedSource["user"]);
+        }
+        if ("scopes" in $$parsedSource) {
+            $$parsedSource["scopes"] = $$createField1_0($$parsedSource["scopes"]);
+        }
+        return new GitHubCliCredentialsResponse($$parsedSource as Partial<GitHubCliCredentialsResponse>);
+    }
+}
+
+/**
+ * GitHubEnvCredentialsRequest represents a request to read GitHub credentials from environment
+ */
+export class GitHubEnvCredentialsRequest {
+    "prefix": string;
+    "envVar": string;
+    "githubAuthId": string;
+
+    /** Creates a new GitHubEnvCredentialsRequest instance. */
+    constructor($$source: Partial<GitHubEnvCredentialsRequest> = {}) {
+        if (!("prefix" in $$source)) {
+            this["prefix"] = "";
+        }
+        if (!("envVar" in $$source)) {
+            this["envVar"] = "";
+        }
+        if (!("githubAuthId" in $$source)) {
+            this["githubAuthId"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubEnvCredentialsRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubEnvCredentialsRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubEnvCredentialsRequest($$parsedSource as Partial<GitHubEnvCredentialsRequest>);
+    }
+}
+
+/**
+ * GitHubEnvCredentialsResponse represents the response from environment credential validation
+ */
+export class GitHubEnvCredentialsResponse {
+    "found": boolean;
+    "valid"?: boolean;
+    "user"?: GitHubUserInfo | null;
+    "scopes"?: string[];
+    "tokenType"?: GitHubTokenType;
+    "error"?: string;
+
+    /** Creates a new GitHubEnvCredentialsResponse instance. */
+    constructor($$source: Partial<GitHubEnvCredentialsResponse> = {}) {
+        if (!("found" in $$source)) {
+            this["found"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubEnvCredentialsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubEnvCredentialsResponse {
+        const $$createField2_0 = $$createType16;
+        const $$createField3_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("user" in $$parsedSource) {
+            $$parsedSource["user"] = $$createField2_0($$parsedSource["user"]);
+        }
+        if ("scopes" in $$parsedSource) {
+            $$parsedSource["scopes"] = $$createField3_0($$parsedSource["scopes"]);
+        }
+        return new GitHubEnvCredentialsResponse($$parsedSource as Partial<GitHubEnvCredentialsResponse>);
+    }
+}
+
+/**
+ * GitHubLabel is the shape returned by GitHub's labels API that the UI cares about.
+ */
+export class GitHubLabel {
+    "name": string;
+    "color": string;
+    "description": string;
+
+    /** Creates a new GitHubLabel instance. */
+    constructor($$source: Partial<GitHubLabel> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("color" in $$source)) {
+            this["color"] = "";
+        }
+        if (!("description" in $$source)) {
+            this["description"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubLabel instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubLabel {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubLabel($$parsedSource as Partial<GitHubLabel>);
+    }
+}
+
+/**
+ * GitHubListLabelsRequest is the input for listing labels on a repo.
+ */
+export class GitHubListLabelsRequest {
+    "owner": string;
+    "repo": string;
+
+    /** Creates a new GitHubListLabelsRequest instance. */
+    constructor($$source: Partial<GitHubListLabelsRequest> = {}) {
+        if (!("owner" in $$source)) {
+            this["owner"] = "";
+        }
+        if (!("repo" in $$source)) {
+            this["repo"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListLabelsRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListLabelsRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubListLabelsRequest($$parsedSource as Partial<GitHubListLabelsRequest>);
+    }
+}
+
+/**
+ * GitHubListLabelsResponse mirrors the HTTP payload for list-labels.
+ */
+export class GitHubListLabelsResponse {
+    "labels": GitHubLabel[];
+    "error"?: string;
+
+    /** Creates a new GitHubListLabelsResponse instance. */
+    constructor($$source: Partial<GitHubListLabelsResponse> = {}) {
+        if (!("labels" in $$source)) {
+            this["labels"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListLabelsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListLabelsResponse {
+        const $$createField0_0 = $$createType18;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("labels" in $$parsedSource) {
+            $$parsedSource["labels"] = $$createField0_0($$parsedSource["labels"]);
+        }
+        return new GitHubListLabelsResponse($$parsedSource as Partial<GitHubListLabelsResponse>);
+    }
+}
+
+/**
+ * GitHubListOrgsResponse wraps the orgs list plus optional error/warning.
+ * Mirrors the legacy handler payload: a transport-level error wipes Orgs,
+ * while Warning leaves the personal-account entry intact and only flags
+ * that org fetching failed.
+ */
+export class GitHubListOrgsResponse {
+    "orgs": GitHubOrg[];
+    "error"?: string;
+    "warning"?: string;
+
+    /** Creates a new GitHubListOrgsResponse instance. */
+    constructor($$source: Partial<GitHubListOrgsResponse> = {}) {
+        if (!("orgs" in $$source)) {
+            this["orgs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListOrgsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListOrgsResponse {
+        const $$createField0_0 = $$createType20;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("orgs" in $$parsedSource) {
+            $$parsedSource["orgs"] = $$createField0_0($$parsedSource["orgs"]);
+        }
+        return new GitHubListOrgsResponse($$parsedSource as Partial<GitHubListOrgsResponse>);
+    }
+}
+
+/**
+ * GitHubListRefsRequest is the input for listing branches+tags in a repo.
+ */
+export class GitHubListRefsRequest {
+    "owner": string;
+    "repo": string;
+    "query"?: string;
+
+    /** Creates a new GitHubListRefsRequest instance. */
+    constructor($$source: Partial<GitHubListRefsRequest> = {}) {
+        if (!("owner" in $$source)) {
+            this["owner"] = "";
+        }
+        if (!("repo" in $$source)) {
+            this["repo"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListRefsRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListRefsRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubListRefsRequest($$parsedSource as Partial<GitHubListRefsRequest>);
+    }
+}
+
+/**
+ * GitHubListRefsResponse mirrors the HTTP payload for list-refs.
+ */
+export class GitHubListRefsResponse {
+    "refs": GitHubRef[];
+    "totalCount"?: number;
+    "branchCount"?: number;
+    "tagCount"?: number;
+    "hasMore"?: boolean;
+    "error"?: string;
+
+    /** Creates a new GitHubListRefsResponse instance. */
+    constructor($$source: Partial<GitHubListRefsResponse> = {}) {
+        if (!("refs" in $$source)) {
+            this["refs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListRefsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListRefsResponse {
+        const $$createField0_0 = $$createType22;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("refs" in $$parsedSource) {
+            $$parsedSource["refs"] = $$createField0_0($$parsedSource["refs"]);
+        }
+        return new GitHubListRefsResponse($$parsedSource as Partial<GitHubListRefsResponse>);
+    }
+}
+
+/**
+ * GitHubListReposRequest is the input for listing a single owner's repos.
+ */
+export class GitHubListReposRequest {
+    "owner": string;
+    "query"?: string;
+
+    /** Creates a new GitHubListReposRequest instance. */
+    constructor($$source: Partial<GitHubListReposRequest> = {}) {
+        if (!("owner" in $$source)) {
+            this["owner"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListReposRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListReposRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubListReposRequest($$parsedSource as Partial<GitHubListReposRequest>);
+    }
+}
+
+/**
+ * GitHubListReposResponse is the list response, mirroring the HTTP payload.
+ */
+export class GitHubListReposResponse {
+    "repos": GitHubRepo[];
+    "error"?: string;
+
+    /** Creates a new GitHubListReposResponse instance. */
+    constructor($$source: Partial<GitHubListReposResponse> = {}) {
+        if (!("repos" in $$source)) {
+            this["repos"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubListReposResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubListReposResponse {
+        const $$createField0_0 = $$createType24;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("repos" in $$parsedSource) {
+            $$parsedSource["repos"] = $$createField0_0($$parsedSource["repos"]);
+        }
+        return new GitHubListReposResponse($$parsedSource as Partial<GitHubListReposResponse>);
+    }
+}
+
+/**
+ * GitHubOAuthPollRequest represents the request to poll for OAuth completion
+ */
+export class GitHubOAuthPollRequest {
+    "clientId": string;
+    "deviceCode": string;
+
+    /** Creates a new GitHubOAuthPollRequest instance. */
+    constructor($$source: Partial<GitHubOAuthPollRequest> = {}) {
+        if (!("clientId" in $$source)) {
+            this["clientId"] = "";
+        }
+        if (!("deviceCode" in $$source)) {
+            this["deviceCode"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubOAuthPollRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubOAuthPollRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubOAuthPollRequest($$parsedSource as Partial<GitHubOAuthPollRequest>);
+    }
+}
+
+/**
+ * GitHubOAuthPollResponse represents the response from OAuth polling
+ */
+export class GitHubOAuthPollResponse {
+    "status": GitHubOAuthPollStatus;
+    "accessToken"?: string;
+    "user"?: GitHubUserInfo | null;
+    "error"?: string;
+
+    /**
+     * True if we got rate-limited
+     */
+    "slowDown"?: boolean;
+
+    /** Creates a new GitHubOAuthPollResponse instance. */
+    constructor($$source: Partial<GitHubOAuthPollResponse> = {}) {
+        if (!("status" in $$source)) {
+            this["status"] = GitHubOAuthPollStatus.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubOAuthPollResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubOAuthPollResponse {
+        const $$createField2_0 = $$createType16;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("user" in $$parsedSource) {
+            $$parsedSource["user"] = $$createField2_0($$parsedSource["user"]);
+        }
+        return new GitHubOAuthPollResponse($$parsedSource as Partial<GitHubOAuthPollResponse>);
+    }
+}
+
+/**
+ * GitHubOAuthPollStatus represents the status of an OAuth poll response
+ */
+export enum GitHubOAuthPollStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    GitHubOAuthPollStatusPending = "pending",
+    GitHubOAuthPollStatusComplete = "complete",
+    GitHubOAuthPollStatusExpired = "expired",
+    GitHubOAuthPollStatusError = "error",
+};
+
+/**
+ * GitHubOAuthStartRequest represents the request to start OAuth device flow
+ */
+export class GitHubOAuthStartRequest {
+    "clientId"?: string;
+    "scopes"?: string[];
+
+    /** Creates a new GitHubOAuthStartRequest instance. */
+    constructor($$source: Partial<GitHubOAuthStartRequest> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubOAuthStartRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubOAuthStartRequest {
+        const $$createField1_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("scopes" in $$parsedSource) {
+            $$parsedSource["scopes"] = $$createField1_0($$parsedSource["scopes"]);
+        }
+        return new GitHubOAuthStartRequest($$parsedSource as Partial<GitHubOAuthStartRequest>);
+    }
+}
+
+/**
+ * GitHubOAuthStartResponse represents the response from starting OAuth
+ */
+export class GitHubOAuthStartResponse {
+    "deviceCode"?: string;
+    "userCode"?: string;
+    "verificationUri"?: string;
+    "expiresIn"?: number;
+    "interval"?: number;
+    "error"?: string;
+
+    /** Creates a new GitHubOAuthStartResponse instance. */
+    constructor($$source: Partial<GitHubOAuthStartResponse> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubOAuthStartResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubOAuthStartResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubOAuthStartResponse($$parsedSource as Partial<GitHubOAuthStartResponse>);
+    }
+}
+
+/**
+ * GitHubOrg represents a GitHub organization or user account
+ */
+export class GitHubOrg {
+    "login": string;
+    "avatarUrl": string;
+
+    /**
+     * "Organization" or "User"
+     */
+    "type": string;
+
+    /** Creates a new GitHubOrg instance. */
+    constructor($$source: Partial<GitHubOrg> = {}) {
+        if (!("login" in $$source)) {
+            this["login"] = "";
+        }
+        if (!("avatarUrl" in $$source)) {
+            this["avatarUrl"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubOrg instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubOrg {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubOrg($$parsedSource as Partial<GitHubOrg>);
+    }
+}
+
+/**
+ * GitHubRef represents a git ref (branch or tag) in a GitHub repository.
+ */
+export class GitHubRef {
+    "name": string;
+
+    /**
+     * "branch" or "tag"
+     */
+    "type": string;
+
+    /**
+     * true only for the default branch
+     */
+    "isDefaultBranch": boolean;
+
+    /** Creates a new GitHubRef instance. */
+    constructor($$source: Partial<GitHubRef> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+        if (!("isDefaultBranch" in $$source)) {
+            this["isDefaultBranch"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubRef instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubRef {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubRef($$parsedSource as Partial<GitHubRef>);
+    }
+}
+
+/**
+ * GitHubRepo represents a GitHub repository
+ */
+export class GitHubRepo {
+    "name": string;
+    "fullName": string;
+    "private": boolean;
+    "description": string;
+
+    /** Creates a new GitHubRepo instance. */
+    constructor($$source: Partial<GitHubRepo> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("fullName" in $$source)) {
+            this["fullName"] = "";
+        }
+        if (!("private" in $$source)) {
+            this["private"] = false;
+        }
+        if (!("description" in $$source)) {
+            this["description"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubRepo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubRepo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubRepo($$parsedSource as Partial<GitHubRepo>);
+    }
+}
+
+/**
+ * GitHubTokenType indicates the type of GitHub token
+ */
+export enum GitHubTokenType {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    GitHubTokenTypeClassicPAT = "classic_pat",
+    GitHubTokenTypeFineGrainedPAT = "fine_grained_pat",
+    GitHubTokenTypeOAuth = "oauth",
+    GitHubTokenTypeGitHubApp = "github_app",
+    GitHubTokenTypeUnknown = "unknown",
+};
+
+/**
+ * GitHubUserInfo represents information about a GitHub user
+ */
+export class GitHubUserInfo {
+    "login": string;
+    "name"?: string;
+    "avatarUrl"?: string;
+    "email"?: string;
+
+    /** Creates a new GitHubUserInfo instance. */
+    constructor($$source: Partial<GitHubUserInfo> = {}) {
+        if (!("login" in $$source)) {
+            this["login"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubUserInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubUserInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubUserInfo($$parsedSource as Partial<GitHubUserInfo>);
+    }
+}
+
+/**
+ * GitHubValidateRequest represents the request to validate a GitHub token
+ */
+export class GitHubValidateRequest {
+    "token": string;
+
+    /** Creates a new GitHubValidateRequest instance. */
+    constructor($$source: Partial<GitHubValidateRequest> = {}) {
+        if (!("token" in $$source)) {
+            this["token"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubValidateRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubValidateRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitHubValidateRequest($$parsedSource as Partial<GitHubValidateRequest>);
+    }
+}
+
+/**
+ * GitHubValidateResponse represents the response from token validation
+ */
+export class GitHubValidateResponse {
+    "valid": boolean;
+    "user"?: GitHubUserInfo | null;
+    "scopes"?: string[];
+    "tokenType"?: GitHubTokenType;
+    "error"?: string;
+
+    /** Creates a new GitHubValidateResponse instance. */
+    constructor($$source: Partial<GitHubValidateResponse> = {}) {
+        if (!("valid" in $$source)) {
+            this["valid"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitHubValidateResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitHubValidateResponse {
+        const $$createField1_0 = $$createType16;
+        const $$createField2_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("user" in $$parsedSource) {
+            $$parsedSource["user"] = $$createField1_0($$parsedSource["user"]);
+        }
+        if ("scopes" in $$parsedSource) {
+            $$parsedSource["scopes"] = $$createField2_0($$parsedSource["scopes"]);
+        }
+        return new GitHubValidateResponse($$parsedSource as Partial<GitHubValidateResponse>);
+    }
+}
+
+/**
+ * HeavyDir identifies a top-level subdirectory that contains a disproportionate number of files.
+ * Only reported when the file tree is truncated, to help the user understand which directories
+ * are responsible for the large file count.
+ */
+export class HeavyDir {
+    /**
+     * Path is the top-level subdirectory path relative to the output directory (e.g., "node_modules").
+     */
+    "path": string;
+
+    /**
+     * FileCount is the number of files contained within this directory (recursively).
+     */
+    "fileCount": number;
+
+    /** Creates a new HeavyDir instance. */
+    constructor($$source: Partial<HeavyDir> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("fileCount" in $$source)) {
+            this["fileCount"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new HeavyDir instance from a string or object.
+     */
+    static createFrom($$source: any = {}): HeavyDir {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new HeavyDir($$parsedSource as Partial<HeavyDir>);
+    }
+}
+
+/**
+ * InputValue represents a variable with its name, type, and value.
+ * This is sent from the frontend to the backend so the backend can properly
+ * convert JSON values to the correct Go types (e.g., JSON numbers to int).
+ */
+export class InputValue {
+    "name": string;
+    "type": BoilerplateVarType;
+    "value": any;
+
+    /** Creates a new InputValue instance. */
+    constructor($$source: Partial<InputValue> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = BoilerplateVarType.$zero;
+        }
+        if (!("value" in $$source)) {
+            this["value"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InputValue instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InputValue {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InputValue($$parsedSource as Partial<InputValue>);
+    }
+}
+
+/**
  * OutputDependency represents a reference to another block's output in a template.
  * These are found by scanning template files for {{ .outputs.blockId.outputName }} patterns.
  */
@@ -350,6 +1509,724 @@ export class OutputDependency {
     static createFrom($$source: any = {}): OutputDependency {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new OutputDependency($$parsedSource as Partial<OutputDependency>);
+    }
+}
+
+/**
+ * ProfileAuthRequest represents the request to authenticate using a profile
+ */
+export class ProfileAuthRequest {
+    "profile": string;
+
+    /** Creates a new ProfileAuthRequest instance. */
+    constructor($$source: Partial<ProfileAuthRequest> = {}) {
+        if (!("profile" in $$source)) {
+            this["profile"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProfileAuthRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProfileAuthRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ProfileAuthRequest($$parsedSource as Partial<ProfileAuthRequest>);
+    }
+}
+
+/**
+ * ProfileAuthResponse represents the response from profile authentication
+ */
+export class ProfileAuthResponse {
+    "valid": boolean;
+    "accountId"?: string;
+
+    /**
+     * Account alias, if available
+     */
+    "accountName"?: string;
+    "arn"?: string;
+    "accessKeyId"?: string;
+    "secretAccessKey"?: string;
+    "sessionToken"?: string;
+    "region"?: string;
+    "error"?: string;
+
+    /** Creates a new ProfileAuthResponse instance. */
+    constructor($$source: Partial<ProfileAuthResponse> = {}) {
+        if (!("valid" in $$source)) {
+            this["valid"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProfileAuthResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProfileAuthResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ProfileAuthResponse($$parsedSource as Partial<ProfileAuthResponse>);
+    }
+}
+
+/**
+ * ProfileInfo represents an AWS profile with its authentication type
+ */
+export class ProfileInfo {
+    "name": string;
+    "authType": AuthType;
+
+    /** Creates a new ProfileInfo instance. */
+    constructor($$source: Partial<ProfileInfo> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("authType" in $$source)) {
+            this["authType"] = AuthType.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProfileInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProfileInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ProfileInfo($$parsedSource as Partial<ProfileInfo>);
+    }
+}
+
+/**
+ * RenderInlineRequest represents a request to render template files provided in the request body
+ */
+export class RenderInlineRequest {
+    /**
+     * Map of relative file paths to their contents
+     * Example: {"main.tf": "..."}
+     */
+    "templateFiles": { [_ in string]?: string };
+
+    /**
+     * Inputs contains input values with their names, types, and values.
+     * The type information is used for proper JSON-to-Go type conversion.
+     */
+    "inputs": InputValue[];
+
+    /**
+     * GenerateFile indicates whether to write files to the persistent output directory.
+     * When false (default), files are only rendered and returned in the response.
+     * When true, files are also written to the output directory (CLI-configured path + OutputPath).
+     * Accepts both boolean and string values (e.g., true, "true", "false").
+     */
+    "generateFile"?: FlexibleBool;
+
+    /**
+     * OutputPath is an optional subdirectory within the CLI-configured output path.
+     * Only used when GenerateFile is true.
+     * SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
+     */
+    "outputPath"?: string | null;
+
+    /**
+     * Target specifies where template output is written.
+     * "generated" (default) writes to the configured output path ($GENERATED_FILES destination).
+     * "worktree" writes to the active git worktree path ($REPO_FILES).
+     * Only used when GenerateFile is true.
+     */
+    "target"?: string;
+
+    /** Creates a new RenderInlineRequest instance. */
+    constructor($$source: Partial<RenderInlineRequest> = {}) {
+        if (!("templateFiles" in $$source)) {
+            this["templateFiles"] = {};
+        }
+        if (!("inputs" in $$source)) {
+            this["inputs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RenderInlineRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RenderInlineRequest {
+        const $$createField0_0 = $$createType9;
+        const $$createField1_0 = $$createType26;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("templateFiles" in $$parsedSource) {
+            $$parsedSource["templateFiles"] = $$createField0_0($$parsedSource["templateFiles"]);
+        }
+        if ("inputs" in $$parsedSource) {
+            $$parsedSource["inputs"] = $$createField1_0($$parsedSource["inputs"]);
+        }
+        return new RenderInlineRequest($$parsedSource as Partial<RenderInlineRequest>);
+    }
+}
+
+/**
+ * RenderInlineResponse represents the response from the inline render endpoint
+ */
+export class RenderInlineResponse {
+    "message": string;
+
+    /**
+     * Map of file paths to file metadata
+     */
+    "renderedFiles": { [_ in string]?: File };
+    "fileTree": FileTreeNode[];
+
+    /**
+     * TotalFiles is the total number of files discovered in the output directory.
+     * When this exceeds the file tree limit, the tree contains a truncated subset.
+     */
+    "totalFiles": number;
+
+    /**
+     * TruncatedTree is true when the file tree was capped at the display limit.
+     */
+    "truncatedTree"?: boolean;
+
+    /**
+     * HeavyDirs lists the top-level subdirectories that contain a large number of files.
+     * Only populated when the tree is truncated. Sorted by file count descending.
+     * A directory is considered "heavy" if it contains at least heavyDirThreshold files (default 300).
+     */
+    "heavyDirs"?: HeavyDir[];
+
+    /** Creates a new RenderInlineResponse instance. */
+    constructor($$source: Partial<RenderInlineResponse> = {}) {
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+        if (!("renderedFiles" in $$source)) {
+            this["renderedFiles"] = {};
+        }
+        if (!("fileTree" in $$source)) {
+            this["fileTree"] = [];
+        }
+        if (!("totalFiles" in $$source)) {
+            this["totalFiles"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RenderInlineResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RenderInlineResponse {
+        const $$createField1_0 = $$createType27;
+        const $$createField2_0 = $$createType12;
+        const $$createField5_0 = $$createType29;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("renderedFiles" in $$parsedSource) {
+            $$parsedSource["renderedFiles"] = $$createField1_0($$parsedSource["renderedFiles"]);
+        }
+        if ("fileTree" in $$parsedSource) {
+            $$parsedSource["fileTree"] = $$createField2_0($$parsedSource["fileTree"]);
+        }
+        if ("heavyDirs" in $$parsedSource) {
+            $$parsedSource["heavyDirs"] = $$createField5_0($$parsedSource["heavyDirs"]);
+        }
+        return new RenderInlineResponse($$parsedSource as Partial<RenderInlineResponse>);
+    }
+}
+
+/**
+ * RenderRequest represents the request body for rendering boilerplate templates
+ */
+export class RenderRequest {
+    "templatePath": string;
+    "variables": { [_ in string]?: any };
+
+    /**
+     * TemplateID uniquely identifies the Template component making this request.
+     * Used for manifest tracking to enable smart file cleanup when template outputs change
+     * (e.g., switching from Python to Node.js runtime deletes orphaned Python files).
+     * If not provided, no manifest tracking or cleanup is performed.
+     */
+    "templateId"?: string;
+
+    /**
+     * Optional subdirectory within the configured output path (set via --output-path CLI flag).
+     * SECURITY: Must be a relative path without ".." to prevent directory traversal attacks.
+     * Will be joined with the CLI-configured output path (e.g., if CLI sets --output-path=/out
+     * and this is "prod", files will be written to /out/prod).
+     * Defaults to the CLI-configured output path if not provided.
+     */
+    "outputPath"?: string | null;
+
+    /**
+     * Target specifies where template output is written.
+     * "generated" (default) writes to the configured output path ($GENERATED_FILES destination).
+     * "worktree" writes to the active git worktree path ($REPO_FILES).
+     */
+    "target"?: string;
+
+    /** Creates a new RenderRequest instance. */
+    constructor($$source: Partial<RenderRequest> = {}) {
+        if (!("templatePath" in $$source)) {
+            this["templatePath"] = "";
+        }
+        if (!("variables" in $$source)) {
+            this["variables"] = {};
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RenderRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RenderRequest {
+        const $$createField1_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("variables" in $$parsedSource) {
+            $$parsedSource["variables"] = $$createField1_0($$parsedSource["variables"]);
+        }
+        return new RenderRequest($$parsedSource as Partial<RenderRequest>);
+    }
+}
+
+/**
+ * RenderResponse represents the response from the render endpoint
+ */
+export class RenderResponse {
+    "message": string;
+    "outputDir": string;
+    "templatePath": string;
+    "fileTree": FileTreeNode[];
+
+    /**
+     * TotalFiles is the total number of files discovered in the output directory.
+     * When this exceeds the file tree limit, the tree contains a truncated subset.
+     */
+    "totalFiles": number;
+
+    /**
+     * TruncatedTree is true when the file tree was capped at the display limit.
+     */
+    "truncatedTree"?: boolean;
+
+    /**
+     * HeavyDirs lists the top-level subdirectories that contain a large number of files.
+     * Only populated when the tree is truncated. Sorted by file count descending.
+     * A directory is considered "heavy" if it contains at least heavyDirThreshold files (default 300).
+     */
+    "heavyDirs"?: HeavyDir[];
+
+    /**
+     * Cleanup statistics (only populated when TemplateID is provided in request)
+     * Files that were deleted (orphaned from previous render)
+     */
+    "deletedFiles"?: string[];
+
+    /**
+     * Files that were newly created
+     */
+    "createdFiles"?: string[];
+
+    /**
+     * Files that were updated (content changed)
+     */
+    "modifiedFiles"?: string[];
+
+    /**
+     * Files that were unchanged (no write needed)
+     */
+    "skippedFiles"?: string[];
+
+    /** Creates a new RenderResponse instance. */
+    constructor($$source: Partial<RenderResponse> = {}) {
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+        if (!("outputDir" in $$source)) {
+            this["outputDir"] = "";
+        }
+        if (!("templatePath" in $$source)) {
+            this["templatePath"] = "";
+        }
+        if (!("fileTree" in $$source)) {
+            this["fileTree"] = [];
+        }
+        if (!("totalFiles" in $$source)) {
+            this["totalFiles"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RenderResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RenderResponse {
+        const $$createField3_0 = $$createType12;
+        const $$createField6_0 = $$createType29;
+        const $$createField7_0 = $$createType6;
+        const $$createField8_0 = $$createType6;
+        const $$createField9_0 = $$createType6;
+        const $$createField10_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("fileTree" in $$parsedSource) {
+            $$parsedSource["fileTree"] = $$createField3_0($$parsedSource["fileTree"]);
+        }
+        if ("heavyDirs" in $$parsedSource) {
+            $$parsedSource["heavyDirs"] = $$createField6_0($$parsedSource["heavyDirs"]);
+        }
+        if ("deletedFiles" in $$parsedSource) {
+            $$parsedSource["deletedFiles"] = $$createField7_0($$parsedSource["deletedFiles"]);
+        }
+        if ("createdFiles" in $$parsedSource) {
+            $$parsedSource["createdFiles"] = $$createField8_0($$parsedSource["createdFiles"]);
+        }
+        if ("modifiedFiles" in $$parsedSource) {
+            $$parsedSource["modifiedFiles"] = $$createField9_0($$parsedSource["modifiedFiles"]);
+        }
+        if ("skippedFiles" in $$parsedSource) {
+            $$parsedSource["skippedFiles"] = $$createField10_0($$parsedSource["skippedFiles"]);
+        }
+        return new RenderResponse($$parsedSource as Partial<RenderResponse>);
+    }
+}
+
+/**
+ * SSOAccount represents an AWS account from SSO
+ */
+export class SSOAccount {
+    "accountId": string;
+    "accountName": string;
+    "emailAddress": string;
+
+    /** Creates a new SSOAccount instance. */
+    constructor($$source: Partial<SSOAccount> = {}) {
+        if (!("accountId" in $$source)) {
+            this["accountId"] = "";
+        }
+        if (!("accountName" in $$source)) {
+            this["accountName"] = "";
+        }
+        if (!("emailAddress" in $$source)) {
+            this["emailAddress"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOAccount instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOAccount {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOAccount($$parsedSource as Partial<SSOAccount>);
+    }
+}
+
+/**
+ * SSOCompleteRequest represents a request to complete SSO with selected account/role
+ */
+export class SSOCompleteRequest {
+    "accessToken": string;
+    "accountId": string;
+    "roleName": string;
+    "region": string;
+
+    /** Creates a new SSOCompleteRequest instance. */
+    constructor($$source: Partial<SSOCompleteRequest> = {}) {
+        if (!("accessToken" in $$source)) {
+            this["accessToken"] = "";
+        }
+        if (!("accountId" in $$source)) {
+            this["accountId"] = "";
+        }
+        if (!("roleName" in $$source)) {
+            this["roleName"] = "";
+        }
+        if (!("region" in $$source)) {
+            this["region"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOCompleteRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOCompleteRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOCompleteRequest($$parsedSource as Partial<SSOCompleteRequest>);
+    }
+}
+
+/**
+ * SSOCompleteResponse represents the response after completing SSO
+ */
+export class SSOCompleteResponse {
+    "accessKeyId"?: string;
+    "secretAccessKey"?: string;
+    "sessionToken"?: string;
+    "accountId"?: string;
+
+    /**
+     * Account alias, if available
+     */
+    "accountName"?: string;
+    "arn"?: string;
+    "error"?: string;
+
+    /** Creates a new SSOCompleteResponse instance. */
+    constructor($$source: Partial<SSOCompleteResponse> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOCompleteResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOCompleteResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOCompleteResponse($$parsedSource as Partial<SSOCompleteResponse>);
+    }
+}
+
+/**
+ * SSOListRolesRequest represents a request to list roles for an account
+ */
+export class SSOListRolesRequest {
+    "accessToken": string;
+    "accountId": string;
+    "region": string;
+
+    /** Creates a new SSOListRolesRequest instance. */
+    constructor($$source: Partial<SSOListRolesRequest> = {}) {
+        if (!("accessToken" in $$source)) {
+            this["accessToken"] = "";
+        }
+        if (!("accountId" in $$source)) {
+            this["accountId"] = "";
+        }
+        if (!("region" in $$source)) {
+            this["region"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOListRolesRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOListRolesRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOListRolesRequest($$parsedSource as Partial<SSOListRolesRequest>);
+    }
+}
+
+/**
+ * SSOListRolesResponse represents the response with available roles
+ */
+export class SSOListRolesResponse {
+    "roles"?: SSORole[];
+    "error"?: string;
+
+    /** Creates a new SSOListRolesResponse instance. */
+    constructor($$source: Partial<SSOListRolesResponse> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOListRolesResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOListRolesResponse {
+        const $$createField0_0 = $$createType31;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("roles" in $$parsedSource) {
+            $$parsedSource["roles"] = $$createField0_0($$parsedSource["roles"]);
+        }
+        return new SSOListRolesResponse($$parsedSource as Partial<SSOListRolesResponse>);
+    }
+}
+
+/**
+ * SSOPollRequest represents the request to poll for SSO completion
+ */
+export class SSOPollRequest {
+    "deviceCode": string;
+    "clientId": string;
+    "clientSecret": string;
+    "region": string;
+    "accountId"?: string;
+    "roleName"?: string;
+
+    /** Creates a new SSOPollRequest instance. */
+    constructor($$source: Partial<SSOPollRequest> = {}) {
+        if (!("deviceCode" in $$source)) {
+            this["deviceCode"] = "";
+        }
+        if (!("clientId" in $$source)) {
+            this["clientId"] = "";
+        }
+        if (!("clientSecret" in $$source)) {
+            this["clientSecret"] = "";
+        }
+        if (!("region" in $$source)) {
+            this["region"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOPollRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOPollRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOPollRequest($$parsedSource as Partial<SSOPollRequest>);
+    }
+}
+
+/**
+ * SSOPollResponse represents the response from SSO polling
+ */
+export class SSOPollResponse {
+    "status": SSOPollStatus;
+    "accessKeyId"?: string;
+    "secretAccessKey"?: string;
+    "sessionToken"?: string;
+    "accountId"?: string;
+
+    /**
+     * Account alias, if available
+     */
+    "accountName"?: string;
+    "arn"?: string;
+    "error"?: string;
+
+    /**
+     * For account selection flow
+     */
+    "accessToken"?: string;
+    "accounts"?: SSOAccount[];
+
+    /** Creates a new SSOPollResponse instance. */
+    constructor($$source: Partial<SSOPollResponse> = {}) {
+        if (!("status" in $$source)) {
+            this["status"] = SSOPollStatus.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOPollResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOPollResponse {
+        const $$createField9_0 = $$createType33;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("accounts" in $$parsedSource) {
+            $$parsedSource["accounts"] = $$createField9_0($$parsedSource["accounts"]);
+        }
+        return new SSOPollResponse($$parsedSource as Partial<SSOPollResponse>);
+    }
+}
+
+/**
+ * SSOPollStatus represents the status of an SSO poll response
+ */
+export enum SSOPollStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    SSOPollStatusPending = "pending",
+    SSOPollStatusSuccess = "success",
+    SSOPollStatusFailed = "failed",
+    SSOPollStatusSelectAccount = "select_account",
+};
+
+/**
+ * SSORole represents a role available in an SSO account
+ */
+export class SSORole {
+    "roleName": string;
+
+    /** Creates a new SSORole instance. */
+    constructor($$source: Partial<SSORole> = {}) {
+        if (!("roleName" in $$source)) {
+            this["roleName"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSORole instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSORole {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSORole($$parsedSource as Partial<SSORole>);
+    }
+}
+
+/**
+ * SSOStartRequest represents the request to start SSO authentication
+ */
+export class SSOStartRequest {
+    "startUrl": string;
+    "region": string;
+    "accountId"?: string;
+    "roleName"?: string;
+
+    /** Creates a new SSOStartRequest instance. */
+    constructor($$source: Partial<SSOStartRequest> = {}) {
+        if (!("startUrl" in $$source)) {
+            this["startUrl"] = "";
+        }
+        if (!("region" in $$source)) {
+            this["region"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOStartRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOStartRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOStartRequest($$parsedSource as Partial<SSOStartRequest>);
+    }
+}
+
+/**
+ * SSOStartResponse represents the response from starting SSO
+ */
+export class SSOStartResponse {
+    "verificationUri"?: string;
+    "userCode"?: string;
+    "deviceCode"?: string;
+    "clientId"?: string;
+    "clientSecret"?: string;
+    "error"?: string;
+
+    /** Creates a new SSOStartResponse instance. */
+    constructor($$source: Partial<SSOStartResponse> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SSOStartResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SSOStartResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SSOStartResponse($$parsedSource as Partial<SSOStartResponse>);
     }
 }
 
@@ -526,7 +2403,7 @@ export class TfParseResponse {
         const $$createField0_0 = $$createType1;
         const $$createField1_0 = $$createType3;
         const $$createField2_0 = $$createType5;
-        const $$createField3_0 = $$createType10;
+        const $$createField3_0 = $$createType34;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("variables" in $$parsedSource) {
             $$parsedSource["variables"] = $$createField0_0($$parsedSource["variables"]);
@@ -541,6 +2418,72 @@ export class TfParseResponse {
             $$parsedSource["metadata"] = $$createField3_0($$parsedSource["metadata"]);
         }
         return new TfParseResponse($$parsedSource as Partial<TfParseResponse>);
+    }
+}
+
+/**
+ * ValidateCredentialsRequest represents the request to validate AWS credentials
+ */
+export class ValidateCredentialsRequest {
+    "accessKeyId": string;
+    "secretAccessKey": string;
+    "sessionToken"?: string;
+    "region": string;
+
+    /** Creates a new ValidateCredentialsRequest instance. */
+    constructor($$source: Partial<ValidateCredentialsRequest> = {}) {
+        if (!("accessKeyId" in $$source)) {
+            this["accessKeyId"] = "";
+        }
+        if (!("secretAccessKey" in $$source)) {
+            this["secretAccessKey"] = "";
+        }
+        if (!("region" in $$source)) {
+            this["region"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ValidateCredentialsRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ValidateCredentialsRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ValidateCredentialsRequest($$parsedSource as Partial<ValidateCredentialsRequest>);
+    }
+}
+
+/**
+ * ValidateCredentialsResponse represents the response from credential validation
+ */
+export class ValidateCredentialsResponse {
+    "valid": boolean;
+    "accountId"?: string;
+
+    /**
+     * Account alias, if available
+     */
+    "accountName"?: string;
+    "arn"?: string;
+    "error"?: string;
+    "warning"?: string;
+
+    /** Creates a new ValidateCredentialsResponse instance. */
+    constructor($$source: Partial<ValidateCredentialsResponse> = {}) {
+        if (!("valid" in $$source)) {
+            this["valid"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ValidateCredentialsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ValidateCredentialsResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ValidateCredentialsResponse($$parsedSource as Partial<ValidateCredentialsResponse>);
     }
 }
 
@@ -568,7 +2511,7 @@ export class ValidationRule {
      * Creates a new ValidationRule instance from a string or object.
      */
     static createFrom($$source: any = {}): ValidationRule {
-        const $$createField2_0 = $$createType11;
+        const $$createField2_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("args" in $$parsedSource) {
             $$parsedSource["args"] = $$createField2_0($$parsedSource["args"]);
@@ -601,7 +2544,7 @@ export class WorkspaceChangesResponse {
      * Creates a new WorkspaceChangesResponse instance from a string or object.
      */
     static createFrom($$source: any = {}): WorkspaceChangesResponse {
-        const $$createField0_0 = $$createType13;
+        const $$createField0_0 = $$createType37;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("changes" in $$parsedSource) {
             $$parsedSource["changes"] = $$createField0_0($$parsedSource["changes"]);
@@ -806,7 +2749,7 @@ export class WorkspaceTreeNode {
      * Creates a new WorkspaceTreeNode instance from a string or object.
      */
     static createFrom($$source: any = {}): WorkspaceTreeNode {
-        const $$createField8_0 = $$createType15;
+        const $$createField8_0 = $$createType39;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("children" in $$parsedSource) {
             $$parsedSource["children"] = $$createField8_0($$parsedSource["children"]);
@@ -839,8 +2782,8 @@ export class WorkspaceTreeResponse {
      * Creates a new WorkspaceTreeResponse instance from a string or object.
      */
     static createFrom($$source: any = {}): WorkspaceTreeResponse {
-        const $$createField0_0 = $$createType15;
-        const $$createField2_0 = $$createType17;
+        const $$createField0_0 = $$createType39;
+        const $$createField2_0 = $$createType41;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tree" in $$parsedSource) {
             $$parsedSource["tree"] = $$createField0_0($$parsedSource["tree"]);
@@ -863,11 +2806,35 @@ const $$createType6 = $Create.Array($Create.Any);
 const $$createType7 = ValidationRule.createFrom;
 const $$createType8 = $Create.Array($$createType7);
 const $$createType9 = $Create.Map($Create.Any, $Create.Any);
-const $$createType10 = TfModuleMetadata.createFrom;
-const $$createType11 = $Create.Array($Create.Any);
-const $$createType12 = WorkspaceFileChange.createFrom;
-const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = WorkspaceTreeNode.createFrom;
-const $$createType15 = $Create.Array($$createType14);
-const $$createType16 = WorkspaceGitInfo.createFrom;
-const $$createType17 = $Create.Nullable($$createType16);
+const $$createType10 = $Create.Map($Create.Any, $Create.Any);
+const $$createType11 = FileTreeNode.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = File.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = GitHubUserInfo.createFrom;
+const $$createType16 = $Create.Nullable($$createType15);
+const $$createType17 = GitHubLabel.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = GitHubOrg.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = GitHubRef.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = GitHubRepo.createFrom;
+const $$createType24 = $Create.Array($$createType23);
+const $$createType25 = InputValue.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = $Create.Map($Create.Any, $$createType13);
+const $$createType28 = HeavyDir.createFrom;
+const $$createType29 = $Create.Array($$createType28);
+const $$createType30 = SSORole.createFrom;
+const $$createType31 = $Create.Array($$createType30);
+const $$createType32 = SSOAccount.createFrom;
+const $$createType33 = $Create.Array($$createType32);
+const $$createType34 = TfModuleMetadata.createFrom;
+const $$createType35 = $Create.Array($Create.Any);
+const $$createType36 = WorkspaceFileChange.createFrom;
+const $$createType37 = $Create.Array($$createType36);
+const $$createType38 = WorkspaceTreeNode.createFrom;
+const $$createType39 = $Create.Array($$createType38);
+const $$createType40 = WorkspaceGitInfo.createFrom;
+const $$createType41 = $Create.Nullable($$createType40);

@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as api$0 from "../api/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as time$0 from "../../../../time/models.js";
 
 /**
@@ -62,6 +65,36 @@ export class DesktopStatus {
     static createFrom($$source: any = {}): DesktopStatus {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new DesktopStatus($$parsedSource as Partial<DesktopStatus>);
+    }
+}
+
+/**
+ * ExecRunResult is the return value of Run: the runID the frontend
+ * subscribes to, plus a timestamp the UI uses to align "starting"
+ * placeholder logs with the upcoming log event stream.
+ */
+export class ExecRunResult {
+    "runId": string;
+    "startedAt": string;
+
+    /** Creates a new ExecRunResult instance. */
+    constructor($$source: Partial<ExecRunResult> = {}) {
+        if (!("runId" in $$source)) {
+            this["runId"] = "";
+        }
+        if (!("startedAt" in $$source)) {
+            this["startedAt"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExecRunResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExecRunResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ExecRunResult($$parsedSource as Partial<ExecRunResult>);
     }
 }
 
@@ -158,6 +191,36 @@ export class OpenResult {
 }
 
 /**
+ * ProfilesResponse wraps the ProfileInfo list so Wails bindings
+ * generate a named response type (bindings don't handle anonymous
+ * objects cleanly).
+ */
+export class ProfilesResponse {
+    "profiles": api$0.ProfileInfo[];
+
+    /** Creates a new ProfilesResponse instance. */
+    constructor($$source: Partial<ProfilesResponse> = {}) {
+        if (!("profiles" in $$source)) {
+            this["profiles"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProfilesResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProfilesResponse {
+        const $$createField0_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("profiles" in $$parsedSource) {
+            $$parsedSource["profiles"] = $$createField0_0($$parsedSource["profiles"]);
+        }
+        return new ProfilesResponse($$parsedSource as Partial<ProfilesResponse>);
+    }
+}
+
+/**
  * RecentEntry is one item in the recent-gruntbooks list. Exported for the
  * Wails bindings generator.
  */
@@ -214,3 +277,7 @@ export class RecentEntry {
         return new RecentEntry($$parsedSource as Partial<RecentEntry>);
     }
 }
+
+// Private type creation functions
+const $$createType0 = api$0.ProfileInfo.createFrom;
+const $$createType1 = $Create.Array($$createType0);
