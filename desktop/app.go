@@ -5,6 +5,7 @@
 package desktop
 
 import (
+	_ "embed"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -13,6 +14,15 @@ import (
 	"github.com/gruntwork-io/runbooks/web"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// iconPNG is the 1024x1024 Gruntbooks logomark. Wails passes this to
+// NSApplication.setApplicationIconImage on macOS, which updates the
+// Dock and Cmd+Tab switcher at runtime. Without this, bare binaries
+// (no .app bundle) show the default executable icon. Regenerate with
+// `task desktop:icon:gen` if the logo changes.
+//
+//go:embed assets/icon.png
+var iconPNG []byte
 
 // Options controls the Wails window that gets opened.
 type Options struct {
@@ -35,6 +45,7 @@ func Run(opts Options) error {
 	app := application.New(application.Options{
 		Name:        "Gruntbooks",
 		Description: "Gruntbooks desktop",
+		Icon:        iconPNG,
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
