@@ -71,6 +71,7 @@ func Run(opts Options) error {
 			application.NewService(svcs.Telemetry),
 			application.NewService(svcs.File),
 			application.NewService(svcs.Boilerplate),
+			application.NewService(svcs.Tf),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",

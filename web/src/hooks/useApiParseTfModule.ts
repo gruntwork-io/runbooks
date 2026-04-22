@@ -1,34 +1,49 @@
-import { useApi } from './useApi';
-import type { UseApiReturn } from './useApi';
 import { useMemo } from 'react';
-import type { BoilerplateConfig } from '@/types/boilerplateConfig';
+import { useApi } from './useApi';
+import { useServiceCall } from './useServiceCall';
+import type { UseApiReturn } from './useApi';
 import { useSession } from '@/contexts/useSession';
+import type { BoilerplateConfig } from '@/types/boilerplateConfig';
+import * as TfService from '@/bindings/github.com/gruntwork-io/runbooks/services/tfservice';
+import { isDesktop } from '@/lib/wails';
 
-/**
- * Hook to parse an OpenTofu module and return a BoilerplateConfig.
- * Calls POST /api/tf/parse with the module source.
- *
- * The source can be a local relative path (e.g., "../modules/vpc") or a remote
- * URL in any supported format (GitHub shorthand, git:: prefix, browser URLs).
- */
+// Parses an OpenTofu/Terraform module — local path or remote git URL —
+// and returns the boilerplate-shaped variables plus module metadata
+// (folder name, README title, output and resource names).
+//
+// Desktop mode routes through the Wails IPC TfService. Browser mode
+// keeps POSTing /api/tf/parse until M5 drops Gin.
 export function useApiParseTfModule(
   source?: string,
   shouldFetch: boolean = true
 ): UseApiReturn<BoilerplateConfig> {
   const { getAuthHeader } = useSession();
+  const shouldActuallyFetch = shouldFetch && Boolean(source);
 
   const requestBody = useMemo(() => {
-    if (!shouldFetch || !source) {
-      return undefined;
-    }
-    return { source };
-  }, [source, shouldFetch]);
+    return shouldActuallyFetch && source ? { source } : undefined;
+  }, [source, shouldActuallyFetch]);
 
-  return useApi<BoilerplateConfig>(
-    shouldFetch && source ? '/api/tf/parse' : '',
+  const httpResult = useApi<BoilerplateConfig>(
+    !isDesktop() && shouldActuallyFetch ? '/api/tf/parse' : '',
     'POST',
     requestBody,
     undefined,
-    getAuthHeader() as Record<string, string>
+    getAuthHeader() as Record<string, string>,
   );
+
+  const ipcResult = useServiceCall<BoilerplateConfig>(
+    async () => {
+      const res = await TfService.Parse({ source: source ?? '' });
+      if (!res) throw new Error('tf parse response was empty');
+      // TfParseResponse is a class instance that embeds BoilerplateConfig
+      // plus a metadata field — spread flattens both onto a plain object
+      // matching BoilerplateConfig's optional metadata field.
+      return { ...res } as BoilerplateConfig;
+    },
+    [source],
+    { lazy: !(isDesktop() && shouldActuallyFetch) },
+  );
+
+  return isDesktop() ? ipcResult : httpResult;
 }

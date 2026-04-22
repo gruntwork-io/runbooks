@@ -9,5 +9,8 @@ export {
     BoilerplateVariable,
     OutputDependency,
     Section,
+    TfModuleMetadata,
+    TfParseRequest,
+    TfParseResponse,
     ValidationRule
 } from "./models.js";

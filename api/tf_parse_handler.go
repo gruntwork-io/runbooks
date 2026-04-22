@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,59 @@ type TfParseResponse struct {
 	Metadata TfModuleMetadata `json:"metadata"`
 }
 
+// Sentinel errors returned by ParseTfModule so callers can map to the
+// right transport-specific response (HTTP status code, IPC error, etc.).
+var (
+	ErrTfResolve  = fmt.Errorf("failed to resolve module source")
+	ErrTfNotFound = fmt.Errorf("module directory not found")
+	ErrTfNotDir   = fmt.Errorf("path is not a directory")
+	ErrTfParse    = fmt.Errorf("failed to parse OpenTofu module")
+)
+
+// ParseTfModuleRequest is the transport-agnostic core of the tf-parse
+// flow. It resolves the module source (local path relative to the
+// gruntbook, or a remote git URL cloned to a temp dir), parses the .tf
+// files, and returns the boilerplate-shaped response. Callers map the
+// sentinel errors onto their transport.
+func ParseTfModuleRequest(req TfParseRequest, gruntbookPath string, tokens *TokenResolver) (*TfParseResponse, error) {
+	modulePath, cleanup, err := resolveModuleSource(req.Source, gruntbookPath, tokens)
+	if err != nil {
+		slog.Error("Failed to resolve module source", "source", req.Source, "error", err)
+		return nil, fmt.Errorf("%w: %v", ErrTfResolve, err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	info, err := os.Stat(modulePath)
+	if err != nil {
+		slog.Error("Module path not found", "path", modulePath, "error", err)
+		return nil, fmt.Errorf("%w: could not find module at %s", ErrTfNotFound, req.Source)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: expected a directory containing .tf files, got a file at %s", ErrTfNotDir, req.Source)
+	}
+
+	vars, metadata, err := ParseTfModuleFull(modulePath)
+	if err != nil {
+		slog.Error("Failed to parse OpenTofu module", "path", modulePath, "error", err)
+		return nil, fmt.Errorf("%w: %v", ErrTfParse, err)
+	}
+
+	config := MapToBoilerplateConfig(vars)
+	slog.Info("Successfully parsed OpenTofu/Terraform module",
+		"source", req.Source,
+		"resolvedPath", modulePath,
+		"variableCount", len(config.Variables),
+		"outputCount", len(metadata.OutputNames),
+		"resourceCount", len(metadata.ResourceNames),
+	)
+	return &TfParseResponse{
+		BoilerplateConfig: config,
+		Metadata:          metadata,
+	}, nil
+}
+
 // HandleTfModuleParse parses a .tf module directory and returns a BoilerplateConfig JSON
 // with additional module metadata (folder name, README title, outputs, resources).
 // The source can be a local path (resolved relative to the gruntbook directory) or a remote
@@ -48,62 +102,33 @@ func HandleTfModuleParse(gruntbookPath string, tokens *TokenResolver) gin.Handle
 			return
 		}
 
-		// Determine if this is a remote URL or a local path
-		modulePath, cleanup, err := resolveModuleSource(req.Source, gruntbookPath, tokens)
+		resp, err := ParseTfModuleRequest(req, gruntbookPath, tokens)
 		if err != nil {
-			slog.Error("Failed to resolve module source", "source", req.Source, "error", err)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Failed to resolve module source",
-				"details": err.Error(),
-			})
-			return
-		}
-		if cleanup != nil {
-			defer cleanup()
-		}
-
-		// Validate the path exists and is a directory
-		info, err := os.Stat(modulePath)
-		if err != nil {
-			slog.Error("Module path not found", "path", modulePath, "error", err)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "Module directory not found",
-				"details": fmt.Sprintf("Could not find module at: %s", req.Source),
-			})
-			return
-		}
-		if !info.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Path is not a directory",
-				"details": fmt.Sprintf("Expected a directory containing .tf files, got a file: %s", req.Source),
-			})
-			return
-		}
-
-		// Parse the OpenTofu module (single pass for both variables and metadata)
-		vars, metadata, err := ParseTfModuleFull(modulePath)
-		if err != nil {
-			slog.Error("Failed to parse OpenTofu module", "path", modulePath, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to parse OpenTofu module",
+			status, msg := tfErrorStatus(err)
+			c.JSON(status, gin.H{
+				"error":   msg,
 				"details": err.Error(),
 			})
 			return
 		}
 
-		config := MapToBoilerplateConfig(vars)
+		c.JSON(http.StatusOK, resp)
+	}
+}
 
-		slog.Info("Successfully parsed OpenTofu/Terraform module",
-			"source", req.Source,
-			"resolvedPath", modulePath,
-			"variableCount", len(config.Variables),
-			"outputCount", len(metadata.OutputNames),
-			"resourceCount", len(metadata.ResourceNames),
-		)
-		c.JSON(http.StatusOK, TfParseResponse{
-			BoilerplateConfig: config,
-			Metadata:          metadata,
-		})
+// tfErrorStatus maps ParseTfModule sentinel errors to an HTTP response.
+func tfErrorStatus(err error) (int, string) {
+	switch {
+	case errors.Is(err, ErrTfResolve):
+		return http.StatusBadRequest, "Failed to resolve module source"
+	case errors.Is(err, ErrTfNotFound):
+		return http.StatusNotFound, "Module directory not found"
+	case errors.Is(err, ErrTfNotDir):
+		return http.StatusBadRequest, "Path is not a directory"
+	case errors.Is(err, ErrTfParse):
+		return http.StatusInternalServerError, "Failed to parse OpenTofu module"
+	default:
+		return http.StatusInternalServerError, "Failed to parse tf module"
 	}
 }
 

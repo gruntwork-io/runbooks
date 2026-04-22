@@ -13,6 +13,7 @@ type Services struct {
 	Telemetry   *TelemetryService
 	File        *FileService
 	Boilerplate *BoilerplateService
+	Tf          *TfService
 }
 
 // NewServices constructs every Wails-IPC service with a shared
@@ -38,5 +39,6 @@ func NewServices(initialPath string) (*Services, error) {
 		Telemetry:   NewTelemetryService(),
 		File:        &FileService{servers: servers},
 		Boilerplate: &BoilerplateService{servers: servers},
+		Tf:          &TfService{servers: servers},
 	}, nil
 }

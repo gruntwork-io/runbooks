@@ -302,6 +302,155 @@ export class Section {
 }
 
 /**
+ * TfModuleMetadata holds additional metadata extracted from a TF module directory.
+ */
+export class TfModuleMetadata {
+    /**
+     * Name of the containing directory
+     */
+    "folder_name": string;
+
+    /**
+     * First h1 heading from README.md, if present
+     */
+    "readme_title": string;
+
+    /**
+     * Names of output blocks
+     */
+    "output_names": string[];
+
+    /**
+     * Names of resource blocks (excluding data sources)
+     */
+    "resource_names": string[];
+
+    /** Creates a new TfModuleMetadata instance. */
+    constructor($$source: Partial<TfModuleMetadata> = {}) {
+        if (!("folder_name" in $$source)) {
+            this["folder_name"] = "";
+        }
+        if (!("readme_title" in $$source)) {
+            this["readme_title"] = "";
+        }
+        if (!("output_names" in $$source)) {
+            this["output_names"] = [];
+        }
+        if (!("resource_names" in $$source)) {
+            this["resource_names"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TfModuleMetadata instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TfModuleMetadata {
+        const $$createField2_0 = $$createType6;
+        const $$createField3_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("output_names" in $$parsedSource) {
+            $$parsedSource["output_names"] = $$createField2_0($$parsedSource["output_names"]);
+        }
+        if ("resource_names" in $$parsedSource) {
+            $$parsedSource["resource_names"] = $$createField3_0($$parsedSource["resource_names"]);
+        }
+        return new TfModuleMetadata($$parsedSource as Partial<TfModuleMetadata>);
+    }
+}
+
+/**
+ * TfParseRequest is the request body for POST /api/tf/parse.
+ */
+export class TfParseRequest {
+    /**
+     * Source can be a local relative path (e.g., "../modules/vpc") or a remote URL
+     * in any format supported by ParseRemoteSource (GitHub shorthand, git:: prefix,
+     * GitHub/GitLab browser URLs).
+     */
+    "source": string;
+
+    /** Creates a new TfParseRequest instance. */
+    constructor($$source: Partial<TfParseRequest> = {}) {
+        if (!("source" in $$source)) {
+            this["source"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TfParseRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TfParseRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TfParseRequest($$parsedSource as Partial<TfParseRequest>);
+    }
+}
+
+/**
+ * TfParseResponse extends BoilerplateConfig with module-level metadata.
+ * The variables, sections, and outputDependencies fields come from BoilerplateConfig.
+ * The module metadata fields are additional.
+ */
+export class TfParseResponse {
+    "variables": BoilerplateVariable[];
+
+    /**
+     * Sections is an ordered list of section groupings for UI rendering.
+     * Each Section contains a name and the list of variable names in that section.
+     * Note: Individual variables also have a SectionName field for direct lookup.
+     */
+    "sections"?: Section[];
+
+    /**
+     * OutputDependencies lists references to other blocks' outputs found in template files.
+     * These are {{ .outputs.blockId.outputName }} patterns that must be satisfied
+     * before the template can be rendered. The Template component uses this to show warnings
+     * when dependent blocks haven't been executed yet.
+     */
+    "outputDependencies"?: OutputDependency[];
+    "metadata": TfModuleMetadata;
+
+    /** Creates a new TfParseResponse instance. */
+    constructor($$source: Partial<TfParseResponse> = {}) {
+        if (!("variables" in $$source)) {
+            this["variables"] = [];
+        }
+        if (!("metadata" in $$source)) {
+            this["metadata"] = (new TfModuleMetadata());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TfParseResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TfParseResponse {
+        const $$createField0_0 = $$createType1;
+        const $$createField1_0 = $$createType3;
+        const $$createField2_0 = $$createType5;
+        const $$createField3_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("variables" in $$parsedSource) {
+            $$parsedSource["variables"] = $$createField0_0($$parsedSource["variables"]);
+        }
+        if ("sections" in $$parsedSource) {
+            $$parsedSource["sections"] = $$createField1_0($$parsedSource["sections"]);
+        }
+        if ("outputDependencies" in $$parsedSource) {
+            $$parsedSource["outputDependencies"] = $$createField2_0($$parsedSource["outputDependencies"]);
+        }
+        if ("metadata" in $$parsedSource) {
+            $$parsedSource["metadata"] = $$createField3_0($$parsedSource["metadata"]);
+        }
+        return new TfParseResponse($$parsedSource as Partial<TfParseResponse>);
+    }
+}
+
+/**
  * ValidationRule represents a validation rule from a boilerplate.yml.
  */
 export class ValidationRule {
@@ -325,7 +474,7 @@ export class ValidationRule {
      * Creates a new ValidationRule instance from a string or object.
      */
     static createFrom($$source: any = {}): ValidationRule {
-        const $$createField2_0 = $$createType10;
+        const $$createField2_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("args" in $$parsedSource) {
             $$parsedSource["args"] = $$createField2_0($$parsedSource["args"]);
@@ -345,4 +494,5 @@ const $$createType6 = $Create.Array($Create.Any);
 const $$createType7 = ValidationRule.createFrom;
 const $$createType8 = $Create.Array($$createType7);
 const $$createType9 = $Create.Map($Create.Any, $Create.Any);
-const $$createType10 = $Create.Array($Create.Any);
+const $$createType10 = TfModuleMetadata.createFrom;
+const $$createType11 = $Create.Array($Create.Any);

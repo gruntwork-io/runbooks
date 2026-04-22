@@ -4,11 +4,13 @@
 import * as BoilerplateService from "./boilerplateservice.js";
 import * as FileService from "./fileservice.js";
 import * as TelemetryService from "./telemetryservice.js";
+import * as TfService from "./tfservice.js";
 import * as WelcomeService from "./welcomeservice.js";
 export {
     BoilerplateService,
     FileService,
     TelemetryService,
+    TfService,
     WelcomeService
 };
 
