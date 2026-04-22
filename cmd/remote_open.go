@@ -12,6 +12,7 @@ import (
 
 	"github.com/gruntwork-io/runbooks/adapters"
 	"github.com/gruntwork-io/runbooks/api"
+	"github.com/gruntwork-io/runbooks/core/ports"
 
 	"github.com/spf13/cobra"
 )
@@ -42,7 +43,7 @@ func validateSourceArg(cmd *cobra.Command, args []string) error {
 // resolveRemoteSource checks if the given source is a remote URL.
 // If so, downloads the gruntbook to a temp directory and returns the local path + cleanup func + original remote URL.
 // If not a remote source, returns the original path unchanged with nil cleanup and empty remoteURL.
-func resolveRemoteSource(source string) (localPath string, cleanup func(), isRemote bool, remoteURL string, err error) {
+func resolveRemoteSource(source string, git ports.GitClient) (localPath string, cleanup func(), isRemote bool, remoteURL string, err error) {
 	parsed, err := api.ParseRemoteSource(source)
 	if err != nil {
 		return "", nil, false, "", fmt.Errorf("invalid remote source %q: %w", source, err)
@@ -51,7 +52,7 @@ func resolveRemoteSource(source string) (localPath string, cleanup func(), isRem
 		return source, nil, false, "", nil
 	}
 
-	localPath, cleanup, err = downloadRemoteGruntbook(parsed)
+	localPath, cleanup, err = downloadRemoteGruntbook(parsed, git)
 	if err != nil {
 		return "", nil, false, "", err
 	}
@@ -61,7 +62,7 @@ func resolveRemoteSource(source string) (localPath string, cleanup func(), isRem
 // downloadRemoteSource downloads a remote source to a temp directory.
 // Returns the local path to the target directory (accounting for parsed.Path),
 // a cleanup function, and any error. Does NOT validate what's in the directory.
-func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error) {
+func downloadRemoteSource(parsed *api.ParsedRemoteSource, git ports.GitClient) (string, func(), error) {
 	if err := requireGit(); err != nil {
 		return "", nil, err
 	}
@@ -90,7 +91,7 @@ func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error
 
 	// Clone the repo
 	cloneURL := api.InjectGitToken(parsed.CloneURL, token)
-	if err := cloneRepo(parsed, cloneURL, tempDir, token); err != nil {
+	if err := cloneRepo(parsed, cloneURL, tempDir, token, git); err != nil {
 		return "", nil, err
 	}
 
@@ -110,8 +111,8 @@ func downloadRemoteSource(parsed *api.ParsedRemoteSource) (string, func(), error
 }
 
 // downloadRemoteGruntbook downloads a gruntbook from a remote source to a temp directory.
-func downloadRemoteGruntbook(parsed *api.ParsedRemoteSource) (string, func(), error) {
-	targetDir, cleanup, err := downloadRemoteSource(parsed)
+func downloadRemoteGruntbook(parsed *api.ParsedRemoteSource, git ports.GitClient) (string, func(), error) {
+	targetDir, cleanup, err := downloadRemoteSource(parsed, git)
 	if err != nil {
 		return "", nil, err
 	}
@@ -142,21 +143,22 @@ func requireGit() error {
 }
 
 // cloneRepo performs a git clone (sparse or full) into tempDir with a 2-minute timeout.
-func cloneRepo(parsed *api.ParsedRemoteSource, cloneURL, tempDir, token string) error {
+func cloneRepo(parsed *api.ParsedRemoteSource, cloneURL, tempDir, token string, git ports.GitClient) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	var output []byte
-	var cloneErr error
-
 	if parsed.Path != "" {
 		slog.Info("Sparse cloning remote gruntbook", "host", parsed.Host, "owner", parsed.Owner, "repo", parsed.Repo, "ref", parsed.Ref, "path", parsed.Path)
-		output, cloneErr = api.GitSparseCloneSimple(ctx, cloneURL, tempDir, parsed.Path, parsed.Ref)
 	} else {
 		slog.Info("Cloning remote gruntbook", "host", parsed.Host, "owner", parsed.Owner, "repo", parsed.Repo, "ref", parsed.Ref)
-		output, cloneErr = api.GitCloneSimple(ctx, cloneURL, tempDir, parsed.Ref)
 	}
 
+	output, cloneErr := git.Clone(ctx, ports.GitCloneRequest{
+		URL:      cloneURL,
+		DestPath: tempDir,
+		Ref:      parsed.Ref,
+		RepoPath: parsed.Path,
+	})
 	if cloneErr != nil {
 		return classifyCloneError(cloneErr, output, token, parsed)
 	}

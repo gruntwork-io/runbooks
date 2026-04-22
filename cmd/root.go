@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gruntwork-io/runbooks/adapters"
 	"github.com/gruntwork-io/runbooks/api"
 	"github.com/gruntwork-io/runbooks/api/telemetry"
 
@@ -170,7 +171,7 @@ func resolveGruntbookOrTfModule(path string) (resolvedPath string, serverPath st
 		os.Exit(1)
 	}
 	if parsed != nil {
-		localPath, remoteCleanup, dlErr := downloadRemoteSource(parsed)
+		localPath, remoteCleanup, dlErr := downloadRemoteSource(parsed, adapters.NewCliGitClient())
 		if dlErr != nil {
 			slog.Error("Failed to download remote source", "error", dlErr)
 			os.Exit(1)

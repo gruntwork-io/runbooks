@@ -7,6 +7,7 @@ import (
 
 	"github.com/gruntwork-io/runbooks/adapters"
 	"github.com/gruntwork-io/runbooks/api/telemetry"
+	"github.com/gruntwork-io/runbooks/core/ports"
 	"github.com/gruntwork-io/runbooks/web"
 
 	"github.com/gin-contrib/cors"
@@ -14,7 +15,7 @@ import (
 )
 
 // setupCommonRoutes sets up the common routes for both server modes
-func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, tokens *TokenResolver, useExecutableRegistry bool) {
+func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, outputPath string, registry *ExecutableRegistry, sessionManager *SessionManager, tokens *TokenResolver, aws ports.AwsClient, gh ports.GitHubClient, useExecutableRegistry bool) {
 	// If the gruntbook contains AwsAuth blocks, strip AWS credentials from session
 	// at creation time. This ensures users must explicitly confirm which AWS account
 	// they want to use before any scripts can access the credentials.
@@ -132,7 +133,7 @@ func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, o
 	// AWS authentication endpoints (no credentials returned)
 	// No token required: these endpoints don't return secrets, and allowing them
 	// unauthenticated lets the AWS auth UI render before session is created.
-	r.POST("/api/aws/validate", HandleAwsValidate())
+	r.POST("/api/aws/validate", HandleAwsValidate(aws))
 	r.GET("/api/aws/profiles", HandleAwsProfiles())           // Only returns profile names and auth types
 	r.POST("/api/aws/sso/start", HandleAwsSsoStart())         // Returns device code for user to authorize
 	r.POST("/api/aws/sso/roles", HandleAwsSsoListRoles())     // Returns role names, not credentials
@@ -140,7 +141,7 @@ func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, o
 
 	// GitHub authentication endpoints (no credentials returned)
 	// No token required: these endpoints don't return secrets
-	r.POST("/api/github/validate", HandleGitHubValidate())     // Validates token, returns user info
+	r.POST("/api/github/validate", HandleGitHubValidate(gh))   // Validates token, returns user info
 	r.POST("/api/github/oauth/start", HandleGitHubOAuthStart()) // Device flow: returns device code
 
 	// Serve gruntbook assets (images, PDFs, media files, etc.) from the gruntbook's assets directory
@@ -200,6 +201,8 @@ func StartServer(cfg ServerConfig) error {
 	// setupCommonRoutes. A hosted build would swap in tenant-scoped
 	// adapters here without changing anything downstream.
 	tokens := NewTokenResolver(adapters.NewOsEnvironment(), adapters.NewOsProcessSpawner())
+	awsClient := adapters.NewSdkAwsClient()
+	ghClient := adapters.NewHttpGitHubClient()
 
 	r := newGinEngine(cfg.ReleaseMode)
 	r.SetTrustedProxies(nil)
@@ -230,7 +233,7 @@ func StartServer(cfg ServerConfig) error {
 		r.GET("/api/watch", HandleWatchSSE(fileWatcher))
 	}
 
-	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, tokens, cfg.UseExecutableRegistry)
+	setupCommonRoutes(r, resolvedPath, cfg.WorkingDir, cfg.OutputPath, registry, sessionManager, tokens, awsClient, ghClient, cfg.UseExecutableRegistry)
 
 	return r.Run(fmt.Sprintf("127.0.0.1:%d", cfg.Port))
 }

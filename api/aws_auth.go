@@ -25,6 +25,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/ini.v1"
+
+	coreaws "github.com/gruntwork-io/runbooks/core/aws"
+	"github.com/gruntwork-io/runbooks/core/ports"
 )
 
 // Pre-compiled regexes for AWS environment variable validation.
@@ -244,8 +247,11 @@ const (
 // Handlers
 // =============================================================================
 
-// HandleAwsValidate validates AWS credentials by calling STS GetCallerIdentity
-func HandleAwsValidate() gin.HandlerFunc {
+// HandleAwsValidate validates AWS credentials. The HTTP handler is a
+// thin adapter: it parses JSON, calls coreaws.Validate, and shapes
+// the result into the JSON response. All credential-handling logic
+// lives in core/aws.
+func HandleAwsValidate(aws ports.AwsClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ValidateCredentialsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -256,44 +262,23 @@ func HandleAwsValidate() gin.HandlerFunc {
 			return
 		}
 
-		if req.AccessKeyID == "" || req.SecretAccessKey == "" {
-			c.JSON(http.StatusOK, ValidateCredentialsResponse{
-				Valid: false,
-				Error: "Access Key ID and Secret Access Key are required",
-			})
-			return
-		}
-
-		// Always use us-east-1 for validation - this is a standard region that's
-		// always enabled. The user's selected default region may be an opt-in
-		// region (like af-south-1) that isn't enabled for their account, which
-		// would cause validation to fail even with valid credentials.
-		validationRegion := "us-east-1"
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		cfg, identity, err := validateStaticCredentials(ctx, req.AccessKeyID, req.SecretAccessKey, req.SessionToken, validationRegion)
-		if err != nil {
-			c.JSON(http.StatusOK, ValidateCredentialsResponse{
-				Valid: false,
-				Error: fmt.Sprintf("Invalid credentials: %v", err),
-			})
-			return
-		}
-
-		// Check if the user's selected region is enabled (if different from validation region)
-		var warning string
-		if req.Region != "" && req.Region != validationRegion {
-			warning = checkRegionOptInStatus(ctx, cfg, req.Region)
-		}
+		result := coreaws.Validate(ctx, aws, coreaws.ValidateRequest{
+			AccessKeyID:     req.AccessKeyID,
+			SecretAccessKey: req.SecretAccessKey,
+			SessionToken:    req.SessionToken,
+			Region:          req.Region,
+		})
 
 		c.JSON(http.StatusOK, ValidateCredentialsResponse{
-			Valid:       true,
-			AccountID:   identity.AccountID,
-			AccountName: identity.AccountName,
-			Arn:         identity.Arn,
-			Warning:     warning,
+			Valid:       result.Valid,
+			AccountID:   result.AccountID,
+			AccountName: result.AccountName,
+			Arn:         result.Arn,
+			Warning:     result.Warning,
+			Error:       result.Error,
 		})
 	}
 }

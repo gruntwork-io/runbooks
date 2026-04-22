@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/gruntwork-io/runbooks/api"
+	"github.com/gruntwork-io/runbooks/core/ports"
+	"github.com/gruntwork-io/runbooks/core/ports/fakes"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsAuthError(t *testing.T) {
@@ -59,8 +63,12 @@ func TestAuthHintForHost(t *testing.T) {
 }
 
 func TestResolveRemoteSource(t *testing.T) {
+	// These cases all return before reaching the clone, so the fake
+	// is never exercised — it's passed to satisfy the signature.
+	git := fakes.NewFakeGitClient(nil)
+
 	t.Run("local path passes through unchanged", func(t *testing.T) {
-		localPath, cleanup, isRemote, remoteURL, err := resolveRemoteSource("./my-runbook")
+		localPath, cleanup, isRemote, remoteURL, err := resolveRemoteSource("./my-runbook", git)
 		assert.NoError(t, err)
 		assert.Equal(t, "./my-runbook", localPath)
 		assert.Nil(t, cleanup)
@@ -69,7 +77,7 @@ func TestResolveRemoteSource(t *testing.T) {
 	})
 
 	t.Run("absolute path passes through unchanged", func(t *testing.T) {
-		localPath, cleanup, isRemote, remoteURL, err := resolveRemoteSource("/home/user/runbook")
+		localPath, cleanup, isRemote, remoteURL, err := resolveRemoteSource("/home/user/runbook", git)
 		assert.NoError(t, err)
 		assert.Equal(t, "/home/user/runbook", localPath)
 		assert.Nil(t, cleanup)
@@ -78,10 +86,75 @@ func TestResolveRemoteSource(t *testing.T) {
 	})
 
 	t.Run("invalid remote URL returns error", func(t *testing.T) {
-		_, _, _, _, err := resolveRemoteSource("https://github.com/only-owner")
+		_, _, _, _, err := resolveRemoteSource("https://github.com/only-owner", git)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid remote source")
 	})
+
+	assert.Empty(t, git.Calls, "non-remote / invalid-URL paths must not call the port")
+}
+
+func TestCloneRepo_PortReceivesExpectedRequest(t *testing.T) {
+	git := fakes.NewFakeGitClient(nil)
+
+	parsed := &api.ParsedRemoteSource{
+		Host:     "github.com",
+		Owner:    "acme",
+		Repo:     "infra",
+		Ref:      "main",
+		Path:     "modules/vpc",
+		CloneURL: "https://github.com/acme/infra.git",
+	}
+
+	err := cloneRepo(parsed, "https://x-access-token:tok@github.com/acme/infra.git", "/tmp/clone-dest", "tok", git)
+	require.NoError(t, err)
+
+	require.Len(t, git.Calls, 1)
+	assert.Equal(t, "Clone", git.Calls[0].Method)
+	assert.Equal(t, ports.GitCloneRequest{
+		URL:      "https://x-access-token:tok@github.com/acme/infra.git",
+		DestPath: "/tmp/clone-dest",
+		Ref:      "main",
+		RepoPath: "modules/vpc",
+	}, git.Calls[0].Request)
+}
+
+func TestCloneRepo_AuthErrorClassifiedWithTokenHint(t *testing.T) {
+	git := fakes.NewFakeGitClient(nil)
+	// Simulate git exiting with stderr indicating an auth failure.
+	git.QueueCloneResponse([]byte("fatal: Authentication failed for 'https://github.com/acme/infra.git'\n"))
+	git.QueueCloneErr(errors.New("exit status 128"))
+
+	parsed := &api.ParsedRemoteSource{
+		Host:     "github.com",
+		Owner:    "acme",
+		Repo:     "infra",
+		CloneURL: "https://github.com/acme/infra.git",
+	}
+
+	err := cloneRepo(parsed, "https://github.com/acme/infra.git", "/tmp/clone-dest", "" /* no token */, git)
+	require.Error(t, err)
+	// classifyCloneError must surface the auth-specific hint, not the
+	// generic "failed to download gruntbook" fallback.
+	assert.Contains(t, err.Error(), "authentication required")
+	assert.Contains(t, err.Error(), "GITHUB_TOKEN")
+}
+
+func TestCloneRepo_NonAuthErrorFallsThrough(t *testing.T) {
+	git := fakes.NewFakeGitClient(nil)
+	git.QueueCloneResponse([]byte("fatal: unable to access 'https://github.com/...': server returned 500\n"))
+	git.QueueCloneErr(errors.New("exit status 128"))
+
+	parsed := &api.ParsedRemoteSource{
+		Host:     "github.com",
+		Owner:    "acme",
+		Repo:     "infra",
+		CloneURL: "https://github.com/acme/infra.git",
+	}
+
+	err := cloneRepo(parsed, "https://github.com/acme/infra.git", "/tmp/clone-dest", "", git)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to download gruntbook")
 }
 
 func TestValidateSourceArg(t *testing.T) {
