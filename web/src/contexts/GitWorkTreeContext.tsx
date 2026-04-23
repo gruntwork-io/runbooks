@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { useSession } from './useSession'
 import { GitWorkTreeContext } from './gitWorkTreeTypes'
 import type { GitWorkTree, GitWorkTreeContextType } from './gitWorkTreeTypes'
+import { isDesktop } from '@/lib/wails'
+import * as WorkspaceService from '@/bindings/github.com/gruntwork-io/runbooks/services/workspaceservice'
 
 export type { GitWorkTree, GitWorkTreeContextType }
 
@@ -14,7 +16,7 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
   const [workTrees, setWorkTrees] = useState<GitWorkTree[]>([])
   const [activeWorkTreeId, setActiveWorkTreeId] = useState<string | null>(null)
   const [treeVersion, setTreeVersion] = useState(0)
-  const { getAuthHeader } = useSession()
+  const { getAuthHeader, getToken } = useSession()
 
   const invalidateGitFileTree = useCallback(() => {
     setTreeVersion(v => v + 1)
@@ -23,12 +25,17 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
   // Sync the active worktree path to the backend so that target="worktree"
   // templates and REPO_FILES point to the correct repo.
   const syncActiveToBackend = useCallback((path: string) => {
+    if (isDesktop()) {
+      const token = getToken() ?? ''
+      WorkspaceService.SetActive(token, path).catch(() => {})
+      return
+    }
     fetch('/api/workspace/set-active', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ path }),
     }).catch(() => {})
-  }, [getAuthHeader])
+  }, [getAuthHeader, getToken])
 
   const registerWorkTree = useCallback((workTree: GitWorkTree) => {
     setWorkTrees(prev => {
@@ -52,15 +59,20 @@ export const GitWorkTreeProvider: React.FC<GitWorkTreeProviderProps> = ({ childr
     })
 
     // Register the worktree path with the backend
-    fetch('/api/workspace/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify({ path: workTree.localPath }),
-    }).catch(() => {})
+    if (isDesktop()) {
+      const token = getToken() ?? ''
+      WorkspaceService.Register(token, workTree.localPath).catch(() => {})
+    } else {
+      fetch('/api/workspace/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ path: workTree.localPath }),
+      }).catch(() => {})
+    }
 
     // Always invalidate the tree so re-clones refresh the file tree and reset changed files
     invalidateGitFileTree()
-  }, [getAuthHeader, syncActiveToBackend, invalidateGitFileTree])
+  }, [getAuthHeader, getToken, syncActiveToBackend, invalidateGitFileTree])
 
   const setActiveWorkTree = useCallback((id: string) => {
     setActiveWorkTreeId(id)

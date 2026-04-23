@@ -2,6 +2,20 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import { useGruntbookContext } from "@/contexts/useGruntbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
+import { isDesktop } from "@/lib/wails"
+import * as AwsService from "@/bindings/github.com/gruntwork-io/runbooks/services/awsservice"
+import * as SessionService from "@/bindings/github.com/gruntwork-io/runbooks/services/sessionservice"
+import {
+  CheckRegionRequest,
+  ConfirmEnvCredentialsRequest,
+  EnvCredentialsRequest,
+  ProfileAuthRequest,
+  SSOCompleteRequest,
+  SSOListRolesRequest,
+  SSOPollRequest,
+  SSOStartRequest,
+  ValidateCredentialsRequest,
+} from "@/bindings/github.com/gruntwork-io/runbooks/api/models"
 import type {
   AuthMethod,
   AuthStatus,
@@ -35,7 +49,7 @@ export function useAwsAuth({
   detectCredentials = ['env'],  // Default: auto-detect from env vars
 }: UseAwsAuthOptions) {
   const { registerOutputs, blockOutputs } = useGruntbookContext()
-  const { getAuthHeader, isReady: sessionReady } = useSession()
+  const { getAuthHeader, getToken, isReady: sessionReady } = useSession()
 
   // Core auth state
   const [authMethod, setAuthMethod] = useState<AuthMethod>('credentials')
@@ -127,6 +141,18 @@ export function useAwsAuth({
   // Check if a region is enabled for the AWS account
   const checkRegionStatus = useCallback(async (creds: AwsCredentials) => {
     try {
+      if (isDesktop()) {
+        const data = await AwsService.CheckRegion(CheckRegionRequest.createFrom({
+          accessKeyId: creds.accessKeyId,
+          secretAccessKey: creds.secretAccessKey,
+          sessionToken: creds.sessionToken,
+          region: creds.region,
+        }))
+        if (data?.warning) {
+          setWarningMessage(data.warning)
+        }
+        return
+      }
       const response = await fetch('/api/aws/check-region', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -156,23 +182,28 @@ export function useAwsAuth({
     }
     
     registerOutputs(id, outputs)
-    
+
     // Also set in session environment for blocks that don't specify awsAuthId
     try {
-      await fetch('/api/session/env', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeader(),
-        },
-        body: JSON.stringify({ env: outputs }),
-      })
+      if (isDesktop()) {
+        const token = getToken() ?? ''
+        await SessionService.SetEnv(token, outputs)
+      } else {
+        await fetch('/api/session/env', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+          },
+          body: JSON.stringify({ env: outputs }),
+        })
+      }
     } catch (error) {
       console.error('Failed to set session environment variables:', error)
     }
 
     await checkRegionStatus(creds)
-  }, [id, registerOutputs, getAuthHeader, checkRegionStatus])
+  }, [id, registerOutputs, getAuthHeader, getToken, checkRegionStatus])
 
   // Try to detect credentials from environment variables
   // Returns metadata only - does NOT register credentials (user must confirm first)
@@ -188,20 +219,40 @@ export function useAwsAuth({
     foundButInvalid?: boolean
   }> => {
     try {
-      // Use GET with query params - this is read-only detection, credentials are NOT
-      // registered to session until user confirms via handleConfirmDetected
-      const params = new URLSearchParams({
-        prefix: options?.prefix || '',
-        defaultRegion: defaultRegion || '',
-      })
-      const response = await fetch(`/api/aws/env-credentials?${params}`, {
-        method: 'GET',
-        headers: {
-          ...getAuthHeader(),
-        },
-      })
+      let data: {
+        found?: boolean
+        valid?: boolean
+        error?: string
+        accountId?: string
+        accountName?: string
+        arn?: string
+        region?: string
+        hasSessionToken?: boolean
+        warning?: string
+      }
 
-      const data = await response.json()
+      if (isDesktop()) {
+        const resp = await AwsService.EnvCredentials(EnvCredentialsRequest.createFrom({
+          prefix: options?.prefix || '',
+          defaultRegion: defaultRegion || '',
+          awsAuthId: id,
+        }))
+        data = resp ?? {}
+      } else {
+        // Use GET with query params - this is read-only detection, credentials are NOT
+        // registered to session until user confirms via handleConfirmDetected
+        const params = new URLSearchParams({
+          prefix: options?.prefix || '',
+          defaultRegion: defaultRegion || '',
+        })
+        const response = await fetch(`/api/aws/env-credentials?${params}`, {
+          method: 'GET',
+          headers: {
+            ...getAuthHeader(),
+          },
+        })
+        data = await response.json()
+      }
 
       if (!data.found) {
         return { success: false, error: data.error }
@@ -223,7 +274,7 @@ export function useAwsAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [getAuthHeader, defaultRegion])
+  }, [getAuthHeader, defaultRegion, id])
 
   // Try to detect credentials from block outputs
   const tryBlockCredentials = useCallback(async (blockId: string): Promise<{
@@ -243,18 +294,25 @@ export function useAwsAuth({
 
     // Validate the credentials via backend (but don't register them yet)
     try {
-      const response = await fetch('/api/aws/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessKeyId: result.creds.accessKeyId,
-          secretAccessKey: result.creds.secretAccessKey,
-          sessionToken: result.creds.sessionToken,
-          region: result.creds.region || defaultRegion,
-        })
-      })
+      const req = {
+        accessKeyId: result.creds.accessKeyId!,
+        secretAccessKey: result.creds.secretAccessKey!,
+        sessionToken: result.creds.sessionToken,
+        region: result.creds.region || defaultRegion,
+      }
+      let data: { valid?: boolean; error?: string; accountId?: string; accountName?: string; arn?: string }
 
-      const data = await response.json()
+      if (isDesktop()) {
+        const resp = await AwsService.Validate(ValidateCredentialsRequest.createFrom(req))
+        data = resp ?? {}
+      } else {
+        const response = await fetch('/api/aws/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(req),
+        })
+        data = await response.json()
+      }
 
       if (!data.valid) {
         return { success: false, error: data.error || 'Block credentials are invalid' }
@@ -450,19 +508,38 @@ export function useAwsAuth({
     // For env-detected credentials, call the confirm endpoint to register them to session
     if (detectedCredentials.source === 'env') {
       try {
-        const response = await fetch('/api/aws/env-credentials/confirm', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeader(),
-          },
-          body: JSON.stringify({
+        let data: {
+          valid?: boolean
+          error?: string
+          accountId?: string
+          accountName?: string
+          arn?: string
+          accessKeyId?: string
+          secretAccessKey?: string
+          sessionToken?: string
+          region?: string
+        }
+
+        if (isDesktop()) {
+          const resp = await AwsService.ConfirmEnvCredentials(ConfirmEnvCredentialsRequest.createFrom({
             prefix: detectedCredentials.envPrefix || '',
             defaultRegion: defaultRegion || '',
+          }))
+          data = resp ?? {}
+        } else {
+          const response = await fetch('/api/aws/env-credentials/confirm', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getAuthHeader(),
+            },
+            body: JSON.stringify({
+              prefix: detectedCredentials.envPrefix || '',
+              defaultRegion: defaultRegion || '',
+            })
           })
-        })
-
-        const data = await response.json()
+          data = await response.json()
+        }
 
         if (!data.valid) {
           setAuthStatus('failed')
@@ -571,17 +648,21 @@ export function useAwsAuth({
   const loadAwsProfiles = useCallback(async () => {
     setLoadingProfiles(true)
     try {
-      const response = await fetch('/api/aws/profiles')
-      if (response.ok) {
-        const data = await response.json()
-        const profileList: ProfileInfo[] = data.profiles || []
-        setProfiles(profileList)
-        const firstUsable = profileList.find(p => p.authType === 'static' || p.authType === 'assume_role')
-        if (firstUsable) {
-          setSelectedProfile(firstUsable)
-        }
+      let profileList: ProfileInfo[] = []
+      if (isDesktop()) {
+        const resp = await AwsService.Profiles()
+        profileList = (resp?.profiles as unknown as ProfileInfo[]) || []
       } else {
-        setProfiles([])
+        const response = await fetch('/api/aws/profiles')
+        if (response.ok) {
+          const data = await response.json()
+          profileList = data.profiles || []
+        }
+      }
+      setProfiles(profileList)
+      const firstUsable = profileList.find(p => p.authType === 'static' || p.authType === 'assume_role')
+      if (firstUsable) {
+        setSelectedProfile(firstUsable)
       }
     } catch (error) {
       console.error('Failed to load AWS profiles:', error)
@@ -598,17 +679,25 @@ export function useAwsAuth({
     setWarningMessage(null)
 
     try {
-      const response = await fetch('/api/aws/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(creds)
-      })
+      let data: { valid?: boolean; error?: string; accountId?: string; accountName?: string; arn?: string }
+      let ok = true
 
-      const data = await response.json()
-      
-      if (response.ok && data.valid) {
+      if (isDesktop()) {
+        const resp = await AwsService.Validate(ValidateCredentialsRequest.createFrom(creds))
+        data = resp ?? {}
+      } else {
+        const response = await fetch('/api/aws/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(creds)
+        })
+        ok = response.ok
+        data = await response.json()
+      }
+
+      if (ok && data.valid) {
         setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
+        setAccountInfo({ accountId: data.accountId!, accountName: data.accountName, arn: data.arn! })
         registerCredentials(creds)
       } else {
         setAuthStatus('failed')
@@ -642,47 +731,68 @@ export function useAwsAuth({
     const poll = async () => {
       if (ssoPollingCancelledRef.current) return
 
-      const authHeader = getAuthHeader()
-      if (!authHeader.Authorization) {
-        setAuthStatus('failed')
-        setErrorMessage('Session not ready. Please wait a moment and try again.')
-        return
+      if (!isDesktop()) {
+        const authHeader = getAuthHeader()
+        if (!authHeader.Authorization) {
+          setAuthStatus('failed')
+          setErrorMessage('Session not ready. Please wait a moment and try again.')
+          return
+        }
       }
 
       try {
-        const response = await fetch('/api/aws/sso/poll', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeader,
-          },
-          body: JSON.stringify({ 
-            deviceCode, 
-            clientId, 
-            clientSecret,
-            region: ssoRegion,
-            accountId: ssoAccountId,
-            roleName: ssoRoleName,
+        const reqBody = {
+          deviceCode,
+          clientId,
+          clientSecret,
+          region: ssoRegion,
+          accountId: ssoAccountId,
+          roleName: ssoRoleName,
+        }
+        let data: {
+          status?: string
+          error?: string
+          accessToken?: string
+          accounts?: SSOAccount[]
+          accountId?: string
+          accountName?: string
+          arn?: string
+          accessKeyId?: string
+          secretAccessKey?: string
+          sessionToken?: string
+        }
+
+        if (isDesktop()) {
+          const resp = await AwsService.SsoPoll(SSOPollRequest.createFrom(reqBody))
+          data = resp ?? {}
+        } else {
+          const response = await fetch('/api/aws/sso/poll', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getAuthHeader(),
+            },
+            body: JSON.stringify(reqBody)
           })
-        })
+          if (ssoPollingCancelledRef.current) return
+          data = await response.json()
+        }
 
         if (ssoPollingCancelledRef.current) return
-
-        const data = await response.json()
 
         if (data.status === 'pending' && attempts < maxAttempts) {
           attempts++
           setTimeout(poll, 2000)
         } else if (data.status === 'select_account') {
-          setSsoAccessToken(data.accessToken)
+          setSsoAccessToken(data.accessToken ?? null)
           setSsoAccounts(data.accounts || [])
           setAuthStatus('select_account')
         } else if (data.status === 'success') {
           setAuthStatus('authenticated')
-          setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
+          setAccountInfo({ accountId: data.accountId!, accountName: data.accountName, arn: data.arn! })
           registerCredentials({
-            accessKeyId: data.accessKeyId,
-            secretAccessKey: data.secretAccessKey,
+            accessKeyId: data.accessKeyId!,
+            secretAccessKey: data.secretAccessKey!,
             sessionToken: data.sessionToken,
             region: selectedDefaultRegion
           })
@@ -712,22 +822,31 @@ export function useAwsAuth({
     setErrorMessage(null)
 
     try {
-      const response = await fetch('/api/aws/sso/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startUrl: ssoStartUrl,
-          region: ssoRegion,
-          accountId: ssoAccountId,
-          roleName: ssoRoleName,
-        })
-      })
+      const reqBody = {
+        startUrl: ssoStartUrl,
+        region: ssoRegion,
+        accountId: ssoAccountId,
+        roleName: ssoRoleName,
+      }
+      let data: { verificationUri?: string; deviceCode?: string; clientId?: string; clientSecret?: string; error?: string }
+      let ok = true
 
-      const data = await response.json()
-      
-      if (response.ok && data.verificationUri) {
+      if (isDesktop()) {
+        const resp = await AwsService.SsoStart(SSOStartRequest.createFrom(reqBody))
+        data = resp ?? {}
+      } else {
+        const response = await fetch('/api/aws/sso/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        })
+        ok = response.ok
+        data = await response.json()
+      }
+
+      if (ok && data.verificationUri) {
         window.open(data.verificationUri, '_blank')
-        pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret)
+        pollSsoCompletion(data.deviceCode!, data.clientId!, data.clientSecret!)
       } else {
         setAuthStatus('failed')
         setErrorMessage(data.error || 'Failed to start SSO authentication')
@@ -746,17 +865,24 @@ export function useAwsAuth({
     setSsoRoles([])
 
     try {
-      const response = await fetch('/api/aws/sso/roles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken: ssoAccessToken,
-          accountId: account.accountId,
-          region: ssoRegion,
-        })
-      })
+      const reqBody = {
+        accessToken: ssoAccessToken!,
+        accountId: account.accountId,
+        region: ssoRegion,
+      }
+      let data: { roles?: SSORole[]; error?: string }
 
-      const data = await response.json()
+      if (isDesktop()) {
+        const resp = await AwsService.SsoListRoles(SSOListRolesRequest.createFrom(reqBody))
+        data = resp ?? {}
+      } else {
+        const response = await fetch('/api/aws/sso/roles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        })
+        data = await response.json()
+      }
 
       if (data.roles && data.roles.length > 0) {
         setSsoRoles(data.roles)
@@ -783,37 +909,54 @@ export function useAwsAuth({
       return
     }
 
-    const authHeader = getAuthHeader()
-    if (!authHeader.Authorization) {
-      setErrorMessage('Session not ready. Please wait a moment and try again.')
-      return
+    if (!isDesktop()) {
+      const authHeader = getAuthHeader()
+      if (!authHeader.Authorization) {
+        setErrorMessage('Session not ready. Please wait a moment and try again.')
+        return
+      }
     }
 
     setAuthStatus('authenticating')
 
     try {
-      const response = await fetch('/api/aws/sso/complete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader,
-        },
-        body: JSON.stringify({
-          accessToken: ssoAccessToken,
-          accountId: selectedSsoAccount.accountId,
-          roleName: selectedSsoRole,
-          region: ssoRegion,
-        })
-      })
+      const reqBody = {
+        accessToken: ssoAccessToken,
+        accountId: selectedSsoAccount.accountId,
+        roleName: selectedSsoRole,
+        region: ssoRegion,
+      }
+      let data: {
+        accessKeyId?: string
+        secretAccessKey?: string
+        sessionToken?: string
+        accountId?: string
+        accountName?: string
+        arn?: string
+        error?: string
+      }
 
-      const data = await response.json()
+      if (isDesktop()) {
+        const resp = await AwsService.SsoComplete(SSOCompleteRequest.createFrom(reqBody))
+        data = resp ?? {}
+      } else {
+        const response = await fetch('/api/aws/sso/complete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+          },
+          body: JSON.stringify(reqBody)
+        })
+        data = await response.json()
+      }
 
       if (data.accessKeyId) {
         setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
+        setAccountInfo({ accountId: data.accountId!, accountName: data.accountName, arn: data.arn! })
         registerCredentials({
           accessKeyId: data.accessKeyId,
-          secretAccessKey: data.secretAccessKey,
+          secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,
           region: selectedDefaultRegion
         })
@@ -848,33 +991,52 @@ export function useAwsAuth({
       return
     }
 
-    const authHeader = getAuthHeader()
-    if (!authHeader.Authorization) {
-      setErrorMessage('Session not ready. Please wait a moment and try again.')
-      return
+    if (!isDesktop()) {
+      const authHeader = getAuthHeader()
+      if (!authHeader.Authorization) {
+        setErrorMessage('Session not ready. Please wait a moment and try again.')
+        return
+      }
     }
 
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
     try {
-      const response = await fetch('/api/aws/profile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader,
-        },
-        body: JSON.stringify({ profile: selectedProfile.name })
-      })
+      let data: {
+        valid?: boolean
+        error?: string
+        accountId?: string
+        accountName?: string
+        arn?: string
+        accessKeyId?: string
+        secretAccessKey?: string
+        sessionToken?: string
+      }
+      let ok = true
 
-      const data = await response.json()
-      
-      if (response.ok && data.valid) {
+      if (isDesktop()) {
+        const resp = await AwsService.ProfileAuth(ProfileAuthRequest.createFrom({ profile: selectedProfile.name }))
+        data = resp ?? {}
+      } else {
+        const response = await fetch('/api/aws/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeader(),
+          },
+          body: JSON.stringify({ profile: selectedProfile.name })
+        })
+        ok = response.ok
+        data = await response.json()
+      }
+
+      if (ok && data.valid) {
         setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
+        setAccountInfo({ accountId: data.accountId!, accountName: data.accountName, arn: data.arn! })
         registerCredentials({
-          accessKeyId: data.accessKeyId,
-          secretAccessKey: data.secretAccessKey,
+          accessKeyId: data.accessKeyId!,
+          secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,
           region: selectedDefaultRegion
         })
