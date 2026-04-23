@@ -66,9 +66,15 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
   // Abort controller for cancelling HTTP clone
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  // IPC run tracking for desktop path
+  // IPC run tracking for desktop path. ipcResolveRef holds the
+  // resolver for the Promise returned by subscribeCloneEvents so
+  // cancel() can settle it when it tears down listeners — otherwise
+  // the `done` handler never fires (because we just unsubscribed from
+  // it) and the `await subscribeCloneEvents(...)` in handleClone hangs
+  // forever, leaking the enclosing async function's closure.
   const runIDRef = useRef<string | null>(null)
   const ipcUnsubsRef = useRef<Array<() => void>>([])
+  const ipcResolveRef = useRef<(() => void) | null>(null)
 
   // Check if gitHubAuthId dependency is met
   const gitHubAuthMet = useMemo((): boolean => {
@@ -377,11 +383,13 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
           for (const u of ipcUnsubsRef.current) u()
           ipcUnsubsRef.current = []
           runIDRef.current = null
+          ipcResolveRef.current = null
           resolve()
         }),
       )
 
       ipcUnsubsRef.current = unsubs
+      ipcResolveRef.current = resolve
     })
   }, [id, registerOutputs])
 
@@ -510,6 +518,14 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     if (ipcUnsubsRef.current.length > 0) {
       for (const u of ipcUnsubsRef.current) u()
       ipcUnsubsRef.current = []
+    }
+    // Settle the subscribeCloneEvents Promise before the `done` handler
+    // gets a chance to fire — we just unsubscribed from it, so without
+    // this the awaiting caller hangs forever.
+    if (ipcResolveRef.current) {
+      const resolver = ipcResolveRef.current
+      ipcResolveRef.current = null
+      resolver()
     }
     if (runIDRef.current) {
       const rid = runIDRef.current

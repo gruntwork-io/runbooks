@@ -68,9 +68,15 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   // Abort controller (HTTP path)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  // IPC run tracking for desktop path
+  // IPC run tracking for desktop path. ipcResolveRef holds the
+  // resolver for the Promise returned by subscribeGitEvents so cancel()
+  // can settle it when it tears down listeners — otherwise the `done`
+  // handler never fires (because we just unsubscribed from it) and the
+  // `await subscribeGitEvents(...)` in createPullRequest/pushChanges
+  // hangs forever, leaking the enclosing async function's closure.
   const runIDRef = useRef<string | null>(null)
   const ipcUnsubsRef = useRef<Array<() => void>>([])
+  const ipcResolveRef = useRef<(() => void) | null>(null)
 
   // Check if githubAuthId dependency is met
   const githubAuthMet = useMemo((): boolean => {
@@ -266,11 +272,13 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
           for (const u of ipcUnsubsRef.current) u()
           ipcUnsubsRef.current = []
           runIDRef.current = null
+          ipcResolveRef.current = null
           resolve()
         }),
       )
 
       ipcUnsubsRef.current = unsubs
+      ipcResolveRef.current = resolve
     })
   }, [id, registerOutputs])
 
@@ -461,6 +469,14 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     if (ipcUnsubsRef.current.length > 0) {
       for (const u of ipcUnsubsRef.current) u()
       ipcUnsubsRef.current = []
+    }
+    // Settle the subscribeGitEvents Promise before the `done` handler
+    // gets a chance to fire — we just unsubscribed from it, so without
+    // this the awaiting caller hangs forever.
+    if (ipcResolveRef.current) {
+      const resolver = ipcResolveRef.current
+      ipcResolveRef.current = null
+      resolver()
     }
     if (runIDRef.current) {
       const rid = runIDRef.current
