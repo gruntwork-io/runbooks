@@ -33,6 +33,7 @@ var desktopCmd = &cobra.Command{
 			Width:       1280,
 			Height:      800,
 			InitialPath: initialPath,
+			Version:     Version,
 		})
 		if err != nil {
 			slog.Error("Desktop window exited with error", "error", err)

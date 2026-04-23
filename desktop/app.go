@@ -8,6 +8,7 @@
 package desktop
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"io/fs"
@@ -43,6 +44,11 @@ type Options struct {
 	// `gruntbooks desktop PATH`. Empty means the user wants to see the
 	// Welcome screen and pick a gruntbook interactively.
 	InitialPath string
+	// Version is the build-stamped cmd.Version, threaded through to
+	// UpdateService so its "latest release" comparison has something
+	// to work with. Dev builds pass "dev" (or empty) and UpdateService
+	// skips polling.
+	Version string
 }
 
 // Run boots Wails, registers the IPC services, serves the embedded
@@ -51,10 +57,17 @@ type Options struct {
 // closed. Returns any error from the Wails runtime; callers typically
 // log.Fatal on failure.
 func Run(opts Options) error {
-	svcs, err := services.NewServices(opts.InitialPath, adapters.NewWailsEmitter())
+	svcs, err := services.NewServices(opts.InitialPath, adapters.NewWailsEmitter(), opts.Version)
 	if err != nil {
 		return fmt.Errorf("build services: %w", err)
 	}
+
+	// updateCtx controls the background update-check poll. Cancelled
+	// when Run returns (window closed) so the goroutine doesn't leak
+	// across dev-mode restarts.
+	updateCtx, cancelUpdateCheck := context.WithCancel(context.Background())
+	defer cancelUpdateCheck()
+	go services.RunAutoCheck(updateCtx, svcs.Update)
 
 	handler, err := assetHandler(svcs.Welcome)
 	if err != nil {
@@ -83,6 +96,7 @@ func Run(opts Options) error {
 			application.NewService(svcs.Watcher),
 			application.NewService(svcs.Session),
 			application.NewService(svcs.Runbook),
+			application.NewService(svcs.Update),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",

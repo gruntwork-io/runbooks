@@ -28,6 +28,7 @@ type Services struct {
 	Watcher        *WatcherService
 	Session        *SessionService
 	Runbook        *RunbookService
+	Update         *UpdateService
 
 	// emitter is the transport services push streaming events through
 	// (exec logs, git clone progress, watcher notifications). Stored
@@ -42,8 +43,10 @@ type Services struct {
 // empty means "show Welcome". emitter is the transport for streaming
 // events (exec logs, clone progress, watcher notifications); M3
 // services ignore it, but M4+ streaming services need it at
-// construction, so the container carries it through.
-func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
+// construction, so the container carries it through. version is the
+// build-stamped cmd.Version, passed to UpdateService so its "latest
+// release" check has something to compare against.
+func NewServices(initialPath string, emitter ports.Emitter, version string) (*Services, error) {
 	recent, err := newRecentStore()
 	if err != nil {
 		return nil, err
@@ -72,6 +75,7 @@ func NewServices(initialPath string, emitter ports.Emitter) (*Services, error) {
 		Watcher:        NewWatcherService(emitter),
 		Session:        &SessionService{servers: servers},
 		Runbook:        &RunbookService{servers: servers},
+		Update:         NewUpdateService(emitter, version),
 		emitter:        emitter,
 	}, nil
 }
