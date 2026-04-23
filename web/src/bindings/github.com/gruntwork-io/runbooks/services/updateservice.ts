@@ -30,7 +30,7 @@ import * as $models from "./models.js";
  * Check performs a single release lookup and returns the result. Safe
  * to call from the frontend (e.g. a "Check for updates" menu item in
  * a future milestone); does not emit the `update:available` event —
- * callers that want the banner behaviour should use StartAutoCheck.
+ * callers that want the banner behaviour should use RunAutoCheck.
  */
 export function Check(): $CancellablePromise<$models.UpdateInfo | null> {
     return $Call.ByID(374472365).then(($result: any) => {

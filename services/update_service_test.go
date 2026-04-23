@@ -21,9 +21,11 @@ func TestNormalizeSemver(t *testing.T) {
 		{"not-a-version", ""},
 	}
 	for _, c := range cases {
-		if got := normalizeSemver(c.in); got != c.want {
-			t.Errorf("normalizeSemver(%q) = %q, want %q", c.in, got, c.want)
-		}
+		t.Run(c.in, func(t *testing.T) {
+			if got := normalizeSemver(c.in); got != c.want {
+				t.Errorf("normalizeSemver(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
 	}
 }
 
@@ -39,9 +41,11 @@ func TestIsReleaseVersion(t *testing.T) {
 		{"unknown", false},
 	}
 	for _, c := range cases {
-		s := NewUpdateService(adapters.NewNoopEmitter(), c.version)
-		if got := s.isReleaseVersion(); got != c.want {
-			t.Errorf("isReleaseVersion(%q) = %v, want %v", c.version, got, c.want)
-		}
+		t.Run(c.version, func(t *testing.T) {
+			s := NewUpdateService(adapters.NewNoopEmitter(), c.version)
+			if got := s.isReleaseVersion(); got != c.want {
+				t.Errorf("isReleaseVersion(%q) = %v, want %v", c.version, got, c.want)
+			}
+		})
 	}
 }

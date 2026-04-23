@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -84,7 +85,7 @@ const (
 // Check performs a single release lookup and returns the result. Safe
 // to call from the frontend (e.g. a "Check for updates" menu item in
 // a future milestone); does not emit the `update:available` event —
-// callers that want the banner behaviour should use StartAutoCheck.
+// callers that want the banner behaviour should use RunAutoCheck.
 func (s *UpdateService) Check(ctx context.Context) (*UpdateInfo, error) {
 	return s.check(ctx)
 }
@@ -166,12 +167,17 @@ func (s *UpdateService) check(ctx context.Context) (*UpdateInfo, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", fmt.Sprintf("gruntbooks/%s", s.currentVersion))
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch latest release: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		// Drain the body so the underlying TCP connection is reusable.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return &UpdateInfo{
@@ -187,14 +193,8 @@ func (s *UpdateService) check(ctx context.Context) (*UpdateInfo, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return nil, fmt.Errorf("decode release: %w", err)
 	}
-	if release.Draft || release.Prerelease {
-		return &UpdateInfo{
-			Available:      false,
-			CurrentVersion: s.currentVersion,
-			LatestVersion:  release.TagName,
-			ReleaseURL:     release.HTMLURL,
-		}, nil
-	}
+	// GitHub's /releases/latest endpoint excludes drafts and prereleases
+	// by definition, so release.Draft/Prerelease filtering is unnecessary.
 
 	currentCanonical := normalizeSemver(s.currentVersion)
 	latestCanonical := normalizeSemver(release.TagName)

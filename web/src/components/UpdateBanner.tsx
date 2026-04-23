@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Browser, Events } from '@wailsio/runtime'
-import { Download, X } from 'lucide-react'
+import { ExternalLink, X } from 'lucide-react'
 import type { UpdateInfo } from '../bindings/github.com/gruntwork-io/runbooks/services/models'
 import { isDesktop } from '../lib/wails'
 
@@ -61,7 +61,7 @@ export function UpdateBanner() {
           onClick={handleDownload}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1 text-primary-foreground hover:opacity-90 cursor-pointer"
         >
-          <Download className="h-3.5 w-3.5" />
+          <ExternalLink className="h-3.5 w-3.5" />
           Download
         </button>
         <button
