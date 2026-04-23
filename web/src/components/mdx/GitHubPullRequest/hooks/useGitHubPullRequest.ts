@@ -1,10 +1,20 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
+import { Events } from '@wailsio/runtime'
 import { useSession } from '@/contexts/useSession'
 import { useGruntbookContext } from '@/contexts/useGruntbook'
 import { normalizeBlockId } from '@/lib/utils'
+import { isDesktop } from '@/lib/wails'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { PRBlockStatus, PRResult, GitHubLabel } from '../types'
+import * as GitService from '@/bindings/github.com/gruntwork-io/runbooks/services/gitservice'
+import * as GitHubService from '@/bindings/github.com/gruntwork-io/runbooks/services/githubservice'
+import {
+  CreatePullRequestRequest,
+  GitDeleteBranchRequest,
+  GitHubListLabelsRequest,
+  GitPushRequest,
+} from '@/bindings/github.com/gruntwork-io/runbooks/api/models'
 
 // Zod schemas for SSE events
 const LogEventSchema = z.object({
@@ -55,8 +65,18 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   const [labels, setLabels] = useState<GitHubLabel[]>([])
   const [labelsLoading, setLabelsLoading] = useState(false)
 
-  // Abort controller
+  // Abort controller (HTTP path)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // IPC run tracking for desktop path. ipcResolveRef holds the
+  // resolver for the Promise returned by subscribeGitEvents so cancel()
+  // can settle it when it tears down listeners — otherwise the `done`
+  // handler never fires (because we just unsubscribed from it) and the
+  // `await subscribeGitEvents(...)` in createPullRequest/pushChanges
+  // hangs forever, leaking the enclosing async function's closure.
+  const runIDRef = useRef<string | null>(null)
+  const ipcUnsubsRef = useRef<Array<() => void>>([])
+  const ipcResolveRef = useRef<(() => void) | null>(null)
 
   // Check if githubAuthId dependency is met
   const githubAuthMet = useMemo((): boolean => {
@@ -81,13 +101,19 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     if (!owner || !repo) return
     setLabelsLoading(true)
     try {
-      const params = new URLSearchParams({ owner, repo })
-      const response = await fetch(`/api/github/labels?${params.toString()}`, {
-        headers: { ...getAuthHeader() },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setLabels(data.labels ?? [])
+      if (isDesktop()) {
+        const req = GitHubListLabelsRequest.createFrom({ owner, repo })
+        const resp = await GitHubService.ListLabels(req)
+        setLabels((resp?.labels ?? []) as GitHubLabel[])
+      } else {
+        const params = new URLSearchParams({ owner, repo })
+        const response = await fetch(`/api/github/labels?${params.toString()}`, {
+          headers: { ...getAuthHeader() },
+        })
+        if (response.ok) {
+          const data = await response.json()
+          setLabels(data.labels ?? [])
+        }
       }
     } catch {
       // Non-critical
@@ -181,7 +207,82 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     }
   }, [id, registerOutputs])
 
-  // Shared helper for SSE-streamed POST requests
+  // Subscribe to `git:<runID>:*` topics for the desktop streaming path.
+  // Mirrors processSSEStream's state transitions. Resolves when the
+  // terminal `done` event fires so the caller can clear refs.
+  const subscribeGitEvents = useCallback((runID: string, onSuccess: () => void, errorStatus: PRBlockStatus): Promise<void> => {
+    return new Promise((resolve) => {
+      const topic = (event: string) => `git:${runID}:${event}`
+      const unsubs: Array<() => void> = []
+
+      unsubs.push(
+        Events.On(topic('log'), (ev) => {
+          const parsed = LogEventSchema.safeParse(ev.data)
+          if (!parsed.success) return
+          const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+          setLogs(prev => {
+            if (parsed.data.replace && prev.length > 0) {
+              return [...prev.slice(0, -1), newEntry]
+            }
+            return [...prev, newEntry]
+          })
+        }),
+      )
+
+      unsubs.push(
+        Events.On(topic('status'), (ev) => {
+          const parsed = StatusEventSchema.safeParse(ev.data)
+          if (!parsed.success) return
+          if (parsed.data.status === 'success') {
+            onSuccess()
+          } else {
+            setStatus(errorStatus)
+          }
+        }),
+      )
+
+      unsubs.push(
+        Events.On(topic('pr_result'), (ev) => {
+          const parsed = PRResultEventSchema.safeParse(ev.data)
+          if (parsed.success) setPRResult(parsed.data)
+        }),
+      )
+
+      unsubs.push(
+        Events.On(topic('outputs'), (ev) => {
+          const parsed = OutputsEventSchema.safeParse(ev.data)
+          if (parsed.success) registerOutputs(id, parsed.data.outputs)
+        }),
+      )
+
+      unsubs.push(
+        Events.On(topic('error'), (ev) => {
+          const data = (ev.data ?? {}) as { message?: string; code?: string; branchName?: string }
+          setErrorMessage(data.message || 'Operation failed')
+          setErrorCode(data.code || null)
+          if (data.code === 'branch_exists' && data.branchName) {
+            setConflictBranchName(data.branchName)
+          }
+          setStatus(errorStatus)
+        }),
+      )
+
+      unsubs.push(
+        Events.On(topic('done'), () => {
+          for (const u of ipcUnsubsRef.current) u()
+          ipcUnsubsRef.current = []
+          runIDRef.current = null
+          ipcResolveRef.current = null
+          resolve()
+        }),
+      )
+
+      ipcUnsubsRef.current = unsubs
+      ipcResolveRef.current = resolve
+    })
+  }, [id, registerOutputs])
+
+  // Shared helper for SSE-streamed POST requests (HTTP fallback)
   const executeSSERequest = useCallback(async (opts: {
     url: string
     body: unknown
@@ -248,6 +349,52 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     setConflictBranchName(null)
     setPushError(null)
 
+    if (isDesktop()) {
+      try {
+        const req = CreatePullRequestRequest.createFrom({
+          title: params.title,
+          description: params.description,
+          labels: params.labels,
+          branchName: params.branchName,
+          commitMessage: params.commitMessage,
+          localPath: params.localPath,
+          repoUrl: params.repoUrl,
+        })
+        const result = await GitService.PullRequest(req)
+
+        if (!result) {
+          setErrorMessage('Failed to create pull request')
+          setStatus('fail')
+          setLogs(prev => [...prev, createLogEntry('Error: PullRequest returned null')])
+          return
+        }
+
+        if (result.error) {
+          const msg = result.error.message || 'Failed to create pull request'
+          setErrorMessage(msg)
+          setErrorCode(result.error.code || null)
+          setStatus('fail')
+          setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
+          return
+        }
+
+        if (!result.runId) {
+          setErrorMessage('Failed to start pull request flow')
+          setStatus('fail')
+          return
+        }
+
+        runIDRef.current = result.runId
+        await subscribeGitEvents(result.runId, () => setStatus('success'), 'fail')
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unexpected error'
+        setErrorMessage(msg)
+        setStatus('fail')
+        setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
+      }
+      return
+    }
+
     await executeSSERequest({
       url: '/api/git/pull-request',
       body: params,
@@ -257,13 +404,49 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       abortMessage: 'Operation cancelled by user',
       errorPrefix: 'Error',
     })
-  }, [executeSSERequest])
+  }, [executeSSERequest, subscribeGitEvents])
 
   // Push additional changes
   const pushChanges = useCallback(async (localPath: string, branchName: string) => {
     setStatus('pushing')
     setPushError(null)
     setLogs(prev => [...prev, createLogEntry('─────────────────────────────────')])
+
+    if (isDesktop()) {
+      try {
+        const req = GitPushRequest.createFrom({ localPath, branchName })
+        const result = await GitService.Push(req)
+
+        if (!result) {
+          setPushError('Push failed: no response from backend')
+          setStatus('success') // inline error, stay in success state
+          return
+        }
+
+        if (result.error) {
+          const msg = result.error.message || 'Push failed'
+          setPushError(msg)
+          setStatus('success')
+          setLogs(prev => [...prev, createLogEntry(`Push error: ${msg}`)])
+          return
+        }
+
+        if (!result.runId) {
+          setPushError('Push failed to start')
+          setStatus('success')
+          return
+        }
+
+        runIDRef.current = result.runId
+        await subscribeGitEvents(result.runId, () => setStatus('success'), 'success')
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Push failed'
+        setPushError(msg)
+        setStatus('success')
+        setLogs(prev => [...prev, createLogEntry(`Push error: ${msg}`)])
+      }
+      return
+    }
 
     await executeSSERequest({
       url: '/api/git/push',
@@ -274,7 +457,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       abortMessage: 'Push cancelled',
       errorPrefix: 'Push error',
     })
-  }, [executeSSERequest])
+  }, [executeSSERequest, subscribeGitEvents])
 
   // Cancel operation
   const cancel = useCallback(() => {
@@ -282,10 +465,54 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       abortControllerRef.current.abort()
       abortControllerRef.current = null
     }
+
+    if (ipcUnsubsRef.current.length > 0) {
+      for (const u of ipcUnsubsRef.current) u()
+      ipcUnsubsRef.current = []
+    }
+    // Settle the subscribeGitEvents Promise before the `done` handler
+    // gets a chance to fire — we just unsubscribed from it, so without
+    // this the awaiting caller hangs forever.
+    if (ipcResolveRef.current) {
+      const resolver = ipcResolveRef.current
+      ipcResolveRef.current = null
+      resolver()
+    }
+    if (runIDRef.current) {
+      const rid = runIDRef.current
+      runIDRef.current = null
+      GitService.Cancel(rid).catch((err) => {
+        console.error('[useGitHubPullRequest] IPC cancel failed:', err)
+      })
+    }
   }, [])
 
   // Delete a local branch and reset to ready state
   const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
+    if (isDesktop()) {
+      try {
+        const req = GitDeleteBranchRequest.createFrom({ localPath, branchName })
+        const resp = await GitService.DeleteBranch(req)
+        if (!resp || resp.error) {
+          setErrorMessage(resp?.error || 'Failed to delete branch')
+          setErrorCode(resp?.code || null)
+          setConflictBranchName(null)
+          return
+        }
+        setErrorMessage(null)
+        setErrorCode(null)
+        setConflictBranchName(null)
+        setStatus('ready')
+        setLogs([])
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Failed to delete branch'
+        setErrorMessage(msg)
+        setErrorCode(null)
+        setConflictBranchName(null)
+      }
+      return
+    }
+
     const response = await fetch('/api/git/branch', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
