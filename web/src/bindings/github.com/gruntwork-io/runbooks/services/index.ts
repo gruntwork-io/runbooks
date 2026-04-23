@@ -43,6 +43,7 @@ export {
     ProfilesResponse,
     RecentEntry,
     SessionSetEnvResult,
+    WatchResetRequest,
     WatchStartRequest,
     WatchStartResult
 } from "./models.js";

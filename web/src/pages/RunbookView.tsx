@@ -15,6 +15,7 @@ import {
 } from '../components/ui/alert-dialog'
 import { Header } from '../components/layout/Header'
 import { ErrorSummaryBanner } from '../components/layout/ErrorSummaryBanner'
+import { DriftBanner } from '../components/DriftBanner'
 import MDXContainer from '../components/MDXContainer'
 import { ArtifactsContainer } from '../components/layout/ArtifactsContainer'
 import { ViewContainerToggle } from '../components/layout/ViewContainerToggle'
@@ -23,7 +24,7 @@ import { getDirectoryPath, hasGeneratedFiles } from '../lib/utils'
 import { useGetGruntbook } from '../hooks/useApiGetGruntbook'
 import { useGeneratedFiles } from '../hooks/useGeneratedFiles'
 import { useGitWorkTree } from '../contexts/useGitWorkTree'
-import { useWatchMode } from '../hooks/useWatchMode'
+import { useWatchMode, type DriftChange } from '../hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from '../hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from '../contexts/useErrorReporting'
 import { cn } from '../lib/utils'
@@ -80,6 +81,8 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false)
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false)
   const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false)
+  const [driftChanges, setDriftChanges] = useState<DriftChange[]>([])
+  const [driftDismissed, setDriftDismissed] = useState(false)
 
   const getGruntbookResult = useGetGruntbook()
 
@@ -103,11 +106,29 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
     }
   }, [getGruntbookResult])
 
-  useWatchMode(
-    handleFileChange,
-    getGruntbookResult.data?.isWatchMode ?? false,
-    getGruntbookResult.data?.path,
-  )
+  const handleDrift = useCallback((event: { changes: DriftChange[] }) => {
+    setDriftChanges(event.changes)
+    setDriftDismissed(false)
+  }, [])
+
+  const { resetSnapshot } = useWatchMode({
+    gruntbookPath: getGruntbookResult.data?.path,
+    outputRelPath: generatedFilesCheck.data?.relativeOutputPath,
+    isAuthorMode: getGruntbookResult.data?.isWatchMode ?? false,
+    onFileChange: handleFileChange,
+    onDrift: handleDrift,
+  })
+
+  const handleDriftReload = useCallback(async () => {
+    await resetSnapshot()
+    setDriftChanges([])
+    setDriftDismissed(false)
+    getGruntbookResult.refetch()
+  }, [resetSnapshot, getGruntbookResult])
+
+  const handleDriftDismiss = useCallback(() => {
+    setDriftDismissed(true)
+  }, [])
 
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
   const hasFiles = hasGeneratedFiles(fileTree)
@@ -204,6 +225,18 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
             className="fixed top-15 left-1/2 -translate-x-1/2 z-50 shadow-md max-w-2xl"
           />
         )}
+
+        {!getGruntbookResult.data?.isWatchMode &&
+          !driftDismissed &&
+          driftChanges.length > 0 && (
+            <div className="fixed top-15 left-0 right-0 z-40 shadow-md">
+              <DriftBanner
+                changes={driftChanges}
+                onReload={handleDriftReload}
+                onDismiss={handleDriftDismiss}
+              />
+            </div>
+          )}
 
         {getGruntbookResult.isLoading ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
