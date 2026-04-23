@@ -75,174 +75,238 @@ type GitCloneResultEvent struct {
 // GitHub API Handlers
 // =============================================================================
 
-// gitHubAPISetup holds the common validated context for GitHub API handler calls.
-type gitHubAPISetup struct {
-	token  string
-	user   *GitHubUserInfo
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-// HandleGitHubListOrgs returns the authenticated user's organizations plus their personal account.
-// GET /api/github/orgs
-// Requires SessionAuthMiddleware.
+// HandleGitHubListOrgs returns the authenticated user's organizations plus
+// their personal account. Thin shell over ListGitHubOrgs (see github_ops.go).
+// GET /api/github/orgs. Requires SessionAuthMiddleware.
 func HandleGitHubListOrgs(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		setup, errMsg := prepareGitHubAPICall(c, sm)
-		if errMsg != "" {
-			c.JSON(http.StatusOK, gin.H{"orgs": []GitHubOrg{}, "error": errMsg})
-			return
-		}
-		defer setup.cancel()
-
-		orgs := []GitHubOrg{
-			{
-				Login:     setup.user.Login,
-				AvatarURL: setup.user.AvatarURL,
-				Type:      "User",
-			},
-		}
-
-		// Fetch organizations
-		ghOrgs, err := fetchGitHubOrgs(setup.ctx, setup.token)
-		if err != nil {
-			// Return the user account even if org fetch fails
-			c.JSON(http.StatusOK, gin.H{"orgs": orgs, "warning": fmt.Sprintf("Failed to list organizations: %v", err)})
-			return
-		}
-
-		orgs = append(orgs, ghOrgs...)
-		c.JSON(http.StatusOK, gin.H{"orgs": orgs})
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+		defer cancel()
+		c.JSON(http.StatusOK, ListGitHubOrgs(ctx, sm))
 	}
 }
 
-// HandleGitHubListRepos returns repositories for a given owner (user or org).
-// GET /api/github/repos?owner=<owner>&query=<optional search>
-// Requires SessionAuthMiddleware.
+// HandleGitHubListRepos returns repositories for a given owner. Thin shell
+// over ListGitHubRepos (see github_ops.go).
+// GET /api/github/repos?owner=<owner>&query=<optional search>. Requires
+// SessionAuthMiddleware.
 func HandleGitHubListRepos(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner := c.Query("owner")
-		if owner == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "owner query parameter is required"})
-			return
-		}
-
-		if !isValidGitHubOwner(owner) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid owner name"})
-			return
-		}
-
-		setup, errMsg := prepareGitHubAPICall(c, sm)
-		if errMsg != "" {
-			c.JSON(http.StatusOK, gin.H{"repos": []GitHubRepo{}, "error": errMsg})
-			return
-		}
-		defer setup.cancel()
-
-		query := c.Query("query")
-		repos, err := fetchGitHubRepos(setup.ctx, setup.token, owner, query)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"repos": []GitHubRepo{}, "error": fmt.Sprintf("Failed to list repositories: %v", err)})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"repos": repos})
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+		defer cancel()
+		c.JSON(http.StatusOK, ListGitHubRepos(ctx, sm, GitHubListReposRequest{
+			Owner: c.Query("owner"),
+			Query: c.Query("query"),
+		}))
 	}
 }
 
 // HandleGitHubListRefs returns branches and tags for a given owner/repo.
-// GET /api/github/refs?owner=<owner>&repo=<repo>&query=<optional search>
+// Thin shell over ListGitHubRefs (see github_ops.go).
+// GET /api/github/refs?owner=<owner>&repo=<repo>&query=<optional search>.
 // Requires SessionAuthMiddleware.
 func HandleGitHubListRefs(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner := c.Query("owner")
-		repo := c.Query("repo")
-		if owner == "" || repo == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "owner and repo query parameters are required"})
-			return
-		}
-
-		if !isValidGitHubOwner(owner) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid owner name"})
-			return
-		}
-
-		if !isValidGitHubRepoName(repo) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository name"})
-			return
-		}
-
-		setup, errMsg := prepareGitHubAPICall(c, sm)
-		if errMsg != "" {
-			c.JSON(http.StatusOK, gin.H{"refs": []GitHubRef{}, "error": errMsg})
-			return
-		}
-		defer setup.cancel()
-
-		query := c.Query("query")
-
-		// Fetch branches and tags
-		branches, branchTotal, branchErr := fetchGitHubBranches(setup.ctx, setup.token, owner, repo, query)
-		tags, tagTotal, tagErr := fetchGitHubTags(setup.ctx, setup.token, owner, repo, query)
-
-		if branchErr != nil && tagErr != nil {
-			c.JSON(http.StatusOK, gin.H{"refs": []GitHubRef{}, "error": fmt.Sprintf("Failed to fetch refs: %v; %v", branchErr, tagErr)})
-			return
-		}
-
-		// Convert branches to GitHubRef and merge with tags
-		var refs []GitHubRef
-		for _, b := range branches {
-			refs = append(refs, GitHubRef{
-				Name:            b.Name,
-				Type:            "branch",
-				IsDefaultBranch: b.IsDefault,
-			})
-		}
-		refs = append(refs, tags...)
-
-		totalCount := branchTotal + tagTotal
-		result := gin.H{
-			"refs":        refs,
-			"totalCount":  totalCount,
-			"branchCount": branchTotal,
-			"tagCount":    tagTotal,
-		}
-		if branchTotal > len(branches) || tagTotal > len(tags) {
-			result["hasMore"] = true
-		}
-		c.JSON(http.StatusOK, result)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+		defer cancel()
+		c.JSON(http.StatusOK, ListGitHubRefs(ctx, sm, GitHubListRefsRequest{
+			Owner: c.Query("owner"),
+			Repo:  c.Query("repo"),
+			Query: c.Query("query"),
+		}))
 	}
 }
 
 // =============================================================================
-// SSE Auto-Flush Writer
+// Git Clone Plan + Prepare
 // =============================================================================
 
-// sseWriter wraps a gin.Context and http.Flusher to auto-flush after each SSE event,
-// eliminating repetitive flusher.Flush() calls throughout the clone handler.
-type sseWriter struct {
-	c       *gin.Context
-	flusher http.Flusher
+// GitClonePlan is the validated, ready-to-run form of a GitCloneRequest.
+// PrepareGitClone produces one from a raw request; StreamGitClone
+// consumes it. Splitting the flow this way lets the IPC path surface
+// validation failures synchronously as return values while the HTTP
+// path maps them to status codes.
+type GitClonePlan struct {
+	// CloneURL is the original request URL with any available git auth
+	// token injected (so downstream git invocations can authenticate).
+	CloneURL string
+	// RepoURL is the original URL the user supplied, kept for outputs.
+	RepoURL string
+	// AbsolutePath is the on-disk clone destination.
+	AbsolutePath string
+	// RelativePath is AbsolutePath relative to the server's working
+	// directory, used in log messages and outputs.
+	RelativePath string
+	// Ref is the branch or tag to clone (empty = default).
+	Ref string
+	// RepoPath is the subtree for sparse checkout (empty = full clone).
+	RepoPath string
+	// UsePTY is whether to use a PTY when invoking git (defaults on).
+	UsePTY bool
 }
 
-func (w *sseWriter) log(line string)                      { sendSSELog(w.c, line); w.flusher.Flush() }
-func (w *sseWriter) status(status string, exitCode int)   { sendSSEStatus(w.c, status, exitCode); w.flusher.Flush() }
-func (w *sseWriter) done()                                { sendSSEDone(w.c); w.flusher.Flush() }
-func (w *sseWriter) outputs(outputs map[string]string)    { sendSSEOutputs(w.c, outputs); w.flusher.Flush() }
-func (w *sseWriter) event(name string, data interface{})  { w.c.SSEvent(name, data); w.flusher.Flush() }
+// GitCloneError is the shaped pre-flight failure a Prepare step can
+// return. Code distinguishes the different transport-level responses
+// the frontend needs to branch on (in particular directory_exists →
+// "confirm overwrite?" dialog).
+type GitCloneError struct {
+	Code         string `json:"code"`
+	Message      string `json:"message"`
+	Path         string `json:"path,omitempty"`
+	AbsolutePath string `json:"absolutePath,omitempty"`
+}
 
-// fail logs an error message, sends a fail status, and closes the SSE stream.
-// Combines the common sse.log + sse.status("fail") + sse.done() pattern.
-func (w *sseWriter) fail(msg string)  { w.log(msg); w.status("fail", 1); w.done() }
+// Error implements the error interface so GitCloneError can be returned
+// alongside or instead of a plan without requiring a separate return
+// slot for the Go side.
+func (e *GitCloneError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Code
+}
+
+// Git clone error codes. Kept in sync with the legacy HTTP shape so the
+// frontend doesn't have to branch on transport.
+const (
+	GitCloneErrInvalidRequest  = "invalid_request"
+	GitCloneErrInvalidURL      = "invalid_url"
+	GitCloneErrNoSession       = "no_session"
+	GitCloneErrPathOutside     = "path_outside_working_dir"
+	GitCloneErrPathResolve     = "path_resolve_failed"
+	GitCloneErrDirectoryExists = "directory_exists"
+	GitCloneErrDeleteFailed    = "delete_failed"
+)
+
+// PrepareGitClone validates a clone request and resolves the on-disk
+// destination against the server's working directory. When Force is
+// false and the destination already exists, returns a GitCloneError
+// with Code=directory_exists so the caller can prompt the user; when
+// Force is true, attempts to remove the existing path up front.
+//
+// sessionPresent is the caller's answer to "does a session exist?" —
+// the HTTP path gets this from middleware, the IPC path from the
+// session manager. Keeping it a parameter means this function stays
+// transport-free.
+func PrepareGitClone(req GitCloneRequest, workingDir string, tokens *TokenResolver, sessionPresent bool) (*GitClonePlan, *GitCloneError) {
+	if req.URL == "" {
+		return nil, &GitCloneError{Code: GitCloneErrInvalidRequest, Message: "url is required"}
+	}
+	if !isValidGitURL(req.URL) {
+		return nil, &GitCloneError{Code: GitCloneErrInvalidURL, Message: "Invalid git URL format"}
+	}
+	if !sessionPresent {
+		return nil, &GitCloneError{Code: GitCloneErrNoSession, Message: "Session context not found"}
+	}
+
+	// Always resolve clone paths relative to the initial working directory
+	// (the --working-dir passed at server start), NOT the session's current
+	// working directory. The session WorkDir can drift when <Command> blocks
+	// execute scripts that change directory (e.g. `cd infra-catalog`), which
+	// would cause a second <GitClone> to nest inside the first clone's tree.
+	absolutePath, relativePath := ResolveClonePaths(req.LocalPath, req.URL, workingDir)
+
+	absWorkDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return nil, &GitCloneError{Code: GitCloneErrPathResolve, Message: "Failed to resolve working directory"}
+	}
+	absClonePath, err := filepath.Abs(absolutePath)
+	if err != nil {
+		return nil, &GitCloneError{Code: GitCloneErrPathResolve, Message: "Failed to resolve clone path"}
+	}
+	if !strings.HasPrefix(absClonePath, absWorkDir+string(filepath.Separator)) {
+		return nil, &GitCloneError{Code: GitCloneErrPathOutside, Message: "Clone path must be a subdirectory of the working directory"}
+	}
+
+	if _, err := os.Stat(absolutePath); err == nil {
+		if !req.Force {
+			return nil, &GitCloneError{
+				Code:         GitCloneErrDirectoryExists,
+				Message:      fmt.Sprintf("Path already exists: %s", relativePath),
+				Path:         relativePath,
+				AbsolutePath: absolutePath,
+			}
+		}
+		if err := os.RemoveAll(absolutePath); err != nil {
+			return nil, &GitCloneError{
+				Code:    GitCloneErrDeleteFailed,
+				Message: fmt.Sprintf("Failed to delete existing path: %v", err),
+			}
+		}
+	}
+
+	cloneURL := req.URL
+	if parsed, err := url.Parse(req.URL); err == nil {
+		if token := tokens.TokenForHost(parsed.Hostname()); token != "" {
+			cloneURL = InjectGitToken(req.URL, token)
+		}
+	}
+
+	return &GitClonePlan{
+		CloneURL:     cloneURL,
+		RepoURL:      req.URL,
+		AbsolutePath: absolutePath,
+		RelativePath: relativePath,
+		Ref:          req.Ref,
+		RepoPath:     req.RepoPath,
+		UsePTY:       req.UsePTY == nil || *req.UsePTY,
+	}, nil
+}
+
+// StreamGitClone performs the clone using the plan and emits progress
+// through sink. Transport-agnostic: the Gin handler passes a
+// GinSSEGitSink, the IPC GitService passes an EmitterGitSink. This
+// function closes the sink (via Status + Done) before returning; the
+// caller does not need to emit anything.
+func StreamGitClone(ctx context.Context, plan *GitClonePlan, sink GitEventSink) {
+	sink.Log(fmt.Sprintf("Cloning into '%s'...", plan.RelativePath), false)
+
+	var cloneErr error
+	if plan.RepoPath != "" {
+		cloneErr = performSparseClone(ctx, sink, plan.CloneURL, plan.AbsolutePath, plan.RepoPath, plan.Ref, plan.UsePTY)
+	} else {
+		cloneErr = performStandardClone(ctx, sink, plan.CloneURL, plan.AbsolutePath, plan.Ref, plan.UsePTY)
+	}
+
+	if cloneErr != nil {
+		sanitizedErr := SanitizeGitError(cloneErr.Error())
+		FailGit(sink, fmt.Sprintf("Clone failed: %s", sanitizedErr))
+		return
+	}
+
+	fileCount := CountFiles(plan.AbsolutePath)
+
+	sink.Log(fmt.Sprintf("Clone complete. %d files downloaded to %s", fileCount, plan.RelativePath), false)
+	sink.Event("clone_result", GitCloneResultEvent{
+		FileCount:    fileCount,
+		AbsolutePath: plan.AbsolutePath,
+		RelativePath: plan.RelativePath,
+	})
+
+	outputs := map[string]string{
+		"clone_path": plan.AbsolutePath,
+		"file_count": fmt.Sprintf("%d", fileCount),
+		"repo_url":   plan.RepoURL,
+	}
+	if plan.Ref != "" {
+		outputs["ref"] = plan.Ref
+	}
+	if owner, repo := parseOwnerRepoFromURL(plan.RepoURL); owner != "" {
+		outputs["repo_owner"] = owner
+		outputs["repo_name"] = repo
+	}
+	sink.Outputs(outputs)
+	sink.Status("success", 0)
+	sink.Done()
+}
 
 // =============================================================================
 // Git Clone Handler
 // =============================================================================
 
-// HandleGitClone performs a git clone operation with real-time SSE streaming.
-// POST /api/git/clone
-// Requires SessionAuthMiddleware.
+// HandleGitClone performs a git clone operation with real-time SSE
+// streaming. POST /api/git/clone. Requires SessionAuthMiddleware. Thin
+// shell over PrepareGitClone + StreamGitClone (see above).
 func HandleGitClone(sm *SessionManager, workingDir string, tokens *TokenResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitCloneRequest
@@ -251,79 +315,13 @@ func HandleGitClone(sm *SessionManager, workingDir string, tokens *TokenResolver
 			return
 		}
 
-		if req.URL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
+		sessionPresent := GetSessionExecContext(c) != nil
+		plan, cerr := PrepareGitClone(req, workingDir, tokens, sessionPresent)
+		if cerr != nil {
+			c.JSON(httpStatusForCloneError(cerr), gitCloneErrorToHTTPBody(cerr))
 			return
 		}
 
-		// Validate the URL
-		if !isValidGitURL(req.URL) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid git URL format"})
-			return
-		}
-
-		// Verify session is valid
-		execCtx := GetSessionExecContext(c)
-		if execCtx == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session context not found"})
-			return
-		}
-
-		// Always resolve clone paths relative to the initial working directory
-		// (the --working-dir passed at server start), NOT the session's current
-		// working directory. The session WorkDir can drift when <Command> blocks
-		// execute scripts that change directory (e.g. `cd infra-catalog`), which
-		// would cause a second <GitClone> to nest inside the first clone's tree.
-		effectiveWorkDir := workingDir
-
-		absolutePath, relativePath := ResolveClonePaths(req.LocalPath, req.URL, effectiveWorkDir)
-
-		// Validate the resolved path is contained within the working directory
-		absWorkDir, err := filepath.Abs(effectiveWorkDir)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve working directory"})
-			return
-		}
-		absClonePath, err := filepath.Abs(absolutePath)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to resolve clone path"})
-			return
-		}
-		if !strings.HasPrefix(absClonePath, absWorkDir+string(filepath.Separator)) && absClonePath != absWorkDir {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Clone path must be within the working directory"})
-			return
-		}
-
-		// Check if destination already exists (file or directory)
-		if _, err := os.Stat(absolutePath); err == nil {
-			if !req.Force {
-				c.JSON(http.StatusConflict, gin.H{
-					"error":       "directory_exists",
-					"message":     fmt.Sprintf("Path already exists: %s", relativePath),
-					"path":        relativePath,
-					"absolutePath": absolutePath,
-				})
-				return
-			}
-			// Force mode: remove existing path
-			if err := os.RemoveAll(absolutePath); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "delete_failed",
-					"message": fmt.Sprintf("Failed to delete existing path: %v", err),
-				})
-				return
-			}
-		}
-
-		// Inject a git auth token if one is available for this host
-		cloneURL := req.URL
-		if parsed, err := url.Parse(req.URL); err == nil {
-			if token := tokens.TokenForHost(parsed.Hostname()); token != "" {
-				cloneURL = InjectGitToken(req.URL, token)
-			}
-		}
-
-		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
@@ -333,59 +331,48 @@ func HandleGitClone(sm *SessionManager, workingDir string, tokens *TokenResolver
 			sendSSEError(c, "Streaming not supported")
 			return
 		}
-		sse := &sseWriter{c: c, flusher: flusher}
 
-		// Create context with 5 minute timeout
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 		defer cancel()
 
-		// Determine if PTY should be used (defaults to true if not specified)
-		usePTY := req.UsePTY == nil || *req.UsePTY
-
-		sse.log(fmt.Sprintf("Cloning into '%s'...", relativePath))
-
-		var cloneErr error
-		if req.RepoPath != "" {
-			cloneErr = performSparseClone(ctx, c, flusher, cloneURL, absolutePath, req.RepoPath, req.Ref, usePTY)
-		} else {
-			cloneErr = performStandardClone(ctx, c, flusher, cloneURL, absolutePath, req.Ref, usePTY)
-		}
-
-		if cloneErr != nil {
-			sanitizedErr := SanitizeGitError(cloneErr.Error())
-			sse.log(fmt.Sprintf("Clone failed: %s", sanitizedErr))
-			sse.status("fail", 1)
-			sse.done()
-			return
-		}
-
-		// Count files (excluding .git directory)
-		fileCount := CountFiles(absolutePath)
-
-		sse.log(fmt.Sprintf("Clone complete. %d files downloaded to %s", fileCount, relativePath))
-		sse.event("clone_result", GitCloneResultEvent{
-			FileCount:    fileCount,
-			AbsolutePath: absolutePath,
-			RelativePath: relativePath,
-		})
-
-		// Send outputs event so the block can register outputs in GruntbookContext
-		outputs := map[string]string{
-			"clone_path": absolutePath,
-			"file_count": fmt.Sprintf("%d", fileCount),
-			"repo_url":   req.URL,
-		}
-		if req.Ref != "" {
-			outputs["ref"] = req.Ref
-		}
-		if owner, repo := parseOwnerRepoFromURL(req.URL); owner != "" {
-			outputs["repo_owner"] = owner
-			outputs["repo_name"] = repo
-		}
-		sse.outputs(outputs)
-		sse.status("success", 0)
-		sse.done()
+		StreamGitClone(ctx, plan, NewGinSSEGitSink(c, flusher))
 	}
+}
+
+// httpStatusForCloneError maps a GitCloneError's Code onto the HTTP
+// status the legacy endpoint returned, keeping frontend error handling
+// unchanged while HTTP remains in place.
+func httpStatusForCloneError(e *GitCloneError) int {
+	switch e.Code {
+	case GitCloneErrNoSession:
+		return http.StatusUnauthorized
+	case GitCloneErrDirectoryExists:
+		return http.StatusConflict
+	case GitCloneErrPathResolve:
+		return http.StatusInternalServerError
+	case GitCloneErrDeleteFailed:
+		return http.StatusInternalServerError
+	default:
+		return http.StatusBadRequest
+	}
+}
+
+// gitCloneErrorToHTTPBody renders a GitCloneError as the legacy HTTP
+// JSON body. The directory_exists variant carries extra fields the
+// frontend uses to show a confirm-overwrite dialog.
+func gitCloneErrorToHTTPBody(e *GitCloneError) gin.H {
+	body := gin.H{"error": e.Code}
+	if e.Code == GitCloneErrDirectoryExists {
+		body["message"] = e.Message
+		body["path"] = e.Path
+		body["absolutePath"] = e.AbsolutePath
+		return body
+	}
+	// Other errors historically used {"error": "<message>"} rather than
+	// {"error": "<code>"}. Preserve that to avoid changing error text
+	// frontend might display verbatim.
+	body["error"] = e.Message
+	return body
 }
 
 // =============================================================================
@@ -447,14 +434,13 @@ func GitSparseCloneSimple(ctx context.Context, cloneURL, destPath, repoPath, ref
 	return nil, nil
 }
 
-// performStandardClone does a regular git clone and streams output via SSE.
-func performStandardClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, ref string, usePTY bool) error {
-	return streamGitCommand(ctx, c, flusher, buildCloneArgs(cloneURL, destPath, ref), "", usePTY)
+// performStandardClone does a regular git clone and streams output through sink.
+func performStandardClone(ctx context.Context, sink GitEventSink, cloneURL, destPath, ref string, usePTY bool) error {
+	return streamGitCommand(ctx, sink, buildCloneArgs(cloneURL, destPath, ref), "", usePTY)
 }
 
-// performSparseClone does a sparse checkout to clone only a specific subdirectory, streaming output via SSE.
-func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flusher, cloneURL, destPath, repoPath, ref string, usePTY bool) error {
-	sse := &sseWriter{c: c, flusher: flusher}
+// performSparseClone does a sparse checkout to clone only a specific subdirectory, streaming output through sink.
+func performSparseClone(ctx context.Context, sink GitEventSink, cloneURL, destPath, repoPath, ref string, usePTY bool) error {
 	stepMessages := []string{
 		"Setting up sparse checkout...",
 		fmt.Sprintf("Configuring sparse checkout for path: %s", repoPath),
@@ -462,8 +448,8 @@ func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flushe
 	}
 
 	for i, step := range buildSparseCloneSteps(cloneURL, destPath, repoPath, ref) {
-		sse.log(stepMessages[i])
-		if err := streamGitCommand(ctx, c, flusher, step.args, "", usePTY); err != nil {
+		sink.Log(stepMessages[i], false)
+		if err := streamGitCommand(ctx, sink, step.args, "", usePTY); err != nil {
 			return fmt.Errorf("%s: %w", step.errWrap, err)
 		}
 	}
@@ -471,10 +457,10 @@ func performSparseClone(ctx context.Context, c *gin.Context, flusher http.Flushe
 	return nil
 }
 
-// streamGitCommand runs a git command and streams output via SSE.
+// streamGitCommand runs a git command and streams output through sink.
 // When usePTY is true and PTY is supported, it uses PTY for better terminal emulation
 // (progress bars, colors, etc.) and falls back to pipes if PTY fails.
-func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher, gitArgs []string, workDir string, usePTY bool) error {
+func streamGitCommand(ctx context.Context, sink GitEventSink, gitArgs []string, workDir string, usePTY bool) error {
 	outputChan := make(chan outputLine, 100)
 	doneChan := make(chan error, 1)
 
@@ -539,13 +525,11 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 		}()
 	}
 
-	// Stream output via SSE until done
+	// Stream output via the sink until done
 	for {
 		select {
 		case out := <-outputChan:
-			line := SanitizeGitError(out.Line)
-			sendSSELogWithReplace(c, line, out.Replace)
-			flusher.Flush()
+			sink.Log(SanitizeGitError(out.Line), out.Replace)
 		case err := <-doneChan:
 			// Wait for all reader goroutines to finish, then close
 			// outputChan so the drain loop below sees every line.
@@ -554,9 +538,7 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 
 			// Drain any remaining output
 			for out := range outputChan {
-				line := SanitizeGitError(out.Line)
-				sendSSELogWithReplace(c, line, out.Replace)
-				flusher.Flush()
+				sink.Log(SanitizeGitError(out.Line), out.Replace)
 			}
 			if err != nil {
 				exitCode := 1
@@ -578,31 +560,6 @@ func streamGitCommand(ctx context.Context, c *gin.Context, flusher http.Flusher,
 // =============================================================================
 // GitHub API Helpers
 // =============================================================================
-
-// prepareGitHubAPICall validates the session token and returns a ready-to-use
-// context, token, and validated user info. Returns a non-empty error message
-// if setup fails; the caller is responsible for formatting the JSON response.
-func prepareGitHubAPICall(c *gin.Context, sm *SessionManager) (*gitHubAPISetup, string) {
-	token := getGitHubTokenFromSession(sm)
-	if token == "" {
-		return nil, "No GitHub token found in session"
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-
-	user, _, err := validateGitHubToken(ctx, token)
-	if err != nil {
-		cancel()
-		return nil, fmt.Sprintf("Failed to validate token: %v", err)
-	}
-
-	return &gitHubAPISetup{
-		token:  token,
-		user:   user,
-		ctx:    ctx,
-		cancel: cancel,
-	}, ""
-}
 
 // doGitHubAPIGet creates and executes an authenticated GitHub API GET request.
 // It sets the standard Authorization, Accept, and API version headers.

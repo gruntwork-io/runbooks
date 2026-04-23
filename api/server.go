@@ -22,13 +22,21 @@ func setupCommonRoutes(r *gin.Engine, gruntbookPath string, workingDir string, o
 	// If the gruntbook contains AwsAuth blocks, strip AWS credentials from session
 	// at creation time. This ensures users must explicitly confirm which AWS account
 	// they want to use before any scripts can access the credentials.
+	//
+	// Always overwrite (with nil when there's no AwsAuth) instead of only setting
+	// when non-empty, so a SessionManager reused across gruntbooks — e.g. a host
+	// injecting one via ServerConfig.Sessions, or a future serve mode that swaps
+	// registries without rebuilding the manager — doesn't inherit a prior
+	// gruntbook's protection list.
+	var protected []string
 	if registry != nil && registry.HasComponent("AwsAuth") {
-		sessionManager.SetProtectedEnvVars([]string{
+		protected = []string{
 			"AWS_ACCESS_KEY_ID",
 			"AWS_SECRET_ACCESS_KEY",
 			"AWS_SESSION_TOKEN",
-		})
+		}
 	}
+	sessionManager.SetProtectedEnvVars(protected)
 
 	// Get embedded filesystems for serving static assets
 	distFS, err := web.GetDistFS()
@@ -181,6 +189,20 @@ type ServerConfig struct {
 	IsWatchMode           bool // When true, enables file watching with SSE notifications
 	ReleaseMode           bool // When true, uses gin release mode (quieter logs for end-users)
 	EnableCORS            bool // When true, allows cross-origin requests (for dev with separate frontend)
+	// Sessions is the shared SessionManager. When non-nil, Gin uses it
+	// instead of creating its own — this is how M4's IPC services and
+	// the legacy Gin handlers see the same session state (env, active
+	// worktree, execution count). Leave nil for standalone CLI uses
+	// (gruntbooks serve on older builds, tests); buildHandler creates
+	// a private one in that case.
+	Sessions *SessionManager
+
+	// Registry is the shared ExecutableRegistry built from the open
+	// gruntbook. When non-nil, Gin uses it instead of parsing the
+	// gruntbook again — M4's IPC ExecService needs the same registry
+	// Gin is already serving so script lookups match byte-for-byte.
+	// Only populated when UseExecutableRegistry is true.
+	Registry *ExecutableRegistry
 }
 
 // StartServer starts the API server and blocks until it exits.
@@ -266,15 +288,18 @@ func buildHandler(cfg ServerConfig) (http.Handler, func(), error) {
 		return nil, nil, fmt.Errorf("failed to resolve gruntbook path: %w", err)
 	}
 
-	var registry *ExecutableRegistry
-	if cfg.UseExecutableRegistry {
+	registry := cfg.Registry
+	if registry == nil && cfg.UseExecutableRegistry {
 		registry, err = NewExecutableRegistry(resolvedPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create executable registry: %w", err)
 		}
 	}
 
-	sessionManager := NewSessionManager()
+	sessionManager := cfg.Sessions
+	if sessionManager == nil {
+		sessionManager = NewSessionManager()
+	}
 
 	// Host-backed adapters for the ports consumed by handlers built in
 	// setupCommonRoutes. A hosted build would swap in tenant-scoped

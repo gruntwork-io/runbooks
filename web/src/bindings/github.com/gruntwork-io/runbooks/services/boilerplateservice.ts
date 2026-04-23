@@ -31,6 +31,34 @@ export function ParseVariables(req: api$0.BoilerplateRequest): $CancellablePromi
     });
 }
 
+/**
+ * Render materializes a disk-backed boilerplate template (resolved
+ * relative to the open gruntbook) into the configured output path,
+ * performing manifest-tracked cleanup of orphaned files. Mirrors the
+ * legacy POST /api/boilerplate/render handler.
+ */
+export function Render(req: api$0.RenderRequest): $CancellablePromise<api$0.RenderResponse | null> {
+    return $Call.ByID(3825414495, req).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
+ * RenderInline renders a set of template files supplied in the request
+ * body (no on-disk template needed). Used by <Template> preview and by
+ * <Inputs> components that synthesize templates from captured inputs.
+ * Mirrors the legacy POST /api/boilerplate/render-inline handler.
+ */
+export function RenderInline(req: api$0.RenderInlineRequest): $CancellablePromise<api$0.RenderInlineResponse | null> {
+    return $Call.ByID(1873972246, req).then(($result: any) => {
+        return $$createType5($result);
+    });
+}
+
 // Private type creation functions
 const $$createType0 = api$0.BoilerplateConfig.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = api$0.RenderResponse.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = api$0.RenderInlineResponse.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);

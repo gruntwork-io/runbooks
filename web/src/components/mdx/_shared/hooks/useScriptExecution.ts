@@ -16,6 +16,9 @@ import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutput
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
+import { isDesktop } from '@/lib/wails'
+import * as BoilerplateService from '@/bindings/github.com/gruntwork-io/runbooks/services/boilerplateservice'
+import { RenderInlineRequest } from '@/bindings/github.com/gruntwork-io/runbooks/api/models'
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -347,12 +350,18 @@ export function useScriptExecution({
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null)
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)
-  
+
   // Track if component is mounted to prevent setState on unmounted component
   const isMountedRef = useRef(true)
-  
+
   // Track pending fetch to allow cancellation
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Monotonic render sequence. IPC has no AbortController equivalent,
+  // so a slow RenderInline can resolve after a newer one; comparing
+  // seq to requestSeqRef on response lets us drop stale results before
+  // they overwrite newer state.
+  const requestSeqRef = useRef(0)
   
   // Determine the actual script content to use
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
@@ -402,20 +411,29 @@ export function useScriptExecution({
     }
   }, [status, invalidateGitFileTree])
 
-  // Function to render script with inputs
-  const renderScript = useCallback(async (inputs: TemplateValue[]) => {
-    // Cancel any pending render request
+  // Function to render script with inputs.
+  // renderKey is the stringified payload; it becomes lastRenderedVariablesRef
+  // only if this call wins the race, so a stale IPC response can't falsely
+  // record itself as the latest render.
+  const renderScript = useCallback(async (inputs: TemplateValue[], renderKey: string) => {
+    // Cancel any pending HTTP fetch. IPC has no equivalent, which is
+    // why we also track requestSeqRef below.
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
-    
+
     // Create new abort controller for this request
     const abortController = new AbortController()
     abortControllerRef.current = abortController
-    
+
+    // Claim a sequence number. Any response whose seq !== requestSeqRef
+    // at resolve time has been superseded and must be dropped.
+    const seq = ++requestSeqRef.current
+    const isStale = () => !isMountedRef.current || seq !== requestSeqRef.current
+
     setIsRendering(true)
     setRenderError(null)
-    
+
     // Build template files object with just the script content
     // For Command/Check, we only need simple variable substitution - we don't need the full
     // boilerplate.yml config (which may include dependencies that aren't relevant here).
@@ -425,53 +443,73 @@ export function useScriptExecution({
       // Each API call is isolated, so no risk of collision between components
       'script.sh': rawScriptContent,
     }
-    
+
     try {
-      const response = await fetch('/api/boilerplate/render-inline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let renderedFiles: Record<string, { content?: string } | undefined> | undefined
+
+      if (isDesktop()) {
+        const req = RenderInlineRequest.createFrom({
           templateFiles,
-          inputs,
-        }),
-        signal: abortController.signal
-      })
+          inputs: inputs as unknown as Parameters<typeof RenderInlineRequest.createFrom>[0]['inputs'],
+        })
+        const res = await BoilerplateService.RenderInline(req)
+        if (isStale()) return
+        if (!res) {
+          setRenderError(createAppError('Failed to render script', 'RenderInline returned null'))
+          setIsRendering(false)
+          return
+        }
+        renderedFiles = res.renderedFiles as unknown as Record<string, { content?: string }>
+      } else {
+        const response = await fetch('/api/boilerplate/render-inline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            templateFiles,
+            inputs,
+          }),
+          signal: abortController.signal
+        })
 
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
+        if (isStale()) return
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const errorMessage = errorData?.error || 'Failed to render script'
-        setRenderError(createAppError(errorMessage, errorData?.details))
-        setIsRendering(false)
-        return
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null)
+          const errorMessage = errorData?.error || 'Failed to render script'
+          setRenderError(createAppError(errorMessage, errorData?.details))
+          setIsRendering(false)
+          return
+        }
+
+        const responseData = await response.json()
+        if (isStale()) return
+        renderedFiles = responseData.renderedFiles
       }
 
-      const responseData = await response.json()
-      const renderedFiles = responseData.renderedFiles
-      
       // Check if we got the expected file structure
       if (!renderedFiles || !renderedFiles['script.sh']) {
         setRenderError(createAppError(
           'Render response missing expected file',
-          'The API did not return the rendered script.sh file'
+          'The render service did not return the rendered script.sh file'
         ))
         setIsRendering(false)
         return
       }
-      
-      setRenderedScript(renderedFiles['script.sh'].content)
+
+      // Accept this response: record the key that produced it, then
+      // apply the content. Updating the key here (not at schedule time)
+      // ensures only the winning response advances the dedup marker.
+      lastRenderedVariablesRef.current = renderKey
+      setRenderedScript(renderedFiles['script.sh']?.content ?? null)
       setIsRendering(false)
     } catch (err) {
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
-      
+      if (isStale()) return
+
       // Don't set error if request was aborted (expected behavior)
       if (err instanceof Error && err.name === 'AbortError') {
         return
       }
-      
+
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
       setIsRendering(false)
@@ -529,11 +567,13 @@ export function useScriptExecution({
     // Capture current inputs in closure to avoid race condition
     const inputsToRender = inputsForRender
     const keyToStore = inputsKey
-    
-    // Debounce: wait 300ms after last change before rendering
+
+    // Debounce: wait 300ms after last change before rendering.
+    // renderScript advances lastRenderedVariablesRef itself — only after
+    // it confirms the response is the latest one — so that a slow IPC
+    // call can't mark itself as "applied" and block a newer render.
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = keyToStore
-      renderScript(inputsToRender)
+      renderScript(inputsToRender, keyToStore)
     }, 300)
     
     // Cleanup: clear timer when effect re-runs or on unmount

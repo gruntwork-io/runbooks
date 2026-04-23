@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -172,12 +170,11 @@ func (r *GitHubCliCredentialsResponse) HasRepoScope() bool {
 // Handlers
 // =============================================================================
 
-// HandleGitHubValidate validates a GitHub token. The HTTP handler is
-// a thin adapter: it parses JSON, delegates to coregithub.Validate,
-// and shapes the domain result into the JSON response. Empty tokens
+// HandleGitHubValidate validates a GitHub token. The HTTP handler is a
+// thin shell around ValidateGitHubToken (see github_ops.go). Empty tokens
 // return HTTP 400 (the only path that isn't 200) because the UI
-// distinguishes "user forgot to fill in the field" from "GitHub
-// rejected the token."
+// distinguishes "user forgot to fill in the field" from "GitHub rejected
+// the token."
 func HandleGitHubValidate(gh ports.GitHubClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitHubValidateRequest
@@ -200,15 +197,7 @@ func HandleGitHubValidate(gh ports.GitHubClient) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		result := coregithub.Validate(ctx, gh, req.Token)
-
-		c.JSON(http.StatusOK, GitHubValidateResponse{
-			Valid:     result.Valid,
-			User:      githubUserInfoFromPort(result.User),
-			Scopes:    result.Scopes,
-			TokenType: GitHubTokenType(result.TokenType),
-			Error:     result.Error,
-		})
+		c.JSON(http.StatusOK, ValidateGitHubToken(ctx, gh, req))
 	}
 }
 
@@ -227,7 +216,8 @@ func githubUserInfoFromPort(u *ports.GitHubUser) *GitHubUserInfo {
 	}
 }
 
-// HandleGitHubOAuthStart initiates GitHub OAuth device authorization flow
+// HandleGitHubOAuthStart initiates GitHub OAuth device authorization flow.
+// Thin shell over StartGitHubOAuth (see github_ops.go).
 func HandleGitHubOAuthStart() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitHubOAuthStartRequest
@@ -238,43 +228,14 @@ func HandleGitHubOAuthStart() gin.HandlerFunc {
 			return
 		}
 
-		// Use provided client ID or fall back to default
-		clientID := req.ClientID
-		if clientID == "" {
-			clientID = DefaultGitHubOAuthClientID
-		}
-
-		if clientID == "" {
-			c.JSON(http.StatusBadRequest, GitHubOAuthStartResponse{
-				Error: "No OAuth client ID configured. Either provide oauthClientId prop or configure default client ID.",
-			})
-			return
-		}
-
-		// Default scopes if not specified
-		scopes := req.Scopes
-		if len(scopes) == 0 {
-			scopes = []string{"repo"}
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
-		// Start device flow
-		deviceCode, err := startGitHubDeviceFlow(ctx, clientID, scopes)
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubOAuthStartResponse{
-				Error: fmt.Sprintf("Failed to start device flow: %v", err),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, deviceCode)
+		c.JSON(http.StatusOK, StartGitHubOAuth(ctx, req))
 	}
 }
 
-// HandleGitHubOAuthPoll polls for GitHub OAuth completion
-// This is a protected endpoint that returns the access token
+// HandleGitHubOAuthPoll polls for GitHub OAuth completion. Thin shell
+// over PollGitHubOAuth (see github_ops.go).
 func HandleGitHubOAuthPoll() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitHubOAuthPollRequest
@@ -286,28 +247,9 @@ func HandleGitHubOAuthPoll() gin.HandlerFunc {
 			return
 		}
 
-		if req.ClientID == "" || req.DeviceCode == "" {
-			c.JSON(http.StatusBadRequest, GitHubOAuthPollResponse{
-				Status: GitHubOAuthPollStatusError,
-				Error:  "ClientID and DeviceCode are required",
-			})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
-		// Poll for token
-		result, err := pollGitHubDeviceFlow(ctx, req.ClientID, req.DeviceCode)
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubOAuthPollResponse{
-				Status: GitHubOAuthPollStatusError,
-				Error:  err.Error(),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, result)
+		c.JSON(http.StatusOK, PollGitHubOAuth(ctx, req))
 	}
 }
 
@@ -345,9 +287,10 @@ func isValidEnvVarPrefix(prefix string) bool {
 	return validEnvVarPrefixPattern.MatchString(prefix)
 }
 
-// HandleGitHubEnvCredentials reads GitHub credentials from the process environment,
-// validates them, and registers them to the session.
-// Returns only user metadata - never returns raw credentials to the browser.
+// HandleGitHubEnvCredentials reads GitHub credentials from the process
+// environment, validates them, and registers them to the session. Thin
+// shell over ConfirmGitHubEnvCredentials (see github_ops.go). Returns
+// only user metadata — never the raw token.
 func HandleGitHubEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitHubEnvCredentialsRequest
@@ -359,151 +302,21 @@ func HandleGitHubEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		// Determine which env var to read
-		var token string
-		// Validate the prefix before using it
-		if !isValidEnvVarPrefix(req.Prefix) {
-			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
-				Found: false,
-				Error: "Invalid prefix: must be uppercase alphanumeric with underscores",
-			})
-			return
-		}
-		// Construct the env var names and validate them
-		githubTokenName := req.Prefix + "GITHUB_TOKEN"
-		ghTokenName := req.Prefix + "GH_TOKEN"
-
-		// Double-check that constructed names are valid (defense in depth)
-		if !isAllowedGitHubEnvVar(githubTokenName) || !isAllowedGitHubEnvVar(ghTokenName) {
-			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
-				Found: false,
-				Error: "Invalid prefix results in disallowed environment variable name",
-			})
-			return
-		}
-
-		// Try standard env var names with optional prefix
-		token = os.Getenv(githubTokenName)
-		if token == "" {
-			token = os.Getenv(ghTokenName)
-		}
-
-		if token == "" {
-			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
-				Found: false,
-				Error: "GITHUB_TOKEN or GH_TOKEN not found in environment",
-			})
-			return
-		}
-
-		// Validate the token
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
-		user, scopes, err := validateGitHubToken(ctx, token)
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
-				Found: true,
-				Valid: false,
-				Error: fmt.Sprintf("Token found but invalid: %v", err),
-			})
-			return
-		}
-
-		// Register token to session environment (server-side only)
-		envVars := map[string]string{
-			"GITHUB_TOKEN": token,
-			"GITHUB_USER":  user.Login,
-		}
-
-		if err := sm.AppendToEnv(envVars); err != nil {
-			c.JSON(http.StatusInternalServerError, GitHubEnvCredentialsResponse{
-				Found: true,
-				Valid: true,
-				Error: "Failed to register credentials to session",
-			})
-			return
-		}
-
-		// Return only safe metadata - NEVER return raw token
-		c.JSON(http.StatusOK, GitHubEnvCredentialsResponse{
-			Found:     true,
-			Valid:     true,
-			User:      user,
-			Scopes:    scopes,
-			TokenType: detectGitHubTokenType(token),
-		})
+		c.JSON(http.StatusOK, ConfirmGitHubEnvCredentials(ctx, sm, req))
 	}
 }
 
 // HandleGitHubCliCredentials detects GitHub credentials from the gh CLI,
-// validates them, and registers them to the session.
-// Returns user metadata and scopes - never returns raw credentials to the browser.
+// validates them, and registers them to the session. Thin shell over
+// ConfirmGitHubCliCredentials (see github_ops.go). Returns only user
+// metadata + scopes — never the raw token.
 func HandleGitHubCliCredentials(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Check if gh is installed
-		ghPath, err := exec.LookPath("gh")
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
-				Error: "GitHub CLI (gh) is not installed",
-			})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
-		// 2. Get token from gh auth token
-		tokenCmd := exec.CommandContext(ctx, ghPath, "auth", "token")
-		tokenOutput, err := tokenCmd.Output()
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
-				Error: "Not authenticated to GitHub CLI. Run 'gh auth login' to authenticate.",
-			})
-			return
-		}
-		token := strings.TrimSpace(string(tokenOutput))
-
-		if token == "" {
-			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
-				Error: "GitHub CLI returned empty token",
-			})
-			return
-		}
-
-		// 3. Validate token and get user info via GitHub API
-		// (We can't use `gh api user` because it requires GH_TOKEN or interactive terminal)
-		user, _, err := validateGitHubToken(ctx, token)
-		if err != nil {
-			c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
-				Error: fmt.Sprintf("GitHub CLI token is invalid: %v", err),
-			})
-			return
-		}
-
-		// 4. Get scopes from gh auth status (more reliable than X-OAuth-Scopes header for CLI)
-		statusCmd := exec.CommandContext(ctx, ghPath, "auth", "status")
-		statusOutput, _ := statusCmd.CombinedOutput() // Ignore error, parse what we can
-		scopes := parseGitHubCliScopes(string(statusOutput))
-
-		// 5. Register credentials to session (server-side only, never return token)
-		envVars := map[string]string{
-			"GITHUB_TOKEN": token,
-			"GITHUB_USER":  user.Login,
-		}
-
-		if err := sm.AppendToEnv(envVars); err != nil {
-			c.JSON(http.StatusInternalServerError, GitHubCliCredentialsResponse{
-				Error: "Failed to register credentials to session",
-			})
-			return
-		}
-
-		// Return only safe metadata - NEVER return raw token
-		c.JSON(http.StatusOK, GitHubCliCredentialsResponse{
-			User:   user,
-			Scopes: scopes,
-		})
+		c.JSON(http.StatusOK, ConfirmGitHubCliCredentials(ctx, sm))
 	}
 }
 

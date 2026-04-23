@@ -256,7 +256,7 @@ func serveGruntbookContent(c *gin.Context, cfg GruntbookConfig) {
 	// In registry mode, warnings are captured once at server startup during registry creation.
 	// In live-reload mode, no registry exists, so we validate on each request for the gruntbook.
 	if !cfg.UseExecutableRegistry {
-		warnings, err := validateGruntbook(cfg.LocalPath)
+		warnings, err := ValidateGruntbook(cfg.LocalPath)
 		if err != nil {
 			slog.Warn("Failed to validate gruntbook for duplicates", "error", err)
 		} else {

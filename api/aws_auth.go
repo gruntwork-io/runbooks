@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -18,15 +16,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/account"
 	"github.com/aws/aws-sdk-go-v2/service/account/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/sso"
 	sso_types "github.com/aws/aws-sdk-go-v2/service/sso/types"
-	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	ssooidc_types "github.com/aws/aws-sdk-go-v2/service/ssooidc/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/ini.v1"
 
-	coreaws "github.com/gruntwork-io/runbooks/core/aws"
 	"github.com/gruntwork-io/runbooks/core/ports"
 )
 
@@ -248,9 +243,9 @@ const (
 // =============================================================================
 
 // HandleAwsValidate validates AWS credentials. The HTTP handler is a
-// thin adapter: it parses JSON, calls coreaws.Validate, and shapes
-// the result into the JSON response. All credential-handling logic
-// lives in core/aws.
+// thin adapter: it parses JSON and delegates to
+// ValidateAwsCredentials. All credential-handling logic lives in
+// core/aws via the pure Ops function.
 func HandleAwsValidate(aws ports.AwsClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ValidateCredentialsRequest
@@ -265,104 +260,20 @@ func HandleAwsValidate(aws ports.AwsClient) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		result := coreaws.Validate(ctx, aws, coreaws.ValidateRequest{
-			AccessKeyID:     req.AccessKeyID,
-			SecretAccessKey: req.SecretAccessKey,
-			SessionToken:    req.SessionToken,
-			Region:          req.Region,
-		})
-
-		c.JSON(http.StatusOK, ValidateCredentialsResponse{
-			Valid:       result.Valid,
-			AccountID:   result.AccountID,
-			AccountName: result.AccountName,
-			Arn:         result.Arn,
-			Warning:     result.Warning,
-			Error:       result.Error,
-		})
+		c.JSON(http.StatusOK, ValidateAwsCredentials(ctx, aws, req))
 	}
 }
 
-// HandleAwsProfiles returns a list of AWS profiles from the user's machine
+// HandleAwsProfiles returns the list of AWS profiles discovered in
+// the local shared-config files. Delegates to ListAwsProfiles.
 func HandleAwsProfiles() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		profileInfoMap := make(map[string]*ProfileInfo)
-
-		// Get home directory using os.UserHomeDir() for cross-platform compatibility
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			// Return empty profiles list if home directory cannot be determined
-			c.JSON(http.StatusOK, gin.H{"profiles": []ProfileInfo{}})
-			return
-		}
-
-		// Read from ~/.aws/credentials - profiles here have static credentials
-		credentialsFile := filepath.Join(homeDir, ".aws", "credentials")
-		if cfg, err := ini.Load(credentialsFile); err == nil {
-			for _, section := range cfg.Sections() {
-				name := section.Name()
-				if name == "DEFAULT" || name == "" {
-					continue
-				}
-				// Check if it has access key credentials
-				if section.HasKey("aws_access_key_id") && section.HasKey("aws_secret_access_key") {
-					profileInfoMap[name] = &ProfileInfo{
-						Name:     name,
-						AuthType: AuthTypeStatic,
-					}
-				}
-			}
-		}
-
-		// Read from ~/.aws/config
-		configFile := filepath.Join(homeDir, ".aws", "config")
-		if cfg, err := ini.Load(configFile); err == nil {
-			for _, section := range cfg.Sections() {
-				name := section.Name()
-				if name == "DEFAULT" || name == "" {
-					continue
-				}
-
-				// Skip non-profile sections (sso-session, services, preview, etc.)
-				if strings.HasPrefix(name, "sso-session ") ||
-					strings.HasPrefix(name, "services ") ||
-					name == "preview" ||
-					name == "plugins" {
-					continue
-				}
-
-				// Config file uses "profile xxx" format for non-default profiles
-				name = strings.TrimPrefix(name, "profile ")
-
-				// Determine auth type based on config keys
-				authType := determineProfileAuthType(section)
-
-				// If profile already exists from credentials file with static creds, keep that
-				if existing, ok := profileInfoMap[name]; ok && existing.AuthType == AuthTypeStatic {
-					continue
-				}
-
-				profileInfoMap[name] = &ProfileInfo{
-					Name:     name,
-					AuthType: authType,
-				}
-			}
-		}
-
-		// Convert to sorted slice
-		profiles := make([]ProfileInfo, 0, len(profileInfoMap))
-		for _, info := range profileInfoMap {
-			profiles = append(profiles, *info)
-		}
-		sort.Slice(profiles, func(i, j int) bool {
-			return profiles[i].Name < profiles[j].Name
-		})
-
-		c.JSON(http.StatusOK, gin.H{"profiles": profiles})
+		c.JSON(http.StatusOK, gin.H{"profiles": ListAwsProfiles()})
 	}
 }
 
-// HandleAwsProfileAuth authenticates using a local AWS profile
+// HandleAwsProfileAuth authenticates using a local AWS profile.
+// Delegates to AuthenticateAwsProfile.
 func HandleAwsProfileAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ProfileAuthRequest
@@ -374,63 +285,15 @@ func HandleAwsProfileAuth() gin.HandlerFunc {
 			return
 		}
 
-		if req.Profile == "" {
-			c.JSON(http.StatusBadRequest, ProfileAuthResponse{
-				Valid: false,
-				Error: "Profile name is required",
-			})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Load AWS config with the specified profile
-		cfg, err := config.LoadDefaultConfig(ctx,
-			config.WithSharedConfigProfile(req.Profile),
-		)
-		if err != nil {
-			c.JSON(http.StatusOK, ProfileAuthResponse{
-				Valid: false,
-				Error: fmt.Sprintf("Failed to load profile '%s': %v", req.Profile, err),
-			})
-			return
-		}
-
-		// Get credentials from the profile
-		creds, err := cfg.Credentials.Retrieve(ctx)
-		if err != nil {
-			c.JSON(http.StatusOK, ProfileAuthResponse{
-				Valid: false,
-				Error: fmt.Sprintf("Failed to retrieve credentials from profile: %v", err),
-			})
-			return
-		}
-
-		// Validate by calling STS GetCallerIdentity
-		identity, err := getCallerIdentity(ctx, cfg)
-		if err != nil {
-			c.JSON(http.StatusOK, ProfileAuthResponse{
-				Valid: false,
-				Error: fmt.Sprintf("Invalid credentials in profile: %v", err),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, ProfileAuthResponse{
-			Valid:           true,
-			AccountID:       identity.AccountID,
-			AccountName:     identity.AccountName,
-			Arn:             identity.Arn,
-			AccessKeyID:     creds.AccessKeyID,
-			SecretAccessKey: creds.SecretAccessKey,
-			SessionToken:    creds.SessionToken,
-			Region:          cfg.Region,
-		})
+		c.JSON(http.StatusOK, AuthenticateAwsProfile(ctx, req.Profile))
 	}
 }
 
-// HandleAwsSsoStart initiates AWS SSO device authorization
+// HandleAwsSsoStart initiates AWS SSO device authorization. Delegates
+// to StartAwsSSO.
 func HandleAwsSsoStart() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SSOStartRequest
@@ -441,223 +304,35 @@ func HandleAwsSsoStart() gin.HandlerFunc {
 			return
 		}
 
-		if req.StartURL == "" {
-			c.JSON(http.StatusBadRequest, SSOStartResponse{
-				Error: "SSO Start URL is required",
-			})
-			return
-		}
-
-		region := resolveRegion(req.Region)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// Create SSO OIDC client
-		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-		if err != nil {
-			c.JSON(http.StatusOK, SSOStartResponse{
-				Error: fmt.Sprintf("Failed to create AWS config: %v", err),
-			})
-			return
-		}
-
-		oidcClient := ssooidc.NewFromConfig(cfg)
-
-		// Register client
-		clientName := "gruntbooks-aws-auth"
-		registerResult, err := oidcClient.RegisterClient(ctx, &ssooidc.RegisterClientInput{
-			ClientName: aws.String(clientName),
-			ClientType: aws.String("public"),
-		})
-		if err != nil {
-			c.JSON(http.StatusOK, SSOStartResponse{
-				Error: fmt.Sprintf("Failed to register SSO client: %v", err),
-			})
-			return
-		}
-
-		// Start device authorization
-		authResult, err := oidcClient.StartDeviceAuthorization(ctx, &ssooidc.StartDeviceAuthorizationInput{
-			ClientId:     registerResult.ClientId,
-			ClientSecret: registerResult.ClientSecret,
-			StartUrl:     aws.String(req.StartURL),
-		})
-		if err != nil {
-			errorMsg := formatSSOError(err, region, req.StartURL)
-			c.JSON(http.StatusOK, SSOStartResponse{
-				Error: errorMsg,
-			})
-			return
-		}
-
-		// Build the verification URI with the user code
-		verificationUri := aws.ToString(authResult.VerificationUriComplete)
-		if verificationUri == "" {
-			verificationUri = aws.ToString(authResult.VerificationUri)
-		}
-
-		c.JSON(http.StatusOK, SSOStartResponse{
-			VerificationUri: verificationUri,
-			UserCode:        aws.ToString(authResult.UserCode),
-			DeviceCode:      aws.ToString(authResult.DeviceCode),
-			ClientID:        aws.ToString(registerResult.ClientId),
-			ClientSecret:    aws.ToString(registerResult.ClientSecret),
-		})
+		c.JSON(http.StatusOK, StartAwsSSO(ctx, req))
 	}
 }
 
-// HandleAwsSsoPoll polls for SSO authentication completion
+// HandleAwsSsoPoll polls for SSO authentication completion. Delegates
+// to PollAwsSSO.
 func HandleAwsSsoPoll() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SSOPollRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, SSOPollResponse{
-			Status: SSOPollStatusFailed,
-			Error:  "Invalid request format",
-		})
+			c.JSON(http.StatusBadRequest, SSOPollResponse{
+				Status: SSOPollStatusFailed,
+				Error:  "Invalid request format",
+			})
 			return
 		}
-
-		region := resolveRegion(req.Region)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-		if err != nil {
-		c.JSON(http.StatusOK, SSOPollResponse{
-			Status: SSOPollStatusFailed,
-			Error:  fmt.Sprintf("Failed to create AWS config: %v", err),
-		})
-			return
-		}
-
-		oidcClient := ssooidc.NewFromConfig(cfg)
-
-		// Try to create token
-		tokenResult, err := oidcClient.CreateToken(ctx, &ssooidc.CreateTokenInput{
-			ClientId:     aws.String(req.ClientID),
-			ClientSecret: aws.String(req.ClientSecret),
-			DeviceCode:   aws.String(req.DeviceCode),
-			GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
-		})
-		if err != nil {
-			status, message := classifySSOTokenError(err)
-		c.JSON(http.StatusOK, SSOPollResponse{
-			Status: SSOPollStatus(status),
-			Error:  message,
-			})
-			return
-		}
-
-		// Got the access token, now we need to get role credentials
-		accessToken := aws.ToString(tokenResult.AccessToken)
-
-		// If no account/role specified, list accounts and let user choose
-		if req.AccountID == "" || req.RoleName == "" {
-			// List accounts to give the user info
-			ssoClient := sso.NewFromConfig(cfg)
-			accountsResult, err := ssoClient.ListAccounts(ctx, &sso.ListAccountsInput{
-				AccessToken: aws.String(accessToken),
-			})
-			if err != nil {
-				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: SSOPollStatusFailed,
-					Error:  fmt.Sprintf("Failed to list SSO accounts: %v", err),
-				})
-				return
-			}
-
-			if len(accountsResult.AccountList) == 0 {
-				c.JSON(http.StatusOK, SSOPollResponse{
-					Status: SSOPollStatusFailed,
-					Error:  "No accounts available in SSO",
-				})
-				return
-			}
-
-			// If there's only one account, check if it has only one role
-			if len(accountsResult.AccountList) == 1 {
-				account := accountsResult.AccountList[0]
-				rolesResult, err := ssoClient.ListAccountRoles(ctx, &sso.ListAccountRolesInput{
-					AccessToken: aws.String(accessToken),
-					AccountId:   account.AccountId,
-				})
-				if err != nil || len(rolesResult.RoleList) == 0 {
-					c.JSON(http.StatusOK, SSOPollResponse{
-						Status: SSOPollStatusFailed,
-						Error:  "No roles available for the account",
-					})
-					return
-				}
-
-				// If only one account with one role, auto-select
-				if len(rolesResult.RoleList) == 1 {
-					req.AccountID = aws.ToString(account.AccountId)
-					req.RoleName = aws.ToString(rolesResult.RoleList[0].RoleName)
-				} else {
-					// One account, multiple roles - need selection
-					c.JSON(http.StatusOK, SSOPollResponse{
-						Status:      SSOPollStatusSelectAccount,
-						AccessToken: accessToken,
-						Accounts:    convertToSSOAccounts(accountsResult.AccountList),
-					})
-					return
-				}
-			} else {
-				// Multiple accounts - return list for user selection
-				c.JSON(http.StatusOK, SSOPollResponse{
-					Status:      SSOPollStatusSelectAccount,
-					AccessToken: accessToken,
-					Accounts:    convertToSSOAccounts(accountsResult.AccountList),
-				})
-				return
-			}
-		}
-
-		// Get role credentials
-		ssoClient := sso.NewFromConfig(cfg)
-		credsResult, err := ssoClient.GetRoleCredentials(ctx, &sso.GetRoleCredentialsInput{
-			AccessToken: aws.String(accessToken),
-			AccountId:   aws.String(req.AccountID),
-			RoleName:    aws.String(req.RoleName),
-		})
-		if err != nil {
-		c.JSON(http.StatusOK, SSOPollResponse{
-			Status: SSOPollStatusFailed,
-			Error:  fmt.Sprintf("Failed to get role credentials: %v", err),
-		})
-			return
-		}
-
-		// Validate the credentials
-		accessKeyID := aws.ToString(credsResult.RoleCredentials.AccessKeyId)
-		secretAccessKey := aws.ToString(credsResult.RoleCredentials.SecretAccessKey)
-		sessionToken := aws.ToString(credsResult.RoleCredentials.SessionToken)
-
-		_, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, region)
-		if err != nil {
-		c.JSON(http.StatusOK, SSOPollResponse{
-			Status: SSOPollStatusFailed,
-			Error:  fmt.Sprintf("Failed to validate SSO credentials: %v", err),
-		})
-			return
-		}
-
-		c.JSON(http.StatusOK, SSOPollResponse{
-			Status:          SSOPollStatusSuccess,
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretAccessKey,
-			SessionToken:    sessionToken,
-			AccountID:       identity.AccountID,
-			AccountName:     identity.AccountName,
-			Arn:             identity.Arn,
-		})
+		c.JSON(http.StatusOK, PollAwsSSO(ctx, req))
 	}
 }
 
-// HandleAwsSsoListRoles lists available roles for an SSO account
+// HandleAwsSsoListRoles lists available roles for an SSO account.
+// Delegates to ListAwsSSORoles.
 func HandleAwsSsoListRoles() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SSOListRolesRequest
@@ -668,52 +343,15 @@ func HandleAwsSsoListRoles() gin.HandlerFunc {
 			return
 		}
 
-		if req.AccessToken == "" || req.AccountID == "" {
-			c.JSON(http.StatusBadRequest, SSOListRolesResponse{
-				Error: "Access token and account ID are required",
-			})
-			return
-		}
-
-		region := resolveRegion(req.Region)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-		if err != nil {
-			c.JSON(http.StatusOK, SSOListRolesResponse{
-				Error: fmt.Sprintf("Failed to create AWS config: %v", err),
-			})
-			return
-		}
-
-		ssoClient := sso.NewFromConfig(cfg)
-		rolesResult, err := ssoClient.ListAccountRoles(ctx, &sso.ListAccountRolesInput{
-			AccessToken: aws.String(req.AccessToken),
-			AccountId:   aws.String(req.AccountID),
-		})
-		if err != nil {
-			c.JSON(http.StatusOK, SSOListRolesResponse{
-				Error: fmt.Sprintf("Failed to list roles: %v", err),
-			})
-			return
-		}
-
-		roles := make([]SSORole, len(rolesResult.RoleList))
-		for i, role := range rolesResult.RoleList {
-			roles[i] = SSORole{
-				RoleName: aws.ToString(role.RoleName),
-			}
-		}
-
-		c.JSON(http.StatusOK, SSOListRolesResponse{
-			Roles: roles,
-		})
+		c.JSON(http.StatusOK, ListAwsSSORoles(ctx, req))
 	}
 }
 
-// HandleAwsSsoComplete completes SSO authentication with selected account/role
+// HandleAwsSsoComplete completes SSO authentication with selected
+// account/role. Delegates to CompleteAwsSSO.
 func HandleAwsSsoComplete() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SSOCompleteRequest
@@ -724,65 +362,15 @@ func HandleAwsSsoComplete() gin.HandlerFunc {
 			return
 		}
 
-		if req.AccessToken == "" || req.AccountID == "" || req.RoleName == "" {
-			c.JSON(http.StatusBadRequest, SSOCompleteResponse{
-				Error: "Access token, account ID, and role name are required",
-			})
-			return
-		}
-
-		region := resolveRegion(req.Region)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-		if err != nil {
-			c.JSON(http.StatusOK, SSOCompleteResponse{
-				Error: fmt.Sprintf("Failed to create AWS config: %v", err),
-			})
-			return
-		}
-
-		// Get role credentials
-		ssoClient := sso.NewFromConfig(cfg)
-		credsResult, err := ssoClient.GetRoleCredentials(ctx, &sso.GetRoleCredentialsInput{
-			AccessToken: aws.String(req.AccessToken),
-			AccountId:   aws.String(req.AccountID),
-			RoleName:    aws.String(req.RoleName),
-		})
-		if err != nil {
-			c.JSON(http.StatusOK, SSOCompleteResponse{
-				Error: fmt.Sprintf("Failed to get role credentials: %v", err),
-			})
-			return
-		}
-
-		// Validate the credentials
-		accessKeyID := aws.ToString(credsResult.RoleCredentials.AccessKeyId)
-		secretAccessKey := aws.ToString(credsResult.RoleCredentials.SecretAccessKey)
-		sessionToken := aws.ToString(credsResult.RoleCredentials.SessionToken)
-
-		_, identity, err := validateStaticCredentials(ctx, accessKeyID, secretAccessKey, sessionToken, region)
-		if err != nil {
-			c.JSON(http.StatusOK, SSOCompleteResponse{
-				Error: fmt.Sprintf("Failed to validate SSO credentials: %v", err),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, SSOCompleteResponse{
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretAccessKey,
-			SessionToken:    sessionToken,
-			AccountID:       identity.AccountID,
-			AccountName:     identity.AccountName,
-			Arn:             identity.Arn,
-		})
+		c.JSON(http.StatusOK, CompleteAwsSSO(ctx, req))
 	}
 }
 
-// HandleAwsCheckRegion checks if a region is enabled for the account
+// HandleAwsCheckRegion checks if a region is enabled for the account.
+// Delegates to CheckAwsRegion.
 func HandleAwsCheckRegion() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CheckRegionRequest
@@ -793,120 +381,21 @@ func HandleAwsCheckRegion() gin.HandlerFunc {
 			return
 		}
 
-		if req.Region == "" {
-			c.JSON(http.StatusBadRequest, CheckRegionResponse{
-				Error: "Region is required",
-			})
-			return
-		}
-
-		if req.AccessKeyID == "" || req.SecretAccessKey == "" {
-			c.JSON(http.StatusBadRequest, CheckRegionResponse{
-				Error: "Credentials are required",
-			})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Create credentials provider
-		creds := credentials.NewStaticCredentialsProvider(
-			req.AccessKeyID,
-			req.SecretAccessKey,
-			req.SessionToken,
-		)
-
-		// Account API must be called from us-east-1
-		cfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion("us-east-1"),
-			config.WithCredentialsProvider(creds),
-		)
-		if err != nil {
-			c.JSON(http.StatusOK, CheckRegionResponse{
-				Enabled: true, // Assume enabled if we can't check
-				Error:   fmt.Sprintf("Failed to create AWS config: %v", err),
-			})
-			return
-		}
-
-		accountClient := account.NewFromConfig(cfg)
-		result, err := accountClient.GetRegionOptStatus(ctx, &account.GetRegionOptStatusInput{
-			RegionName: aws.String(req.Region),
-		})
-		if err != nil {
-			// If we can't check (e.g., insufficient permissions), assume enabled
-			c.JSON(http.StatusOK, CheckRegionResponse{
-				Enabled: true,
-			})
-			return
-		}
-
-		switch result.RegionOptStatus {
-		case types.RegionOptStatusDisabled:
-			c.JSON(http.StatusOK, CheckRegionResponse{
-				Enabled: false,
-				Status:  "disabled",
-				Warning: fmt.Sprintf("The region %s is not enabled for your AWS account. Enable it in the AWS Console under Account Settings > AWS Regions, or choose a different default region.", req.Region),
-			})
-		case types.RegionOptStatusDisabling:
-			c.JSON(http.StatusOK, CheckRegionResponse{
-				Enabled: false,
-				Status:  "disabling",
-				Warning: fmt.Sprintf("The region %s is currently being disabled for your AWS account.", req.Region),
-			})
-		case types.RegionOptStatusEnabling:
-			c.JSON(http.StatusOK, CheckRegionResponse{
-				Enabled: false,
-				Status:  "enabling",
-				Warning: fmt.Sprintf("The region %s is currently being enabled for your AWS account. Please wait a few minutes and try again.", req.Region),
-			})
-		default:
-			// ENABLED or ENABLED_BY_DEFAULT
-			c.JSON(http.StatusOK, CheckRegionResponse{
-				Enabled: true,
-				Status:  "enabled",
-			})
-		}
+		c.JSON(http.StatusOK, CheckAwsRegion(ctx, req))
 	}
 }
 
-// HandleAwsEnvCredentials reads AWS credentials from the process environment and
-// validates them, but does NOT register them to the session. This is a read-only
-// detection endpoint used to show the user what credentials are available.
-// Returns only metadata (accountId, arn) - never returns raw credentials.
-// Call HandleAwsConfirmEnvCredentials to actually register the credentials after
-// the user confirms they want to use them.
+// HandleAwsEnvCredentials reads AWS credentials from the process
+// environment and validates them, but does NOT register them to the
+// session. Delegates to DetectAwsEnvCredentials.
 func HandleAwsEnvCredentials() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Parse query parameters for GET request
 		prefix := c.Query("prefix")
 		defaultRegion := c.Query("defaultRegion")
-
-		result := readAndValidateAwsEnvCredentials(prefix, defaultRegion)
-
-		if result.Error != "" {
-			c.JSON(http.StatusOK, EnvCredentialsResponse{
-				Found: result.Found,
-				Valid: result.Valid,
-				Error: result.Error,
-			})
-			return
-		}
-
-		// Return only safe metadata - NEVER return raw credentials
-		// Note: credentials are NOT registered to session here - that happens
-		// via HandleAwsConfirmEnvCredentials after user confirmation
-		c.JSON(http.StatusOK, EnvCredentialsResponse{
-			Found:           true,
-			Valid:           true,
-			AccountID:       result.Identity.AccountID,
-			AccountName:     result.Identity.AccountName,
-			Arn:             result.Identity.Arn,
-			Region:          result.Region,
-			HasSessionToken: result.SessionToken != "",
-			Warning:         result.Warning,
-		})
+		c.JSON(http.StatusOK, DetectAwsEnvCredentials(prefix, defaultRegion))
 	}
 }
 
@@ -939,10 +428,9 @@ type ConfirmEnvCredentialsResponse struct {
 	SessionToken    string `json:"sessionToken,omitempty"`
 }
 
-// HandleAwsConfirmEnvCredentials reads AWS credentials from the process environment
-// and registers them to the session. This is called after the user confirms they
-// want to use the detected credentials.
-// Returns credentials so frontend can store them per-block for awsAuthId support.
+// HandleAwsConfirmEnvCredentials reads AWS credentials from the
+// process environment and registers them to the session. Delegates
+// to ConfirmAwsEnvCredentials.
 func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ConfirmEnvCredentialsRequest
@@ -954,49 +442,7 @@ func HandleAwsConfirmEnvCredentials(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		result := readAndValidateAwsEnvCredentials(req.Prefix, req.DefaultRegion)
-
-		if result.Error != "" {
-			c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
-				Found: result.Found,
-				Valid: result.Valid,
-				Error: result.Error,
-			})
-			return
-		}
-
-		// Register credentials to session environment (server-side only)
-		envVars := map[string]string{
-			"AWS_ACCESS_KEY_ID":     result.AccessKeyID,
-			"AWS_SECRET_ACCESS_KEY": result.SecretAccessKey,
-			"AWS_REGION":            result.Region,
-			// Always set to clear any stale session token from previous auth
-			"AWS_SESSION_TOKEN": result.SessionToken,
-		}
-
-		if err := sm.AppendToEnv(envVars); err != nil {
-			c.JSON(http.StatusInternalServerError, ConfirmEnvCredentialsResponse{
-				Found: true,
-				Valid: true,
-				Error: "Failed to register credentials to session",
-			})
-			return
-		}
-
-		// Return credentials so frontend can store them per-block for awsAuthId support
-		c.JSON(http.StatusOK, ConfirmEnvCredentialsResponse{
-			Found:           true,
-			Valid:           true,
-			AccountID:       result.Identity.AccountID,
-			AccountName:     result.Identity.AccountName,
-			Arn:             result.Identity.Arn,
-			Region:          result.Region,
-			HasSessionToken: result.SessionToken != "",
-			Warning:         result.Warning,
-			AccessKeyID:     result.AccessKeyID,
-			SecretAccessKey: result.SecretAccessKey,
-			SessionToken:    result.SessionToken,
-		})
+		c.JSON(http.StatusOK, ConfirmAwsEnvCredentials(sm, req))
 	}
 }
 

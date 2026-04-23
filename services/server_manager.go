@@ -23,6 +23,21 @@ type serverManager struct {
 	config   api.ServerConfig
 	shutdown func(context.Context) error
 	errCh    <-chan error
+
+	// sessions is the SessionManager shared between the embedded Gin
+	// server and the IPC services. A fresh one is created on every
+	// Start so each open gruntbook gets clean session state (env vars,
+	// worktrees, exec counts). M4+ IPC services reach it via Sessions()
+	// rather than holding their own reference — that way Stop+Start
+	// (Welcome → different gruntbook) transparently rebinds them.
+	sessions *api.SessionManager
+
+	// registry is the ExecutableRegistry shared between Gin and the
+	// IPC ExecService. Nil when the open gruntbook runs in watch mode
+	// (which re-parses on every exec instead). Populated in Start()
+	// ahead of Gin boot so both transports resolve executable_id the
+	// same way.
+	registry *api.ExecutableRegistry
 }
 
 // startInfo is the subset of state that Start returns to the caller.
@@ -48,6 +63,26 @@ func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
 	}
 
 	cfg.Port = 0
+	sessions := api.NewSessionManager()
+	cfg.Sessions = sessions
+
+	// Build the registry up front (outside Gin's buildHandler) so the
+	// IPC ExecService sees the same registry Gin is about to install.
+	// Only relevant when the open gruntbook runs in registry mode; watch
+	// mode re-parses on every exec so cfg.Registry stays nil.
+	var registry *api.ExecutableRegistry
+	if cfg.UseExecutableRegistry {
+		resolved, err := api.ResolveGruntbookPath(cfg.GruntbookPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve gruntbook path: %w", err)
+		}
+		registry, err = api.NewExecutableRegistry(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("build executable registry: %w", err)
+		}
+		cfg.Registry = registry
+	}
+
 	handle, err := api.StartServerWithShutdown(cfg)
 	if err != nil {
 		return nil, err
@@ -59,6 +94,8 @@ func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
 	sm.config = cfg
 	sm.shutdown = handle.Shutdown
 	sm.errCh = handle.ErrCh
+	sm.sessions = sessions
+	sm.registry = registry
 
 	return &startInfo{Port: handle.Port, ErrCh: handle.ErrCh}, nil
 }
@@ -84,8 +121,31 @@ func (sm *serverManager) Stop(ctx context.Context) error {
 	sm.config = api.ServerConfig{}
 	sm.shutdown = nil
 	sm.errCh = nil
+	sm.sessions = nil
+	sm.registry = nil
 
 	return shutdownErr
+}
+
+// Sessions returns the SessionManager for the currently-open gruntbook,
+// or nil if no gruntbook is open. IPC services call this on every
+// request (rather than caching a reference) so a Stop+Start cycle
+// transparently rebinds them to the new session state.
+func (sm *serverManager) Sessions() *api.SessionManager {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.sessions
+}
+
+// Registry returns the ExecutableRegistry for the currently-open
+// gruntbook. Returns (nil, nil) when no gruntbook is open or when the
+// gruntbook runs in watch mode (registry-less). Returns an error only
+// for misuse — the error slot is reserved for future modes where
+// registry construction can fail outside of Start().
+func (sm *serverManager) Registry() (*api.ExecutableRegistry, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.registry, nil
 }
 
 // Port returns the bound port, or 0 if the server is not running.

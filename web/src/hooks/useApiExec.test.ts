@@ -23,6 +23,7 @@ function createSessionWrapper() {
   const sessionValue = {
     isReady: true,
     getAuthHeader: () => ({ Authorization: 'Bearer test-token' }),
+    getToken: () => 'test-token',
     resetSession: async () => {},
     error: null,
   }

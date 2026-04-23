@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/gruntwork-io/runbooks/adapters"
 	"github.com/gruntwork-io/runbooks/services"
 	"github.com/gruntwork-io/runbooks/web"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -50,7 +51,7 @@ type Options struct {
 // closed. Returns any error from the Wails runtime; callers typically
 // log.Fatal on failure.
 func Run(opts Options) error {
-	svcs, err := services.NewServices(opts.InitialPath)
+	svcs, err := services.NewServices(opts.InitialPath, adapters.NewWailsEmitter())
 	if err != nil {
 		return fmt.Errorf("build services: %w", err)
 	}
@@ -75,6 +76,13 @@ func Run(opts Options) error {
 			application.NewService(svcs.Tf),
 			application.NewService(svcs.GeneratedFiles),
 			application.NewService(svcs.Workspace),
+			application.NewService(svcs.Exec),
+			application.NewService(svcs.Aws),
+			application.NewService(svcs.GitHub),
+			application.NewService(svcs.Git),
+			application.NewService(svcs.Watcher),
+			application.NewService(svcs.Session),
+			application.NewService(svcs.Runbook),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:               "io.gruntwork.gruntbooks",

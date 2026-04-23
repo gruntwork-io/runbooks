@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as api$0 from "../api/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as time$0 from "../../../../time/models.js";
 
 /**
@@ -66,6 +69,75 @@ export class DesktopStatus {
 }
 
 /**
+ * ExecRunResult is the return value of Run: the runID the frontend
+ * subscribes to, plus a timestamp the UI uses to align "starting"
+ * placeholder logs with the upcoming log event stream.
+ */
+export class ExecRunResult {
+    "runId": string;
+    "startedAt": string;
+
+    /** Creates a new ExecRunResult instance. */
+    constructor($$source: Partial<ExecRunResult> = {}) {
+        if (!("runId" in $$source)) {
+            this["runId"] = "";
+        }
+        if (!("startedAt" in $$source)) {
+            this["startedAt"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExecRunResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExecRunResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ExecRunResult($$parsedSource as Partial<ExecRunResult>);
+    }
+}
+
+/**
+ * ExecutablesResult mirrors the JSON shape previously returned by
+ * GET /api/gruntbook/executables. Live-reload mode (no registry)
+ * returns an empty map + empty warnings rather than an error, matching
+ * the HTTP handler behavior.
+ */
+export class ExecutablesResult {
+    "executables": { [_ in string]?: api$0.Executable | null };
+    "warnings": string[];
+
+    /** Creates a new ExecutablesResult instance. */
+    constructor($$source: Partial<ExecutablesResult> = {}) {
+        if (!("executables" in $$source)) {
+            this["executables"] = {};
+        }
+        if (!("warnings" in $$source)) {
+            this["warnings"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExecutablesResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExecutablesResult {
+        const $$createField0_0 = $$createType2;
+        const $$createField1_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("executables" in $$parsedSource) {
+            $$parsedSource["executables"] = $$createField0_0($$parsedSource["executables"]);
+        }
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField1_0($$parsedSource["warnings"]);
+        }
+        return new ExecutablesResult($$parsedSource as Partial<ExecutablesResult>);
+    }
+}
+
+/**
  * FileResult is the IPC response shape for Read. Field names are
  * camelCase to match the HTTP handler's JSON output so the browser
  * fallback and the IPC path return the same thing to the frontend.
@@ -104,6 +176,112 @@ export class FileResult {
     static createFrom($$source: any = {}): FileResult {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new FileResult($$parsedSource as Partial<FileResult>);
+    }
+}
+
+/**
+ * GitRunResult is the synchronous return value of the streaming Git
+ * methods (Clone, Push, PullRequest). RunID is what the frontend
+ * subscribes to for `git:<runID>:*` events. Error is populated (with
+ * RunID empty) when pre-flight validation fails so the frontend can
+ * surface the error without attaching listeners.
+ * 
+ * A pointer-to-shaped-error-or-nil is more Go-idiomatic than three
+ * separate return values across IPC, and the Wails TS codegen renders
+ * it as `error?: GitCloneError | GitPullRequestError`.
+ */
+export class GitRunResult {
+    "runId"?: string;
+    "startedAt"?: string;
+
+    /**
+     * CloneError is populated only by Clone and only when pre-flight
+     * validation fails. Typed rather than a generic error so the
+     * frontend can branch on Code=directory_exists and prompt.
+     */
+    "cloneError"?: api$0.GitCloneError | null;
+
+    /**
+     * Error is the generic pre-flight-failed message for Push and
+     * PullRequest. Holds the GitPullRequestError shape in practice.
+     */
+    "error"?: api$0.GitPullRequestError | null;
+
+    /** Creates a new GitRunResult instance. */
+    constructor($$source: Partial<GitRunResult> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitRunResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitRunResult {
+        const $$createField2_0 = $$createType5;
+        const $$createField3_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("cloneError" in $$parsedSource) {
+            $$parsedSource["cloneError"] = $$createField2_0($$parsedSource["cloneError"]);
+        }
+        if ("error" in $$parsedSource) {
+            $$parsedSource["error"] = $$createField3_0($$parsedSource["error"]);
+        }
+        return new GitRunResult($$parsedSource as Partial<GitRunResult>);
+    }
+}
+
+/**
+ * GruntbookResult mirrors the JSON shape previously returned by
+ * GET /api/gruntbook. FileMetadata fields are inlined; gruntbook-
+ * specific flags follow. Pointer/omitempty fields mirror the HTTP
+ * handler's conditional emissions so the frontend's existing
+ * GetFileReturn TS type lines up without rework.
+ */
+export class GruntbookResult {
+    "path": string;
+    "content": string;
+    "contentHash": string;
+    "language": string;
+    "size": number;
+    "useExecutableRegistry": boolean;
+    "isWatchMode"?: boolean;
+    "remoteSource"?: string;
+    "warnings"?: string[];
+
+    /** Creates a new GruntbookResult instance. */
+    constructor($$source: Partial<GruntbookResult> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("content" in $$source)) {
+            this["content"] = "";
+        }
+        if (!("contentHash" in $$source)) {
+            this["contentHash"] = "";
+        }
+        if (!("language" in $$source)) {
+            this["language"] = "";
+        }
+        if (!("size" in $$source)) {
+            this["size"] = 0;
+        }
+        if (!("useExecutableRegistry" in $$source)) {
+            this["useExecutableRegistry"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GruntbookResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GruntbookResult {
+        const $$createField8_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("warnings" in $$parsedSource) {
+            $$parsedSource["warnings"] = $$createField8_0($$parsedSource["warnings"]);
+        }
+        return new GruntbookResult($$parsedSource as Partial<GruntbookResult>);
     }
 }
 
@@ -154,6 +332,36 @@ export class OpenResult {
     static createFrom($$source: any = {}): OpenResult {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new OpenResult($$parsedSource as Partial<OpenResult>);
+    }
+}
+
+/**
+ * ProfilesResponse wraps the ProfileInfo list so Wails bindings
+ * generate a named response type (bindings don't handle anonymous
+ * objects cleanly).
+ */
+export class ProfilesResponse {
+    "profiles": api$0.ProfileInfo[];
+
+    /** Creates a new ProfilesResponse instance. */
+    constructor($$source: Partial<ProfilesResponse> = {}) {
+        if (!("profiles" in $$source)) {
+            this["profiles"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProfilesResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ProfilesResponse {
+        const $$createField0_0 = $$createType9;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("profiles" in $$parsedSource) {
+            $$parsedSource["profiles"] = $$createField0_0($$parsedSource["profiles"]);
+        }
+        return new ProfilesResponse($$parsedSource as Partial<ProfilesResponse>);
     }
 }
 
@@ -214,3 +422,104 @@ export class RecentEntry {
         return new RecentEntry($$parsedSource as Partial<RecentEntry>);
     }
 }
+
+/**
+ * SessionSetEnvResult mirrors the {message, count} response from the
+ * HTTP handler. Named shape rather than map so the Wails TS codegen
+ * renders a concrete interface.
+ */
+export class SessionSetEnvResult {
+    "message": string;
+    "count": number;
+
+    /** Creates a new SessionSetEnvResult instance. */
+    constructor($$source: Partial<SessionSetEnvResult> = {}) {
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+        if (!("count" in $$source)) {
+            this["count"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionSetEnvResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionSetEnvResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionSetEnvResult($$parsedSource as Partial<SessionSetEnvResult>);
+    }
+}
+
+/**
+ * WatchStartRequest is the IPC input for StartWatch.
+ */
+export class WatchStartRequest {
+    /**
+     * Path is the gruntbook file to watch. Resolved through
+     * api.ResolveGruntbookPath so the frontend can pass a directory and
+     * have it land on gruntbook.mdx (or legacy runbook.mdx).
+     */
+    "path": string;
+
+    /** Creates a new WatchStartRequest instance. */
+    constructor($$source: Partial<WatchStartRequest> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchStartRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WatchStartRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchStartRequest($$parsedSource as Partial<WatchStartRequest>);
+    }
+}
+
+/**
+ * WatchStartResult is the IPC output of StartWatch. WatchID is the
+ * handle the frontend uses to subscribe to `watch:<watchID>:change`
+ * events and to call Stop later.
+ */
+export class WatchStartResult {
+    "watchId": string;
+    "resolvedPath": string;
+
+    /** Creates a new WatchStartResult instance. */
+    constructor($$source: Partial<WatchStartResult> = {}) {
+        if (!("watchId" in $$source)) {
+            this["watchId"] = "";
+        }
+        if (!("resolvedPath" in $$source)) {
+            this["resolvedPath"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchStartResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WatchStartResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchStartResult($$parsedSource as Partial<WatchStartResult>);
+    }
+}
+
+// Private type creation functions
+const $$createType0 = api$0.Executable.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = $Create.Map($Create.Any, $$createType1);
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = api$0.GitCloneError.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);
+const $$createType6 = api$0.GitPullRequestError.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = api$0.ProfileInfo.createFrom;
+const $$createType9 = $Create.Array($$createType8);

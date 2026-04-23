@@ -26,70 +26,64 @@ func streamOutput(pipe io.ReadCloser, outputChan chan<- outputLine) {
 	}
 }
 
-// streamExecutionOutput handles the main loop of streaming output and handling completion
-func streamExecutionOutput(c *gin.Context, flusher http.Flusher, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
+// streamExecutionOutput handles the main loop of streaming output and
+// handling completion. Transport-agnostic: takes an ExecEventSink which
+// the caller wires to either HTTP/SSE (legacy Gin handler) or the
+// Wails emitter (M4 IPC ExecService).
+func streamExecutionOutput(sink ExecEventSink, outputChan <-chan outputLine, doneChan <-chan error, ctx context.Context, outputFilePath string, filesDir string, cliOutputPath string, envCapture *envCaptureConfig) {
 	for {
 		select {
 		case out := <-outputChan:
-			sendSSELogWithReplace(c, out.Line, out.Replace)
-			flusher.Flush()
+			sink.Log(out.Line, out.Replace)
 
 		case err := <-doneChan:
-			// Send any remaining logs
 			for len(outputChan) > 0 {
 				out := <-outputChan
-				sendSSELogWithReplace(c, out.Line, out.Replace)
-				flusher.Flush()
+				sink.Log(out.Line, out.Replace)
 			}
 
-			// Determine exit code and status
 			exitCode, status := DetermineExitStatus(err, ctx)
 
-			// Log timeout message if applicable
 			if ctx.Err() == context.DeadlineExceeded {
-				sendSSELog(c, "Script execution timed out after 5 minutes")
-				flusher.Flush()
+				sink.Log("Script execution timed out after 5 minutes", false)
 			}
 
-			// Send final status event
-			sendSSEStatus(c, status, exitCode)
-			flusher.Flush()
+			sink.Status(status, exitCode)
 
-			// Parse and send block outputs (if any were written to RUNBOOK_OUTPUT)
 			if status == "success" || status == "warn" {
 				outputs, parseErr := ParseBlockOutputs(outputFilePath)
 				if parseErr != nil {
 					slog.Warn("Failed to parse block outputs", "error", parseErr)
 				} else if len(outputs) > 0 {
-					sendSSEOutputs(c, outputs)
-					flusher.Flush()
+					sink.Outputs(outputs)
 				}
 			}
 
-			// Capture environment changes from bash scripts and update session
 			if envCapture != nil && (status == "success" || status == "warn") {
 				if err := envCapture.scriptSetup.CaptureEnvironmentChanges(envCapture.sessionManager, envCapture.execCtx.WorkDir); err != nil {
-					sendSSELog(c, fmt.Sprintf("Warning: could not persist environment changes: %v", err))
-					flusher.Flush()
+					sink.Log(fmt.Sprintf("Warning: could not persist environment changes: %v", err), false)
 				}
 			}
 
-			// Capture files from GENERATED_FILES directory if execution was successful (or warning)
-			// Scripts can write files to $GENERATED_FILES to have them saved to the output directory
 			if status == "success" || status == "warn" {
 				capturedFiles, captureErr := CaptureFilesFromDir(filesDir, cliOutputPath)
 				if captureErr != nil {
-					sendSSELog(c, fmt.Sprintf("Warning: Failed to capture files: %v", captureErr))
-					flusher.Flush()
+					sink.Log(fmt.Sprintf("Warning: Failed to capture files: %v", captureErr), false)
 				} else if len(capturedFiles) > 0 {
-					sendSSEFilesCaptured(c, capturedFiles, cliOutputPath)
-					flusher.Flush()
+					event := FilesCapturedEvent{
+						Files: capturedFiles,
+						Count: len(capturedFiles),
+					}
+					if result, err := buildFileTreeWithContentResult(cliOutputPath, ""); err != nil {
+						slog.Warn("Failed to build file tree for captured files event", "error", err)
+					} else {
+						event.FileTree = result.Tree
+					}
+					sink.FilesCaptured(event)
 				}
 			}
 
-			// Send done event
-			sendSSEDone(c)
-			flusher.Flush()
+			sink.Done()
 			return
 		}
 	}
@@ -125,11 +119,6 @@ func DetermineExitStatus(err error, ctx context.Context) (int, string) {
 // SSE Event Helpers
 // =============================================================================
 
-// sendSSELog sends a log event via SSE
-func sendSSELog(c *gin.Context, line string) {
-	sendSSELogWithReplace(c, line, false)
-}
-
 // sendSSELogWithReplace sends a log event via SSE with optional replace flag
 // When replace is true, the frontend should replace the previous line instead of appending
 func sendSSELogWithReplace(c *gin.Context, line string, replace bool) {
@@ -161,24 +150,6 @@ func sendSSEError(c *gin.Context, message string) {
 	if flusher, ok := c.Writer.(http.Flusher); ok {
 		flusher.Flush()
 	}
-}
-
-// sendSSEFilesCaptured sends a files_captured event via SSE with the list of captured files
-// and the updated file tree
-func sendSSEFilesCaptured(c *gin.Context, capturedFiles []CapturedFile, cliOutputPath string) {
-	event := FilesCapturedEvent{
-		Files: capturedFiles,
-		Count: len(capturedFiles),
-	}
-
-	// Build the updated file tree from the output directory
-	if result, err := buildFileTreeWithContentResult(cliOutputPath, ""); err != nil {
-		slog.Warn("Failed to build file tree for SSE event", "error", err)
-	} else {
-		event.FileTree = result.Tree
-	}
-
-	c.SSEvent("files_captured", event)
 }
 
 // sendSSEOutputs sends an outputs event via SSE with the parsed outputs

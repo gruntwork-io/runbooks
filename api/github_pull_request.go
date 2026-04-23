@@ -60,74 +60,260 @@ type gitHubPRResponse struct {
 // Handlers
 // =============================================================================
 
-// HandleGitHubListLabels returns labels for a given repository.
-// GET /api/github/labels?owner={owner}&repo={repo}
-// Requires SessionAuthMiddleware.
+// HandleGitHubListLabels returns labels for a given repository. Thin
+// shell over ListGitHubLabels (see github_ops.go).
+// GET /api/github/labels?owner={owner}&repo={repo}. Requires
+// SessionAuthMiddleware.
 func HandleGitHubListLabels(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner := c.Query("owner")
-		repo := c.Query("repo")
-		if owner == "" || repo == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "owner and repo query parameters are required"})
-			return
-		}
-
-		if !isValidGitHubOwner(owner) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid owner name"})
-			return
-		}
-
-		if !isValidGitHubRepoName(repo) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository name"})
-			return
-		}
-
-		token := getGitHubTokenFromSession(sm)
-		if token == "" {
-			c.JSON(http.StatusOK, gin.H{"labels": []interface{}{}, "error": "No GitHub token found in session"})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
-
-		apiURL := fmt.Sprintf("%s/repos/%s/%s/labels?per_page=100",
-			GitHubAPIBaseURL, url.PathEscape(owner), url.PathEscape(repo))
-
-		resp, err := doGitHubAPIGet(ctx, token, apiURL)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"labels": []interface{}{}, "error": fmt.Sprintf("Failed to fetch labels: %v", err)})
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			c.JSON(http.StatusOK, gin.H{
-				"labels": []interface{}{},
-				"error":  fmt.Sprintf("GitHub API returned status %d: %s", resp.StatusCode, string(body)),
-			})
-			return
-		}
-
-		var rawLabels []struct {
-			Name        string `json:"name"`
-			Color       string `json:"color"`
-			Description string `json:"description"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&rawLabels); err != nil {
-			c.JSON(http.StatusOK, gin.H{"labels": []interface{}{}, "error": "Failed to parse labels response"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"labels": rawLabels})
+		c.JSON(http.StatusOK, ListGitHubLabels(ctx, sm, GitHubListLabelsRequest{
+			Owner: c.Query("owner"),
+			Repo:  c.Query("repo"),
+		}))
 	}
 }
 
-// HandleGitPullRequest creates a pull request with real-time SSE streaming.
-// POST /api/git/pull-request
-// Requires SessionAuthMiddleware.
+// GitPullRequestError is the shaped pre-flight failure a PR request
+// can surface before streaming starts. Code lets the HTTP path pick a
+// status and the IPC path stay transport-free.
+type GitPullRequestError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *GitPullRequestError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Code
+}
+
+// Pull-request pre-flight error codes.
+const (
+	GitPRErrInvalidRequest = "invalid_request"
+	GitPRErrNoToken        = "no_github_token"
+)
+
+// validateGitBranchName rejects branch strings that could be interpreted
+// as refspecs, git flags, or otherwise-dangerous refs before they reach
+// `git checkout -b` / `git push origin <ref>` / `git branch -D`. Modeled
+// after git-check-ref-format(1) with an extra ban on ":" so a caller
+// can't smuggle a refspec like "feature:main" that would push to an
+// unintended remote ref. Returns nil on valid names.
+func validateGitBranchName(name string) error {
+	if name == "" {
+		return fmt.Errorf("branch name is required")
+	}
+	if strings.ContainsAny(name, "\x00 \t\n\r~^:?*[\\") {
+		return fmt.Errorf("branch name contains invalid characters")
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "@{") || strings.Contains(name, "//") {
+		return fmt.Errorf("branch name contains invalid sequence")
+	}
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "/") {
+		return fmt.Errorf("branch name has invalid prefix")
+	}
+	if strings.HasSuffix(name, ".") || strings.HasSuffix(name, ".lock") || strings.HasSuffix(name, "/") {
+		return fmt.Errorf("branch name has invalid suffix")
+	}
+	return nil
+}
+
+// PullRequestPlan is the validated, ready-to-stream form of a
+// CreatePullRequestRequest. It carries the request plus fields derived
+// from it (commit message default, owner/repo parse, resolved token).
+type PullRequestPlan struct {
+	req           CreatePullRequestRequest
+	token         string
+	owner         string
+	repo          string
+	commitMessage string
+}
+
+// PreparePullRequest validates a PR request and extracts the owner/repo
+// + GitHub token. Like PrepareGitClone, returning a typed error here
+// lets the HTTP path map codes to statuses and the IPC path pass the
+// error straight back.
+func PreparePullRequest(req CreatePullRequestRequest, sm *SessionManager) (*PullRequestPlan, *GitPullRequestError) {
+	if req.Title == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "title is required"}
+	}
+	if req.BranchName == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "branchName is required"}
+	}
+	if err := validateGitBranchName(req.BranchName); err != nil {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: fmt.Sprintf("Invalid branchName: %v", err)}
+	}
+	if req.LocalPath == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "localPath is required"}
+	}
+	if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: fmt.Sprintf("Invalid localPath: %v", err)}
+	}
+	if req.RepoURL == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "repoUrl is required"}
+	}
+
+	token := getGitHubTokenFromSession(sm)
+	if token == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrNoToken, Message: "No GitHub token found in session"}
+	}
+
+	owner, repo := parseOwnerRepoFromURL(req.RepoURL)
+	if owner == "" || repo == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "Could not parse owner/repo from repository URL"}
+	}
+
+	commitMessage := req.CommitMessage
+	if commitMessage == "" {
+		commitMessage = "Changes from gruntbook"
+	}
+
+	return &PullRequestPlan{
+		req:           req,
+		token:         token,
+		owner:         owner,
+		repo:          repo,
+		commitMessage: commitMessage,
+	}, nil
+}
+
+// StreamPullRequest performs the prepared PR flow (init empty repo if
+// needed → create branch → commit → push → create PR → add labels) and
+// emits progress through sink. The sink is closed (via Status + Done)
+// before return.
+func StreamPullRequest(ctx context.Context, plan *PullRequestPlan, sink GitEventSink) {
+	req := plan.req
+	token, owner, repo, commitMessage := plan.token, plan.owner, plan.repo, plan.commitMessage
+
+	// Step 0: Handle empty repository (no commits yet).
+	// When a repo has no commits, there's no base branch to open a PR against.
+	// We initialize the default branch with an empty commit so the PR has a valid base.
+	hasCommits, err := gitHasCommits(ctx, req.LocalPath)
+	if err != nil {
+		FailGit(sink, fmt.Sprintf("Failed to inspect repository: %s", SanitizeGitError(err.Error())))
+		return
+	}
+	if !hasCommits {
+		baseBranch := getBaseBranch(ctx, req.LocalPath, token, owner, repo)
+		sink.Log(fmt.Sprintf("Repository has no commits. Initializing default branch (%s)...", baseBranch), false)
+
+		// Point HEAD at the target branch before the first commit. The local
+		// unborn branch (from init.defaultBranch) may not match the remote's
+		// default branch (e.g., "master" locally vs "main" on GitHub).
+		if err := runGitCommandCtx(ctx, req.LocalPath, "symbolic-ref", "HEAD", "refs/heads/"+baseBranch); err != nil {
+			FailGit(sink, fmt.Sprintf("Failed to set branch to %s: %s", baseBranch, SanitizeGitError(err.Error())))
+			return
+		}
+
+		if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", "Initial commit"); err != nil {
+			FailGit(sink, fmt.Sprintf("Failed to initialize repository: %s", SanitizeGitError(err.Error())))
+			return
+		}
+
+		if err := gitPushWithToken(ctx, req.LocalPath, baseBranch, token, true); err != nil {
+			FailGit(sink, fmt.Sprintf("Failed to push initial commit: %s", SanitizeGitError(err.Error())))
+			return
+		}
+
+		sink.Log(fmt.Sprintf("Default branch %s initialized with empty commit", baseBranch), false)
+	}
+
+	// Step 1: Create branch
+	sink.Log(fmt.Sprintf("Creating branch %s...", req.BranchName), false)
+	if err := runGitCommandCtx(ctx, req.LocalPath, "checkout", "-b", req.BranchName); err != nil {
+		errMsg := SanitizeGitError(err.Error())
+		if strings.Contains(errMsg, "already exists") {
+			msg := fmt.Sprintf("Branch %q already exists.", req.BranchName)
+			sink.Log(msg, false)
+			sink.Event("error", map[string]any{
+				"message":    msg,
+				"code":       "branch_exists",
+				"branchName": req.BranchName,
+			})
+			sink.Status("fail", 1)
+			sink.Done()
+		} else {
+			FailGit(sink, fmt.Sprintf("Failed to create branch: %s", errMsg))
+		}
+		return
+	}
+
+	// Step 2: Check for changes and commit
+	sink.Log("Checking for changes...", false)
+	hasChanges, err := gitHasChanges(ctx, req.LocalPath)
+	if err != nil {
+		FailGit(sink, fmt.Sprintf("Failed to check for changes: %s", err.Error()))
+		return
+	}
+
+	if hasChanges {
+		sink.Log("Staging changes...", false)
+		if err := runGitCommandCtx(ctx, req.LocalPath, "add", "-A"); err != nil {
+			FailGit(sink, fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
+			return
+		}
+
+		sink.Log(fmt.Sprintf("Committing: %s", commitMessage), false)
+		if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "-m", commitMessage); err != nil {
+			FailGit(sink, fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
+			return
+		}
+	} else {
+		// Create an empty commit so the PR has at least one commit ahead of the base branch.
+		// Without this, GitHub rejects the PR with "No commits between main and <branch>".
+		sink.Log("No file changes found, creating empty commit...", false)
+		if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", commitMessage); err != nil {
+			FailGit(sink, fmt.Sprintf("Failed to create empty commit: %s", SanitizeGitError(err.Error())))
+			return
+		}
+	}
+
+	// Step 3: Push branch
+	sink.Log(fmt.Sprintf("Pushing branch to origin/%s...", req.BranchName), false)
+	if err := gitPushWithToken(ctx, req.LocalPath, req.BranchName, token, true); err != nil {
+		FailGit(sink, fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
+		return
+	}
+
+	// Step 4: Determine base branch
+	sink.Log("Determining base branch...", false)
+	baseBranch := getBaseBranch(ctx, req.LocalPath, token, owner, repo)
+	sink.Log(fmt.Sprintf("Base branch: %s", baseBranch), false)
+
+	// Step 5: Create PR via GitHub API
+	sink.Log("Creating pull request...", false)
+	prResult, err := createGitHubPR(ctx, token, owner, repo, req.Title, req.Description, req.BranchName, baseBranch)
+	if err != nil {
+		FailGit(sink, fmt.Sprintf("Failed to create pull request: %s", err.Error()))
+		return
+	}
+
+	sink.Log(fmt.Sprintf("Pull request #%d created: %s", prResult.PRNumber, prResult.PRUrl), false)
+
+	// Step 6: Add labels if any
+	if len(req.Labels) > 0 {
+		sink.Log(fmt.Sprintf("Adding labels: %s", strings.Join(req.Labels, ", ")), false)
+		if err := addGitHubLabels(ctx, token, owner, repo, prResult.PRNumber, req.Labels); err != nil {
+			sink.Log(fmt.Sprintf("Warning: Failed to add labels: %s", err.Error()), false)
+			// Don't fail the whole operation for label errors
+		}
+	}
+
+	sink.Event("pr_result", prResult)
+	sink.Outputs(map[string]string{
+		"PR_ID":  fmt.Sprintf("%d", prResult.PRNumber),
+		"PR_URL": prResult.PRUrl,
+	})
+	sink.Status("success", 0)
+	sink.Done()
+}
+
+// HandleGitPullRequest creates a pull request with real-time SSE
+// streaming. POST /api/git/pull-request. Requires SessionAuthMiddleware.
+// Thin shell over preparePullRequest + StreamPullRequest.
 func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreatePullRequestRequest
@@ -136,46 +322,16 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		if req.Title == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "title is required"})
-			return
-		}
-		if req.BranchName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "branchName is required"})
-			return
-		}
-		if req.LocalPath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "localPath is required"})
-			return
-		}
-		if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid localPath: %v", err)})
-			return
-		}
-		if req.RepoURL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "repoUrl is required"})
+		plan, cerr := PreparePullRequest(req, sm)
+		if cerr != nil {
+			status := http.StatusBadRequest
+			if cerr.Code == GitPRErrNoToken {
+				status = http.StatusUnauthorized
+			}
+			c.JSON(status, gin.H{"error": cerr.Message})
 			return
 		}
 
-		token := getGitHubTokenFromSession(sm)
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "No GitHub token found in session"})
-			return
-		}
-
-		commitMessage := req.CommitMessage
-		if commitMessage == "" {
-			commitMessage = "Changes from gruntbook"
-		}
-
-		// Parse owner/repo from URL
-		owner, repo := parseOwnerRepoFromURL(req.RepoURL)
-		if owner == "" || repo == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Could not parse owner/repo from repository URL"})
-			return
-		}
-
-		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
@@ -185,143 +341,91 @@ func HandleGitPullRequest(sm *SessionManager) gin.HandlerFunc {
 			sendSSEError(c, "Streaming not supported")
 			return
 		}
-		sse := &sseWriter{c: c, flusher: flusher}
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 		defer cancel()
 
-		// Step 0: Handle empty repository (no commits yet).
-		// When a repo has no commits, there's no base branch to open a PR against.
-		// We initialize the default branch with an empty commit so the PR has a valid base.
-		hasCommits, err := gitHasCommits(ctx, req.LocalPath)
-		if err != nil {
-			sse.fail(fmt.Sprintf("Failed to inspect repository: %s", SanitizeGitError(err.Error())))
-			return
-		}
-		if !hasCommits {
-			baseBranch := getBaseBranch(ctx, req.LocalPath, token, owner, repo)
-			sse.log(fmt.Sprintf("Repository has no commits. Initializing default branch (%s)...", baseBranch))
-
-			// Point HEAD at the target branch before the first commit. The local
-			// unborn branch (from init.defaultBranch) may not match the remote's
-			// default branch (e.g., "master" locally vs "main" on GitHub).
-			if err := runGitCommandCtx(ctx, req.LocalPath, "symbolic-ref", "HEAD", "refs/heads/"+baseBranch); err != nil {
-				sse.fail(fmt.Sprintf("Failed to set branch to %s: %s", baseBranch, SanitizeGitError(err.Error())))
-				return
-			}
-
-			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", "Initial commit"); err != nil {
-				sse.fail(fmt.Sprintf("Failed to initialize repository: %s", SanitizeGitError(err.Error())))
-				return
-			}
-
-			if err := gitPushWithToken(ctx, req.LocalPath, baseBranch, token, true); err != nil {
-				sse.fail(fmt.Sprintf("Failed to push initial commit: %s", SanitizeGitError(err.Error())))
-				return
-			}
-
-			sse.log(fmt.Sprintf("Default branch %s initialized with empty commit", baseBranch))
-		}
-
-		// Step 1: Create branch
-		sse.log(fmt.Sprintf("Creating branch %s...", req.BranchName))
-		if err := runGitCommandCtx(ctx, req.LocalPath, "checkout", "-b", req.BranchName); err != nil {
-			errMsg := SanitizeGitError(err.Error())
-			if strings.Contains(errMsg, "already exists") {
-				msg := fmt.Sprintf("Branch %q already exists.", req.BranchName)
-				sse.log(msg)
-				c.SSEvent("error", gin.H{
-					"message":    msg,
-					"code":       "branch_exists",
-					"branchName": req.BranchName,
-				})
-				flusher.Flush()
-				sse.status("fail", 1)
-				sse.done()
-			} else {
-				sse.fail(fmt.Sprintf("Failed to create branch: %s", errMsg))
-			}
-			return
-		}
-
-		// Step 2: Check for changes and commit
-		sse.log("Checking for changes...")
-		hasChanges, err := gitHasChanges(ctx, req.LocalPath)
-		if err != nil {
-			sse.fail(fmt.Sprintf("Failed to check for changes: %s", err.Error()))
-			return
-		}
-
-		if hasChanges {
-			sse.log("Staging changes...")
-			if err := runGitCommandCtx(ctx, req.LocalPath, "add", "-A"); err != nil {
-				sse.fail(fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
-				return
-			}
-
-			sse.log(fmt.Sprintf("Committing: %s", commitMessage))
-			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "-m", commitMessage); err != nil {
-				sse.fail(fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
-				return
-			}
-		} else {
-			// Create an empty commit so the PR has at least one commit ahead of the base branch.
-			// Without this, GitHub rejects the PR with "No commits between main and <branch>".
-			sse.log("No file changes found, creating empty commit...")
-			if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "--allow-empty", "-m", commitMessage); err != nil {
-				sse.fail(fmt.Sprintf("Failed to create empty commit: %s", SanitizeGitError(err.Error())))
-				return
-			}
-		}
-
-		// Step 3: Push branch
-		sse.log(fmt.Sprintf("Pushing branch to origin/%s...", req.BranchName))
-		if err := gitPushWithToken(ctx, req.LocalPath, req.BranchName, token, true); err != nil {
-			sse.fail(fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
-			return
-		}
-
-		// Step 4: Determine base branch
-		sse.log("Determining base branch...")
-		baseBranch := getBaseBranch(ctx, req.LocalPath, token, owner, repo)
-		sse.log(fmt.Sprintf("Base branch: %s", baseBranch))
-
-		// Step 5: Create PR via GitHub API
-		sse.log("Creating pull request...")
-		prResult, err := createGitHubPR(ctx, token, owner, repo, req.Title, req.Description, req.BranchName, baseBranch)
-		if err != nil {
-			sse.fail(fmt.Sprintf("Failed to create pull request: %s", err.Error()))
-			return
-		}
-
-		sse.log(fmt.Sprintf("Pull request #%d created: %s", prResult.PRNumber, prResult.PRUrl))
-
-		// Step 6: Add labels if any
-		if len(req.Labels) > 0 {
-			sse.log(fmt.Sprintf("Adding labels: %s", strings.Join(req.Labels, ", ")))
-			if err := addGitHubLabels(ctx, token, owner, repo, prResult.PRNumber, req.Labels); err != nil {
-				sse.log(fmt.Sprintf("Warning: Failed to add labels: %s", err.Error()))
-				// Don't fail the whole operation for label errors
-			}
-		}
-
-		// Send PR result event
-		sse.event("pr_result", prResult)
-
-		// Send outputs
-		outputs := map[string]string{
-			"PR_ID":  fmt.Sprintf("%d", prResult.PRNumber),
-			"PR_URL": prResult.PRUrl,
-		}
-		sse.outputs(outputs)
-		sse.status("success", 0)
-		sse.done()
+		StreamPullRequest(ctx, plan, NewGinSSEGitSink(c, flusher))
 	}
 }
 
-// HandleGitPush pushes additional changes to an existing branch with SSE streaming.
-// POST /api/git/push
-// Requires SessionAuthMiddleware.
+// GitPushPlan is the validated, ready-to-stream form of a GitPushRequest.
+type GitPushPlan struct {
+	req   GitPushRequest
+	token string
+}
+
+// prepareGitPush validates a push request and resolves the session token.
+// Returns a GitPullRequestError (same shape, same code space) so the
+// HTTP path can map codes to statuses uniformly.
+func PrepareGitPush(req GitPushRequest, sm *SessionManager) (*GitPushPlan, *GitPullRequestError) {
+	if req.LocalPath == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "localPath is required"}
+	}
+	if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: fmt.Sprintf("Invalid localPath: %v", err)}
+	}
+	if req.BranchName == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: "branchName is required"}
+	}
+	if err := validateGitBranchName(req.BranchName); err != nil {
+		return nil, &GitPullRequestError{Code: GitPRErrInvalidRequest, Message: fmt.Sprintf("Invalid branchName: %v", err)}
+	}
+
+	token := getGitHubTokenFromSession(sm)
+	if token == "" {
+		return nil, &GitPullRequestError{Code: GitPRErrNoToken, Message: "No GitHub token found in session"}
+	}
+	return &GitPushPlan{req: req, token: token}, nil
+}
+
+// StreamGitPush runs the prepared push flow (stage → commit → push) and
+// emits progress through sink. Sink is closed (via Status + Done)
+// before return.
+func StreamGitPush(ctx context.Context, plan *GitPushPlan, sink GitEventSink) {
+	req := plan.req
+	token := plan.token
+
+	sink.Log("Checking for changes...", false)
+	hasChanges, err := gitHasChanges(ctx, req.LocalPath)
+	if err != nil {
+		FailGit(sink, fmt.Sprintf("Failed to check for changes: %s", err.Error()))
+		return
+	}
+
+	if !hasChanges {
+		sink.Log("No changes to push", false)
+		sink.Status("success", 0)
+		sink.Done()
+		return
+	}
+
+	sink.Log("Staging changes...", false)
+	if err := runGitCommandCtx(ctx, req.LocalPath, "add", "-A"); err != nil {
+		FailGit(sink, fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
+		return
+	}
+
+	sink.Log("Committing: Additional changes", false)
+	if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "-m", "Additional changes"); err != nil {
+		FailGit(sink, fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
+		return
+	}
+
+	sink.Log(fmt.Sprintf("Pushing to origin/%s...", req.BranchName), false)
+	if err := gitPushWithToken(ctx, req.LocalPath, req.BranchName, token, false); err != nil {
+		FailGit(sink, fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
+		return
+	}
+
+	sink.Log("Push complete", false)
+	sink.Status("success", 0)
+	sink.Done()
+}
+
+// HandleGitPush pushes additional changes to an existing branch with
+// SSE streaming. POST /api/git/push. Requires SessionAuthMiddleware.
+// Thin shell over prepareGitPush + StreamGitPush.
 func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitPushRequest
@@ -330,26 +434,16 @@ func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 			return
 		}
 
-		if req.LocalPath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "localPath is required"})
-			return
-		}
-		if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid localPath: %v", err)})
-			return
-		}
-		if req.BranchName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "branchName is required"})
+		plan, cerr := PrepareGitPush(req, sm)
+		if cerr != nil {
+			status := http.StatusBadRequest
+			if cerr.Code == GitPRErrNoToken {
+				status = http.StatusUnauthorized
+			}
+			c.JSON(status, gin.H{"error": cerr.Message})
 			return
 		}
 
-		token := getGitHubTokenFromSession(sm)
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "No GitHub token found in session"})
-			return
-		}
-
-		// Set up SSE headers
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
@@ -359,49 +453,11 @@ func HandleGitPush(sm *SessionManager) gin.HandlerFunc {
 			sendSSEError(c, "Streaming not supported")
 			return
 		}
-		sse := &sseWriter{c: c, flusher: flusher}
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 		defer cancel()
 
-		// Check for changes
-		sse.log("Checking for changes...")
-		hasChanges, err := gitHasChanges(ctx, req.LocalPath)
-		if err != nil {
-			sse.fail(fmt.Sprintf("Failed to check for changes: %s", err.Error()))
-			return
-		}
-
-		if !hasChanges {
-			sse.log("No changes to push")
-			sse.status("success", 0)
-			sse.done()
-			return
-		}
-
-		// Stage and commit
-		sse.log("Staging changes...")
-		if err := runGitCommandCtx(ctx, req.LocalPath, "add", "-A"); err != nil {
-			sse.fail(fmt.Sprintf("Failed to stage changes: %s", SanitizeGitError(err.Error())))
-			return
-		}
-
-		sse.log("Committing: Additional changes")
-		if err := runGitCommandCtx(ctx, req.LocalPath, "commit", "-m", "Additional changes"); err != nil {
-			sse.fail(fmt.Sprintf("Failed to commit: %s", SanitizeGitError(err.Error())))
-			return
-		}
-
-		// Push
-		sse.log(fmt.Sprintf("Pushing to origin/%s...", req.BranchName))
-		if err := gitPushWithToken(ctx, req.LocalPath, req.BranchName, token, false); err != nil {
-			sse.fail(fmt.Sprintf("Push failed: %s", SanitizeGitError(err.Error())))
-			return
-		}
-
-		sse.log("Push complete")
-		sse.status("success", 0)
-		sse.done()
+		StreamGitPush(ctx, plan, NewGinSSEGitSink(c, flusher))
 	}
 }
 
@@ -417,13 +473,61 @@ var protectedBranches = map[string]bool{
 	"production": true,
 }
 
+// GitDeleteBranchResponse is the IPC response for DeleteGitBranch. The
+// legacy HTTP endpoint returned {"deleted": <name>} on success and
+// {"error": <message>} on failure with a status code; the response
+// shape here flattens both into one JSON body (Error populated on
+// failure so the frontend can display it).
+type GitDeleteBranchResponse struct {
+	Deleted string `json:"deleted,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// Delete-branch error codes. Kept distinct so the HTTP wrapper can map
+// validation failures (400) vs operational ones (500).
+const (
+	GitDeleteBranchErrInvalid  = "invalid_request"
+	GitDeleteBranchErrInternal = "internal"
+)
+
+// DeleteGitBranch deletes a local git branch after validating the
+// branch name and refusing protected branches / currently-checked-out
+// branches. Transport-free: the HTTP handler and IPC service both
+// call this and map the Code field to their respective error shapes.
+func DeleteGitBranch(ctx context.Context, req GitDeleteBranchRequest) GitDeleteBranchResponse {
+	if req.LocalPath == "" {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: "localPath is required"}
+	}
+	if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: fmt.Sprintf("Invalid localPath: %v", err)}
+	}
+	if req.BranchName == "" {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: "branchName is required"}
+	}
+	if err := validateGitBranchName(req.BranchName); err != nil {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: fmt.Sprintf("Invalid branchName: %v", err)}
+	}
+
+	if protectedBranches[req.BranchName] {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: fmt.Sprintf("Refusing to delete protected branch %q", req.BranchName)}
+	}
+
+	currentBranch, err := getCurrentBranch(ctx, req.LocalPath)
+	if err == nil && currentBranch == req.BranchName {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInvalid, Error: fmt.Sprintf("Cannot delete branch %q because it is currently checked out", req.BranchName)}
+	}
+
+	if err := runGitCommandCtx(ctx, req.LocalPath, "branch", "-D", req.BranchName); err != nil {
+		return GitDeleteBranchResponse{Code: GitDeleteBranchErrInternal, Error: fmt.Sprintf("Failed to delete branch: %s", SanitizeGitError(err.Error()))}
+	}
+
+	return GitDeleteBranchResponse{Deleted: req.BranchName}
+}
+
 // HandleGitDeleteBranch deletes a local git branch.
-// DELETE /api/git/branch
-// Requires SessionAuthMiddleware.
-//
-// Safety: only branches not on the protected list can be deleted.
-// The branch name is also validated to reject values containing
-// path separators, whitespace, or git-special characters.
+// DELETE /api/git/branch. Requires SessionAuthMiddleware. Thin shell
+// over DeleteGitBranch (see above).
 func HandleGitDeleteBranch() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req GitDeleteBranchRequest
@@ -432,53 +536,19 @@ func HandleGitDeleteBranch() gin.HandlerFunc {
 			return
 		}
 
-		if req.LocalPath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "localPath is required"})
-			return
-		}
-		if err := ValidateAbsolutePathInCwd(req.LocalPath); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid localPath: %v", err)})
-			return
-		}
-		if req.BranchName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "branchName is required"})
-			return
-		}
-
-		// Reject branch names with suspicious characters (null bytes, spaces, control chars, ~, ^, :, \)
-		if strings.ContainsAny(req.BranchName, "\x00 \t\n~^:\\") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Branch name contains invalid characters"})
-			return
-		}
-
-		// Reject branch names that start with "-" (could be interpreted as git flags)
-		if strings.HasPrefix(req.BranchName, "-") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Branch name cannot start with a dash"})
-			return
-		}
-
-		// Protect well-known branches from accidental deletion
-		if protectedBranches[req.BranchName] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Refusing to delete protected branch %q", req.BranchName)})
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
-		// Verify we are not deleting the currently checked-out branch
-		currentBranch, err := getCurrentBranch(ctx, req.LocalPath)
-		if err == nil && currentBranch == req.BranchName {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Cannot delete branch %q because it is currently checked out", req.BranchName)})
+		resp := DeleteGitBranch(ctx, req)
+		if resp.Code == "" {
+			c.JSON(http.StatusOK, gin.H{"deleted": resp.Deleted})
 			return
 		}
-
-		if err := runGitCommandCtx(ctx, req.LocalPath, "branch", "-D", req.BranchName); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete branch: %s", SanitizeGitError(err.Error()))})
-			return
+		status := http.StatusBadRequest
+		if resp.Code == GitDeleteBranchErrInternal {
+			status = http.StatusInternalServerError
 		}
-
-		c.JSON(http.StatusOK, gin.H{"deleted": req.BranchName})
+		c.JSON(status, gin.H{"error": resp.Error})
 	}
 }
 
