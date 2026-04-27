@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { FolderOpen, Clock, AlertTriangle } from 'lucide-react'
+import { Events } from '@wailsio/runtime'
 import { Button } from '@/components/ui/button'
 import * as WelcomeService from '@/bindings/github.com/gruntwork-io/runbooks/services/welcomeservice'
 import type { OpenResult, RecentEntry } from '@/bindings/github.com/gruntwork-io/runbooks/services/models'
@@ -53,6 +54,24 @@ export function Welcome({ onOpened }: WelcomeProps) {
     [onOpened],
   )
 
+  // Hold the latest openPath in a ref so the file-drop subscription
+  // doesn't need to resubscribe every render.
+  const openPathRef = useRef(openPath)
+  useEffect(() => {
+    openPathRef.current = openPath
+  }, [openPath])
+
+  useEffect(() => {
+    const off = Events.On('welcome:files-dropped', (ev: { data?: { files?: string[] } }) => {
+      const files = ev.data?.files ?? []
+      if (files.length === 0) return
+      void openPathRef.current(files[0])
+    })
+    return () => {
+      if (typeof off === 'function') off()
+    }
+  }, [])
+
   const handlePickFolder = useCallback(async () => {
     setError(null)
     try {
@@ -65,7 +84,10 @@ export function Welcome({ onOpened }: WelcomeProps) {
   }, [openPath])
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background p-6">
+    <div
+      data-file-drop-target
+      className="min-h-screen w-full flex items-center justify-center bg-background p-6"
+    >
       <div className="w-full max-w-2xl">
         <header className="text-center mb-10">
           <img

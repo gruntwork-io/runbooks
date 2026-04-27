@@ -12,6 +12,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 	"github.com/gruntwork-io/runbooks/services"
 	"github.com/gruntwork-io/runbooks/web"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // iconPNG is the 1024x1024 Gruntbooks logomark. Wails passes this to
@@ -44,6 +46,10 @@ type Options struct {
 	// `gruntbooks desktop PATH`. Empty means the user wants to see the
 	// Welcome screen and pick a gruntbook interactively.
 	InitialPath string
+	// IsAuthorMode is the boot-time Author Mode toggle, set by
+	// `gruntbooks watch` (true) and `gruntbooks open` (false). The user
+	// can flip it at runtime via the View menu.
+	IsAuthorMode bool
 	// Version is the build-stamped cmd.Version, threaded through to
 	// UpdateService so its "latest release" comparison has something
 	// to work with. Dev builds pass "dev" (or empty) and UpdateService
@@ -57,7 +63,7 @@ type Options struct {
 // closed. Returns any error from the Wails runtime; callers typically
 // log.Fatal on failure.
 func Run(opts Options) error {
-	svcs, err := services.NewServices(opts.InitialPath, adapters.NewWailsEmitter(), opts.Version)
+	svcs, err := services.NewServices(opts.InitialPath, opts.IsAuthorMode, adapters.NewWailsEmitter(), opts.Version)
 	if err != nil {
 		return fmt.Errorf("build services: %w", err)
 	}
@@ -107,13 +113,20 @@ func Run(opts Options) error {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:     opts.Title,
-		Width:     opts.Width,
-		Height:    opts.Height,
-		MinWidth:  500,
-		MinHeight: 400,
-		URL:       "/",
+	win := app.Window.NewWithOptions(buildWindowOptions(opts))
+
+	// EnableFileDrop forwards external file drops onto elements with the
+	// `data-file-drop-target` attribute. Re-emit as a custom event so the
+	// Welcome page can react without taking a hard dependency on Wails'
+	// internal event names.
+	win.OnWindowEvent(events.Common.WindowFilesDropped, func(ev *application.WindowEvent) {
+		files := ev.Context().DroppedFiles()
+		if len(files) == 0 {
+			return
+		}
+		application.Get().Event.Emit("welcome:files-dropped", map[string]any{
+			"files": files,
+		})
 	})
 
 	installAppMenu(app)
@@ -121,12 +134,45 @@ func Run(opts Options) error {
 	return app.Run()
 }
 
+// buildWindowOptions returns the WebviewWindowOptions for the main
+// window. Split out so the macOS-specific frameless title bar config
+// stays readable. EnableFileDrop is enabled on every platform so the
+// Welcome page can accept drag-drop opens.
+func buildWindowOptions(opts Options) application.WebviewWindowOptions {
+	wopts := application.WebviewWindowOptions{
+		Title:          opts.Title,
+		Width:          opts.Width,
+		Height:         opts.Height,
+		MinWidth:       500,
+		MinHeight:      400,
+		URL:            "/",
+		EnableFileDrop: true,
+	}
+	if runtime.GOOS == "darwin" {
+		// MacTitleBarHiddenInsetUnified hides the system title bar but
+		// keeps the traffic-light buttons inset, integrated with our own
+		// header chrome. InvisibleTitleBarHeight defines a transparent
+		// drag region above the React content so users can grab the
+		// window by its top edge even when our header has interactive
+		// controls beneath it. Height matches the Header's min-h-16
+		// (4rem) so the entire header band acts as a drag handle except
+		// where buttons opt out via `--wails-draggable: no-drag`.
+		wopts.Mac = application.MacWindow{
+			TitleBar:                application.MacTitleBarHiddenInsetUnified,
+			InvisibleTitleBarHeight: 64,
+		}
+	}
+	return wopts
+}
+
 // installAppMenu replaces the default application menu so the macOS
 // "About Gruntbooks" item routes through Wails' ShowAbout (an NSAlert
 // seeded with our embedded icon + description) rather than the
 // native orderFrontStandardAboutPanel: selector, which reads
 // Info.plist and shows a generic folder icon when run as a bare
-// binary. Menu layout otherwise mirrors DefaultApplicationMenu.
+// binary. The View menu also gets an Author Mode toggle that emits
+// `author-mode:toggle` so the React layer can react without needing
+// IPC plumbing for what is effectively a UI-only setting.
 func installAppMenu(app *application.App) {
 	if runtime.GOOS != "darwin" {
 		return
@@ -149,7 +195,23 @@ func installAppMenu(app *application.App) {
 
 	menu.AddRole(application.FileMenu)
 	menu.AddRole(application.EditMenu)
-	menu.AddRole(application.ViewMenu)
+
+	viewSubmenu := menu.AddSubmenu("View")
+	viewSubmenu.Add("Toggle Author Mode").
+		SetAccelerator("CmdOrCtrl+Shift+A").
+		OnClick(func(_ *application.Context) {
+			if !app.Event.Emit("author-mode:toggle") {
+				slog.Warn("No subscribers for author-mode:toggle event")
+			}
+		})
+	viewSubmenu.AddSeparator()
+	viewSubmenu.AddRole(application.Reload)
+	viewSubmenu.AddRole(application.ToggleFullscreen)
+	viewSubmenu.AddSeparator()
+	viewSubmenu.AddRole(application.ResetZoom)
+	viewSubmenu.AddRole(application.ZoomIn)
+	viewSubmenu.AddRole(application.ZoomOut)
+
 	menu.AddRole(application.WindowMenu)
 	menu.AddRole(application.HelpMenu)
 

@@ -1,28 +1,27 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
 	"log/slog"
+	"os"
 
-	"github.com/gruntwork-io/runbooks/api"
 	"github.com/gruntwork-io/runbooks/api/telemetry"
 
 	"github.com/spf13/cobra"
 )
 
-var disableLiveFileReload bool
-
-// watchCmd represents the watch command
+// watchCmd is the gruntbook *author* entrypoint: same launcher as `open`
+// but passes --author so the desktop boots with Author Mode enabled
+// (auto-reload on edit, registry panel visible, parse errors surfaced,
+// no drift warnings). Author Mode can also be toggled at runtime from
+// the View menu — `watch` is a convenience for users who already know
+// they're editing.
 var watchCmd = &cobra.Command{
 	Use:   "watch GRUNTBOOK_SOURCE",
-	Short: "Open a gruntbook and auto-reload changes (for gruntbook authors)",
-	Long: `Open the gruntbook at GRUNTBOOK_SOURCE with live-reloading enabled.
-
-The gruntbook will automatically reload when changes are detected to
-the underlying gruntbook.mdx file. By default, script changes take
-effect immediately without server restart (live-file-reload mode).
+	Short: "Open a gruntbook with Author Mode enabled (for gruntbook authors)",
+	Long: `Open the gruntbook at GRUNTBOOK_SOURCE in the Gruntbooks desktop app
+with Author Mode enabled. Author Mode hot-reloads on every save instead
+of showing the consumer-mode drift warning, and exposes block IDs, MDX
+parse errors, and the executable registry panel.
 
 GRUNTBOOK_SOURCE can be a local path to a gruntbook.mdx file or its
 containing directory, a remote GitHub/GitLab URL, or an OpenTofu/Terraform
@@ -32,34 +31,16 @@ Examples:
   gruntbooks watch ./path/to/gruntbook
   gruntbooks watch https://github.com/org/repo/tree/main/gruntbooks/rds`,
 	GroupID: "main",
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		telemetry.TrackCommand("watch")
-
-		rb := resolveForServer(args)
-		if rb.cleanup != nil {
-			defer rb.cleanup()
+		if err := spawnDesktop(args[0], "--author"); err != nil {
+			slog.Error("Failed to launch desktop window", "error", err)
+			os.Exit(1)
 		}
-
-		// By default, watch mode uses live-file-reload (no registry) for better UX.
-		// If --disable-live-file-reload is true, use the executable registry for better security.
-		useExecutableRegistry := disableLiveFileReload
-		slog.Info("Opening gruntbook with file watching", "path", rb.serverPath, "workingDir", rb.workingDir, "outputPath", outputPath, "useExecutableRegistry", useExecutableRegistry)
-
-		startServerAndOpen(rb, api.ServerConfig{
-			GruntbookPath:         rb.serverPath,
-			Port:                  port,
-			WorkingDir:            rb.workingDir,
-			OutputPath:            outputPath,
-			RemoteSourceURL:       rb.remoteSourceURL,
-			IsWatchMode:           true,
-			UseExecutableRegistry: useExecutableRegistry,
-		})
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(watchCmd)
-
-	watchCmd.Flags().BoolVar(&disableLiveFileReload, "disable-live-file-reload", false,
-		"Enable executable registry validation (requires server restart for script changes)")
 }

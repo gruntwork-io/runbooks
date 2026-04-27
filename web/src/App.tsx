@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Welcome } from './pages/Welcome'
 import { RunbookView } from './pages/RunbookView'
 import { UpdateBanner } from './components/UpdateBanner'
+import { AuthorModeExplainer } from './components/AuthorModeExplainer'
+import { AuthorModeProvider } from './contexts/AuthorModeContext'
+import { useAuthorMode } from './contexts/useAuthorMode'
 import * as WelcomeService from './bindings/github.com/gruntwork-io/runbooks/services/welcomeservice'
 import type { OpenResult } from './bindings/github.com/gruntwork-io/runbooks/services/models'
 import { isDesktop } from './lib/wails'
@@ -30,6 +33,10 @@ function App() {
   const [state, setState] = useState<AppState>(() =>
     isDesktop() ? { kind: 'booting' } : { kind: 'runbook', result: browserOpenResult() },
   )
+  // initialAuthorMode is sourced from Status() exactly once, alongside
+  // the boot decision. Pass it through so AuthorModeProvider can seed
+  // its state without doing a duplicate Status() call.
+  const [initialAuthorMode, setInitialAuthorMode] = useState(false)
 
   useEffect(() => {
     if (state.kind !== 'booting') return
@@ -39,6 +46,7 @@ function App() {
       try {
         const status = await WelcomeService.Status()
         if (cancelled) return
+        setInitialAuthorMode(status.initialAuthorMode)
 
         if (status.gruntbookOpen) {
           setState({
@@ -86,11 +94,23 @@ function App() {
   }, [])
 
   return (
-    <>
+    <AuthorModeProvider initialAuthorMode={initialAuthorMode}>
       <UpdateBanner />
+      <AuthorModeExplainerGate />
       {renderState(state, handleOpened, handleBackToWelcome)}
-    </>
+    </AuthorModeProvider>
   )
+}
+
+/**
+ * AuthorModeExplainerGate watches Author Mode and renders the one-time
+ * explainer dialog the first time a user enters Author Mode. Lifted out
+ * of App so it can call useAuthorMode (which requires the provider).
+ */
+function AuthorModeExplainerGate() {
+  const { isAuthorMode, hasSeenExplainer, markExplainerSeen } = useAuthorMode()
+  const shouldShow = isAuthorMode && !hasSeenExplainer
+  return <AuthorModeExplainer open={shouldShow} onAcknowledge={markExplainerSeen} />
 }
 
 function renderState(

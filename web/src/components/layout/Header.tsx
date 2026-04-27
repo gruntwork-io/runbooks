@@ -15,6 +15,9 @@ import {
 } from '../ui/dropdown-menu';
 import { useLogs } from '@/contexts/useLogs';
 import { getDirectoryPath } from '@/lib/utils';
+import { useAuthorMode } from '@/contexts/useAuthorMode';
+import { AuthorModeBadge } from '../AuthorModeBadge';
+import { isMacOSDesktop } from '@/lib/wails';
 import {
   createLogsZipRaw,
   createLogsZipJson,
@@ -73,6 +76,7 @@ interface HeaderProps {
 export function Header({ pathName, localPath, onClose }: HeaderProps) {
   const { getAllLogs, hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
+  const { isAuthorMode } = useAuthorMode();
 
   // Show the copy-local-path button when we have a local path that differs from the display name
   // (i.e., when viewing a remote gruntbook)
@@ -102,12 +106,25 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
     downloadBlob(blob, generateAllLogsZipFilename());
   };
 
+  // On macOS the system title bar is hidden via MacTitleBarHiddenInsetUnified,
+  // so the inset traffic-light buttons sit on top of our header. Pad the
+  // left edge to clear them and apply the Wails drag region so users can
+  // grab the header to move the window. Interactive children opt out via
+  // `--wails-draggable: no-drag` so clicks still work.
+  const isMac = isMacOSDesktop();
+  const dragStyle = isMac ? ({ ['--wails-draggable' as string]: 'drag' } as React.CSSProperties) : undefined;
+  const noDragStyle = isMac ? ({ ['--wails-draggable' as string]: 'no-drag' } as React.CSSProperties) : undefined;
+
   return (
-    <header className="w-full border-b border-gray-300 px-4 py-3 text-gray-500 font-semibold grid grid-cols-[auto_1fr_auto] items-center gap-3 fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
-      <div className="flex-none">
+    <header
+      className={`w-full border-b border-gray-300 ${isMac ? 'pl-20 pr-4' : 'px-4'} py-3 text-gray-500 font-semibold grid grid-cols-[auto_1fr_auto] items-center gap-3 fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16`}
+      style={dragStyle}
+    >
+      <div className="flex-none flex items-center gap-3">
         <img src="/gruntbooks-logo-dark-alpha.svg" alt="Gruntwork Gruntbooks" className="h-8" />
+        {isAuthorMode && <AuthorModeBadge />}
       </div>
-      <div className="flex items-center justify-center gap-1.5 min-w-0">
+      <div className="flex items-center justify-center gap-1.5 min-w-0" style={noDragStyle}>
         <TooltipProvider delayDuration={0}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -131,7 +148,7 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
           className="p-1 hover:bg-gray-100"
         />
       </div>
-      <div className="flex-none flex items-center gap-2 font-normal text-md">
+      <div className="flex-none flex items-center gap-2 font-normal text-md" style={noDragStyle}>
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors">
             Menu

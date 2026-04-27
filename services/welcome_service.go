@@ -42,6 +42,10 @@ type DesktopStatus struct {
 	// InitialPath was provided via `gruntbooks desktop PATH` and is
 	// empty when the user launched the app with no argument.
 	InitialPath string `json:"initialPath"`
+	// InitialAuthorMode is the CLI-set Author Mode toggle: true when
+	// launched via `gruntbooks watch`, false via `gruntbooks open`.
+	// Frontend uses it to seed AuthorModeContext on mount.
+	InitialAuthorMode bool `json:"initialAuthorMode"`
 	// GruntbookOpen is true once OpenLocal (or a pre-launch path) has
 	// started the backend and a runbook is loaded.
 	GruntbookOpen bool `json:"gruntbookOpen"`
@@ -66,6 +70,10 @@ type WelcomeService struct {
 	// initialPath is set by cmd/desktop.go when the user invoked
 	// `gruntbooks desktop PATH`. Empty means "no path, show Welcome".
 	initialPath string
+	// initialAuthorMode is the boot-time Author Mode toggle, set true
+	// when launched via `gruntbooks watch`. The frontend reads it
+	// through Status() to initialize AuthorModeContext.
+	initialAuthorMode bool
 }
 
 // ServiceName satisfies the optional application.ServiceName interface
@@ -80,10 +88,11 @@ func (s *WelcomeService) Status() DesktopStatus {
 	cfg := s.servers.Config()
 	port := s.servers.Port()
 	return DesktopStatus{
-		InitialPath:   s.initialPath,
-		GruntbookOpen: port != 0,
-		ServerPort:    port,
-		GruntbookPath: cfg.GruntbookPath,
+		InitialPath:       s.initialPath,
+		InitialAuthorMode: s.initialAuthorMode,
+		GruntbookOpen:     port != 0,
+		ServerPort:        port,
+		GruntbookPath:     cfg.GruntbookPath,
 	}
 }
 
@@ -132,11 +141,19 @@ func (s *WelcomeService) OpenLocal(path string) (*OpenResult, error) {
 		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
 
+	// Author Mode (boot-time, set by `gruntbooks watch`): hot-reload on
+	// every save with a registry-less server, matching the legacy
+	// `watch` UX. Consumer Mode (default, set by `gruntbooks open`):
+	// snapshot-based drift warnings with the executable registry on for
+	// exec safety. Runtime toggling between the two changes only the
+	// frontend's reaction to file events; registry state stays as
+	// chosen at open time.
 	cfg := api.ServerConfig{
 		GruntbookPath:         gruntbookPath,
 		WorkingDir:            cwd,
 		OutputPath:            "generated",
-		UseExecutableRegistry: true,
+		UseExecutableRegistry: !s.initialAuthorMode,
+		IsWatchMode:           s.initialAuthorMode,
 		ReleaseMode:           true,
 	}
 

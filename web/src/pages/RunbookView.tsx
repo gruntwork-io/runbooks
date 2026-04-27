@@ -24,6 +24,7 @@ import { getDirectoryPath, hasGeneratedFiles } from '../lib/utils'
 import { useGetGruntbook } from '../hooks/useApiGetGruntbook'
 import { useGeneratedFiles } from '../hooks/useGeneratedFiles'
 import { useGitWorkTree } from '../contexts/useGitWorkTree'
+import { useAuthorMode } from '../contexts/useAuthorMode'
 import { useWatchMode, type DriftChange } from '../hooks/useWatchMode'
 import { useApiGeneratedFilesCheck } from '../hooks/useApiGeneratedFilesCheck'
 import { useErrorReporting } from '../contexts/useErrorReporting'
@@ -89,6 +90,7 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   const generatedFilesCheck = useApiGeneratedFilesCheck()
 
   const { errorCount, warningCount, clearAllErrors } = useErrorReporting()
+  const { isAuthorMode } = useAuthorMode()
 
   useEffect(() => {
     if (getGruntbookResult.data?.content) {
@@ -99,12 +101,12 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   const handleFileChange = useCallback(() => {
     console.log('[RunbookView] Gruntbook file changed, reloading...')
 
-    if (getGruntbookResult.data?.isWatchMode) {
+    if (isAuthorMode) {
       getGruntbookResult.silentRefetch()
     } else {
       getGruntbookResult.refetch()
     }
-  }, [getGruntbookResult])
+  }, [getGruntbookResult, isAuthorMode])
 
   const handleDrift = useCallback((event: { changes: DriftChange[] }) => {
     setDriftChanges(event.changes)
@@ -114,7 +116,7 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
   const { resetSnapshot } = useWatchMode({
     gruntbookPath: getGruntbookResult.data?.path,
     outputRelPath: generatedFilesCheck.data?.relativeOutputPath,
-    isAuthorMode: getGruntbookResult.data?.isWatchMode ?? false,
+    isAuthorMode,
     onFileChange: handleFileChange,
     onDrift: handleDrift,
   })
@@ -226,7 +228,7 @@ function RunbookViewBody({ onClose }: RunbookViewProps) {
           />
         )}
 
-        {!getGruntbookResult.data?.isWatchMode &&
+        {!isAuthorMode &&
           !driftDismissed &&
           driftChanges.length > 0 && (
             <div className="fixed top-15 left-0 right-0 z-40 shadow-md">
