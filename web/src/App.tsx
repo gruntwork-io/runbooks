@@ -54,7 +54,6 @@ function App() {
             result: {
               gruntbookPath: status.gruntbookPath,
               displayPath: status.gruntbookPath,
-              port: status.serverPort,
             },
           })
           return
@@ -165,7 +164,6 @@ function browserOpenResult(): OpenResult {
   return {
     gruntbookPath: '',
     displayPath: '',
-    port: 0,
   }
 }
 

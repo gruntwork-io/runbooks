@@ -8,103 +8,81 @@ import (
 	"github.com/gruntwork-io/runbooks/api"
 )
 
-// serverManager owns the lifecycle of the embedded Gin API server.
+// serverManager tracks the runtime state of the currently-open gruntbook
+// for the desktop binary: the SessionManager (env vars, worktree state,
+// per-block exec counts) and the optional ExecutableRegistry. It is
+// shared across every IPC service so they all see the same view.
 //
-// M2 keeps Gin running behind the desktop window — the frontend still
-// reaches the runbook, exec, boilerplate, etc. endpoints over HTTP. The
-// manager starts Gin lazily once the user picks a gruntbook from
-// Welcome, and stops it cleanly when the user closes the gruntbook and
-// returns to Welcome (so they can open a different one in the same
-// session).
+// History: through M5 this type also owned an embedded Gin HTTP server
+// — the desktop window proxied /api/* requests to a local listener that
+// the frontend pre-IPC migration relied on. M5.5 deleted that listener.
+// The desktop binary now binds no TCP port; HTTP only exists in the
+// separate `gruntbooks serve` CLI path that Playwright drives. The name
+// "serverManager" is kept to minimise churn across the dozen-plus
+// services that hold a reference; it now manages the gruntbook session
+// state, not a server.
 type serverManager struct {
-	mu       sync.Mutex
-	started  bool
-	port     int
-	config   api.ServerConfig
-	shutdown func(context.Context) error
-	errCh    <-chan error
+	mu      sync.Mutex
+	started bool
+	config  api.ServerConfig
 
-	// sessions is the SessionManager shared between the embedded Gin
-	// server and the IPC services. A fresh one is created on every
-	// Start so each open gruntbook gets clean session state (env vars,
-	// worktrees, exec counts). M4+ IPC services reach it via Sessions()
+	// sessions is the SessionManager shared between every IPC service.
+	// A fresh one is created on every Start so each open gruntbook gets
+	// clean session state. M4+ IPC services reach it via Sessions()
 	// rather than holding their own reference — that way Stop+Start
 	// (Welcome → different gruntbook) transparently rebinds them.
 	sessions *api.SessionManager
 
-	// registry is the ExecutableRegistry shared between Gin and the
-	// IPC ExecService. Nil when the open gruntbook runs in watch mode
-	// (which re-parses on every exec instead). Populated in Start()
-	// ahead of Gin boot so both transports resolve executable_id the
-	// same way.
+	// registry is the ExecutableRegistry for the open gruntbook. Nil
+	// when the gruntbook runs in watch / Author Mode (which re-parses
+	// on every exec instead).
 	registry *api.ExecutableRegistry
 }
 
-// startInfo is the subset of state that Start returns to the caller.
-type startInfo struct {
-	// Port is the TCP port Gin bound to. Callers hand this to the
-	// frontend so it knows where to make API requests.
-	Port int
-	// ErrCh fires once if Gin exits. Useful if a later milestone wants
-	// to surface backend crashes in the UI; M2 ignores it.
-	ErrCh <-chan error
-}
-
-// Start boots Gin if it isn't already running. Returns an error if a
-// server is already running — callers must Stop it first to swap
-// gruntbooks. The config's Port is forced to 0 so the kernel picks a
-// free port; the actual bound port is reported back in startInfo.Port.
-func (sm *serverManager) Start(cfg api.ServerConfig) (*startInfo, error) {
+// Start initialises the per-gruntbook session + registry state. Returns
+// an error if a gruntbook is already open — callers must Stop first to
+// swap gruntbooks. No HTTP listener is bound; this is in-process state
+// only.
+func (sm *serverManager) Start(cfg api.ServerConfig) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	if sm.started {
-		return nil, fmt.Errorf("gruntbook server is already running for %q", sm.config.GruntbookPath)
+		return fmt.Errorf("gruntbook is already open: %q", sm.config.GruntbookPath)
 	}
 
-	cfg.Port = 0
 	sessions := api.NewSessionManager()
 	cfg.Sessions = sessions
 
-	// Build the registry up front (outside Gin's buildHandler) so the
-	// IPC ExecService sees the same registry Gin is about to install.
-	// Only relevant when the open gruntbook runs in registry mode; watch
-	// mode re-parses on every exec so cfg.Registry stays nil.
+	// Build the registry up front so the IPC ExecService sees it
+	// before the user can trigger an exec. Watch mode (Author Mode)
+	// re-parses on each exec, so registry stays nil.
 	var registry *api.ExecutableRegistry
 	if cfg.UseExecutableRegistry {
 		resolved, err := api.ResolveGruntbookPath(cfg.GruntbookPath)
 		if err != nil {
-			return nil, fmt.Errorf("resolve gruntbook path: %w", err)
+			return fmt.Errorf("resolve gruntbook path: %w", err)
 		}
 		registry, err = api.NewExecutableRegistry(resolved)
 		if err != nil {
-			return nil, fmt.Errorf("build executable registry: %w", err)
+			return fmt.Errorf("build executable registry: %w", err)
 		}
 		cfg.Registry = registry
 	}
 
-	handle, err := api.StartServerWithShutdown(cfg)
-	if err != nil {
-		return nil, err
-	}
-	cfg.Port = handle.Port
-
 	sm.started = true
-	sm.port = handle.Port
 	sm.config = cfg
-	sm.shutdown = handle.Shutdown
-	sm.errCh = handle.ErrCh
 	sm.sessions = sessions
 	sm.registry = registry
 
-	return &startInfo{Port: handle.Port, ErrCh: handle.ErrCh}, nil
+	return nil
 }
 
-// Stop gracefully shuts down the running server and waits for the
-// listener goroutine to exit. It is a no-op when no server is running.
-// The provided context bounds how long to wait for in-flight requests
-// before forcing shutdown.
-func (sm *serverManager) Stop(ctx context.Context) error {
+// Stop clears the per-gruntbook state so the user can return to Welcome
+// and open a different gruntbook. The ctx is accepted for API
+// compatibility with the M5-era Gin shutdown path; nothing now blocks
+// on it. No-op if no gruntbook is open.
+func (sm *serverManager) Stop(_ context.Context) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -112,19 +90,12 @@ func (sm *serverManager) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	shutdownErr := sm.shutdown(ctx)
-	// Drain errCh so the serve goroutine isn't blocked writing.
-	<-sm.errCh
-
 	sm.started = false
-	sm.port = 0
 	sm.config = api.ServerConfig{}
-	sm.shutdown = nil
-	sm.errCh = nil
 	sm.sessions = nil
 	sm.registry = nil
 
-	return shutdownErr
+	return nil
 }
 
 // Sessions returns the SessionManager for the currently-open gruntbook,
@@ -139,24 +110,16 @@ func (sm *serverManager) Sessions() *api.SessionManager {
 
 // Registry returns the ExecutableRegistry for the currently-open
 // gruntbook. Returns (nil, nil) when no gruntbook is open or when the
-// gruntbook runs in watch mode (registry-less). Returns an error only
-// for misuse — the error slot is reserved for future modes where
-// registry construction can fail outside of Start().
+// gruntbook runs in watch mode. The error slot is reserved for future
+// modes where registry construction can fail outside Start().
 func (sm *serverManager) Registry() (*api.ExecutableRegistry, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return sm.registry, nil
 }
 
-// Port returns the bound port, or 0 if the server is not running.
-func (sm *serverManager) Port() int {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	return sm.port
-}
-
-// Config returns the config the server was started with. Returns the
-// zero value if the server has not been started.
+// Config returns the config the gruntbook was opened with. Returns the
+// zero value if no gruntbook is open.
 func (sm *serverManager) Config() api.ServerConfig {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

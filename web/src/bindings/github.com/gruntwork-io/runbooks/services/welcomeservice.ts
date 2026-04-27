@@ -80,8 +80,7 @@ export function PickLocalFolder(): $CancellablePromise<string> {
 }
 
 /**
- * Status returns the frontend's initial boot snapshot. Invariant: if
- * GruntbookOpen is true, ServerPort is > 0.
+ * Status returns the frontend's initial boot snapshot.
  */
 export function Status(): $CancellablePromise<$models.DesktopStatus> {
     return $Call.ByID(2004347322).then(($result: any) => {

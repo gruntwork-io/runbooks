@@ -13,26 +13,22 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// closeShutdownTimeout caps how long we wait for in-flight requests to
-// drain when closing a gruntbook. The backend holds no long-polling
-// connections in M2, so 5s is plenty.
+// closeShutdownTimeout is retained for API compatibility with the M5
+// Stop signature. With Gin removed, Stop is in-process state clearing
+// and doesn't actually wait on the context; the timeout is unused.
 const closeShutdownTimeout = 5 * time.Second
 
 // OpenResult is the return shape of OpenLocal (and, in later milestones,
 // OpenRemote). Carries everything the frontend needs to navigate from
 // the Welcome screen into the runbook view.
 type OpenResult struct {
-	// GruntbookPath is the resolved absolute path to gruntbook.mdx that
-	// Gin is now serving.
+	// GruntbookPath is the resolved absolute path to the open
+	// gruntbook.mdx.
 	GruntbookPath string `json:"gruntbookPath"`
 	// DisplayPath is what the UI should show in the header. For local
 	// opens it's the on-disk path; for remote opens (future) it's the
 	// original URL.
 	DisplayPath string `json:"displayPath"`
-	// Port is the localhost port Gin bound to. The desktop asset
-	// handler proxies /api/* to this port, so the frontend doesn't
-	// hard-code it — this is surfaced for logging/debug only.
-	Port int `json:"port"`
 }
 
 // DesktopStatus is the initial-state snapshot the Welcome page reads
@@ -47,10 +43,8 @@ type DesktopStatus struct {
 	// Frontend uses it to seed AuthorModeContext on mount.
 	InitialAuthorMode bool `json:"initialAuthorMode"`
 	// GruntbookOpen is true once OpenLocal (or a pre-launch path) has
-	// started the backend and a runbook is loaded.
+	// loaded a runbook.
 	GruntbookOpen bool `json:"gruntbookOpen"`
-	// ServerPort is the bound Gin port (0 if not running).
-	ServerPort int `json:"serverPort"`
 	// GruntbookPath mirrors OpenResult.GruntbookPath when a gruntbook
 	// is open.
 	GruntbookPath string `json:"gruntbookPath"`
@@ -82,16 +76,13 @@ func (s *WelcomeService) ServiceName() string {
 	return "WelcomeService"
 }
 
-// Status returns the frontend's initial boot snapshot. Invariant: if
-// GruntbookOpen is true, ServerPort is > 0.
+// Status returns the frontend's initial boot snapshot.
 func (s *WelcomeService) Status() DesktopStatus {
 	cfg := s.servers.Config()
-	port := s.servers.Port()
 	return DesktopStatus{
 		InitialPath:       s.initialPath,
 		InitialAuthorMode: s.initialAuthorMode,
-		GruntbookOpen:     port != 0,
-		ServerPort:        port,
+		GruntbookOpen:     cfg.GruntbookPath != "",
 		GruntbookPath:     cfg.GruntbookPath,
 	}
 }
@@ -157,8 +148,7 @@ func (s *WelcomeService) OpenLocal(path string) (*OpenResult, error) {
 		ReleaseMode:           true,
 	}
 
-	info, err := s.servers.Start(cfg)
-	if err != nil {
+	if err := s.servers.Start(cfg); err != nil {
 		return nil, err
 	}
 
@@ -170,13 +160,11 @@ func (s *WelcomeService) OpenLocal(path string) (*OpenResult, error) {
 
 	slog.Info("Opened gruntbook",
 		"path", gruntbookPath,
-		"workingDir", cwd,
-		"port", info.Port)
+		"workingDir", cwd)
 
 	return &OpenResult{
 		GruntbookPath: gruntbookPath,
 		DisplayPath:   abs,
-		Port:          info.Port,
 	}, nil
 }
 

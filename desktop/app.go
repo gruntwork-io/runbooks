@@ -1,10 +1,11 @@
 // Package desktop boots the Wails v3 window that hosts the Gruntbooks
 // React UI.
 //
-// M2 scope: register the WelcomeService over IPC, serve the embedded
-// SPA, and proxy /api/* requests to the embedded Gin server once it
-// starts. Later milestones (M3/M4) migrate the remaining HTTP
-// endpoints to IPC services and remove the proxy.
+// Post-M5.5 scope: register every IPC service, serve the embedded SPA
+// for asset requests, and open one window. The desktop binary binds no
+// TCP listener — the previous /api/* reverse proxy to an embedded Gin
+// server has been removed; every frontend operation is a Wails IPC
+// call against a service in services/.
 package desktop
 
 import (
@@ -14,8 +15,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"runtime"
 	"strings"
 
@@ -58,8 +57,7 @@ type Options struct {
 }
 
 // Run boots Wails, registers the IPC services, serves the embedded
-// React bundle (proxying /api/* to the embedded Gin server once it's
-// running), and opens a single window. Blocks until the window is
+// React bundle, and opens a single window. Blocks until the window is
 // closed. Returns any error from the Wails runtime; callers typically
 // log.Fatal on failure.
 func Run(opts Options) error {
@@ -75,7 +73,7 @@ func Run(opts Options) error {
 	defer cancelUpdateCheck()
 	go services.RunAutoCheck(updateCtx, svcs.Update)
 
-	handler, err := assetHandler(svcs.Welcome)
+	handler, err := assetHandler()
 	if err != nil {
 		return fmt.Errorf("build asset handler: %w", err)
 	}
@@ -243,35 +241,20 @@ func showAboutDialog(app *application.App) {
 	dialog.Show()
 }
 
-// assetHandler returns an http.Handler that:
-//   - Proxies /api/* requests to the embedded Gin server on whatever
-//     localhost port WelcomeService has started it on. Same-origin
-//     proxying means the frontend doesn't have to care about ports,
-//     CORS, or token scoping.
-//   - Serves the embedded web/dist tree for everything else, falling
-//     back to index.html for anything that doesn't resolve to a real
-//     file (SPA client-side routing).
-//
-// The proxy looks up the current Gin port on every request rather than
-// capturing it once, so a late-starting backend (Welcome → OpenLocal)
-// transparently starts handling requests as soon as Gin binds.
-func assetHandler(welcome *services.WelcomeService) (http.Handler, error) {
+// assetHandler returns an http.Handler that serves the embedded
+// web/dist tree, falling back to index.html for routes that don't
+// resolve to a real file (SPA client-side routing). Wails uses this
+// handler internally to satisfy webview asset requests; it is not
+// bound to any TCP socket.
+func assetHandler() (http.Handler, error) {
 	distFS, err := web.GetDistFS()
 	if err != nil {
 		return nil, err
 	}
 	fileServer := http.FileServer(http.FS(distFS))
-	apiProxy := newAPIProxy(welcome)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-
-		if strings.HasPrefix(path, "/api/") {
-			apiProxy.ServeHTTP(w, r)
-			return
-		}
-
-		trimmed := strings.TrimPrefix(path, "/")
+		trimmed := strings.TrimPrefix(r.URL.Path, "/")
 		if trimmed == "" {
 			fileServer.ServeHTTP(w, r)
 			return
@@ -283,39 +266,6 @@ func assetHandler(welcome *services.WelcomeService) (http.Handler, error) {
 		}
 		serveIndex(w, r, distFS)
 	}), nil
-}
-
-// newAPIProxy returns an http.Handler that reverse-proxies API calls
-// to Gin. If Gin isn't running yet (user is still on the Welcome
-// screen), it returns 503 rather than trying to contact a phantom
-// upstream.
-func newAPIProxy(welcome *services.WelcomeService) http.Handler {
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			port := welcome.Status().ServerPort
-			if port == 0 {
-				// Director can't fail cleanly; leaving the URL alone
-				// causes httputil to surface a "no Host in request URL"
-				// error. The wrapper below checks the port first.
-				return
-			}
-			target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
-			req.URL.Scheme = target.Scheme
-			req.URL.Host = target.Host
-			req.Host = target.Host
-		},
-		// Flush immediately so SSE (watch mode, exec streaming, etc.)
-		// works through the proxy.
-		FlushInterval: -1,
-	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if welcome.Status().ServerPort == 0 {
-			http.Error(w, "gruntbook server not running", http.StatusServiceUnavailable)
-			return
-		}
-		proxy.ServeHTTP(w, r)
-	})
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request, distFS fs.FS) {

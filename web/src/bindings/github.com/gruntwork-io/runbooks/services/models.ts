@@ -33,14 +33,9 @@ export class DesktopStatus {
 
     /**
      * GruntbookOpen is true once OpenLocal (or a pre-launch path) has
-     * started the backend and a runbook is loaded.
+     * loaded a runbook.
      */
     "gruntbookOpen": boolean;
-
-    /**
-     * ServerPort is the bound Gin port (0 if not running).
-     */
-    "serverPort": number;
 
     /**
      * GruntbookPath mirrors OpenResult.GruntbookPath when a gruntbook
@@ -58,9 +53,6 @@ export class DesktopStatus {
         }
         if (!("gruntbookOpen" in $$source)) {
             this["gruntbookOpen"] = false;
-        }
-        if (!("serverPort" in $$source)) {
-            this["serverPort"] = 0;
         }
         if (!("gruntbookPath" in $$source)) {
             this["gruntbookPath"] = "";
@@ -302,8 +294,8 @@ export class GruntbookResult {
  */
 export class OpenResult {
     /**
-     * GruntbookPath is the resolved absolute path to gruntbook.mdx that
-     * Gin is now serving.
+     * GruntbookPath is the resolved absolute path to the open
+     * gruntbook.mdx.
      */
     "gruntbookPath": string;
 
@@ -314,13 +306,6 @@ export class OpenResult {
      */
     "displayPath": string;
 
-    /**
-     * Port is the localhost port Gin bound to. The desktop asset
-     * handler proxies /api/* to this port, so the frontend doesn't
-     * hard-code it — this is surfaced for logging/debug only.
-     */
-    "port": number;
-
     /** Creates a new OpenResult instance. */
     constructor($$source: Partial<OpenResult> = {}) {
         if (!("gruntbookPath" in $$source)) {
@@ -328,9 +313,6 @@ export class OpenResult {
         }
         if (!("displayPath" in $$source)) {
             this["displayPath"] = "";
-        }
-        if (!("port" in $$source)) {
-            this["port"] = 0;
         }
 
         Object.assign(this, $$source);
