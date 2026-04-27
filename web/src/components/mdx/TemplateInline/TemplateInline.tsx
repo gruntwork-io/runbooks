@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useState, useEffect, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
 import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
@@ -7,7 +7,7 @@ import { useInputs, useAllOutputs, flattenInputs, useGruntbookContext } from '@/
 import { extractTemplateDependencies, extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import type { File, FileTreeNode } from '@/components/artifacts/code/FileTree'
-import type { AppError } from '@/types/error'
+import { createAppError, type AppError } from '@/types/error'
 import { useApi } from '@/hooks/useApi'
 import { useFileTreeUpdater } from '../_shared/hooks/useFileTreeUpdater'
 import { computeChangeKey } from '@/lib/changeDetection'
@@ -18,6 +18,9 @@ import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
+import { isDesktop } from '@/lib/wails'
+import * as BoilerplateService from '@/bindings/github.com/gruntwork-io/runbooks/services/boilerplateservice'
+import { RenderInlineRequest } from '@/bindings/github.com/gruntwork-io/runbooks/api/models'
 
 interface RenderInlineResult {
   renderedFiles: Record<string, File>
@@ -104,10 +107,69 @@ function TemplateInline({
   // Track last rendered change key to avoid duplicate renders
   const lastRenderedKeyRef = useRef<string | null>(null);
 
-  // API hook — lazy mode skips auto-fetch on mount; we use debouncedRequest explicitly
-  const { data, error, isLoading, debouncedRequest } = useApi<RenderInlineResult>(
-    '/api/boilerplate/render-inline', 'POST', undefined, 300, undefined, true
+  // Browser-mode HTTP path. The endpoint is empty in desktop mode so
+  // useApi is inert; the IPC branch below drives rendering instead.
+  // Lazy mode skips auto-fetch on mount; we use debouncedRequest explicitly.
+  const httpResult = useApi<RenderInlineResult>(
+    isDesktop() ? '' : '/api/boilerplate/render-inline', 'POST', undefined, 300, undefined, true
   );
+
+  // Desktop-mode IPC path. Mirrors the dual-path pattern in
+  // useApiBoilerplateRender: a debounced invoker drives BoilerplateService.RenderInline,
+  // and a monotonic seq guard discards stale responses so a slow earlier
+  // call can't clobber a faster later one when inputs change rapidly.
+  const [ipcData, setIpcData] = useState<RenderInlineResult | null>(null)
+  const [ipcLoading, setIpcLoading] = useState(false)
+  const [ipcError, setIpcError] = useState<string | null>(null)
+  const ipcSeqRef = useRef(0)
+  const ipcDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (ipcDebounceTimerRef.current) clearTimeout(ipcDebounceTimerRef.current)
+    }
+  }, [])
+
+  const ipcDebouncedRequest = useCallback(
+    (body: { templateFiles: Record<string, string>; inputs: unknown; generateFile?: boolean; target?: string }) => {
+      if (ipcDebounceTimerRef.current) clearTimeout(ipcDebounceTimerRef.current)
+      ipcDebounceTimerRef.current = setTimeout(() => {
+        const seq = ++ipcSeqRef.current
+        setIpcLoading(true)
+        setIpcError(null)
+        ;(async () => {
+          try {
+            const req = RenderInlineRequest.createFrom({
+              templateFiles: body.templateFiles,
+              inputs: body.inputs as Parameters<typeof RenderInlineRequest.createFrom>[0]['inputs'],
+              ...(body.generateFile !== undefined ? { generateFile: body.generateFile } : {}),
+              ...(body.target ? { target: body.target } : {}),
+            })
+            const res = await BoilerplateService.RenderInline(req)
+            if (seq !== ipcSeqRef.current) return
+            if (!res) {
+              setIpcError('RenderInline returned null')
+              return
+            }
+            setIpcData(res as unknown as RenderInlineResult)
+          } catch (err) {
+            if (seq !== ipcSeqRef.current) return
+            setIpcError(err instanceof Error ? err.message : String(err))
+          } finally {
+            if (seq === ipcSeqRef.current) setIpcLoading(false)
+          }
+        })()
+      }, 300)
+    },
+    [],
+  )
+
+  const data = isDesktop() ? ipcData : httpResult.data
+  const isLoading = isDesktop() ? ipcLoading : httpResult.isLoading
+  const error: AppError | null = isDesktop()
+    ? (ipcError ? createAppError(ipcError) : null)
+    : httpResult.error
+  const debouncedRequest = isDesktop() ? ipcDebouncedRequest : httpResult.debouncedRequest;
 
   // File tree updater — handles Generated tab vs worktree updates
   const { applyFileTreeUpdate } = useFileTreeUpdater(target);
