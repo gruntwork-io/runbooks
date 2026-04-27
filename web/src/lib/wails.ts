@@ -47,3 +47,15 @@ export function readWailsFlag<T = unknown>(name: string): T | undefined {
   const wails = (window as unknown as WailsWindow)._wails
   return wails?.flags?.[name] as T | undefined
 }
+
+/**
+ * isMacOSDesktop returns true only when running inside the Wails desktop
+ * shell on macOS. Used to conditionally pad the header left edge to clear
+ * the inset traffic-light buttons (added by MacTitleBarHiddenInsetUnified)
+ * and to enable the `--wails-draggable: drag` CSS region.
+ */
+export function isMacOSDesktop(): boolean {
+  if (!isDesktop()) return false
+  const wails = (window as unknown as WailsWindow)._wails
+  return wails?.environment?.OS === 'darwin'
+}

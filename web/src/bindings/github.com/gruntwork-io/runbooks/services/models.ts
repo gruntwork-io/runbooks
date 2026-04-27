@@ -25,6 +25,13 @@ export class DesktopStatus {
     "initialPath": string;
 
     /**
+     * InitialAuthorMode is the CLI-set Author Mode toggle: true when
+     * launched via `gruntbooks watch`, false via `gruntbooks open`.
+     * Frontend uses it to seed AuthorModeContext on mount.
+     */
+    "initialAuthorMode": boolean;
+
+    /**
      * GruntbookOpen is true once OpenLocal (or a pre-launch path) has
      * started the backend and a runbook is loaded.
      */
@@ -45,6 +52,9 @@ export class DesktopStatus {
     constructor($$source: Partial<DesktopStatus> = {}) {
         if (!("initialPath" in $$source)) {
             this["initialPath"] = "";
+        }
+        if (!("initialAuthorMode" in $$source)) {
+            this["initialAuthorMode"] = false;
         }
         if (!("gruntbookOpen" in $$source)) {
             this["gruntbookOpen"] = false;

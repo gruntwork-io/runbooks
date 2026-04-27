@@ -40,13 +40,16 @@ type Services struct {
 // NewServices constructs every Wails-IPC service with a shared
 // serverManager so they all see the same currently-open gruntbook.
 // initialPath is the CLI argument from `gruntbooks desktop PATH`;
-// empty means "show Welcome". emitter is the transport for streaming
-// events (exec logs, clone progress, watcher notifications); M3
-// services ignore it, but M4+ streaming services need it at
+// empty means "show Welcome". initialAuthorMode is the boot-time Author
+// Mode toggle passed via `gruntbooks watch` (true) or `gruntbooks open`
+// (false) — WelcomeService surfaces it through Status() so the frontend
+// initializes its toggle state correctly. emitter is the transport for
+// streaming events (exec logs, clone progress, watcher notifications);
+// M3 services ignore it, but M4+ streaming services need it at
 // construction, so the container carries it through. version is the
 // build-stamped cmd.Version, passed to UpdateService so its "latest
 // release" check has something to compare against.
-func NewServices(initialPath string, emitter ports.Emitter, version string) (*Services, error) {
+func NewServices(initialPath string, initialAuthorMode bool, emitter ports.Emitter, version string) (*Services, error) {
 	recent, err := newRecentStore()
 	if err != nil {
 		return nil, err
@@ -55,9 +58,10 @@ func NewServices(initialPath string, emitter ports.Emitter, version string) (*Se
 	servers := &serverManager{}
 
 	welcome := &WelcomeService{
-		servers:     servers,
-		recent:      recent,
-		initialPath: initialPath,
+		servers:           servers,
+		recent:            recent,
+		initialPath:       initialPath,
+		initialAuthorMode: initialAuthorMode,
 	}
 
 	return &Services{

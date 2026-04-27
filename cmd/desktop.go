@@ -9,16 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var desktopAuthorMode bool
+
 // desktopCmd boots the Wails v3 window that hosts the Gruntbooks UI.
-// M2 scope: Welcome screen drives gruntbook selection via the
-// WelcomeService IPC methods; an optional PATH argument skips Welcome
-// and opens the specified gruntbook directly (Welcome records it in
-// its recent list). Hidden because users still drive this through
-// `gruntbooks open`/`watch` until M5 rewires those as launchers.
+// Hidden because users drive the desktop through `gruntbooks open` /
+// `gruntbooks watch`, which spawn this command as a detached child.
+// Surfaced in `--help` would just be confusing — the launcher commands
+// are the supported public surface.
 var desktopCmd = &cobra.Command{
 	Use:     "desktop [GRUNTBOOK_PATH]",
-	Short:   "Launch the Gruntbooks desktop window (Wails v3, preview)",
-	Long:    `Launch the Gruntbooks desktop window rendered by Wails v3. With no argument, opens the Welcome screen so the user can pick a gruntbook. Preview only — most backend services are still served over HTTP.`,
+	Short:   "Launch the Gruntbooks desktop window",
+	Long:    `Launch the Gruntbooks desktop window. With no argument, opens the Welcome screen so the user can pick a gruntbook. Normally invoked via 'gruntbooks open' / 'gruntbooks watch'.`,
 	GroupID: "other",
 	Hidden:  true,
 	Args:    cobra.MaximumNArgs(1),
@@ -29,11 +30,12 @@ var desktopCmd = &cobra.Command{
 		}
 
 		err := desktop.Run(desktop.Options{
-			Title:       "Gruntbooks",
-			Width:       1280,
-			Height:      800,
-			InitialPath: initialPath,
-			Version:     Version,
+			Title:        "Gruntbooks",
+			Width:        1280,
+			Height:       800,
+			InitialPath:  initialPath,
+			IsAuthorMode: desktopAuthorMode,
+			Version:      Version,
 		})
 		if err != nil {
 			slog.Error("Desktop window exited with error", "error", err)
@@ -44,4 +46,10 @@ var desktopCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(desktopCmd)
+
+	// --author selects Author Mode at boot. The user can also toggle
+	// Author Mode at runtime from the View menu; this flag just sets
+	// the initial state.
+	desktopCmd.Flags().BoolVar(&desktopAuthorMode, "author", false,
+		"Boot with Author Mode enabled (hot-reload on edit, registry panel visible)")
 }
