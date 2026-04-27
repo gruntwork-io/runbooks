@@ -117,10 +117,10 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
 
   return (
     <header
-      className={`w-full border-b border-gray-300 ${isMac ? 'pl-20 pr-4' : 'px-4'} py-3 text-gray-500 font-semibold grid grid-cols-[auto_1fr_auto] items-center gap-3 fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16`}
+      className={`w-full border-b border-gray-300 ${isMac ? 'pl-20 pr-4' : 'px-4'} py-3 text-gray-500 font-semibold grid grid-cols-3 items-center gap-3 fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16`}
       style={dragStyle}
     >
-      <div className="flex-none flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         <img src="/gruntbooks-logo-dark-alpha.svg" alt="Gruntwork Gruntbooks" className="h-8" />
         {isAuthorMode && <AuthorModeBadge />}
       </div>
@@ -148,7 +148,7 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
           className="p-1 hover:bg-gray-100"
         />
       </div>
-      <div className="flex-none flex items-center gap-2 font-normal text-md" style={noDragStyle}>
+      <div className="flex items-center justify-end gap-2 font-normal text-md min-w-0" style={noDragStyle}>
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors">
             Menu

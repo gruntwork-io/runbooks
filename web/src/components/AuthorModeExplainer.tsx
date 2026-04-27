@@ -45,7 +45,7 @@ export function AuthorModeExplainer({ open, onAcknowledge }: AuthorModeExplainer
               <ul className="list-disc pl-5 space-y-1">
                 <li>
                   Edits to <code className="text-xs">gruntbook.mdx</code>,
-                  scripts, templates, or checks <strong>hot-reload</strong>
+                  scripts, templates, or checks <strong>hot-reload</strong>{' '}
                   immediately — no drift warning.
                 </li>
                 <li>MDX parse errors and registry validation errors are surfaced inline.</li>
