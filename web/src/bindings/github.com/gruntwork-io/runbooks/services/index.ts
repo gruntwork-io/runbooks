@@ -12,6 +12,7 @@ import * as RunbookService from "./runbookservice.js";
 import * as SessionService from "./sessionservice.js";
 import * as TelemetryService from "./telemetryservice.js";
 import * as TfService from "./tfservice.js";
+import * as UpdateService from "./updateservice.js";
 import * as WatcherService from "./watcherservice.js";
 import * as WelcomeService from "./welcomeservice.js";
 import * as WorkspaceService from "./workspaceservice.js";
@@ -27,6 +28,7 @@ export {
     SessionService,
     TelemetryService,
     TfService,
+    UpdateService,
     WatcherService,
     WelcomeService,
     WorkspaceService
@@ -43,6 +45,7 @@ export {
     ProfilesResponse,
     RecentEntry,
     SessionSetEnvResult,
+    UpdateInfo,
     WatchResetRequest,
     WatchStartRequest,
     WatchStartResult

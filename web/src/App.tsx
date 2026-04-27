@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Welcome } from './pages/Welcome'
 import { RunbookView } from './pages/RunbookView'
+import { UpdateBanner } from './components/UpdateBanner'
 import * as WelcomeService from './bindings/github.com/gruntwork-io/runbooks/services/welcomeservice'
 import type { OpenResult } from './bindings/github.com/gruntwork-io/runbooks/services/models'
 import { isDesktop } from './lib/wails'
@@ -84,6 +85,19 @@ function App() {
     setState({ kind: 'welcome' })
   }, [])
 
+  return (
+    <>
+      <UpdateBanner />
+      {renderState(state, handleOpened, handleBackToWelcome)}
+    </>
+  )
+}
+
+function renderState(
+  state: AppState,
+  handleOpened: (result: OpenResult) => void,
+  handleBackToWelcome: () => void,
+) {
   if (state.kind === 'booting') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

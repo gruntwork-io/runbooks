@@ -454,6 +454,45 @@ export class SessionSetEnvResult {
 }
 
 /**
+ * UpdateInfo is the payload emitted on `update:available` and returned
+ * by Check(). Available=false means no newer release is out; the other
+ * fields are still populated so the frontend can show "Gruntbooks is
+ * up to date" in a settings view without another round-trip.
+ */
+export class UpdateInfo {
+    "available": boolean;
+    "currentVersion": string;
+    "latestVersion": string;
+    "releaseUrl": string;
+
+    /** Creates a new UpdateInfo instance. */
+    constructor($$source: Partial<UpdateInfo> = {}) {
+        if (!("available" in $$source)) {
+            this["available"] = false;
+        }
+        if (!("currentVersion" in $$source)) {
+            this["currentVersion"] = "";
+        }
+        if (!("latestVersion" in $$source)) {
+            this["latestVersion"] = "";
+        }
+        if (!("releaseUrl" in $$source)) {
+            this["releaseUrl"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UpdateInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UpdateInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UpdateInfo($$parsedSource as Partial<UpdateInfo>);
+    }
+}
+
+/**
  * WatchResetRequest is the IPC input for ResetSnapshot.
  */
 export class WatchResetRequest {

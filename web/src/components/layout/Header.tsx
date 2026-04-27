@@ -1,5 +1,5 @@
 import { type ComponentType, type ComponentPropsWithRef } from 'react';
-import { ChevronDown, Download, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
+import { ChevronDown, Download, Check, Copy, X, type LucideProps } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -41,6 +41,14 @@ function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...pro
   );
 }
 
+// truncateToLastSegments keeps only the last n path segments, prefixing
+// with '…/' when segments were dropped. Leaves short paths untouched.
+function truncateToLastSegments(path: string, n: number): string {
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length <= n) return path;
+  return '…/' + segments.slice(-n).join('/');
+}
+
 interface HeaderProps {
   pathName: string;
   /** The local filesystem path (may differ from pathName when viewing a remote gruntbook) */
@@ -71,8 +79,16 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
   const isRemote = localPath && localPath !== pathName;
   const localDir = getDirectoryPath(localPath) || localPath;
 
-  // Strip protocol prefix for compact display on small viewports
-  const shortPathName = pathName.replace(/^https?:\/\//, '');
+  // For the local case, display the containing folder (not the gruntbook
+  // file itself) truncated to its last three segments so the header
+  // doesn't blow past the viewport on deep paths. Remote stays as the URL.
+  const displayPath = isRemote
+    ? pathName.replace(/^https?:\/\//, '')
+    : truncateToLastSegments(getDirectoryPath(pathName) || pathName, 3);
+
+  // The value the copy button writes to the clipboard: the full containing
+  // directory, whether local or the remote gruntbook's temp checkout.
+  const copyTarget = localDir || getDirectoryPath(pathName) || pathName;
 
   const handleDownloadRaw = async () => {
     const logsMap = getAllLogs();
@@ -87,30 +103,33 @@ export function Header({ pathName, localPath, onClose }: HeaderProps) {
   };
 
   return (
-    <header className="w-full border-b border-gray-300 px-4 py-3 text-gray-500 font-semibold flex items-center gap-3 fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
+    <header className="w-full border-b border-gray-300 px-4 py-3 text-gray-500 font-semibold grid grid-cols-[auto_1fr_auto] items-center gap-3 fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
       <div className="flex-none">
         <img src="/gruntbooks-logo-dark-alpha.svg" alt="Gruntwork Gruntbooks" className="h-8" />
       </div>
-      <div className="flex-1 flex items-center gap-1.5 min-w-0">
-        <div className="text-sm text-gray-500 font-mono font-normal truncate" title={pathName}>
-          {shortPathName}
-        </div>
-        {isRemote && (
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={FolderOpen} size="size-3.5" className="p-1 hover:bg-gray-100" />
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm">
-                <p className="text-xs font-medium mb-1">Local path:</p>
-                <div className="flex items-start gap-1.5">
-                  <p className="text-xs text-gray-400 font-mono break-all">{localDir}</p>
-                  <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={Copy} size="size-3" className="p-0.5 hover:bg-white/10" />
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+      <div className="flex items-center justify-center gap-1.5 min-w-0">
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="text-sm text-gray-500 font-mono font-normal truncate"
+                title={copyTarget}
+              >
+                {displayPath}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-lg">
+              <p className="text-xs font-mono break-all">{copyTarget}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <CopyButton
+          onClick={() => copy(copyTarget || '')}
+          didCopy={didCopy}
+          icon={Copy}
+          size="size-3.5"
+          className="p-1 hover:bg-gray-100"
+        />
       </div>
       <div className="flex-none flex items-center gap-2 font-normal text-md">
         <DropdownMenu>
