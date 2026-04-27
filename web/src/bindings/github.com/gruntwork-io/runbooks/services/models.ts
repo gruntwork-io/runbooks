@@ -493,6 +493,31 @@ export class UpdateInfo {
 }
 
 /**
+ * WatchResetRequest is the IPC input for ResetSnapshot.
+ */
+export class WatchResetRequest {
+    "watchId": string;
+    "outputRelPath"?: string;
+
+    /** Creates a new WatchResetRequest instance. */
+    constructor($$source: Partial<WatchResetRequest> = {}) {
+        if (!("watchId" in $$source)) {
+            this["watchId"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchResetRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WatchResetRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchResetRequest($$parsedSource as Partial<WatchResetRequest>);
+    }
+}
+
+/**
  * WatchStartRequest is the IPC input for StartWatch.
  */
 export class WatchStartRequest {
@@ -502,6 +527,13 @@ export class WatchStartRequest {
      * have it land on gruntbook.mdx (or legacy runbook.mdx).
      */
     "path": string;
+
+    /**
+     * OutputRelPath, if non-empty, is the gruntbook-root-relative path
+     * where the gruntbook writes generated artefacts. Excluded from the
+     * snapshot so drift doesn't fire every time a Command block runs.
+     */
+    "outputRelPath"?: string;
 
     /** Creates a new WatchStartRequest instance. */
     constructor($$source: Partial<WatchStartRequest> = {}) {
@@ -523,8 +555,8 @@ export class WatchStartRequest {
 
 /**
  * WatchStartResult is the IPC output of StartWatch. WatchID is the
- * handle the frontend uses to subscribe to `watch:<watchID>:change`
- * events and to call Stop later.
+ * handle the frontend uses to subscribe to `watch:<watchID>:change` /
+ * `watch:<watchID>:drift` events and to call Stop later.
  */
 export class WatchStartResult {
     "watchId": string;

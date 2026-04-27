@@ -1,59 +1,132 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { z } from 'zod';
 import { Events } from '@wailsio/runtime';
 import * as WatcherService from '@/bindings/github.com/gruntwork-io/runbooks/services/watcherservice';
 import { isDesktop } from '@/lib/wails';
 
+// Zod schemas mirroring the Go WatchChangeEvent / WatchDriftEvent structs.
+// Event payloads aren't generated as bindings models because they flow
+// through the Emitter rather than method return values, so we declare
+// the shape here alongside the consumer.
+const DriftChangeSchema = z.object({
+  path: z.string(),
+  kind: z.enum(['added', 'modified', 'removed']),
+});
+
+const WatchDriftEventSchema = z.object({
+  changes: z.array(DriftChangeSchema),
+  at: z.string(),
+});
+
+export type DriftChange = z.infer<typeof DriftChangeSchema>;
+export type WatchDriftEvent = z.infer<typeof WatchDriftEventSchema>;
+
+export interface UseWatchModeOptions {
+  /**
+   * Path to the gruntbook. Watching is started once this is defined.
+   */
+  gruntbookPath?: string;
+
+  /**
+   * Gruntbook-root-relative output directory, excluded from the drift
+   * snapshot so Command-block artefacts don't trigger spurious warnings.
+   */
+  outputRelPath?: string;
+
+  /**
+   * True for Author Mode (hot-reload on change), false for Consumer Mode
+   * (drift banner only).
+   */
+  isAuthorMode: boolean;
+
+  /**
+   * Fired in Author Mode when the gruntbook file itself is edited.
+   */
+  onFileChange: () => void;
+
+  /**
+   * Fired in both modes when the tree drifts from the baseline. Consumer
+   * mode surfaces this as a banner; Author Mode can ignore it (auto-reload
+   * already handles the response) but we still pass it through so the UI
+   * can show "changed files" in author views later.
+   */
+  onDrift?: (event: WatchDriftEvent) => void;
+}
+
 /**
- * Hook to enable watch mode - listens for file changes and triggers a reload.
+ * Hook that subscribes to gruntbook file-watcher events over Wails IPC.
  *
- * Desktop (Wails) path: calls WatcherService.StartWatch(path), receives a
- * watchID, subscribes to `watch:<watchID>:change` events, and calls
- * WatcherService.Stop(watchID) on unmount.
+ * Calls WatcherService.StartWatch once per gruntbook path and subscribes
+ * to both the `:change` and `:drift` topics for that watch. Returns a
+ * resetSnapshot callback so the drift banner's "Reload" action can
+ * re-baseline the tree before the next edit is measured.
  *
- * Browser path: subscribes to the legacy /api/watch SSE endpoint. This
- * branch goes away in M5 when Gin is removed.
+ * Browser path (legacy /api/watch SSE) is preserved for the author-mode
+ * reload until Gin is removed; it does not support drift detection
+ * because the legacy endpoint only emits file-change events.
  */
-export function useWatchMode(
-  onFileChange: () => void,
-  isWatchMode: boolean = false,
-  gruntbookPath?: string,
-) {
+export function useWatchMode(opts: UseWatchModeOptions) {
+  const { gruntbookPath, outputRelPath, isAuthorMode, onFileChange, onDrift } = opts;
+
   const eventSourceRef = useRef<EventSource | null>(null);
+  const watchIDRef = useRef<string | null>(null);
+  // Keep the latest callbacks in refs so the effect doesn't re-subscribe
+  // every time the parent re-renders. Re-subscribing would tear down the
+  // fsnotify watcher mid-edit and lose the baseline snapshot.
+  const onFileChangeRef = useRef(onFileChange);
+  const onDriftRef = useRef(onDrift);
+  const isAuthorModeRef = useRef(isAuthorMode);
+  onFileChangeRef.current = onFileChange;
+  onDriftRef.current = onDrift;
+  isAuthorModeRef.current = isAuthorMode;
 
   useEffect(() => {
-    if (!isWatchMode) {
-      console.log('[Watch Mode] Not in watch mode, skipping watch');
-      return;
-    }
-
     if (isDesktop()) {
       if (!gruntbookPath) {
-        console.log('[Watch Mode] Desktop mode but no gruntbook path yet');
         return;
       }
 
-      let watchID: string | null = null;
-      let unsubscribe: (() => void) | null = null;
+      let unsubscribes: Array<() => void> = [];
       let cancelled = false;
 
       (async () => {
         try {
-          const result = await WatcherService.StartWatch({ path: gruntbookPath });
+          const result = await WatcherService.StartWatch({
+            path: gruntbookPath,
+            outputRelPath: outputRelPath ?? '',
+          });
           if (cancelled || !result) {
             if (result?.watchId) {
-              // Race: effect cleaned up before StartWatch resolved. Release
-              // the fsnotify watcher we just allocated.
               await WatcherService.Stop(result.watchId);
             }
             return;
           }
-          watchID = result.watchId;
-          console.log('[Watch Mode] IPC watcher started', { watchID, path: result.resolvedPath });
-
-          unsubscribe = Events.On(`watch:${watchID}:change`, (event) => {
-            console.log('[Watch Mode] File change event:', event.data);
-            onFileChange();
+          watchIDRef.current = result.watchId;
+          console.log('[Watch Mode] IPC watcher started', {
+            watchID: result.watchId,
+            path: result.resolvedPath,
           });
+
+          unsubscribes.push(
+            Events.On(`watch:${result.watchId}:change`, () => {
+              if (isAuthorModeRef.current) {
+                onFileChangeRef.current();
+              }
+            }),
+          );
+
+          unsubscribes.push(
+            Events.On(`watch:${result.watchId}:drift`, (ev) => {
+              const parsed = WatchDriftEventSchema.safeParse(ev.data);
+              if (!parsed.success) {
+                console.error('[Watch Mode] Invalid drift event:', parsed.error);
+                return;
+              }
+              if (onDriftRef.current) {
+                onDriftRef.current(parsed.data);
+              }
+            }),
+          );
         } catch (err) {
           console.log('[Watch Mode] Failed to start IPC watcher:', err);
         }
@@ -61,37 +134,32 @@ export function useWatchMode(
 
       return () => {
         cancelled = true;
-        if (unsubscribe) {
-          unsubscribe();
-          unsubscribe = null;
-        }
-        if (watchID) {
-          console.log('[Watch Mode] Stopping IPC watcher', watchID);
-          WatcherService.Stop(watchID).catch((err) => {
+        for (const fn of unsubscribes) fn();
+        unsubscribes = [];
+        const id = watchIDRef.current;
+        if (id) {
+          watchIDRef.current = null;
+          WatcherService.Stop(id).catch((err) => {
             console.log('[Watch Mode] Stop failed:', err);
           });
-          watchID = null;
         }
       };
     }
 
-    // Browser / Gin-bridge path.
+    // Browser / Gin-bridge path. Author-mode reload only; no drift.
+    if (!isAuthorMode) {
+      return;
+    }
     const connectToWatchEndpoint = () => {
       try {
         const eventSource = new EventSource('/api/watch');
         eventSourceRef.current = eventSource;
 
-        eventSource.addEventListener('connected', () => {
-          console.log('[Watch Mode] Connected to file watcher');
+        eventSource.addEventListener('file-change', () => {
+          onFileChangeRef.current();
         });
 
-        eventSource.addEventListener('file-change', (event) => {
-          console.log('[Watch Mode] File change detected:', event.data);
-          onFileChange();
-        });
-
-        eventSource.onerror = (error) => {
-          console.log('[Watch Mode] Connection error or not available:', error);
+        eventSource.onerror = () => {
           eventSource.close();
           eventSourceRef.current = null;
         };
@@ -104,10 +172,24 @@ export function useWatchMode(
 
     return () => {
       if (eventSourceRef.current) {
-        console.log('[Watch Mode] Disconnecting from file watcher');
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
     };
-  }, [onFileChange, isWatchMode, gruntbookPath]);
+  }, [gruntbookPath, outputRelPath, isAuthorMode]);
+
+  const resetSnapshot = useCallback(async () => {
+    const id = watchIDRef.current;
+    if (!id) return;
+    try {
+      await WatcherService.ResetSnapshot({
+        watchId: id,
+        outputRelPath: outputRelPath ?? '',
+      });
+    } catch (err) {
+      console.log('[Watch Mode] ResetSnapshot failed:', err);
+    }
+  }, [outputRelPath]);
+
+  return { resetSnapshot };
 }

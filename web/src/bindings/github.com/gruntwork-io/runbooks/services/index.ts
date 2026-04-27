@@ -46,6 +46,7 @@ export {
     RecentEntry,
     SessionSetEnvResult,
     UpdateInfo,
+    WatchResetRequest,
     WatchStartRequest,
     WatchStartResult
 } from "./models.js";

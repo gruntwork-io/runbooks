@@ -5,16 +5,19 @@
  * WatcherService is the Wails IPC wrapper around the file-change
  * notifications the legacy /api/watch SSE endpoint emitted.
  * 
- * Each Start returns a watchID the frontend subscribes to for
- * `watch:<watchID>:change` events. The payload is a single flat shape
- * (`{path, op, at}`) — richer than the SSE version's bare "reload"
- * string so author-mode UIs can distinguish script edits from
- * gruntbook.mdx edits without re-parsing. Stop cancels the watcher;
- * Cancel is idempotent so unmount handlers don't have to track state.
+ * Each StartWatch returns a watchID the frontend subscribes to for
+ * two topics:
  * 
- * M5's drift detection (snapshot + classify) will layer on top by
- * subscribing to these change events and publishing `watch:<watchID>:drift`
- * alongside them. For now this service emits raw file changes only.
+ *   - `watch:<watchID>:change` — raw file-change events for the
+ *     resolved gruntbook file. Used by author-mode auto-reload
+ *     (today's `gruntbooks watch` behaviour).
+ *   - `watch:<watchID>:drift` — classified drift events vs. the
+ *     snapshot captured at StartWatch time. Consumer-mode shows a
+ *     non-blocking banner on these so reviewers notice scripts
+ *     changing out from under them.
+ * 
+ * Stop / Cancel are idempotent so frontend unmount handlers don't have
+ * to track whether StartWatch succeeded.
  * @module
  */
 
@@ -27,9 +30,23 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
- * StartWatch begins watching a gruntbook file for changes. Returns a
- * watchID the frontend can subscribe to; the caller MUST eventually
- * call Stop(watchID) to release the fsnotify watcher.
+ * ResetSnapshot re-walks the gruntbook tree and replaces the baseline
+ * for an active watch. The frontend calls this after the user clicks
+ * "Reload" on the drift banner so a subsequent edit is measured against
+ * the just-reloaded state rather than the original open. Returns nil
+ * on unknown IDs (the watch already stopped).
+ */
+export function ResetSnapshot(req: $models.WatchResetRequest): $CancellablePromise<void> {
+    return $Call.ByID(1049402323, req);
+}
+
+/**
+ * StartWatch begins watching a gruntbook for changes. Captures an
+ * initial snapshot of the whole tree (excluding .git/node_modules/
+ * and the optional output path) and recursively adds every
+ * subdirectory to the fsnotify watcher so edits anywhere in the
+ * gruntbook produce drift events. The caller MUST eventually call
+ * Stop(watchID) to release the fsnotify watcher.
  */
 export function StartWatch(req: $models.WatchStartRequest): $CancellablePromise<$models.WatchStartResult | null> {
     return $Call.ByID(2664760995, req).then(($result: any) => {
