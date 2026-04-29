@@ -177,6 +177,12 @@ function buildTemplate(): MenuItemConstructorOptions[] {
   template.push({
     label: "View",
     submenu: [
+      {
+        label: "Command Palette…",
+        accelerator: "CmdOrCtrl+K",
+        click: () => getMainWindow()?.webContents.send("menu:open-command-palette"),
+      },
+      { type: "separator" },
       { role: "reload" },
       { role: "forceReload" },
       { role: "toggleDevTools" },

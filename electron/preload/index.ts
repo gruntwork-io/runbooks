@@ -29,6 +29,7 @@ const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
   "file:open-runbook",
   "menu:open-url-prompt",
   "menu:close-runbook",
+  "menu:open-command-palette",
   "registry:updated",
 ])
 
