@@ -883,6 +883,7 @@ export interface IpcEventMap {
   "menu:close-runbook": void
   "menu:preferences": void
   "menu:find": { action: FindAction }
+  "menu:open-command-palette": void
   "registry:updated": void
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a

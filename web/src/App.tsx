@@ -5,6 +5,8 @@ import { BookOpen, Code } from "lucide-react"
 import { Header } from "./components/layout/Header"
 import { WelcomeScreen } from "./components/layout/WelcomeScreen"
 import { OpenUrlModal } from "./components/layout/OpenUrlModal"
+import { AboutDialog } from "./components/layout/AboutDialog"
+import { CommandPalette } from "./components/layout/CommandPalette"
 import { FindBar } from "./components/layout/FindBar"
 import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
@@ -55,6 +57,8 @@ function App() {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false)
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false)
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false)
+  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false)
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
   const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null)
@@ -72,6 +76,26 @@ function App() {
     })
     return cleanup
   }, [api])
+
+  // Listen for "Command Palette" menu command (sent by the View menu accelerator).
+  useEffect(() => {
+    const cleanup = api.on("menu:open-command-palette", () => {
+      setIsPaletteOpen(true)
+    })
+    return cleanup
+  }, [api])
+
+  // Global Cmd/Ctrl+K keydown to toggle the palette.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setIsPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
 
   const getRunbookResult = useIpcGetRunbook()
 
@@ -263,7 +287,11 @@ function App() {
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
-        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
+        <Header
+          pathName={pathName}
+          localPath={getRunbookResult.data?.path}
+          onShowAbout={() => setIsAboutDialogOpen(true)}
+        />
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
@@ -435,6 +463,29 @@ function App() {
 
       {/* Edit > Find… (Cmd/Ctrl+F) */}
       <FindBar />
+
+      {/* About Dialog */}
+      <AboutDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen} />
+
+      {/* Command Palette (Cmd/Ctrl+K) */}
+      <CommandPalette
+        open={isPaletteOpen}
+        onOpenChange={setIsPaletteOpen}
+        ctx={{
+          hasRunbookOpen: Boolean(getRunbookResult.data),
+          onOpenRunbook: () => void handleOpenRunbook(),
+          onOpenUrl: () => setIsUrlModalOpen(true),
+          onCloseRunbook: () => {
+            api.invoke("native:close-runbook").catch((err: unknown) => {
+              console.error("Failed to close the runbook:", err)
+            })
+          },
+          onToggleArtifacts: () => setIsArtifactsHidden((v) => !v),
+          onToggleMobileView: () =>
+            setActiveMobileSection((v) => (v === "markdown" ? "code" : "markdown")),
+          onShowAbout: () => setIsAboutDialogOpen(true),
+        }}
+      />
     </>
   )
 }

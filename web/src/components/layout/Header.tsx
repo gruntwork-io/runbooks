@@ -10,19 +10,9 @@ import {
   type LucideProps,
 } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
-import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
-import logoLightColor from "@/assets/runbooks-logo-light-color.svg"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,16 +22,10 @@ import {
 } from "../ui/dropdown-menu"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
-import { useLogs } from "@/contexts/useLogs"
+import { useDownloadLogs } from "@/hooks/useDownloadLogs"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
 import { getDirectoryPath } from "@/lib/utils"
-import {
-  createLogsZipRaw,
-  createLogsZipJson,
-  downloadBlob,
-  generateAllLogsZipFilename,
-} from "@/lib/logs"
 
 function CopyButton({
   onClick,
@@ -79,6 +63,7 @@ interface HeaderProps {
   pathName: string
   /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
   localPath?: string | undefined
+  onShowAbout: () => void
 }
 
 /**
@@ -94,10 +79,9 @@ interface HeaderProps {
  * @param props.pathName - The display string (remote URL or local path) for the header
  * @param props.localPath - The local filesystem path (for copy button when remote)
  */
-export function Header({ pathName, localPath }: HeaderProps) {
-  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
+export function Header({ pathName, localPath, onShowAbout }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { getAllLogs, hasLogs } = useLogs()
+  const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const { didCopy, copy } = useCopyToClipboard()
   const api = useApi()
   const { resolvedTheme } = useTheme()
@@ -128,18 +112,6 @@ export function Header({ pathName, localPath }: HeaderProps) {
   // (i.e., when viewing a remote runbook)
   const isRemote = localPath && localPath !== pathName
   const localDir = getDirectoryPath(localPath) || localPath
-
-  const handleDownloadRaw = async () => {
-    const logsMap = getAllLogs()
-    const blob = await createLogsZipRaw(logsMap)
-    downloadBlob(blob, generateAllLogsZipFilename())
-  }
-
-  const handleDownloadJson = async () => {
-    const logsMap = getAllLogs()
-    const blob = await createLogsZipJson(logsMap)
-    downloadBlob(blob, generateAllLogsZipFilename())
-  }
 
   return (
     <>
@@ -219,7 +191,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={handleDownloadRaw}
+                onClick={downloadRaw}
                 disabled={!hasLogs}
                 className={!hasLogs ? "opacity-50 cursor-not-allowed" : ""}
               >
@@ -227,7 +199,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Download logs (Raw)
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={handleDownloadJson}
+                onClick={downloadJson}
                 disabled={!hasLogs}
                 className={!hasLogs ? "opacity-50 cursor-not-allowed" : ""}
               >
@@ -248,7 +220,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
               <DropdownMenuSeparator />
               <InstructionModeToggle />
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
+              <DropdownMenuItem onClick={onShowAbout}>
                 <Info className="size-4" />
                 About
               </DropdownMenuItem>
@@ -256,53 +228,6 @@ export function Header({ pathName, localPath }: HeaderProps) {
           </DropdownMenu>
         </div>
       </header>
-
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
-        <AlertDialogContent>
-          <div className="relative">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img
-                src={isDark ? logoLightColor : logoDarkColor}
-                alt="Gruntwork Runbooks"
-                className="h-16 mb-2"
-              />
-
-              <AlertDialogDescription className="text-left space-y-4">
-                <p>
-                  Runbooks enables DevOps subject matter experts to capture and share their
-                  expertise in a way that is easy to understand and use.
-                </p>
-                <p>
-                  Runbooks is published by{" "}
-                  <a target="_blank" rel="noreferrer" href="https://gruntwork.io">
-                    Gruntwork
-                  </a>{" "}
-                  and is{" "}
-                  <a
-                    target="_blank"
-                    rel="noreferrer"
-                    href="https://github.com/gruntwork-io/runbooks"
-                  >
-                    open source
-                  </a>
-                  ! Check out the{" "}
-                  <a target="_blank" rel="noreferrer" href="https://runbooks.gruntwork.io">
-                    Runbooks docs
-                  </a>{" "}
-                  for more information.
-                </p>
-                <AlertDialogAction
-                  className="block mt-4"
-                  onClick={() => setIsAboutDialogOpen(false)}
-                >
-                  Close
-                </AlertDialogAction>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }
