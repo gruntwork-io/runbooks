@@ -151,27 +151,27 @@ export const useFormState = (
   }, [formData, isInitialLoad, enableAutoRender])
 
   /**
-   * Updates a specific form field value
-   * @param fieldName - Name of the field to update
-   * @param value - New value for the field
-   */
-  const updateField = useCallback((fieldName: string, value: unknown) => {
-    setFormData(prev => (prev[fieldName] === value ? prev : { ...prev, [fieldName]: value }))
-  }, [])
-
-  /**
    * Updates multiple form fields at once
    * @param updates - Object with field names as keys and new values
    */
   const updateFields = useCallback((updates: Record<string, unknown>) => {
     setFormData(prev => {
       let changed = false
-      for (const k in updates) {
+      for (const k of Object.keys(updates)) {
         if (prev[k] !== updates[k]) { changed = true; break }
       }
       return changed ? { ...prev, ...updates } : prev
     })
   }, [])
+
+  /**
+   * Updates a specific form field value
+   * @param fieldName - Name of the field to update
+   * @param value - New value for the field
+   */
+  const updateField = useCallback((fieldName: string, value: unknown) => {
+    updateFields({ [fieldName]: value })
+  }, [updateFields])
 
   /**
    * Resets the form to default values from the boilerplate configuration

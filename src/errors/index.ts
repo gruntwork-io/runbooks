@@ -124,3 +124,45 @@ export class RemoteSourceError extends Data.TaggedError("RemoteSourceError")<{
   readonly url: string
   readonly message: string
 }> {}
+
+// ---------------------------------------------------------------------------
+// Render vocabulary — shared between WasmRuntime, WarmRenderDispatcher, and
+// the IPC handlers that orchestrate them.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-file outcome when the WASM bridge processes one output path.
+ * - `output_not_produced`, `dependency_not_in_bundle`, `dynamic_filename`
+ *   route to the cold-render fallback (see ROUTE_TO_COLD_KINDS).
+ * - `skip_files_excluded` means the file is deliberately omitted.
+ * - `render` is a template bug worth surfacing to the user.
+ */
+export type WasmPerFileErrorKind =
+  | "output_not_produced"
+  | "dependency_not_in_bundle"
+  | "dynamic_filename"
+  | "skip_files_excluded"
+  | "render"
+
+/** Reason the warm path was disabled for a render. Debug-logging only. */
+export type WarmDisabledReason =
+  | "wasm-not-ready"
+  | "no-output-paths-from-analyzer"
+  | "warm-error-fallback"
+
+/**
+ * Per-file kinds that mean "WASM can't render this file but the subprocess
+ * can." The dispatcher partitions on this set.
+ *
+ * `render` is deliberately NOT included: it indicates a template-execution
+ * error that the cold subprocess would hit the same way (template-author
+ * bug). We surface those to the user instead of paying the cold cost on
+ * every render. If a WASM-specific bridge gap re-surfaces under this kind
+ * (we previously hit `__each__` missing from dep-variable-default scopes),
+ * re-add it here as a temporary workaround and file a boilerplate bug.
+ */
+export const ROUTE_TO_COLD_KINDS = new Set<WasmPerFileErrorKind>([
+  "output_not_produced",
+  "dependency_not_in_bundle",
+  "dynamic_filename",
+])

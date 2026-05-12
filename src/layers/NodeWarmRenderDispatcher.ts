@@ -23,7 +23,6 @@
 import { Effect, Layer } from "effect"
 import {
   WarmRenderDispatcher,
-  ROUTE_TO_COLD_KINDS,
   type WarmRenderDispatcherShape,
   type WarmFile,
   type WarmPerFileError,
@@ -35,7 +34,7 @@ import type {
   WasmRenderFilesResult,
   InputsMapResult,
 } from "../services/WasmRuntime.ts"
-import { WasmError } from "../errors/index.ts"
+import { ROUTE_TO_COLD_KINDS, WasmError } from "../errors/index.ts"
 
 /**
  * Module-scope cache of "the variables we last successfully sent for this

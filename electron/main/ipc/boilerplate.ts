@@ -13,7 +13,7 @@ import {
 } from "../../../src/domain/boilerplate/config.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
-import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
+import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import {
   buildManifestFromDirectory,
@@ -332,7 +332,10 @@ export function registerBoilerplateHandlers(): void {
                 renderErrors: [],
                 warmDisabled: true,
                 disabledReason: "warm-error-fallback",
-              } as const
+                allKnownPaths: [],
+                attemptedPaths: [],
+                noChanges: false,
+              } satisfies WarmRenderResult
             })
           ),
         )

@@ -8,13 +8,12 @@
  * files dir) and runs the manifest/diff pipeline on top.
  */
 import { Context, Effect } from "effect"
-import type { RenderError, WasmError } from "../errors/index.ts"
-import type { WasmPerFileErrorKind } from "./WasmRuntime.ts"
-
-export type WarmDisabledReason =
-  | "wasm-not-ready"
-  | "no-output-paths-from-analyzer"
-  | "warm-error-fallback"
+import type {
+  RenderError,
+  WarmDisabledReason,
+  WasmError,
+  WasmPerFileErrorKind,
+} from "../errors/index.ts"
 
 export interface WarmFile {
   readonly path: string
@@ -104,20 +103,3 @@ export class WarmRenderDispatcher extends Context.Tag("WarmRenderDispatcher")<
   WarmRenderDispatcher,
   WarmRenderDispatcherShape
 >() {}
-
-/**
- * Per-file kinds that mean "the WASM path can't render this file but the
- * subprocess can." The dispatcher partitions on this set.
- *
- * `render` is deliberately NOT included: it indicates a template-execution
- * error that the cold subprocess would hit the same way (template-author
- * bug). We surface those to the user instead of paying the cold cost on
- * every render. If a WASM-specific bridge gap re-surfaces under this kind
- * (we previously hit `__each__` missing from dep-variable-default scopes),
- * re-add it here as a temporary workaround and file a boilerplate bug.
- */
-export const ROUTE_TO_COLD_KINDS = new Set([
-  "output_not_produced",
-  "dependency_not_in_bundle",
-  "dynamic_filename",
-])

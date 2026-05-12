@@ -13,7 +13,7 @@
  * the dispatcher above this service to serialize per-templateId.
  */
 import { Context, Effect } from "effect"
-import type { WasmError } from "../errors/index.ts"
+import type { WasmError, WasmPerFileErrorKind } from "../errors/index.ts"
 
 /** Per-file result inside a renderFiles response. */
 export interface WasmRenderResult {
@@ -23,18 +23,6 @@ export interface WasmRenderResult {
   /** Set on failure. Mutually exclusive with content. */
   readonly error?: WasmPerFileError
 }
-
-/**
- * Per-file error kind. The first three route to the cold-render fallback;
- * "skip_files_excluded" means the file is deliberately omitted; "render" is
- * a template bug worth surfacing to the user.
- */
-export type WasmPerFileErrorKind =
-  | "output_not_produced"
-  | "dependency_not_in_bundle"
-  | "dynamic_filename"
-  | "skip_files_excluded"
-  | "render"
 
 /** Per-file error inside a renderFiles response. */
 export interface WasmPerFileError {
