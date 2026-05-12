@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback, useEffect, forwardRef } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect, forwardRef, memo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
@@ -334,7 +334,7 @@ interface CollapsibleCodeFileProps {
   onToggleCollapse: () => void;
 }
 
-const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
+const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
   ({ fileItem, isCollapsed, isFocused, onToggleCollapse }, ref) => {
     const { didCopy, copy } = useCopyToClipboard();
 
@@ -427,4 +427,29 @@ const CollapsibleCodeFile = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>
     );
   }
 );
+CollapsibleCodeFileImpl.displayName = 'CollapsibleCodeFileImpl';
+
+/**
+ * Memoize on the props that actually affect render output. We deliberately
+ * skip `onToggleCollapse` (an inline closure recreated each parent render —
+ * its behavior is fully captured by `isCollapsed`) and the forwarded `ref`
+ * callback. Without this, every parent re-render reruns the Prism
+ * SyntaxHighlighter for every visible file, which dominates paint time
+ * after a Template render.
+ */
+const CollapsibleCodeFile = memo(CollapsibleCodeFileImpl, (prev, next) => {
+  if (prev.isCollapsed !== next.isCollapsed) return false;
+  if (prev.isFocused !== next.isFocused) return false;
+  const a = prev.fileItem;
+  const b = next.fileItem;
+  if (a === b) return true;
+  if (a.id !== b.id) return false;
+  if (a.name !== b.name) return false;
+  if (a.file?.content !== b.file?.content) return false;
+  if (a.file?.path !== b.file?.path) return false;
+  if (a.file?.language !== b.file?.language) return false;
+  if (a.file?.size !== b.file?.size) return false;
+  if (a.file?.isTruncated !== b.file?.isTruncated) return false;
+  return true;
+});
 CollapsibleCodeFile.displayName = 'CollapsibleCodeFile';

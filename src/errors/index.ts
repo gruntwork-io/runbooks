@@ -75,6 +75,24 @@ export class BoilerplateConfigError extends Data.TaggedError("BoilerplateConfigE
   readonly cause?: unknown
 }> {}
 
+/**
+ * Failure from the in-process WASM runtime. Distinct from RenderError so the
+ * dispatcher can route on it: a WasmError generally means "the warm path is
+ * unusable for this call" (loader failed, structural error, JSON unmarshal),
+ * while RenderError still implies a template-level problem.
+ */
+export class WasmError extends Data.TaggedError("WasmError")<{
+  readonly message: string
+  /**
+   * "structural" when the boilerplate WASM bridge returned an Error with
+   * kind="structural" (bad bundle JSON, empty paths, etc.). "load" when
+   * loading or instantiating the WASM module itself failed. "internal" for
+   * unexpected JS-side problems.
+   */
+  readonly kind: "structural" | "load" | "internal"
+  readonly cause?: unknown
+}> {}
+
 // Session
 export class SessionError extends Data.TaggedError("SessionError")<{
   readonly message: string

@@ -261,3 +261,73 @@ export function applyDiff(
     return { written, deleted } satisfies ApplyDiffResult
   })
 }
+
+/**
+ * Like {@link applyDiff} but the source is an in-memory {path → content} map
+ * rather than a directory on disk. Used by the warm-render path where the
+ * boilerplate WASM bridge hands us file contents directly and there's no
+ * tempdir to copy from.
+ *
+ * Behavior matches {@link applyDiff} for orphans / unchanged restoration —
+ * only the "write a created/modified file" branch differs.
+ */
+export function applyDiffFromContent(
+  diff: ManifestDiffResult,
+  contents: ReadonlyMap<string, string>,
+  outputDir: string,
+) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    let written = 0
+    let deleted = 0
+
+    for (const relPath of diff.orphaned) {
+      const fullPath = path.join(outputDir, relPath)
+      const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
+      if (result._tag === "Right") deleted++
+      yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
+    }
+
+    const writeFromContent = (relPath: string) =>
+      Effect.gen(function* () {
+        const content = contents.get(relPath)
+        // Missing-content for a path the diff said to write is a caller bug —
+        // failing loudly here beats silently leaving the file stale.
+        if (content === undefined) {
+          return yield* Effect.fail(
+            new Error(`applyDiffFromContent: no content for "${relPath}"`),
+          )
+        }
+        const dstPath = path.join(outputDir, relPath)
+        yield* fs.mkdir(path.dirname(dstPath), { recursive: true })
+        yield* fs.writeFile(dstPath, content)
+      })
+
+    for (const relPath of diff.created) {
+      yield* writeFromContent(relPath)
+      written++
+    }
+    for (const relPath of diff.modified) {
+      yield* writeFromContent(relPath)
+      written++
+    }
+    for (const relPath of diff.unchanged) {
+      const fullPath = path.join(outputDir, relPath)
+      const exists = yield* fs.exists(fullPath)
+      if (exists) continue
+      // File was unchanged in our manifest but the user (or some other
+      // process) deleted it from disk. With dirty-set rendering we may
+      // not have its content cached — the file wasn't re-rendered this
+      // call because nothing in its dependency set changed. Best effort:
+      // restore if we happen to have content, otherwise leave deleted
+      // and rely on a future render-all (cold pass, or a var change
+      // affecting this path) to bring it back.
+      if (contents.has(relPath)) {
+        yield* writeFromContent(relPath)
+        written++
+      }
+    }
+
+    return { written, deleted } satisfies ApplyDiffResult
+  })
+}

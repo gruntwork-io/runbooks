@@ -120,12 +120,25 @@ export interface BoilerplateConfig {
 // Render types
 // ---------------------------------------------------------------------------
 
+/**
+ * Optional perf-tracing context carried by render IPC requests.
+ * Used to correlate main-process timing logs with renderer-process keystroke
+ * timestamps. Populated by `web/src/lib/renderPerf.ts` only when tracing is
+ * enabled (localStorage flag), so the field is absent in normal operation.
+ */
+export interface RenderPerfContext {
+  seq: number
+  keystrokeAt: number
+  sentAt: number
+}
+
 export interface RenderRequest {
   templatePath: string
   variables: Record<string, unknown>
   templateId?: string
   outputPath?: string
   target?: "generated" | "worktree"
+  perf?: RenderPerfContext
 }
 
 export interface RenderResponse {

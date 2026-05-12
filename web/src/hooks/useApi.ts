@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createAppError, type AppError } from '../types/error';
 import { useApi as useApiContext } from '../contexts/ApiContext';
+import { markStage, getPerfPayload } from '../lib/renderPerf';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -108,16 +109,31 @@ export function useApi<T>(
     }
 
     const seq = ++requestSeqRef.current;
+    // Attach perf payload (when enabled) so the main process can correlate its
+    // timing logs with the renderer-side keystroke trace. Only render channels
+    // care about this; for others it's an inert extra field.
+    const perf = getPerfPayload();
+    const finalBody = perf && requestBody && typeof requestBody === 'object'
+      ? { ...requestBody, perf }
+      : requestBody;
+    markStage(`useApi:ipc-send ${channel}`, { ipcSeq: seq });
     try {
-      const result = await (api as any).invoke(channel, requestBody ?? undefined);
+      const result = await (api as any).invoke(channel, finalBody ?? undefined);
+      markStage(`useApi:ipc-response ${channel}`, { ipcSeq: seq });
       // Superseded: main interrupted this call because a newer one arrived.
       // Leave state alone — the newer call will drive it.
       if (result && typeof result === 'object' && (result as { superseded?: boolean }).superseded) {
         return;
       }
       if (seq !== requestSeqRef.current) return;
+      // Markers around setData isolate "React received the data" from
+      // "React finished committing the data." Useful for spotting whether
+      // the post-IPC gap is scheduler delay (between these two markers
+      // we should see no gap), reconciliation cost, or effect flushing.
+      markStage(`useApi:setData-pre ${channel}`, { ipcSeq: seq });
       setData(result as T);
       setError(null);
+      markStage(`useApi:setData-post ${channel}`, { ipcSeq: seq });
     } catch (err: unknown) {
       if (seq !== requestSeqRef.current) return;
       console.error('[useApi] rejected', channel, err);
@@ -136,11 +152,12 @@ export function useApi<T>(
     }
 
     timeoutRef.current = setTimeout(async () => {
+      markStage(`useApi:debounce-fire ${channel ?? endpoint}`);
       setIsLoading(true);
       setError(null);
       await performInvoke(newBody);
     }, debounceTimeout || 0);
-  }, [debounceTimeout, performInvoke]);
+  }, [debounceTimeout, performInvoke, channel, endpoint]);
 
   const refetch = useCallback(() => {
     setIsLoading(true);

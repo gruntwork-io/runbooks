@@ -6,6 +6,7 @@ import { formatVariableLabel } from '../lib/formatVariableLabel'
 import { FormControl } from './FormControls'
 import { useFormState } from '../hooks/useFormState'
 import { useFormValidation } from '../hooks/useFormValidation'
+import { markKeystroke } from '@/lib/renderPerf'
 import { FormStatus } from './FormStatus'
 import { UnmetDependenciesWarning } from './UnmetDependenciesWarning'
 import { BlockIdLabel } from './BlockIdLabel'
@@ -187,6 +188,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    * @param value - New value for the variable
    */
   const handleInputChange = (variableName: string, value: unknown) => {
+    markKeystroke()
     updateField(variableName, value)
     // Validate the field on change if it's already been touched
     validateField(variableName, value)

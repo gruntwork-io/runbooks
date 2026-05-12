@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback, startTransition } from 'react'
 import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
 import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
 import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
@@ -11,6 +11,7 @@ import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
 import { computeChangeKey } from '@/lib/changeDetection'
+import { markStage } from '@/lib/renderPerf'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -234,11 +235,31 @@ function Template({
     target
   )
 
+  // Diagnostic: mark when Template's render function actually runs after
+  // new data arrives. Combined with `useApi:setData-pre/post` and the
+  // existing `render-data-arrived` (effect), this triple isolates where
+  // the post-IPC gap really lives:
+  //   setData-pre  → setData-post : ~0 ms (synchronous)
+  //   setData-post → render-fn    : React scheduler + reconciliation
+  //   render-fn    → effect       : commit + passive-effect flush
+  //   effect       → painted      : browser paint
+  // Only mark when render is triggered by data arrival (not by every
+  // keystroke into the form), or we'd flood the trace.
+  const lastRenderResultRef = useRef<typeof renderResult>(null)
+  if (renderResult !== lastRenderResultRef.current) {
+    lastRenderResultRef.current = renderResult
+    if (renderResult) markStage('Template:render-fn', { id })
+  }
+
   // Track successful generation (file tree updates are handled by useApiBoilerplateRender)
   useEffect(() => {
     if (!renderResult) return;
     hasEverGeneratedRef.current = true;
-  }, [renderResult]);
+    markStage('Template:render-data-arrived', { id });
+    // Defer one frame so the browser has actually painted before we close the trace.
+    const raf = requestAnimationFrame(() => markStage('Template:painted', { id }));
+    return () => cancelAnimationFrame(raf);
+  }, [renderResult, id]);
 
   // Check if form data has all required values filled
   const hasAllRequiredValues = useCallback((localVarValues: Record<string, unknown>): boolean => {
@@ -255,20 +276,54 @@ function Template({
   // Flatten block outputs for template rendering (used in the outputs namespace)
   const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
 
-  // Handle form changes - store in ref and bump trigger counter
+  // Handle form changes - fire the IPC inline and mark context churn as a transition.
+  //
+  // Previously this just called `registerInputs` + `setFormChangeTrigger` and
+  // relied on the auto-render effect to dispatch the IPC. That added a ~200ms
+  // gap (measured) because `registerInputs` writes to RunbookContext, every
+  // consumer re-renders, and React's commit + effect-flush had to complete
+  // before the IPC could go out. Two changes here:
+  //
+  //   1. Dispatch `autoRender` inline (before the setState calls), using the
+  //      same dedupe key the effect uses. The effect still fires later for
+  //      upstream-driven changes (inputValues/flattenedOutputs), and its
+  //      dedupe check on `lastRenderedKeyRef` keeps it from issuing a
+  //      duplicate IPC.
+  //
+  //   2. Mark `registerInputs` and `setFormChangeTrigger` as transition
+  //      updates so React yields to the IPC's setTimeout(0) macrotask
+  //      instead of doing all reconciliation first.
   const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
+    markStage('Template:handleAutoRender', { id });
     // Store latest local form data in ref for registration
     localVarValuesRef.current = localVarValues;
 
-    // Update registration with new form data
-    if (boilerplateConfig && id) {
-      const mergedData = { ...inputValues, ...localVarValues };
-      registerInputs(id, mergedData, boilerplateConfig);
+    // Inline IPC dispatch — must happen before the setStates below so the
+    // setTimeout(0) inside `autoRender` is scheduled prior to React's
+    // reconciliation tick.
+    if (shouldRender && boilerplateConfig && hasAllOutputDependencies && hasAllRequiredValues(localVarValues)) {
+      const key = computeChangeKey(inputValues, localVarValues, flattenedOutputs);
+      if (key !== lastRenderedKeyRef.current) {
+        lastRenderedKeyRef.current = key;
+        const mergedData = buildRenderVariables(
+          { ...inputValues, ...localVarValues },
+          flattenedOutputs,
+        );
+        markStage('Template:inline-autoRender-call', { id });
+        autoRender(path, mergedData);
+      }
     }
 
-    // Bump trigger to cause the unified auto-render effect to re-evaluate
-    setFormChangeTrigger(c => c + 1);
-  }, [id, boilerplateConfig, inputValues, registerInputs]);
+    // Update registration with new form data, deprioritized so the IPC
+    // dispatched above isn't blocked by RunbookContext reconciliation.
+    startTransition(() => {
+      if (boilerplateConfig && id) {
+        const mergedData = { ...inputValues, ...localVarValues };
+        registerInputs(id, mergedData, boilerplateConfig);
+      }
+      setFormChangeTrigger(c => c + 1);
+    });
+  }, [id, boilerplateConfig, inputValues, registerInputs, shouldRender, hasAllOutputDependencies, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
 
   // Unified auto-render effect — watches form changes (via formChangeTrigger),
   // imported value changes (via inputValues), and output changes (via flattenedOutputs).
@@ -290,9 +345,10 @@ function Template({
     );
 
     if (hasAllRequiredValues(localVarValuesRef.current)) {
+      markStage('Template:effect-autoRender-call', { id });
       autoRender(path, mergedData);
     }
-  }, [formChangeTrigger, shouldRender, boilerplateConfig, hasAllOutputDependencies, inputValues, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
+  }, [formChangeTrigger, shouldRender, boilerplateConfig, hasAllOutputDependencies, inputValues, flattenedOutputs, hasAllRequiredValues, autoRender, path, id]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {

@@ -19,6 +19,7 @@ import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
+import { eagerLoadInBackground as eagerLoadBoilerplateWasm, isWasmConfigured } from "../../src/layers/NodeWasmRuntime.ts"
 
 const log = makeLogger("main")
 
@@ -237,6 +238,15 @@ app.whenReady().then(() => {
   registerAllIpcHandlers()
   createMainWindow()
   initAutoUpdater()
+
+  // Kick off the boilerplate WASM load as a background task. The full build
+  // is ~600-900ms to instantiate; running it now overlaps the cost with the
+  // user reading the runbook before their first edit. Gated on
+  // BOILERPLATE_WASM_DIR — without it, the cold subprocess renderer is used.
+  if (isWasmConfigured()) {
+    log.info("Boilerplate WASM dir configured, starting eager background load")
+    eagerLoadBoilerplateWasm()
+  }
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
   if (cliConfig.remoteUrl) {
