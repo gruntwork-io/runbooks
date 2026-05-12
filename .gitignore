@@ -39,3 +39,6 @@ node_modules/*
 
 # Ignore additional binaries
 resources/bin/*
+
+# Ignore electron-vite build-time scratch configs
+electron.vite.config.*.mjs

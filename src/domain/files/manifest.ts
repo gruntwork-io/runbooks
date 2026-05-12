@@ -303,14 +303,9 @@ export function applyDiffFromContent(
         yield* fs.writeFile(dstPath, content)
       })
 
-    for (const relPath of diff.created) {
-      yield* writeFromContent(relPath)
-      written++
-    }
-    for (const relPath of diff.modified) {
-      yield* writeFromContent(relPath)
-      written++
-    }
+    const writes = [...diff.created, ...diff.modified]
+    yield* Effect.forEach(writes, writeFromContent, { concurrency: 16 })
+    written += writes.length
     for (const relPath of diff.unchanged) {
       const fullPath = path.join(outputDir, relPath)
       const exists = yield* fs.exists(fullPath)

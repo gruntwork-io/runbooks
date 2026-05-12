@@ -9,6 +9,12 @@
  */
 import { Context, Effect } from "effect"
 import type { RenderError, WasmError } from "../errors/index.ts"
+import type { WasmPerFileErrorKind } from "./WasmRuntime.ts"
+
+export type WarmDisabledReason =
+  | "wasm-not-ready"
+  | "no-output-paths-from-analyzer"
+  | "warm-error-fallback"
 
 export interface WarmFile {
   readonly path: string
@@ -17,7 +23,7 @@ export interface WarmFile {
 
 export interface WarmPerFileError {
   readonly path: string
-  readonly kind: string
+  readonly kind: WasmPerFileErrorKind
   readonly message: string
 }
 
@@ -55,7 +61,7 @@ export interface WarmRenderResult {
    */
   readonly warmDisabled: boolean
   /** Reason warmDisabled is set, for debug logging only. */
-  readonly disabledReason?: string
+  readonly disabledReason?: WarmDisabledReason
   /**
    * Every output path the analyzer knows this template produces. The IPC
    * handler uses this as the authoritative set of files for the manifest

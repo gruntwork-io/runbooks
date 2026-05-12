@@ -3,6 +3,7 @@
  *
  * Provides config parsing, template rendering, and inline template rendering.
  */
+import path from "node:path"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
@@ -238,8 +239,6 @@ export function registerBoilerplateHandlers(): void {
       const t0 = Date.now()
       const perf = params.perf
       const perfTag = perf ? `[perf seq=${perf.seq}]` : ""
-      // Cross-process timing: keystrokeAt and sentAt are Date.now() in the
-      // renderer, so deltas are directly comparable in the main process.
       const ipcTransit = perf ? t0 - perf.sentAt : undefined
       const sinceKeystroke = perf ? t0 - perf.keystrokeAt : undefined
       console.log("[ipc boilerplate:render] invoked", {
@@ -271,10 +270,8 @@ export function registerBoilerplateHandlers(): void {
       }
       renderStartTimes.set(templateId, t0)
 
-      // Tempdir created lazily when we fall back to the cold subprocess.
-      // Tracked at this scope (rather than inside the Effect.gen) so the
-      // Effect.ensuring finalizer at the end of `program` can clean it up
-      // even when the fiber is interrupted by a superseding render.
+      // Tracked at this scope so the Effect.ensuring finalizer below can
+      // clean it up even when the fiber is interrupted mid-render.
       const tempDirRef: { path: string | null } = { path: null }
 
       const program = Effect.gen(function* () {
@@ -410,12 +407,16 @@ export function registerBoilerplateHandlers(): void {
           // future build of boilerplate-fast that fixes more analyzer
           // edge cases keeps the warm win.
           const coldEntries = yield* buildManifestFromDirectory(createdTempDir)
-          for (const entry of coldEntries) {
-            if (!contentMap.has(entry.path)) {
-              const content = yield* fs.readFile(`${createdTempDir}/${entry.path}`)
-              contentMap.set(entry.path, content)
-            }
-          }
+          const missing = coldEntries.filter((e) => !contentMap.has(e.path))
+          const reads = yield* Effect.forEach(
+            missing,
+            (entry) =>
+              fs.readFile(path.join(createdTempDir, entry.path)).pipe(
+                Effect.map((content) => [entry.path, content] as const),
+              ),
+            { concurrency: 16 },
+          )
+          for (const [p, content] of reads) contentMap.set(p, content)
           dCold = dMkdtemp + dRender
         }
 
@@ -479,14 +480,6 @@ export function registerBoilerplateHandlers(): void {
           treeMeta = built.meta
         }
         const dTree = Date.now() - tTree
-
-        // Best-effort tempdir cleanup. Also wrapped in Effect.ensuring at
-        // the program boundary below so an interrupted fiber still cleans
-        // up — see `tempDirRef` declaration for rationale.
-        if (tempDirRef.path) {
-          yield* fs.rm(tempDirRef.path, { recursive: true, force: true }).pipe(Effect.ignore)
-          tempDirRef.path = null
-        }
 
         const dTotal = Date.now() - t0
         const cumStats = supersessionStats.get(templateId) ?? { count: 0, wastedMs: 0 }
@@ -562,11 +555,9 @@ export function registerBoilerplateHandlers(): void {
           skippedFiles: diff.unchanged,
         }
       }).pipe(
-        // Interrupt-safe tempdir cleanup. The body above already cleans up
-        // on the happy path; this finalizer covers the case where a
-        // superseding render interrupts us between mkdtemp and the inline
-        // cleanup. Returns void either way so failures don't mask a real
-        // render error.
+        // Tempdir cleanup. Runs on success, failure, and interruption (a
+        // superseding render). Returns void either way so failures don't
+        // mask a real render error.
         Effect.ensuring(
           Effect.gen(function* () {
             if (tempDirRef.path) {

@@ -3,23 +3,10 @@ import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { markStage } from '@/lib/renderPerf'
 
-/**
- * Debounce delay for auto-render in milliseconds.
- *
- * Below typical adult typing cadence (~200 ms/char) so sustained typing
- * fires roughly one render per character. The dispatcher+WASM warm path
- * absorbs this comfortably: dirty-set rendering keeps each render at
- * ~85 ms wall time, and fiber-interrupt supersession (see
- * electron/main/ipc/boilerplate.ts activeRenders) reclaims any in-flight
- * work the user superseded. CPU waste per superseded render is small
- * because the WASM call hasn't typically completed when a new keystroke
- * arrives at this cadence.
- *
- * 50 ms is the lower bound where the user perceives a "responsive
- * preview" without the floor becoming a perceptible delay. Going lower
- * starts firing renders on intermediate keystrokes that haven't actually
- * settled (paste handlers, dead keys, etc.) without UX benefit.
- */
+// Below typical typing cadence (~200 ms/char). The warm path + fiber-interrupt
+// supersession reclaims work the user supersedes, so we err on the responsive
+// side. 50 ms is the lower bound before paste/dead-key handlers fire spurious
+// intermediate renders.
 const AUTO_RENDER_DEBOUNCE_MS = 50
 
 /**
@@ -169,10 +156,7 @@ export const useFormState = (
    * @param value - New value for the field
    */
   const updateField = useCallback((fieldName: string, value: unknown) => {
-    setFormData(prev => ({
-      ...prev,
-      [fieldName]: value
-    }))
+    setFormData(prev => (prev[fieldName] === value ? prev : { ...prev, [fieldName]: value }))
   }, [])
 
   /**
@@ -180,10 +164,13 @@ export const useFormState = (
    * @param updates - Object with field names as keys and new values
    */
   const updateFields = useCallback((updates: Record<string, unknown>) => {
-    setFormData(prev => ({
-      ...prev,
-      ...updates
-    }))
+    setFormData(prev => {
+      let changed = false
+      for (const k in updates) {
+        if (prev[k] !== updates[k]) { changed = true; break }
+      }
+      return changed ? { ...prev, ...updates } : prev
+    })
   }, [])
 
   /**

@@ -24,16 +24,21 @@ export interface WasmRenderResult {
   readonly error?: WasmPerFileError
 }
 
+/**
+ * Per-file error kind. The first three route to the cold-render fallback;
+ * "skip_files_excluded" means the file is deliberately omitted; "render" is
+ * a template bug worth surfacing to the user.
+ */
+export type WasmPerFileErrorKind =
+  | "output_not_produced"
+  | "dependency_not_in_bundle"
+  | "dynamic_filename"
+  | "skip_files_excluded"
+  | "render"
+
 /** Per-file error inside a renderFiles response. */
 export interface WasmPerFileError {
-  /**
-   * One of: "output_not_produced", "dependency_not_in_bundle",
-   * "dynamic_filename", "skip_files_excluded", "render".
-   * The first three route to the cold-render fallback; "skip_files_excluded"
-   * means the file is deliberately omitted; "render" is a template bug worth
-   * surfacing to the user.
-   */
-  readonly kind: string
+  readonly kind: WasmPerFileErrorKind
   readonly message: string
 }
 
