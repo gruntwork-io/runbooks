@@ -12,7 +12,7 @@
  */
 
 import path from "node:path"
-import { Effect, Stream } from "effect"
+import { Chunk, Effect, Stream } from "effect"
 import crypto from "node:crypto"
 
 import { FileSystem } from "../../services/FileSystem.js"
@@ -22,6 +22,13 @@ import type {
   TemplateManifest,
   ManifestDiffResult,
 } from "../../types.js"
+
+/**
+ * Bounded concurrency for batched FS operations on the render hot path.
+ * 16 is well under macOS's default 256 open-FD ulimit while saturating
+ * the small-file SSD workload templates produce.
+ */
+const BATCH_IO_CONCURRENCY = 16
 
 // ---------------------------------------------------------------------------
 // Hashing
@@ -76,32 +83,64 @@ export function getManifestStore(): FileManifestStore {
 // ---------------------------------------------------------------------------
 
 /**
+ * A manifest entry plus the file content used to compute its hash. Returned
+ * by {@link buildManifestFromDirectoryWithContent} so the cold-render path
+ * can populate its in-memory content map without re-reading the same files.
+ */
+export interface ManifestEntryWithContent extends ManifestEntry {
+  readonly content: string
+}
+
+/**
+ * Scan a directory recursively and build a manifest of all files with their
+ * SHA-256 content hashes and content.
+ *
+ * Reads run in parallel at {@link BATCH_IO_CONCURRENCY}. Callers that don't
+ * need content should use {@link buildManifestFromDirectory} for a
+ * smaller-allocation result.
+ */
+export function buildManifestFromDirectoryWithContent(rootDir: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+
+    const walkEntries = yield* Stream.runCollect(fs.walk(rootDir))
+    const files = Chunk.toReadonlyArray(walkEntries).filter((e) => e.isFile)
+
+    const entries = yield* Effect.forEach(
+      files,
+      (entry) =>
+        fs.readFile(entry.path).pipe(
+          Effect.map(
+            (content) =>
+              ({
+                path: entry.relativePath,
+                contentHash: hashFileContent(content),
+                content,
+              }) satisfies ManifestEntryWithContent,
+          ),
+        ),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+
+    return entries
+  })
+}
+
+/**
  * Scan a directory recursively and build a manifest of all files with their
  * SHA-256 content hashes.
  *
  * Returns an Effect that requires the FileSystem service.
  */
 export function buildManifestFromDirectory(rootDir: string) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem
-
-    const entries: ManifestEntry[] = []
-
-    // Collect walk entries into an array
-    const walkEntries = yield* Stream.runCollect(fs.walk(rootDir))
-
-    for (const entry of walkEntries) {
-      if (!entry.isFile) continue
-
-      const content = yield* fs.readFile(entry.path)
-      entries.push({
-        path: entry.relativePath,
-        contentHash: hashFileContent(content),
-      })
-    }
-
-    return entries
-  })
+  return buildManifestFromDirectoryWithContent(rootDir).pipe(
+    Effect.map((entries) =>
+      entries.map(
+        ({ path, contentHash }) =>
+          ({ path, contentHash }) satisfies ManifestEntry,
+      ),
+    ),
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -225,38 +264,57 @@ export function applyDiff(
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
-    let written = 0
     let deleted = 0
 
-    // Delete orphans and clean up any newly-empty parent directories.
-    for (const relPath of diff.orphaned) {
-      const fullPath = path.join(outputDir, relPath)
-      const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
-      if (result._tag === "Right") deleted++
-      yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
-    }
+    // Delete orphans and clean up any newly-empty parent directories. Two
+    // siblings racing to remove the same parent is harmless: cleanupEmptyParentDirs
+    // swallows the loser's "not empty" / "not found" rm failure.
+    const deletes = yield* Effect.forEach(
+      diff.orphaned,
+      (relPath) =>
+        Effect.gen(function* () {
+          const fullPath = path.join(outputDir, relPath)
+          const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
+          const ok = result._tag === "Right" ? 1 : 0
+          yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
+          return ok
+        }),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+    for (const n of deletes) deleted += n
 
     // Write created files.
-    for (const relPath of diff.created) {
-      yield* copyFileForManifest(sourceDir, outputDir, relPath)
-      written++
-    }
+    yield* Effect.forEach(
+      diff.created,
+      (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
 
     // Write modified files.
-    for (const relPath of diff.modified) {
-      yield* copyFileForManifest(sourceDir, outputDir, relPath)
-      written++
-    }
+    yield* Effect.forEach(
+      diff.modified,
+      (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
 
     // Unchanged files: skip unless the user manually deleted them on disk.
-    for (const relPath of diff.unchanged) {
-      const fullPath = path.join(outputDir, relPath)
-      const exists = yield* fs.exists(fullPath)
-      if (!exists) {
-        yield* copyFileForManifest(sourceDir, outputDir, relPath)
-        written++
-      }
-    }
+    const restored = yield* Effect.forEach(
+      diff.unchanged,
+      (relPath) =>
+        Effect.gen(function* () {
+          const fullPath = path.join(outputDir, relPath)
+          const exists = yield* fs.exists(fullPath)
+          if (exists) return 0
+          yield* copyFileForManifest(sourceDir, outputDir, relPath)
+          return 1
+        }),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+
+    const written =
+      diff.created.length +
+      diff.modified.length +
+      restored.reduce((a, b) => a + b, 0)
 
     return { written, deleted } satisfies ApplyDiffResult
   })
@@ -304,24 +362,30 @@ export function applyDiffFromContent(
       })
 
     const writes = [...diff.created, ...diff.modified]
-    yield* Effect.forEach(writes, writeFromContent, { concurrency: 16 })
+    yield* Effect.forEach(writes, writeFromContent, {
+      concurrency: BATCH_IO_CONCURRENCY,
+    })
     written += writes.length
-    for (const relPath of diff.unchanged) {
-      const fullPath = path.join(outputDir, relPath)
-      const exists = yield* fs.exists(fullPath)
-      if (exists) continue
-      // File was unchanged in our manifest but the user (or some other
-      // process) deleted it from disk. With dirty-set rendering we may
-      // not have its content cached — the file wasn't re-rendered this
-      // call because nothing in its dependency set changed. Best effort:
-      // restore if we happen to have content, otherwise leave deleted
-      // and rely on a future render-all (cold pass, or a var change
-      // affecting this path) to bring it back.
-      if (contents.has(relPath)) {
-        yield* writeFromContent(relPath)
-        written++
-      }
-    }
+
+    // Unchanged files: skip unless the user manually deleted them on disk.
+    // With dirty-set rendering we may not have content cached for every
+    // unchanged path (only what was re-rendered this call). Restore from
+    // contentMap if available; otherwise rely on a future render-all to
+    // bring the file back.
+    const restored = yield* Effect.forEach(
+      diff.unchanged,
+      (relPath) =>
+        Effect.gen(function* () {
+          const fullPath = path.join(outputDir, relPath)
+          const exists = yield* fs.exists(fullPath)
+          if (exists) return 0
+          if (!contents.has(relPath)) return 0
+          yield* writeFromContent(relPath)
+          return 1
+        }),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+    for (const n of restored) written += n
 
     return { written, deleted } satisfies ApplyDiffResult
   })

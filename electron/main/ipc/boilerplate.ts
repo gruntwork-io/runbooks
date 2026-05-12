@@ -3,7 +3,6 @@
  *
  * Provides config parsing, template rendering, and inline template rendering.
  */
-import path from "node:path"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
@@ -16,7 +15,7 @@ import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import {
-  buildManifestFromDirectory,
+  buildManifestFromDirectoryWithContent,
   computeDiff,
   applyDiff,
   applyDiffFromContent,
@@ -404,22 +403,19 @@ export function registerBoilerplateHandlers(): void {
           )
           dRender = Date.now() - tRenderInner
 
-          // Read every file the subprocess wrote into our content map,
-          // but only for paths warm didn't successfully render — we
-          // deliberately preserve warm content where it succeeded so a
-          // future build of boilerplate-fast that fixes more analyzer
-          // edge cases keeps the warm win.
-          const coldEntries = yield* buildManifestFromDirectory(createdTempDir)
-          const missing = coldEntries.filter((e) => !contentMap.has(e.path))
-          const reads = yield* Effect.forEach(
-            missing,
-            (entry) =>
-              fs.readFile(path.join(createdTempDir, entry.path)).pipe(
-                Effect.map((content) => [entry.path, content] as const),
-              ),
-            { concurrency: 16 },
-          )
-          for (const [p, content] of reads) contentMap.set(p, content)
+          // Merge subprocess output into our content map, but only for
+          // paths warm didn't successfully render — we deliberately
+          // preserve warm content where it succeeded so a future build
+          // of boilerplate-fast that fixes more analyzer edge cases
+          // keeps the warm win. buildManifestFromDirectoryWithContent
+          // returns the content alongside the hash so we avoid a second
+          // read pass over the tempdir.
+          const coldEntries = yield* buildManifestFromDirectoryWithContent(createdTempDir)
+          for (const entry of coldEntries) {
+            if (!contentMap.has(entry.path)) {
+              contentMap.set(entry.path, entry.content)
+            }
+          }
           dCold = dMkdtemp + dRender
         }
 
