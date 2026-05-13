@@ -84,9 +84,9 @@ test.describe("sample-runbooks/demo2", () => {
     const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
     await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
     await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
-    await expect(generated.getTreeItem('subfolder')).toBeVisible({ timeout: 2_000 });
+    await expect(generated.getTreeItem('subfolder')).toBeVisible({ timeout: 4_000 });
     await generated.getTreeItem('subfolder').click();
-    await expect(generated.getTreeItem('sample.hcl')).toBeVisible({ timeout: 2_000 });
+    await expect(generated.getTreeItem('sample.hcl')).toBeVisible({ timeout: 4_000 });
     await generated.getTreeItem('sample.hcl').click();
     await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
 

@@ -56,8 +56,9 @@ export const test = base.extend<RunbookAppFixture>({
     fs.rmSync(dir, { recursive: true, force: true });
   }, { scope: "test" }],
 
-  launchRunbook: async ({ consoleMessages, workDir }, use) => {
+  launchRunbook: async ({ consoleMessages, workDir }, use, testInfo) => {
     let app: ElectronApplication | null = null;
+    const mainLog: string[] = [];
 
     const launch = async (runbookPath: string): Promise<Page> => {
       const absRunbookPath = path.isAbsolute(runbookPath)
@@ -92,6 +93,12 @@ export const test = base.extend<RunbookAppFixture>({
         },
       });
 
+      // Capture Electron main process stdout/stderr so IPC handler errors
+      // (file generation, template rendering) are visible on test failure.
+      const proc = app.process();
+      proc.stdout?.on("data", (chunk) => mainLog.push(`[stdout] ${chunk.toString()}`));
+      proc.stderr?.on("data", (chunk) => mainLog.push(`[stderr] ${chunk.toString()}`));
+
       const page = await app.firstWindow();
       page.on("console", (msg) => consoleMessages.push(msg));
       await page.waitForLoadState("domcontentloaded");
@@ -99,6 +106,26 @@ export const test = base.extend<RunbookAppFixture>({
     };
 
     await use(launch);
+
+    // On failure, attach renderer console + main process logs so they show
+    // up in the HTML report and CI artifacts.
+    if (testInfo.status !== testInfo.expectedStatus) {
+      const consoleDump = consoleMessages
+        .map((m) => `[${m.type()}] ${m.text()}`)
+        .join("\n");
+      if (consoleDump) {
+        await testInfo.attach("renderer-console.log", {
+          body: consoleDump,
+          contentType: "text/plain",
+        });
+      }
+      if (mainLog.length > 0) {
+        await testInfo.attach("electron-main.log", {
+          body: mainLog.join(""),
+          contentType: "text/plain",
+        });
+      }
+    }
 
     if (app) {
       await app.close();
