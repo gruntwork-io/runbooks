@@ -25,6 +25,9 @@ import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.
 import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
+import { makeLogger } from "../logger.ts"
+
+const log = makeLogger("ipc:git:clone")
 
 /**
  * Run an Effect program and surface typed failures as plain Errors whose
@@ -141,10 +144,10 @@ export function registerGitHandlers(): void {
 
           cloneArgs.push(effectiveUrl, paths.absolutePath)
 
-          // debugLog("[git:clone] spawning git process...")
+          log.debug("spawning git process...")
           const proc = yield* spawner.spawn("git", cloneArgs, {})
 
-          // debugLog("[git:clone] draining output stream...")
+          log.debug("draining output stream...")
           const stderrLines: string[] = []
           yield* Stream.runForEach(proc.output, (line) =>
             Effect.sync(() => {
@@ -156,9 +159,9 @@ export function registerGitHandlers(): void {
             }),
           )
 
-          // debugLog("[git:clone] getting exit code...")
+          log.debug("getting exit code...")
           const exitCode = yield* proc.exitCode
-          // debugLog("[git:clone] exit code: " + exitCode)
+          log.debug("exit code:", exitCode)
           if (exitCode !== 0) {
             const stderr = stderrLines.join("\n").trim()
             return yield* Effect.fail(
@@ -180,7 +183,7 @@ export function registerGitHandlers(): void {
 
           // Register the worktree path
           sessionManager.registerWorkTreePath(paths.absolutePath)
-          // debugLog("[git:clone] registered worktree, returning result")
+          log.debug("registered worktree, returning result")
 
           // Surface org/repo from the clone URL so downstream templates can
           // reference {{ .outputs.<id>.repo_owner }} / .repo_name.

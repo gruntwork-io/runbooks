@@ -6,6 +6,9 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
 import { ExecTimeoutError } from "../../errors/index.ts"
+import { makeLogger } from "../../logger.ts"
+
+const log = makeLogger("domain:exec")
 import type {
   ExecRequest,
   ExecLogEvent,
@@ -126,12 +129,12 @@ export const executeScript = (
   outputPath: string,
 ) =>
   Effect.gen(function* () {
-    // console.log("[executor] step 1: getting services")
+    log.debug("step 1: getting services")
     const fs = yield* FileSystem
     const spawner = yield* ProcessSpawner
     const env = yield* Environment
 
-    // console.log("[executor] step 2: creating output temp dir")
+    log.debug("step 2: creating output temp dir")
     // Create temp file for block outputs (RUNBOOK_OUTPUT)
     const outputDir = yield* fs.mkdtemp("runbook-output-")
     const outputFilePath = `${outputDir}/output.txt`
@@ -140,7 +143,7 @@ export const executeScript = (
       fs.rm(outputDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
-    // console.log("[executor] step 3: creating files temp dir")
+    log.debug("step 3: creating files temp dir")
     // Create temp directory for file capture (GENERATED_FILES)
     const filesDir = yield* fs.mkdtemp("runbook-files-")
     yield* Effect.addFinalizer(() =>
@@ -150,7 +153,7 @@ export const executeScript = (
     // Resolve the effective execution timeout: per-request override, falling back to the default.
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
 
-    // console.log("[executor] step 4: preparing script")
+    log.debug("step 4: preparing script")
     // Prepare script for execution (handles interpreter detection, env capture wrapping, temp files)
     const scriptSetup: ScriptSetup = yield* prepareScript(scriptContent, language)
 
@@ -176,7 +179,7 @@ export const executeScript = (
     // Build command arguments: [...interpreterArgs, scriptPath]
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
-    // console.log("[executor] step 5: spawning process:", scriptSetup.interpreter, cmdArgs[cmdArgs.length - 1])
+    log.debug("step 5: spawning process:", scriptSetup.interpreter, cmdArgs[cmdArgs.length - 1])
     // Spawn the process
     const process = yield* spawner.spawn(scriptSetup.interpreter, cmdArgs, {
       cwd: sessionContext.workDir || undefined,
@@ -186,7 +189,7 @@ export const executeScript = (
     // Kill the child process when the scope closes (e.g. on cancellation)
     yield* Effect.addFinalizer(() => process.kill.pipe(Effect.ignore))
 
-    // console.log("[executor] step 6: building streams")
+    log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
     const logStream = Stream.map(process.output, (outputLine): ExecEvent => ({
       _tag: "log",

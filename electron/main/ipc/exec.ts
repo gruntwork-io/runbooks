@@ -17,6 +17,9 @@ import { executeScript, type ExecEvent } from "../../../src/domain/exec/executor
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
+import { makeLogger } from "../logger.ts"
+
+const log = makeLogger("ipc:exec")
 
 // ---------------------------------------------------------------------------
 // Shell escaping for template variable injection prevention
@@ -61,7 +64,7 @@ export function registerExecHandlers(): void {
   ipcMain.handle(
     "exec:run",
     async (event, params: ExecRequest) => {
-      // debugLog("[ipc:exec] handler called for:", params.executableId || params.componentId)
+      log.debug("handler called for:", params.executableId || params.componentId)
       // Cancel any existing execution
       if (activeAbortController) {
         activeAbortController.abort()
@@ -112,7 +115,7 @@ export function registerExecHandlers(): void {
               )
 
               // Phase 1: Stream log events to renderer in real-time
-              // debugLog("[exec] Phase 1: starting log stream drain")
+              log.debug("Phase 1: starting log stream drain")
               yield* Stream.runForEach(logStream, (logEvent) =>
                 Effect.sync(() => {
                   if (!abortController.signal.aborted) {
@@ -120,12 +123,12 @@ export function registerExecHandlers(): void {
                   }
                 }),
               )
-              // debugLog("[exec] Phase 1 complete, starting Phase 2")
+              log.debug("Phase 1 complete, starting Phase 2")
 
               // Phase 2: After logs drain, run completion
               let finalStatus: ExecStatusEvent | null = null
               const completionEvents = yield* completionEffect
-              // debugLog("[exec] Phase 2 complete, got", completionEvents.length, "events")
+              log.debug("Phase 2 complete, got", completionEvents.length, "events")
 
               for (const execEvent of completionEvents) {
                 if (abortController.signal.aborted) break
@@ -153,13 +156,13 @@ export function registerExecHandlers(): void {
                 }
               }
 
-              // debugLog("[ipc:exec] execution complete, status:", finalStatus?.status)
+              log.debug("execution complete, status:", finalStatus?.status)
               return { status: finalStatus }
             }),
           ),
         )
       } catch (err) {
-        // debugLog("[ipc:exec] caught error:", err)
+        log.debug("caught error:", err)
         if (abortController.signal.aborted) {
           return { status: null, cancelled: true }
         }
