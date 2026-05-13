@@ -247,7 +247,6 @@ function cleanupEmptyParentDirs(dir: string, stopAt: string) {
 }
 
 /**
- * Delete orphan files and prune now-empty parent directories.
  * Two siblings racing to remove the same parent is harmless:
  * cleanupEmptyParentDirs swallows the loser's "not empty" / "not found" rm.
  */
@@ -265,14 +264,10 @@ function deleteOrphans(orphaned: readonly string[], outputDir: string) {
         }),
       { concurrency: BATCH_IO_CONCURRENCY },
     )
-    return results.filter(Boolean).length
+    return countTruthy(results)
   })
 }
 
-/**
- * Restore unchanged files the user (or another process) deleted between
- * renders. Returns the number of files actually rewritten.
- */
 function restoreMissingUnchanged<E, R>(
   unchanged: readonly string[],
   outputDir: string,
@@ -292,8 +287,14 @@ function restoreMissingUnchanged<E, R>(
         }),
       { concurrency: BATCH_IO_CONCURRENCY },
     )
-    return results.filter(Boolean).length
+    return countTruthy(results)
   })
+}
+
+function countTruthy(results: readonly boolean[]): number {
+  let n = 0
+  for (const ok of results) if (ok) n++
+  return n
 }
 
 /**
@@ -384,9 +385,6 @@ export function applyDiffFromContent(
       writeFromContent,
     )
 
-    return {
-      written: writes.length + restored,
-      deleted,
-    } satisfies ApplyDiffResult
+    return { written: writes.length + restored, deleted } satisfies ApplyDiffResult
   })
 }
