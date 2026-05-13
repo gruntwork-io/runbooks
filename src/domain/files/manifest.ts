@@ -264,7 +264,7 @@ function deleteOrphans(orphaned: readonly string[], outputDir: string) {
         }),
       { concurrency: BATCH_IO_CONCURRENCY },
     )
-    return countTruthy(results)
+    return results.filter(Boolean).length
   })
 }
 
@@ -287,14 +287,8 @@ function restoreMissingUnchanged<E, R>(
         }),
       { concurrency: BATCH_IO_CONCURRENCY },
     )
-    return countTruthy(results)
+    return results.filter(Boolean).length
   })
-}
-
-function countTruthy(results: readonly boolean[]): number {
-  let n = 0
-  for (const ok of results) if (ok) n++
-  return n
 }
 
 /**
