@@ -39,45 +39,72 @@ compile-test-cli:
 # release assets, pinned to {{boilerplate_version}}. Lands them under
 # resources/bin and resources/wasm so electron-builder.extraResources picks
 # them up and the main process can point BOILERPLATE_BIN /
-# BOILERPLATE_WASM_DIR at the bundled copies. Idempotent: skips re-fetch
-# when resources/.boilerplate-version matches the pin.
+# BOILERPLATE_WASM_DIR at the bundled copies.
 #
-# NOTE: only fetches the host's os/arch boilerplate CLI today. Cross-arch
-# packaging (e.g. building an x64 .app on an arm64 host) will ship the wrong
-# binary; the WASM blob + wasm_exec.js are architecture-independent.
-fetch-boilerplate:
+# Defaults to the host os/arch (dev / local-packaging case). CI cross-packages
+# by passing explicit target os+arch — e.g. on an arm64 macOS runner building
+# the x64 .app, `just fetch-boilerplate darwin amd64`. Valid os values:
+# darwin, linux, windows. Valid arch values: arm64, amd64. The WASM blob and
+# wasm_exec.js are architecture-independent. Idempotent: the marker file
+# encodes version+os+arch, so re-running with a different target re-fetches.
+fetch-boilerplate target_os="" target_arch="":
     #!/usr/bin/env bash
     set -euo pipefail
 
     VERSION="{{boilerplate_version}}"
     MARKER="resources/.boilerplate-version"
 
-    if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$VERSION" ] \
-        && [ -x "resources/bin/boilerplate" ] \
-        && [ -f "resources/wasm/boilerplate-full.wasm.br" ] \
-        && [ -f "resources/wasm/wasm_exec.js" ]; then
-        echo "[fetch-boilerplate] $VERSION already present, skipping"
-        exit 0
+    os="{{target_os}}"
+    arch="{{target_arch}}"
+
+    if [ -z "$os" ]; then
+        case "$(uname -s)" in
+            Darwin)               os="darwin"  ;;
+            Linux)                os="linux"   ;;
+            MINGW*|MSYS*|CYGWIN*) os="windows" ;;
+            *) echo "[fetch-boilerplate] Unsupported OS: $(uname -s)" >&2; exit 1 ;;
+        esac
+    fi
+    if [ -z "$arch" ]; then
+        case "$(uname -m)" in
+            arm64|aarch64) arch="arm64" ;;
+            x86_64|amd64)  arch="amd64" ;;
+            *) echo "[fetch-boilerplate] Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+        esac
     fi
 
-    case "$(uname -s)" in
-        Darwin) os="darwin" ;;
-        Linux)  os="linux"  ;;
-        *) echo "[fetch-boilerplate] Unsupported OS: $(uname -s)" >&2; exit 1 ;;
-    esac
-    case "$(uname -m)" in
-        arm64|aarch64) arch="arm64" ;;
-        x86_64|amd64)  arch="amd64" ;;
-        *) echo "[fetch-boilerplate] Unsupported arch: $(uname -m)" >&2; exit 1 ;;
-    esac
+    # Windows boilerplate ships as .exe and the main process looks for
+    # boilerplate.exe on win32 (electron/main/index.ts).
+    if [ "$os" = "windows" ]; then
+        bin_name="boilerplate.exe"
+        asset_suffix=".exe"
+    else
+        bin_name="boilerplate"
+        asset_suffix=""
+    fi
+
+    target_id="$VERSION $os $arch"
+
+    if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$target_id" ] \
+        && [ -f "resources/bin/$bin_name" ] \
+        && [ -f "resources/wasm/boilerplate-full.wasm.br" ] \
+        && [ -f "resources/wasm/wasm_exec.js" ]; then
+        echo "[fetch-boilerplate] $target_id already present, skipping"
+        exit 0
+    fi
 
     base="https://github.com/gruntwork-io/boilerplate/releases/download/${VERSION}"
 
     mkdir -p resources/bin resources/wasm
+    # Drop any stale alternate-target binary so the bundle never ends up with
+    # both boilerplate (arm64) and boilerplate (amd64) side by side.
+    rm -f resources/bin/boilerplate resources/bin/boilerplate.exe
 
     echo "[fetch-boilerplate] $VERSION CLI for ${os}_${arch}"
-    curl -fL --retry 3 -o resources/bin/boilerplate "${base}/boilerplate_${os}_${arch}"
-    chmod +x resources/bin/boilerplate
+    curl -fL --retry 3 -o "resources/bin/$bin_name" "${base}/boilerplate_${os}_${arch}${asset_suffix}"
+    if [ "$os" != "windows" ]; then
+        chmod +x "resources/bin/$bin_name"
+    fi
 
     echo "[fetch-boilerplate] $VERSION WASM blob (boilerplate-full.wasm.br)"
     curl -fL --retry 3 -o resources/wasm/boilerplate-full.wasm.br "${base}/boilerplate-full.wasm.br"
@@ -85,7 +112,7 @@ fetch-boilerplate:
     echo "[fetch-boilerplate] $VERSION wasm_exec.js"
     curl -fL --retry 3 -o resources/wasm/wasm_exec.js "${base}/wasm_exec.js"
 
-    echo "$VERSION" > "$MARKER"
+    echo "$target_id" > "$MARKER"
     echo "[fetch-boilerplate] Done"
 
 # Package the Electron app for distribution
@@ -194,7 +221,7 @@ clean:
     #!/usr/bin/env bash
     set -u
     for i in 1 2 3; do
-        rm -rf dist out resources/bin/runbooks-test resources/bin/boilerplate resources/wasm resources/.boilerplate-version && exit 0
+        rm -rf dist out resources/bin/runbooks-test resources/bin/runbooks-test.exe resources/bin/boilerplate resources/bin/boilerplate.exe resources/wasm resources/.boilerplate-version && exit 0
         sleep 0.3
     done
     exit 1

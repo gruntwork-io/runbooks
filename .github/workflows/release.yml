@@ -28,6 +28,20 @@ jobs:
       - name: Build Electron app
         run: just build
 
+      # Fetch boilerplate for the *target* arch, not the runner's arch. The
+      # matrix runs both arm64 and x64 builds on macos-latest (arm64), so the
+      # x64 job must cross-fetch amd64 — host detection would mis-bundle it.
+      - name: Fetch boilerplate
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: |
+          case "$MATRIX_ARCH" in
+            arm64) bp_arch=arm64 ;;
+            x64)   bp_arch=amd64 ;;
+            *) echo "Unhandled matrix.arch: $MATRIX_ARCH" >&2; exit 1 ;;
+          esac
+          just fetch-boilerplate darwin "$bp_arch"
+
       - name: Package for macOS
         env:
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
@@ -66,6 +80,9 @@ jobs:
       - name: Build Electron app
         run: just build
 
+      - name: Fetch boilerplate
+        run: just fetch-boilerplate linux amd64
+
       - name: Package for Linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -96,6 +113,10 @@ jobs:
 
       - name: Build Electron app
         run: just build
+
+      - name: Fetch boilerplate
+        shell: bash
+        run: just fetch-boilerplate windows amd64
 
       - name: Package for Windows
         env:
