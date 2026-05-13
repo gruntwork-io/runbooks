@@ -7,12 +7,12 @@ This runbook guides you through deploying a new microservice to your infrastruct
 Before we begin, let's verify your local environment is ready.
 
 <Check
-    id="check-node"
-    path="checks/node-version.sh"
-    title="Check Node.js Installation"
-    description="Verify that Node.js is installed on your machine."
-    successMessage="Node.js is installed and ready!"
-    failMessage="Node.js is not installed. Install it from https://nodejs.org"
+    id="check-prereqs"
+    path="checks/git-version.sh"
+    title="Check Git Installation"
+    description="Verify that Git is installed on your machine."
+    successMessage="Git is installed and ready!"
+    failMessage="Git is not installed. Install it from https://git-scm.com"
 />
 
 ## Configure your service

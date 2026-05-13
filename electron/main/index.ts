@@ -28,6 +28,31 @@ const log = makeLogger("main")
 // before SessionManager captures process.env on first runbook load.
 populateShellEnv()
 
+// Point the boilerplate renderer at the bundled CLI + WASM artifacts the
+// `just fetch-boilerplate` recipe drops under resources/. In packaged
+// builds, electron-builder.extraResources puts them next to app.asar; in
+// dev (`electron-vite dev`), app.getAppPath() is the repo root. User-set
+// env vars win so devs can still override with a custom build.
+{
+  const resourcesDir = app.isPackaged
+    ? path.dirname(app.getAppPath())
+    : path.join(app.getAppPath(), "resources")
+  if (!process.env.BOILERPLATE_BIN) {
+    const bundled = path.join(
+      resourcesDir,
+      "bin",
+      process.platform === "win32" ? "boilerplate.exe" : "boilerplate",
+    )
+    if (fs.existsSync(bundled)) process.env.BOILERPLATE_BIN = bundled
+  }
+  if (!process.env.BOILERPLATE_WASM_DIR) {
+    const bundledWasmDir = path.join(resourcesDir, "wasm")
+    if (fs.existsSync(path.join(bundledWasmDir, "boilerplate-full.wasm.br"))) {
+      process.env.BOILERPLATE_WASM_DIR = bundledWasmDir
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Register the runbook-asset protocol as privileged so it can be used in img
 // src, video src, etc. Must be called before app.whenReady().

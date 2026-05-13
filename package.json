@@ -101,7 +101,8 @@
       "dist/**/*"
     ],
     "extraResources": [
-      { "from": "resources/bin", "to": "bin", "filter": ["**/*"] }
+      { "from": "resources/bin", "to": "bin", "filter": ["**/*"] },
+      { "from": "resources/wasm", "to": "wasm", "filter": ["**/*"] }
     ],
     "publish": {
       "provider": "github",

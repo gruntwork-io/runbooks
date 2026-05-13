@@ -435,7 +435,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await trustRunbook(page);
 
     // Run the Check block and verify success.
-    const checkBlock = page.getByTestId("check-node");
+    const checkBlock = page.getByTestId("check-prereqs");
     await checkBlock.getByRole("button", { name: "Check" }).click();
     await expect(checkBlock.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 });
 
