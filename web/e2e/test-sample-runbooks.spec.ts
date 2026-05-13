@@ -1,4 +1,5 @@
 import { execSync } from "child_process";
+import type { Locator } from "@playwright/test";
 import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 
 /**
@@ -7,6 +8,36 @@ import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompte
  * Each test launches a fresh Electron app with the runbook and verifies
  * the MDX content renders correctly and interactive blocks function.
  */
+
+/**
+ * Fill the three map/list inputs on the `infra-live-elements` template form
+ * that have no defaults (`AWSAccounts`, `DefaultTags`, `CatalogRepositories`).
+ *
+ * Boilerplate treats "no default" as required in non-interactive mode and
+ * exits with code 1 if any are unset, so every test that clicks Generate on
+ * this template must supply values for all three.
+ */
+async function fillInfraLiveElementsMaps(form: Locator) {
+  // AWSAccounts — structured map with x-schema (email/environment/id)
+  const awsField = form.getByTestId('field-AWSAccounts');
+  await awsField.getByRole('button', { name: 'Add' }).click();
+  await awsField.getByRole('textbox', { name: /AWS Account Name/ }).fill('dev-account');
+  await awsField.getByRole('textbox', { name: /^email\b/i }).fill('dev@example.com');
+  await awsField.getByRole('textbox', { name: /^environment\b/i }).fill('development');
+  await awsField.getByRole('textbox', { name: /^id\b/i }).fill('111222333444');
+  await awsField.getByRole('button', { name: 'Save Entry' }).click();
+
+  // DefaultTags — plain key/value map
+  const tagsField = form.getByTestId('field-DefaultTags');
+  await tagsField.locator('input[placeholder="Key"]').fill('Owner');
+  await tagsField.locator('input[placeholder="Value"]').fill('platform-team');
+  await tagsField.getByRole('button', { name: 'Add', exact: true }).click();
+
+  // CatalogRepositories — string list
+  const reposField = form.getByTestId('field-CatalogRepositories');
+  await reposField.locator('input[placeholder*="Type an entry"]').fill('gruntwork-io/terraform-aws-service-catalog');
+  await reposField.getByRole('button', { name: 'Add', exact: true }).click();
+}
 
 // ---------------------------------------------------------------------------
 // Test: demo1
@@ -83,10 +114,11 @@ test.describe("sample-runbooks/demo2", () => {
     // Fill in the Org Name Prefix and confirm that files are generated
     const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
     await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
+    await fillInfraLiveElementsMaps(infraLiveElements);
     await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
-    await expect(generated.getTreeItem('subfolder')).toBeVisible({ timeout: 4_000 });
+    await expect(generated.getTreeItem('subfolder')).toBeVisible({ timeout: 2_000 });
     await generated.getTreeItem('subfolder').click();
-    await expect(generated.getTreeItem('sample.hcl')).toBeVisible({ timeout: 4_000 });
+    await expect(generated.getTreeItem('sample.hcl')).toBeVisible({ timeout: 2_000 });
     await generated.getTreeItem('sample.hcl').click();
     await expect(generated.getCodeFile('subfolder/sample.hcl')).toContainText('name_prefix = "my_prefix"');
 
@@ -118,14 +150,8 @@ test.describe("sample-runbooks/demo2", () => {
     // Ensure the bool checkbox is checked (default is true).
     await expect(infraLiveForm.getByRole('checkbox', { name: 'Add Additional Common Variables' })).toBeChecked();
 
-    // Add a structured map entry (AWSAccounts with x-schema).
-    const awsField = infraLiveForm.getByTestId('field-AWSAccounts');
-    await awsField.getByRole('button', { name: 'Add' }).click();
-    await awsField.getByRole('textbox', { name: /AWS Account Name/ }).fill('dev-account');
-    await awsField.getByRole('textbox', { name: /^email\b/i }).fill('dev@example.com');
-    await awsField.getByRole('textbox', { name: /^environment\b/i }).fill('development');
-    await awsField.getByRole('textbox', { name: /^id\b/i }).fill('111222333444');
-    await awsField.getByRole('button', { name: 'Save Entry' }).click();
+    // Fill the three required map/list inputs (AWSAccounts, DefaultTags, CatalogRepositories).
+    await fillInfraLiveElementsMaps(infraLiveForm);
 
     // Submit the form and verify files are generated.
     await infraLiveForm.getByRole('button', { name: 'Generate', exact: true }).click();
@@ -224,7 +250,9 @@ test.describe("sample-runbooks/demo3", () => {
     await expect(templateBlock).toBeVisible();
     await expect(templateBlock.getByRole("button", { name: "Generate" })).toBeVisible();
 
-    // Click Generate and verify files appear in the generated panel.
+    // Fill all required inputs (none have defaults), then click Generate.
+    await templateBlock.getByRole('textbox', { name: 'Org Name Prefix' }).fill('demo3_prefix');
+    await fillInfraLiveElementsMaps(templateBlock);
     await templateBlock.getByRole("button", { name: "Generate" }).click();
     const generated = getFilesPanel(page, "generated");
     await expect(generated.getTreeItem("common.hcl")).toBeVisible({ timeout: 5_000 });
