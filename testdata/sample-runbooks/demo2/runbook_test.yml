@@ -16,9 +16,15 @@ tests:
       mise-config-inputs.OpenTofuVersion: "1"
       mise-config-inputs.TerragruntVersion: "2"
       infra-live-elements-inputs.OrgNamePrefix: "my_prefix"
-      infra-live-elements-inputs.AWSAccounts: {}
-      infra-live-elements-inputs.DefaultTags: {}
-      infra-live-elements-inputs.CatalogRepositories: []
+      infra-live-elements-inputs.AWSAccounts:
+        dev:
+          email: "dev@example.com"
+          environment: "development"
+          id: "111111111111"
+      infra-live-elements-inputs.DefaultTags:
+        ManagedBy: "terragrunt"
+      infra-live-elements-inputs.CatalogRepositories:
+        - "gruntwork-io/terraform-aws-service-catalog"
     steps:
       # Only exercise the two Template blocks. Skip environment checks,
       # GitHub-dependent commands, and unrelated blocks.
@@ -68,8 +74,10 @@ tests:
           email: "dev@example.com"
           environment: "development"
           id: "111222333444"
-      infra-live-elements-inputs.DefaultTags: {}
-      infra-live-elements-inputs.CatalogRepositories: []
+      infra-live-elements-inputs.DefaultTags:
+        ManagedBy: "terragrunt"
+      infra-live-elements-inputs.CatalogRepositories:
+        - "gruntwork-io/terraform-aws-service-catalog"
       infra-live-elements-inputs.CatalogTags: ""
       # mise-config-inputs is skipped in steps below, but TerragruntVersion is
       # required — supply a placeholder so validation doesn't reject the case.

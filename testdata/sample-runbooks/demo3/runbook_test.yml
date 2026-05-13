@@ -41,9 +41,15 @@ tests:
     inputs:
       test1.OrgNamePrefix: "demo3_prefix"
       test1.AddAdditionalCommonVariables: true
-      test1.AWSAccounts: {}
-      test1.DefaultTags: {}
-      test1.CatalogRepositories: []
+      test1.AWSAccounts:
+        dev:
+          email: "dev@example.com"
+          environment: "development"
+          id: "111111111111"
+      test1.DefaultTags:
+        ManagedBy: "terragrunt"
+      test1.CatalogRepositories:
+        - "gruntwork-io/terraform-aws-service-catalog"
       test1.CatalogTags: ""
       # Required inputs for blocks we skip
       test2.GithubOrgName: "gruntwork-io"
