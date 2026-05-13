@@ -16,7 +16,13 @@ import { Chunk, Effect, Stream } from "effect"
 import crypto from "node:crypto"
 
 import { FileSystem } from "../../services/FileSystem.js"
-import { isContainedIn, isFilesystemRoot } from "../../path-validation.js"
+import {
+  containsPathTraversal,
+  isAbsolutePath,
+  isContainedIn,
+  isFilesystemRoot,
+} from "../../path-validation.js"
+import { PathTraversalError } from "../../errors/index.js"
 import type {
   ManifestEntry,
   TemplateManifest,
@@ -194,6 +200,61 @@ export function computeDiff(
 }
 
 // ---------------------------------------------------------------------------
+// Diff-path safety
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate that every path in a diff is a "safe" relative path — no `..`
+ * segments, no absolute paths. The diff drives `fs.rm` and `fs.writeFile`
+ * against `outputDir`, so a malicious or buggy entry like `../etc/passwd`
+ * would otherwise resolve outside the output dir.
+ *
+ * Caller-buggy input fails the whole apply with a PathTraversalError before
+ * any filesystem operation runs.
+ */
+function assertSafeDiffPaths(diff: ManifestDiffResult) {
+  return Effect.sync(() => undefined).pipe(
+    Effect.flatMap(() => {
+      const buckets: Array<readonly [string, readonly string[]]> = [
+        ["created", diff.created],
+        ["modified", diff.modified],
+        ["orphaned", diff.orphaned],
+        ["unchanged", diff.unchanged],
+      ]
+      for (const [bucket, paths] of buckets) {
+        for (const p of paths) {
+          if (!p) {
+            return Effect.fail(
+              new PathTraversalError({
+                path: p,
+                message: `manifest diff ${bucket} entry is empty`,
+              }),
+            )
+          }
+          if (isAbsolutePath(p)) {
+            return Effect.fail(
+              new PathTraversalError({
+                path: p,
+                message: `manifest diff ${bucket} contains absolute path`,
+              }),
+            )
+          }
+          if (containsPathTraversal(p)) {
+            return Effect.fail(
+              new PathTraversalError({
+                path: p,
+                message: `manifest diff ${bucket} contains '..' traversal`,
+              }),
+            )
+          }
+        }
+      }
+      return Effect.void
+    }),
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Apply diff — patch the real output directory from a rendered source tree
 // ---------------------------------------------------------------------------
 
@@ -239,7 +300,10 @@ function cleanupEmptyParentDirs(dir: string, stopAt: string) {
       if (!isContainedIn(current, stopAt)) return
       const entries = yield* fs.readdir(current).pipe(Effect.either)
       if (entries._tag === "Left" || entries.right.length > 0) return
-      const removed = yield* fs.rm(current, { recursive: false }).pipe(Effect.either)
+      // `fs.rm` without `recursive: true` fails on directories. Since the
+      // readdir check above confirmed `current` is empty, recursive is safe
+      // — it just means "use the directory-aware path".
+      const removed = yield* fs.rm(current, { recursive: true }).pipe(Effect.either)
       if (removed._tag === "Left") return
       current = path.dirname(current)
     }
@@ -307,6 +371,7 @@ export function applyDiff(
   outputDir: string,
 ) {
   return Effect.gen(function* () {
+    yield* assertSafeDiffPaths(diff)
     const deleted = yield* deleteOrphans(diff.orphaned, outputDir)
 
     // Write created + modified files in one parallel batch — they're
@@ -344,6 +409,7 @@ export function applyDiffFromContent(
   outputDir: string,
 ) {
   return Effect.gen(function* () {
+    yield* assertSafeDiffPaths(diff)
     const fs = yield* FileSystem
 
     const writeFromContent = (relPath: string) =>

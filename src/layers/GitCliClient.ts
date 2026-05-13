@@ -19,17 +19,7 @@ import type {
 } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
-
-function injectTokenIntoUrl(url: string, token: string): string {
-  try {
-    const parsed = new URL(url)
-    parsed.username = "x-access-token"
-    parsed.password = token
-    return parsed.toString()
-  } catch {
-    return url
-  }
-}
+import { injectTokenIntoUrl } from "../domain/git/url.ts"
 
 /**
  * Run a git command, collect all output, and return stdout lines.

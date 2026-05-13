@@ -1,6 +1,15 @@
 import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
-import { parseRemoteSource, needsRefResolution, adjustBlobPath } from "./remote-source.ts"
+import {
+  parseRemoteSource,
+  needsRefResolution,
+  adjustBlobPath,
+  resolveRef,
+  getTokenForHost,
+} from "./remote-source.ts"
+import { makeTestSpawner } from "./test-utils/TestSpawner.ts"
+import { makeTestEnvironment } from "./test-utils/TestEnvironment.ts"
+import { Layer } from "effect"
 
 function parse(url: string) {
   return Effect.runSync(parseRemoteSource(url))
@@ -134,5 +143,220 @@ describe("adjustBlobPath", () => {
     const parsed = parse("https://github.com/owner/repo/tree/main/path")
     const adjusted = adjustBlobPath(parsed)
     expect(adjusted).toEqual(parsed)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveRef — picks the longest matching ref from `git ls-remote` output.
+// ---------------------------------------------------------------------------
+
+describe("resolveRef", () => {
+  // ls-remote output: <sha>\t<refname>; refs/heads/<branch> or refs/tags/<tag>
+  const refOutput = (names: string[]) =>
+    names.map((n, i) => `${"a".repeat(40).slice(0, 40)}${i}\t${n}`)
+
+  it("picks the longest matching ref over a shorter one", async () => {
+    const spawner = makeTestSpawner([
+      {
+        command: "git",
+        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        outputLines: refOutput([
+          "refs/heads/main",
+          "refs/heads/release/v1",
+          "refs/heads/release/v1.2",
+        ]),
+        exitCode: 0,
+      },
+    ])
+
+    const result = await Effect.runPromise(
+      resolveRef(
+        "https://github.com/o/r.git",
+        "release/v1.2/foo/bar.md",
+        false,
+      ).pipe(Effect.provide(spawner)),
+    )
+
+    expect(result.ref).toBe("release/v1.2")
+    expect(result.path).toBe("foo/bar.md")
+  })
+
+  it("falls back to first-segment-is-ref when no candidate matches", async () => {
+    const spawner = makeTestSpawner([
+      {
+        command: "git",
+        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        outputLines: refOutput(["refs/heads/main"]),
+        exitCode: 0,
+      },
+    ])
+
+    const result = await Effect.runPromise(
+      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md", false).pipe(
+        Effect.provide(spawner),
+      ),
+    )
+
+    expect(result.ref).toBe("unknown")
+    expect(result.path).toBe("dir/file.md")
+  })
+
+  it("returns undefined path when the ref exhausts the segments", async () => {
+    const spawner = makeTestSpawner([
+      {
+        command: "git",
+        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        outputLines: refOutput(["refs/heads/main"]),
+        exitCode: 0,
+      },
+    ])
+
+    const result = await Effect.runPromise(
+      resolveRef("https://github.com/o/r.git", "main", false).pipe(
+        Effect.provide(spawner),
+      ),
+    )
+
+    expect(result.ref).toBe("main")
+    expect(result.path).toBeUndefined()
+  })
+
+  it("strips refs/tags/ prefix so a tag matches by its bare name", async () => {
+    const spawner = makeTestSpawner([
+      {
+        command: "git",
+        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        outputLines: refOutput(["refs/tags/v1.0.0"]),
+        exitCode: 0,
+      },
+    ])
+
+    const result = await Effect.runPromise(
+      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md", false).pipe(
+        Effect.provide(spawner),
+      ),
+    )
+
+    expect(result.ref).toBe("v1.0.0")
+    expect(result.path).toBe("README.md")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getTokenForHost — env precedence, then CLI fallback, then undefined.
+// ---------------------------------------------------------------------------
+
+describe("getTokenForHost(github.com)", () => {
+  const nullSpawner = makeTestSpawner([]) // never matched
+
+  it("returns GITHUB_TOKEN when set", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({ GITHUB_TOKEN: "A" }),
+      nullSpawner,
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("github.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("A")
+  })
+
+  it("returns GH_TOKEN when only that is set", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({ GH_TOKEN: "B" }),
+      nullSpawner,
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("github.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("B")
+  })
+
+  it("prefers GITHUB_TOKEN when both are set", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({ GITHUB_TOKEN: "A", GH_TOKEN: "B" }),
+      nullSpawner,
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("github.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("A")
+  })
+
+  it("falls back to `gh auth token` when no env var is set", async () => {
+    const spawner = makeTestSpawner([
+      {
+        command: "gh",
+        args: ["auth", "token"],
+        outputLines: ["ghp_FROM_CLI"],
+        exitCode: 0,
+      },
+    ])
+    const layer = Layer.mergeAll(makeTestEnvironment({}), spawner)
+    const result = await Effect.runPromise(
+      getTokenForHost("github.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("ghp_FROM_CLI")
+  })
+
+  it("returns undefined when neither env var nor `gh` is available", async () => {
+    // TestSpawner with no matching command surfaces a SpawnError; getTokenForHost
+    // catches it and resolves to undefined.
+    const layer = Layer.mergeAll(makeTestEnvironment({}), nullSpawner)
+    const result = await Effect.runPromise(
+      getTokenForHost("github.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+})
+
+describe("getTokenForHost(gitlab.com)", () => {
+  it("returns GITLAB_TOKEN when set", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({ GITLAB_TOKEN: "gl_X" }),
+      makeTestSpawner([]),
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("gl_X")
+  })
+
+  it("falls back to `glab auth token`", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({}),
+      makeTestSpawner([
+        {
+          command: "glab",
+          args: ["auth", "token"],
+          outputLines: ["glpat_FROM_CLI"],
+          exitCode: 0,
+        },
+      ]),
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("glpat_FROM_CLI")
+  })
+
+  it("returns undefined when nothing is configured", async () => {
+    const layer = Layer.mergeAll(makeTestEnvironment({}), makeTestSpawner([]))
+    const result = await Effect.runPromise(
+      getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+})
+
+describe("getTokenForHost(unknown host)", () => {
+  it("returns undefined for hosts with no special case", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({ GITHUB_TOKEN: "A", GITLAB_TOKEN: "B" }),
+      makeTestSpawner([]),
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("example.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
   })
 })

@@ -7,6 +7,7 @@ import {
   getWorkspaceTree,
 } from "./workspace.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
+import { MAX_FILE_CONTENT_SIZE } from "../../types.ts"
 
 describe("getWorkspaceDirs", () => {
   it("returns sorted subdirectory names", async () => {
@@ -89,6 +90,41 @@ describe("readWorkspaceFile", () => {
 
     expect(result.isBinary).toBe(true)
     expect(result.content).toBe("")
+  })
+
+  it("marks files above MAX_FILE_CONTENT_SIZE as isTooLarge without content", async () => {
+    const layer = makeTestLayer({
+      files: {
+        // TestFileSystem reports stat.size = string length, so this is over cap.
+        "/workspace/big.txt": "x".repeat(MAX_FILE_CONTENT_SIZE + 1),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      readWorkspaceFile("/workspace", "big.txt").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.isTooLarge).toBe(true)
+    expect(result.content).toBe("")
+    expect(result.size).toBeGreaterThan(MAX_FILE_CONTENT_SIZE)
+  })
+
+  it("classifies a file with NUL bytes as binary and omits content", async () => {
+    const layer = makeTestLayer({
+      files: {
+        // Embedded NUL forces the probe to treat the file as binary even
+        // though the extension is not in the binary list.
+        "/workspace/data.bin-text": "hello\x00world",
+      },
+    })
+
+    const result = await Effect.runPromise(
+      readWorkspaceFile("/workspace", "data.bin-text").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.isBinary).toBe(true)
+    expect(result.content).toBe("")
+    expect(result.isTooLarge).toBe(false)
   })
 })
 
@@ -209,6 +245,32 @@ describe("getWorkspaceChanges", () => {
 
     expect(result.changes).toHaveLength(1)
     expect(result.changes[0].path).toBe("new-name.txt")
+  })
+
+  it.each<[string, string, "added" | "deleted" | "modified"]>([
+    ["??", "untracked", "added"],
+    ["A ", "newly added", "added"],
+    [" M", "worktree-modified", "modified"],
+    ["M ", "staged-modified", "modified"],
+    [" D", "deleted", "deleted"],
+    ["D ", "staged-deleted", "deleted"],
+    ["R ", "renamed", "modified"],
+  ])("maps git status code '%s' (%s) to changeType '%s'", async (status, label, expected) => {
+    void label
+    const layer = makeTestLayer({
+      files: { "/workspace/f.txt": "x" },
+      git: {
+        status: () => Effect.succeed([{ path: "f.txt", status }]),
+        diff: () =>
+          Effect.succeed([
+            { path: "f.txt", originalContent: "old", additions: 1, deletions: 1 },
+          ]),
+      },
+    })
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+    expect(result.changes[0]?.changeType).toBe(expected)
   })
 
   it("skips diff for binary files", async () => {

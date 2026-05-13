@@ -342,7 +342,7 @@ export const prepareScript = (
  * Check if a string is a valid environment variable name.
  * Must start with a letter or underscore, rest alphanumeric or underscore.
  */
-function isValidEnvVarName(name: string): boolean {
+export function isValidEnvVarName(name: string): boolean {
   if (name.length === 0) return false
   const first = name[0]
   if (

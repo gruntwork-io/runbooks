@@ -21,6 +21,7 @@ import {
   parseOwnerRepoFromURL,
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
+import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError } from "../../../src/errors/index.ts"
@@ -139,7 +140,7 @@ export function registerGitHandlers(): void {
           if (options.ref) cloneArgs.push("--branch", options.ref)
 
           const effectiveUrl = options.token
-            ? (() => { try { const u = new URL(params.url); u.username = "x-access-token"; u.password = options.token!; return u.toString(); } catch { return params.url; } })()
+            ? injectTokenIntoUrl(params.url, options.token)
             : params.url
 
           cloneArgs.push(effectiveUrl, paths.absolutePath)

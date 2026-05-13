@@ -51,6 +51,23 @@ describe("parseOwnerRepoFromURL", () => {
     const result = parseOwnerRepoFromURL("git@gitlab.com:group/project.git")
     expect(result).toEqual({ owner: "group", repo: "project" })
   })
+
+  it("strips .git suffix from HTTPS URL with trailing slash absent", () => {
+    const result = parseOwnerRepoFromURL("https://github.com/owner/repo.git")
+    expect(result).toEqual({ owner: "owner", repo: "repo" })
+  })
+
+  it("handles HTTPS URL with trailing slash", () => {
+    const result = parseOwnerRepoFromURL("https://github.com/owner/repo/")
+    expect(result).toEqual({ owner: "owner", repo: "repo" })
+  })
+
+  it("handles HTTPS URL with .git and trailing slash", () => {
+    // Trailing slash after .git keeps the suffix as part of the segment;
+    // document the actual behaviour so a future tightening is intentional.
+    const result = parseOwnerRepoFromURL("https://github.com/owner/repo.git/")
+    expect(result).toEqual({ owner: "owner", repo: "repo" })
+  })
 })
 
 // ---------------------------------------------------------------------------

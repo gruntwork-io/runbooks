@@ -1,8 +1,13 @@
 import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
+import { spawnSync } from "node:child_process"
+import * as nodeFs from "node:fs"
+import * as nodePath from "node:path"
+import * as os from "node:os"
 import {
   detectInterpreter,
   isBashInterpreter,
+  isValidEnvVarName,
   wrapBashScript,
   parseEnvCapture,
   parseBlockOutputs,
@@ -319,5 +324,216 @@ describe("captureFilesFromDir", () => {
       { "/src/file.txt": "12345" },
     )
     expect(result[0].size).toBe(5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isValidEnvVarName
+// ---------------------------------------------------------------------------
+
+describe("isValidEnvVarName", () => {
+  it.each([
+    "PATH",
+    "HOME",
+    "_PRIVATE",
+    "__DOUBLE",
+    "FOO_BAR_BAZ",
+    "x",
+    "A1",
+    "_",
+  ])("accepts %s", (name) => {
+    expect(isValidEnvVarName(name)).toBe(true)
+  })
+
+  it.each([
+    "", // empty
+    "1FOO", // leading digit
+    "foo.bar", // dot
+    "foo-bar", // dash
+    "FOO BAR", // space
+    "FOO=BAR", // equals
+    "FÖÖ", // unicode
+    "café", // unicode
+  ])("rejects %s", (name) => {
+    expect(isValidEnvVarName(name)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// wrapBashScript — behavioural tests
+//
+// String-matching the wrapped template only catches typos. These tests spawn
+// real bash against the wrapper to verify the *runtime contract* — trap
+// chaining, log-level filtering, and env capture — that production blocks
+// depend on. Skipped on Windows (no /bin/bash) and when bash isn't on PATH.
+// ---------------------------------------------------------------------------
+
+const bashAvailable =
+  process.platform !== "win32" && nodeFs.existsSync("/bin/bash")
+
+const skipIfNoBash = bashAvailable ? describe : describe.skip
+
+skipIfNoBash("wrapBashScript (real bash)", () => {
+  // Per-test temp dir for env / pwd / script files.
+  function makeTmp() {
+    return nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "script-wrap-test-"))
+  }
+
+  function runWrapped(
+    userScript: string,
+    extraEnv: Record<string, string> = {},
+  ): {
+    stdout: string
+    stderr: string
+    exitCode: number
+    capturedEnv: Record<string, string> | null
+    capturedPwd: string | null
+  } {
+    const tmp = makeTmp()
+    try {
+      const envPath = nodePath.join(tmp, "env.txt")
+      const pwdPath = nodePath.join(tmp, "pwd.txt")
+      const scriptPath = nodePath.join(tmp, "script.sh")
+
+      const wrapped = wrapBashScript(userScript, envPath, pwdPath)
+      nodeFs.writeFileSync(scriptPath, wrapped)
+      nodeFs.chmodSync(scriptPath, 0o755)
+
+      const res = spawnSync("/bin/bash", [scriptPath], {
+        encoding: "utf8",
+        env: { ...process.env, ...extraEnv },
+      })
+
+      const capturedEnv = nodeFs.existsSync(envPath)
+        ? parseNulEnv(nodeFs.readFileSync(envPath, "utf8"))
+        : null
+      const capturedPwd = nodeFs.existsSync(pwdPath)
+        ? nodeFs.readFileSync(pwdPath, "utf8").trim()
+        : null
+
+      return {
+        stdout: res.stdout ?? "",
+        stderr: res.stderr ?? "",
+        exitCode: res.status ?? -1,
+        capturedEnv,
+        capturedPwd,
+      }
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
+  }
+
+  function parseNulEnv(data: string): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const entry of data.split("\0")) {
+      if (entry === "") continue
+      const idx = entry.indexOf("=")
+      if (idx === -1) continue
+      out[entry.slice(0, idx)] = entry.slice(idx + 1)
+    }
+    return out
+  }
+
+  it("runs both the user's EXIT trap and our env capture", () => {
+    const result = runWrapped(
+      `trap 'echo USER_CLEANUP' EXIT
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("running")
+    expect(result.stdout).toContain("USER_CLEANUP")
+    // Env capture ran (file exists and contains user var).
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("only the last user EXIT trap runs, env capture still runs", () => {
+    const result = runWrapped(
+      `trap 'echo FIRST_CLEANUP' EXIT
+       trap 'echo SECOND_CLEANUP' EXIT
+       export MARKER=last
+       echo run`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("SECOND_CLEANUP")
+    expect(result.stdout).not.toContain("FIRST_CLEANUP")
+    expect(result.capturedEnv!.MARKER).toBe("last")
+  })
+
+  it("'trap - EXIT' (reset) still runs env capture", () => {
+    const result = runWrapped(
+      `trap 'echo SHOULD_NOT_RUN' EXIT
+       trap - EXIT
+       export AFTER_RESET=yes
+       echo done`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("done")
+    expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+  })
+
+  it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {
+    const result = runWrapped(
+      `log_info "info-msg"
+       log_warn "warn-msg"
+       log_error "err-msg"`,
+    )
+    expect(result.stdout).toContain("[INFO]")
+    expect(result.stdout).toContain("info-msg")
+    expect(result.stdout).toContain("[WARN]")
+    expect(result.stdout).toContain("warn-msg")
+    expect(result.stdout).toContain("[ERROR]")
+    expect(result.stdout).toContain("err-msg")
+    // ISO-8601 zulu pattern: YYYY-MM-DDTHH:MM:SSZ
+    expect(result.stdout).toMatch(
+      /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]/,
+    )
+  })
+
+  it("log_debug is silent when DEBUG is unset", () => {
+    const result = runWrapped(`log_debug "should not appear"`)
+    expect(result.stdout).not.toContain("should not appear")
+    expect(result.stdout).not.toContain("[DEBUG]")
+  })
+
+  it("log_debug fires when DEBUG=true", () => {
+    const result = runWrapped(`log_debug "debug-msg"`, { DEBUG: "true" })
+    expect(result.stdout).toContain("[DEBUG]")
+    expect(result.stdout).toContain("debug-msg")
+  })
+
+  it("captures multi-line env values via NUL-delimited env -0", () => {
+    const result = runWrapped(
+      `export MULTILINE=$'line1\nline2\nline3'
+       echo set`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MULTILINE).toBe("line1\nline2\nline3")
+  })
+
+  it("captures the working directory the user cd'd into", () => {
+    const tmp = nodeFs.realpathSync(
+      nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "pwd-test-")),
+    )
+    try {
+      const result = runWrapped(`cd ${JSON.stringify(tmp)}\necho here`)
+      expect(result.exitCode).toBe(0)
+      // bash's pwd may return either the symlink path or its realpath
+      // depending on the platform; normalize both ends.
+      expect(nodeFs.realpathSync(result.capturedPwd!)).toBe(tmp)
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it("preserves the user's exit code through the EXIT trap chain", () => {
+    const result = runWrapped(`exit 42`)
+    expect(result.exitCode).toBe(42)
+    // Env capture still ran despite the non-zero exit.
+    expect(result.capturedEnv).not.toBeNull()
   })
 })
