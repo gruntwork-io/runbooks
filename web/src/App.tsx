@@ -6,6 +6,8 @@ import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
 import { OpenUrlModal } from './components/layout/OpenUrlModal'
+import { AboutDialog } from './components/layout/AboutDialog'
+import { CommandPalette } from './components/layout/CommandPalette'
 import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
@@ -19,6 +21,13 @@ import { useIpcWatchMode } from './hooks/useIpcWatchMode'
 import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
 import { useApi } from './contexts/ApiContext'
+import { useLogs } from './contexts/useLogs'
+import {
+  createLogsZipRaw,
+  createLogsZipJson,
+  downloadBlob,
+  generateAllLogsZipFilename,
+} from './lib/logs'
 import { cn } from './lib/utils'
 
 function App() {
@@ -29,10 +38,24 @@ function App() {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+
+  const { getAllLogs, hasLogs } = useLogs();
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke('native:open-runbook-dialog')
   }, [api])
+
+  const handleDownloadLogsRaw = useCallback(async () => {
+    const blob = await createLogsZipRaw(getAllLogs())
+    downloadBlob(blob, generateAllLogsZipFilename())
+  }, [getAllLogs])
+
+  const handleDownloadLogsJson = useCallback(async () => {
+    const blob = await createLogsZipJson(getAllLogs())
+    downloadBlob(blob, generateAllLogsZipFilename())
+  }, [getAllLogs])
 
   // Listen for "Open from URL" menu command
   useEffect(() => {
@@ -41,6 +64,26 @@ function App() {
     })
     return cleanup
   }, [api])
+
+  // Listen for "Command Palette" menu command (sent by the View menu accelerator).
+  useEffect(() => {
+    const cleanup = api.on('menu:open-command-palette', () => {
+      setIsPaletteOpen(true)
+    })
+    return cleanup
+  }, [api])
+
+  // Global Cmd/Ctrl+K keydown to toggle the palette.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setIsPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Use the useApi hook to fetch runbook data
   const getRunbookResult = useIpcGetRunbook()
@@ -192,7 +235,13 @@ function App() {
   return (
     <>
       <div className="flex flex-col">
-        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
+        <Header
+          pathName={pathName}
+          localPath={getRunbookResult.data?.path}
+          onShowAbout={() => setIsAboutDialogOpen(true)}
+          onDownloadLogsRaw={handleDownloadLogsRaw}
+          onDownloadLogsJson={handleDownloadLogsJson}
+        />
         
         {/* Error Summary Banner */}
         {(errorCount > 0 || warningCount > 0) && (
@@ -361,6 +410,28 @@ function App() {
 
       {/* Open from URL Modal */}
       <OpenUrlModal open={isUrlModalOpen} onOpenChange={setIsUrlModalOpen} />
+
+      {/* About Dialog */}
+      <AboutDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen} />
+
+      {/* Command Palette (Cmd/Ctrl+K) */}
+      <CommandPalette
+        open={isPaletteOpen}
+        onOpenChange={setIsPaletteOpen}
+        ctx={{
+          hasRunbookOpen: Boolean(getRunbookResult.data),
+          hasLogs,
+          onOpenRunbook: handleOpenRunbook,
+          onOpenUrl: () => setIsUrlModalOpen(true),
+          onCloseRunbook: () => { void api.invoke('native:close-runbook') },
+          onToggleArtifacts: () => setIsArtifactsHidden((v) => !v),
+          onToggleMobileView: () =>
+            setActiveMobileSection((v) => (v === 'markdown' ? 'code' : 'markdown')),
+          onDownloadLogsRaw: handleDownloadLogsRaw,
+          onDownloadLogsJson: handleDownloadLogsJson,
+          onShowAbout: () => setIsAboutDialogOpen(true),
+        }}
+      />
     </>
   )
 }

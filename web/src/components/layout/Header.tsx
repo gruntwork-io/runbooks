@@ -1,7 +1,6 @@
-import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
+import { type ComponentType, type ComponentPropsWithRef } from 'react';
 import { ChevronDown, Download, Info, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
 import logoDarkAlpha from '@/assets/runbooks-logo-dark-alpha.svg';
-import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -9,14 +8,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '../ui/tooltip';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,12 +18,6 @@ import {
 import { useLogs } from '@/contexts/useLogs';
 import { useApi } from '@/contexts/ApiContext';
 import { getDirectoryPath } from '@/lib/utils';
-import {
-  createLogsZipRaw,
-  createLogsZipJson,
-  downloadBlob,
-  generateAllLogsZipFilename,
-} from '@/lib/logs';
 
 function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...props }: {
   didCopy: boolean;
@@ -58,6 +43,9 @@ interface HeaderProps {
   pathName: string;
   /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
   localPath?: string;
+  onShowAbout: () => void;
+  onDownloadLogsRaw: () => void;
+  onDownloadLogsJson: () => void;
 }
 
 /**
@@ -73,9 +61,8 @@ interface HeaderProps {
  * @param props.pathName - The display string (remote URL or local path) for the header
  * @param props.localPath - The local filesystem path (for copy button when remote)
  */
-export function Header({ pathName, localPath }: HeaderProps) {
-  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
-  const { getAllLogs, hasLogs } = useLogs();
+export function Header({ pathName, localPath, onShowAbout, onDownloadLogsRaw, onDownloadLogsJson }: HeaderProps) {
+  const { hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
   const api = useApi();
 
@@ -95,18 +82,6 @@ export function Header({ pathName, localPath }: HeaderProps) {
   // (i.e., when viewing a remote runbook)
   const isRemote = localPath && localPath !== pathName;
   const localDir = getDirectoryPath(localPath) || localPath;
-
-  const handleDownloadRaw = async () => {
-    const logsMap = getAllLogs();
-    const blob = await createLogsZipRaw(logsMap);
-    downloadBlob(blob, generateAllLogsZipFilename());
-  };
-
-  const handleDownloadJson = async () => {
-    const logsMap = getAllLogs();
-    const blob = await createLogsZipJson(logsMap);
-    downloadBlob(blob, generateAllLogsZipFilename());
-  };
 
   return (
     <>
@@ -152,7 +127,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={handleDownloadRaw}
+                onClick={onDownloadLogsRaw}
                 disabled={!hasLogs}
                 className={!hasLogs ? 'opacity-50 cursor-not-allowed' : ''}
               >
@@ -160,7 +135,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Download logs (Raw)
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={handleDownloadJson}
+                onClick={onDownloadLogsJson}
                 disabled={!hasLogs}
                 className={!hasLogs ? 'opacity-50 cursor-not-allowed' : ''}
               >
@@ -177,7 +152,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Close Runbook
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
+              <DropdownMenuItem onClick={onShowAbout}>
                 <Info className="size-4" />
                 About
               </DropdownMenuItem>
@@ -185,25 +160,6 @@ export function Header({ pathName, localPath }: HeaderProps) {
           </DropdownMenu>
         </div>
       </header>
-
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
-        <AlertDialogContent>
-          <div className="relative">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img src={logoDarkColor} alt="Gruntwork Runbooks" className="h-16 mb-2" />
-              
-              <AlertDialogDescription className="text-left space-y-4">
-                <p>Runbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>
-                <p>Runbooks is published by <a target="_blank" rel="noreferrer" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" rel="noreferrer" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" rel="noreferrer" href="https://runbooks.gruntwork.io">Runbooks docs</a> for more information.</p>
-                <AlertDialogAction className="block mt-4" onClick={() => setIsAboutDialogOpen(false)}>
-                Close
-                </AlertDialogAction>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

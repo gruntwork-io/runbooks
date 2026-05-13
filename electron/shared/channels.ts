@@ -281,6 +281,7 @@ export interface IpcEventMap {
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "menu:close-runbook": void
+  "menu:open-command-palette": void
   "registry:updated": void
 }
 
