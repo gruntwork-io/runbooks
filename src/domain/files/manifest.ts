@@ -93,11 +93,8 @@ export interface ManifestEntryWithContent extends ManifestEntry {
 
 /**
  * Scan a directory recursively and build a manifest of all files with their
- * SHA-256 content hashes and content.
- *
- * Reads run in parallel at {@link BATCH_IO_CONCURRENCY}. Callers that don't
- * need content should use {@link buildManifestFromDirectory} for a
- * smaller-allocation result.
+ * SHA-256 content hashes and content. Reads run in parallel at
+ * {@link BATCH_IO_CONCURRENCY}.
  */
 export function buildManifestFromDirectoryWithContent(rootDir: string) {
   return Effect.gen(function* () {
@@ -250,6 +247,56 @@ function cleanupEmptyParentDirs(dir: string, stopAt: string) {
 }
 
 /**
+ * Delete orphan files and prune now-empty parent directories.
+ * Two siblings racing to remove the same parent is harmless:
+ * cleanupEmptyParentDirs swallows the loser's "not empty" / "not found" rm.
+ */
+function deleteOrphans(orphaned: readonly string[], outputDir: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const results = yield* Effect.forEach(
+      orphaned,
+      (relPath) =>
+        Effect.gen(function* () {
+          const fullPath = path.join(outputDir, relPath)
+          const ok = yield* Effect.isSuccess(fs.rm(fullPath, { force: true }))
+          yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
+          return ok
+        }),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+    return results.filter(Boolean).length
+  })
+}
+
+/**
+ * Restore unchanged files the user (or another process) deleted between
+ * renders. Returns the number of files actually rewritten.
+ */
+function restoreMissingUnchanged<E, R>(
+  unchanged: readonly string[],
+  outputDir: string,
+  restore: (relPath: string) => Effect.Effect<void, E, R>,
+) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const results = yield* Effect.forEach(
+      unchanged,
+      (relPath) =>
+        Effect.gen(function* () {
+          const fullPath = path.join(outputDir, relPath)
+          const exists = yield* fs.exists(fullPath)
+          if (exists) return false
+          yield* restore(relPath)
+          return true
+        }),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+    return results.filter(Boolean).length
+  })
+}
+
+/**
  * Apply a manifest diff by patching `outputDir` to match `sourceDir`:
  *  - delete orphaned files (present in the prior manifest but not the new one)
  *  - copy created and modified files from `sourceDir` to `outputDir`
@@ -265,25 +312,7 @@ export function applyDiff(
   outputDir: string,
 ) {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem
-    let deleted = 0
-
-    // Delete orphans and clean up any newly-empty parent directories. Two
-    // siblings racing to remove the same parent is harmless: cleanupEmptyParentDirs
-    // swallows the loser's "not empty" / "not found" rm failure.
-    const deletes = yield* Effect.forEach(
-      diff.orphaned,
-      (relPath) =>
-        Effect.gen(function* () {
-          const fullPath = path.join(outputDir, relPath)
-          const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
-          const ok = result._tag === "Right" ? 1 : 0
-          yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
-          return ok
-        }),
-      { concurrency: BATCH_IO_CONCURRENCY },
-    )
-    for (const n of deletes) deleted += n
+    const deleted = yield* deleteOrphans(diff.orphaned, outputDir)
 
     // Write created + modified files in one parallel batch — they're
     // independent and skipping the barrier between them avoids latency
@@ -295,23 +324,13 @@ export function applyDiff(
       { concurrency: BATCH_IO_CONCURRENCY },
     )
 
-    // Unchanged files: skip unless the user manually deleted them on disk.
-    const restored = yield* Effect.forEach(
+    const restored = yield* restoreMissingUnchanged(
       diff.unchanged,
-      (relPath) =>
-        Effect.gen(function* () {
-          const fullPath = path.join(outputDir, relPath)
-          const exists = yield* fs.exists(fullPath)
-          if (exists) return 0
-          yield* copyFileForManifest(sourceDir, outputDir, relPath)
-          return 1
-        }),
-      { concurrency: BATCH_IO_CONCURRENCY },
+      outputDir,
+      (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
     )
 
-    const written = writes.length + restored.reduce((a, b) => a + b, 0)
-
-    return { written, deleted } satisfies ApplyDiffResult
+    return { written: writes.length + restored, deleted } satisfies ApplyDiffResult
   })
 }
 
@@ -331,24 +350,6 @@ export function applyDiffFromContent(
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
-    let written = 0
-    let deleted = 0
-
-    // Delete orphans in parallel; cleanupEmptyParentDirs swallows races
-    // between siblings (see applyDiff for the same pattern).
-    const deletes = yield* Effect.forEach(
-      diff.orphaned,
-      (relPath) =>
-        Effect.gen(function* () {
-          const fullPath = path.join(outputDir, relPath)
-          const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
-          const ok = result._tag === "Right" ? 1 : 0
-          yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
-          return ok
-        }),
-      { concurrency: BATCH_IO_CONCURRENCY },
-    )
-    for (const n of deletes) deleted += n
 
     const writeFromContent = (relPath: string) =>
       Effect.gen(function* () {
@@ -365,32 +366,27 @@ export function applyDiffFromContent(
         yield* fs.writeFile(dstPath, content)
       })
 
+    const deleted = yield* deleteOrphans(diff.orphaned, outputDir)
+
     const writes = [...diff.created, ...diff.modified]
     yield* Effect.forEach(writes, writeFromContent, {
       concurrency: BATCH_IO_CONCURRENCY,
     })
-    written += writes.length
 
-    // Unchanged files: skip unless the user manually deleted them on disk.
     // With dirty-set rendering we may not have content cached for every
     // unchanged path (only what was re-rendered this call). Restore from
     // contentMap if available; otherwise rely on a future render-all to
     // bring the file back.
-    const restored = yield* Effect.forEach(
-      diff.unchanged,
-      (relPath) =>
-        Effect.gen(function* () {
-          const fullPath = path.join(outputDir, relPath)
-          const exists = yield* fs.exists(fullPath)
-          if (exists) return 0
-          if (!contents.has(relPath)) return 0
-          yield* writeFromContent(relPath)
-          return 1
-        }),
-      { concurrency: BATCH_IO_CONCURRENCY },
+    const restorable = diff.unchanged.filter((p) => contents.has(p))
+    const restored = yield* restoreMissingUnchanged(
+      restorable,
+      outputDir,
+      writeFromContent,
     )
-    for (const n of restored) written += n
 
-    return { written, deleted } satisfies ApplyDiffResult
+    return {
+      written: writes.length + restored,
+      deleted,
+    } satisfies ApplyDiffResult
   })
 }
