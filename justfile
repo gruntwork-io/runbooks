@@ -79,10 +79,8 @@ fetch-boilerplate:
     curl -fL --retry 3 -o resources/bin/boilerplate "${base}/boilerplate_${os}_${arch}"
     chmod +x resources/bin/boilerplate
 
-    echo "[fetch-boilerplate] $VERSION WASM blob (boilerplate.wasm.br)"
-    # The runtime loader (src/layers/NodeWasmRuntime.ts) expects the name
-    # boilerplate-full.wasm.br; the release ships boilerplate.wasm.br.
-    curl -fL --retry 3 -o resources/wasm/boilerplate-full.wasm.br "${base}/boilerplate.wasm.br"
+    echo "[fetch-boilerplate] $VERSION WASM blob (boilerplate-full.wasm.br)"
+    curl -fL --retry 3 -o resources/wasm/boilerplate-full.wasm.br "${base}/boilerplate-full.wasm.br"
 
     echo "[fetch-boilerplate] $VERSION wasm_exec.js"
     curl -fL --retry 3 -o resources/wasm/wasm_exec.js "${base}/wasm_exec.js"

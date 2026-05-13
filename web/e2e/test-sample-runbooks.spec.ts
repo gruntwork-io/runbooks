@@ -403,7 +403,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await expect(page.getByRole("heading", { name: "Deploy", exact: true })).toBeVisible();
 
     // Verify the Check block rendered with a Check button.
-    const checkBlock = page.getByTestId("check-node");
+    const checkBlock = page.getByTestId("check-prereqs");
     await expect(checkBlock).toBeVisible();
     await expect(checkBlock.getByRole("button", { name: "Check" })).toBeVisible();
 

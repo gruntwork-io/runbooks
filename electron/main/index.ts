@@ -34,9 +34,13 @@ populateShellEnv()
 // dev (`electron-vite dev`), app.getAppPath() is the repo root. User-set
 // env vars win so devs can still override with a custom build.
 {
+  // Packaged: extraResources lands files under process.resourcesPath
+  // (e.g. .app/Contents/Resources/bin, .../wasm). Dev (electron <main.js>
+  // or electron-vite dev): __dirname is <repo>/dist/main, so resources/
+  // sits two levels up. electron-vite shims __dirname for ESM builds.
   const resourcesDir = app.isPackaged
-    ? path.dirname(app.getAppPath())
-    : path.join(app.getAppPath(), "resources")
+    ? process.resourcesPath
+    : path.resolve(__dirname, "..", "..", "resources")
   if (!process.env.BOILERPLATE_BIN) {
     const bundled = path.join(
       resourcesDir,
