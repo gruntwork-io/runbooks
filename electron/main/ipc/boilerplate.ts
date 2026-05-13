@@ -3,9 +3,11 @@
  *
  * Provides config parsing, template rendering, and inline template rendering.
  */
+import * as path from "path"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
+import { validateRelativePathIn } from "../../../src/path-validation.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,
@@ -639,7 +641,8 @@ export function registerBoilerplateHandlers(): void {
             yield* fs.mkdir(outputDir, { recursive: true })
 
             for (const [name, rendered] of Object.entries(renderedFiles)) {
-              const filePath = `${outputDir}/${name}`
+              yield* validateRelativePathIn(name, outputDir)
+              const filePath = path.resolve(outputDir, name)
               yield* fs.writeFile(filePath, (rendered as any).content)
             }
           }

@@ -4,14 +4,17 @@
  * Provides file reading and generated file management (check and delete).
  */
 import * as path from "path"
+import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, runbookConfig } from "./runtime.ts"
 import { readFileMetadata } from "../../../src/domain/workspace/file.ts"
 import {
   checkGeneratedFiles,
   deleteGeneratedFiles,
+  resolveToAbsolutePath,
 } from "../../../src/domain/files/generated.ts"
 import { containsPathTraversal, isContainedIn } from "../../../src/path-validation.ts"
+import { validateSessionPath } from "./path-guard.ts"
 
 export function registerFileHandlers(): void {
   ipcMain.handle(
@@ -43,7 +46,11 @@ export function registerFileHandlers(): void {
       const workingDir = await getWorkingDir()
       const outputPath = params?.outputPath ?? "generated"
       return runtime.runPromise(
-        checkGeneratedFiles(workingDir, outputPath),
+        Effect.gen(function* () {
+          const absoluteOutputPath = yield* resolveToAbsolutePath(workingDir, outputPath)
+          yield* validateSessionPath(absoluteOutputPath)
+          return yield* checkGeneratedFiles(workingDir, outputPath)
+        }),
       )
     },
   )
@@ -54,7 +61,11 @@ export function registerFileHandlers(): void {
       const workingDir = await getWorkingDir()
       const outputPath = params?.outputPath ?? "generated"
       return runtime.runPromise(
-        deleteGeneratedFiles(workingDir, outputPath),
+        Effect.gen(function* () {
+          const absoluteOutputPath = yield* resolveToAbsolutePath(workingDir, outputPath)
+          yield* validateSessionPath(absoluteOutputPath)
+          return yield* deleteGeneratedFiles(workingDir, outputPath)
+        }),
       )
     },
   )
