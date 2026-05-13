@@ -1,11 +1,11 @@
 export interface Executable {
   id: string
   type: 'inline' | 'file'
-  component_id: string
-  component_type: 'check' | 'command'
-  script_content_hash: string
-  script_path?: string
-  template_var_names?: string[]
+  componentId: string
+  componentType: 'check' | 'command'
+  contentHash: string
+  path?: string
+  templateVars?: string[]
   language?: string
 }
 
@@ -15,4 +15,3 @@ export interface ExecutableRegistryResponse {
   executables: ExecutableRegistry
   warnings: string[]
 }
-

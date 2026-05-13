@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useGitWorkTree } from '../contexts/useGitWorkTree'
-import { useSession } from '../contexts/useSession'
 
 /**
  * A file change in the workspace (from git status + diff).
@@ -42,7 +41,6 @@ const POLL_INTERVAL_MS = 3000
  */
 export function useGitFileChanges(): UseGitFileChangesResult {
   const { activeWorkTree, treeVersion } = useGitWorkTree()
-  const { getAuthHeader } = useSession()
   const [changes, setChanges] = useState<WorkspaceFileChange[]>([])
   const [totalChanges, setTotalChanges] = useState(0)
   const [tooManyChanges, setTooManyChanges] = useState(false)
@@ -55,24 +53,14 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     inFlightRef.current = true
 
     try {
-      const response = await fetch(
-        `/api/workspace/changes?path=${encodeURIComponent(localPath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
-
-      if (!response.ok) {
-        return // Silently retry on next interval
-      }
-
-      const text = await response.text()
+      const data = await window.api.invoke('workspace:changes', { worktreePath: localPath }) as unknown as WorkspaceChangesResponse
 
       // Smart skipping: don't update state if response is identical
+      const text = JSON.stringify(data)
       if (text === previousResponseRef.current) {
         return
       }
       previousResponseRef.current = text
-
-      const data: WorkspaceChangesResponse = JSON.parse(text)
       setChanges(data.changes || [])
       setTotalChanges(data.totalChanges)
       setTooManyChanges(data.tooManyChanges ?? false)
@@ -81,7 +69,7 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     } finally {
       inFlightRef.current = false
     }
-  }, [getAuthHeader])
+  }, [])
 
   // Poll for changes, and refetch immediately when treeVersion changes
   useEffect(() => {
@@ -117,14 +105,7 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     if (!activeWorkTree) return
 
     try {
-      const response = await fetch(
-        `/api/workspace/changes?path=${encodeURIComponent(activeWorkTree.localPath)}&file=${encodeURIComponent(filePath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
-
-      if (!response.ok) return
-
-      const data: WorkspaceChangesResponse = await response.json()
+      const data = await window.api.invoke('workspace:changes', { worktreePath: activeWorkTree.localPath, singleFile: filePath }) as unknown as WorkspaceChangesResponse
       if (data.changes && data.changes.length > 0) {
         const fullChange = data.changes[0]
         // Merge the full diff into the existing changes array
@@ -139,7 +120,7 @@ export function useGitFileChanges(): UseGitFileChangesResult {
     } catch {
       // Silently fail
     }
-  }, [activeWorkTree, getAuthHeader])
+  }, [activeWorkTree])
 
   return { changes, totalChanges, tooManyChanges, isLoading, fetchFileDiff }
 }

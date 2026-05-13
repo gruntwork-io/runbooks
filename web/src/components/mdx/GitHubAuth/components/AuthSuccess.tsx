@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Shield } from "lucide-react"
+import { AlertTriangle, Bot, ChevronDown, ChevronRight, ExternalLink, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { GitHubUserInfo, GitHubDetectionSource, GitHubTokenType } from "../types"
 
@@ -69,9 +69,9 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
   'workflow': 'Update GitHub Actions workflows',
 }
 
-export function AuthSuccess({ 
-  userInfo, 
-  detectionSource, 
+export function AuthSuccess({
+  userInfo,
+  detectionSource,
   detectedScopes,
   detectedTokenType,
   scopeWarning,
@@ -80,7 +80,65 @@ export function AuthSuccess({
 }: AuthSuccessProps) {
   const [showPermissions, setShowPermissions] = useState(false)
   const isFineGrainedPat = detectedTokenType === 'fine_grained_pat'
-  
+  // ghs_ installation tokens have no user context — /user returns 403 — so
+  // validateToken synthesizes a user without an avatar. ghu_ tokens also
+  // detect as 'github_app' but hit /user successfully and have a real avatar,
+  // so they fall through to the normal user card.
+  const isAppInstallation = detectedTokenType === 'github_app' && !userInfo.avatarUrl
+
+  if (isAppInstallation) {
+    return (
+      <div className="mb-4">
+        <div className="text-green-700 font-semibold text-sm mb-2 flex items-center gap-2">
+          <span>✓ Authenticated as GitHub App</span>
+          {detectionSource && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-normal">
+              {detectionSource === 'env' && 'From Environment'}
+              {detectionSource === 'cli' && 'Via GitHub CLI'}
+              {detectionSource === 'block' && 'From Command'}
+            </span>
+          )}
+        </div>
+        <div className="bg-green-100/50 rounded p-3 text-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full border border-green-200 bg-white flex items-center justify-center">
+              <Bot className="size-5 text-gray-600" />
+            </div>
+            <div>
+              <div className="text-gray-700 font-medium">
+                {userInfo.name || 'GitHub App Installation'}
+              </div>
+              <div className="text-gray-500 text-xs">
+                @{userInfo.login}
+              </div>
+              <div className="text-gray-400 text-xs mt-1 flex items-center gap-1">
+                <Shield className="size-3" />
+                <span>GitHub App Token</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-green-200 text-gray-500 text-xs">
+            GitHub Apps use installation-level permission grants instead of OAuth scopes.
+            Access is scoped to the repositories the app is installed on.
+          </div>
+          {sessionEnvWarning && (
+            <div className="mt-3 pt-3 border-t border-green-200 flex items-start gap-2 text-amber-600 text-xs">
+              <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
+              <div>{sessionEnvWarning}</div>
+            </div>
+          )}
+        </div>
+        {onReAuthenticate && (
+          <div className="mt-3">
+            <Button variant="outline" size="sm" onClick={onReAuthenticate}>
+              Use a different token
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="mb-4">
       <div className="text-green-700 font-semibold text-sm mb-2 flex items-center gap-2">

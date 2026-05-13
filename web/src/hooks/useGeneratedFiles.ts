@@ -9,5 +9,4 @@ export const useGeneratedFiles = (): GeneratedFilesContextType => {
   return context
 }
 
-// Re-export the context for backward compatibility
 export { GeneratedFilesContext }

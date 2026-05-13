@@ -68,7 +68,7 @@ export interface BlockInputs {
  */
 export interface TemplateValue {
   name: string
-  type: BoilerplateVariableType
+  type: BoilerplateVariableType | string
   value: unknown
 }
 
@@ -118,8 +118,7 @@ export interface RunbookContextType {
   /** The runbook name derived from its directory path (e.g., "github-pull-request") */
   runbookName: string | undefined
 
-  /** The original remote URL when the runbook was opened from a remote source (e.g., GitHub URL).
-   * Used by TfModule's source="::cli_runbook_source" keyword to resolve the module source dynamically. */
+  /** The original remote URL when the runbook was opened from a remote source (e.g., GitHub URL). */
   remoteSource: string | undefined
 
   /** All registered inputs data, keyed by Inputs block ID */
@@ -261,9 +260,9 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
       }
     })
 
-    // Also include extra values that aren't in the config (e.g., _module namespace
-    // injected by TfModule). These are passed through as Map type so the backend
-    // can process them as template variables alongside the declared config variables.
+    // Also include extra values that aren't in the config. These are passed through
+    // as Map type so the backend can process them as template variables alongside
+    // the declared config variables.
     for (const [name, value] of Object.entries(values)) {
       if (!configVarNames.has(name)) {
         result.push({

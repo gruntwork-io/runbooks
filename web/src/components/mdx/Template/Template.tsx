@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback, startTransition } from 'react'
 import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
 import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
 import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
@@ -11,6 +11,7 @@ import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
 import { computeChangeKey } from '@/lib/changeDetection'
+import { markStage } from '@/lib/renderPerf'
 import { XCircle } from 'lucide-react'
 
 /**
@@ -76,7 +77,6 @@ function Template({
   
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
-  const [formChangeTrigger, setFormChangeTrigger] = useState(0);
   
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
   const hasEverGeneratedRef = useRef(false);
@@ -234,11 +234,16 @@ function Template({
     target
   )
 
-  // Track successful generation (file tree updates are handled by useApiBoilerplateRender)
+  // Track successful generation (file tree updates are handled by useApiBoilerplateRender).
+  // Marks render-committed and painted stages; the gap between IPC response and this
+  // effect firing captures React scheduler + reconciliation + commit + passive-effect flush.
   useEffect(() => {
     if (!renderResult) return;
     hasEverGeneratedRef.current = true;
-  }, [renderResult]);
+    markStage('Template:render-committed', { id });
+    const raf = requestAnimationFrame(() => markStage('Template:painted', { id }));
+    return () => cancelAnimationFrame(raf);
+  }, [renderResult, id]);
 
   // Check if form data has all required values filled
   const hasAllRequiredValues = useCallback((localVarValues: Record<string, unknown>): boolean => {
@@ -255,47 +260,62 @@ function Template({
   // Flatten block outputs for template rendering (used in the outputs namespace)
   const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
 
-  // Handle form changes - store in ref and bump trigger counter
-  const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
-    // Store latest local form data in ref for registration
-    localVarValuesRef.current = localVarValues;
-
-    // Update registration with new form data
-    if (boilerplateConfig && id) {
-      const mergedData = { ...inputValues, ...localVarValues };
-      registerInputs(id, mergedData, boilerplateConfig);
-    }
-
-    // Bump trigger to cause the unified auto-render effect to re-evaluate
-    setFormChangeTrigger(c => c + 1);
-  }, [id, boilerplateConfig, inputValues, registerInputs]);
-
-  // Unified auto-render effect — watches form changes (via formChangeTrigger),
-  // imported value changes (via inputValues), and output changes (via flattenedOutputs).
-  // The autoRender function from useApiBoilerplateRender already debounces at 200ms.
   const lastRenderedKeyRef = useRef<string | null>(null);
 
+  // Dispatch the IPC inline rather than waiting for an effect — RunbookContext
+  // reconciliation between commit and effect-flush added ~200 ms otherwise.
+  // The effect below handles upstream-driven changes (inputValues, outputs).
+  const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
+    markStage('Template:handleAutoRender', { id });
+    localVarValuesRef.current = localVarValues;
+
+    if (shouldRender && boilerplateConfig && hasAllOutputDependencies && hasAllRequiredValues(localVarValues)) {
+      const key = computeChangeKey(inputValues, localVarValues, flattenedOutputs);
+      if (key !== lastRenderedKeyRef.current) {
+        lastRenderedKeyRef.current = key;
+        const mergedData = buildRenderVariables(
+          { ...inputValues, ...localVarValues },
+          flattenedOutputs,
+        );
+        markStage('Template:inline-autoRender-call', { id });
+        autoRender(path, mergedData);
+      }
+    }
+
+    // Deprioritize RunbookContext churn so the IPC dispatched above isn't
+    // blocked by reconciliation.
+    startTransition(() => {
+      if (boilerplateConfig && id) {
+        const mergedData = { ...inputValues, ...localVarValues };
+        registerInputs(id, mergedData, boilerplateConfig);
+      }
+    });
+  }, [id, boilerplateConfig, inputValues, registerInputs, shouldRender, hasAllOutputDependencies, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
+
+  // Upstream-only auto-render: fires when imported values or other-block outputs
+  // change. Local form-input changes are handled inline by handleAutoRender above;
+  // the lastRenderedKeyRef dedupe guards against a redundant IPC if both fire for
+  // the same key.
   useEffect(() => {
     if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return;
 
-    // Deduplicate renders: hash the current inputs/outputs and skip if nothing changed.
-    // This prevents redundant API calls when React re-runs the effect with the same values.
     const key = computeChangeKey(inputValues, localVarValuesRef.current, flattenedOutputs);
     if (key === lastRenderedKeyRef.current) return;
     lastRenderedKeyRef.current = key;
+
+    if (!hasAllRequiredValues(localVarValuesRef.current)) return;
 
     const mergedData = buildRenderVariables(
       { ...inputValues, ...localVarValuesRef.current },
       flattenedOutputs,
     );
-
-    if (hasAllRequiredValues(localVarValuesRef.current)) {
-      autoRender(path, mergedData);
-    }
-  }, [formChangeTrigger, shouldRender, boilerplateConfig, hasAllOutputDependencies, inputValues, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
+    markStage('Template:effect-autoRender-call', { id });
+    autoRender(path, mergedData);
+  }, [shouldRender, boilerplateConfig, hasAllOutputDependencies, inputValues, flattenedOutputs, hasAllRequiredValues, autoRender, path, id]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
+    console.log('[Template] handleGenerate called', { id, path, hasConfig: Boolean(boilerplateConfig), localKeys: Object.keys(localVarValues) });
     // Store latest form data
     localVarValuesRef.current = localVarValues;
 
@@ -311,9 +331,10 @@ function Template({
     }
 
     // Trigger the render with merged data
+    console.log('[Template] setShouldRender(true)', { id, mergedKeys: Object.keys(mergedData) });
     setRenderFormData(mergedData);
     setShouldRender(true);
-  }, [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
+  }, [id, path, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
 
   // Early return for duplicate ID error
   if (isDuplicate) {

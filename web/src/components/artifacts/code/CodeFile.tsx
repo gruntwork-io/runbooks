@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CodeFileHeader } from './CodeFileHeader';
@@ -7,26 +8,29 @@ export interface CodeFileProps {
   // File identification
   fileName: string;
   filePath?: string; // Optional path for copy functionality
-  
+
   // Code content
   code: string;
-  
+
   // Syntax highlighting
   language?: string; // Default: 'text'
   showLineNumbers?: boolean; // Default: true
-  
+
   // Header options
   showCopyCodeButton?: boolean;
   showCopyPathButton?: boolean;
-  
+
   // Styling
   className?: string;
 }
 
-export const CodeFile = ({ 
-  fileName, 
-  filePath, 
-  code, 
+// Memoized so a parent re-render with the same `code` string doesn't re-run
+// the Prism syntax highlighter. All props are primitives, so the default
+// shallow comparison is sufficient.
+const CodeFileImpl = ({
+  fileName,
+  filePath,
+  code,
   language = 'text',
   showLineNumbers = true,
   showCopyCodeButton = true,
@@ -71,3 +75,6 @@ export const CodeFile = ({
     </div>
   );
 };
+
+export const CodeFile = memo(CodeFileImpl);
+CodeFile.displayName = 'CodeFile';

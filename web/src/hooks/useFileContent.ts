@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef } from 'react'
-import { useSession } from '../contexts/useSession'
 
 interface FileContentResult {
   path: string
@@ -35,7 +34,6 @@ const MAX_CACHE_SIZE = 50
  * Includes an in-memory LRU cache (max 50 entries).
  */
 export function useFileContent(): UseFileContentResult {
-  const { getAuthHeader } = useSession()
   const [fileContent, setFileContent] = useState<FileContentResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,17 +58,7 @@ export function useFileContent(): UseFileContentResult {
     setError(null)
 
     try {
-      const response = await fetch(
-        `/api/workspace/file?path=${encodeURIComponent(filePath)}`,
-        { headers: { ...getAuthHeader() } }
-      )
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || `Failed to load file (${response.status})`)
-      }
-
-      const data: FileContentResult = await response.json()
+      const data: FileContentResult = await window.api.invoke('workspace:file', { worktreePath: '.', filePath }) as unknown as FileContentResult
 
       if (cache.size >= MAX_CACHE_SIZE) {
         const oldestKey = cache.keys().next().value
@@ -90,7 +78,7 @@ export function useFileContent(): UseFileContentResult {
     } finally {
       setIsLoading(false)
     }
-  }, [getAuthHeader])
+  }, [])
 
   const fetchFileContent = useCallback((filePath: string) => doFetch(filePath, false), [doFetch])
   const refetchFileContent = useCallback((filePath: string) => doFetch(filePath, true), [doFetch])

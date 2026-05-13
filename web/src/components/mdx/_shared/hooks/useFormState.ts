@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
+import { markStage } from '@/lib/renderPerf'
 
-/** Debounce delay for auto-render in milliseconds */
-const AUTO_RENDER_DEBOUNCE_MS = 300
+// Below typical typing cadence (~200 ms/char). The warm path + fiber-interrupt
+// supersession reclaims work the user supersedes, so we err on the responsive
+// side. 50 ms is the lower bound before paste/dead-key handlers fire spurious
+// intermediate renders.
+const AUTO_RENDER_DEBOUNCE_MS = 50
 
 /**
  * Custom hook for managing form state and data flow
@@ -34,8 +38,13 @@ export const useFormState = (
   // Store initialData at mount time (for initial setup only)
   const initialDataRef = useRef(initialData)
   
-  // Ref for debounce timer
+  // Ref for debounce timer + leading-edge bookkeeping.
+  // `autoRenderTimerRef` tracks a pending trailing-edge fire.
+  // `lastFireAtRef` is the wall-clock time of the most recent fire (leading
+  //   or trailing); when more than AUTO_RENDER_DEBOUNCE_MS has elapsed since
+  //   that time, the next change fires immediately (leading edge).
   const autoRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastFireAtRef = useRef<number>(0)
 
   // Update refs when callbacks change
   useEffect(() => {
@@ -90,19 +99,70 @@ export const useFormState = (
     
     // Only trigger auto-render if auto-rendering is enabled, we have form data, and it's not the initial load
     if (enableAutoRender && onAutoRenderRef.current && Object.keys(formData).length > 0 && !isInitialLoad) {
-      // Clear any pending debounce timer
-      if (autoRenderTimerRef.current) {
-        clearTimeout(autoRenderTimerRef.current)
-      }
-      
-      // Debounce the auto-render callback to avoid sluggish typing
-      autoRenderTimerRef.current = setTimeout(() => {
+      // Leading + trailing debounce:
+      //
+      //   - When the user has been idle for at least AUTO_RENDER_DEBOUNCE_MS,
+      //     fire IMMEDIATELY on the next keystroke. This is the leading edge.
+      //     The whole point of the debounce is to coalesce rapid edits within
+      //     a burst; the *first* keystroke of a burst doesn't need to wait
+      //     for the burst to settle to get feedback to the user.
+      //
+      //   - During an active burst (within the debounce window of the last
+      //     fire), schedule a trailing-edge fire that reflects the final
+      //     state. Any new keystroke before the trailing fires resets the
+      //     timer.
+      //
+      // Net behavior: typing "abc" with 50 ms between strokes →
+      //   "a" fires immediately (leading), "c" fires after a 50 ms quiet
+      //   period (trailing); "b" is collapsed.
+      const now = Date.now()
+      const sinceLastFire = now - lastFireAtRef.current
+      const fire = () => {
+        lastFireAtRef.current = Date.now()
+        markStage('useFormState:debounce-fire')
         if (onAutoRenderRef.current) {
           onAutoRenderRef.current(formData)
         }
-      }, AUTO_RENDER_DEBOUNCE_MS)
+      }
+
+      if (autoRenderTimerRef.current) {
+        clearTimeout(autoRenderTimerRef.current)
+        autoRenderTimerRef.current = null
+      }
+
+      if (sinceLastFire >= AUTO_RENDER_DEBOUNCE_MS) {
+        // Leading edge: idle long enough, fire now.
+        fire()
+        // Still schedule a trailing fire to capture any final keystroke that
+        // arrives during this debounce window — without it, a single fast
+        // keystroke after the leading would never re-fire.
+        autoRenderTimerRef.current = setTimeout(() => {
+          autoRenderTimerRef.current = null
+          fire()
+        }, AUTO_RENDER_DEBOUNCE_MS)
+      } else {
+        // Inside the debounce window: trailing fire only.
+        autoRenderTimerRef.current = setTimeout(() => {
+          autoRenderTimerRef.current = null
+          fire()
+        }, AUTO_RENDER_DEBOUNCE_MS - sinceLastFire)
+      }
     }
   }, [formData, isInitialLoad, enableAutoRender])
+
+  /**
+   * Updates multiple form fields at once
+   * @param updates - Object with field names as keys and new values
+   */
+  const updateFields = useCallback((updates: Record<string, unknown>) => {
+    setFormData(prev => {
+      let changed = false
+      for (const k of Object.keys(updates)) {
+        if (prev[k] !== updates[k]) { changed = true; break }
+      }
+      return changed ? { ...prev, ...updates } : prev
+    })
+  }, [])
 
   /**
    * Updates a specific form field value
@@ -110,22 +170,8 @@ export const useFormState = (
    * @param value - New value for the field
    */
   const updateField = useCallback((fieldName: string, value: unknown) => {
-    setFormData(prev => ({
-      ...prev,
-      [fieldName]: value
-    }))
-  }, [])
-
-  /**
-   * Updates multiple form fields at once
-   * @param updates - Object with field names as keys and new values
-   */
-  const updateFields = useCallback((updates: Record<string, unknown>) => {
-    setFormData(prev => ({
-      ...prev,
-      ...updates
-    }))
-  }, [])
+    updateFields({ [fieldName]: value })
+  }, [updateFields])
 
   /**
    * Resets the form to default values from the boilerplate configuration

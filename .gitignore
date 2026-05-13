@@ -16,6 +16,11 @@ runbooks
 generated/*
 coverage.out
 *.test
+dist/
+testdata/**/output
+testdata/**/empty-repo
+out/
+test-results/
 
 # Keep TODOs local for now
 TODO/
@@ -31,3 +36,13 @@ TODO/
 
 # Ignore downloaded dependencies
 node_modules/*
+
+# Ignore additional binaries
+resources/bin/*
+
+# Ignore fetched boilerplate WASM artifacts (see justfile fetch-boilerplate)
+resources/wasm/
+resources/.boilerplate-version
+
+# Ignore electron-vite build-time scratch configs
+electron.vite.config.*.mjs

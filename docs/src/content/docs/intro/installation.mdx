@@ -6,123 +6,55 @@ sidebar:
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-### Homebrew (macOS & Linux)
-
-The quickest way to install Runbooks is via [Homebrew](https://brew.sh/):
-
-```bash
-brew install gruntwork-io/tap/runbooks
-```
-
-To install a specific version:
-
-```bash
-brew install gruntwork-io/tap/runbooks@0.5.2
-```
-
-To upgrade to the latest version:
-
-```bash
-brew upgrade gruntwork-io/tap/runbooks
-```
-
-### Installing pre-built binaries
-
-Alternatively, you can download pre-built binaries from the [GitHub releases page](https://github.com/gruntwork-io/runbooks/releases).
+Download the latest version of Runbooks from the [GitHub releases page](https://github.com/gruntwork-io/runbooks/releases).
 
 <Tabs>
   <TabItem label="macOS">
-    **Using curl (Apple Silicon M1/M2/M3/etc.):**
-    ```bash
-    # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_darwin_arm64
+    Download the `.dmg` file for your Mac from the latest GitHub release:
 
-    # Make it executable
-    chmod +x runbooks
+    - **Apple Silicon (M1/M2/M3/M4):** `Runbooks-x.y.z-arm64.dmg`
+    - **Intel:** `Runbooks-x.y.z-x64.dmg`
 
-    # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
-    ```
-    
-    **Using curl (Intel Mac):**
-    ```bash
-    # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_darwin_amd64
-
-    # Make it executable
-    chmod +x runbooks
-
-    # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
-    ```
+    Open the `.dmg` file and drag **Runbooks** into your **Applications** folder.
 
     <Aside type="tip">
-      Not sure which chip you have? Run `uname -m` in your terminal. If it says `arm64`, you have Apple Silicon. If it says `x86_64`, you have an Intel Mac.
+      Not sure which chip you have? Click the Apple menu and select **About This Mac**. If you see "Apple M1" or similar, download the Apple Silicon version. If you see "Intel", download the Intel version.
+    </Aside>
+
+    <Aside type="note">
+      On first launch, macOS may show a security warning because the app is not signed with an Apple Developer certificate. To open it, go to **System Settings > Privacy & Security** and click **Open Anyway**.
     </Aside>
   </TabItem>
 
   <TabItem label="Linux">
-    **Using curl (x86_64/AMD64):**
-    ```bash
-    # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64
+    Download one of the following from the latest GitHub release:
 
-    # Make it executable
-    chmod +x runbooks
+    - **AppImage:** `Runbooks-x.y.z.AppImage` -- works on most Linux distributions without installation. Mark it as executable and run it directly:
+      ```bash
+      chmod +x Runbooks-x.y.z.AppImage
+      ./Runbooks-x.y.z.AppImage
+      ```
 
-    # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
-    ```
+    - **Debian/Ubuntu (.deb):** `runbooks_x.y.z_amd64.deb` -- install with:
+      ```bash
+      sudo dpkg -i runbooks_x.y.z_amd64.deb
+      ```
 
-    **Using curl (ARM64):**
-    ```bash
-    # Download the latest release
-    curl -Lo runbooks https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_arm64
-
-    # Make it executable
-    chmod +x runbooks
-
-    # Move to your PATH
-    sudo mv runbooks /usr/local/bin/
-    ```
-
-    <Aside type="tip">
-      Not sure which architecture you have? Run `uname -m` in your terminal. If it says `x86_64`, use the amd64 version. If it says `aarch64` or `arm64`, use the arm64 version.
-    </Aside>
+    After installation, launch Runbooks from your application menu or by running `runbooks` in a terminal.
   </TabItem>
 
   <TabItem label="Windows">
-    **Using PowerShell:**
-    ```powershell
-    # Download the latest release
-    Invoke-WebRequest -Uri "https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_windows_amd64.exe" -OutFile "runbooks.exe"
+    Download the `.exe` installer from the latest GitHub release:
 
-    # Move to a directory in your PATH (create if needed)
-    New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\runbooks"
-    Move-Item -Force runbooks.exe "$env:LOCALAPPDATA\runbooks\runbooks.exe"
-    ```
+    - `Runbooks-x.y.z-setup.exe`
 
-    Then add `%LOCALAPPDATA%\runbooks` to your PATH:
-    1. Press `Win + R`, type `sysdm.cpl`, and press Enter
-    2. Go to the **Advanced** tab and click **Environment Variables**
-    3. Under "User variables", select **Path** and click **Edit**
-    4. Click **New** and add `%LOCALAPPDATA%\runbooks`
-    5. Click **OK** to save
-
-    <Aside type="tip">
-      Alternatively, you can add to PATH via PowerShell (requires reopening your terminal):
-      ```powershell
-      [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\runbooks", "User")
-      ```
-    </Aside>
+    Run the installer and follow the on-screen prompts. Once installation is complete, launch Runbooks from the Start menu or desktop shortcut.
   </TabItem>
 </Tabs>
 
-
-
 ### Building from source
 
-As an alternative to downloading pre-built binaries, you can build the binaries yourself:
+If you prefer to build the app yourself, you will need [mise](https://mise.jdx.dev/) and [just](https://github.com/casey/just) installed as prerequisites.
 
 1. Clone the repository:
    ```bash
@@ -130,40 +62,27 @@ As an alternative to downloading pre-built binaries, you can build the binaries 
    cd runbooks
    ```
 
-2. Build the frontend:
+2. Install tool versions and dependencies:
    ```bash
-   cd web
+   mise install
    bun install
-   bun run build
    ```
 
-3. Build the binary:
+3. Build the application:
    ```bash
-   go build -o runbooks main.go
+   just build
    ```
 
-4. Move the binary to your PATH (optional):
+4. Package the application for your platform:
    ```bash
-   sudo mv runbooks /usr/local/bin/
+   just package
    ```
 
-5. Enable execute permissions for your binary
-   ```bash
-   chmod u+x /usr/local/bin/runbooks
-   ```
-
-6. Verify installation:
-   ```bash
-   runbooks
-   ```
+   The packaged application will be available in the build output directory.
 
 ### Verifying installation
 
-Once installed, you can verify that `runbooks` is working by running:
-
-```bash
-runbooks version
-```
+Open the Runbooks application. If everything is installed correctly, you should see the welcome screen.
 
 ## Next
 

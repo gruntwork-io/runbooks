@@ -2,77 +2,79 @@
 title: Development Workflow
 ---
 
-If you're developing the Runbooks tool itself (working on the Go backend or React frontend), you'll want to run two separate processes in different terminals:
+If you're developing the Runbooks tool itself, this guide covers the day-to-day workflow.
 
-**Terminal 1 - Backend Server:**
+## Prerequisites
+
+All tools are managed via [mise](https://mise.jdx.dev/). Install mise, then run:
+
 ```bash
-go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
+mise install
 ```
 
-This starts the Go backend API server on the default port (7825). Use `--port` to pick a different port.
+This installs everything you need: Node.js, bun, and [just](https://github.com/casey/just) (command runner).
 
-**Terminal 2 - Frontend Dev Server:**
+## Running the Dev Server
+
+A single command starts the full Electron development environment:
+
 ```bash
-cd web
-bun dev
+just dev
 ```
 
-This starts the Vite dev server on port 5173 with hot-reloading.
+This runs `electron-vite` in dev mode with hot module replacement (HMR) for the renderer process.
 
-### Making Changes
+## Making Changes
 
-**Frontend Changes (React/TypeScript):**
-- Edit files in `/web/src`
-- Vite automatically hot-reloads the browser
+**Frontend (web/src/):**
+- Edit files in `web/src/`
+- Changes auto-reload in the Electron renderer via HMR
 - No restart needed
 
-**Backend Changes (Go):**
-- Edit files in `/api`, `/cmd`, etc.
-- Restart the `serve` command (Ctrl+C and run again)
-- Refresh the browser
+**Backend (src/):**
+- Edit files in `src/`
+- Triggers a main process rebuild and restart
 
-**Runbook Changes:**
+**Electron main process (electron/):**
+- Edit files in `electron/`
+- Triggers a rebuild and restart of the main process
+
+**Runbook changes:**
 - Edit the runbook file you're testing with
-- Refresh the browser
+- Refresh the window
 - No restart needed
 
-### Testing Your Changes
-
-Test different runbook features:
+## Testing
 
 ```bash
-# Test with different demo runbooks
-go run main.go serve testdata/sample-runbooks/demo1/runbook.mdx
-go run main.go serve testdata/sample-runbooks/demo2/runbook.mdx
-go run main.go serve testdata/sample-runbooks/lambda/runbook.mdx
+# Run all tests
+just test
+
+# Unit tests (Vitest)
+just test-unit
+
+# End-to-end tests (Playwright)
+just test-e2e
 ```
 
-### Building for Production
+## Building
 
-Build the frontend assets:
 ```bash
-cd web
-bun run build
+# Build the app (electron-vite build)
+just build
+
+# Package distributable (electron-builder)
+just package
 ```
 
-This creates optimized files in `/web/dist` that are served by the Go backend in production.
+## Code Quality
 
-Build the Go binary:
 ```bash
-go build -o runbooks main.go
-```
+# Lint (oxlint)
+just lint
 
-### Running Tests
-
-Run Go tests:
-```bash
-go test ./...
-```
-
-Run frontend tests:
-```bash
-cd web
-bun test
+# Type checking (tsc)
+just typecheck
 ```
 
 ## Adding shadcn/ui Components

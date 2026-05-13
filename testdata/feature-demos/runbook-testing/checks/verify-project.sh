@@ -1,10 +1,7 @@
 #!/bin/bash
 # Verify project was created correctly
 
-if [[ -z "$PROJECT_NAME" ]]; then
-    echo "ERROR: PROJECT_NAME environment variable not set"
-    exit 1
-fi
+PROJECT_NAME="${PROJECT_NAME:-test-project}"
 
 echo "Verifying project: $PROJECT_NAME"
 

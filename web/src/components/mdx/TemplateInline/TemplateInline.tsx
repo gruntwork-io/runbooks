@@ -170,8 +170,8 @@ function TemplateInline({
     if (isDuplicate) return;
     if (!hasAllInputDeps || !hasAllOutputDeps) return;
     // Don't render when inputsId blocks haven't submitted values yet.
-    // Templates may reference root-level keys (e.g., ._module) injected by
-    // upstream blocks like TfModule that aren't tracked as .inputs.X deps.
+    // Templates may reference root-level keys injected by
+    // upstream blocks that aren't tracked as .inputs.X deps.
     if (unmetInputsIds.length > 0) return;
 
     // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing

@@ -8,8 +8,8 @@ Every runbook has a **global context,** which is the shared collection of key-va
 
 There are two ways values are written to the global context:
 
-- **Inputs:** [Input providers](#input-providers) (like `<Inputs>`, `<TfModule>`, and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
-- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<TfModule>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`outputs` namespace](#block-outputs).
+- **Inputs:** [Input providers](#input-providers) (like `<Inputs>` and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
+- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`outputs` namespace](#block-outputs).
 
 ## Variables
 
@@ -86,16 +86,6 @@ The [`<Template>`](/authoring/blocks/template/) block generates files from a Boi
 
 In the above example, there is a local `boilerplate.yml` file at `templates/rds/boilerplate.yml`.
 
-### \<TfModule\>
-
-The [`<TfModule>`](/authoring/blocks/tfmodule/) block parses an OpenTofu/Terraform module's `.tf` files at runtime and auto-generates a web form from the module's variables. It also publishes a `_module` namespace with metadata about the module. See the [TfModule docs](/authoring/blocks/tfmodule/#the-_module-namespace) for the full namespace reference.
-
-```mdx
-<TfModule id="rds-vars" source="../modules/rds" />
-```
-
-In the above example, there is an OpenTofu or Terraform module at `../modules/rds`. TfModule also supports `source="."` for [colocated runbooks](/authoring/blocks/tfmodule/#colocated-runbooks-source) (runbook lives alongside the `.tf` files) and `source="::cli_runbook_source"` for [generic runbooks](/authoring/blocks/tfmodule/#dynamic-source-from-cli-source) that accept any module URL from the CLI.
-
 ## Wiring Blocks with `inputsId`
 
 You can take the values collected from an input provider and use them in other blocks that consume variables. Any block that consumes variables (e.g. `<Command>`, `<Check>`, `<Template>`, `<TemplateInline>`) accepts an `inputsId` prop that references an input provider by its `id`:
@@ -152,7 +142,7 @@ When you wire blocks together with `inputsId`, the consuming block receives all 
 It gets more interesting with `<Template>`, because a Template has its own `boilerplate.yml` that can *also* define variables. When a Template imports from an input provider, Runbooks compares the two sets of variables and handles each one based on where it's defined:
 
 - **If only the Template defines it:**  the variable appears as an editable field in the Template's form. This is how you collect extra inputs (like an environment name or team owner) that the input provider doesn't know about.
-- **If only the input provider defines it:** the variable is passed through to the template engine but doesn't appear in the Template's form. This includes namespaced values like `_module.*` from `<TfModule>`.
+- **If only the input provider defines it:** the variable is passed through to the template engine but doesn't appear in the Template's form.
 - **If both define it:** the variable appears in the Template's form but is read-only, staying live-synced to the input provider's value. This prevents the two forms from getting out of sync.
 
 ## Block Outputs

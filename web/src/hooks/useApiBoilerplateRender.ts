@@ -1,6 +1,6 @@
 import { useApi } from './useApi';
 import type { UseApiReturn } from './useApi';
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useEffect, startTransition } from 'react';
 import { useFileTreeUpdater } from '@/components/mdx/_shared/hooks/useFileTreeUpdater';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
 import type { HeavyDir } from '@/contexts/GeneratedFilesContext.types';
@@ -56,11 +56,22 @@ export function useApiBoilerplateRender(
     return null;
   }, [templatePath, templateId, variables, shouldFetch, target]);
 
+  // Always lazy: we never want useApi's body-change auto-fetch to dispatch
+  // a render. Render is driven exclusively through `autoRender` (the
+  // debounced path). Before lazy mode, flipping `shouldFetch` true on
+  // Generate fired one render immediately AND a second via debouncedRequest
+  // from Template's auto-render effect — doubling the work on every click.
+  // No debounce here: useFormState already debounces upstream, and the main
+  // process supersedes in-flight renders via fiber-interrupt (see
+  // electron/main/ipc/boilerplate.ts activeRenders), so back-to-back invokes
+  // never queue up. Adding a second debounce just stacked extra latency.
   const apiResult = useApi<BoilerplateRenderResult>(
-    shouldFetch ? '/api/boilerplate/render' : '', // Empty endpoint when shouldFetch is false
-    'POST', 
+    shouldFetch ? '/api/boilerplate/render' : '',
+    'POST',
     requestBody || undefined,
-    200 // 200ms debounce timeout
+    0,
+    undefined,
+    true, // lazy
   );
 
   // Auto-render function using the debounced request
@@ -71,11 +82,25 @@ export function useApiBoilerplateRender(
     }
   }, [debouncedRequest, templateId, target]);
 
-  // Handle file tree updates when data changes
+  // Handle file tree updates when data changes.
+  //
+  // `applyFileTreeUpdate` bumps `treeVersion` in GitWorkTreeContext (and,
+  // for non-worktree targets, also sets generated-files state). That
+  // synchronously re-renders every consumer of those contexts — Workspace,
+  // RepositoryFileBrowser, the changes panel, etc. — in the same React
+  // commit as our render result. Measured paint cost: ~97ms after data
+  // arrives, almost entirely due to this cascade.
+  //
+  // Wrapping in startTransition tells React the workspace refresh is
+  // lower-priority than painting the template-render result. The Template
+  // preview lands on next frame, the workspace catches up on the frame
+  // after (or two) without blocking the visible result.
   const renderData = apiResult.data;
   useEffect(() => {
     if (renderData?.fileTree && Array.isArray(renderData.fileTree)) {
-      applyFileTreeUpdate(renderData);
+      startTransition(() => {
+        applyFileTreeUpdate(renderData);
+      });
     }
   }, [renderData, applyFileTreeUpdate]);
 

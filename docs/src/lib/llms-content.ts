@@ -17,14 +17,6 @@ interface SidebarGroup {
 }
 type SidebarEntry = SidebarLink | SidebarGroup;
 
-interface Route {
-  slug: string;
-  id: string;
-  entry: {
-    data: { title?: string };
-    body?: string;
-  };
-}
 
 /** Build a map from sidebar href to route entry for O(1) lookup. */
 const routesByPath = new Map(routes.map((r) => [`/${r.slug}/`, r]));

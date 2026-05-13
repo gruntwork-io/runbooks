@@ -7,14 +7,16 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Runbooks includes a built-in testing framework that lets you validate that your runbooks work correctly.
 
-To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks test /path/to/runbook` or `runbooks test ./...` to run the tests. Test are meant to run locally or in CI.
+To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks-cli test /path/to/runbook` or `runbooks-cli test ./...` to run the tests. Tests are meant to run locally or in CI.
+
+The test runner is a standalone Node.js CLI included in the Runbooks repository. After building the project (`just build`), invoke it as `node dist/cli/index.js test`. The examples below use `runbooks-cli` as shorthand for this invocation.
 
 ## Quick Start
 
 1. Generate a test configuration for your runbook:
 
 ```bash
-runbooks test init ./my-runbook
+runbooks-cli test init ./my-runbook
 ```
 
 This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks. You can edit the file to customize the tests if needed.
@@ -22,7 +24,7 @@ This creates `runbook_test.yml` with reasonable defaults based on your runbook's
 2. Run the tests:
 
 ```bash
-runbooks test ./my-runbook
+runbooks-cli test ./my-runbook
 ```
 
 ## Test Configuration
@@ -97,7 +99,7 @@ settings:
 | `use_temp_working_dir` | boolean | `true` | Use an isolated temporary directory for test execution. Overrides `working_dir` when `true`. The temp directory is automatically cleaned up after the test. |
 | `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. |
 | `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
-| `timeout` | string | `"5m"` | Maximum time for each test case. Uses Go duration format (e.g., `30s`, `5m`, `1h`). |
+| `timeout` | string | `"5m"` | Maximum time for each test case. Uses duration format (e.g., `30s`, `5m`, `1h`). |
 | `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. |
 
 ### Test Case Object
@@ -172,7 +174,7 @@ Each step references a block by its ID. How a block gets its ID depends on the b
 All block types use the explicit `id` prop for identification in test steps.
 
 :::tip
-Run `runbooks test init` to automatically discover all block IDs in your runbook.
+Run `runbooks-cli test init` to automatically discover all block IDs in your runbook.
 :::
 
 ### Assertion Object
@@ -450,7 +452,7 @@ In CI, set the environment variables before running tests. Example for GitHub Ac
     aws-region: us-west-2
 
 - name: Run runbook tests
-  run: runbooks test ./runbooks/...
+  run: runbooks-cli test ./runbooks/...
   env:
     RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
     RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
@@ -489,7 +491,7 @@ This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
 ```yaml
 # .github/workflows/test.yml
 - name: Run runbook tests
-  run: runbooks test ./runbooks/...
+  run: runbooks-cli test ./runbooks/...
   env:
     RUNBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -514,13 +516,13 @@ You can run a test on a single runbook.
 
 ```bash
 # Run all tests for a runbook
-runbooks test ./my-runbook
+runbooks-cli test ./my-runbook
 
 # Run a specific test case
-runbooks test ./my-runbook --test happy-path
+runbooks-cli test ./my-runbook --test happy-path
 
 # Verbose output
-runbooks test ./my-runbook -v
+runbooks-cli test ./my-runbook -v
 ```
 
 ### Multiple Runbooks
@@ -529,10 +531,10 @@ Use the `...` glob pattern to discover and test all runbooks:
 
 ```bash
 # Test all runbooks in a directory tree
-runbooks test ./runbooks/...
+runbooks-cli test ./runbooks/...
 
 # Control parallel execution
-runbooks test ./runbooks/... --max-parallel 4
+runbooks-cli test ./runbooks/... --max-parallel 4
 ```
 
 ### CI Output
@@ -540,7 +542,7 @@ runbooks test ./runbooks/... --max-parallel 4
 Generate JUnit XML for CI integration:
 
 ```bash
-runbooks test ./runbooks/... --output junit --output-file results.xml
+runbooks-cli test ./runbooks/... --output junit --output-file results.xml
 ```
 
 ## Out-of-Order Testing
@@ -592,10 +594,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up runbooks
+      - uses: jdx/mise-action@v2
+
+      - name: Install dependencies and build
         run: |
-          curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
-          chmod +x runbooks
+          bun install
+          electron-vite build
       
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -604,9 +608,8 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       
       - name: Run runbook tests
-        run: ./runbooks test ./runbooks/... --output junit --output-file results.xml
+        run: node dist/cli/index.js test ./runbooks/... --output junit --output-file results.xml
         env:
-          # Map OIDC credentials to RUNBOOKS_TEST_ prefix
           RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
           RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
           RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
@@ -628,10 +631,13 @@ test-runbooks:
     RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
     RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
     RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
+  before_script:
+    - curl -fsSL https://mise.jdx.dev/install.sh | sh
+    - mise install
+    - bun install
+    - electron-vite build
   script:
-    - curl -sL https://github.com/gruntwork-io/runbooks/releases/latest/download/runbooks_linux_amd64 -o runbooks
-    - chmod +x runbooks
-    - ./runbooks test ./runbooks/... --output junit --output-file results.xml
+    - node dist/cli/index.js test ./runbooks/... --output junit --output-file results.xml
   artifacts:
     reports:
       junit: results.xml

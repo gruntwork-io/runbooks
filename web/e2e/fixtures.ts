@@ -1,157 +1,54 @@
-import { test as base, expect, type ConsoleMessage } from "@playwright/test";
-import { type ChildProcess, execSync, spawn } from "child_process";
+import {
+  test as base,
+  expect,
+  _electron as electron,
+  type ConsoleMessage,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test";
 import fs from "fs";
-import net from "net";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
-import http from "http";
-
-const HEALTH_POLL_INTERVAL_MS = 100;
-const HEALTH_TIMEOUT_MS = 10_000;
-
-/**
- * Ask the OS for an available port by binding to port 0, which makes the
- * kernel pick an unused ephemeral port. We read back the assigned port,
- * then close the listener so the Go server can bind to it moments later.
- *
- * There is a small TOCTOU window between close() and the Go server's
- * bind(), but in practice the OS won't reassign the same ephemeral port
- * to another process that quickly.
- */
-function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address() as net.AddressInfo;
-      srv.close(() => resolve(addr.port));
-    });
-    srv.on("error", reject);
-  });
-}
 
 /** Repo root: two directories above web/e2e/ */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-/** Resolved path to the Go binary at the repo root. */
-const BINARY_PATH = path.join(REPO_ROOT, "runbooks");
-
-/**
- * The server resolves directory paths (e.g. "testdata/demo1") to include the
- * default filename (e.g. "testdata/demo1/runbook.mdx"), so a health-check
- * response may report either form.
- */
-function matchesRunbookPath(actual: string, expected: string): boolean {
-  return actual === expected || actual === expected + "/runbook.mdx";
-}
-
-/**
- * Poll the /api/health endpoint until the server reports "ok".
- * Mirrors the Go `waitForServerReady` logic in cmd/server.go.
- *
- * When skipPathCheck is true, only the status is verified (useful for
- * remote URLs where the server generates a temp runbook path).
- */
-function waitForServer(port: number, expectedRunbookPath: string, skipPathCheck = false, timeout = HEALTH_TIMEOUT_MS): Promise<void> {
-  const healthURL = `http://localhost:${port}/api/health`;
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + timeout;
-
-    function poll() {
-      if (Date.now() > deadline) {
-        reject(new Error(`Server did not become ready within ${timeout}ms`));
-        return;
-      }
-      const req = http.get(healthURL, (res) => {
-        let body = "";
-        res.on("data", (chunk: Buffer) => (body += chunk.toString()));
-        res.on("end", () => {
-          if (res.statusCode === 200) {
-            try {
-              const json = JSON.parse(body);
-              if (json.status === "ok" && (skipPathCheck || matchesRunbookPath(json.runbookPath, expectedRunbookPath))) {
-                resolve();
-                return;
-              }
-            } catch {
-              // Not valid JSON yet — keep polling.
-            }
-          }
-          setTimeout(poll, HEALTH_POLL_INTERVAL_MS);
-        });
-      });
-      req.on("error", () => setTimeout(poll, HEALTH_POLL_INTERVAL_MS));
-    }
-
-    poll();
-  });
-}
-
-/** Kill a process tree. Sends SIGTERM, then SIGKILL after a short grace period. */
-function killProcess(proc: ChildProcess): Promise<void> {
-  return new Promise((resolve) => {
-    if (!proc.pid) {
-      resolve();
-      return;
-    }
-    // Kill process group (negative PID) to clean up child processes.
-    try {
-      process.kill(-proc.pid, "SIGTERM");
-    } catch {
-      // Process may have already exited.
-    }
-    const timeout = setTimeout(() => {
-      try {
-        process.kill(-proc.pid!, "SIGKILL");
-      } catch {
-        // Already exited.
-      }
-    }, 2_000);
-    proc.on("exit", () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-    // If the process already exited, resolve immediately.
-    if (proc.exitCode !== null) {
-      clearTimeout(timeout);
-      resolve();
-    }
-  });
-}
+/** Entry point of the built Electron app. Produced by `electron-vite build`. */
+const MAIN_ENTRY = path.join(REPO_ROOT, "dist", "main", "index.js");
 
 // ---- Custom fixture types ------------------------------------------------
 
-type RunbookServerFixture = {
+type RunbookAppFixture = {
   /**
-   * Start the runbooks server for the given runbook path.
-   * The path should be relative to the repo root (e.g. "testdata/sample-runbooks/my-first-runbook").
+   * Launch the Electron app with the given runbook and return its first
+   * window. The runbook path may be absolute or relative to the repo root.
+   * The app is automatically closed at the end of the test.
+   *
+   * The runbook's parent directory is copied into a per-test temp dir before
+   * launch, so generated files land in isolation. The app's session working
+   * dir is always `dirname(runbookPath)` — by copying the runbook into a
+   * temp dir, we get isolation for free without passing --working-dir.
    */
-  serveRunbook: (runbookPath: string) => Promise<void>;
-  /** The port the server is listening on (unique per test, OS-assigned). */
-  serverPort: number;
+  launchRunbook: (runbookPath: string) => Promise<Page>;
   /** Console messages collected from the page during the test. */
   consoleMessages: ConsoleMessage[];
-  /** The temporary working directory used by the server. */
+  /** Temporary directory that holds the copied runbook and per-test user-data. */
   workDir: string;
 };
 
 /**
- * Extend Playwright's `test` with a `serveRunbook` fixture that manages
- * the Go server lifecycle and a `consoleMessages` array for assertions.
+ * Extend Playwright's `test` with a `launchRunbook` fixture that manages
+ * the Electron app lifecycle and a `consoleMessages` array for assertions.
  *
- * Each test gets a unique OS-assigned port via findFreePort() so
- * multiple tests can run simultaneously without port conflicts.
+ * Each test gets its own temp `workDir` so generated files are isolated.
  */
-export const test = base.extend<RunbookServerFixture>({
+export const test = base.extend<RunbookAppFixture>({
   // eslint-disable-next-line no-empty-pattern
   consoleMessages: async ({}, use) => {
     const messages: ConsoleMessage[] = [];
     await use(messages);
   },
-
-  serverPort: [async ({}, use) => {
-    await use(await findFreePort());
-  }, { scope: "test" }],
 
   workDir: [async ({}, use, testInfo) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `runbooks-e2e-${testInfo.workerIndex}-`));
@@ -159,61 +56,79 @@ export const test = base.extend<RunbookServerFixture>({
     fs.rmSync(dir, { recursive: true, force: true });
   }, { scope: "test" }],
 
-  serveRunbook: async ({ page, consoleMessages, serverPort, workDir }, use) => {
-    let serverProcess: ChildProcess | null = null;
+  launchRunbook: async ({ consoleMessages, workDir }, use, testInfo) => {
+    let app: ElectronApplication | null = null;
+    const mainLog: string[] = [];
 
-    page.on("console", (msg) => consoleMessages.push(msg));
+    const launch = async (runbookPath: string): Promise<Page> => {
+      const absRunbookPath = path.isAbsolute(runbookPath)
+        ? runbookPath
+        : path.join(REPO_ROOT, runbookPath);
 
-    const start = async (runbookPath: string) => {
-      serverProcess = spawn(
-        BINARY_PATH,
-        ["serve", "--port", String(serverPort), "--working-dir", workDir, runbookPath],
-        {
-          cwd: REPO_ROOT,
-          stdio: ["ignore", "pipe", "pipe"],
-          detached: true,
-          env: {
-            ...process.env,
-            RUNBOOKS_TELEMETRY_DISABLE: "1",
-          },
+      // Copy the runbook's parent directory into workDir so the app's
+      // session working dir (= dirname(runbookPath)) is the isolated temp
+      // dir. Generated files land there and don't pollute the repo.
+      const srcDir = path.dirname(absRunbookPath);
+      const runbookDest = path.join(workDir, "runbook");
+      fs.cpSync(srcDir, runbookDest, { recursive: true });
+      const copiedRunbookPath = path.join(runbookDest, path.basename(absRunbookPath));
+
+      const userDataDir = path.join(workDir, "user-data");
+      fs.mkdirSync(userDataDir, { recursive: true });
+
+      app = await electron.launch({
+        // --no-sandbox is required on Linux CI (Ubuntu 24.04+) where AppArmor
+        // blocks unprivileged user namespaces and chrome-sandbox isn't SUID.
+        // --user-data-dir gives each test its own Chromium profile so parallel
+        // Playwright workers don't collide on Electron's single-instance lock
+        // (SingletonLock in the shared userData dir) which would cause the
+        // second process to app.quit() before firstWindow() resolves.
+        // Chromium switches must come AFTER MAIN_ENTRY in Electron's argv.
+        args: [MAIN_ENTRY, "--no-sandbox", `--user-data-dir=${userDataDir}`, copiedRunbookPath],
+        env: {
+          ...process.env,
+          ELECTRON_NO_UPDATER: "1",
+          RUNBOOKS_TELEMETRY_DISABLE: "1",
+          RUNBOOKS_NO_TELEMETRY: "1",
         },
-      );
-
-      serverProcess.stderr?.on("data", (data: Buffer) => {
-        const line = data.toString().trim();
-        if (line) {
-          if (!line.includes("[GIN]") && !line.includes("200 |")) {
-            console.log(`[server:${serverPort}] ${line}`);
-          }
-        }
       });
 
-      let earlyExitHandler: (code: number | null) => void;
-      const earlyExit = new Promise<never>((_, reject) => {
-        earlyExitHandler = (code) => {
-          reject(new Error(`Server exited with code ${code} before becoming ready (runbook path: ${runbookPath})`));
-        };
-        serverProcess!.on("exit", earlyExitHandler);
-      });
+      // Capture Electron main process stdout/stderr so IPC handler errors
+      // (file generation, template rendering) are visible on test failure.
+      const proc = app.process();
+      proc.stdout?.on("data", (chunk) => mainLog.push(`[stdout] ${chunk.toString()}`));
+      proc.stderr?.on("data", (chunk) => mainLog.push(`[stderr] ${chunk.toString()}`));
 
-      const isRemoteURL = runbookPath.startsWith("http://") || runbookPath.startsWith("https://");
-      // Skip path check for remote URLs and local TF modules — both generate
-      // a runbook in a temp directory, so the served path won't match the input.
-      const isTfModule = !runbookPath.endsWith(".mdx");
-      const skipPathCheck = isRemoteURL || isTfModule;
-      const healthTimeout = isRemoteURL ? 30_000 : HEALTH_TIMEOUT_MS;
-      try {
-        await Promise.race([waitForServer(serverPort, runbookPath, skipPathCheck, healthTimeout), earlyExit]);
-      } finally {
-        serverProcess!.removeListener("exit", earlyExitHandler!);
-        earlyExit.catch(() => {});
-      }
+      const page = await app.firstWindow();
+      page.on("console", (msg) => consoleMessages.push(msg));
+      await page.waitForLoadState("domcontentloaded");
+      return page;
     };
 
-    await use(start);
+    await use(launch);
 
-    if (serverProcess) {
-      await killProcess(serverProcess);
+    // On failure, attach renderer console + main process logs so they show
+    // up in the HTML report and CI artifacts.
+    if (testInfo.status !== testInfo.expectedStatus) {
+      const consoleDump = consoleMessages
+        .map((m) => `[${m.type()}] ${m.text()}`)
+        .join("\n");
+      if (consoleDump) {
+        await testInfo.attach("renderer-console.log", {
+          body: consoleDump,
+          contentType: "text/plain",
+        });
+      }
+      if (mainLog.length > 0) {
+        await testInfo.attach("electron-main.log", {
+          body: mainLog.join(""),
+          contentType: "text/plain",
+        });
+      }
+    }
+
+    if (app) {
+      await app.close();
     }
   },
 });
@@ -225,13 +140,13 @@ export type { Page } from "@playwright/test";
 /**
  * If the "Existing Generated Files Detected" dialog appears, click
  * "Delete Files" and wait for it to close. Otherwise do nothing.
- * Call this after page.goto() for runbooks that generate files.
+ * Call this after launchRunbook() for runbooks that generate files.
  *
  * Waits up to 2 seconds for the dialog to appear (it renders
  * asynchronously after an API call), then proceeds immediately
  * if it never shows.
  */
-export async function deleteFilesIfPrompted(page: import("@playwright/test").Page) {
+export async function deleteFilesIfPrompted(page: Page) {
   const dialog = page.getByTestId("delete-files-alert");
   try {
     await dialog.waitFor({ state: "visible", timeout: 2_000 });
@@ -266,7 +181,7 @@ const PANEL_TEST_IDS: Record<FilesPanelType, string> = {
  * await expect(gen.getCodeFile('.mise.toml')).toContainText('opentofu = "1"');
  * ```
  */
-export function getFilesPanel(page: import("@playwright/test").Page, panel: FilesPanelType) {
+export function getFilesPanel(page: Page, panel: FilesPanelType) {
   const root = page.locator(`[data-testid="${PANEL_TEST_IDS[panel]}"]:visible`);
 
   return {
@@ -284,7 +199,7 @@ export function getFilesPanel(page: import("@playwright/test").Page, panel: File
  * Call this before any test that needs to execute commands or interact with
  * blocks that require trust (e.g. Command, Check).
  */
-export async function trustRunbook(page: import("@playwright/test").Page) {
+export async function trustRunbook(page: Page) {
   await page.getByRole("button", { name: "I trust this Runbook" }).click();
 }
 
@@ -310,28 +225,3 @@ export function expectNoConsoleErrors(messages: ConsoleMessage[]) {
   }
 }
 
-/**
- * Create a local bare git repo with one commit, suitable for cloning
- * in tests without needing GitHub credentials or network access.
- *
- * Returns the absolute path to the bare repo (use as a `file://` URL).
- */
-export function createLocalBareRepo(parentDir: string, name = "bare-test-repo"): string {
-  const bareRepoPath = path.join(parentDir, `${name}.git`);
-  execSync(`git init --bare "${bareRepoPath}"`, { stdio: "ignore" });
-
-  const seedDir = path.join(parentDir, `_seed-${name}`);
-  execSync([
-    `git init "${seedDir}"`,
-    `cd "${seedDir}"`,
-    `git checkout -b main`,
-    `echo "hello" > README.md`,
-    `git add .`,
-    `git -c user.name=test -c user.email=test@test.com commit -m "init"`,
-    `git remote add origin "${bareRepoPath}"`,
-    `git push origin main`,
-  ].join(" && "), { stdio: "ignore" });
-  fs.rmSync(seedDir, { recursive: true, force: true });
-
-  return bareRepoPath;
-}

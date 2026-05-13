@@ -17,7 +17,6 @@ import { AwsAuth } from '@/components/mdx/AwsAuth'
 import { GitHubAuth } from '@/components/mdx/GitHubAuth'
 import { GitClone } from '@/components/mdx/GitClone'
 import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
-import { TfModule } from '@/components/mdx/TfModule'
 import { DirPicker } from '@/components/mdx/DirPicker'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
@@ -102,12 +101,12 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
           >
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
-              <Admonition 
-                type="warning" 
-                title="**Make sure you trust this Runbook!**" 
+              <Admonition
+                type="warning"
+                title="**Make sure you trust this Runbook!**"
                 confirmationText="I trust this Runbook"
                 allowPermanentHide={true}
-                storageKey="security-banner"
+                storageKey={`security-banner-${runbookPath || 'default'}`}
               >
                 <p>Runbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this Runbook and carefully review embedded code snippets before running them.</p>
                 <p>If you do not trust this Runbook, do not run it.</p>
@@ -133,8 +132,9 @@ interface RehypeNode {
   [key: string]: unknown
 }
 
-// Custom rehype plugin to transform asset paths for all media types
-// Transforms ./assets/file.ext to /runbook-assets/file.ext
+// Custom rehype plugin to transform asset paths for all media types.
+// Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
+// Electron's custom protocol handler can serve them from the local filesystem.
 function rehypeTransformAssetPaths() {
   return (tree: RehypeNode) => {
     // Helper function to transform a path if it starts with ./assets/
@@ -142,9 +142,9 @@ function rehypeTransformAssetPaths() {
       if (!path || !path.startsWith('./assets/')) {
         return path
       }
-      // Remove the ./assets/ prefix and prepend /runbook-assets/
-      const assetPath = path.substring('./assets/'.length)
-      return `/runbook-assets/${assetPath}`
+      // Remove the ./ prefix and use the runbook-asset:// protocol
+      const assetPath = path.substring('./'.length)
+      return `runbook-asset://${assetPath}`
     }
 
     // Walk through the tree and transform asset nodes
@@ -255,7 +255,6 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
       Inputs,
       Template,
       TemplateInline,
-      TfModule,
       DirPicker,
       // Script execution components
       Check,

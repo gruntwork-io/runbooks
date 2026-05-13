@@ -6,9 +6,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 # runbooks open
 
-Use `runbooks open` to open a runbook in your browser and use it.
-
-This command is intended for **consumers** of runbooks.
+Use `runbooks open` to open a runbook in the Runbooks desktop app.
 
 ## Usage
 
@@ -18,7 +16,7 @@ runbooks open RUNBOOK_SOURCE [flags]
 
 ## Arguments
 
-- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file, the directory containing a `runbook.mdx` file, or an OpenTofu/Terraform module directory.
+- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file or the directory containing a `runbook.mdx` file.
 
 ### Local paths
 
@@ -57,23 +55,6 @@ runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main
 When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir=::tmp`). You can override this with `--working-dir` if needed.
 </Aside>
 
-### OpenTofu/Terraform modules
-
-If `RUNBOOK_SOURCE` points to a directory containing `.tf` files (but no `runbook.mdx`), Runbooks auto-detects it as an OpenTofu/Terraform module. It generates a temporary runbook that parses the module's variables and renders a web form for them.
-
-```bash
-# Local module directory
-runbooks open ./modules/rds
-
-# Remote module via GitHub URL
-runbooks open https://github.com/org/repo/tree/main/modules/rds
-
-# Remote module via OpenTofu shorthand
-runbooks open github.com/org/repo//modules/rds?ref=v1.0
-```
-
-By default, the auto-generated runbook uses the `::terragrunt` template. Use `--tf-runbook` to choose a different built-in template or provide your own custom runbook. See [Flags](#flags) below.
-
 ### Authentication for private repos
 
 For public repositories, no authentication is needed. For private repositories, set one of the following:
@@ -83,19 +64,13 @@ For public repositories, no authentication is needed. For private repositories, 
 
 ## Flags
 
+- `--watch` - Enable [watch mode](/commands/watch) for live-reload during authoring.
 - `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
   - All relative paths are resolved from this directory
   - Can be absolute or relative to current directory
   - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
 - `--output-path <path>` - Directory where generated files will be written (default: `generated`)
   - Resolved relative to the working directory
-- `--tf-runbook <keyword-or-path>` - Select a built-in template or provide a local custom runbook for OpenTofu/Terraform modules. Built-in templates:
-  - `::terragrunt` (default) — Generates a `terragrunt.hcl` file
-  - `::terragrunt-github` — Full GitOps workflow: GitHub auth, clone, directory picker, generate `terragrunt.hcl`, and open a pull request
-  - `::tofu` — Generates a plain `main.tf` file
-  - Or pass a local path to a custom runbook directory (e.g., `--tf-runbook ./my-runbook/`)
-  - Remote URLs are not supported — download the template first and pass the local path. This is intentional: a remote `--tf-runbook` could silently pull in an untrusted runbook that executes scripts on your machine.
-- `--port <number>` - Port for the backend + frontend server (default: 7825). Useful when running multiple runbooks simultaneously or when the default port is already in use.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
@@ -103,25 +78,16 @@ For public repositories, no authentication is needed. For private repositories, 
 When you run `runbooks open`:
 
 1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
-2. **Auto-detects (if TF module)** - If the target is an OpenTofu/Terraform module directory (contains `.tf` files but no `runbook.mdx`), generates a temporary runbook using the selected template
-3. **Starts the Backend Server** - Launches a Go-based HTTP server on `localhost` (port 7825 by default, configurable with `--port`)
-4. **Launches the Browser** - Opens your default web browser to the server URL
-5. **Serves the Frontend** - The web UI connects to the backend API to process the runbook
-6. **Keeps Running** - The server continues running until you close the browser or press Ctrl+C
+2. **Launches the app** - Opens the Runbooks desktop window and loads the specified runbook
+3. **Renders the runbook** - The app parses and renders the `runbook.mdx` file, providing an interactive UI for the runbook's steps, scripts, and forms
+4. **Keeps running** - The app continues running until you close the window
+
+If the app is already running, a second invocation focuses the existing window and opens the new runbook in it.
 
 ## Troubleshooting
 
-**Port already in use:**
-If the default port (7825) is already in use, you'll see an error. Either stop the other process or use `--port` to pick a different port (e.g., `runbooks open --port 8080 ./my-runbook`).
-
-**Browser doesn't open:**
-If the browser doesn't open automatically, you can manually navigate to `http://localhost:7825` (or your custom `--port`) after running the command.
-
-**Browser window with the runbook doesn't open:**
-Sometimes, your browser seems to launch, but you don't see the Runbook. The most likely issue here is that your browser launched with multiple tabs and windows and your Runbooks tab is not visible. Either look through all your browser windows, or go directly to http://localhost:7825 (or your custom `--port`).
-
 **Runbook not found:**
-Make sure the path points to a valid `runbook.mdx` file.
+Make sure the path points to a valid `runbook.mdx` file or a directory containing one.
 
 **Authentication errors for remote runbooks:**
 If you see "authentication required", make sure you have set the appropriate token for the git host. See the Authentication section above.

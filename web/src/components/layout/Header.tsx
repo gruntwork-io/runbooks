@@ -1,5 +1,7 @@
 import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
-import { ChevronDown, Download, Info, Check, FolderOpen, Copy, type LucideProps } from 'lucide-react';
+import { ChevronDown, Download, Info, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
+import logoDarkAlpha from '@/assets/runbooks-logo-dark-alpha.svg';
+import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -23,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useLogs } from '@/contexts/useLogs';
+import { useApi } from '@/contexts/ApiContext';
 import { getDirectoryPath } from '@/lib/utils';
 import {
   createLogsZipRaw,
@@ -41,6 +44,7 @@ function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...pro
       type="button"
       onClick={onClick}
       className={`flex-shrink-0 rounded transition-colors cursor-pointer ${className ?? ''}`}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       aria-label="Copy local path"
       {...props}
       ref={ref}
@@ -73,14 +77,24 @@ export function Header({ pathName, localPath }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const { getAllLogs, hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
+  const api = useApi();
+
+  const hasRunbookOpen = Boolean(pathName);
+  const handleCloseRunbook = () => {
+    api.invoke('native:close-runbook');
+  };
+
+  // On Windows/Linux, Electron draws min/max/close controls via titleBarOverlay
+  // in the top-right (~140px wide). Shift the Menu further from the edge on
+  // those platforms so it doesn't sit under the overlay. macOS keeps the tight
+  // right-5 position since its traffic lights live top-left.
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+  const menuRightClass = isMac ? 'md:right-5' : 'md:right-40';
 
   // Show the copy-local-path button when we have a local path that differs from the display name
   // (i.e., when viewing a remote runbook)
   const isRemote = localPath && localPath !== pathName;
   const localDir = getDirectoryPath(localPath) || localPath;
-
-  // Strip protocol prefix for compact display on small viewports
-  const shortPathName = pathName.replace(/^https?:\/\//, '');
 
   const handleDownloadRaw = async () => {
     const logsMap = getAllLogs();
@@ -96,16 +110,19 @@ export function Header({ pathName, localPath }: HeaderProps) {
 
   return (
     <>
-      <header className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16">
-        <div className="absolute left-5 top-1/2 transform -translate-y-1/2">
-          <img src="/runbooks-logo-dark-alpha.svg" alt="Gruntwork Runbooks" className="h-8" />
+      <header
+        className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <div className="absolute left-20 top-1/2 transform -translate-y-1/2">
+          <img src={logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" draggable={false} />
         </div>
-        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-12 mr-4 md:mx-40">
-          <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
-            {pathName}
+        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
+          <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
+            {'\u200E'}{pathName}{'\u200E'}
           </div>
-          <div className="md:hidden text-xs text-gray-500 font-mono font-normal truncate max-w-full" title={pathName}>
-            {shortPathName}
+          <div className="md:hidden text-xs text-gray-500 font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
+            {'\u200E'}{pathName}{'\u200E'}
           </div>
           {isRemote && (
             <TooltipProvider delayDuration={0}>
@@ -124,9 +141,12 @@ export function Header({ pathName, localPath }: HeaderProps) {
             </TooltipProvider>
           )}
         </div>
-        <div className="hidden md:block md:absolute md:right-5 md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md">
+        <div className={`hidden md:block md:absolute ${menuRightClass} md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md`}>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors">
+            <DropdownMenuTrigger
+              className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
               Menu
               <ChevronDown className="size-4" />
             </DropdownMenuTrigger>
@@ -148,6 +168,15 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Download logs (JSON)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleCloseRunbook}
+                disabled={!hasRunbookOpen}
+                className={!hasRunbookOpen ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <X className="size-4" />
+                Close Runbook
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
                 <Info className="size-4" />
                 About
@@ -162,11 +191,11 @@ export function Header({ pathName, localPath }: HeaderProps) {
           <div className="relative">
             <AlertDialogHeader>
               <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img src="/runbooks-logo-dark-color.svg" alt="Gruntwork Runbooks" className="h-16 mb-2" />
+              <img src={logoDarkColor} alt="Gruntwork Runbooks" className="h-16 mb-2" />
               
               <AlertDialogDescription className="text-left space-y-4">
                 <p>Runbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>
-                <p>Runbooks is published by <a target="_blank" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" href="https://runbooks.gruntwork.io">Runbooks docs</a> for more information.</p>
+                <p>Runbooks is published by <a target="_blank" rel="noreferrer" href="https://gruntwork.io">Gruntwork</a> and is <a target="_blank" rel="noreferrer" href="https://github.com/gruntwork-io/runbooks">open source</a>! Check out the <a target="_blank" rel="noreferrer" href="https://runbooks.gruntwork.io">Runbooks docs</a> for more information.</p>
                 <AlertDialogAction className="block mt-4" onClick={() => setIsAboutDialogOpen(false)}>
                 Close
                 </AlertDialogAction>

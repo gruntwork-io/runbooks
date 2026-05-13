@@ -1,22 +1,50 @@
 import { execSync } from "child_process";
-import fs from "fs";
-import path from "path";
-import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel, createLocalBareRepo } from "./fixtures";
+import type { Locator } from "@playwright/test";
+import { test, expect, expectNoConsoleErrors, trustRunbook, deleteFilesIfPrompted, getFilesPanel } from "./fixtures";
 
 /**
  * End-to-end tests for the sample runbooks in testdata/sample-runbooks/.
  *
- * Each test starts a fresh server, loads the runbook in a real browser, and
- * verifies the MDX content renders correctly and interactive blocks function.
+ * Each test launches a fresh Electron app with the runbook and verifies
+ * the MDX content renders correctly and interactive blocks function.
  */
+
+/**
+ * Fill the three map/list inputs on the `infra-live-elements` template form
+ * that have no defaults (`AWSAccounts`, `DefaultTags`, `CatalogRepositories`).
+ *
+ * Boilerplate treats "no default" as required in non-interactive mode and
+ * exits with code 1 if any are unset, so every test that clicks Generate on
+ * this template must supply values for all three.
+ */
+async function fillInfraLiveElementsMaps(form: Locator) {
+  // AWSAccounts — structured map with x-schema (email/environment/id)
+  const awsField = form.getByTestId('field-AWSAccounts');
+  await awsField.getByRole('button', { name: 'Add' }).click();
+  await awsField.getByRole('textbox', { name: /AWS Account Name/ }).fill('dev-account');
+  await awsField.getByRole('textbox', { name: /^email\b/i }).fill('dev@example.com');
+  await awsField.getByRole('textbox', { name: /^environment\b/i }).fill('development');
+  await awsField.getByRole('textbox', { name: /^id\b/i }).fill('111222333444');
+  await awsField.getByRole('button', { name: 'Save Entry' }).click();
+
+  // DefaultTags — plain key/value map
+  const tagsField = form.getByTestId('field-DefaultTags');
+  await tagsField.locator('input[placeholder="Key"]').fill('Owner');
+  await tagsField.locator('input[placeholder="Value"]').fill('platform-team');
+  await tagsField.getByRole('button', { name: 'Add', exact: true }).click();
+
+  // CatalogRepositories — string list
+  const reposField = form.getByTestId('field-CatalogRepositories');
+  await reposField.locator('input[placeholder*="Type an entry"]').fill('gruntwork-io/terraform-aws-service-catalog');
+  await reposField.getByRole('button', { name: 'Add', exact: true }).click();
+}
 
 // ---------------------------------------------------------------------------
 // Test: demo1
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo1", () => {
-  test("renders demo1 without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/demo1");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders demo1 without errors", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/demo1");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -47,9 +75,8 @@ test.describe("sample-runbooks/demo1", () => {
 // Test: demo2
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo2", () => {
-  test("renders demo2 without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/demo2");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders demo2 without errors", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/demo2");
     await deleteFilesIfPrompted(page);
 
     // Verify the title rendered.
@@ -87,6 +114,7 @@ test.describe("sample-runbooks/demo2", () => {
     // Fill in the Org Name Prefix and confirm that files are generated
     const infraLiveElements = page.getByTestId('infra-live-elements-inputs');
     await infraLiveElements.getByRole('textbox', { name: 'Org Name Prefix' }).fill('my_prefix');
+    await fillInfraLiveElementsMaps(infraLiveElements);
     await infraLiveElements.getByRole('button', { name: 'Generate', exact: true }).click();
     await expect(generated.getTreeItem('subfolder')).toBeVisible({ timeout: 2_000 });
     await generated.getTreeItem('subfolder').click();
@@ -97,9 +125,8 @@ test.describe("sample-runbooks/demo2", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("renders the large input form and generates files", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/demo2");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders the large input form and generates files", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/demo2");
     await deleteFilesIfPrompted(page);
 
     const infraLiveForm = page.getByTestId('infra-live-elements-inputs');
@@ -123,14 +150,8 @@ test.describe("sample-runbooks/demo2", () => {
     // Ensure the bool checkbox is checked (default is true).
     await expect(infraLiveForm.getByRole('checkbox', { name: 'Add Additional Common Variables' })).toBeChecked();
 
-    // Add a structured map entry (AWSAccounts with x-schema).
-    const awsField = infraLiveForm.getByTestId('field-AWSAccounts');
-    await awsField.getByRole('button', { name: 'Add' }).click();
-    await awsField.getByRole('textbox', { name: /AWS Account Name/ }).fill('dev-account');
-    await awsField.getByRole('textbox', { name: /^email\b/i }).fill('dev@example.com');
-    await awsField.getByRole('textbox', { name: /^environment\b/i }).fill('development');
-    await awsField.getByRole('textbox', { name: /^id\b/i }).fill('111222333444');
-    await awsField.getByRole('button', { name: 'Save Entry' }).click();
+    // Fill the three required map/list inputs (AWSAccounts, DefaultTags, CatalogRepositories).
+    await fillInfraLiveElementsMaps(infraLiveForm);
 
     // Submit the form and verify files are generated.
     await infraLiveForm.getByRole('button', { name: 'Generate', exact: true }).click();
@@ -162,9 +183,8 @@ test.describe("sample-runbooks/demo2", () => {
 // Test: demo3
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/demo3", () => {
-  test("renders all blocks without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/demo3");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders all blocks without errors", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/demo3");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -195,9 +215,8 @@ test.describe("sample-runbooks/demo3", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("runs a command with embedded inputs and shows success", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/demo3");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("runs a command with embedded inputs and shows success", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/demo3");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -218,9 +237,8 @@ test.describe("sample-runbooks/demo3", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("generates files from Template block and shows them in file panel", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/demo3");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("generates files from Template block and shows them in file panel", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/demo3");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -232,7 +250,9 @@ test.describe("sample-runbooks/demo3", () => {
     await expect(templateBlock).toBeVisible();
     await expect(templateBlock.getByRole("button", { name: "Generate" })).toBeVisible();
 
-    // Click Generate and verify files appear in the generated panel.
+    // Fill all required inputs (none have defaults), then click Generate.
+    await templateBlock.getByRole('textbox', { name: 'Org Name Prefix' }).fill('demo3_prefix');
+    await fillInfraLiveElementsMaps(templateBlock);
     await templateBlock.getByRole("button", { name: "Generate" }).click();
     const generated = getFilesPanel(page, "generated");
     await expect(generated.getTreeItem("common.hcl")).toBeVisible({ timeout: 5_000 });
@@ -245,9 +265,8 @@ test.describe("sample-runbooks/demo3", () => {
 // Test: markdown-only-full
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/markdown-only-full", () => {
-  test("renders all markdown elements correctly", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/markdown-only-full");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders all markdown elements correctly", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/markdown-only-full");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -313,9 +332,8 @@ test.describe("sample-runbooks/markdown-only-full", () => {
 // Test: my-first-runbook
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/my-first-runbook", () => {
-  test("renders MDX content with all block types", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/my-first-runbook");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders MDX content with all block types", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/my-first-runbook");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -366,9 +384,8 @@ test.describe("sample-runbooks/my-first-runbook", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("generates template files and shows them in the file panel", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/my-first-runbook");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("generates template files and shows them in the file panel", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/my-first-runbook");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -398,9 +415,8 @@ test.describe("sample-runbooks/my-first-runbook", () => {
 // Test: homepage-demo
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/homepage-demo", () => {
-  test("renders without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/homepage-demo");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders without errors", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/homepage-demo");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -415,7 +431,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await expect(page.getByRole("heading", { name: "Deploy", exact: true })).toBeVisible();
 
     // Verify the Check block rendered with a Check button.
-    const checkBlock = page.getByTestId("check-node");
+    const checkBlock = page.getByTestId("check-prereqs");
     await expect(checkBlock).toBeVisible();
     await expect(checkBlock.getByRole("button", { name: "Check" })).toBeVisible();
 
@@ -437,9 +453,8 @@ test.describe("sample-runbooks/homepage-demo", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("runs check and command blocks", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/homepage-demo");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("runs check and command blocks", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/homepage-demo");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -448,7 +463,7 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await trustRunbook(page);
 
     // Run the Check block and verify success.
-    const checkBlock = page.getByTestId("check-node");
+    const checkBlock = page.getByTestId("check-prereqs");
     await checkBlock.getByRole("button", { name: "Check" }).click();
     await expect(checkBlock.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 });
 
@@ -473,9 +488,8 @@ test.describe("sample-runbooks/homepage-demo", () => {
 // Test: next-app
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/next-app", () => {
-  test("renders all blocks and interactive forms without errors", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/next-app");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("renders all blocks and interactive forms without errors", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/next-app");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -538,7 +552,7 @@ test.describe("sample-runbooks/next-app", () => {
     expectNoConsoleErrors(consoleMessages);
   });
 
-  test("generates welcome-card template files", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
+  test("generates welcome-card template files", async ({ launchRunbook, consoleMessages }) => {
     // This test clones a real repo via the GitClone block, which requires
     // GitHub credentials (env var or gh CLI). Skip when unavailable.
     const hasGitHubCredentials = !!process.env.GITHUB_TOKEN || !!process.env.GH_TOKEN || (() => {
@@ -546,8 +560,7 @@ test.describe("sample-runbooks/next-app", () => {
     })();
     test.skip(!hasGitHubCredentials, "Requires GitHub credentials (GITHUB_TOKEN, GH_TOKEN, or gh CLI)");
 
-    await serveRunbook("testdata/sample-runbooks/next-app");
-    await page.goto(`http://localhost:${serverPort}/`);
+    const page = await launchRunbook("testdata/sample-runbooks/next-app");
     await deleteFilesIfPrompted(page);
 
     const markdownBody = page.getByTestId("runbook-content");
@@ -579,73 +592,53 @@ test.describe("sample-runbooks/next-app", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Test: dual-clone (issue #94 regression test)
-// Working directory behavior across block types.
+// Test: dual-clone overwrite confirmation dialog
+//
+// CWD propagation is covered by runbook_test.yml under
+// testdata/sample-runbooks/dual-clone/ (executed by the `just test-runbooks`
+// CI job). This Playwright test focuses on the UI contract: when the user
+// clones into a directory that already exists, the "Local path already
+// exists" confirmation dialog must appear with working Delete & Clone /
+// Cancel buttons.
+//
+// Uses the public gruntwork-io/runbooks-test repo (the same fixture the
+// test-runbooks job already depends on) so the test needs no GitHub
+// credentials. Network-dependent, so the first clone gets a generous
+// timeout.
 // ---------------------------------------------------------------------------
 test.describe("sample-runbooks/dual-clone", () => {
-  test("Command blocks propagate CWD to subsequent commands", async ({ page, serveRunbook, serverPort, consoleMessages }) => {
-    await serveRunbook("testdata/sample-runbooks/dual-clone");
-    await page.goto(`http://localhost:${serverPort}/`);
+  test("overwrite confirmation dialog appears when cloning into an occupied directory", async ({ launchRunbook, consoleMessages }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/dual-clone");
 
     const markdownBody = page.getByTestId("runbook-content");
     await expect(markdownBody).toBeVisible({ timeout: 15_000 });
     await trustRunbook(page);
 
-    // Run the first Command that cd's into subdir.
-    const cdBlock = page.getByTestId("cd-subdir");
-    await expect(cdBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 5_000 });
-    await cdBlock.getByRole("button", { name: "Run" }).click();
-    await expect(cdBlock.getByText("Success")).toBeVisible({ timeout: 15_000 });
-
-    // Run the second Command that just prints pwd.
-    // It should inherit the changed CWD and print "<workDir>/subdir".
-    const pwdBlock = page.getByTestId("verify-cwd");
-    await expect(pwdBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 5_000 });
-    await pwdBlock.getByRole("button", { name: "Run" }).click();
-    await expect(pwdBlock.getByText("Success")).toBeVisible({ timeout: 15_000 });
-
-    // Verify the pwd output contains "subdir" (the CWD propagated)
-    await pwdBlock.getByText("View Logs").click();
-    await expect(pwdBlock.getByText(/subdir/)).toBeVisible();
-
-    expectNoConsoleErrors(consoleMessages);
-  });
-
-  test("GitClone resolves paths relative to initial workDir after cd (issue #94)", async ({ page, serveRunbook, serverPort, workDir, consoleMessages }) => {
-    // Create a local bare git repo so we can clone without GitHub credentials.
-    const bareRepoPath = createLocalBareRepo(workDir);
-
-    await serveRunbook("testdata/sample-runbooks/dual-clone");
-    await page.goto(`http://localhost:${serverPort}/`);
-
-    const markdownBody = page.getByTestId("runbook-content");
-    await expect(markdownBody).toBeVisible({ timeout: 15_000 });
-    await trustRunbook(page);
-
-    // Run the Command block that cd's into subdir — this drifts the session CWD.
-    const cdBlock = page.getByTestId("cd-subdir");
-    await expect(cdBlock.getByRole("button", { name: "Run" })).toBeEnabled({ timeout: 5_000 });
-    await cdBlock.getByRole("button", { name: "Run" }).click();
-    await expect(cdBlock.getByText("Success")).toBeVisible({ timeout: 15_000 });
-
-    // Now use the GitClone block to clone the local bare repo via the UI.
     const cloneBlock = page.getByTestId("clone-after-cd");
     const urlInput = cloneBlock.getByRole("textbox").first();
-    await urlInput.fill(`file://${bareRepoPath}`);
-    // Set an explicit local path so the clone destination is predictable
-    // (file:// URLs don't parse into a clean repo name).
+    await urlInput.fill("https://github.com/gruntwork-io/runbooks-test.git");
+    // Set an explicit local path so the clone destination is predictable.
     await cloneBlock.getByText("Additional Settings").click();
     const localPathInput = cloneBlock.getByPlaceholder("Defaults to repo name");
-    await localPathInput.fill("cloned-repo");
-    await cloneBlock.getByRole("button", { name: "Clone" }).click();
-    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await localPathInput.fill("target-repo");
 
-    // The repo should be cloned as a sibling to subdir (in the initial workDir),
-    // NOT nested inside subdir. This is the core assertion for issue #94.
-    const correctPath = path.join(workDir, "cloned-repo");
-    const buggyPath = path.join(workDir, "subdir", "cloned-repo");
-    expect(fs.existsSync(correctPath), `expected clone at ${correctPath}`).toBe(true);
-    expect(fs.existsSync(buggyPath), `clone should NOT be nested inside subdir`).toBe(false);
+    // First clone: succeeds and populates <workDir>/target-repo.
+    await cloneBlock.getByRole("button", { name: "Clone", exact: true }).click();
+    await expect(cloneBlock.getByText("Clone complete", { exact: true })).toBeVisible({ timeout: 45_000 });
+
+    // Reset back to the form so a second Clone can be triggered.
+    await cloneBlock.getByRole("button", { name: "Clone again" }).click();
+
+    // Second clone to the same path: backend returns directory_exists, UI
+    // should show the overwrite confirmation dialog.
+    await cloneBlock.getByRole("button", { name: "Clone", exact: true }).click();
+    await expect(cloneBlock.getByText("Local path already exists")).toBeVisible({ timeout: 5_000 });
+    await expect(cloneBlock.getByRole("button", { name: "Delete & Clone" })).toBeVisible();
+    await expect(cloneBlock.getByRole("button", { name: "Cancel" })).toBeVisible();
+
+    // Cancel dismisses the dialog without touching the existing directory.
+    await cloneBlock.getByRole("button", { name: "Cancel" }).click();
+    await expect(cloneBlock.getByText("Local path already exists")).not.toBeVisible();
 
     expectNoConsoleErrors(consoleMessages);
   });

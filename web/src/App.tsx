@@ -1,38 +1,59 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import './css/github-markdown-light.css'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
+import { WelcomeScreen } from './components/layout/WelcomeScreen'
+import { OpenUrlModal } from './components/layout/OpenUrlModal'
 import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
 import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
 import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/layout/GeneratedFilesAlert'
 import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
-import { useGetRunbook } from './hooks/useApiGetRunbook'
+import { useIpcGetRunbook } from './hooks/useIpcGetRunbook'
 import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
-import { useWatchMode } from './hooks/useWatchMode'
-import { useApiGeneratedFilesCheck } from './hooks/useApiGeneratedFilesCheck'
+import { useIpcWatchMode } from './hooks/useIpcWatchMode'
+import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
+import { useApi } from './contexts/ApiContext'
 import { cn } from './lib/utils'
 
 function App() {
+  const api = useApi()
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
   const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
   const [showCodeButton, setShowCodeButton] = useState(false);
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
-  
+  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+
+  const handleOpenRunbook = useCallback(async () => {
+    await api.invoke('native:open-runbook-dialog')
+  }, [api])
+
+  // Listen for "Open from URL" menu command
+  useEffect(() => {
+    const cleanup = api.on('menu:open-url-prompt', () => {
+      setIsUrlModalOpen(true)
+    })
+    return cleanup
+  }, [api])
+
   // Use the useApi hook to fetch runbook data
-  const getRunbookResult = useGetRunbook()
-  
-  // Check for existing generated files when runbook loads
-  const generatedFilesCheck = useApiGeneratedFilesCheck()
+  const getRunbookResult = useIpcGetRunbook()
+
+  // Check for existing generated files when runbook loads.
+  // Disabled until a runbook is open — the IPC handler requires a session,
+  // which only exists after the main process has loaded a runbook.
+  const generatedFilesCheck = useIpcGeneratedFilesCheck({
+    disabled: !getRunbookResult.data,
+  })
   
   // Get error counts from the error reporting context (populated by MDX components)
-  const { errorCount, warningCount, clearAllErrors } = useErrorReporting()
+  const { errors, errorCount, warningCount, clearAllErrors } = useErrorReporting()
   
   // Clear errors when runbook content changes (to avoid stale errors)
   useEffect(() => {
@@ -53,7 +74,7 @@ function App() {
     }
   }, [getRunbookResult]);
   
-  useWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
+  useIpcWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
@@ -131,6 +152,28 @@ function App() {
   const content = getRunbookResult.data?.content || ''
   const runbookPath = getDirectoryPath(getRunbookResult.data?.path || '')
 
+  // Track whether we've ever successfully loaded runbook content.
+  // Once true, never let loading/error states unmount MDXContainer — doing so
+  // would destroy all block outputs (and user-edited inputs) stored in
+  // RunbookContextProvider's React state, causing "Waiting for outputs" warnings.
+  const hasEverLoadedRef = useRef(false)
+  if (content) {
+    hasEverLoadedRef.current = true
+  }
+
+  // Listen for "Close Runbook" menu command. useIpcGetRunbook clears its
+  // own state; here we drop the "has ever loaded" latch and any error
+  // banners so the WelcomeScreen renders again.
+  useEffect(() => {
+    const cleanup = api.on('menu:close-runbook', () => {
+      hasEverLoadedRef.current = false
+      clearAllErrors()
+      setShowGeneratedFilesAlert(false)
+      setAlertDismissedThisSession(false)
+    })
+    return cleanup
+  }, [api, clearAllErrors])
+
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
     setShowGeneratedFilesAlert(false);
@@ -153,22 +196,27 @@ function App() {
         
         {/* Error Summary Banner */}
         {(errorCount > 0 || warningCount > 0) && (
-          <ErrorSummaryBanner 
-            errorCount={errorCount} 
-            warningCount={warningCount} 
+          <ErrorSummaryBanner
+            errors={errors}
+            errorCount={errorCount}
+            warningCount={warningCount}
             className="fixed top-15 left-1/2 -translate-x-1/2 z-50 shadow-md max-w-2xl"
           />
         )}
         
-        {/* Loading and Error States */}
-        {getRunbookResult.isLoading ? (
+        {/* Loading and Error States
+             Once content has successfully loaded (hasEverLoadedRef), skip these
+             branches so MDXContainer is never unmounted. A transient isLoading
+             flash (e.g. from useIpc effect re-firing) would otherwise destroy
+             all block outputs and user-edited inputs stored in React state. */}
+        {getRunbookResult.isLoading && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading runbook...</p>
             </div>
           </div>
-        ) : generatedFilesCheck.error ? (
+        ) : generatedFilesCheck.error && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-xl mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-left">
@@ -194,7 +242,7 @@ function App() {
               </div>
             </div>
           </div>
-        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) ? (
+        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
               <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -206,8 +254,8 @@ function App() {
                 <p className="text-sm text-red-600 mb-4">
                   {getRunbookResult.error?.details}
                 </p>
-                <button 
-                  onClick={() => window.location.reload()} 
+                <button
+                  onClick={() => window.location.reload()}
                   className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                 >
                   Retry
@@ -215,6 +263,8 @@ function App() {
               </div>
             </div>
           </div>
+        ) : !getRunbookResult.data && !hasEverLoadedRef.current ? (
+          <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
           <>
             {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
@@ -308,6 +358,9 @@ function App() {
           onDeleted={handleFilesDeleted}
         />
       )}
+
+      {/* Open from URL Modal */}
+      <OpenUrlModal open={isUrlModalOpen} onOpenChange={setIsUrlModalOpen} />
     </>
   )
 }

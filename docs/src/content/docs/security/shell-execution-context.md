@@ -75,9 +75,9 @@ Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environm
 
 This means you can write scripts with proper cleanup logic and still have environment changes persist to subsequent blocks.
 
-### Multiple Browser Tabs
+### Single Session
 
-If you open the same runbook in multiple browser tabs, they all share the same environment. Changes made in one tab are visible in all others — like having multiple terminal windows connected to the same shell session.
+The Runbooks app uses a single window and a single session. All scripts within a runbook share the same environment state.
 
 ### Concurrent Script Execution
 
@@ -98,9 +98,9 @@ For example, if Script B finishes last, the session ends up with `{X=1, Y=3}` �
 
 ### Implementation Notes
 
-The Runbooks server maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
+The Runbooks main process maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
 
-The session resets when you restart the Runbooks server. You can also manually reset the environment to its initial state using the session controls in the UI.
+The session resets when you restart the app. You can also manually reset the environment to its initial state using the session controls in the UI.
 
 ---
 

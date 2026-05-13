@@ -1,0 +1,176 @@
+{
+  "name": "runbooks",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "bun@1.3.10",
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-builder",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "test": "bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**' && cd web && vitest run",
+    "test:backend": "bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**'",
+    "test:web": "cd web && vitest run",
+    "test:watch": "bun test --watch src/ electron/",
+    "test:coverage": "bun test --coverage src/ electron/",
+    "test:e2e": "bunx playwright test --config web/playwright.config.ts",
+    "test:electron-e2e": "bunx playwright test --config electron/e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "effect": "^3.21.0",
+    "chokidar": "^5.0.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.13",
+    "commander": "^14.0.0",
+    "ini": "^6.0.0",
+    "@aws-sdk/client-sts": "^3.1024.0",
+    "@aws-sdk/client-iam": "^3.1024.0",
+    "@aws-sdk/client-sso": "^3.1024.0",
+    "@aws-sdk/client-sso-oidc": "^3.1024.0",
+    "@aws-sdk/client-account": "^3.1024.0",
+    "@aws-sdk/credential-providers": "^3.1024.0",
+    "mixpanel": "^0.20.0",
+    "electron-updater": "^6.8.0",
+    "@headless-tree/core": "^1.4.0",
+    "@headless-tree/react": "^1.4.0",
+    "@mdx-js/mdx": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/vite": "^4.1.13",
+    "ansi-to-react": "^6.2.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "copy-to-clipboard": "^3.3.3",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.544.0",
+    "mixpanel-browser": "^2.72.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^15.6.6",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss": "^4.1.13"
+  },
+  "devDependencies": {
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.0",
+    "electron-vite": "^5.0.0",
+    "@vitejs/plugin-react-swc": "^4.0.1",
+    "@playwright/test": "1.56.1",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.0.0",
+    "@types/mixpanel-browser": "^2.66.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "jsdom": "^23.0.0",
+    "oxlint": "^0.16.0",
+    "tw-animate-css": "^1.3.8",
+    "typescript": "~5.8.3",
+    "vite": "^7.1.6",
+    "vitest": "^3.0.0"
+  },
+  "build": {
+    "appId": "io.gruntwork.runbooks",
+    "productName": "Runbooks",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "out",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*"
+    ],
+    "extraResources": [
+      { "from": "resources/bin", "to": "bin", "filter": ["**/*"] },
+      { "from": "resources/wasm", "to": "wasm", "filter": ["**/*"] }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "gruntwork-io",
+      "repo": "runbooks"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": false,
+      "fileAssociations": [
+        {
+          "ext": "mdx",
+          "name": "Runbook",
+          "description": "Gruntwork Runbook",
+          "role": "Editor"
+        }
+      ]
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "category": "Development",
+      "icon": "build/icons",
+      "mimeTypes": ["text/mdx"],
+      "desktop": {
+        "entry": "StartupWMClass=gruntwork-runbooks"
+      }
+    },
+    "deb": {
+      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1"]
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico",
+      "fileAssociations": [
+        {
+          "ext": "mdx",
+          "name": "Runbook",
+          "description": "Gruntwork Runbook"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true
+    }
+  },
+"trustedDependencies": [
+  "@swc/core"
+]
+}

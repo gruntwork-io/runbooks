@@ -1,5 +1,5 @@
 /**
- * Shared hook for input-collecting MDX blocks (Inputs, TfModule).
+ * Shared hook for input-collecting MDX blocks (Inputs).
  *
  * These blocks follow the same lifecycle — register a unique ID, fetch or
  * receive a BoilerplateConfig, render a form, and submit the collected values
@@ -22,7 +22,7 @@ import { useTelemetry } from '@/contexts/useTelemetry'
 interface UseInputRegistrationOptions {
   /** Unique component ID used for registration, error reporting, and form submission. */
   id: string
-  /** Block type identifier (e.g. "Inputs", "TfModule") for telemetry and the ID registry. */
+  /** Block type identifier (e.g. "Inputs") for telemetry and the ID registry. */
   componentType: BlockComponentType
   /** Parsed variable definitions that drive form state; null while still loading. */
   boilerplateConfig: BoilerplateConfig | null
@@ -48,7 +48,7 @@ interface UseInputRegistrationReturn {
 }
 
 /**
- * Shared hook for input-collecting components (Inputs, TfModule).
+ * Shared hook for input-collecting components (Inputs).
  *
  * Encapsulates the common lifecycle:
  * 1. Component ID registration and duplicate detection
@@ -98,6 +98,17 @@ export function useInputRegistration({
       return acc
     }, {} as Record<string, unknown>)
   }, [formState])
+
+  // Register default values immediately so downstream components referencing
+  // this block via inputsId can resolve template expressions before the user
+  // explicitly submits.
+  const hasRegisteredDefaults = useRef(false)
+  useEffect(() => {
+    if (boilerplateConfig && Object.keys(initialData).length > 0 && !hasRegisteredDefaults.current) {
+      hasRegisteredDefaults.current = true
+      registerInputs(id, initialData, boilerplateConfig)
+    }
+  }, [id, boilerplateConfig, initialData, registerInputs])
 
   // 5. Error effect — report config/setup issues to the global banner.
   // apiError is intentionally omitted here; it is rendered inline by the component (e.g., ErrorDisplay).

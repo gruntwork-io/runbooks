@@ -10,14 +10,14 @@
 
 <p align="center"><em>Runbooks enables infrastructure experts to scale their expertise.</em></p>
 
-Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
+Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use. Runbooks is a desktop application built with Electron that renders MDX documents with embedded React components for executing scripts, managing AWS/GitHub authentication, cloning repos, generating files from templates, and more.
 
 For additional information on Runbooks, or to see it in action, check out the [Runbooks docs](https://runbooks.gruntwork.io).
 
 ## Project status
 
 > [!NOTE]
-> As of December 2025, Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
+> Runbooks was written by a single author and has not yet had a thorough peer review. GitHub issues identifying issues and pull requests fixing them are welcome!
 
 ## Security concerns
 
@@ -25,89 +25,98 @@ Runbooks is designed to streamline the code generation and commands you might ot
 
 ### Command execution
 
-Runbooks executes commands directly on your local computer with the full set of environment variables present when you launched the `runbooks` binary. For this reason, it is imperative that you **only open Runbooks you trust.** The Runbooks you open contain arbitrary scripts, and while the Runbooks tool always exposes every last line of code that will be executed, it's easy for long scripts to obscure what they're doing.
+Runbooks executes commands directly on your local computer with the full set of environment variables present when you launched the application. For this reason, it is imperative that you **only open Runbooks you trust.** The Runbooks you open contain arbitrary scripts, and while the Runbooks tool always exposes every last line of code that will be executed, it's easy for long scripts to obscure what they're doing.
 
 If you do not trust a Runbook file or you're not sure about the author or origin, do not open the Runbook.
 
 ### Protections against arbitrary command execution
 
-Runbooks executes commands when the Runbooks frontend makes API calls the Runbooks backend. Runbooks takes various [security measures](http://runbooks.gruntwork.io/security/execution-model/) to make sure that only commands and scripts that are part of the Runbook can be executed via this API, however there are some modes where these restrictions are relaxed in favor of more convenience. Read the docs to understand the security posture in more depth.
+Runbooks uses an executable registry to ensure that only commands and scripts that are part of the Runbook can be executed. The Electron renderer is sandboxed and communicates with the main process via IPC through a typed `contextBridge` API — no direct Node.js access from the renderer. Read the [security docs](http://runbooks.gruntwork.io/security/execution-model/) for more details.
 
-## Building
+## Installation
 
-This project uses [Task](https://taskfile.dev/) as a task runner. Install it first:
+### macOS
 
-```bash
-# macOS
-brew install go-task
+Download the `.dmg` from the [latest release](https://github.com/gruntwork-io/runbooks/releases) and drag to Applications.
 
-# Or see https://taskfile.dev/installation/ for other methods
-```
+### Linux
 
-Then build the complete binary:
+Download the `.AppImage` or `.deb` from the [latest release](https://github.com/gruntwork-io/runbooks/releases).
 
-```bash
-task build
-```
+### Windows
 
-This will:
-1. Build the frontend (`web/dist`)
-2. Embed the frontend into the Go binary
-3. Output a self-contained `runbooks` binary
+Download the `.exe` installer from the [latest release](https://github.com/gruntwork-io/runbooks/releases).
 
-Other useful tasks:
+## Building from Source
+
+Prerequisites:
+- [mise](https://mise.jdx.dev/) — tool version manager
+- [just](https://just.systems/) — command runner
 
 ```bash
-task --list     # List all available tasks
-task clean      # Remove build artifacts
+# Install pinned tool versions (Node.js, bun)
+mise install
+
+# Install dependencies
+bun install
+
+# Build the Electron app
+just build
+
+# Package for distribution (current platform)
+just package
 ```
 
 ## Development
 
 1. Install prerequisites:
-   - [Bun](https://bun.sh/docs/installation) - JavaScript runtime and package manager
-   - [Go](https://go.dev/doc/install) - Go compiler
-   - [Task](https://taskfile.dev/installation/) - Task runner
-   - [prek](https://prek.j178.dev/) - Pre-commit hook manager (optional, for contributors)
+   - [mise](https://mise.jdx.dev/) — `brew install mise` or see [installation docs](https://mise.jdx.dev/getting-started.html)
+   - [just](https://just.systems/) — `brew install just` or see [installation docs](https://just.systems/man/en/packages.html)
+   - [prek](https://prek.j178.dev/) — Pre-commit hook manager (optional, for contributors)
 
-1. Git clone this repo and `cd` to the repo dir.
+2. Clone and set up:
 
-1. Set up pre-commit hooks (recommended):
+   ```bash
+   git clone https://github.com/gruntwork-io/runbooks.git
+   cd runbooks
+   mise install    # Installs Node.js + bun
+   bun install     # Installs npm dependencies
+   ```
+
+3. Set up pre-commit hooks (recommended):
 
    ```bash
    prek install
    ```
 
-   This installs git hooks that automatically run spellcheck on documentation before each commit. If you don't have prek installed, you can install it via:
+4. Start the app in dev mode:
 
    ```bash
-   # macOS/Linux
-   brew install prek
+   # Single command — HMR for React, watch-rebuild for main process
+   just dev
 
-   # Or via the standalone installer
-   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/j178/prek/releases/latest/download/prek-installer.sh | sh
-
-   # Or via bun/npm
-   bun install -g @j178/prek
+   # Or point at a specific runbook
+   just dev-runbook testdata/my-first-runbook
    ```
 
-1. Start the backend and frontend dev servers in separate terminals:
+### Key commands
 
-   ```bash
-   # Terminal 1: Backend API server
-   task dev:backend RUNBOOK_PATH=testdata/my-first-runbook
-
-   # Terminal 2: Frontend dev server (Vite with hot reload)
-   task dev:frontend
-   ```
-
-Now you can make changes to the React code in `/web` or to the backend in the applicable `.go` files! The frontend will hot-reload automatically. For Go changes, restart the `dev:backend` task.
+```bash
+just                 # List all available recipes
+just dev             # Dev mode with HMR
+just build           # Build the app
+just test            # Run all tests
+just test-unit       # Vitest unit tests
+just test-e2e        # Playwright E2E tests
+just lint            # oxlint
+just typecheck       # tsc --noEmit
+just check           # lint + typecheck
+```
 
 ### Adding shadcn/ui components
 
-This project uses [shadcn/ui](https://ui.shadcn.com/) for unstyled components to make use of battle-tested, accessible components. To add a new component, look it up in the shadcn/ui docs, and then use:
+This project uses [shadcn/ui](https://ui.shadcn.com/) for unstyled components to make use of battle-tested, accessible components. To add a new component:
 
 ```bash
 bunx shadcn@latest add <component_name>
 ```
-

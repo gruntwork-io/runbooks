@@ -152,7 +152,7 @@ function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown
 /**
  * Returns input dependency names that don't have values yet.
  * Supports nested paths (e.g., "_module.source") for values injected
- * as nested objects by upstream blocks like TfModule.
+ * as nested objects by upstream blocks.
  * Returns an empty array when deps is empty (no dependencies to check).
  */
 export function computeUnmetInputDependencies(

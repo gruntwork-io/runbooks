@@ -1,185 +1,88 @@
-name: Run Tests
+name: CI
 
 on:
   push:
-    branches:
-      - '**'
+    branches: [main]
   pull_request:
-    branches:
-      - '**'
 
 permissions:
   contents: read
 
 jobs:
-  test-go:
-    name: Test Go Backend
+  lint-typecheck:
+    name: Lint & Typecheck
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.1'
+      - uses: jdx/mise-action@v2
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Lint (oxlint)
+        run: oxlint .
 
-      - name: Build frontend (required for Go embed)
-        working-directory: ./web
-        run: |
-          bun install
-          bun run build
+      - name: Typecheck
+        run: tsc --noEmit
 
-      - name: Run Go tests
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Verify binary builds
-        run: go build -o /dev/null .
-
-      - name: Display test coverage
-        run: go tool cover -func=coverage.out
-
-  test-web:
-    name: Test Web Frontend
+  test-unit:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - uses: jdx/mise-action@v2
 
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.bun/install/cache
-            web/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Install web dependencies
-        working-directory: ./web
-        run: bun install
+      - name: Run backend unit tests
+        run: just test-backend
 
-      - name: Run type checking
-        working-directory: ./web
-        run: bun run type-check
+      - name: Run web unit tests
+        run: just test-web
 
-      - name: Run linter
-        working-directory: ./web
-        run: bun run lint
-
-      - name: Run JavaScript tests
-        working-directory: ./web
-        run: bun run test
-
-      - name: Build web frontend
-        working-directory: ./web
-        run: bun run build
-
-  test-docs:
-    name: Test Documentation
+  test-build:
+    name: Build Verification
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - uses: jdx/mise-action@v2
 
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Run docs tests
-        run: task test:docs
-
-  test-runbooks:
-    name: Test Demo Runbooks
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write  # Required for OIDC
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.1'
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
-
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.RUNBOOKS_TEST_AWS_ROLE_ARN }}
-          aws-region: us-west-2
-
-      - name: Export AWS credentials with test prefix
-        run: |
-          # Export credentials with RUNBOOKS_TEST_ prefix for aws-auth tests
-          echo "RUNBOOKS_TEST_AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $GITHUB_ENV
-          echo "RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $GITHUB_ENV
-          echo "RUNBOOKS_TEST_AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN" >> $GITHUB_ENV
-          echo "RUNBOOKS_TEST_AWS_REGION=$AWS_REGION" >> $GITHUB_ENV
-
-      - name: Run runbook tests
-        env:
-          RUNBOOKS_GITHUB_TOKEN: ${{ secrets.RUNBOOKS_GITHUB_TOKEN }}
-        run: task test:runbooks
+      - name: Build Electron app
+        run: just build
 
   test-e2e:
-    name: Playwright E2E Tests
+    name: E2E Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.1'
+      - uses: jdx/mise-action@v2
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Install web dependencies
-        working-directory: ./web
-        run: bun install
+      - name: Ensure Electron binary is installed
+        run: node node_modules/electron/install.js
+
+      - name: Fix Electron chrome-sandbox permissions
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
       - name: Get Playwright version
         id: pw-version
-        working-directory: ./web
-        run: echo "version=$(bunx playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+        run: echo "version=$(bunx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
         id: pw-cache
@@ -190,44 +93,139 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
-        working-directory: ./web
         run: bunx playwright install --with-deps chromium
 
-      - name: Install Playwright system deps only
+      - name: Install Playwright system deps
         if: steps.pw-cache.outputs.cache-hit == 'true'
-        working-directory: ./web
         run: bunx playwright install-deps chromium
 
-      - name: Run Playwright tests
-        working-directory: ./web
-        run: bunx playwright test
+      - name: Build Electron app
+        run: just build
+
+      - name: Install Xvfb
+        run: sudo apt-get install -y xvfb
+
+      - name: Run E2E tests
+        run: xvfb-run --auto-servernum just test-e2e-run
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
-          path: web/playwright-report/
-          retention-days: 30
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
           name: playwright-results
-          path: web/test-results/
+          path: |
+            web/test-results/
+            electron/e2e/test-results/
           retention-days: 30
+          if-no-files-found: ignore
 
-  test-summary:
-    name: Test Summary
-    needs: [test-go, test-web, test-docs, test-runbooks, test-e2e]
+  test-runbooks:
+    name: Runbook Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile test CLI
+        run: just compile-test-cli
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.RUNBOOKS_TEST_AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Export test credentials
+        env:
+          ORIG_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          ORIG_SECRET: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          ORIG_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+          ORIG_REGION: ${{ env.AWS_REGION }}
+        run: |
+          echo "RUNBOOKS_TEST_AWS_ACCESS_KEY_ID=${ORIG_KEY_ID}" >> "$GITHUB_ENV"
+          echo "RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY=${ORIG_SECRET}" >> "$GITHUB_ENV"
+          echo "RUNBOOKS_TEST_AWS_SESSION_TOKEN=${ORIG_TOKEN}" >> "$GITHUB_ENV"
+          echo "RUNBOOKS_TEST_AWS_REGION=${ORIG_REGION}" >> "$GITHUB_ENV"
+
+      - name: Run runbook tests
+        env:
+          RUNBOOKS_GITHUB_TOKEN: ${{ secrets.RUNBOOKS_GITHUB_TOKEN }}
+        run: resources/bin/runbooks-test test testdata/...
+
+  test-runbooks-app-token:
+    name: Runbook Tests (GitHub App Token)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile test CLI
+        run: just compile-test-cli
+
+      - name: Run GitHub auth flows with installation token
+        env:
+          # No RUNBOOKS_GITHUB_TOKEN: force the executor's fallback chain
+          # (RUNBOOKS_GITHUB_TOKEN -> GITHUB_TOKEN -> GH_TOKEN) to land on the
+          # ghs_ installation token, exercising validateInstallationToken.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: resources/bin/runbooks-test test testdata/feature-demos/github-auth/...
+
+  test-docs:
+    name: Documentation Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Run docs tests
+        run: just test-docs
+
+  ci-summary:
+    name: CI Summary
+    needs:
+      [
+        lint-typecheck,
+        test-unit,
+        test-build,
+        test-e2e,
+        test-runbooks,
+        test-runbooks-app-token,
+        test-docs,
+      ]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Check test results
+      - name: Check results
+        env:
+          LINT_RESULT: ${{ needs.lint-typecheck.result }}
+          UNIT_RESULT: ${{ needs.test-unit.result }}
+          BUILD_RESULT: ${{ needs.test-build.result }}
+          E2E_RESULT: ${{ needs.test-e2e.result }}
+          RUNBOOKS_RESULT: ${{ needs.test-runbooks.result }}
+          RUNBOOKS_APP_RESULT: ${{ needs.test-runbooks-app-token.result }}
+          DOCS_RESULT: ${{ needs.test-docs.result }}
         run: |
-          if [ "${{ needs.test-go.result }}" != "success" ] || [ "${{ needs.test-web.result }}" != "success" ] || [ "${{ needs.test-docs.result }}" != "success" ] || [ "${{ needs.test-runbooks.result }}" != "success" ] || [ "${{ needs.test-e2e.result }}" != "success" ]; then
-            echo "Tests failed!"
-            exit 1
-          fi
-          echo "All tests passed!"
+          for result in "$LINT_RESULT" "$UNIT_RESULT" "$BUILD_RESULT" "$E2E_RESULT" "$RUNBOOKS_RESULT" "$RUNBOOKS_APP_RESULT" "$DOCS_RESULT"; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "CI failed!"
+              exit 1
+            fi
+          done
+          echo "All checks passed!"

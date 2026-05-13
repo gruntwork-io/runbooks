@@ -31,9 +31,10 @@ interface UseScriptExecutionProps {
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
   usePty?: boolean
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout applies. */
+  timeoutMs?: number
 }
 
-// Re-export for backwards compatibility
 export type { BlockOutput } from '@/lib/templateUtils'
 /** @deprecated Use BlockOutput instead */
 export type UnmetOutputDependency = BlockOutput
@@ -43,7 +44,6 @@ export interface UnmetAuthDependency {
   blockId: string
 }
 
-// Keep old names as aliases for backwards compatibility
 export type UnmetAwsAuthDependency = UnmetAuthDependency
 export type UnmetGitHubAuthDependency = UnmetAuthDependency
 
@@ -132,6 +132,7 @@ export function useScriptExecution({
   children,
   componentType,
   usePty,
+  timeoutMs,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
@@ -202,8 +203,8 @@ export function useScriptExecution({
     if (!execRegistryEnabled) return false
     
     const executable = getExecutableByComponentId(componentId)
-    if (!executable?.script_content_hash) return false
-    
+    if (!executable?.contentHash) return false
+
     // For inline commands, compare computed hash against registry hash
     if (command) {
       // If the hash we have is not for the current command, we can't know the drift status yet.
@@ -211,12 +212,12 @@ export function useScriptExecution({
       if (commandHashResult?.command !== command) {
         return false
       }
-      return commandHashResult.hash !== executable.script_content_hash
+      return commandHashResult.hash !== executable.contentHash
     }
-    
+
     // For file-based scripts, compare file hash against registry hash
     if (!fileData?.contentHash) return false
-    return fileData.contentHash !== executable.script_content_hash
+    return fileData.contentHash !== executable.contentHash
   }, [execRegistryEnabled, command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present
@@ -427,28 +428,13 @@ export function useScriptExecution({
     }
     
     try {
-      const response = await fetch('/api/boilerplate/render-inline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          templateFiles,
-          inputs,
-        }),
-        signal: abortController.signal
+      const responseData = await window.api.invoke('boilerplate:render-inline', {
+        templateFiles,
+        inputs,
       })
 
       // Check if component is still mounted before updating state
       if (!isMountedRef.current) return
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
-        const errorMessage = errorData?.error || 'Failed to render script'
-        setRenderError(createAppError(errorMessage, errorData?.details))
-        setIsRendering(false)
-        return
-      }
-
-      const responseData = await response.json()
       const renderedFiles = responseData.renderedFiles
       
       // Check if we got the expected file structure
@@ -581,12 +567,12 @@ export function useScriptExecution({
         return
       }
       
-      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty)
+      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
     } else {
       // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty)
+      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, usePty])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, usePty, timeoutMs])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
