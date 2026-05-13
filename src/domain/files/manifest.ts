@@ -103,8 +103,11 @@ export function buildManifestFromDirectoryWithContent(rootDir: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const walkEntries = yield* Stream.runCollect(fs.walk(rootDir))
-    const files = Chunk.toReadonlyArray(walkEntries).filter((e) => e.isFile)
+    const walkEntries = yield* fs.walk(rootDir).pipe(
+      Stream.filter((e) => e.isFile),
+      Stream.runCollect,
+    )
+    const files = Chunk.toReadonlyArray(walkEntries)
 
     const entries = yield* Effect.forEach(
       files,
@@ -128,9 +131,8 @@ export function buildManifestFromDirectoryWithContent(rootDir: string) {
 
 /**
  * Scan a directory recursively and build a manifest of all files with their
- * SHA-256 content hashes.
- *
- * Returns an Effect that requires the FileSystem service.
+ * SHA-256 content hashes. Thin wrapper around
+ * {@link buildManifestFromDirectoryWithContent} that drops the content field.
  */
 export function buildManifestFromDirectory(rootDir: string) {
   return buildManifestFromDirectoryWithContent(rootDir).pipe(
@@ -283,16 +285,12 @@ export function applyDiff(
     )
     for (const n of deletes) deleted += n
 
-    // Write created files.
+    // Write created + modified files in one parallel batch — they're
+    // independent and skipping the barrier between them avoids latency
+    // when one bucket is much smaller than the other.
+    const writes = [...diff.created, ...diff.modified]
     yield* Effect.forEach(
-      diff.created,
-      (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
-      { concurrency: BATCH_IO_CONCURRENCY },
-    )
-
-    // Write modified files.
-    yield* Effect.forEach(
-      diff.modified,
+      writes,
       (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
       { concurrency: BATCH_IO_CONCURRENCY },
     )
@@ -311,10 +309,7 @@ export function applyDiff(
       { concurrency: BATCH_IO_CONCURRENCY },
     )
 
-    const written =
-      diff.created.length +
-      diff.modified.length +
-      restored.reduce((a, b) => a + b, 0)
+    const written = writes.length + restored.reduce((a, b) => a + b, 0)
 
     return { written, deleted } satisfies ApplyDiffResult
   })
@@ -339,12 +334,21 @@ export function applyDiffFromContent(
     let written = 0
     let deleted = 0
 
-    for (const relPath of diff.orphaned) {
-      const fullPath = path.join(outputDir, relPath)
-      const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
-      if (result._tag === "Right") deleted++
-      yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
-    }
+    // Delete orphans in parallel; cleanupEmptyParentDirs swallows races
+    // between siblings (see applyDiff for the same pattern).
+    const deletes = yield* Effect.forEach(
+      diff.orphaned,
+      (relPath) =>
+        Effect.gen(function* () {
+          const fullPath = path.join(outputDir, relPath)
+          const result = yield* fs.rm(fullPath, { force: true }).pipe(Effect.either)
+          const ok = result._tag === "Right" ? 1 : 0
+          yield* cleanupEmptyParentDirs(path.dirname(fullPath), outputDir)
+          return ok
+        }),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+    for (const n of deletes) deleted += n
 
     const writeFromContent = (relPath: string) =>
       Effect.gen(function* () {
