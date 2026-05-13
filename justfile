@@ -1,3 +1,7 @@
+# Pinned version of gruntwork-io/boilerplate to bundle.
+# Bump and re-run `just fetch-boilerplate` to pick up a new release.
+boilerplate_version := "v0.16.0"
+
 # Default recipe: show available commands
 default:
     @just --list
@@ -31,8 +35,63 @@ compile-test-cli:
         codesign --remove-signature resources/bin/runbooks-test 2>/dev/null || true
     fi
 
+# Fetch the boilerplate CLI + WASM artifacts from gruntwork-io/boilerplate
+# release assets, pinned to {{boilerplate_version}}. Lands them under
+# resources/bin and resources/wasm so electron-builder.extraResources picks
+# them up and the main process can point BOILERPLATE_BIN /
+# BOILERPLATE_WASM_DIR at the bundled copies. Idempotent: skips re-fetch
+# when resources/.boilerplate-version matches the pin.
+#
+# NOTE: only fetches the host's os/arch boilerplate CLI today. Cross-arch
+# packaging (e.g. building an x64 .app on an arm64 host) will ship the wrong
+# binary; the WASM blob + wasm_exec.js are architecture-independent.
+fetch-boilerplate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    VERSION="{{boilerplate_version}}"
+    MARKER="resources/.boilerplate-version"
+
+    if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$VERSION" ] \
+        && [ -x "resources/bin/boilerplate" ] \
+        && [ -f "resources/wasm/boilerplate-full.wasm.br" ] \
+        && [ -f "resources/wasm/wasm_exec.js" ]; then
+        echo "[fetch-boilerplate] $VERSION already present, skipping"
+        exit 0
+    fi
+
+    case "$(uname -s)" in
+        Darwin) os="darwin" ;;
+        Linux)  os="linux"  ;;
+        *) echo "[fetch-boilerplate] Unsupported OS: $(uname -s)" >&2; exit 1 ;;
+    esac
+    case "$(uname -m)" in
+        arm64|aarch64) arch="arm64" ;;
+        x86_64|amd64)  arch="amd64" ;;
+        *) echo "[fetch-boilerplate] Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+
+    base="https://github.com/gruntwork-io/boilerplate/releases/download/${VERSION}"
+
+    mkdir -p resources/bin resources/wasm
+
+    echo "[fetch-boilerplate] $VERSION CLI for ${os}_${arch}"
+    curl -fL --retry 3 -o resources/bin/boilerplate "${base}/boilerplate_${os}_${arch}"
+    chmod +x resources/bin/boilerplate
+
+    echo "[fetch-boilerplate] $VERSION WASM blob (boilerplate.wasm.br)"
+    # The runtime loader (src/layers/NodeWasmRuntime.ts) expects the name
+    # boilerplate-full.wasm.br; the release ships boilerplate.wasm.br.
+    curl -fL --retry 3 -o resources/wasm/boilerplate-full.wasm.br "${base}/boilerplate.wasm.br"
+
+    echo "[fetch-boilerplate] $VERSION wasm_exec.js"
+    curl -fL --retry 3 -o resources/wasm/wasm_exec.js "${base}/wasm_exec.js"
+
+    echo "$VERSION" > "$MARKER"
+    echo "[fetch-boilerplate] Done"
+
 # Package the Electron app for distribution
-package: build compile-test-cli
+package: build compile-test-cli fetch-boilerplate
     mise x node -- npx electron-builder
 
 # Package for local testing. electron-builder on this host has no Developer ID
@@ -41,7 +100,7 @@ package: build compile-test-cli
 # crashing at launch on macOS 14+/Sequoia. Workaround: build the unpacked .app
 # only, manually ad-hoc sign it leaf-first, then repackage the DMG ourselves
 # so the installer actually contains the signed bundle.
-package-local: build compile-test-cli
+package-local: build compile-test-cli fetch-boilerplate
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -137,7 +196,7 @@ clean:
     #!/usr/bin/env bash
     set -u
     for i in 1 2 3; do
-        rm -rf dist out resources/bin/runbooks-test && exit 0
+        rm -rf dist out resources/bin/runbooks-test resources/bin/boilerplate resources/wasm resources/.boilerplate-version && exit 0
         sleep 0.3
     done
     exit 1
@@ -159,12 +218,12 @@ test-web:
 test-unit: test-backend test-web
 
 # Run Playwright E2E tests (requires build)
-test-e2e: build
+test-e2e: build fetch-boilerplate
     mise x bun -- bunx playwright test --config web/playwright.config.ts
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
 # Run Playwright E2E tests without rebuilding (CI calls `just build` separately)
-test-e2e-run:
+test-e2e-run: fetch-boilerplate
     mise x bun -- bunx playwright test --config web/playwright.config.ts
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
