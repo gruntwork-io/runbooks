@@ -28,7 +28,7 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
   if (unmetInputDeps.length === 0 && unmetOutputDeps.length === 0) return null
 
   return (
-    <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
+    <div className="mb-3 text-sm text-warning-foreground flex items-start gap-2">
       <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
       <div>
         {unmetInputDeps.length > 0 && (
@@ -37,7 +37,7 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
             {unmetInputDeps.map((varName, i) => (
               <span key={varName}>
                 {i > 0 && ', '}
-                <code className="bg-yellow-100 px-1 rounded text-xs">{formatVariableLabel(varName)}</code>
+                <code className="bg-warning-muted px-1 rounded text-xs">{formatVariableLabel(varName)}</code>
               </span>
             ))}
           </div>
@@ -48,13 +48,13 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
             {unmetOutputDeps.map((dep, i) => (
               <span key={dep.blockId}>
                 {i > 0 && ', '}
-                <code className="bg-yellow-100 px-1 rounded text-xs">{dep.blockId}</code>
+                <code className="bg-warning-muted px-1 rounded text-xs">{dep.blockId}</code>
                 {' '}({dep.outputNames.join(', ')})
               </span>
             ))}
           </div>
         )}
-        <div className="text-xs mt-1 text-yellow-600">
+        <div className="text-xs mt-1 text-warning-foreground">
           {unmetInputDeps.length > 0 && unmetOutputDeps.length > 0
             ? `Fill in the required values and run the required blocks to use this ${blockType}.`
             : unmetInputDeps.length > 0

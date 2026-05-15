@@ -25,10 +25,10 @@ export function SsoForm({
 
   if (!ssoStartUrl) {
     return (
-      <div className="text-amber-700 text-sm flex items-start gap-2">
+      <div className="text-warning text-sm flex items-start gap-2">
         <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
         <div>
-          SSO Start URL is not configured. Add <code className="bg-amber-100 px-1 rounded">ssoStartUrl</code> prop to enable SSO authentication.
+          SSO Start URL is not configured. Add <code className="bg-warning-muted px-1 rounded">ssoStartUrl</code> prop to enable SSO authentication.
         </div>
       </div>
     )
@@ -36,11 +36,11 @@ export function SsoForm({
 
   return (
     <div className="space-y-4">
-      <div className="bg-amber-100/50 rounded p-3 text-sm text-gray-700">
+      <div className="bg-warning-muted/50 rounded p-3 text-sm text-foreground">
         {isAuthenticating ? (
           <p>
             Complete the authorization request in the applicable browser tab.<br/>
-            <span className="text-gray-500 text-xs mt-1 block">
+            <span className="text-muted-foreground text-xs mt-1 block">
               Note: If you cancelled on AWS, click the Cancel button below — AWS doesn't notify this page when you cancel.
             </span>
           </p>                        
@@ -49,7 +49,7 @@ export function SsoForm({
             <p className="mb-2">
               Click the button below to open AWS IAM Identity Center (formerly AWS SSO) in your browser. After authenticating, you'll be redirected back here.
             </p>
-            <div className="font-mono text-xs text-gray-500 truncate">
+            <div className="font-mono text-xs text-muted-foreground truncate">
               {ssoStartUrl}
             </div>
           </>
@@ -66,7 +66,7 @@ export function SsoForm({
         <Button
           onClick={onSsoAuth}
           disabled={isAuthenticating}
-          className="bg-amber-600 hover:bg-amber-700 text-white"
+          className="bg-warning hover:bg-warning/90 text-white"
         >
           {isAuthenticating ? (
             <>
@@ -85,7 +85,7 @@ export function SsoForm({
           <Button
             onClick={onCancelSsoAuth}
             variant="outline"
-            className="border-gray-300 text-gray-700 hover:bg-gray-100"
+            className="border-input text-foreground hover:bg-accent"
           >
             <XCircle className="size-4" />
             Cancel
@@ -123,29 +123,29 @@ export function SsoAccountSelector({
 
   return (
     <div className="space-y-4">
-      <div className="text-blue-700 font-semibold text-sm mb-2">
+      <div className="text-info font-semibold text-sm mb-2">
         ✓ SSO authentication successful
       </div>
-      <div className="bg-blue-100/50 rounded p-3 text-sm text-gray-700">
+      <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         <p>Select an AWS account to continue:</p>
       </div>
       
       <div className="space-y-2">
         {/* Search input */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             type="text"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
             placeholder="Search accounts..."
-            className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            className="w-full pl-9 pr-8 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring text-sm"
             disabled={loadingRoles}
           />
           {searchValue && (
             <button
               onClick={() => setSearchValue('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="size-4" />
             </button>
@@ -164,8 +164,8 @@ export function SsoAccountSelector({
                 className={cn(
                   "w-full text-left px-4 py-3 rounded-md border transition-colors",
                   isSelected
-                    ? "bg-blue-100 border-blue-400 ring-2 ring-blue-200"
-                    : "bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer"
+                    ? "bg-info-muted border-info/40 ring-2 ring-info/40"
+                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer"
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -173,26 +173,26 @@ export function SsoAccountSelector({
                     <Check
                       className={cn(
                         "h-4 w-4 shrink-0",
-                        isSelected ? "opacity-100 text-blue-600" : "opacity-0"
+                        isSelected ? "opacity-100 text-info" : "opacity-0"
                       )}
                     />
                     <div>
-                      <div className="font-medium text-gray-900">{account.accountName}</div>
-                      <div className="text-sm text-gray-500">
+                      <div className="font-medium text-foreground">{account.accountName}</div>
+                      <div className="text-sm text-muted-foreground">
                         {account.accountId}
                         {account.emailAddress && ` • ${account.emailAddress}`}
                       </div>
                     </div>
                   </div>
                   {loadingRoles && isSelected && (
-                    <Loader2 className="size-4 animate-spin text-blue-600" />
+                    <Loader2 className="size-4 animate-spin text-info" />
                   )}
                 </div>
               </button>
             )
           })}
           {filteredAccounts.length === 0 && searchValue && (
-            <div className="text-gray-500 text-sm py-4 text-center">
+            <div className="text-muted-foreground text-sm py-4 text-center">
               No accounts match "{searchValue}"
             </div>
           )}
@@ -202,7 +202,7 @@ export function SsoAccountSelector({
       <Button
         onClick={onCancel}
         variant="outline"
-        className="border-gray-300 text-gray-700 hover:bg-gray-100"
+        className="border-input text-foreground hover:bg-accent"
       >
         Cancel
       </Button>
@@ -237,28 +237,28 @@ export function SsoRoleSelector({
 
   return (
     <div className="space-y-4">
-      <div className="text-blue-700 font-semibold text-sm mb-2">
+      <div className="text-info font-semibold text-sm mb-2">
         ✓ Account selected: {selectedAccount.accountName}
       </div>
-      <div className="bg-blue-100/50 rounded p-3 text-sm text-gray-700">
+      <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         <p>Select a role to assume:</p>
       </div>
       
       <div className="space-y-2">
         {/* Search input */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             type="text"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
             placeholder="Search roles..."
-            className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            className="w-full pl-9 pr-8 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring text-sm"
           />
           {searchValue && (
             <button
               onClick={() => setSearchValue('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="size-4" />
             </button>
@@ -276,24 +276,24 @@ export function SsoRoleSelector({
                 className={cn(
                   "w-full text-left px-4 py-3 rounded-md border transition-colors",
                   isSelected
-                    ? "bg-blue-100 border-blue-400 ring-2 ring-blue-200"
-                    : "bg-blue-50 border-gray-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer"
+                    ? "bg-info-muted border-info/40 ring-2 ring-info/40"
+                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer"
                 )}
               >
                 <div className="flex items-center gap-2">
                   <Check
                     className={cn(
                       "h-4 w-4 shrink-0",
-                      isSelected ? "opacity-100 text-blue-600" : "opacity-0"
+                      isSelected ? "opacity-100 text-info" : "opacity-0"
                     )}
                   />
-                  <span className="font-medium text-gray-900">{role.roleName}</span>
+                  <span className="font-medium text-foreground">{role.roleName}</span>
                 </div>
               </button>
             )
           })}
           {filteredRoles.length === 0 && searchValue && (
-            <div className="text-gray-500 text-sm py-4 text-center">
+            <div className="text-muted-foreground text-sm py-4 text-center">
               No roles match "{searchValue}"
             </div>
           )}
@@ -304,14 +304,14 @@ export function SsoRoleSelector({
         <Button
           onClick={onComplete}
           disabled={!selectedRole}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
+          className="bg-info hover:bg-info/90 text-white"
         >
           Continue
         </Button>
         <Button
           onClick={onBack}
           variant="outline"
-          className="border-gray-300 text-gray-700 hover:bg-gray-100"
+          className="border-input text-foreground hover:bg-accent"
         >
           Back
         </Button>

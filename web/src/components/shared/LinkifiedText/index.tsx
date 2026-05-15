@@ -20,7 +20,7 @@ interface LinkifiedTextProps {
 export function LinkifiedText({ 
   text, 
   className = '',
-  linkClassName = 'text-blue-400 hover:text-blue-300 underline'
+  linkClassName = 'text-primary hover:text-primary/80 underline'
 }: LinkifiedTextProps) {
   const parts = React.useMemo(() => {
     // Strip ANSI escape codes before processing

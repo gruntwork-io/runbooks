@@ -48,13 +48,13 @@ const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> =
     {...props}
   >
     {/* Top face */}
-    <path fill="#160C56" fillOpacity="0.4" d="M15.75 2.08a.5.5 0 0 1 .5 0l10.84 5.97c.35.19.35.7 0 .89L16.24 14.9a.5.5 0 0 1-.49 0L4.91 8.94a.5.5 0 0 1 0-.9z"/>
+    <path fill="currentColor" fillOpacity="0.4" d="M15.75 2.08a.5.5 0 0 1 .5 0l10.84 5.97c.35.19.35.7 0 .89L16.24 14.9a.5.5 0 0 1-.49 0L4.91 8.94a.5.5 0 0 1 0-.9z"/>
     {/* Left face */}
-    <path fill="#160C56" fillOpacity="0.8" d="M3.19 10.78a.5.5 0 0 1 .75-.45l10.95 6.02c.16.1.26.26.26.44v11.93a.5.5 0 0 1-.75.44L3.46 23.15a.51.51 0 0 1-.26-.44V10.78z"/>
+    <path fill="currentColor" fillOpacity="0.8" d="M3.19 10.78a.5.5 0 0 1 .75-.45l10.95 6.02c.16.1.26.26.26.44v11.93a.5.5 0 0 1-.75.44L3.46 23.15a.51.51 0 0 1-.26-.44V10.78z"/>
     {/* Right face */}
-    <path fill="#160C56" fillOpacity="0.6" d="M28.06 10.33a.5.5 0 0 1 .74.45V22.7a.5.5 0 0 1-.26.44L17.6 29.16a.5.5 0 0 1-.75-.44V16.79c0-.18.1-.35.26-.44z"/>
+    <path fill="currentColor" fillOpacity="0.6" d="M28.06 10.33a.5.5 0 0 1 .74.45V22.7a.5.5 0 0 1-.26.44L17.6 29.16a.5.5 0 0 1-.75-.44V16.79c0-.18.1-.35.26-.44z"/>
     {/* Eyes on left face */}
-    <path fill="#160C56" d="M7.79 20.13v.02L5.22 18.8v-.02c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12m4.04 2.33v.02l-2.57-1.36v-.01c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12"/>
+    <path fill="currentColor" d="M7.79 20.13v.02L5.22 18.8v-.02c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12m4.04 2.33v.02l-2.57-1.36v-.01c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12"/>
   </svg>
 )
 
@@ -68,12 +68,12 @@ const TerragruntIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }>
     className={className}
     {...props}
   >
-    <path fillRule="evenodd" clipRule="evenodd" d="M256.867 0.513672L479.187 128.514V384.514L256.867 512.514L34.5469 384.514V128.514L256.867 0.513672ZM455.187 142.332L256.867 28.1495L58.5469 142.332V370.696L256.867 484.878L455.187 370.696V142.332Z" fill="#160C56"/>
-    <path d="M356.027 427.788L455.187 370.697L356.027 313.606L256.867 370.697V484.879L356.027 427.788Z" fill="#160C56" fillOpacity="0.4"/>
-    <path d="M256.867 256.515V370.697L356.027 313.606L256.867 256.515Z" fill="#160C56" fillOpacity="0.8"/>
-    <path d="M356.027 199.423L256.867 256.515L356.027 313.606L455.187 256.515L356.027 199.423Z" fill="#160C56" fillOpacity="0.6"/>
-    <path d="M356.027 85.2414L256.867 28.1504L157.707 85.2414L58.5469 142.332L157.707 199.423L256.867 142.332L356.027 199.423L455.187 142.332L356.027 85.2414Z" fill="#160C56" fillOpacity="0.4"/>
-    <path d="M256.867 256.515L356.027 199.423L256.867 142.332L157.707 199.423L256.867 256.515Z" fill="#160C56" fillOpacity="0.8"/>
+    <path fillRule="evenodd" clipRule="evenodd" d="M256.867 0.513672L479.187 128.514V384.514L256.867 512.514L34.5469 384.514V128.514L256.867 0.513672ZM455.187 142.332L256.867 28.1495L58.5469 142.332V370.696L256.867 484.878L455.187 370.696V142.332Z" fill="currentColor"/>
+    <path d="M356.027 427.788L455.187 370.697L356.027 313.606L256.867 370.697V484.879L356.027 427.788Z" fill="currentColor" fillOpacity="0.4"/>
+    <path d="M256.867 256.515V370.697L356.027 313.606L256.867 256.515Z" fill="currentColor" fillOpacity="0.8"/>
+    <path d="M356.027 199.423L256.867 256.515L356.027 313.606L455.187 256.515L356.027 199.423Z" fill="currentColor" fillOpacity="0.6"/>
+    <path d="M356.027 85.2414L256.867 28.1504L157.707 85.2414L58.5469 142.332L157.707 199.423L256.867 142.332L356.027 199.423L455.187 142.332L356.027 85.2414Z" fill="currentColor" fillOpacity="0.4"/>
+    <path d="M256.867 256.515L356.027 199.423L256.867 142.332L157.707 199.423L256.867 256.515Z" fill="currentColor" fillOpacity="0.8"/>
   </svg>
 )
 
@@ -357,15 +357,15 @@ export const FileTree = ({
           onClick={() => handleItemClick(item)}
           className={cn(
             "min-w-full w-max flex items-center gap-0.5 py-1 pr-2 text-left text-sm cursor-pointer",
-            isIgnored ? "text-gray-400" : "text-gray-700",
+            isIgnored ? "text-muted-foreground" : "text-foreground",
           )}
           style={{
             paddingLeft: `${8 + level * indent}px`,
-            backgroundColor: isSelected ? '#e5e7eb' : undefined,
+            backgroundColor: isSelected ? 'var(--accent)' : undefined,
             fontWeight: isSelected ? 500 : undefined,
           }}
           onMouseEnter={(e) => {
-            if (!isSelected) e.currentTarget.style.backgroundColor = '#f3f4f6'
+            if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--accent)'
           }}
           onMouseLeave={(e) => {
             if (!isSelected) e.currentTarget.style.backgroundColor = ''
@@ -374,20 +374,20 @@ export const FileTree = ({
           {isFolder ? (
             <>
               {isExpanded ? (
-                <ChevronDown className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-400")} />
+                <ChevronDown className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
               ) : (
-                <ChevronRight className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-400")} />
+                <ChevronRight className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
               )}
               {isExpanded ? (
-                <FolderOpen className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-500")} />
+                <FolderOpen className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
               ) : (
-                <Folder className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-500")} />
+                <Folder className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
               )}
             </>
           ) : (
             <>
               <span className="w-4 flex-shrink-0" />
-              {FileIcon && <FileIcon className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-gray-300" : "text-gray-500")} />}
+              {FileIcon && <FileIcon className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />}
             </>
           )}
           
@@ -401,7 +401,7 @@ export const FileTree = ({
             </div>
           ) : item.isLazyLoad ? (
             <div
-              className="flex items-center gap-1.5 py-1 text-xs text-gray-400"
+              className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground"
               style={{ paddingLeft: `${8 + (level + 1) * indent}px` }}
             >
               <Loader2 className="w-3 h-3 animate-spin" />
@@ -419,7 +419,7 @@ export const FileTree = ({
       className={cn("tree pt-1 pb-1 mt-[7px] w-max min-w-full", className)}
     >
       {items.length === 0 ? (
-        <div className="p-4 text-gray-500 text-sm">No files to display</div>
+        <div className="p-4 text-muted-foreground text-sm">No files to display</div>
       ) : (
         items.map(item => renderItem(item))
       )}

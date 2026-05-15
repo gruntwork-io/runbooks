@@ -258,6 +258,10 @@ export interface IpcChannelMap {
       disableLiveFileReload?: boolean
     }
   }
+  "native:set-theme": {
+    params: { theme: "light" | "dark" | "system" }
+    result: { ok: true }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +285,7 @@ export interface IpcEventMap {
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "menu:close-runbook": void
+  "menu:preferences": void
   "registry:updated": void
 }
 

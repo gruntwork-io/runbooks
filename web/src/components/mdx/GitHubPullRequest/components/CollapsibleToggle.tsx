@@ -18,7 +18,7 @@ export function CollapsibleToggle({ expanded, onToggle, label, icon, disabled, c
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 cursor-pointer"
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer"
       >
         {expanded ? (
           <ChevronDown className="size-3.5" />

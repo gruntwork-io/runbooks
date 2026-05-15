@@ -9,7 +9,7 @@ export function ChangeProportionBar({ additions, deletions }: { additions: numbe
     return (
       <div className="flex items-center gap-0.5">
         {Array.from({ length: BOXES }).map((_, i) => (
-          <div key={`n-${i}`} className="w-2 h-2 rounded-sm bg-gray-300" />
+          <div key={`n-${i}`} className="w-2 h-2 rounded-sm bg-muted" />
         ))}
       </div>
     )
@@ -24,10 +24,10 @@ export function ChangeProportionBar({ additions, deletions }: { additions: numbe
   return (
     <div className="flex items-center gap-0.5">
       {Array.from({ length: greenBoxes }).map((_, i) => (
-        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-green-500" />
+        <div key={`g-${i}`} className="w-2 h-2 rounded-sm bg-success" />
       ))}
       {Array.from({ length: redBoxes }).map((_, i) => (
-        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-red-500" />
+        <div key={`r-${i}`} className="w-2 h-2 rounded-sm bg-destructive" />
       ))}
     </div>
   )

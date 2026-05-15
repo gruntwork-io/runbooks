@@ -56,8 +56,8 @@ export const RepositoryTabs = ({
               "relative px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
               "focus:outline-none",
               isActive
-                ? "text-gray-900 bg-white border border-gray-300 border-b-white rounded-t-md"
-                : "text-gray-500 hover:text-gray-700 rounded-t-md"
+                ? "text-foreground bg-card border border-border border-b-card rounded-t-md"
+                : "text-muted-foreground hover:text-foreground rounded-t-md"
             )}
           >
             <span className="flex items-center gap-1.5">
@@ -67,8 +67,8 @@ export const RepositoryTabs = ({
                   className={cn(
                     "px-1.5 py-0.5 text-xs rounded-full",
                     isActive
-                      ? "bg-gray-100 text-gray-700"
-                      : "bg-gray-200/60 text-gray-500"
+                      ? "bg-muted text-foreground"
+                      : "bg-accent/60 text-muted-foreground"
                   )}
                 >
                   {count}

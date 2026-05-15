@@ -60,7 +60,7 @@ export const SuccessIndicator: React.FC<SuccessIndicatorProps> = ({
 
   return (
     <CircleCheck 
-      className={`size-6 text-green-600 ${className} ${
+      className={`size-6 text-success ${className} ${
         showAnimation ? styles.animate : ''
       } ${isFadingOut ? styles.fadeOut : ''}`} 
     />

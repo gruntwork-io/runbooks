@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './css/index.css'
 import App from './App.tsx'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ApiProvider } from './contexts/ApiContext'
 import { GeneratedFilesProvider } from './contexts/GeneratedFilesContext'
 import { IpcGitWorkTreeProvider } from './contexts/IpcGitWorkTreeContext'
@@ -28,23 +29,25 @@ if (!window.api) {
 } else {
   createRoot(root).render(
     <StrictMode>
-      <ApiProvider api={window.api}>
-        <IpcTelemetryProvider>
-          <IpcSessionProvider>
-            <ErrorReportingProvider>
-              <IpcExecutableRegistryProvider>
-                <GeneratedFilesProvider>
-                  <IpcGitWorkTreeProvider>
-                    <LogsProvider>
-                      <App />
-                    </LogsProvider>
-                  </IpcGitWorkTreeProvider>
-                </GeneratedFilesProvider>
-              </IpcExecutableRegistryProvider>
-            </ErrorReportingProvider>
-          </IpcSessionProvider>
-        </IpcTelemetryProvider>
-      </ApiProvider>
+      <ThemeProvider>
+        <ApiProvider api={window.api}>
+          <IpcTelemetryProvider>
+            <IpcSessionProvider>
+              <ErrorReportingProvider>
+                <IpcExecutableRegistryProvider>
+                  <GeneratedFilesProvider>
+                    <IpcGitWorkTreeProvider>
+                      <LogsProvider>
+                        <App />
+                      </LogsProvider>
+                    </IpcGitWorkTreeProvider>
+                  </GeneratedFilesProvider>
+                </IpcExecutableRegistryProvider>
+              </ErrorReportingProvider>
+            </IpcSessionProvider>
+          </IpcTelemetryProvider>
+        </ApiProvider>
+      </ThemeProvider>
     </StrictMode>,
   )
 }

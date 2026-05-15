@@ -5,6 +5,7 @@ import { TestWrapper } from "@/test/test-utils"
 // Mock the AwsAuth component's heavy dependencies at the module level
 // to avoid issues with SVG imports and complex sub-components in jsdom
 vi.mock("@/assets/aws-logo.svg", () => ({ default: "aws-logo.svg" }))
+vi.mock("@/assets/aws-logo-light.svg", () => ({ default: "aws-logo-light.svg" }))
 
 vi.mock("../hooks/useAwsAuth", () => ({
   useAwsAuth: () => ({

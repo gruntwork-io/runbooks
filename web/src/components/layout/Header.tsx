@@ -1,7 +1,9 @@
-import { useState, type ComponentType, type ComponentPropsWithRef } from 'react';
+import { useState, useEffect, type ComponentType, type ComponentPropsWithRef } from 'react';
 import { ChevronDown, Download, Info, Check, FolderOpen, Copy, X, type LucideProps } from 'lucide-react';
 import logoDarkAlpha from '@/assets/runbooks-logo-dark-alpha.svg';
 import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg';
+import logoLightAlpha from '@/assets/runbooks-logo-light-alpha.svg';
+import logoLightColor from '@/assets/runbooks-logo-light-color.svg';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import {
   Tooltip,
@@ -24,8 +26,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { ThemeToggle } from './ThemeToggle';
 import { useLogs } from '@/contexts/useLogs';
 import { useApi } from '@/contexts/ApiContext';
+import { useTheme } from '@/contexts/useTheme';
 import { getDirectoryPath } from '@/lib/utils';
 import {
   createLogsZipRaw,
@@ -49,7 +53,7 @@ function CopyButton({ onClick, didCopy, icon: Icon, size, className, ref, ...pro
       {...props}
       ref={ref}
     >
-      {didCopy ? <Check className={`${size} text-green-600`} /> : <Icon className={`${size} text-gray-400`} />}
+      {didCopy ? <Check className={`${size} text-success`} /> : <Icon className={`${size} text-muted-foreground`} />}
     </button>
   );
 }
@@ -75,9 +79,19 @@ interface HeaderProps {
  */
 export function Header({ pathName, localPath }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { getAllLogs, hasLogs } = useLogs();
   const { didCopy, copy } = useCopyToClipboard();
   const api = useApi();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+
+  // The native "Preferences…" menu item (Cmd+,) opens the Header menu, which
+  // is where the theme picker lives.
+  useEffect(() => {
+    const cleanup = api.on('menu:preferences', () => setIsMenuOpen(true));
+    return cleanup;
+  }, [api]);
 
   const hasRunbookOpen = Boolean(pathName);
   const handleCloseRunbook = () => {
@@ -111,29 +125,29 @@ export function Header({ pathName, localPath }: HeaderProps) {
   return (
     <>
       <header
-        className="w-full border-b border-gray-300 p-4 text-gray-500 font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
+        className="w-full border-b border-border p-4 text-muted-foreground font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <div className="absolute left-20 top-1/2 transform -translate-y-1/2">
-          <img src={logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" draggable={false} />
+          <img src={isDark ? logoLightAlpha : logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" draggable={false} />
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
-          <div className="hidden md:block text-sm text-gray-500 font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
+          <div className="hidden md:block text-sm text-muted-foreground font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
             {'\u200E'}{pathName}{'\u200E'}
           </div>
-          <div className="md:hidden text-xs text-gray-500 font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
+          <div className="md:hidden text-xs text-muted-foreground font-mono font-normal truncate max-w-full" title={pathName} dir="rtl">
             {'\u200E'}{pathName}{'\u200E'}
           </div>
           {isRemote && (
             <TooltipProvider delayDuration={0}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={FolderOpen} size="size-3.5" className="p-1 hover:bg-gray-100" />
+                  <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={FolderOpen} size="size-3.5" className="p-1 hover:bg-accent" />
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-sm">
                   <p className="text-xs font-medium mb-1">Local path:</p>
                   <div className="flex items-start gap-1.5">
-                    <p className="text-xs text-gray-400 font-mono break-all">{localDir}</p>
+                    <p className="text-xs text-muted-foreground font-mono break-all">{localDir}</p>
                     <CopyButton onClick={() => copy(localDir || '')} didCopy={didCopy} icon={Copy} size="size-3" className="p-0.5 hover:bg-white/10" />
                   </div>
                 </TooltipContent>
@@ -142,9 +156,9 @@ export function Header({ pathName, localPath }: HeaderProps) {
           )}
         </div>
         <div className={`hidden md:block md:absolute ${menuRightClass} md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md`}>
-          <DropdownMenu>
+          <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <DropdownMenuTrigger
-              className="flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors"
+              className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
               Menu
@@ -177,6 +191,8 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Close Runbook
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <ThemeToggle />
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
                 <Info className="size-4" />
                 About
@@ -191,7 +207,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
           <div className="relative">
             <AlertDialogHeader>
               <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img src={logoDarkColor} alt="Gruntwork Runbooks" className="h-16 mb-2" />
+              <img src={isDark ? logoLightColor : logoDarkColor} alt="Gruntwork Runbooks" className="h-16 mb-2" />
               
               <AlertDialogDescription className="text-left space-y-4">
                 <p>Runbooks enables DevOps subject matter experts to capture and share their expertise in a way that is easy to understand and use.</p>

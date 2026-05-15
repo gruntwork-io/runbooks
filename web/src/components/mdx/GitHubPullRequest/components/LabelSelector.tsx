@@ -62,16 +62,16 @@ export function LabelSelector({
             setTimeout(() => inputRef.current?.focus(), 0)
           }
         }}
-        className={`flex flex-wrap items-center gap-1.5 min-h-[38px] px-2 py-1.5 border border-gray-300 rounded-md bg-white cursor-text ${
-          disabled ? 'bg-gray-100 cursor-not-allowed' : 'hover:border-gray-400'
-        } ${isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
+        className={`flex flex-wrap items-center gap-1.5 min-h-[38px] px-2 py-1.5 border border-input rounded-md bg-card cursor-text ${
+          disabled ? 'bg-muted cursor-not-allowed' : 'hover:border-ring'
+        } ${isOpen ? 'ring-2 ring-ring border-ring' : ''}`}
       >
         {selectedLabels.map(name => {
           const label = getLabelByName(name)
           return (
             <span
               key={name}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground"
             >
               {label && (
                 <span
@@ -87,7 +87,7 @@ export function LabelSelector({
                     e.stopPropagation()
                     handleRemoveLabel(name)
                   }}
-                  className="text-gray-400 hover:text-gray-600 cursor-pointer"
+                  className="text-muted-foreground hover:text-foreground cursor-pointer"
                 >
                   <X className="size-3" />
                 </button>
@@ -103,25 +103,25 @@ export function LabelSelector({
           onFocus={() => !disabled && setIsOpen(true)}
           placeholder={selectedLabels.length === 0 ? "Select labels..." : ""}
           disabled={disabled}
-          className="flex-1 min-w-[80px] text-sm border-none outline-none bg-transparent placeholder:text-gray-400 disabled:cursor-not-allowed"
+          className="flex-1 min-w-[80px] text-sm border-none outline-none bg-transparent placeholder:text-muted-foreground disabled:cursor-not-allowed"
         />
         {loading ? (
-          <Loader2 className="size-4 text-gray-400 animate-spin shrink-0" />
+          <Loader2 className="size-4 text-muted-foreground animate-spin shrink-0" />
         ) : (
-          <ChevronDown className="size-4 text-gray-400 shrink-0" />
+          <ChevronDown className="size-4 text-muted-foreground shrink-0" />
         )}
       </div>
 
       {/* Dropdown */}
       {isOpen && !disabled && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
           {loading ? (
-            <div className="px-3 py-2 text-sm text-gray-500 flex items-center gap-2">
+            <div className="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="size-3 animate-spin" />
               Loading labels...
             </div>
           ) : filteredLabels.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-gray-500">
+            <div className="px-3 py-2 text-sm text-muted-foreground">
               {filter ? "No labels match" : "No labels available"}
             </div>
           ) : (
@@ -132,17 +132,17 @@ export function LabelSelector({
                   key={label.name}
                   type="button"
                   onClick={() => handleToggleLabel(label.name)}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left cursor-pointer hover:bg-gray-50 ${
-                    isSelected ? 'bg-blue-50' : ''
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left cursor-pointer hover:bg-accent ${
+                    isSelected ? 'bg-info-muted' : ''
                   }`}
                 >
                   <span
-                    className="size-3 rounded-full shrink-0 border border-gray-200"
+                    className="size-3 rounded-full shrink-0 border border-border"
                     style={{ backgroundColor: `#${label.color}` }}
                   />
-                  <span className="text-gray-700 truncate">{label.name}</span>
+                  <span className="text-foreground truncate">{label.name}</span>
                   {isSelected && (
-                    <span className="ml-auto text-blue-600 text-xs font-medium shrink-0">Selected</span>
+                    <span className="ml-auto text-primary text-xs font-medium shrink-0">Selected</span>
                   )}
                 </button>
               )

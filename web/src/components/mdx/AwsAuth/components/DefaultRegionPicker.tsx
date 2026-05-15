@@ -42,11 +42,11 @@ export function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disable
   
   return (
     <div>
-      <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+      <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
         Default Region
         <Tooltip>
           <TooltipTrigger asChild>
-            <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+            <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
               <Info className="size-3.5" />
             </button>
           </TooltipTrigger>
@@ -64,13 +64,13 @@ export function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disable
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+            className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
             disabled={disabled}
           >
             {selectedRegion ? (
               <span className="flex items-center gap-2 truncate">
-                <span className="font-mono text-xs text-gray-500">{selectedRegion}</span>
-                <span className="text-gray-700">
+                <span className="font-mono text-xs text-muted-foreground">{selectedRegion}</span>
+                <span className="text-foreground">
                   {AWS_REGIONS.find((r) => r.code === selectedRegion)?.name}
                 </span>
               </span>
@@ -106,10 +106,10 @@ export function DefaultRegionPicker({ selectedRegion, setSelectedRegion, disable
                         selectedRegion === region.code ? "opacity-100" : "opacity-0"
                       )}
                     />
-                    <span className="font-mono text-xs text-gray-500 w-[120px] shrink-0">
+                    <span className="font-mono text-xs text-muted-foreground w-[120px] shrink-0">
                       {region.code}
                     </span>
-                    <span className="text-gray-700 truncate">
+                    <span className="text-foreground truncate">
                       {region.name}
                     </span>
                   </CommandItem>

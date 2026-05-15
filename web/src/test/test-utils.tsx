@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ThemeProvider } from '@/contexts/ThemeContext'
 import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { ErrorReportingProvider } from '@/contexts/ErrorReportingContext'
@@ -12,14 +13,16 @@ import { TelemetryContext, defaultContextValue } from '@/contexts/TelemetryConte
  */
 export function TestWrapper({ children, remoteSource }: { children: ReactNode; remoteSource?: string }) {
   return (
-    <TelemetryContext.Provider value={defaultContextValue}>
-      <ErrorReportingProvider>
-        <ComponentIdRegistryProvider>
-          <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
-            {children}
-          </RunbookContextProvider>
-        </ComponentIdRegistryProvider>
-      </ErrorReportingProvider>
-    </TelemetryContext.Provider>
+    <ThemeProvider>
+      <TelemetryContext.Provider value={defaultContextValue}>
+        <ErrorReportingProvider>
+          <ComponentIdRegistryProvider>
+            <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
+              {children}
+            </RunbookContextProvider>
+          </ComponentIdRegistryProvider>
+        </ErrorReportingProvider>
+      </TelemetryContext.Provider>
+    </ThemeProvider>
   )
 }

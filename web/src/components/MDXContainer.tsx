@@ -75,8 +75,8 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
 
   if (error) {
     return (
-      <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-        <div data-testid="mdx-error" className="text-red-600 p-4 border border-red-300 rounded-lg">
+      <div className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+        <div data-testid="mdx-error" className="text-destructive p-4 border border-destructive/30 rounded-lg">
           <h3 className="font-semibold mb-2">{error.message}</h3>
           <pre className="text-sm whitespace-pre-wrap">{error.details}</pre>
         </div>
@@ -86,14 +86,14 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
 
   if (!CustomMDXComponent) {
     return (
-      <div className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
-        <div className="p-4 text-gray-500">Loading MDX content...</div>
+      <div className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+        <div className="p-4 text-muted-foreground">Loading MDX content...</div>
       </div>
     )
   }
 
   return (
-    <div data-testid="runbook-content" className={`markdown-body border border-gray-200 rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
         <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
           <CustomMDXComponentErrorBoundary 
@@ -309,7 +309,7 @@ class CustomMDXComponentErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div data-testid="mdx-error" className="text-red-600 p-4 border border-red-300 rounded-lg bg-red-50">
+        <div data-testid="mdx-error" className="text-destructive p-4 border border-destructive/30 rounded-lg bg-destructive-muted">
           <h3 className="font-semibold mb-2">Runtime Error in MDX Component: {this.state.error?.message}</h3>
           <p className="text-sm">{this.state.error?.details}</p>
         </div>

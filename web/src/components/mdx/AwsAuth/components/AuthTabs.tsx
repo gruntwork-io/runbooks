@@ -8,13 +8,13 @@ interface AuthTabsProps {
 
 export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
   return (
-    <div className="flex gap-1 mb-4 border-b border-amber-200">
+    <div className="flex gap-1 mb-4 border-b border-warning/30">
       <button
         onClick={() => setAuthMethod('credentials')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'credentials'
-            ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'text-warning border-b-2 border-warning -mb-px'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <KeyRound className="size-4 inline mr-2" />
@@ -24,8 +24,8 @@ export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
         onClick={() => setAuthMethod('sso')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'sso'
-            ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'text-warning border-b-2 border-warning -mb-px'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <ExternalLink className="size-4 inline mr-2" />
@@ -35,8 +35,8 @@ export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
         onClick={() => setAuthMethod('profile')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'profile'
-            ? 'text-amber-700 border-b-2 border-amber-500 -mb-px'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'text-warning border-b-2 border-warning -mb-px'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <User className="size-4 inline mr-2" />

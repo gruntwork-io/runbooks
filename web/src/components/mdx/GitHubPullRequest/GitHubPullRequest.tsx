@@ -18,12 +18,12 @@ import type { AppError } from "@/types/error"
 import type { GitHubPullRequestProps, PRBlockStatus } from "./types"
 
 const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequest; iconColor: string }> = {
-  success:  { bg: 'bg-green-50 border-green-200', icon: CheckCircle,    iconColor: 'text-green-600' },
-  fail:     { bg: 'bg-red-50 border-red-200',     icon: XCircle,        iconColor: 'text-red-600' },
-  creating: { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,        iconColor: 'text-blue-600' },
-  pushing:  { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,        iconColor: 'text-blue-600' },
-  pending:  { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
-  ready:    { bg: 'bg-gray-100 border-gray-200',   icon: GitPullRequest, iconColor: 'text-gray-500' },
+  success:  { bg: 'bg-success-muted border-success/30', icon: CheckCircle,    iconColor: 'text-success' },
+  fail:     { bg: 'bg-destructive-muted border-destructive/30',     icon: XCircle,        iconColor: 'text-destructive' },
+  creating: { bg: 'bg-info-muted border-info/40',    icon: Loader2,        iconColor: 'text-info' },
+  pushing:  { bg: 'bg-info-muted border-info/40',    icon: Loader2,        iconColor: 'text-info' },
+  pending:  { bg: 'bg-muted border-border',   icon: GitPullRequest, iconColor: 'text-muted-foreground' },
+  ready:    { bg: 'bg-muted border-border',   icon: GitPullRequest, iconColor: 'text-muted-foreground' },
 }
 
 /** Resolve template expressions and process escape sequences (\n → newline). */
@@ -324,27 +324,27 @@ function GitHubPullRequest({
 
       {/* Main container with left icon column */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
           <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="flex-1 space-y-2">
           {/* Title and description */}
-          <div className="flex items-center gap-1 text-md font-bold text-gray-700">
-            <GitHubLogo className="size-6 text-gray-800" />
+          <div className="flex items-center gap-1 text-md font-bold text-foreground">
+            <GitHubLogo className="size-6 text-foreground" />
             <InlineMarkdown>{resolvedDisplayTitle}</InlineMarkdown>
           </div>
-          <div className="text-md text-gray-600 mb-3">
+          <div className="text-md text-muted-foreground mb-3">
             <InlineMarkdown>{resolvedDisplayDescription}</InlineMarkdown>
           </div>
 
           {/* Dependency warnings */}
           {!githubAuthMet && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-amber-800 m-0">Waiting for GitHub authentication</p>
-                <p className="text-xs text-amber-600 m-0 mt-0.5">
+                <p className="text-sm font-medium text-warning-foreground m-0">Waiting for GitHub authentication</p>
+                <p className="text-xs text-warning-foreground m-0 mt-0.5">
                   Complete the &apos;{githubAuthId}&apos; GitHubAuth block above.
                 </p>
               </div>
@@ -352,11 +352,11 @@ function GitHubPullRequest({
           )}
 
           {!activeWorkTree && githubAuthMet && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-amber-800 m-0">No repository available</p>
-                <p className="text-xs text-amber-600 m-0 mt-0.5">
+                <p className="text-sm font-medium text-warning-foreground m-0">No repository available</p>
+                <p className="text-xs text-warning-foreground m-0 mt-0.5">
                   Clone a repository using a GitClone block first.
                 </p>
               </div>
@@ -376,17 +376,17 @@ function GitHubPullRequest({
 
           {/* Error message */}
           {errorMessage && effectiveStatus === 'fail' && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
-              <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
+            <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
+              <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-red-800 m-0">Pull request creation failed</p>
-                <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{errorMessage}</p>
+                <p className="text-sm font-medium text-destructive m-0">Pull request creation failed</p>
+                <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
                 {errorCode === 'branch_exists' && conflictBranchName && (
                   <button
                     type="button"
                     onClick={handleDeleteBranch}
                     disabled={deletingBranch}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 border border-red-300 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-destructive bg-destructive-muted hover:bg-destructive-muted border border-destructive/30 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="size-3" />
                     {deletingBranch ? 'Deleting...' : `Delete branch "${conflictBranchName}" and retry`}

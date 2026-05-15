@@ -6,7 +6,6 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-bg-default: hsl(48deg, 33.3%, 97.1%);
   --breakpoint-lg: 1250px;
 }
 
@@ -32,6 +31,17 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-muted: var(--destructive-muted);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-muted: var(--warning-muted);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-muted: var(--info-muted);
+  --color-bg-default: var(--bg-default);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -69,6 +79,17 @@
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.98 0 0); /* White text */
+  --destructive-muted: oklch(0.971 0.013 17.38); /* Subtle red surface (bg-red-50) */
+  --success: oklch(0.627 0.17 150); /* Green (text-green-600) */
+  --success-foreground: oklch(0.985 0 0); /* White text */
+  --success-muted: oklch(0.97 0.03 150); /* Subtle green surface (bg-green-50) */
+  --warning: oklch(0.69 0.16 70); /* Amber (text-amber-600) */
+  --warning-foreground: oklch(0.41 0.11 60); /* Dark amber text (text-amber-800) */
+  --warning-muted: oklch(0.96 0.05 90); /* Subtle amber surface (bg-amber-50) */
+  --info: oklch(0.55 0.18 255); /* Blue (text-blue-600) */
+  --info-foreground: oklch(0.985 0 0); /* White text */
+  --info-muted: oklch(0.97 0.02 255); /* Subtle blue surface (bg-blue-50) */
+  --bg-default: hsl(48deg, 33.3%, 97.1%); /* Warm cream app background */
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -104,6 +125,17 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --destructive-muted: oklch(0.28 0.08 25); /* Subtle red surface */
+  --success: oklch(0.77 0.16 150); /* Green */
+  --success-foreground: oklch(0.205 0 0); /* Dark text */
+  --success-muted: oklch(0.27 0.05 150); /* Subtle green surface */
+  --warning: oklch(0.83 0.15 80); /* Amber */
+  --warning-foreground: oklch(0.92 0.09 90); /* Light amber text */
+  --warning-muted: oklch(0.3 0.06 70); /* Subtle amber surface */
+  --info: oklch(0.7 0.15 255); /* Blue */
+  --info-foreground: oklch(0.205 0 0); /* Dark text */
+  --info-muted: oklch(0.28 0.07 255); /* Subtle blue surface */
+  --bg-default: oklch(0.18 0 0); /* Dark app background */
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -177,6 +209,6 @@
 
   /* Set default styles for Runbook blocks */
   .runbook-block input {
-    background-color: white;
+    background-color: var(--card);
   }
 }

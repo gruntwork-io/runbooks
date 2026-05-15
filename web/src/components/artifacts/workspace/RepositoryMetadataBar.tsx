@@ -42,7 +42,7 @@ export const RepositoryMetadataBar = ({
     if (!hasSwitcher) {
       return (
         <div className={cn("py-2.5 text-sm", className)}>
-          <div className="flex items-center gap-2 text-gray-500">
+          <div className="flex items-center gap-2 text-muted-foreground">
             <GitHubIcon className="w-4 h-4" />
             <span className="italic">No repository connected</span>
           </div>

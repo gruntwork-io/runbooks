@@ -88,18 +88,18 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
         className={`
           absolute top-2 right-2
           p-1.5 rounded-md
-          bg-gray-100 hover:bg-gray-200
-          border border-gray-300
-          text-gray-600 hover:text-gray-800
+          bg-muted hover:bg-accent
+          border border-border
+          text-muted-foreground hover:text-foreground
           transition-opacity duration-150 cursor-pointer
           ${isHovered ? 'opacity-100' : 'opacity-0'}
-          focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-gray-400
+          focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring
         `}
         title={copied ? "Copied!" : "Copy code"}
         aria-label={copied ? "Copied!" : "Copy code"}
       >
         {copied ? (
-          <Check className="h-4 w-4 text-green-600" />
+          <Check className="h-4 w-4 text-success" />
         ) : (
           <Copy className="h-4 w-4" />
         )}

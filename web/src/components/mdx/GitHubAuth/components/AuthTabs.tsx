@@ -8,14 +8,14 @@ interface AuthTabsProps {
 
 export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
   return (
-    <div className="flex gap-1 mb-4 border-b border-violet-200">
+    <div className="flex gap-1 mb-4 border-b border-border">
       <button
         type="button"
         onClick={() => setAuthMethod('oauth')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'oauth'
-            ? 'text-violet-700 border-b-2 border-violet-500 -mb-px'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'text-info border-b-2 border-info -mb-px'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <ExternalLink className="size-4 inline mr-2" />
@@ -26,8 +26,8 @@ export function AuthTabs({ authMethod, setAuthMethod }: AuthTabsProps) {
         onClick={() => setAuthMethod('pat')}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
           authMethod === 'pat'
-            ? 'text-violet-700 border-b-2 border-violet-500 -mb-px'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'text-info border-b-2 border-info -mb-px'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <KeyRound className="size-4 inline mr-2" />

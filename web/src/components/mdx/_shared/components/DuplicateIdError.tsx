@@ -8,15 +8,15 @@ interface DuplicateIdErrorProps {
 
 export function DuplicateIdError({ id, isNormalizedCollision, collidingId }: DuplicateIdErrorProps) {
   return (
-    <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-      <div className="flex items-center text-red-600">
+    <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+      <div className="flex items-center text-destructive">
         <XCircle className="size-6 mr-4 flex-shrink-0" />
         <div className="text-md">
           {isNormalizedCollision ? (
             <>
               <strong>ID Collision:</strong><br />
-              The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with{' '}
-              <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because
+              The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with{' '}
+              <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because
               hyphens are converted to underscores for template access.
               Use different IDs to avoid this collision.
             </>

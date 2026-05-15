@@ -85,20 +85,20 @@ export function ViewLogs({
   const hasLogs = logs.length > 0
 
   return (
-    <div className="border border-gray-200 rounded-sm">
+    <div className="border border-border rounded-sm">
       {/* Toggle button with Copy/Download actions */}
-      <div className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
+      <div className="flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors">
         <button
           onClick={() => { setShowLogs(!showLogs); userHasScrolledUp.current = false }}
           className="flex items-center gap-2 text-left cursor-pointer flex-1"
         >
           {showLogs ? (
-            <ChevronDown className="size-4 text-gray-500" />
+            <ChevronDown className="size-4 text-muted-foreground" />
           ) : (
-            <ChevronRight className="size-4 text-gray-500" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           )}
-          <SquareTerminal className="size-4 text-gray-600" />
-          <span className="text-sm text-gray-700">View Logs</span>
+          <SquareTerminal className="size-4 text-muted-foreground" />
+          <span className="text-sm text-foreground">View Logs</span>
         </button>
 
         {/* Copy and Download buttons - only show when there are logs */}
@@ -111,10 +111,10 @@ export function ViewLogs({
                   variant="ghost"
                   size="icon"
                   onClick={handleCopy}
-                  className="h-6 w-6 text-gray-500 hover:text-gray-700"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
                 >
                   {copied ? (
-                    <Check className="size-3.5 text-green-600" />
+                    <Check className="size-3.5 text-success" />
                   ) : (
                     <Copy className="size-3.5" />
                   )}
@@ -131,7 +131,7 @@ export function ViewLogs({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-2 text-gray-500 hover:text-gray-700 gap-1"
+                  className="h-6 px-2 text-muted-foreground hover:text-foreground gap-1"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Download className="size-3.5" />
@@ -163,7 +163,7 @@ export function ViewLogs({
             const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
             userHasScrolledUp.current = !atBottom
           }}
-          className="border-t border-gray-200 p-3 bg-gray-900 max-h-64 overflow-y-auto"
+          className="border-t border-border p-3 bg-gray-900 max-h-64 overflow-y-auto"
         >
           {logs.length > 0 && (
             <div className="space-y-1">

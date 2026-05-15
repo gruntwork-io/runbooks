@@ -36,10 +36,10 @@ export function OAuthFlow({
 
   if (!effectiveClientId) {
     return (
-      <div className="text-red-700 text-sm flex items-start gap-2">
+      <div className="text-destructive text-sm flex items-start gap-2">
         <XCircle className="size-4 mt-0.5 flex-shrink-0" />
         <div>
-          No OAuth client ID configured. Add <code className="bg-red-100 px-1 rounded">oauthClientId</code> prop or configure a default client ID.
+          No OAuth client ID configured. Add <code className="bg-destructive-muted px-1 rounded">oauthClientId</code> prop or configure a default client ID.
         </div>
       </div>
     )
@@ -47,24 +47,24 @@ export function OAuthFlow({
 
   return (
     <div className="space-y-4">
-      <div className="bg-violet-100/50 rounded p-3 text-sm text-gray-700">
+      <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         {isWaitingForAuth ? (
           <>
             <p className="mb-2">
               <strong>Step 1:</strong> Copy this code:
             </p>
             <div className="flex items-center gap-2 mb-3">
-              <code className="bg-white px-3 py-2 rounded border border-violet-200 text-lg font-mono font-bold tracking-wider">
+              <code className="bg-card px-3 py-2 rounded border border-info/40 text-lg font-mono font-bold tracking-wider">
                 {userCode}
               </code>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={copyUserCode}
-                className="border-violet-300"
+                className="border-border"
               >
                 {copied ? (
-                  <Check className="size-4 text-green-600" />
+                  <Check className="size-4 text-success" />
                 ) : (
                   <Copy className="size-4" />
                 )}
@@ -78,7 +78,7 @@ export function OAuthFlow({
                 asChild
                 variant="outline"
                 size="sm"
-                className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                className="border-border text-info hover:bg-info-muted"
               >
                 <a
                   href={verificationUri}
@@ -90,7 +90,7 @@ export function OAuthFlow({
                 </a>
               </Button>
             </div>
-            <p className="text-gray-500 text-xs">
+            <p className="text-muted-foreground text-xs">
               We check for authorization every 5 seconds. If you cancelled on GitHub, click Cancel below.
             </p>
           </>
@@ -105,7 +105,7 @@ export function OAuthFlow({
         <Button
           onClick={onStartOAuth}
           disabled={isAuthenticating}
-          className="bg-violet-600 hover:bg-violet-700 text-white"
+          className="bg-info hover:bg-info/90 text-white"
         >
           {isAuthenticating ? (
             <>
@@ -124,7 +124,7 @@ export function OAuthFlow({
           <Button
             onClick={onCancelOAuth}
             variant="outline"
-            className="border-gray-300 text-gray-700 hover:bg-gray-100"
+            className="border-input text-foreground hover:bg-accent"
           >
             <XCircle className="size-4" />
             Cancel
@@ -139,7 +139,7 @@ export function OAuthFlow({
           <button
             type="button"
             onClick={() => setShowPermissionsInfo(!showPermissionsInfo)}
-            className="flex items-center gap-1 text-gray-500 hover:text-gray-700 cursor-pointer"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
           >
             <HelpCircle className="size-3" />
             <span>What permissions does this grant?</span>
@@ -147,11 +147,11 @@ export function OAuthFlow({
           </button>
           
           {showPermissionsInfo && (
-            <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-gray-600 space-y-2">
+            <div className="mt-2 p-3 bg-muted rounded border border-border text-muted-foreground space-y-2">
               <p>
                 OAuth authentication works without any separate Gruntwork infrastructure. However, GitHub's OAuth 
                 permissions are coarse-grained, and the smallest scope that grants private repository access 
-                is <code className="bg-gray-200 px-1 rounded text-xs">repo</code>, which grants "full control of private repositories."
+                is <code className="bg-accent px-1 rounded text-xs">repo</code>, which grants "full control of private repositories."
               </p>
               <p>
                 <strong>Your token stays local.</strong> Gruntwork never sees your token and will not have any access to your GitHub resources.
@@ -169,7 +169,7 @@ export function OAuthFlow({
           <button
             type="button"
             onClick={() => setShowAutoAuthInfo(!showAutoAuthInfo)}
-            className="flex items-center gap-1 text-gray-500 hover:text-gray-700 cursor-pointer"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
           >
             <HelpCircle className="size-3" />
             <span>How can I authenticate to GitHub automatically?</span>
@@ -177,19 +177,19 @@ export function OAuthFlow({
           </button>
           
           {showAutoAuthInfo && (
-            <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-gray-600 space-y-2">
+            <div className="mt-2 p-3 bg-muted rounded border border-border text-muted-foreground space-y-2">
               <p>
                 Runbooks can automatically detect your GitHub credentials so you don't have to sign in manually each time.
               </p>
               <p>
-                <strong>Option 1: GitHub CLI</strong> — Run <code className="bg-gray-200 px-1 rounded text-xs">gh auth login</code> in 
+                <strong>Option 1: GitHub CLI</strong> — Run <code className="bg-accent px-1 rounded text-xs">gh auth login</code> in 
                 your terminal.
               </p>
               <p>
-                <strong>Option 2: Environment variable</strong> — Set <code className="bg-gray-200 px-1 rounded text-xs">GITHUB_TOKEN</code> to 
+                <strong>Option 2: Environment variable</strong> — Set <code className="bg-accent px-1 rounded text-xs">GITHUB_TOKEN</code> to 
                 your GitHub Personal Access Token.
               </p>
-              <p className="text-gray-500">
+              <p className="text-muted-foreground">
                 After setting up either option, reload the runbook and Runbooks will detect your credentials automatically.
               </p>
             </div>

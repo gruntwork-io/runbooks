@@ -14,9 +14,9 @@ export const CheckSummary = ({ status, summary, logs }: CheckSummaryProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const statusConfig = {
-    success: { icon: Check, color: 'text-green-500', bgColor: 'bg-green-50' },
-    fail: { icon: XCircle, color: 'text-red-500', bgColor: 'bg-red-50' },
-    warn: { icon: AlertTriangle, color: 'text-yellow-700', bgColor: 'bg-yellow-50' }
+    success: { icon: Check, color: 'text-success', bgColor: 'bg-success-muted' },
+    fail: { icon: XCircle, color: 'text-destructive', bgColor: 'bg-destructive-muted' },
+    warn: { icon: AlertTriangle, color: 'text-warning', bgColor: 'bg-warning-muted' }
   };
   
   const config = statusConfig[status];
@@ -25,29 +25,29 @@ export const CheckSummary = ({ status, summary, logs }: CheckSummaryProps) => {
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <CollapsibleTrigger asChild>
-        <div className="flex items-center justify-between p-2 border border-gray-300 bg-gray-100 rounded-t-md hover:bg-gray-200 cursor-pointer transition-colors">
+        <div className="flex items-center justify-between p-2 border border-border bg-muted rounded-t-md hover:bg-accent cursor-pointer transition-colors">
           <div className="flex items-center">
-            <Icon className={`size-4 ${config.color} mr-2`} /> 
-            <div className="text-xs text-gray-600">{summary}</div>
+            <Icon className={`size-4 ${config.color} mr-2`} />
+            <div className="text-xs text-muted-foreground">{summary}</div>
           </div>
           <div className="flex items-center justify-center w-6 h-6">
             {isOpen ? (
-              <ChevronDown className="size-4 text-gray-500" />
+              <ChevronDown className="size-4 text-muted-foreground" />
             ) : (
-              <ChevronRight className="size-4 text-gray-500" />
+              <ChevronRight className="size-4 text-muted-foreground" />
             )}
           </div>
         </div>
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-l border-r border-b border-gray-300 bg-gray-50 rounded-b-md">
-        <div className="p-3 font-mono text-xs text-gray-700">
-          <div className="mb-2 text-gray-600 font-semibold">Check Logs:</div>
+      <CollapsibleContent className="border-l border-r border-b border-border bg-muted rounded-b-md">
+        <div className="p-3 font-mono text-xs text-foreground">
+          <div className="mb-2 text-muted-foreground font-semibold">Check Logs:</div>
           <div className="space-y-1">
             {logs.map((log, index) => (
               <div key={index}>
                 <LinkifiedText 
                   text={log.line} 
-                  linkClassName="text-blue-600 hover:text-blue-500 underline"
+                  linkClassName="text-primary hover:text-primary/80 underline"
                 />
               </div>
             ))}

@@ -92,26 +92,26 @@ export const FormStatus: React.FC<FormStatusProps> = ({
       <div className="flex items-center gap-2">
         {displayState === 'error' && (
           <>
-            <CircleX className="size-5 text-red-500 flex-shrink-0" />
-            <span className="text-sm text-red-600 font-medium">
+            <CircleX className="size-5 text-destructive flex-shrink-0" />
+            <span className="text-sm text-destructive font-medium">
               Fix validation errors above
             </span>
           </>
         )}
-        
+
         {displayState === 'updating' && (
           <>
-            <Loader2 className="size-5 text-blue-500 flex-shrink-0 animate-spin" />
-            <span className="text-sm text-blue-600 font-medium">
+            <Loader2 className="size-5 text-primary flex-shrink-0 animate-spin" />
+            <span className="text-sm text-primary font-medium">
               Updating...
             </span>
           </>
         )}
-        
+
         {displayState === 'valid' && (
           <>
-            <CircleCheck className="size-5 text-green-600 flex-shrink-0" />
-            <span className="text-sm text-green-700 font-medium">
+            <CircleCheck className="size-5 text-success flex-shrink-0" />
+            <span className="text-sm text-success font-medium">
               Up to date
             </span>
           </>
@@ -120,7 +120,7 @@ export const FormStatus: React.FC<FormStatusProps> = ({
       
       {/* Help text shown when valid or updating */}
       {displayState !== 'error' && (
-        <p className="text-sm text-gray-400 italic">
+        <p className="text-sm text-muted-foreground italic">
           {autoUpdateMessage}
         </p>
       )}

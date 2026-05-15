@@ -4,10 +4,21 @@
  * Centralizes window creation and access so that other modules (menu, updater,
  * CLI open-file) can obtain the main window without circular imports.
  */
-import { BrowserWindow, session, shell } from "electron"
+import { BrowserWindow, nativeTheme, session, shell } from "electron"
 import path from "path"
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
+
+/**
+ * Title bar overlay + window background colors per theme. The light values
+ * approximate --bg-default (the renderer's app background) and
+ * --muted-foreground; the dark values mirror their .dark counterparts. Kept in
+ * sync with web/src/css/App.css.
+ */
+const TITLE_BAR_THEMES = {
+  light: { color: "#FAF9F5", symbolColor: "#6B7280" },
+  dark: { color: "#1F1F1F", symbolColor: "#9CA3AF" },
+} as const
 
 let mainWindow: BrowserWindow | null = null
 
@@ -31,16 +42,19 @@ export function createMainWindow(): BrowserWindow {
     // Frameless on all platforms so our custom Header acts as the drag handle.
     // macOS keeps its inset traffic lights; Windows/Linux get an Electron-drawn
     // min/max/close overlay in the top-right. Height matches the renderer
-    // header's min-h-16 (64px), and the colors approximate --color-bg-default
-    // (hsl(48, 33%, 97%)) and text-gray-500 so the overlay blends in.
+    // header's min-h-16 (64px). The overlay + background colors track the
+    // theme (see TITLE_BAR_THEMES / setTitleBarTheme); the initial value
+    // follows the OS so there's no flash before the renderer reports its
+    // resolved theme via the native:set-theme IPC channel.
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     ...(process.platform !== "darwin" && {
       titleBarOverlay: {
-        color: "#FAF9F5",
-        symbolColor: "#6B7280",
+        ...TITLE_BAR_THEMES[nativeTheme.shouldUseDarkColors ? "dark" : "light"],
         height: 64,
       },
     }),
+    backgroundColor:
+      TITLE_BAR_THEMES[nativeTheme.shouldUseDarkColors ? "dark" : "light"].color,
     show: false,
   })
 
@@ -116,6 +130,21 @@ export function createMainWindow(): BrowserWindow {
 /** Returns the current main window, or null if it has been closed. */
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
+}
+
+/**
+ * Update the native window chrome (title bar overlay + background color) to
+ * match the renderer's active theme. Called from the native:set-theme IPC
+ * handler. The title bar overlay only exists on Windows/Linux; macOS uses inset
+ * traffic lights that need no recoloring.
+ */
+export function setTitleBarTheme(theme: "light" | "dark"): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const colors = TITLE_BAR_THEMES[theme]
+  mainWindow.setBackgroundColor(colors.color)
+  if (process.platform !== "darwin") {
+    mainWindow.setTitleBarOverlay({ ...colors, height: 64 })
+  }
 }
 
 /**

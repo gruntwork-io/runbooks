@@ -14,20 +14,20 @@ export function CustomOAuthWarning({ clientId, onUseDefault, onContinue }: Custo
     : clientId
 
   return (
-    <div className="bg-amber-50 border border-amber-300 rounded-md p-4 mb-4">
+    <div className="bg-warning-muted border border-warning/30 rounded-md p-4 mb-4">
       <div className="flex items-start gap-3">
-        <AlertTriangle className="size-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <AlertTriangle className="size-5 text-warning flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <h4 className="text-sm font-semibold text-amber-800 mb-2">
+          <h4 className="text-sm font-semibold text-warning-foreground mb-2">
             Custom OAuth App
           </h4>
-          <p className="text-sm text-amber-700 mb-3">
+          <p className="text-sm text-warning-foreground mb-3">
             This runbook uses a custom GitHub OAuth app, not the default Gruntwork Runbooks app.
           </p>
-          <div className="bg-amber-100/50 rounded px-2 py-1 mb-3 font-mono text-xs text-amber-800">
+          <div className="bg-warning-muted/50 rounded px-2 py-1 mb-3 font-mono text-xs text-warning-foreground">
             Client ID: {displayClientId}
           </div>
-          <p className="text-sm text-amber-700 mb-4">
+          <p className="text-sm text-warning-foreground mb-4">
             Only proceed if you trust the source of this runbook. The token will stay on your machine, 
             but you'll be authorizing a third-party app.
           </p>
@@ -36,14 +36,14 @@ export function CustomOAuthWarning({ clientId, onUseDefault, onContinue }: Custo
               variant="outline"
               size="sm"
               onClick={onUseDefault}
-              className="border-amber-400 text-amber-700 hover:bg-amber-100"
+              className="border-warning/30 text-warning-foreground hover:bg-warning-muted"
             >
               Use default app instead
             </Button>
             <Button
               size="sm"
               onClick={onContinue}
-              className="bg-amber-600 hover:bg-amber-700 text-white"
+              className="bg-warning hover:bg-warning/90 text-white"
             >
               Continue anyway
             </Button>

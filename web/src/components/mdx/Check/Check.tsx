@@ -207,12 +207,12 @@ function Check({
   // Show generic error screen if there are validation errors
   if (validationErrors.length > 0) {
     return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-start text-red-600">
+      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-start text-destructive">
           <XCircle className="size-6 mr-4 mt-0.5 flex-shrink-0" />
           <div className="text-md flex-1">
             <strong>Check Component Error{validationErrors.length > 1 ? 's' : ''}:</strong>
-            {id && <span className="text-sm"> (Check ID: <code className="bg-red-100 px-1 rounded">{id}</code>)</span>}
+            {id && <span className="text-sm"> (Check ID: <code className="bg-destructive-muted px-1 rounded">{id}</code>)</span>}
             <ul className="list-disc ml-5 mt-2 space-y-1">
               {validationErrors.map((error) => (
                 <li key={error}>{error}</li>
@@ -227,11 +227,11 @@ function Check({
   // Get visual styling based on status
   const getStatusClasses = () => {
     const statusMap = {
-      success: 'bg-green-50 border-green-200',
-      warn: 'bg-yellow-50 border-yellow-300', 
-      fail: 'bg-red-50 border-red-200',
-      running: 'bg-blue-50 border-blue-200',
-      pending: 'bg-gray-100 border-gray-200'
+      success: 'bg-success-muted border-success/30',
+      warn: 'bg-warning-muted border-warning/30',
+      fail: 'bg-destructive-muted border-destructive/30',
+      running: 'bg-info-muted border-info/40',
+      pending: 'bg-muted border-border'
     }
     
     return statusMap[checkStatus]
@@ -250,11 +250,11 @@ function Check({
 
   const getStatusIconClasses = () => {
     const colorMap = {
-      success: 'text-green-600',
-      warn: 'text-yellow-600',
-      fail: 'text-red-600',
-      running: 'text-blue-600',
-      pending: 'text-gray-500'
+      success: 'text-success',
+      warn: 'text-warning',
+      fail: 'text-destructive',
+      running: 'text-info',
+      pending: 'text-muted-foreground'
     }
     return colorMap[checkStatus]
   }
@@ -281,21 +281,21 @@ function Check({
   // Early return for duplicate ID error
   if (isDuplicate) {
     return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
+      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             {isNormalizedCollision ? (
               <>
                 <strong>ID Collision:</strong><br />
-                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because
                 hyphens are converted to underscores for template access.
                 Use different IDs to avoid this collision.
               </>
             ) : (
               <>
                 <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-red-100 px-1 rounded">{"<Check>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
+                Another <code className="bg-destructive-muted px-1 rounded">{"<Check>"}</code> component with id <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> already exists.
                 Each component must have a unique ID.
               </>
             )}
@@ -308,8 +308,8 @@ function Check({
   // Early return for file errors - show only error message
   if (getFileError) {
     return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
+      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Check Component Error:</strong><br />
@@ -324,16 +324,16 @@ function Check({
   // Check if script requires variables but none are configured
   if (missingInputsConfig) {
     return (
-      <div className="relative rounded-sm border bg-yellow-50 border-yellow-200 mb-5 p-4">
-        <div className="flex items-center text-yellow-700">
+      <div className="relative rounded-sm border bg-warning-muted border-warning/30 mb-5 p-4">
+        <div className="flex items-center text-warning-foreground">
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
-            This check script requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured. 
+            This check script requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured.
             Please add either:
             <ul className="list-disc ml-6 mt-2">
-              <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<Inputs>"}</code> component as a child</li>
-              <li>An <code className="bg-yellow-100 px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
+              <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
+              <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
             </ul>
           </div>
         </div>
@@ -362,43 +362,43 @@ function Check({
       {hasScriptDrift && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
           <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
-          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
+          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-warning-muted px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-warning-muted px-1 rounded text-xs">runbooks watch</code> to automatically load script changes. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
         </Admonition>
       )}
       
       {/* Check main body */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
           <IconComponent data-testid={`icon-${checkStatus}`} className={`size-6 ${iconClasses} ${checkStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="">
         <div className="flex-1 space-y-2">
-          <div className="text-md font-bold text-gray-600">
+          <div className="text-md font-bold text-muted-foreground">
             <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
           {resolvedDescription && (
-            <div className="text-md text-gray-600 mb-3">
+            <div className="text-md text-muted-foreground mb-3">
               <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'success' && resolvedSuccessMessage && (
-            <div className="text-green-600 font-semibold text-sm mb-3">
+            <div className="text-success font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedSuccessMessage}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'warn' && resolvedWarnMessage && (
-            <div className="text-yellow-600 font-semibold text-sm mb-3">
+            <div className="text-warning font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedWarnMessage}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'fail' && resolvedFailMessage && (
-            <div className="text-red-600 font-semibold text-sm mb-3">
+            <div className="text-destructive font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedFailMessage}</InlineMarkdown>
             </div>
           )}
           {checkStatus === 'running' && resolvedRunningMessage && (
-            <div className="text-blue-600 font-semibold text-sm mb-3">
+            <div className="text-info font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
             </div>
           )}
@@ -418,8 +418,8 @@ function Check({
           )}
 
           {/* Separator */}
-          <div className="border-b border-gray-300"></div>
-          
+          <div className="border-b border-border"></div>
+
           {/* Show unmet input/output dependencies */}
           {!isRendering && (
             <UnmetDependenciesWarning
@@ -440,21 +440,21 @@ function Check({
           )}
           
           {renderError && hasAllOutputDependencies && (
-            <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
+            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>Script render error:</strong> {renderError.message}
-                {renderError.details && <div className="text-xs mt-1 text-red-500">{renderError.details}</div>}
+                {renderError.details && <div className="text-xs mt-1 text-destructive">{renderError.details}</div>}
               </div>
             </div>
           )}
-          
+
           {execError && (
-            <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
+            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>{execError.message}</strong>
-                {execError.details && <div className="text-xs mt-1 text-red-500">{execError.details}</div>}
+                {execError.details && <div className="text-xs mt-1 text-destructive">{execError.details}</div>}
               </div>
             </div>
           )}
@@ -474,7 +474,7 @@ function Check({
                 size="sm"
                 onClick={handleStopCheck}
                 disabled={checkStatus !== 'running'}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:text-gray-400 disabled:hover:bg-transparent"
+                className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
               >
                 <Square className="size-4 mr-1" />
                 Stop

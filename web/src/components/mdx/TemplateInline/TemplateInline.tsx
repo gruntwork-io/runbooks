@@ -219,17 +219,17 @@ function TemplateInline({
     <div data-testid={id}>
       {/* Show warning when waiting for input blocks to submit values */}
       {unmetInputsIds.length > 0 && (
-        <div className="mb-3 text-sm text-yellow-700 flex items-start gap-2">
+        <div className="mb-3 text-sm text-warning flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
           <div>
             <strong>Waiting for inputs from:</strong>{' '}
             {unmetInputsIds.map((inputId, i) => (
               <span key={inputId}>
                 {i > 0 && ', '}
-                <code className="bg-yellow-100 px-1 rounded text-xs">{inputId}</code>
+                <code className="bg-warning-muted px-1 rounded text-xs">{inputId}</code>
               </span>
             ))}
-            <div className="text-xs mt-1 text-yellow-600">
+            <div className="text-xs mt-1 text-warning">
               Submit the above input block(s) to render this template.
             </div>
           </div>

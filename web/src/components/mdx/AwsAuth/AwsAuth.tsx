@@ -1,12 +1,14 @@
 import { useEffect, useMemo } from "react"
 import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
 import awsLogo from '@/assets/aws-logo.svg'
+import awsLogoLight from '@/assets/aws-logo-light.svg'
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
+import { useTheme } from "@/contexts/useTheme"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
@@ -64,6 +66,9 @@ function AwsAuth({
   // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
+  // Theme — swap the AWS wordmark for its light variant on dark surfaces
+  const { resolvedTheme } = useTheme()
+
   // All auth state and handlers from custom hook
   const auth = useAwsAuth({
     id,
@@ -117,21 +122,21 @@ function AwsAuth({
   // Early return for duplicate ID
   if (isDuplicate) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
+      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             {isNormalizedCollision ? (
               <>
                 <strong>ID Collision:</strong><br />
-                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because 
                 hyphens are converted to underscores for template access.
                 Use different IDs to avoid this collision.
               </>
             ) : (
               <>
                 <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-red-100 px-1 rounded">{"<AwsAuth>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
+                Another <code className="bg-destructive-muted px-1 rounded">{"<AwsAuth>"}</code> component with id <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> already exists.
               </>
             )}
           </div>
@@ -143,12 +148,12 @@ function AwsAuth({
   // Early return for multiple block sources in detectCredentials
   if (hasMultipleBlockSources) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
+      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Invalid Configuration:</strong><br />
-            The <code className="bg-red-100 px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-red-100 px-1 rounded">{`{ block: "..." }`}</code> entries.
+            The <code className="bg-destructive-muted px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-destructive-muted px-1 rounded">{`{ block: "..." }`}</code> entries.
             Only one block source is allowed.
           </div>
         </div>
@@ -173,28 +178,28 @@ function AwsAuth({
 
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
-        <div className="border-r border-amber-300 pr-3 mr-0 self-stretch">
+        <div className="border-r border-warning/30 pr-3 mr-0 self-stretch">
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="flex-1">
           {/* Title row with AWS logo */}
           <div className="flex items-center gap-3 mb-2">
-            <img src={awsLogo} alt="AWS" className="h-6" />
-            <div className="text-md font-bold text-gray-700">
+            <img src={resolvedTheme === 'dark' ? awsLogoLight : awsLogo} alt="AWS" className="h-6" />
+            <div className="text-md font-bold text-foreground">
               <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>
           </div>
           
           {resolvedDescription && (
-            <div className="text-md text-gray-600 mb-4">
+            <div className="text-md text-muted-foreground mb-4">
               <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
           )}
 
           {/* Detection pending state - waiting for block or checking credentials */}
           {auth.detectionStatus === 'pending' && (
-            <div className="mb-4 text-blue-600 text-sm flex items-center gap-2">
+            <div className="mb-4 text-info text-sm flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
               <span>
                 {auth.waitingForBlockId 
@@ -227,19 +232,19 @@ function AwsAuth({
 
           {/* Detection warning (found credentials but they're invalid) */}
           {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
-            <div className="mb-4 bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex items-start gap-2">
+            <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
-                <span className="text-amber-700">Please authenticate manually below.</span>
+                <span className="text-warning-foreground">Please authenticate manually below.</span>
               </div>
             </div>
           )}
 
           {/* Error state (for manual auth failures) */}
           {auth.authStatus === 'failed' && auth.errorMessage && (
-            <div className="mb-4 text-red-600 text-sm flex items-start gap-2">
+            <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>Authentication failed:</strong> {auth.errorMessage}
@@ -339,16 +344,16 @@ function AwsAuth({
 
               {/* Option to retry detection when in manual auth mode */}
               {detectCredentials !== false && showTabs && (
-                <div className="mt-3 text-sm text-gray-600 flex items-center gap-2">
+                <div className="mt-3 text-sm text-muted-foreground flex items-center gap-2">
                   <button
                     type="button"
                     onClick={auth.handleRetryDetection}
-                    className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                    className="text-primary hover:text-primary/80 hover:underline cursor-pointer"
                   >
                     ← Try auto-detection again
                   </button>
                   {auth.retryFoundNothing && (
-                    <span className="text-gray-500 italic">No credentials found</span>
+                    <span className="text-muted-foreground italic">No credentials found</span>
                   )}
                 </div>
               )}

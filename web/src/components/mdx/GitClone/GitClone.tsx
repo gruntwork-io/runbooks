@@ -284,11 +284,11 @@ function GitClone({
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
   const statusConfig: Record<string, { bg: string; icon: typeof GitBranch; iconColor: string }> = {
-    success: { bg: 'bg-green-50 border-green-200', icon: CheckCircle, iconColor: 'text-green-600' },
-    fail:    { bg: 'bg-red-50 border-red-200',     icon: XCircle,     iconColor: 'text-red-600' },
-    running: { bg: 'bg-blue-50 border-blue-200',    icon: Loader2,     iconColor: 'text-blue-600' },
-    pending: { bg: 'bg-gray-100 border-gray-200',   icon: GitBranch,   iconColor: 'text-gray-500' },
-    ready:   { bg: 'bg-gray-100 border-gray-200',   icon: GitBranch,   iconColor: 'text-gray-500' },
+    success: { bg: 'bg-success-muted border-success/30', icon: CheckCircle, iconColor: 'text-success' },
+    fail:    { bg: 'bg-destructive-muted border-destructive/30',     icon: XCircle,     iconColor: 'text-destructive' },
+    running: { bg: 'bg-info-muted border-info/40',    icon: Loader2,     iconColor: 'text-info' },
+    pending: { bg: 'bg-muted border-border',   icon: GitBranch,   iconColor: 'text-muted-foreground' },
+    ready:   { bg: 'bg-muted border-border',   icon: GitBranch,   iconColor: 'text-muted-foreground' },
   }
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
@@ -315,16 +315,16 @@ function GitClone({
 
       {/* Main container with left icon column */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
           <IconComponent className={`size-6 ${iconClasses} ${cloneStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="flex-1 space-y-2">
           {/* Title and description */}
-          <div className="text-md font-bold text-gray-700">
+          <div className="text-md font-bold text-foreground">
             <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
-          <div className="text-md text-gray-600 mb-3">
+          <div className="text-md text-muted-foreground mb-3">
             <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
 
@@ -339,11 +339,11 @@ function GitClone({
 
           {/* Blocked state: waiting for GitHubAuth */}
           {hasAllBlockingDependencies && !gitHubAuthMet && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-              <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-amber-800 m-0">Waiting for GitHub authentication</p>
-                <p className="text-xs text-amber-600 m-0 mt-0.5">
+                <p className="text-sm font-medium text-warning-foreground m-0">Waiting for GitHub authentication</p>
+                <p className="text-xs text-warning-foreground m-0 mt-0.5">
                   Complete the &apos;{gitHubAuthId}&apos; GitHubAuth block above before cloning.
                 </p>
               </div>
@@ -357,11 +357,11 @@ function GitClone({
             /* Form state (ready, running, fail) */
             <div className="space-y-3">
               {/* Separator */}
-              <div className="border-b border-gray-300"></div>
+              <div className="border-b border-border"></div>
 
               {/* Git URL input */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                <label className="text-sm font-medium text-foreground mb-1 block">
                   Git URL
                 </label>
                 <input
@@ -370,7 +370,7 @@ function GitClone({
                   onChange={(e) => setGitUrl(e.target.value)}
                   placeholder="https://github.com/org/repo.git"
                   disabled={isFormDisabled}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                 />
               </div>
 
@@ -399,11 +399,11 @@ function GitClone({
                 <div className="space-y-3 mt-3">
                   {/* Ref (branch/tag) */}
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                      Ref <span className="font-normal text-gray-400">(optional)</span>
+                    <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                      Ref <span className="font-normal text-muted-foreground">(optional)</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                          <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
                             <Info className="size-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -423,17 +423,17 @@ function GitClone({
                       onChange={(e) => setRef(e.target.value)}
                       placeholder="Defaults to default branch"
                       disabled={isFormDisabled}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
                   </div>
 
                   {/* Repo Path (sparse checkout) */}
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                      Repo Path <span className="font-normal text-gray-400">(optional)</span>
+                    <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                      Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                          <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
                             <Info className="size-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -448,17 +448,17 @@ function GitClone({
                       onChange={(e) => setRepoPath(e.target.value)}
                       placeholder="e.g., modules/vpc"
                       disabled={isFormDisabled}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
                   </div>
 
                   {/* Local Path (destination) */}
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                      Local Path <span className="font-normal text-gray-400">(optional)</span>
+                    <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                      Local Path <span className="font-normal text-muted-foreground">(optional)</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+                          <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
                             <Info className="size-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -473,33 +473,33 @@ function GitClone({
                       onChange={(e) => setLocalPath(e.target.value)}
                       placeholder="Defaults to repo name"
                       disabled={isFormDisabled}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
                     {pathPreview && (
-                      <div className="mt-1.5 text-xs text-gray-500 space-y-0.5">
+                      <div className="mt-1.5 text-xs text-muted-foreground space-y-0.5">
                         <div className="flex items-center gap-1">
-                          <span className="text-gray-400">Relative:</span>
-                          <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.relative}</code>
+                          <span className="text-muted-foreground">Relative:</span>
+                          <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.relative}</code>
                           <button
                             onClick={() => handleCopyPath('relative', pathPreview.relative)}
-                            className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                            className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
                           >
                             {copiedPathKey === 'relative' ? (
-                              <Check className="size-3 text-green-600" />
+                              <Check className="size-3 text-success" />
                             ) : (
                               <Copy className="size-3" />
                             )}
                           </button>
                         </div>
                         <div className="flex items-center gap-1">
-                          <span className="text-gray-400">Absolute:</span>
-                          <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-600">{pathPreview.absolute}</code>
+                          <span className="text-muted-foreground">Absolute:</span>
+                          <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.absolute}</code>
                           <button
                             onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
-                            className="shrink-0 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                            className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
                           >
                             {copiedPathKey === 'absolute' ? (
-                              <Check className="size-3 text-green-600" />
+                              <Check className="size-3 text-success" />
                             ) : (
                               <Copy className="size-3" />
                             )}
@@ -513,23 +513,23 @@ function GitClone({
 
               {/* Error message */}
               {errorMessage && cloneStatus === 'fail' && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
-                  <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
+                <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
+                  <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-red-800 m-0">Clone failed</p>
-                    <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{errorMessage}</p>
+                    <p className="text-sm font-medium text-destructive m-0">Clone failed</p>
+                    <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
                   </div>
                 </div>
               )}
 
               {/* Overwrite confirmation */}
               {showOverwriteConfirm && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-                  <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+                  <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-amber-800 m-0">Local path already exists</p>
-                    <p className="text-xs text-amber-600 m-0 mt-0.5">
-                      The local path{pathPreview?.relative ? <> (<code className="text-amber-700">{pathPreview.relative}</code>)</> : ''} is not empty.
+                    <p className="text-sm font-medium text-warning-foreground m-0">Local path already exists</p>
+                    <p className="text-xs text-warning-foreground m-0 mt-0.5">
+                      The local path{pathPreview?.relative ? <> (<code className="text-warning-foreground">{pathPreview.relative}</code>)</> : ''} is not empty.
                       Delete it and continue with git clone? Any changes you&apos;ve made to files in this directory will be lost.
                       {pathPreview?.absolute && <> See <strong>Additional Settings</strong> above for the full path.</>}
                     </p>
@@ -575,7 +575,7 @@ function GitClone({
                       variant="outline"
                       size="sm"
                       onClick={cancel}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      className="text-destructive hover:text-destructive hover:bg-destructive-muted"
                     >
                       Cancel
                     </Button>

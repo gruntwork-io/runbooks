@@ -1,6 +1,5 @@
 import './css/App.css'
 import './css/github-markdown.css'
-import './css/github-markdown-light.css'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Code, AlertTriangle } from "lucide-react"
 import { Header } from './components/layout/Header'
@@ -212,29 +211,29 @@ function App() {
         {getRunbookResult.isLoading && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading runbook...</p>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading runbook...</p>
             </div>
           </div>
         ) : generatedFilesCheck.error && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-xl mx-auto p-6">
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-left">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
+              <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6 text-left">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
-                <h3 className="text-lg font-medium text-red-800 mb-2 text-center">Invalid Output Path</h3>
-                <p className="text-red-700 mb-4 text-center">{generatedFilesCheck.error.message}</p>
-                <div className="bg-red-100 rounded-md p-4 text-sm text-red-800">
+                <h3 className="text-lg font-medium text-destructive mb-2 text-center">Invalid Output Path</h3>
+                <p className="text-destructive mb-4 text-center">{generatedFilesCheck.error.message}</p>
+                <div className="bg-destructive-muted rounded-md p-4 text-sm text-destructive">
                   <p className="mb-2">
-                    When you launched Runbooks, you specified an <code className="bg-red-200 px-1 rounded">--output-path</code> of{' '}
-                    <code className="bg-red-200 px-1 rounded font-mono">
+                    When you launched Runbooks, you specified an <code className="bg-destructive-muted px-1 rounded">--output-path</code> of{' '}
+                    <code className="bg-destructive-muted px-1 rounded font-mono">
                       {generatedFilesCheck.error.context?.specifiedPath || '(unknown)'}
                     </code>, but the path must be within the current working directory.
                   </p>
                   <p>
                     Your current working directory is{' '}
-                    <code className="bg-red-200 px-1 rounded font-mono">
+                    <code className="bg-destructive-muted px-1 rounded font-mono">
                       {generatedFilesCheck.error.context?.currentWorkingDir || '(unknown)'}
                     </code>
                   </p>
@@ -245,18 +244,18 @@ function App() {
         ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
+              <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">
+                  <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
-                <h3 className="text-lg font-medium text-red-800 mb-2">Failed to Load Runbook</h3>
-                <p className="text-red-700 mb-2">{getRunbookResult.error?.message}</p>
-                <p className="text-sm text-red-600 mb-4">
+                <h3 className="text-lg font-medium text-destructive mb-2">Failed to Load Runbook</h3>
+                <p className="text-destructive mb-2">{getRunbookResult.error?.message}</p>
+                <p className="text-sm text-destructive mb-4">
                   {getRunbookResult.error?.details}
                 </p>
                 <button
                   onClick={() => window.location.reload()}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                  className="px-4 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2"
                 >
                   Retry
                 </button>
@@ -269,7 +268,7 @@ function App() {
           <>
             {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
             <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10">
-              <div className="bg-gray-100 border border-gray-200 inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
+              <div className="bg-muted border border-border inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
                 <ViewContainerToggle
                   activeView={activeMobileSection}
                   onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'code')}
@@ -308,10 +307,10 @@ function App() {
                   {showCodeButton && (
                     <button
                       onClick={() => setIsArtifactsHidden(false)}
-                      className="hidden lg:block absolute -right-14 top-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 z-10 cursor-pointer"
+                      className="hidden lg:block absolute -right-14 top-0 p-3 border border-border rounded-lg hover:bg-accent transition-all duration-200 z-10 cursor-pointer"
                       title="Show generated files"
                     >
-                      <Code className="w-5 h-5 text-gray-600" />
+                      <Code className="w-5 h-5 text-muted-foreground" />
                     </button>
                   )}
                 </div>
@@ -333,7 +332,7 @@ function App() {
 
                 {/* Artifacts - Mobile layout (shown when 'code' tab is active) */}
                 <div className={`lg:hidden px-4 ${activeMobileSection === 'code' ? 'block' : 'hidden'}`}>
-                  <div className="w-full h-[calc(100vh-12rem)] border border-gray-200 rounded-lg shadow-md overflow-hidden">
+                  <div className="w-full h-[calc(100vh-12rem)] border border-border rounded-lg shadow-md overflow-hidden">
                     <ArtifactsContainer
                       className="w-full h-full"
                       onHide={() => setIsArtifactsHidden(true)}

@@ -94,13 +94,13 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
             }}
             onKeyDown={handleKeyDown}
             placeholder="https://github.com/owner/repo/tree/main/path/to/runbook"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full rounded-md border border-input px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
             autoFocus
             disabled={isLoading}
           />
 
           {error && (
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-destructive">{error}</p>
           )}
         </div>
 
@@ -108,7 +108,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
           >
             Cancel
           </button>
@@ -116,7 +116,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
             type="button"
             onClick={handleSubmit}
             disabled={!url.trim() || isLoading}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             {isLoading ? 'Cloning...' : 'Open'}
