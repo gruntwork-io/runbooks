@@ -36,8 +36,10 @@ export function getStoredTheme(): Theme {
 export function setStoredTheme(theme: Theme): void {
   try {
     fs.writeFileSync(themeFilePath(), JSON.stringify({ theme }), "utf8")
-  } catch {
+  } catch (err) {
     // Disk/permission error — the renderer's localStorage still holds the
-    // preference; only the first-frame native chrome would be affected.
+    // preference; only the first-frame native chrome would be affected. Warn
+    // so failures are diagnosable from the main-process log.
+    console.warn(`[theme-store] failed to persist theme "${theme}":`, err)
   }
 }

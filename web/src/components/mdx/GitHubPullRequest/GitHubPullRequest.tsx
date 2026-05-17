@@ -386,7 +386,7 @@ function GitHubPullRequest({
                     type="button"
                     onClick={handleDeleteBranch}
                     disabled={deletingBranch}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-destructive bg-destructive-muted hover:bg-destructive-muted border border-destructive/30 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-destructive bg-destructive-muted hover:bg-destructive-muted/80 border border-destructive/30 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="size-3" />
                     {deletingBranch ? 'Deleting...' : `Delete branch "${conflictBranchName}" and retry`}

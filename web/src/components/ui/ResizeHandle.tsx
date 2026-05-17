@@ -16,7 +16,7 @@ export function ResizeHandle({ onMouseDown }: ResizeHandleProps) {
       className="w-[7px] cursor-col-resize flex-shrink-0 flex items-stretch justify-center group"
       onMouseDown={onMouseDown}
     >
-      <div className="w-px bg-border group-hover:bg-primary group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.5)] transition-all" />
+      <div className="w-px bg-border group-hover:bg-primary group-hover:ring-2 group-hover:ring-primary/40 transition-all" />
     </div>
   )
 }

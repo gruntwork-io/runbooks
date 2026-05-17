@@ -277,7 +277,10 @@ app.whenReady().then(() => {
   // Keep the (Windows/Linux) title bar overlay + window background in sync with
   // the effective theme. Fires both when the renderer changes themeSource via
   // the native:set-theme IPC handler and when the OS theme changes while
-  // themeSource is 'system'.
+  // themeSource is 'system'. The initial call covers the case where assigning
+  // themeSource above doesn't fire an "updated" event (e.g. when the persisted
+  // theme already matches the OS).
+  setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
   nativeTheme.on("updated", () => {
     setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
   })

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
@@ -75,10 +75,13 @@ describe("theme-store", () => {
     })
 
     it("does not throw when the userData directory is missing", () => {
+      const warn = spyOn(console, "warn").mockImplementation(() => {})
       fs.rmSync(tmpDir, { recursive: true, force: true })
       expect(() => setStoredTheme("dark")).not.toThrow()
-      // The write failed silently, so the preference falls back to the default.
+      // The write fails gracefully (warning logged); preference falls back.
       expect(getStoredTheme()).toBe("system")
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
     })
   })
 })

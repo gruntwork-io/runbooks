@@ -29,8 +29,10 @@ if (!window.api) {
 } else {
   createRoot(root).render(
     <StrictMode>
-      <ThemeProvider>
-        <ApiProvider api={window.api}>
+      {/* ApiProvider bridges window.api (the preload bridge) into context so
+          descendants can use useApi() instead of touching window directly. */}
+      <ApiProvider api={window.api}>
+        <ThemeProvider>
           <IpcTelemetryProvider>
             <IpcSessionProvider>
               <ErrorReportingProvider>
@@ -46,8 +48,8 @@ if (!window.api) {
               </ErrorReportingProvider>
             </IpcSessionProvider>
           </IpcTelemetryProvider>
-        </ApiProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </ApiProvider>
     </StrictMode>,
   )
 }

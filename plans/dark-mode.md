@@ -92,9 +92,11 @@ Add an inline `<script>` in `<head>` (before the module script) that reads the
 ### 1c. Theme context (`web/src/contexts/ThemeContext.tsx` + `useTheme.ts`)
 
 - State: `theme: 'light' | 'dark' | 'system'` and derived `resolvedTheme`.
-- `setTheme()` writes `localStorage`, toggles the `.dark` class, and (if
-  `window.api` exists) calls `api.invoke('native:set-theme', …)`.
-- A `matchMedia` listener keeps `system` live.
+- `setTheme()` writes `localStorage`, toggles the `.dark` class, and (when an
+  API context is available) calls `api.invoke('native:set-theme', …)` via the
+  `useApi()` context — not by reading `window.api` directly.
+- A `matchMedia` listener keeps `system` live. Frontend code uses `useApi()`
+  for IPC instead of touching `window.api`.
 - Provider added to `web/src/main.tsx` (outermost or just inside `StrictMode`).
 
 ### 1d. IPC channel (`electron/`)

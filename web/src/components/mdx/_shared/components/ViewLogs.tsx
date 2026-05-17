@@ -152,7 +152,8 @@ export function ViewLogs({
         )}
       </div>
 
-      {/* Logs */}
+      {/* Logs — terminal-style display kept dark across both themes for
+          readability of ANSI-colored output, matching how shells render. */}
       {showLogs && (
         <div
           ref={logContainerRef}

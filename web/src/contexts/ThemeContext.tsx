@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useApi } from './ApiContext'
 import {
   ThemeContext,
   THEME_STORAGE_KEY,
@@ -42,6 +43,7 @@ function applyThemeClass(resolved: ResolvedTheme): void {
  * update native window chrome.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const api = useApi()
   const [theme, setThemeState] = useState<Theme>(readStoredTheme)
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     resolveTheme(readStoredTheme()),
@@ -53,11 +55,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const resolved = resolveTheme(theme)
     setResolvedTheme(resolved)
     applyThemeClass(resolved)
-    // window.api is absent when opened in a plain browser (see main.tsx).
-    window.api?.invoke('native:set-theme', { theme }).catch(() => {
+    // api is null when ThemeProvider is rendered outside ApiProvider (e.g.
+    // tests that don't bridge IPC). Native chrome sync is best-effort.
+    api?.invoke('native:set-theme', { theme }).catch(() => {
       /* native chrome update is best-effort */
     })
-  }, [theme])
+  }, [theme, api])
 
   // In 'system' mode, follow live OS theme changes.
   useEffect(() => {

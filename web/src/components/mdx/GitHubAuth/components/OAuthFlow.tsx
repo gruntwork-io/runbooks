@@ -105,7 +105,7 @@ export function OAuthFlow({
         <Button
           onClick={onStartOAuth}
           disabled={isAuthenticating}
-          className="bg-info hover:bg-info/90 text-white"
+          className="bg-info hover:bg-info/90 text-info-foreground"
         >
           {isAuthenticating ? (
             <>

@@ -106,7 +106,7 @@ export const RepositoryFileBrowser = ({
           <p className="text-sm text-muted-foreground mb-3">{error}</p>
           <button
             onClick={onRetry}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-white rounded-md hover:bg-primary/90 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Retry

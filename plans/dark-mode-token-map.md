@@ -22,6 +22,7 @@ Use them as normal Tailwind utilities: `bg-card`, `text-muted-foreground`,
 ## Mapping table
 
 ### Text
+
 | Hardcoded | Token |
 |---|---|
 | `text-gray-900`, `text-gray-800`, `text-black` | `text-foreground` |
@@ -34,6 +35,7 @@ Use them as normal Tailwind utilities: `bg-card`, `text-muted-foreground`,
 | `text-white` | **keep** when it sits on a colored surface (destructive/primary/colored badge); change to `text-foreground` only if it's on a neutral surface |
 
 ### Backgrounds
+
 | Hardcoded | Token |
 |---|---|
 | `bg-white` | `bg-card` (panels, cards, inputs) — use `bg-background` only for a full-page surface |
@@ -47,6 +49,7 @@ Use them as normal Tailwind utilities: `bg-card`, `text-muted-foreground`,
 | `bg-black/50` and other translucent scrims | **keep** — deliberate overlay, works on both themes |
 
 ### Borders
+
 | Hardcoded | Token |
 |---|---|
 | `border-gray-100`, `border-gray-200` | `border-border` |
@@ -57,6 +60,7 @@ Use them as normal Tailwind utilities: `bg-card`, `text-muted-foreground`,
 | `border-amber/yellow-200/300` | `border-warning/30` |
 
 ### Rings / outlines / focus
+
 | Hardcoded | Token |
 |---|---|
 | `ring-blue-400/500`, `focus-visible:ring-blue-*` | `ring-ring` |
