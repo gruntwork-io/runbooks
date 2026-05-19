@@ -43,12 +43,12 @@ const SHOW_MORE_INCREMENT = 50
 
 /** Maps change types to their icon and color */
 const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
-  added:    { icon: FilePlus,  color: 'text-green-600' },
-  deleted:  { icon: FileMinus, color: 'text-red-600' },
-  modified: { icon: FileDiff,  color: 'text-gray-600' },
+  added:    { icon: FilePlus,  color: 'text-success' },
+  deleted:  { icon: FileMinus, color: 'text-destructive' },
+  modified: { icon: FileDiff,  color: 'text-muted-foreground' },
 }
 
-const defaultChangeConfig = { icon: FileDiff, color: 'text-gray-600' }
+const defaultChangeConfig = { icon: FileDiff, color: 'text-muted-foreground' }
 
 function getChangeTypeIcon(changeType: ChangeType): LucideIcon {
   return (changeTypeConfig[changeType] ?? defaultChangeConfig).icon
@@ -164,8 +164,8 @@ export const ChangedFilesView = ({
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
-          <Loader2 className="w-8 h-8 mx-auto mb-2 text-blue-500 animate-spin" />
-          <p className="text-sm text-gray-500">Checking for changes...</p>
+          <Loader2 className="w-8 h-8 mx-auto mb-2 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">Checking for changes...</p>
         </div>
       </div>
     )
@@ -176,15 +176,15 @@ export const ChangedFilesView = ({
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
-          <FileCode className="w-16 h-16 mx-auto mb-2 text-amber-300" />
-          <h3 className="text-lg font-medium mb-2 text-gray-600">
+          <FileCode className="w-16 h-16 mx-auto mb-2 text-warning" />
+          <h3 className="text-lg font-medium mb-2 text-foreground">
             Too many changes to display
           </h3>
-          <p className="text-sm text-gray-500 max-w-sm mx-auto">
+          <p className="text-sm text-muted-foreground max-w-sm mx-auto">
             {totalChanges ?? 0} files changed. This may be caused by a command that
-            generated a large number of files (e.g. <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">npm install</code>).
+            generated a large number of files (e.g. <code className="text-xs bg-muted px-1 py-0.5 rounded">npm install</code>).
           </p>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-muted-foreground mt-2">
             Consider revising the runbook to reduce the number of changed files.
           </p>
         </div>
@@ -197,11 +197,11 @@ export const ChangedFilesView = ({
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
-          <FileCode className="w-16 h-16 mx-auto mb-2 text-gray-300" />
-          <h3 className="text-lg font-medium mb-2 text-gray-600">
+          <FileCode className="w-16 h-16 mx-auto mb-2 text-muted-foreground" />
+          <h3 className="text-lg font-medium mb-2 text-foreground">
             No changes detected
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             Modified files will appear here.
           </p>
         </div>
@@ -247,14 +247,14 @@ export const ChangedFilesView = ({
             ))}
             {/* Show more / truncation banner */}
             {hasMoreFiles && (
-              <div className="flex items-center gap-2 px-3 py-3 bg-amber-50 border border-amber-200 rounded-md">
-                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                <span className="text-sm text-amber-800 flex-1">
+              <div className="flex items-center gap-2 px-3 py-3 bg-warning-muted border border-warning/30 rounded-md">
+                <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
+                <span className="text-sm text-warning-foreground flex-1">
                   Showing {displayedChanges.length} of {changes.length} changed files.
                 </span>
                 <button
                   onClick={handleShowMore}
-                  className="px-3 py-1 text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md cursor-pointer transition-colors"
+                  className="px-3 py-1 text-sm bg-warning-muted hover:bg-warning-muted/80 text-warning-foreground rounded-md cursor-pointer transition-colors"
                 >
                   Show {Math.min(SHOW_MORE_INCREMENT, changes.length - displayLimit)} more
                 </button>
@@ -380,19 +380,19 @@ const ChangedFileTree = ({
             onClick={() => toggleFolder(node.path)}
             className={cn(
               "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
-              "hover:bg-gray-100 text-gray-700"
+              "hover:bg-accent text-foreground"
             )}
             style={{ paddingLeft: `${8 + level * INDENT}px` }}
           >
             {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             )}
             {isExpanded ? (
-              <FolderOpen className="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <FolderOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             ) : (
-              <Folder className="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             )}
             <span className="truncate ml-1">{node.name}</span>
           </button>
@@ -419,7 +419,7 @@ const ChangedFileTree = ({
         onClick={() => onFileSelect(change.path)}
         className={cn(
           "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
-          isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-gray-100 text-gray-700"
+          isSelected ? "bg-info-muted text-primary" : "hover:bg-accent text-foreground"
         )}
         style={{ paddingLeft: `${8 + level * INDENT}px` }}
       >
@@ -492,34 +492,34 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         ref={ref}
         data-testid={`diff-file-${change.path}`}
         className={cn(
-          "border border-gray-300 rounded-md overflow-hidden bg-white",
-          isFocused && "ring-2 ring-blue-500"
+          "border border-border rounded-md overflow-hidden bg-card",
+          isFocused && "ring-2 ring-ring"
         )}
       >
         {/* File Header Bar */}
         <div
           onClick={onToggleCollapse}
-          className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer border-b border-gray-200"
+          className="w-full flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent text-left cursor-pointer border-b border-border"
           role="button"
           tabIndex={0}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
         >
           {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
           )}
           <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
-          <span className="font-mono text-xs text-gray-700 truncate">
+          <span className="font-mono text-xs text-foreground truncate">
             {change.path}
           </span>
           <button
             onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
-            className="p-0.5 text-gray-400 hover:text-gray-600 rounded flex-shrink-0"
+            className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
             title="Copy file path"
           >
             {didCopy ? (
-              <Check className="w-3.5 h-3.5 text-green-600" />
+              <Check className="w-3.5 h-3.5 text-success" />
             ) : (
               <Copy className="w-3.5 h-3.5" />
             )}
@@ -527,10 +527,10 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
           <div className="flex-1" />
           <div className="flex items-center gap-2 text-xs flex-shrink-0">
             {change.additions > 0 && (
-              <span className="text-green-600 font-medium">+{change.additions}</span>
+              <span className="text-success font-medium">+{change.additions}</span>
             )}
             {change.deletions > 0 && (
-              <span className="text-red-600 font-medium">-{change.deletions}</span>
+              <span className="text-destructive font-medium">-{change.deletions}</span>
             )}
             <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
           </div>
@@ -539,12 +539,12 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         {/* Diff Content */}
         {!isCollapsed && (
           change.isBinary ? (
-            <div className="p-4 text-center text-sm text-gray-500">
+            <div className="p-4 text-center text-sm text-muted-foreground">
               Binary file — cannot display diff
             </div>
           ) : change.diffTruncated ? (
             <div className="p-4 text-center">
-              <p className="text-sm text-gray-500 mb-2">Diff is too large to display inline.</p>
+              <p className="text-sm text-muted-foreground mb-2">Diff is too large to display inline.</p>
               <button
                 onClick={async () => {
                   if (onLoadDiff) {
@@ -557,7 +557,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
                   }
                 }}
                 disabled={isLoadingDiff}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
               >
                 {isLoadingDiff ? (
                   <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...</>
@@ -600,26 +600,26 @@ const SvgPreview = ({ change }: { change: WorkspaceFileChange }) => {
   if (!hasOriginal && !hasNew) return null
 
   return (
-    <div className="flex items-start gap-4 p-4 border-b border-gray-200 bg-gray-50/50">
+    <div className="flex items-start gap-4 p-4 border-b border-border bg-muted/50">
       {hasOriginal && hasNew ? (
         <>
           <div className="flex-1 text-center">
-            <span className="inline-block mb-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">Before</span>
+            <span className="inline-block mb-2 text-xs font-medium text-destructive bg-destructive-muted border border-destructive/30 rounded px-2 py-0.5">Before</span>
             <div className="flex justify-center">
-              <img src={svgToDataUri(change.originalContent!)} alt="Before" className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+              <img src={svgToDataUri(change.originalContent!)} alt="Before" className="max-h-40 border border-border rounded bg-card p-2" />
             </div>
           </div>
           <div className="flex-1 text-center">
-            <span className="inline-block mb-2 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded px-2 py-0.5">After</span>
+            <span className="inline-block mb-2 text-xs font-medium text-success bg-success-muted border border-success/30 rounded px-2 py-0.5">After</span>
             <div className="flex justify-center">
-              <img src={svgToDataUri(change.newContent!)} alt="After" className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+              <img src={svgToDataUri(change.newContent!)} alt="After" className="max-h-40 border border-border rounded bg-card p-2" />
             </div>
           </div>
         </>
       ) : (
         <div className="flex-1 text-center">
           <div className="flex justify-center">
-            <img src={svgToDataUri((change.newContent || change.originalContent)!)} alt={change.path} className="max-h-40 border border-gray-200 rounded bg-white p-2" />
+            <img src={svgToDataUri((change.newContent || change.originalContent)!)} alt={change.path} className="max-h-40 border border-border rounded bg-card p-2" />
           </div>
         </div>
       )}
@@ -794,11 +794,11 @@ const DiffContent = ({ change }: DiffContentProps) => {
                 : UnfoldVertical
               
               return (
-                <tr key={`collapsed-${sectionIndex}`} className="bg-blue-50">
+                <tr key={`collapsed-${sectionIndex}`} className="bg-info-muted">
                   <td colSpan={4} className="py-0 px-0">
                     <button
                       onClick={() => toggleSection(sectionIndex)}
-                      className="w-full flex items-center gap-2 py-1.5 px-3 text-gray-400 hover:text-gray-500 hover:bg-blue-100 cursor-pointer transition-colors"
+                      className="w-full flex items-center gap-2 py-1.5 px-3 text-muted-foreground hover:text-foreground hover:bg-info-muted cursor-pointer transition-colors"
                     >
                       <ExpandIcon className="w-4 h-4" />
                       <span className="text-xs font-medium">
@@ -827,9 +827,9 @@ interface DiffLineRowProps {
 }
 
 const diffLineStyles: Record<string, { bg: string; prefix: string; prefixColor: string; lineNumBg: string }> = {
-  addition: { bg: 'bg-green-50', prefix: '+', prefixColor: 'text-green-600', lineNumBg: 'bg-green-100' },
-  deletion: { bg: 'bg-red-50',   prefix: '-', prefixColor: 'text-red-600',   lineNumBg: 'bg-red-100' },
-  context:  { bg: '',            prefix: ' ', prefixColor: 'text-gray-400',  lineNumBg: 'bg-gray-50' },
+  addition: { bg: 'bg-success-muted', prefix: '+', prefixColor: 'text-success', lineNumBg: 'bg-success-muted' },
+  deletion: { bg: 'bg-destructive-muted', prefix: '-', prefixColor: 'text-destructive', lineNumBg: 'bg-destructive-muted' },
+  context:  { bg: '',            prefix: ' ', prefixColor: 'text-muted-foreground', lineNumBg: 'bg-muted' },
 }
 
 const DiffLineRow = ({ line }: DiffLineRowProps) => {
@@ -839,14 +839,14 @@ const DiffLineRow = ({ line }: DiffLineRowProps) => {
     <tr className={bgColor}>
       {/* Old line number */}
       <td className={cn(
-        "w-12 px-2 py-0 text-right text-gray-400 select-none border-r border-gray-200",
+        "w-12 px-2 py-0 text-right text-muted-foreground select-none border-r border-border",
         lineNumBg
       )}>
         {line.type !== 'addition' ? line.oldLineNum : ''}
       </td>
       {/* New line number */}
       <td className={cn(
-        "w-12 px-2 py-0 text-right text-gray-400 select-none border-r border-gray-200",
+        "w-12 px-2 py-0 text-right text-muted-foreground select-none border-r border-border",
         lineNumBg
       )}>
         {line.type !== 'deletion' ? line.newLineNum : ''}
@@ -858,8 +858,8 @@ const DiffLineRow = ({ line }: DiffLineRowProps) => {
       {/* Content */}
       <td className="px-2 py-0 whitespace-pre">
         <code className={cn(
-          line.type === 'addition' && 'text-green-800',
-          line.type === 'deletion' && 'text-red-800'
+          line.type === 'addition' && 'text-success',
+          line.type === 'deletion' && 'text-destructive'
         )}>
           {line.content}
         </code>

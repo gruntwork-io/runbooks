@@ -1,12 +1,12 @@
 :root {
-    --selected-color: hsl(48deg, 33.3%, 97.1%);
+    --selected-color: var(--accent);
 }
 
 .tree {
     font-size: calc(12 / 16 * 1rem);
     max-width: 175px;
     min-height: 100px;
-    color: hsl(0deg, 0%, 0%, 0.6);
+    color: var(--muted-foreground);
     flex-shrink: 0;
     overflow-x: auto;
     overflow-y: hidden;
@@ -50,7 +50,7 @@
 }
 
 .treeitem:hover {
-    border-color: black;
+    border-color: var(--border);
 }
 
 .tree button[role="treeitem"]:focus {
@@ -58,21 +58,21 @@
 }
 
 .treeitem.selected {
-    color: hsl(0deg, 0%, 0%, 1.0);
+    color: var(--foreground);
     font-weight: 500;
 }
 
 button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
-    outline: 2px solid black;
+    outline: 2px solid var(--ring);
 }
 
 .treeitem.drop {
     border-color: var(--selected-color);
-    background-color: #e1f1f8;
+    background-color: var(--info-muted);
 }
 
 .treeitem.searchmatch {
-    background-color: #e1f8ff;
+    background-color: var(--info-muted);
 }
 
 .treeitem.folder:before {
@@ -95,7 +95,7 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
 .description {
     font-family: sans-serif;
     font-size: .8rem;
-    background-color: #eee;
+    background-color: var(--muted);
     border-radius: 4px;
     padding: 8px 12px;
 }
@@ -103,7 +103,7 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
 .dragline {
     height: 2px;
     margin-top: -1px;
-    background-color: #0366d6;
+    background-color: var(--primary);
 }
 
 .dragline::before {
@@ -113,8 +113,8 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
     top: -3px;
     height: 4px;
     width: 4px;
-    background: #fff;
-    border: 2px solid #0366d6;
+    background: var(--background);
+    border: 2px solid var(--primary);
     border-radius: 99px;
 }
 
@@ -140,11 +140,11 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
 .foreign-dragsource, .foreign-dropzone, .searchbox, .actionbtn {
     height: 30px;
     background-color: transparent;
-    border: 1px solid #808080;
+    border: 1px solid var(--border);
     padding: 0 8px;
     border-radius: 4px;
     font-size: .8rem;
-    color: #393939;
+    color: var(--foreground);
     display: flex;
     align-items: center;
     justify-items: center;
@@ -165,11 +165,11 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
     margin-top: 2px;
 }
 .foreign-dragsource:hover {
-    background-color: #f6f6f6;
+    background-color: var(--accent);
 }
 
 .foreign-dropzone {
-    border: 1px dashed #808080;
+    border: 1px dashed var(--border);
     padding: 0 26px;
 }
 
@@ -193,7 +193,7 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
 
 .actionbtn:hover {
     cursor: pointer;
-    background-color: #f6f6f6;
+    background-color: var(--accent);
 }
 
 .visible-assistive-text {
@@ -206,5 +206,5 @@ button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
 
     display: block;
     margin-bottom: 1rem !important;
-    background-color: #e1f1f8;
+    background-color: var(--info-muted);
 }

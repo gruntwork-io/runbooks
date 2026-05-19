@@ -34,21 +34,21 @@ export function ViewSourceCode({
   }
 
   return (
-    <div className="border border-gray-200 rounded-sm">
+    <div className="border border-border rounded-sm">
       <button
         onClick={handleToggle}
-        className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50 transition-colors cursor-pointer"
+        className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors cursor-pointer"
       >
         {isOpen ? (
-          <ChevronDown className="size-4 text-gray-500" />
+          <ChevronDown className="size-4 text-muted-foreground" />
         ) : (
-          <ChevronRight className="size-4 text-gray-500" />
+          <ChevronRight className="size-4 text-muted-foreground" />
         )}
-        <FileText className="size-4 text-gray-600" />
-        <span className="text-sm text-gray-700">View Source Code</span>
+        <FileText className="size-4 text-muted-foreground" />
+        <span className="text-sm text-foreground">View Source Code</span>
       </button>
       {isOpen && (
-        <div className="border-t border-gray-200 p-3 bg-gray-50">
+        <div className="border-t border-border p-3 bg-muted">
           <CodeFile
             fileName={fileName}
             filePath={path}

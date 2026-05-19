@@ -16,6 +16,7 @@ import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
 import { registerWatchHandlers } from "./watch.ts"
 import { registerTelemetryHandlers } from "./telemetry.ts"
+import { registerThemeHandlers } from "./theme.ts"
 
 export function registerAllIpcHandlers(): void {
   registerSessionHandlers()
@@ -29,4 +30,5 @@ export function registerAllIpcHandlers(): void {
   registerFileHandlers()
   registerWatchHandlers()
   registerTelemetryHandlers()
+  registerThemeHandlers()
 }

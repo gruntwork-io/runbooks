@@ -4,12 +4,12 @@ import type { AuthStatus, AwsDetectionSource } from "./types"
 // Get status-based styling for the container
 export const getStatusClasses = (authStatus: AuthStatus): string => {
   const statusMap: Record<AuthStatus, string> = {
-    authenticated: 'bg-green-50 border-green-200',
-    failed: 'bg-red-50 border-red-200',
-    authenticating: 'bg-amber-50 border-amber-200',
-    pending: 'bg-amber-50/50 border-amber-200',
-    select_account: 'bg-blue-50 border-blue-200',
-    select_role: 'bg-blue-50 border-blue-200',
+    authenticated: 'bg-success-muted border-success/30',
+    failed: 'bg-destructive-muted border-destructive/30',
+    authenticating: 'bg-warning-muted border-warning/30',
+    pending: 'bg-warning-muted/50 border-warning/30',
+    select_account: 'bg-info-muted border-info/40',
+    select_role: 'bg-info-muted border-info/40',
   }
   return statusMap[authStatus]
 }
@@ -30,12 +30,12 @@ export const getStatusIcon = (authStatus: AuthStatus) => {
 // Get icon color classes for the current status
 export const getStatusIconClasses = (authStatus: AuthStatus): string => {
   const colorMap: Record<AuthStatus, string> = {
-    authenticated: 'text-green-600',
-    failed: 'text-red-600',
-    authenticating: 'text-amber-600',
-    pending: 'text-amber-600',
-    select_account: 'text-blue-600',
-    select_role: 'text-blue-600',
+    authenticated: 'text-success',
+    failed: 'text-destructive',
+    authenticating: 'text-warning',
+    pending: 'text-warning',
+    select_account: 'text-info',
+    select_role: 'text-info',
   }
   return colorMap[authStatus]
 }

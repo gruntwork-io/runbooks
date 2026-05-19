@@ -32,27 +32,27 @@ export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayP
   return (
     <div className="space-y-3">
       {/* Success panel */}
-      <div className="bg-green-50 border border-green-200 rounded-md p-4 space-y-2">
-        <div className="flex items-center gap-2 text-green-800 font-medium">
-          <CheckCircle className="size-5 text-green-600" />
+      <div className="bg-success-muted border border-success/30 rounded-md p-4 space-y-2">
+        <div className="flex items-center gap-2 text-success font-medium">
+          <CheckCircle className="size-5 text-success" />
           Clone complete
         </div>
 
-        <div className="flex items-center gap-2 text-green-700">
-          <FolderOpen className="size-4 text-green-600" />
+        <div className="flex items-center gap-2 text-success">
+          <FolderOpen className="size-4 text-success" />
           <span>Downloaded {result.fileCount} files</span>
         </div>
 
         <div className="space-y-1">
-          <span className="text-sm font-medium text-green-700">Local path:</span>
+          <span className="text-sm font-medium text-success">Local path:</span>
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-green-600">Relative:</span>
-            <code className="text-sm bg-green-100 px-1.5 py-0.5 rounded font-mono text-green-800">
+            <span className="text-xs text-success">Relative:</span>
+            <code className="text-sm bg-success-muted px-1.5 py-0.5 rounded font-mono text-success">
               {result.relativePath}
             </code>
             <button
               onClick={handleCopyRelative}
-              className="shrink-0 p-0.5 text-green-600 hover:text-green-800 cursor-pointer"
+              className="shrink-0 p-0.5 text-success hover:text-success cursor-pointer"
             >
               {copiedRelative ? (
                 <Check className="size-3.5" />
@@ -62,13 +62,13 @@ export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayP
             </button>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-green-600">Absolute:</span>
-            <code className="text-sm bg-green-100 px-1.5 py-0.5 rounded font-mono text-green-800">
+            <span className="text-xs text-success">Absolute:</span>
+            <code className="text-sm bg-success-muted px-1.5 py-0.5 rounded font-mono text-success">
               {result.absolutePath}
             </code>
             <button
               onClick={handleCopyAbsolute}
-              className="shrink-0 p-0.5 text-green-600 hover:text-green-800 cursor-pointer"
+              className="shrink-0 p-0.5 text-success hover:text-success cursor-pointer"
             >
               {copiedAbsolute ? (
                 <Check className="size-3.5" />
@@ -85,7 +85,7 @@ export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayP
         variant="outline"
         size="sm"
         onClick={onCloneAgain}
-        className="text-gray-600"
+        className="text-muted-foreground"
       >
         Clone again
       </Button>

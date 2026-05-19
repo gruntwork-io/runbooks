@@ -113,12 +113,12 @@ function DirPicker({
   const hasError = error || missingRootConfig
 
   const statusClasses = hasError
-    ? 'bg-red-50 border-red-200'
-    : 'bg-white border-gray-200'
+    ? 'bg-destructive-muted border-destructive/30'
+    : 'bg-card border-border'
 
   const iconColor = hasError
-    ? 'text-red-600'
-    : 'text-gray-400'
+    ? 'text-destructive'
+    : 'text-muted-foreground'
 
   return (
     <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
@@ -129,37 +129,37 @@ function DirPicker({
 
       {/* Main container */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
           <FolderOpen className={`size-6 ${iconColor}`} />
         </div>
 
         <div className="flex-1 space-y-2">
           {/* Title and description */}
-          <div className="text-md font-bold text-gray-700">
+          <div className="text-md font-bold text-foreground">
             <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
           </div>
-          <div className="text-md text-gray-600 mb-3">
+          <div className="text-md text-muted-foreground mb-3">
             <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
           </div>
 
           {/* Missing configuration: neither rootDir nor gitCloneId */}
           {missingRootConfig && (
-            <div className="text-sm text-red-600 flex items-start gap-2">
+            <div className="text-sm text-destructive flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <span>
-                DirPicker requires either a <code className="bg-red-100 px-1 rounded text-xs">rootDir</code> or <code className="bg-red-100 px-1 rounded text-xs">gitCloneId</code> prop.
+                DirPicker requires either a <code className="bg-destructive-muted px-1 rounded text-xs">rootDir</code> or <code className="bg-destructive-muted px-1 rounded text-xs">gitCloneId</code> prop.
               </span>
             </div>
           )}
 
           {/* Unmet dependency: waiting for GitClone block */}
           {!isWorkspaceReady && gitCloneId && (
-            <div className="text-sm text-yellow-700 flex items-start gap-2">
+            <div className="text-sm text-warning flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>Waiting for git clone to complete from:</strong>{' '}
-                <code className="bg-yellow-100 px-1 rounded text-xs">{gitCloneId}</code>
-                <div className="text-xs mt-1 text-yellow-600">
+                <code className="bg-warning-muted px-1 rounded text-xs">{gitCloneId}</code>
+                <div className="text-xs mt-1 text-warning">
                   Complete the GitClone block above to browse directories.
                 </div>
               </div>
@@ -168,7 +168,7 @@ function DirPicker({
 
           {/* Error message */}
           {error && (
-            <div className="text-sm text-red-600">{error}</div>
+            <div className="text-sm text-destructive">{error}</div>
           )}
 
           {/* Cascading directory dropdowns (vertical, full width) */}
@@ -178,14 +178,14 @@ function DirPicker({
                 const levelLabel = dirLabels[index] ?? `Level ${index + 1}`
                 return (
                   <div key={level.path} className="flex items-center gap-3">
-                    <label className="text-sm font-medium text-gray-700 w-24 shrink-0 text-right">
+                    <label className="text-sm font-medium text-foreground w-24 shrink-0 text-right">
                       {levelLabel}
                     </label>
                     <select
                       value={level.selected}
                       onChange={(e) => selectDir(index, e.target.value)}
                       disabled={level.loading}
-                      className="flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+                      className="flex-1 px-2 py-1.5 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground"
                     >
                       <option value="">
                         {`Select ${levelLabel.toLowerCase()}...`}
@@ -199,12 +199,12 @@ function DirPicker({
               })}
 
               {/* Editable path input — visually separated from dropdowns */}
-              <div className="border-t border-gray-200 pt-3 mt-3">
-                <label className="text-sm font-semibold text-gray-800 mb-0.5 block">
+              <div className="border-t border-border pt-3 mt-3">
+                <label className="text-sm font-semibold text-foreground mb-0.5 block">
                   {resolvedPathLabel}
                 </label>
                 {resolvedPathLabelDescription && (
-                  <p className="text-xs text-gray-500 mb-1.5 m-0">
+                  <p className="text-xs text-muted-foreground mb-1.5 m-0">
                     <InlineMarkdown>{resolvedPathLabelDescription}</InlineMarkdown>
                   </p>
                 )}
@@ -213,7 +213,7 @@ function DirPicker({
                   value={manualPath}
                   onChange={(e) => setPath(e.target.value)}
                   placeholder="e.g., production/us-east-1/services"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white placeholder:text-gray-400 font-mono"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-md bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring focus:bg-card placeholder:text-muted-foreground font-mono"
                 />
               </div>
             </div>

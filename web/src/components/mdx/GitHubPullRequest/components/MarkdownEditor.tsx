@@ -17,16 +17,16 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
   const containerRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="border border-gray-300 rounded-md overflow-hidden bg-white">
+    <div className="border border-input rounded-md overflow-hidden bg-card">
       {/* Tab header */}
-      <div className="flex border-b border-gray-200 bg-gray-50">
+      <div className="flex border-b border-border bg-muted">
         <button
           type="button"
           onClick={() => setActiveTab('write')}
           className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${
             activeTab === 'write'
-              ? 'text-gray-900 border-b-2 border-blue-500 bg-white'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'text-foreground border-b-2 border-primary bg-card'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           Write
@@ -36,8 +36,8 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
           onClick={() => setActiveTab('preview')}
           className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${
             activeTab === 'preview'
-              ? 'text-gray-900 border-b-2 border-blue-500 bg-white'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'text-foreground border-b-2 border-primary bg-card'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           Preview
@@ -52,7 +52,7 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
           placeholder={placeholder}
-          className={`absolute inset-0 w-full h-full px-3 py-2 text-sm font-sans border-none focus:outline-none resize-none disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400 ${
+          className={`absolute inset-0 w-full h-full px-3 py-2 text-sm font-sans border-none focus:outline-none resize-none disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground ${
             activeTab === 'write' ? '' : 'invisible'
           }`}
         />
@@ -80,7 +80,7 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
               </ReactMarkdown>
             </div>
           ) : (
-            <p className="text-gray-400 italic text-sm">Nothing to preview</p>
+            <p className="text-muted-foreground italic text-sm">Nothing to preview</p>
           )}
         </div>
       </div>

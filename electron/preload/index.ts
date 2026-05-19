@@ -20,6 +20,7 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "watch:subscribe",
   "telemetry:config",
   "native:open-external", "native:show-open-dialog", "native:open-runbook-dialog", "native:close-runbook", "native:get-app-info", "native:get-cli-config",
+  "native:set-theme",
 ])
 
 const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
@@ -29,6 +30,7 @@ const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
   "file:open-runbook",
   "menu:open-url-prompt",
   "menu:close-runbook",
+  "menu:preferences",
   "registry:updated",
 ])
 

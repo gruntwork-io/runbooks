@@ -36,34 +36,34 @@ const admonitionConfig: Record<
 > = {
   note: {
     icon: CheckCircle,
-    bgColor: "bg-gray-50",
-    borderColor: "border-gray-300",
-    textColor: "text-gray-700",
-    iconColor: "text-gray-500",
+    bgColor: "bg-muted",
+    borderColor: "border-border",
+    textColor: "text-foreground",
+    iconColor: "text-muted-foreground",
     defaultTitle: "Note",
   },
   info: {
     icon: Info,
-    bgColor: "bg-blue-50",
-    borderColor: "border-blue-200",
-    textColor: "text-blue-700",
-    iconColor: "text-blue-500",
+    bgColor: "bg-info-muted",
+    borderColor: "border-info/40",
+    textColor: "text-info",
+    iconColor: "text-info",
     defaultTitle: "Info",
   },
   warning: {
     icon: AlertTriangle,
-    bgColor: "bg-yellow-50",
-    borderColor: "border-yellow-300",
-    textColor: "text-yellow-700",
-    iconColor: "text-yellow-500",
+    bgColor: "bg-warning-muted",
+    borderColor: "border-warning/30",
+    textColor: "text-warning-foreground",
+    iconColor: "text-warning",
     defaultTitle: "Warning",
   },
   danger: {
     icon: AlertCircle,
-    bgColor: "bg-red-50",
-    borderColor: "border-red-200",
-    textColor: "text-red-700",
-    iconColor: "text-red-500",
+    bgColor: "bg-destructive-muted",
+    borderColor: "border-destructive/30",
+    textColor: "text-destructive",
+    iconColor: "text-destructive",
     defaultTitle: "Danger",
   },
 }
@@ -149,14 +149,14 @@ export function Admonition({
       <div
         className={cn(
           "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
-          "bg-red-50 border-red-200 text-red-700"
+          "bg-destructive-muted border-destructive/30 text-destructive"
         )}
       >
-        <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-500" />
+        <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-destructive" />
         <div>
           <div className="text-md font-bold mb-1">Invalid Admonition Type</div>
           <p>
-            Unknown type <code className="bg-red-100 px-1 rounded">"{String(type)}"</code>.
+            Unknown type <code className="bg-destructive-muted px-1 rounded">"{String(type)}"</code>.
             Valid types are: {validTypes}.
           </p>
         </div>
@@ -199,7 +199,7 @@ export function Admonition({
             <button
               onClick={() => handleConfirmationChange(true)}
               disabled={isConfirmed}
-              className="px-4 py-2 text-sm font-medium bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm font-medium bg-warning text-white rounded-md hover:bg-warning/90 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <InlineMarkdown>{resolvedConfirmationText}</InlineMarkdown>
             </button>
@@ -213,7 +213,7 @@ export function Admonition({
                     onChange={(e) => setDontShowAgain(e.target.checked)}
                     className="cursor-pointer"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-muted-foreground">
                     Don't show me this again
                   </span>
                 </label>

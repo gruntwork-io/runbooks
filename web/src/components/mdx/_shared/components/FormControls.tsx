@@ -32,9 +32,9 @@ interface BaseFormControlProps {
  * @returns Combined CSS class string
  */
 const getInputClassName = (error?: string, additionalClasses = '', disabled = false) => {
-  const baseClasses = 'px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
-  const errorClasses = error ? 'border-red-500' : 'border-gray-300'
-  const disabledClasses = disabled ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'bg-white'
+  const baseClasses = 'px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-ring'
+  const errorClasses = error ? 'border-destructive' : 'border-input'
+  const disabledClasses = disabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-card'
   return `${baseClasses} ${errorClasses} ${disabledClasses} ${additionalClasses}`.trim()
 }
 
@@ -61,7 +61,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
           type="button"
           onClick={() => setShowSensitive(!showSensitive)}
           aria-label={showSensitive ? 'Hide sensitive input' : 'Show sensitive input'}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
         >
           {showSensitive ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
@@ -130,7 +130,7 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
       onChange={(e) => onChange(e.target.checked)}
       onBlur={onBlur}
       disabled={disabled}
-      className={`h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+      className={`h-4 w-4 text-primary focus:ring-ring border-input rounded ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
     />
   </div>
 )
@@ -200,7 +200,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
             ref={inputRef}
             type="text"
             placeholder="Type an entry and press Enter..."
-            className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
+            className={getInputClassName(undefined, 'flex-1 placeholder:text-muted-foreground')}
             onKeyDown={handleKeyDown}
             onBlur={onBlur}
           />
@@ -217,24 +217,24 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
 
       {/* List items */}
       {currentList.length > 0 && (
-        <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
-          <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
-            <span className="text-sm font-medium text-gray-700">
+        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+          <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
+            <span className="text-sm font-medium text-foreground">
               {currentList.length} entr{currentList.length !== 1 ? 'ies' : 'y'}
-              {disabled && <span className="text-gray-400 ml-2">(inherited)</span>}
+              {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
             </span>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-border">
             {currentList.map((item, index) => (
-              <div key={index} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-gray-50'} transition-colors`}>
-                <span className={`text-sm flex-1 ${disabled ? 'text-gray-500' : 'text-gray-900'}`}>{item}</span>
+              <div key={index} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
+                <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}>{item}</span>
                 {!disabled && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     onClick={() => removeItem(index)}
-                    className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
+                    className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
                     title="Remove entry"
                   >
                     <X className="w-4 h-4" />
@@ -302,15 +302,15 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
           Add
         </Button>
       ) : !disabled && isAddingEntry ? (
-        <div className="border border-gray-300 rounded-md p-4 bg-gray-50 space-y-3">
+        <div className="border border-border rounded-md p-4 bg-muted space-y-3">
           <div className="flex justify-between items-center mb-2">
-            <h4 className="font-medium text-sm text-gray-700">New Entry</h4>
+            <h4 className="font-medium text-sm text-foreground">New Entry</h4>
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={resetEntryForm}
-              className="text-gray-500 hover:text-gray-700"
+              className="text-muted-foreground hover:text-foreground"
             >
               Cancel
             </Button>
@@ -318,8 +318,8 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
           
           {/* Entry key input */}
           <div>
-            <label htmlFor={entryKeyId} className="block text-sm font-medium text-gray-700 mb-1">
-              {instanceLabel} <span className="text-red-500">*</span>
+            <label htmlFor={entryKeyId} className="block text-sm font-medium text-foreground mb-1">
+              {instanceLabel} <span className="text-destructive">*</span>
             </label>
             <input
               type="text"
@@ -333,15 +333,15 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
 
           {/* Schema fields */}
           <div className="space-y-2">
-            <span className="block text-sm font-medium text-gray-700 mb-1">Fields</span>
+            <span className="block text-sm font-medium text-foreground mb-1">Fields</span>
             {schemaFields.map((fieldName) => {
               const fieldType = schema[fieldName]
               // Include variable.name to ensure global uniqueness, a requirement with htmlFor attributes — multiple structured maps can share schema field names (e.g., "email").
               const fieldId = `${id}-${variable.name}-field-${fieldName}`
               return (
                 <div key={fieldName}>
-                  <label htmlFor={fieldId} className="block text-xs text-gray-600 mb-1">
-                    {fieldName} <span className="text-gray-400">({fieldType})</span>
+                  <label htmlFor={fieldId} className="block text-xs text-muted-foreground mb-1">
+                    {fieldName} <span className="text-muted-foreground">({fieldType})</span>
                   </label>
                   {fieldType === 'bool' ? (
                     <select
@@ -389,20 +389,20 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
       
       {/* Map entries */}
       {entries.length > 0 ? (
-        <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
-          <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
-            <span className="text-sm font-medium text-gray-700">
+        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+          <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
+            <span className="text-sm font-medium text-foreground">
               {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}
-              {disabled && <span className="text-gray-400 ml-2">(inherited)</span>}
+              {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
             </span>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-border">
             {entries.map(([key, val]) => (
-              <div key={key} className={`px-3 py-2 ${disabled ? '' : 'hover:bg-gray-50'} transition-colors`}>
+              <div key={key} className={`px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className={`font-medium text-sm mb-1 ${disabled ? 'text-gray-500' : 'text-gray-900'}`}>{key}</div>
-                    <div className="text-xs text-gray-600 space-y-0.5">
+                    <div className={`font-medium text-sm mb-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}>{key}</div>
+                    <div className="text-xs text-muted-foreground space-y-0.5">
                       {typeof val === 'object' && val !== null ? (
                         Object.entries(val as Record<string, unknown>).map(([fieldKey, fieldVal]) => (
                           <div key={fieldKey}>
@@ -420,7 +420,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
                       variant="ghost"
                       size="icon"
                       onClick={() => removeEntry(key)}
-                      className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
+                      className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
                       title="Remove entry"
                     >
                       <X className="w-4 h-4" />
@@ -432,7 +432,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
           </div>
         </div>
       ) : !disabled ? (
-        <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-md bg-gray-50">
+        <div className="text-center py-4 text-muted-foreground text-sm border border-border rounded-md bg-muted">
           No entries added yet. Click "Add Entry" above to get started.
         </div>
       ) : null}
@@ -479,14 +479,14 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
           <input
             type="text"
             placeholder="Key"
-            className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
+            className={getInputClassName(undefined, 'flex-1 placeholder:text-muted-foreground')}
             id={`${id}-${variable.name}-key`}
             onBlur={onBlur}
           />
           <input
             type="text"
             placeholder="Value"
-            className={getInputClassName(undefined, 'flex-1 placeholder:text-gray-400')}
+            className={getInputClassName(undefined, 'flex-1 placeholder:text-muted-foreground')}
             id={`${id}-${variable.name}-value`}
             onBlur={onBlur}
           />
@@ -503,24 +503,24 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 
       {/* Map entries */}
       {entries.length > 0 ? (
-        <div className={`border border-gray-200 rounded-md ${disabled ? 'bg-gray-100' : 'bg-white'}`}>
-          <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 rounded-t-md">
-            <span className="text-sm font-medium text-gray-700">
+        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+          <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
+            <span className="text-sm font-medium text-foreground">
               {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}
-              {disabled && <span className="text-gray-400 ml-2">(inherited)</span>}
+              {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
             </span>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-border">
             {entries.map(([key, val]) => (
-              <div key={key} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-gray-50'} transition-colors`}>
-                <span className={`text-sm flex-1 ${disabled ? 'text-gray-500' : 'text-gray-900'}`}><strong>{key}:</strong> {String(val)}</span>
+              <div key={key} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
+                <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}><strong>{key}:</strong> {String(val)}</span>
                 {!disabled && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     onClick={() => removeEntry(key)}
-                    className="ml-2 text-gray-400 hover:text-red-600 hover:bg-red-50 shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
+                    className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
                     title="Remove entry"
                   >
                     <X className="w-4 h-4" />
@@ -531,7 +531,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
           </div>
         </div>
       ) : !disabled ? (
-        <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-md bg-gray-50">
+        <div className="text-center py-4 text-muted-foreground text-sm border border-border rounded-md bg-muted">
           No entries added yet. Add key-value pairs above to get started.
         </div>
       ) : null}
@@ -569,7 +569,7 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
 
         return (
           <div key={key} className="flex-1 min-w-24">
-            <label className="block text-xs text-gray-500 mb-1">{elemLabel}</label>
+            <label className="block text-xs text-muted-foreground mb-1">{elemLabel}</label>
             {isNumeric ? (
               <input
                 type="number"

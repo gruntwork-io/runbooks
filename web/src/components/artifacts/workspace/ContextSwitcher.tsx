@@ -37,7 +37,7 @@ export const ContextSwitcher = ({
   className = "",
 }: ContextSwitcherProps) => {
   return (
-    <div className={cn("relative flex items-end gap-4 border-b border-gray-300", className)}>
+    <div className={cn("relative flex items-end gap-4 border-b border-border", className)}>
       {CONTEXT_TABS.map((tab) => {
         const isActive = activeContext === tab.id
         const count = tab.id === 'generated' ? generatedCount : undefined
@@ -50,8 +50,8 @@ export const ContextSwitcher = ({
               "relative px-1 pb-2 text-sm font-semibold transition-colors cursor-pointer",
               "focus:outline-none",
               isActive
-                ? "text-gray-900 border-b-2 border-gray-900 -mb-px"
-                : "text-gray-400 hover:text-gray-600"
+                ? "text-foreground border-b-2 border-foreground -mb-px"
+                : "text-muted-foreground hover:text-foreground"
             )}
           >
             <span className="flex items-center gap-1.5">
@@ -61,8 +61,8 @@ export const ContextSwitcher = ({
                   className={cn(
                     "px-1.5 py-0.5 text-xs rounded-full",
                     isActive
-                      ? "bg-gray-200 text-gray-700"
-                      : "bg-gray-100 text-gray-500"
+                      ? "bg-accent text-foreground"
+                      : "bg-muted text-muted-foreground"
                   )}
                 >
                   {count}

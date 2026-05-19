@@ -47,7 +47,7 @@ export const CodeFileHeader = ({
   };
 
   return (
-    <div className={`text-xs text-gray-600 border border-gray-300 px-2 -mb-2 font-sans h-8 bg-gray-100 flex items-center justify-between ${className}`}>
+    <div className={`text-xs text-muted-foreground border border-border px-2 -mb-2 font-sans h-8 bg-muted flex items-center justify-between ${className}`}>
       <div className="flex items-center gap-2">
         <div>{filePath}</div>
         {showCopyPathButton && (
@@ -57,9 +57,9 @@ export const CodeFileHeader = ({
                 variant="ghost"
                 size="icon"
                 onClick={handleCopyPath}
-                className="h-5 w-5 text-gray-400 hover:cursor-pointer box-shadow-none"
+                className="h-5 w-5 text-muted-foreground hover:cursor-pointer shadow-none"
               >
-                {copiedPath ? <Check className="h-2 w-2 text-gray-400" /> : <Copy className="h-4 w-4" />}
+                {copiedPath ? <Check className="h-2 w-2 text-muted-foreground" /> : <Copy className="h-4 w-4" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -78,9 +78,9 @@ export const CodeFileHeader = ({
                 variant="ghost"
                 size="icon"
                 onClick={handleCopyCode}
-                className="h-5 w-5 text-gray-400 hover:cursor-pointer"
+                className="h-5 w-5 text-muted-foreground hover:cursor-pointer"
               >
-                {copiedCode ? <Check className="h-2 w-2 text-gray-400" /> : <Copy className="h-3 w-3" />}
+                {copiedCode ? <Check className="h-2 w-2 text-muted-foreground" /> : <Copy className="h-3 w-3" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>

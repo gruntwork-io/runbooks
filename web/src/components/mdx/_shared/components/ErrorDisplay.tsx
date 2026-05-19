@@ -16,15 +16,15 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   testId = 'component-error'
 }) => {
   return (
-    <div data-testid={testId} className="p-6 bg-red-50 border border-red-200 rounded-lg">
-      <div className="text-red-600 font-semibold mb-2">Error: {error.message}</div>
+    <div data-testid={testId} className="p-6 bg-destructive-muted border border-destructive/30 rounded-lg">
+      <div className="text-destructive font-semibold mb-2">Error: {error.message}</div>
       {error.details && (
-        <div className="text-red-600 text-sm mb-3">{error.details}</div>
+        <div className="text-destructive text-sm mb-3">{error.details}</div>
       )}
       {onRetry && (
         <button
           onClick={onRetry}
-          className="px-4 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
+          className="px-4 py-2 bg-destructive text-white text-sm rounded-md hover:bg-destructive/90 transition-colors"
         >
           {retryText}
         </button>

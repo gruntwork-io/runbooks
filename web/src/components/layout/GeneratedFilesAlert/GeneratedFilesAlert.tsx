@@ -125,7 +125,7 @@ export function GeneratedFilesAlert({
             id="dont-ask-again"
             checked={dontAskAgain}
             onChange={(e) => setDontAskAgain(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300"
+            className="h-4 w-4 rounded border-input"
           />
           <label htmlFor="dont-ask-again" className="text-sm cursor-pointer">
             Don't ask me again

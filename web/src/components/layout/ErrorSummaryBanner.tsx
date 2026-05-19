@@ -23,9 +23,9 @@ export function ErrorSummaryBanner({ errors, errorCount, warningCount, className
 
   // Determine banner style based on whether there are errors
   const hasErrors = errorCount > 0
-  const bgColor = hasErrors ? 'bg-red-50' : 'bg-yellow-50'
-  const borderColor = hasErrors ? 'border-red-200' : 'border-yellow-200'
-  const textColor = hasErrors ? 'text-red-800' : 'text-yellow-800'
+  const bgColor = hasErrors ? 'bg-destructive-muted' : 'bg-warning-muted'
+  const borderColor = hasErrors ? 'border-destructive/30' : 'border-warning/30'
+  const textColor = hasErrors ? 'text-destructive' : 'text-warning-foreground'
 
   const handleCopy = async () => {
     const text = errors
@@ -47,13 +47,13 @@ export function ErrorSummaryBanner({ errors, errorCount, warningCount, className
 
         <div className="flex items-center gap-4 text-sm">
           {errorCount > 0 && (
-            <span className="flex items-center gap-1 text-red-700">
+            <span className="flex items-center gap-1 text-destructive">
               <XCircle className="size-4" />
               {errorCount} {errorCount === 1 ? 'error' : 'errors'}
             </span>
           )}
           {warningCount > 0 && (
-            <span className="flex items-center gap-1 text-yellow-700">
+            <span className="flex items-center gap-1 text-warning-foreground">
               <AlertTriangle className="size-4" />
               {warningCount} {warningCount === 1 ? 'warning' : 'warnings'}
             </span>
@@ -64,7 +64,7 @@ export function ErrorSummaryBanner({ errors, errorCount, warningCount, className
           onClick={handleCopy}
           className={`flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors ${
             copied
-              ? 'text-green-700 bg-green-100'
+              ? 'text-success bg-success-muted'
               : `${textColor} hover:bg-black/5 cursor-pointer`
           }`}
           title="Copy all errors to clipboard"

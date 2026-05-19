@@ -89,8 +89,8 @@ export const RepositoryFileBrowser = ({
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
-          <Loader2 className="w-8 h-8 mx-auto mb-2 text-blue-500 animate-spin" />
-          <p className="text-sm text-gray-500">Loading file tree...</p>
+          <Loader2 className="w-8 h-8 mx-auto mb-2 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading file tree...</p>
         </div>
       </div>
     )
@@ -101,12 +101,12 @@ export const RepositoryFileBrowser = ({
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
-          <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-amber-400" />
-          <h3 className="text-lg font-medium mb-1 text-gray-600">Failed to load file tree</h3>
-          <p className="text-sm text-gray-500 mb-3">{error}</p>
+          <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-warning" />
+          <h3 className="text-lg font-medium mb-1 text-foreground">Failed to load file tree</h3>
+          <p className="text-sm text-muted-foreground mb-3">{error}</p>
           <button
             onClick={onRetry}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Retry
@@ -121,11 +121,11 @@ export const RepositoryFileBrowser = ({
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
-          <FolderOpen className="w-16 h-16 mx-auto mb-2 text-gray-300" />
-          <h3 className="text-lg font-medium mb-2 text-gray-600">
+          <FolderOpen className="w-16 h-16 mx-auto mb-2 text-muted-foreground" />
+          <h3 className="text-lg font-medium mb-2 text-foreground">
             No workspace files
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             Clone a repository to see files here.
           </p>
         </div>
@@ -175,7 +175,7 @@ export const RepositoryFileBrowser = ({
           />
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center text-gray-500">
+            <div className="text-center text-muted-foreground">
               <p className="text-sm">Select a file to view its contents</p>
             </div>
           </div>
@@ -200,8 +200,8 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <Loader2 className="w-6 h-6 mx-auto mb-2 text-blue-500 animate-spin" />
-          <p className="text-sm text-gray-500">Loading file...</p>
+          <Loader2 className="w-6 h-6 mx-auto mb-2 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading file...</p>
         </div>
       </div>
     )
@@ -211,8 +211,8 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
-          <p className="text-sm text-gray-500">{error}</p>
+          <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-warning" />
+          <p className="text-sm text-muted-foreground">{error}</p>
         </div>
       </div>
     )
@@ -221,7 +221,7 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
   if (!fileContent) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm text-gray-500">Select a file to view its contents</p>
+        <p className="text-sm text-muted-foreground">Select a file to view its contents</p>
       </div>
     )
   }
@@ -230,15 +230,15 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
   if (fileContent.isImage && fileContent.dataUri) {
     return (
       <div className="p-4">
-        <div className="flex items-center gap-2 mb-3 text-sm text-gray-600">
+        <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
           <ImageIcon className="w-4 h-4" />
           <span className="font-mono text-xs">{fileContent.path.split('/').pop()}</span>
-          <span className="text-gray-400">({formatFileSize(fileContent.size)})</span>
+          <span className="text-muted-foreground">({formatFileSize(fileContent.size)})</span>
         </div>
-        <img 
-          src={fileContent.dataUri} 
-          alt={fileContent.path.split('/').pop() || 'Image'} 
-          className="max-w-full border border-gray-200 rounded" 
+        <img
+          src={fileContent.dataUri}
+          alt={fileContent.path.split('/').pop() || 'Image'}
+          className="max-w-full border border-border rounded"
         />
       </div>
     )
@@ -249,9 +249,9 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <FileX className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-          <p className="text-sm text-gray-600 font-medium">Binary file</p>
-          <p className="text-xs text-gray-400 mt-1">Cannot display content ({formatFileSize(fileContent.size)})</p>
+          <FileX className="w-12 h-12 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-foreground font-medium">Binary file</p>
+          <p className="text-xs text-muted-foreground mt-1">Cannot display content ({formatFileSize(fileContent.size)})</p>
         </div>
       </div>
     )
@@ -262,9 +262,9 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <FileX className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-          <p className="text-sm text-gray-600 font-medium">File too large to display</p>
-          <p className="text-xs text-gray-400 mt-1">{formatFileSize(fileContent.size)} (max 1 MB)</p>
+          <FileX className="w-12 h-12 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-foreground font-medium">File too large to display</p>
+          <p className="text-xs text-muted-foreground mt-1">{formatFileSize(fileContent.size)} (max 1 MB)</p>
         </div>
       </div>
     )
@@ -273,9 +273,9 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
   // Text content
   return (
     <div data-testid={`code-file-${filePath}`} className="h-full flex flex-col">
-      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs text-gray-600 font-mono flex items-center justify-between">
+      <div className="px-3 py-2 bg-muted border-b border-border text-xs text-muted-foreground font-mono flex items-center justify-between">
         <span>{fileContent.path.split('/').pop()}</span>
-        <span className="text-gray-400">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
+        <span className="text-muted-foreground">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
       </div>
       <div className="flex-1 overflow-auto">
         <SyntaxHighlighter

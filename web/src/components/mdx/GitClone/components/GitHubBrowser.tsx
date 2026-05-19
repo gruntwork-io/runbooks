@@ -205,7 +205,7 @@ export function GitHubBrowser({
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
         className={cn(
-          "flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors cursor-pointer",
+          "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer",
           disabled && "opacity-50 cursor-not-allowed"
         )}
       >
@@ -219,10 +219,10 @@ export function GitHubBrowser({
       </button>
 
       {isOpen && (
-        <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md space-y-3">
+        <div className="mt-2 p-3 bg-muted border border-border rounded-md space-y-3">
           {/* Organization selector */}
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">
+            <label className="text-sm font-medium text-foreground mb-1 block">
               Organization
             </label>
             <Popover open={orgOpen} onOpenChange={(open) => {
@@ -234,21 +234,21 @@ export function GitHubBrowser({
                   variant="outline"
                   role="combobox"
                   aria-expanded={orgOpen}
-                  className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+                  className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
                   disabled={disabled || loadingOrgs}
                 >
                   {loadingOrgs ? (
-                    <span className="text-gray-400">Loading organizations...</span>
+                    <span className="text-muted-foreground">Loading organizations...</span>
                   ) : selectedOrg ? (
                     <span className="flex items-center gap-2 truncate">
                       {(() => {
                         const avatarUrl = orgs.find(o => o.login === selectedOrg)?.avatarUrl
                         return avatarUrl ? <img src={avatarUrl} alt="" className="size-4 rounded-full" /> : null
                       })()}
-                      <span className="text-gray-700">{selectedOrg}</span>
+                      <span className="text-foreground">{selectedOrg}</span>
                     </span>
                   ) : (
-                    <span className="text-gray-400">Select organization...</span>
+                    <span className="text-muted-foreground">Select organization...</span>
                   )}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
@@ -279,8 +279,8 @@ export function GitHubBrowser({
                           {org.avatarUrl && (
                             <img src={org.avatarUrl} alt="" className="size-4 rounded-full" />
                           )}
-                          <span className="text-gray-700">{org.login}</span>
-                          <span className="text-xs text-gray-400 ml-auto">
+                          <span className="text-foreground">{org.login}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">
                             {org.type === 'User' ? 'Personal' : 'Org'}
                           </span>
                         </CommandItem>
@@ -291,13 +291,13 @@ export function GitHubBrowser({
               </PopoverContent>
             </Popover>
             {orgsError && (
-              <p className="mt-1 text-xs text-red-600">{orgsError}</p>
+              <p className="mt-1 text-xs text-destructive">{orgsError}</p>
             )}
           </div>
 
           {/* Repository selector */}
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">
+            <label className="text-sm font-medium text-foreground mb-1 block">
               Repository
             </label>
             <Popover open={repoOpen} onOpenChange={(open) => {
@@ -309,20 +309,20 @@ export function GitHubBrowser({
                   variant="outline"
                   role="combobox"
                   aria-expanded={repoOpen}
-                  className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+                  className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
                   disabled={disabled || !selectedOrg || loadingRepos}
                 >
                   {loadingRepos ? (
-                    <span className="text-gray-400">Loading repositories...</span>
+                    <span className="text-muted-foreground">Loading repositories...</span>
                   ) : selectedRepo ? (
                     <span className="flex items-center gap-2 truncate">
                       {repos.find(r => r.name === selectedRepo)?.private && (
-                        <Lock className="size-3 text-gray-400" />
+                        <Lock className="size-3 text-muted-foreground" />
                       )}
-                      <span className="text-gray-700">{selectedRepo}</span>
+                      <span className="text-foreground">{selectedRepo}</span>
                     </span>
                   ) : (
-                    <span className="text-gray-400">
+                    <span className="text-muted-foreground">
                       {selectedOrg ? "Select repository..." : "Select an organization first"}
                     </span>
                   )}
@@ -353,12 +353,12 @@ export function GitHubBrowser({
                             )}
                           />
                           {repo.private && (
-                            <Lock className="size-3 text-gray-400 shrink-0" />
+                            <Lock className="size-3 text-muted-foreground shrink-0" />
                           )}
                           <div className="flex flex-col min-w-0">
-                            <span className="text-gray-700 truncate">{repo.name}</span>
+                            <span className="text-foreground truncate">{repo.name}</span>
                             {repo.description && (
-                              <span className="text-xs text-gray-400 truncate">{repo.description}</span>
+                              <span className="text-xs text-muted-foreground truncate">{repo.description}</span>
                             )}
                           </div>
                         </CommandItem>
@@ -369,14 +369,14 @@ export function GitHubBrowser({
               </PopoverContent>
             </Popover>
             {reposError && (
-              <p className="mt-1 text-xs text-red-600">{reposError}</p>
+              <p className="mt-1 text-xs text-destructive">{reposError}</p>
             )}
           </div>
 
           {/* Ref (branch/tag) selector — only shown after a repo is selected */}
           {selectedRepo && (
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">
+              <label className="text-sm font-medium text-foreground mb-1 block">
                 Ref
               </label>
               <Popover open={refOpen} onOpenChange={(open) => {
@@ -388,25 +388,25 @@ export function GitHubBrowser({
                     variant="outline"
                     role="combobox"
                     aria-expanded={refOpen}
-                    className="w-full justify-between font-normal bg-white border-gray-300 hover:bg-gray-50"
+                      className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
                     disabled={disabled || loadingRefs}
                   >
                     {loadingRefs ? (
-                      <span className="text-gray-400">Loading refs...</span>
+                      <span className="text-muted-foreground">Loading refs...</span>
                     ) : selectedRef ? (
                       <span className="flex items-center gap-2 truncate">
                         {selectedRefObj?.type === 'tag' ? (
-                          <Tag className="size-3 text-gray-400" />
+                          <Tag className="size-3 text-muted-foreground" />
                         ) : (
-                          <GitBranch className="size-3 text-gray-400" />
+                          <GitBranch className="size-3 text-muted-foreground" />
                         )}
-                        <span className="text-gray-700">{selectedRef}</span>
+                        <span className="text-foreground">{selectedRef}</span>
                         {selectedRefObj?.isDefaultBranch && (
-                          <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none">default</span>
+                          <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none">default</span>
                         )}
                       </span>
                     ) : (
-                      <span className="text-gray-400">Select ref...</span>
+                      <span className="text-muted-foreground">Select ref...</span>
                     )}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
@@ -437,10 +437,10 @@ export function GitHubBrowser({
                                   selectedRef === ref.name ? "opacity-100" : "opacity-0"
                                 )}
                               />
-                              <GitBranch className="size-3 text-gray-400 shrink-0" />
-                              <span className="text-gray-700 truncate">{ref.name}</span>
+                              <GitBranch className="size-3 text-muted-foreground shrink-0" />
+                              <span className="text-foreground truncate">{ref.name}</span>
                               {ref.isDefaultBranch && (
-                                <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
+                                <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
                               )}
                             </CommandItem>
                           ))}
@@ -463,15 +463,15 @@ export function GitHubBrowser({
                                   selectedRef === ref.name ? "opacity-100" : "opacity-0"
                                 )}
                               />
-                              <Tag className="size-3 text-gray-400 shrink-0" />
-                              <span className="text-gray-700 truncate">{ref.name}</span>
+                              <Tag className="size-3 text-muted-foreground shrink-0" />
+                              <span className="text-foreground truncate">{ref.name}</span>
                             </CommandItem>
                           ))}
                         </CommandGroup>
                       )}
 
                       {refHasMore && (
-                        <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
                           Showing {refs.length} of {refTotalCount} refs — type to filter
                         </div>
                       )}
@@ -480,7 +480,7 @@ export function GitHubBrowser({
                 </PopoverContent>
               </Popover>
               {refsError && (
-                <p className="mt-1 text-xs text-red-600">{refsError}</p>
+                <p className="mt-1 text-xs text-destructive">{refsError}</p>
               )}
             </div>
           )}

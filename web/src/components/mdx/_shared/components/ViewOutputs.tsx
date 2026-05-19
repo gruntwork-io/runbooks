@@ -58,21 +58,21 @@ export function ViewOutputs({
   }
 
   return (
-    <div className="border border-gray-200 rounded-sm">
-      
+    <div className="border border-border rounded-sm">
+
       {/* Toggle button with Copy action */}
-      <div className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors">
+      <div className="flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors">
         <button
           onClick={() => setShowOutputs(!showOutputs)}
           className="flex items-center gap-2 text-left cursor-pointer flex-1"
         >
           {showOutputs ? (
-            <ChevronDown className="size-4 text-gray-500" />
+            <ChevronDown className="size-4 text-muted-foreground" />
           ) : (
-            <ChevronRight className="size-4 text-gray-500" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           )}
-          <Database className="size-4 text-gray-600" />
-          <span className="text-sm text-gray-700">View Outputs ({outputCount})</span>
+          <Database className="size-4 text-muted-foreground" />
+          <span className="text-sm text-foreground">View Outputs ({outputCount})</span>
         </button>
 
         {/* Copy Button */}
@@ -82,10 +82,10 @@ export function ViewOutputs({
               variant="ghost"
               size="sm"
               onClick={handleCopy}
-              className="h-6 px-2 text-gray-500 hover:text-gray-700 gap-1"
+              className="h-6 px-2 text-muted-foreground hover:text-foreground gap-1"
             >
               {copied ? (
-                <Check className="size-3.5 text-green-600" />
+                <Check className="size-3.5 text-success" />
               ) : (
                 <Copy className="size-3.5" />
               )}
@@ -100,19 +100,19 @@ export function ViewOutputs({
 
       {/* Outputs Table */}
       {showOutputs && (
-        <div className="border-t border-gray-200 p-3 bg-gray-50 max-h-96 overflow-y-auto">
+        <div className="border-t border-border p-3 bg-muted max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-1 px-2 font-medium text-gray-600 w-1/3">Name</th>
-                <th className="text-left py-1 px-2 font-medium text-gray-600">Value</th>
+              <tr className="border-b border-border">
+                <th className="text-left py-1 px-2 font-medium text-muted-foreground w-1/3">Name</th>
+                <th className="text-left py-1 px-2 font-medium text-muted-foreground">Value</th>
               </tr>
             </thead>
             <tbody>
               {Object.entries(outputs || {}).map(([key, value]) => (
-                <tr key={key} className="border-b border-gray-100 last:border-0">
-                  <td className="py-1.5 px-2 font-mono text-xs text-gray-800">{key}</td>
-                  <td className="py-1.5 px-2 font-mono text-xs text-gray-600">
+                <tr key={key} className="border-b border-border last:border-0">
+                  <td className="py-1.5 px-2 font-mono text-xs text-foreground">{key}</td>
+                  <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span className="break-all">
                         {value.length > 100 ? (
@@ -132,10 +132,10 @@ export function ViewOutputs({
                       </span>
                       <button
                         onClick={() => handleCopyValue(key, value)}
-                        className="shrink-0 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+                        className="shrink-0 p-1 text-muted-foreground hover:text-foreground cursor-pointer"
                       >
                         {copiedKey === key ? (
-                          <Check className="size-3.5 text-green-600" />
+                          <Check className="size-3.5 text-success" />
                         ) : (
                           <Copy className="size-3.5" />
                         )}

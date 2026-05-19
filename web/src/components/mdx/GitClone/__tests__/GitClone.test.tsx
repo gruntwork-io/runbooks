@@ -63,6 +63,6 @@ describe("GitClone", () => {
   it("has no error banners with valid props", () => {
     renderGitClone()
     const block = screen.getByTestId("test-clone")
-    expect(block.querySelector(".bg-red-50")).toBeNull()
+    expect(block.querySelector(".bg-destructive-muted")).toBeNull()
   })
 })

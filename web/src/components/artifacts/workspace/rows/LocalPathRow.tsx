@@ -21,19 +21,19 @@ export function LocalPathRow({ displayText, copyPath, className }: {
   const { didCopy, copy } = useCopyToClipboard()
 
   return (
-    <div className={cn("flex items-center gap-1 text-xs text-gray-500", className)}>
+    <div className={cn("flex items-center gap-1 text-xs text-muted-foreground", className)}>
       <Folder className="w-3.5 h-3.5" />
-      <code className="font-mono text-gray-600" title={copyPath ?? displayText}>
+      <code className="font-mono text-muted-foreground" title={copyPath ?? displayText}>
         {displayText}
       </code>
       {copyPath && (
         <button
           onClick={() => copy(copyPath)}
-          className="p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
+          className="p-0.5 text-muted-foreground hover:text-foreground rounded cursor-pointer"
           title={`Copy full path: ${copyPath}`}
         >
           {didCopy ? (
-            <Check className="w-3 h-3 text-green-600" />
+            <Check className="w-3 h-3 text-success" />
           ) : (
             <Copy className="w-3 h-3" />
           )}

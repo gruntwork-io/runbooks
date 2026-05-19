@@ -5,10 +5,11 @@ if (process.env.ELECTRON_RENDERER_URL) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
 }
 
-import { app, shell, ipcMain, dialog, protocol, net } from "electron"
+import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
 import * as path from "path"
 import * as fs from "fs"
-import { createMainWindow, focusOrCreateWindow, getMainWindow } from "./window.ts"
+import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
+import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
@@ -263,10 +264,26 @@ app.whenReady().then(() => {
     return net.fetch(`file://${resolved}`)
   })
 
+  // Apply the persisted theme before creating the window so its background
+  // color and title bar overlay are correct on the first frame. The renderer
+  // re-confirms over the native:set-theme IPC channel once it mounts.
+  nativeTheme.themeSource = getStoredTheme()
+
   setupApplicationMenu()
   registerAllIpcHandlers()
   createMainWindow()
   initAutoUpdater()
+
+  // Keep the (Windows/Linux) title bar overlay + window background in sync with
+  // the effective theme. Fires both when the renderer changes themeSource via
+  // the native:set-theme IPC handler and when the OS theme changes while
+  // themeSource is 'system'. The initial call covers the case where assigning
+  // themeSource above doesn't fire an "updated" event (e.g. when the persisted
+  // theme already matches the OS).
+  setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+  nativeTheme.on("updated", () => {
+    setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+  })
 
   // Kick off the boilerplate WASM load as a background task. The full build
   // is ~600-900ms to instantiate; running it now overlaps the cost with the

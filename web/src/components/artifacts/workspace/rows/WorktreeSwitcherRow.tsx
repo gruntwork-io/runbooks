@@ -56,11 +56,11 @@ export const WorktreeSwitcherRow = ({
     <div className={className}>
       {/* Label: clarify this sets the target, not just the view */}
       <div className="flex items-center gap-1 mb-1">
-        <CircleDot className="w-3 h-3 text-green-500" />
-        <span className="text-xs font-medium text-gray-500">
+        <CircleDot className="w-3 h-3 text-success" />
+        <span className="text-xs font-medium text-muted-foreground">
           Active repository
         </span>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-muted-foreground">
           — scripts and templates target this repo
         </span>
       </div>
@@ -69,23 +69,23 @@ export const WorktreeSwitcherRow = ({
         <PopoverTrigger asChild>
           <button
             className={cn(
-              "flex items-center gap-1.5 w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-700",
-              "hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-colors",
+              "flex items-center gap-1.5 w-full text-sm border border-input rounded-lg px-2.5 py-1.5 bg-card text-foreground",
+              "hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer transition-colors",
             )}
           >
-            <GitHubIcon className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-            <span className="truncate font-medium text-gray-800">
+            <GitHubIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <span className="truncate font-medium text-foreground">
               {activeWorkTree.gitInfo.repoOwner}/{activeWorkTree.gitInfo.repoName}
             </span>
-            <span className="text-gray-300 text-xs flex-shrink-0">|</span>
+            <span className="text-muted-foreground text-xs flex-shrink-0">|</span>
             <div className="flex items-center gap-1 flex-shrink-0">
-              <RefIcon refType={activeWorkTree.gitInfo.refType} className="w-3 h-3 text-gray-500" />
-              <span className="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded text-gray-600">
+              <RefIcon refType={activeWorkTree.gitInfo.refType} className="w-3 h-3 text-muted-foreground" />
+              <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded text-muted-foreground">
                 {formatRef(activeWorkTree.gitInfo.ref, activeWorkTree.gitInfo.refType)}
               </span>
             </div>
             <ChevronDown className={cn(
-              "w-3.5 h-3.5 text-gray-400 flex-shrink-0 ml-auto transition-transform",
+              "w-3.5 h-3.5 text-muted-foreground flex-shrink-0 ml-auto transition-transform",
               open && "rotate-180",
             )} />
           </button>
@@ -109,36 +109,36 @@ export const WorktreeSwitcherRow = ({
                   className={cn(
                     "flex items-center gap-2 px-2 py-2 rounded-md text-sm text-left transition-colors cursor-pointer w-full",
                     isActive
-                      ? "bg-blue-50"
-                      : "hover:bg-gray-50",
+                      ? "bg-info-muted"
+                      : "hover:bg-accent",
                   )}
                 >
                   {/* Active indicator dot instead of checkmark */}
                   <CircleDot
                     className={cn(
                       "w-3.5 h-3.5 flex-shrink-0",
-                      isActive ? "text-green-500" : "text-transparent",
+                      isActive ? "text-success" : "text-transparent",
                     )}
                   />
                   <GitHubIcon className={cn(
                     "w-3.5 h-3.5 flex-shrink-0",
-                    isActive ? "text-blue-500" : "text-gray-500",
+                    isActive ? "text-primary" : "text-muted-foreground",
                   )} />
                   <div className="flex flex-col min-w-0 gap-0.5">
                     <span className={cn(
                       "font-medium truncate text-sm leading-tight",
-                      isActive ? "text-blue-800" : "text-gray-800",
+                      isActive ? "text-primary" : "text-foreground",
                     )}>
                       {wt.gitInfo.repoOwner}/{wt.gitInfo.repoName}
                     </span>
                     <div className="flex items-center gap-1">
                       <RefIcon refType={wt.gitInfo.refType} className={cn(
                         "w-3 h-3 flex-shrink-0",
-                        isActive ? "text-blue-400" : "text-gray-400",
+                        isActive ? "text-primary" : "text-muted-foreground",
                       )} />
                       <span className={cn(
                         "font-mono text-xs truncate",
-                        isActive ? "text-blue-600" : "text-gray-500",
+                        isActive ? "text-primary" : "text-muted-foreground",
                       )}>
                         {formatRef(wt.gitInfo.ref, wt.gitInfo.refType)}
                       </span>

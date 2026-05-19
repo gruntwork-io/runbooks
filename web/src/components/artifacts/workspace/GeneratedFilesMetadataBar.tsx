@@ -32,10 +32,10 @@ export const GeneratedFilesMetadataBar = ({
       : null
 
   return (
-    <div className={cn("py-2.5 border-b border-gray-300", className)}>
+    <div className={cn("py-2.5 border-b border-border", className)}>
       {/* Row 1: Title */}
       <div className="flex items-center gap-1.5 text-sm">
-        <span className="text-gray-800 font-medium">
+        <span className="text-foreground font-medium">
           {fileCount} {fileCount === 1 ? 'file' : 'files'} generated
         </span>
       </div>

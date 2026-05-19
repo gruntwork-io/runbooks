@@ -13,8 +13,10 @@
     --fontStack-monospace: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
     --fgColor-accent: Highlight;
   }
-  @media (prefers-color-scheme: dark) {
-    .markdown-body, [data-theme="dark"] {
+  /* Keyed off the app's `.dark` class (set on <html> by ThemeContext /
+     theme-init.js) instead of the OS `prefers-color-scheme`, so markdown
+     content tracks the in-app theme like the rest of the UI. */
+  html.dark .markdown-body, .markdown-body[data-theme="dark"] {
       /* dark */
       color-scheme: dark;
       --focus-outlineColor: #1f6feb;
@@ -67,10 +69,8 @@
       --color-prettylights-syntax-markup-ignored-bg: #1158c7;
       --color-prettylights-syntax-meta-diff-range: #d2a8ff;
       --color-prettylights-syntax-sublimelinter-gutter-mark: #3d444d;
-    }
   }
-  @media (prefers-color-scheme: light) {
-    .markdown-body, [data-theme="light"] {
+  html:not(.dark) .markdown-body:not([data-theme="dark"]), .markdown-body[data-theme="light"] {
       /* light */
       color-scheme: light;
       --focus-outlineColor: #0969da;
@@ -123,9 +123,8 @@
       --color-prettylights-syntax-markup-ignored-bg: #0550ae;
       --color-prettylights-syntax-meta-diff-range: #8250df;
       --color-prettylights-syntax-sublimelinter-gutter-mark: #818b98;
-    }
   }
-  
+
   .markdown-body {
     -ms-text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;

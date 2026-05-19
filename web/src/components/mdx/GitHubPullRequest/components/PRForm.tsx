@@ -18,7 +18,7 @@ import { CollapsibleToggle } from "./CollapsibleToggle"
 import type { GitHubLabel, PRBlockStatus, ChangeSummary } from "../types"
 
 const INPUT_CLASS =
-  "w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 placeholder:text-gray-400"
+  "w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
 
 interface PRFormProps {
   prTitle: string
@@ -80,12 +80,12 @@ export function PRForm({
   return (
     <div className="space-y-3">
       {/* Separator */}
-      <div className="border-b border-gray-300" />
+      <div className="border-b border-border" />
 
       {/* PR Title */}
       <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">
-          PR Title <span className="text-red-500">*</span>
+        <label className="text-sm font-medium text-foreground mb-1 block">
+          PR Title <span className="text-destructive">*</span>
         </label>
         <input
           type="text"
@@ -99,7 +99,7 @@ export function PRForm({
 
       {/* PR Description */}
       <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">
+        <label className="text-sm font-medium text-foreground mb-1 block">
           PR Description
         </label>
         <MarkdownEditor
@@ -113,7 +113,7 @@ export function PRForm({
       {/* Labels — hidden when repo has none */}
       {(labelsLoading || availableLabels.length > 0) && (
         <div>
-          <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+          <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
             Labels
             <InfoTooltip>
               Labels to apply to the pull request. These must already exist in the GitHub repository.
@@ -136,10 +136,10 @@ export function PRForm({
         label="Customize commit"
         disabled={isFormDisabled}
       >
-        <div className="mt-1.5 ml-2 pl-3 border-l-2 border-gray-200 space-y-3">
+        <div className="mt-1.5 ml-2 pl-3 border-l-2 border-border space-y-3">
           {/* Branch Name */}
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+            <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
               Branch name
               <InfoTooltip>
                 The name of the new git branch that will be created for this pull request. Changes are committed to this branch and pushed to the remote before the PR is opened.
@@ -157,7 +157,7 @@ export function PRForm({
 
           {/* Commit Message */}
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+            <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
               Commit message
               <InfoTooltip>
                 The message used for the git commit. This appears in the commit history of the pull request.
@@ -182,7 +182,7 @@ export function PRForm({
         label="What files will be committed?"
         icon={<CircleHelp className="size-3.5" />}
       >
-        <div className="mt-1.5 ml-5 text-xs text-gray-600 leading-relaxed">
+        <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
           {changeSummary && changeSummary.fileCount > 0 ? (
             <p className="m-0">
               This pull request will commit{' '}
@@ -192,11 +192,11 @@ export function PRForm({
                 <>
                   {' '}(
                   {changeSummary.additions > 0 && (
-                    <span className="text-green-600 font-medium">+{changeSummary.additions}</span>
+                    <span className="text-success font-medium">+{changeSummary.additions}</span>
                   )}
                   {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
                   {changeSummary.deletions > 0 && (
-                    <span className="text-red-600 font-medium">&minus;{changeSummary.deletions}</span>
+                    <span className="text-destructive font-medium">&minus;{changeSummary.deletions}</span>
                   )}
                   )
                 </>
@@ -234,7 +234,7 @@ export function PRForm({
             variant="outline"
             size="sm"
             onClick={onCancel}
-            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="text-destructive hover:text-destructive hover:bg-destructive-muted"
           >
             Cancel
           </Button>

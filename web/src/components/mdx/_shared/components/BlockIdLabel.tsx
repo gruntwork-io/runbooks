@@ -16,7 +16,7 @@ export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
   const { didCopy, copy } = useCopyToClipboard(2000)
 
   const sizeClasses = size === 'large'
-    ? 'text-xs px-1.5 py-0.5 bg-gray-200/50 rounded'
+    ? 'text-xs px-1.5 py-0.5 bg-accent/50 rounded'
     : 'text-[9px] mt-1'
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -27,7 +27,7 @@ export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className={`text-gray-400 font-mono cursor-help select-none text-center ${sizeClasses}`}>
+        <div className={`text-muted-foreground font-mono cursor-help select-none text-center ${sizeClasses}`}>
           ID
         </div>
       </TooltipTrigger>
@@ -41,7 +41,7 @@ export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
               aria-label="Copy block ID"
             >
               {didCopy ? (
-                <Check className="size-3.5 text-green-400" />
+                <Check className="size-3.5 text-success" />
               ) : (
                 <Copy className="size-3.5 opacity-70 hover:opacity-100 cursor-pointer" />
               )}

@@ -20,9 +20,9 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
   return (
     <div className="space-y-3">
       {/* Success panel */}
-      <div className="bg-green-50 border border-green-200 rounded-md p-4 space-y-2">
-        <div className="flex items-center gap-2 text-green-800 font-medium">
-          <CheckCircle className="size-5 text-green-600" />
+      <div className="bg-success-muted border border-success/30 rounded-md p-4 space-y-2">
+        <div className="flex items-center gap-2 text-success font-medium">
+          <CheckCircle className="size-5 text-success" />
           PR #{result.prNumber} opened successfully
         </div>
 
@@ -31,24 +31,24 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
             href={result.prUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 hover:underline"
           >
             {result.prUrl}
             <ExternalLink className="size-3.5" />
           </a>
-          <div className="text-xs text-green-600">
-            Branch: <code className="bg-green-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code>
+          <div className="text-xs text-success">
+            Branch: <code className="bg-success-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>
           </div>
         </div>
       </div>
 
       {/* Push error */}
       {pushError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
-          <XCircle className="size-4 text-red-500 mt-0.5 shrink-0" />
+        <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
+          <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800 m-0">Push failed</p>
-            <p className="text-xs text-red-600 m-0 mt-0.5 font-mono">{pushError}</p>
+            <p className="text-sm font-medium text-destructive m-0">Push failed</p>
+            <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{pushError}</p>
           </div>
         </div>
       )}
@@ -74,7 +74,7 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
           type="button"
           onClick={onCreateAnother}
           disabled={isPushing}
-          className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           or create another PR
         </button>
@@ -87,7 +87,7 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
         label="What will Git Push commit?"
         icon={<CircleHelp className="size-3.5" />}
       >
-        <div className="mt-1.5 ml-5 text-xs text-gray-600 leading-relaxed">
+        <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
           {changeSummary && changeSummary.fileCount > 0 ? (
             <p className="m-0">
               Git Push will commit and push{' '}
@@ -97,23 +97,23 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
                 <>
                   {' '}(
                   {changeSummary.additions > 0 && (
-                    <span className="text-green-600 font-medium">+{changeSummary.additions}</span>
+                    <span className="text-success font-medium">+{changeSummary.additions}</span>
                   )}
                   {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
                   {changeSummary.deletions > 0 && (
-                    <span className="text-red-600 font-medium">&minus;{changeSummary.deletions}</span>
+                    <span className="text-destructive font-medium">&minus;{changeSummary.deletions}</span>
                   )}
                   )
                 </>
               )}
-              {' '}to the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+              {' '}to the <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
               Review your changes in the <span className="font-semibold">Changed files</span> tab of the workspace panel.
             </p>
           ) : (
             <p className="m-0">
               No new file changes detected. If you make additional changes to the cloned repository,
               use Git Push to add them to the existing pull request on
-              the <code className="bg-gray-100 px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+              the <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
             </p>
           )}
         </div>

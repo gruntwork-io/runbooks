@@ -10,7 +10,11 @@ export function InfoTooltip({ children }: InfoTooltipProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" className="text-gray-400 hover:text-gray-600 cursor-help">
+        <button
+          type="button"
+          aria-label="More information"
+          className="text-muted-foreground hover:text-foreground cursor-help"
+        >
           <Info className="size-3.5" />
         </button>
       </TooltipTrigger>

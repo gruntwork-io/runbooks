@@ -128,11 +128,11 @@ function Command({
   // Get visual styling based on status
   const getStatusClasses = () => {
     const statusMap = {
-      success: 'bg-green-50 border-green-200',
-      fail: 'bg-red-50 border-red-200',
-      running: 'bg-blue-50 border-blue-200',
-      pending: 'bg-gray-100 border-gray-200',
-      warn: 'bg-yellow-50 border-yellow-300' // Should not happen for Command, but include for type safety
+      success: 'bg-success-muted border-success/30',
+      fail: 'bg-destructive-muted border-destructive/30',
+      running: 'bg-info-muted border-info/40',
+      pending: 'bg-muted border-border',
+      warn: 'bg-warning-muted border-warning/30' // Should not happen for Command, but include for type safety
     }
     
     return statusMap[commandStatus]
@@ -151,11 +151,11 @@ function Command({
 
   const getStatusIconClasses = () => {
     const colorMap = {
-      success: 'text-green-600',
-      fail: 'text-red-600',
-      running: 'text-blue-600',
-      pending: 'text-gray-500',
-      warn: 'text-yellow-600' // Should not happen for Command
+      success: 'text-success',
+      fail: 'text-destructive',
+      running: 'text-info',
+      pending: 'text-muted-foreground',
+      warn: 'text-warning' // Should not happen for Command
     }
     return colorMap[commandStatus]
   }
@@ -251,21 +251,21 @@ function Command({
   // Early return for duplicate ID error
   if (isDuplicate) {
     return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
+      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             {isNormalizedCollision ? (
               <>
                 <strong>ID Collision:</strong><br />
-                The ID <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-red-100 px-1 rounded">{`"${collidingId}"`}</code> because 
+                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because
                 hyphens are converted to underscores for template access.
                 Use different IDs to avoid this collision.
               </>
             ) : (
               <>
                 <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-red-100 px-1 rounded">{"<Command>"}</code> component with id <code className="bg-red-100 px-1 rounded">{`"${id}"`}</code> already exists.
+                Another <code className="bg-destructive-muted px-1 rounded">{"<Command>"}</code> component with id <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> already exists.
                 Each component must have a unique ID.
               </>
             )}
@@ -278,8 +278,8 @@ function Command({
   // Early return for file errors - show only error message
   if (getFileError) {
     return (
-      <div className="relative rounded-sm border bg-red-50 border-red-200 mb-5 p-4">
-        <div className="flex items-center text-red-600">
+      <div className="relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Command Component Error:</strong><br />
@@ -294,16 +294,16 @@ function Command({
   // Check if command/script requires variables but none are configured
   if (missingInputsConfig) {
     return (
-      <div className="relative rounded-sm border bg-yellow-50 border-yellow-200 mb-5 p-4">
-        <div className="flex items-center text-yellow-700">
+      <div className="relative rounded-sm border bg-warning-muted border-warning/30 mb-5 p-4">
+        <div className="flex items-center text-warning-foreground">
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
-            This command requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured. 
+            This command requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured.
             Please add either:
             <ul className="list-disc ml-6 mt-2">
-              <li>An inline <code className="bg-yellow-100 px-1 rounded">{"<Inputs>"}</code> component as a child</li>
-              <li>An <code className="bg-yellow-100 px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
+              <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
+              <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
             </ul>
           </div>
         </div>
@@ -332,13 +332,13 @@ function Command({
       {hasScriptDrift && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
           <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
-          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-yellow-100 px-1 rounded text-xs">runbooks watch</code> to automatically load script changes. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-yellow-100 px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
+          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-warning-muted px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-warning-muted px-1 rounded text-xs">runbooks watch</code> to automatically load script changes. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
         </Admonition>
       )}
 
       {/* Command main container */}
       <div className="flex @container">
-        <div className="border-r border-gray-300 pr-2 mr-4 flex flex-col items-center">
+        <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
           <IconComponent data-testid={`icon-${commandStatus}`} className={`size-6 ${iconClasses} ${commandStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
@@ -346,36 +346,36 @@ function Command({
         {/* Command main body */}
         <div className="flex-1 space-y-2">
           {commandStatus === 'pending' && command && !title && (
-            <div className="text-gray-600 font-semibold text-sm">Run a command</div>
+            <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
           )}
           {commandStatus === 'pending' && !command && path && !title && (
-            <div className="text-gray-600 font-semibold text-sm">Run a script</div>
+            <div className="text-muted-foreground font-semibold text-sm">Run a script</div>
           )}
-          
+
           {/* Title and description */}
           {resolvedTitle && (
-            <div className="text-md font-bold text-gray-600">
+            <div className="text-md font-bold text-muted-foreground">
               <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>
           )}
           {resolvedDescription && (
-            <div className="text-md text-gray-600 mb-3">
+            <div className="text-md text-muted-foreground mb-3">
               <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
             </div>
           )}
 
           {commandStatus === 'success' && resolvedSuccessMessage && (
-            <div className="text-green-600 font-semibold text-sm mb-3">
+            <div className="text-success font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedSuccessMessage}</InlineMarkdown>
             </div>
           )}
           {commandStatus === 'fail' && resolvedFailMessage && (
-            <div className="text-red-600 font-semibold text-sm mb-3">
+            <div className="text-destructive font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedFailMessage}</InlineMarkdown>
             </div>
           )}
           {commandStatus === 'running' && resolvedRunningMessage && (
-            <div className="text-blue-600 font-semibold text-sm mb-3">
+            <div className="text-info font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
             </div>
           )}
@@ -389,17 +389,17 @@ function Command({
           
           {/* Display script metadata for file-based scripts */}
           {scriptMetadata && (
-            <div className="text-xs text-gray-600 flex items-center flex-wrap gap-3 mb-2">
+            <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-3 mb-2">
               <span className="inline-flex items-center gap-1">
                 <span className="font-semibold">Language:</span>
-                <span className="font-mono bg-gray-100 rounded">{scriptMetadata.language}</span>
+                <span className="font-mono bg-muted rounded">{scriptMetadata.language}</span>
               </span>
               <span className="inline-flex items-center gap-1">
                 <span className="font-semibold">Lines:</span>
                 <span className="font-mono">{scriptMetadata.lines}</span>
               </span>
               {path && (
-                <span className="inline-flex items-center gap-1 text-gray-500">
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
                   <span className="font-semibold">Path:</span>
                   <span className="font-mono truncate max-w-xs" title={path}>{path}</span>
                 </span>
@@ -415,7 +415,7 @@ function Command({
                     })
                   }, 100)
                 }}
-                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                className="inline-flex items-center gap-1 text-primary hover:text-primary/80 hover:underline cursor-pointer"
               >
                 View Source Code
               </button>
@@ -430,8 +430,8 @@ function Command({
           )}
 
           {/* Separator */}
-          <div className="border-b border-gray-300"></div>
-          
+          <div className="border-b border-border"></div>
+
           {/* Show unmet input/output dependencies */}
           {!isRendering && (
             <UnmetDependenciesWarning
@@ -452,21 +452,21 @@ function Command({
           )}
           
           {renderError && hasAllOutputDependencies && (
-            <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
+            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>Command render error:</strong> {renderError.message}
-                {renderError.details && <div className="text-xs mt-1 text-red-500">{renderError.details}</div>}
+                {renderError.details && <div className="text-xs mt-1 text-destructive">{renderError.details}</div>}
               </div>
             </div>
           )}
-          
+
           {execError && (
-            <div className="mb-3 text-sm text-red-600 flex items-start gap-2">
+            <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
                 <strong>{execError.message}</strong>
-                {execError.details && <div className="text-xs mt-1 text-red-500">{execError.details}</div>}
+                {execError.details && <div className="text-xs mt-1 text-destructive">{execError.details}</div>}
               </div>
             </div>
           )}
@@ -486,7 +486,7 @@ function Command({
                 size="sm"
                 onClick={handleStopCommand}
                 disabled={commandStatus !== 'running'}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:text-gray-400 disabled:hover:bg-transparent"
+                className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
               >
                 <Square className="size-4 mr-1" />
                 Stop

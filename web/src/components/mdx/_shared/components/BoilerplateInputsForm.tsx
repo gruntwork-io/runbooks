@@ -80,11 +80,11 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
       <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1' : 'contents space-y-1'}>
         <label 
           htmlFor={`${id}-${variable.name}`}
-          className={`${isBooleanType ? 'cursor-pointer' : 'block'} text-md font-medium ${disabled ? 'text-gray-500' : 'text-gray-700'}`}
+          className={`${isBooleanType ? 'cursor-pointer' : 'block'} text-md font-medium ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}
         >
           {formatVariableLabel(variable.name)}
-          {variable.required && !disabled && <span className="text-gray-400 ml-1">*</span>}
-          {disabled && <span className="text-gray-400 ml-2 text-sm font-normal">(inherited)</span>}
+          {variable.required && !disabled && <span className="text-muted-foreground ml-1">*</span>}
+          {disabled && <span className="text-muted-foreground ml-2 text-sm font-normal">(inherited)</span>}
         </label>
         
         <FormControl
@@ -98,11 +98,11 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
         />
 
         {variable.description && (
-          <p className={`text-sm text-gray-400 ${isBooleanType ? 'w-full' : ''}`}>{variable.description}</p>
+          <p className={`text-sm text-muted-foreground ${isBooleanType ? 'w-full' : ''}`}>{variable.description}</p>
         )}
-        
+
         {error && !disabled && (
-          <p className={`text-sm text-red-600 ${isBooleanType ? 'w-full' : ''}`}>{error}</p>
+          <p className={`text-sm text-destructive ${isBooleanType ? 'w-full' : ''}`}>{error}</p>
         )}
       </div>
     </div>
@@ -268,7 +268,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       // For named sections, render with a header
       return (
         <div key={section.name} className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-800 pt-5 pb-1 border-b border-gray-400">
+          <h3 className="text-lg font-semibold text-foreground pt-5 pb-1 border-b border-border">
             {section.name}
           </h3>
           <div className="space-y-5">
@@ -303,7 +303,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Determine container classes and whether to show submit button based on variant
   const containerClasses = variant === 'embedded' 
     ? 'runbook-block bg-transparent relative'
-    : 'runbook-block p-6 border border-gray-200 rounded-lg shadow-sm bg-gray-100 mb-4 relative';
+    : 'runbook-block p-6 border border-border rounded-lg shadow-sm bg-muted mb-4 relative';
   
   const shouldShowSubmitButton = variant === 'embedded' ? false : showSubmitButton;
 
@@ -325,7 +325,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         </div>
         
         {shouldShowSubmitButton && (
-          <div className="pt-4 border-t border-gray-200">
+          <div className="pt-4 border-t border-border">
             {!hasGenerated ? (
               // Before first generation: show the Generate button
               <>
@@ -338,7 +338,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 </Button>
                 {/* Show validation error summary near the button after a failed submit */}
                 {submitAttempted && Object.keys(visibleErrors).length > 0 && (
-                  <p className="mt-3 text-sm text-red-600">
+                  <p className="mt-3 text-sm text-destructive">
                     {Object.keys(visibleErrors).length === 1
                       ? <>There is <strong>1 validation error</strong> above. Please fix it before generating.</>
                       : <>There are <strong>{Object.keys(visibleErrors).length} validation errors</strong> above. Please fix them before generating.</>}

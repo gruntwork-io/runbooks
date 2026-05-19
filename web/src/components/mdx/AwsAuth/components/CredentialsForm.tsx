@@ -41,22 +41,22 @@ export function CredentialsForm({
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Access Key ID <span className="text-red-500">*</span>
+        <label className="block text-sm font-medium text-foreground mb-1">
+          Access Key ID <span className="text-destructive">*</span>
         </label>
         <input
           type="text"
           value={accessKeyId}
           onChange={(e) => setAccessKeyId(e.target.value)}
           placeholder="AKIAIOSFODNN7EXAMPLE"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm placeholder-gray-400"
+          className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm placeholder-muted-foreground"
           disabled={isAuthenticating}
         />
       </div>
       
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Secret Access Key <span className="text-red-500">*</span>
+        <label className="block text-sm font-medium text-foreground mb-1">
+          Secret Access Key <span className="text-destructive">*</span>
         </label>
         <div className="relative">
           <input
@@ -64,13 +64,13 @@ export function CredentialsForm({
             value={secretAccessKey}
             onChange={(e) => setSecretAccessKey(e.target.value)}
             placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm pr-10 placeholder-gray-400"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm pr-10 placeholder-muted-foreground"
             disabled={isAuthenticating}
           />
           <button
             type="button"
             onClick={() => setShowSecretKey(!showSecretKey)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
             {showSecretKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
@@ -78,8 +78,8 @@ export function CredentialsForm({
       </div>
       
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Session Token <span className="text-gray-400">(optional)</span>
+        <label className="block text-sm font-medium text-foreground mb-1">
+          Session Token <span className="text-muted-foreground">(optional)</span>
         </label>
         <div className="relative">
           <input
@@ -87,13 +87,13 @@ export function CredentialsForm({
             value={sessionToken}
             onChange={(e) => setSessionToken(e.target.value)}
             placeholder="For temporary credentials only"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm pr-10 placeholder-gray-400"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm pr-10 placeholder-muted-foreground"
             disabled={isAuthenticating}
           />
           <button
             type="button"
             onClick={() => setShowSessionToken(!showSessionToken)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
             {showSessionToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
@@ -109,7 +109,7 @@ export function CredentialsForm({
       <Button
         onClick={onSubmit}
         disabled={isAuthenticating || !accessKeyId || !secretAccessKey}
-        className="bg-amber-600 hover:bg-amber-700 text-white"
+        className="bg-warning hover:bg-warning/90 text-white"
       >
         {isAuthenticating ? (
           <>
