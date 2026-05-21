@@ -1,7 +1,12 @@
 {
   "name": "runbooks",
-  "version": "0.1.0",
+  "version": "0.14.0",
   "private": true,
+  "description": "Gruntwork Runbooks",
+  "author": {
+    "name": "Gruntwork",
+    "email": "info@gruntwork.io"
+  },
   "packageManager": "bun@1.3.10",
   "type": "module",
   "main": "dist/main/index.js",
@@ -101,8 +106,20 @@
       "dist/**/*"
     ],
     "extraResources": [
-      { "from": "resources/bin", "to": "bin", "filter": ["**/*"] },
-      { "from": "resources/wasm", "to": "wasm", "filter": ["**/*"] }
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/wasm",
+        "to": "wasm",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "publish": {
       "provider": "github",
@@ -111,8 +128,20 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
@@ -132,28 +161,62 @@
     },
     "dmg": {
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "category": "Development",
       "icon": "build/icons",
-      "mimeTypes": ["text/mdx"],
+      "mimeTypes": [
+        "text/mdx"
+      ],
       "desktop": {
         "entry": "StartupWMClass=gruntwork-runbooks"
       }
     },
     "deb": {
-      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1"]
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1"
+      ]
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.ico",
       "fileAssociations": [
@@ -170,7 +233,7 @@
       "deleteAppDataOnUninstall": true
     }
   },
-"trustedDependencies": [
-  "@swc/core"
-]
+  "trustedDependencies": [
+    "@swc/core"
+  ]
 }
