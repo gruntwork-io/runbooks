@@ -120,7 +120,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "notarize": false,
+      "notarize": true,
       "fileAssociations": [
         {
           "ext": "mdx",

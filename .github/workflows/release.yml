@@ -44,14 +44,24 @@ jobs:
 
       - name: Package for macOS
         env:
-          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.MACOS_AC_LOGIN }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MACOS_AC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.MACOS_AC_PROVIDER }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EB_ARCH: ${{ matrix.arch }}
         run: |
+          # Only enable code signing when a certificate is actually configured.
+          # An empty CSC_LINK is treated by electron-builder as a file path that
+          # resolves to the project root, failing with "<projectDir> not a file".
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            export CSC_LINK="$MACOS_CERTIFICATE"
+            export CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD"
+          else
+            echo "No MACOS_CERTIFICATE secret set; building an unsigned macOS app."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
           mise x node -- npx electron-builder --mac --${EB_ARCH}
 
       - name: Upload macOS artifacts
