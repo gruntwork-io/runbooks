@@ -223,30 +223,30 @@ export function registerBoilerplateHandlers(): void {
         // Without this check, the warm dispatcher's dirty-set + manifest diff
         // assume any "unchanged" file is still on disk from the prior render,
         // so they're not re-emitted — leaving the tree partially populated.
-        // We probe a few paths from the previous manifest; if any are missing,
+        // We stat every path from the previous manifest; if any is missing,
         // drop the manifest + dispatcher cache so this render is treated as a
         // first-render and rebuilds everything from scratch.
         const existingManifest = manifestStore.get(templateId)
         if (existingManifest && existingManifest.files.length > 0) {
-          // Walk the manifest sequentially, bailing on the first missing
-          // path. In the common case (no external wipe) every stat hits, and
-          // a hot-cache stat is sub-millisecond per file — fine even for a
-          // template that produces a few hundred files. When something does
-          // wipe the tree we bail immediately on the first miss.
-          let staleReason: string | null = null
-          for (const entry of existingManifest.files) {
-            const exists = yield* fs.exists(
-              path.join(existingManifest.outputDir, entry.path),
-            )
-            if (!exists) {
-              staleReason = entry.path
-              break
-            }
-          }
-          if (staleReason !== null) {
+          // Stat the manifest concurrently. This runs on every render's hot
+          // path, and in the common case (no external wipe) every stat hits,
+          // so we can't rely on an early bail — issuing the stats in parallel
+          // keeps the check cheap even for a template producing a few hundred
+          // files. A hot-cache stat is sub-millisecond, so bounded
+          // concurrency is plenty to hide the latency.
+          const presence = yield* Effect.forEach(
+            existingManifest.files,
+            (entry) =>
+              fs
+                .exists(path.join(existingManifest.outputDir, entry.path))
+                .pipe(Effect.map((exists) => ({ path: entry.path, exists }))),
+            { concurrency: 16 },
+          )
+          const missing = presence.find((p) => !p.exists)
+          if (missing) {
             console.log(
               "[ipc boilerplate:render] previous output dir missing files; treating as first-render",
-              { templateId, missingPathExample: staleReason },
+              { templateId, missingPathExample: missing.path },
             )
             manifestStore.delete(templateId)
             yield* warmDispatcher.invalidate(templateId)
