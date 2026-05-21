@@ -34,7 +34,7 @@ import type {
  * 16 is well under macOS's default 256 open-FD ulimit while saturating
  * the small-file SSD workload templates produce.
  */
-const BATCH_IO_CONCURRENCY = 16
+export const BATCH_IO_CONCURRENCY = 16
 
 // ---------------------------------------------------------------------------
 // Hashing

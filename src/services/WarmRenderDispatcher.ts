@@ -97,6 +97,16 @@ export interface WarmRenderDispatcherShape {
 
   /** Clear all cached bundles. */
   readonly reset: Effect.Effect<void>
+
+  /**
+   * Drop cached vars + handle for a single template. Use when the previous
+   * render's output directory was wiped externally (e.g., a `GitClone` over
+   * the worktree, `rm -rf`, `git reset --hard`). Without this, the next
+   * render's dirty-set diff would only re-emit files whose vars changed —
+   * leaving the rest of the tree missing from disk because the dispatcher
+   * trusts that prior output is still where it was left.
+   */
+  readonly invalidate: (templateId: string) => Effect.Effect<void>
 }
 
 export class WarmRenderDispatcher extends Context.Tag("WarmRenderDispatcher")<
