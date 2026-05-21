@@ -376,6 +376,19 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
         previousVarsByTemplate.clear()
         yield* bundles.clear
       }),
+
+      invalidate: (templateId: string) =>
+        Effect.gen(function* () {
+          const handle = handlesByTemplate.get(templateId)
+          if (handle) {
+            // Best-effort release; if the WASM runtime is unavailable or
+            // the handle is already gone on the Go side, we still want to
+            // clear our local maps so subsequent renders re-prepare.
+            yield* wasm.releaseBundle(handle).pipe(Effect.ignore)
+            handlesByTemplate.delete(templateId)
+          }
+          previousVarsByTemplate.delete(templateId)
+        }),
     }
 
     return impl

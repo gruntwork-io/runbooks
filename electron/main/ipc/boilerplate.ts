@@ -12,6 +12,7 @@ import {
   parseBoilerplateConfig,
   extractOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
+import { flattenVariables } from "../../../src/domain/boilerplate/flattenInputs.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
@@ -31,90 +32,6 @@ import type {
   BoilerplateRequest,
 } from "../../../src/types.ts"
 import { validateSessionPath } from "./path-guard.ts"
-
-/**
- * True when a value is a Go-template expression string. Such values arrive
- * from the UI because the form echoes back the unresolved `default:` from
- * `boilerplate.yml` for any variable the user hasn't overridden.
- */
-const TEMPLATE_EXPR_RE = /\{\{.*?\}\}/s
-
-function isTemplateString(v: unknown): boolean {
-  return typeof v === "string" && TEMPLATE_EXPR_RE.test(v)
-}
-
-/**
- * Recursively drop any value that's still a Go-template expression. Boilerplate
- * re-evaluates `--var-file` string values as templates; passing a raw
- * `{{ .inputs.X }}` for a value crashes when the eval happens inside a
- * dependency that doesn't expose the `inputs` namespace. By stripping those
- * placeholders we force boilerplate to fall through to its own default,
- * which it evaluates correctly in the parent scope (where `inputs`/`outputs`
- * are in scope via our var-file).
- *
- * Maps/lists are descended. A map whose resulting keys are all stripped is
- * dropped entirely so the dependency's own defaults apply instead.
- */
-function stripTemplateValues(value: unknown): unknown {
-  if (isTemplateString(value)) return undefined
-  if (Array.isArray(value)) {
-    const cleaned = value
-      .map(stripTemplateValues)
-      .filter((v) => v !== undefined)
-    return cleaned
-  }
-  if (value && typeof value === "object") {
-    const cleaned: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const stripped = stripTemplateValues(v)
-      if (stripped !== undefined) cleaned[k] = stripped
-    }
-    return Object.keys(cleaned).length > 0 ? cleaned : undefined
-  }
-  return value
-}
-
-/**
- * Flatten `{ inputs: {...}, outputs: {...} }` into the shape boilerplate's
- * `--var-file` expects: each input variable lifted to the top level (for
- * legacy `{{ .X }}` syntax + the CLI's required-variable check), while
- * preserving the `inputs` and `outputs` namespaces (for new-style
- * `{{ .inputs.X }}` / `{{ .outputs.block.X }}` references).
- *
- * Explicit root-level keys win over the lifted inputs (matches main's
- * `applyBackwardCompatibility`). Reserved names `inputs` and `outputs` inside
- * the inputs namespace are skipped to avoid clobbering the namespaces.
- *
- * Template-expression values are stripped — see `stripTemplateValues`. The
- * `outputs` namespace is left untouched (its values are real block outputs,
- * not defaults, and we want boilerplate to resolve `.outputs.X.Y` refs
- * against them).
- */
-function flattenVariables(
-  variables: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  const src = variables ?? {}
-
-  // Strip template placeholders from `inputs` only. `outputs` is preserved
-  // verbatim so real output values reach boilerplate even if they happen to
-  // look template-ish.
-  const rawInputs = src.inputs
-  const cleanedInputs =
-    rawInputs && typeof rawInputs === "object" && !Array.isArray(rawInputs)
-      ? (stripTemplateValues(rawInputs) as Record<string, unknown> | undefined) ?? {}
-      : {}
-
-  const result: Record<string, unknown> = {
-    ...src,
-    inputs: cleanedInputs,
-  }
-
-  for (const [k, v] of Object.entries(cleanedInputs)) {
-    if (k === "inputs" || k === "outputs") continue
-    if (!(k in result)) result[k] = v
-  }
-  return result
-}
 
 /**
  * Tracks in-flight render fibers per `templateId`. When a new render starts
@@ -301,8 +218,43 @@ export function registerBoilerplateHandlers(): void {
         }
         yield* validateSessionPath(outputDir)
 
+        // Detect external wipe of the worktree (e.g., a `GitClone` block that
+        // re-clones over the worktree, `git reset --hard`, or `rm -rf`).
+        // Without this check, the warm dispatcher's dirty-set + manifest diff
+        // assume any "unchanged" file is still on disk from the prior render,
+        // so they're not re-emitted — leaving the tree partially populated.
+        // We probe a few paths from the previous manifest; if any are missing,
+        // drop the manifest + dispatcher cache so this render is treated as a
+        // first-render and rebuilds everything from scratch.
+        const existingManifest = manifestStore.get(templateId)
+        if (existingManifest && existingManifest.files.length > 0) {
+          // Walk the manifest sequentially, bailing on the first missing
+          // path. In the common case (no external wipe) every stat hits, and
+          // a hot-cache stat is sub-millisecond per file — fine even for a
+          // template that produces a few hundred files. When something does
+          // wipe the tree we bail immediately on the first miss.
+          let staleReason: string | null = null
+          for (const entry of existingManifest.files) {
+            const exists = yield* fs.exists(
+              path.join(existingManifest.outputDir, entry.path),
+            )
+            if (!exists) {
+              staleReason = entry.path
+              break
+            }
+          }
+          if (staleReason !== null) {
+            console.log(
+              "[ipc boilerplate:render] previous output dir missing files; treating as first-render",
+              { templateId, missingPathExample: staleReason },
+            )
+            manifestStore.delete(templateId)
+            yield* warmDispatcher.invalidate(templateId)
+          }
+        }
+
         const tFlatten = Date.now()
-        const flattenedVariables = flattenVariables(params.variables)
+        const flattenedVariables = yield* flattenVariables(params.variables)
         const dFlatten = Date.now() - tFlatten
 
         // ---------- Warm attempt ----------
