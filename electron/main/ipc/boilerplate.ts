@@ -23,6 +23,7 @@ import {
   applyDiff,
   applyDiffFromContent,
   hashFileContent,
+  BATCH_IO_CONCURRENCY,
 } from "../../../src/domain/files/manifest.ts"
 import { resolveToAbsolutePath } from "../../../src/domain/files/generated.ts"
 import type { ManifestEntry } from "../../../src/types.ts"
@@ -240,7 +241,7 @@ export function registerBoilerplateHandlers(): void {
               fs
                 .exists(path.join(existingManifest.outputDir, entry.path))
                 .pipe(Effect.map((exists) => ({ path: entry.path, exists }))),
-            { concurrency: 16 },
+            { concurrency: BATCH_IO_CONCURRENCY },
           )
           const missing = presence.find((p) => !p.exists)
           if (missing) {

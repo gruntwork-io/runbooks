@@ -30,6 +30,32 @@ export function isTemplateString(v: unknown): boolean {
 }
 
 /**
+ * `inputs` and `outputs` are namespace keys in the var-file boilerplate
+ * consumes. When lifting individual inputs to the top level we skip these so
+ * a user-named variable can never clobber a namespace.
+ */
+export function isReservedNamespace(key: string): boolean {
+  return key === "inputs" || key === "outputs"
+}
+
+/**
+ * Lift each non-reserved input key onto a copy of `base`. Explicit keys
+ * already on `base` win (matches main's `applyBackwardCompatibility`), and
+ * the `inputs`/`outputs` namespaces are never overwritten.
+ */
+function liftInputsToRoot(
+  base: Record<string, unknown>,
+  inputs: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...base }
+  for (const [k, v] of Object.entries(inputs)) {
+    if (isReservedNamespace(k)) continue
+    if (!(k in out)) out[k] = v
+  }
+  return out
+}
+
+/**
  * Recursively drop any value that's still a Go-template expression. A map
  * whose resulting keys are all stripped is dropped entirely so the
  * dependency's own defaults apply instead.
@@ -95,16 +121,11 @@ export function resolveInputTemplates(
       // refs use top-level `{{ .OrgNamePrefix }}` syntax, not
       // `{{ .inputs.OrgNamePrefix }}`. If we only expose the `inputs`
       // namespace, those refs fail and the value reaches boilerplate
-      // unresolved. Reserved namespace names are skipped so they don't
-      // clobber the namespaces.
-      const contextWithLifted: Record<string, unknown> = {
-        inputs: context,
-        outputs: outputs ?? {},
-      }
-      for (const [k, v] of Object.entries(context)) {
-        if (k === "inputs" || k === "outputs") continue
-        contextWithLifted[k] = v
-      }
+      // unresolved.
+      const contextWithLifted = liftInputsToRoot(
+        { inputs: context, outputs: outputs ?? {} },
+        context,
+      )
       const varsJSON = JSON.stringify(contextWithLifted)
       const result = yield* resolveTree(current, wasm, varsJSON)
       current = result.value
@@ -226,15 +247,6 @@ export function flattenVariables(
         | Record<string, unknown>
         | undefined) ?? {}
 
-    const result: Record<string, unknown> = {
-      ...src,
-      inputs: cleanedInputs,
-    }
-
-    for (const [k, v] of Object.entries(cleanedInputs)) {
-      if (k === "inputs" || k === "outputs") continue
-      if (!(k in result)) result[k] = v
-    }
-    return result
+    return liftInputsToRoot({ ...src, inputs: cleanedInputs }, cleanedInputs)
   })
 }

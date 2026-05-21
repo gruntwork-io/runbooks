@@ -28,6 +28,7 @@ import {
   type WarmPerFileError,
 } from "../services/WarmRenderDispatcher.ts"
 import { BundleProducer } from "../services/BundleProducer.ts"
+import { isReservedNamespace } from "../domain/boilerplate/flattenInputs.ts"
 import { WasmRuntime } from "../services/WasmRuntime.ts"
 import type {
   WasmRenderResult,
@@ -81,12 +82,12 @@ function changedRootNames(
   const changed = new Set<string>()
   const seen = new Set<string>()
   for (const [k, v] of Object.entries(curr)) {
-    if (k === "inputs" || k === "outputs") continue
+    if (isReservedNamespace(k)) continue
     seen.add(k)
     if (!(k in prev) || !varsEqual(prev[k], v)) changed.add(k)
   }
   for (const k of Object.keys(prev)) {
-    if (k === "inputs" || k === "outputs") continue
+    if (isReservedNamespace(k)) continue
     if (!seen.has(k)) changed.add(k)
   }
   return changed
