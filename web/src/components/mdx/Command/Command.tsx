@@ -3,8 +3,9 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel, Instruction } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
@@ -69,9 +70,13 @@ function Command({
   // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
+  // Instruction mode flattens this block into a copy-pasteable instruction.
+  const { enabled: instructionMode } = useInstructionMode()
+
   // Use shared script execution hook
   const {
     sourceCode,
+    rawScriptContent,
     language,
     fileError: getFileError,
     inputDependencies,
@@ -311,8 +316,28 @@ function Command({
     )
   }
   
+  // Instruction mode: flatten to a copy-pasteable instruction. Nothing runs —
+  // no exec:run, no logs/outputs, no disabled Run button (spec §6.4). Resolve
+  // from the raw script content so it works regardless of dependency state.
+  if (instructionMode) {
+    return (
+      <Instruction
+        id={id}
+        title={resolvedTitle || (path ? 'Run this script:' : 'Run this command:')}
+        description={resolvedDescription}
+        command={path ? undefined : rawScriptContent}
+        source={
+          path
+            ? { content: rawScriptContent, path, language, fileName: 'Command Script' }
+            : undefined
+        }
+        templateContext={templateContext}
+      />
+    )
+  }
+
   // Determine if the Run button should be disabled
-  const isRunDisabled = 
+  const isRunDisabled =
     commandStatus === 'running' || 
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||

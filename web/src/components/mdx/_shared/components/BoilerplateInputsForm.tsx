@@ -300,15 +300,21 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     })
   }
 
-  // Determine container classes and whether to show submit button based on variant
-  const containerClasses = variant === 'embedded' 
-    ? 'runbook-block bg-transparent relative'
-    : 'runbook-block p-6 border border-border rounded-lg shadow-sm bg-muted mb-4 relative';
-  
   const shouldShowSubmitButton = variant === 'embedded' ? false : showSubmitButton;
 
   // Check if form is currently valid (for FormStatus)
   const formIsValid = isFormValid(formData)
+
+  // Once the form has generated successfully, highlight the block green to
+  // match the success styling of run-based blocks (Command, Check, etc.).
+  // Only applies to the standard variant, and reverts to neutral if the form
+  // later becomes invalid.
+  const showSuccess = variant === 'standard' && hasGenerated && formIsValid
+
+  // Determine container classes based on variant and success state
+  const containerClasses = variant === 'embedded'
+    ? 'runbook-block bg-transparent relative'
+    : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${showSuccess ? 'bg-success-muted border-success/30' : 'bg-muted border-border'}`;
 
   return (
     <div className={containerClasses}>

@@ -70,6 +70,12 @@ export function checkAuthDependency(
 interface UseScriptExecutionReturn {
   // Script content
   sourceCode: string
+  /**
+   * The raw, un-rendered script content (the `command` prop or the loaded file),
+   * with `{{ … }}` references intact. Unlike `sourceCode`, this is never gated on
+   * dependency state — instruction mode resolves from it directly (spec §6.4).
+   */
+  rawScriptContent: string
   language?: string
   
   // File loading
@@ -597,6 +603,7 @@ export function useScriptExecution({
   return {
     // Script content
     sourceCode,
+    rawScriptContent,
     language,
     
     // File loading

@@ -18,6 +18,8 @@ import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTempl
 import { resolveTemplateReferences, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { GitCloneInstruction } from "./GitCloneInstruction"
 import type { AppError } from "@/types/error"
 import type { GitCloneProps } from "./types"
 
@@ -34,7 +36,7 @@ function parseGitHubURL(url: string): { org: string; repo: string } | null {
   return null
 }
 
-function GitClone({
+function GitCloneInteractive({
   id,
   title = "Clone Repository",
   description = "Enter a git URL to clone a repository",
@@ -610,6 +612,20 @@ function GitClone({
       )}
     </div>
   )
+}
+
+/**
+ * GitClone entry point. Branches on instruction mode before any clone hooks run:
+ * in instruction mode it renders a copyable `git clone` command (no clone);
+ * otherwise the interactive clone UI. Branching here keeps `useGitClone` (and
+ * its session/token IPC) out of the instruction path.
+ */
+function GitClone(props: GitCloneProps) {
+  const { enabled: instructionMode } = useInstructionMode()
+  if (instructionMode) {
+    return <GitCloneInstruction {...props} />
+  }
+  return <GitCloneInteractive {...props} />
 }
 
 // Set displayName for React DevTools and component detection

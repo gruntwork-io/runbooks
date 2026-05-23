@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { ThemeToggle } from './ThemeToggle';
+import { InstructionModeToggle } from './InstructionModeToggle';
 import { useLogs } from '@/contexts/useLogs';
 import { useApi } from '@/contexts/ApiContext';
 import { useTheme } from '@/contexts/useTheme';
@@ -192,6 +193,8 @@ export function Header({ pathName, localPath }: HeaderProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <ThemeToggle />
+              <DropdownMenuSeparator />
+              <InstructionModeToggle />
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
                 <Info className="size-4" />
