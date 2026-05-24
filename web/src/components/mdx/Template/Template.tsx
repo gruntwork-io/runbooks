@@ -13,6 +13,8 @@ import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutpu
 import { computeChangeKey } from '@/lib/changeDetection'
 import { markStage } from '@/lib/renderPerf'
 import { XCircle } from 'lucide-react'
+import { useInstructionMode } from '@/contexts/useInstructionMode'
+import { TemplateInstruction } from './TemplateInstruction'
 
 /**
  * Template component - generates files from a boilerplate template directory.
@@ -55,7 +57,7 @@ interface TemplateProps {
   target?: 'generated' | 'worktree'
 }
 
-function Template({
+function TemplateInteractive({
   id,
   path,
   inputsId,
@@ -403,6 +405,21 @@ function Template({
       />
     </div>
   )
+}
+
+/**
+ * Template entry point. Branches on instruction mode before any render hooks
+ * run: in instruction mode it renders the variable form plus a copy-pasteable
+ * `boilerplate` invocation (no files written); otherwise the interactive
+ * generate UI. Branching here keeps the render-to-disk path out of the
+ * instruction component entirely.
+ */
+function Template(props: TemplateProps) {
+  const { enabled: instructionMode } = useInstructionMode()
+  if (instructionMode) {
+    return <TemplateInstruction {...props} />
+  }
+  return <TemplateInteractive {...props} />
 }
 
 Template.displayName = 'Template';

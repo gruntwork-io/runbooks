@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './css/index.css'
 import App from './App.tsx'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { InstructionModeProvider } from './contexts/InstructionModeContext'
 import { ApiProvider } from './contexts/ApiContext'
 import { GeneratedFilesProvider } from './contexts/GeneratedFilesContext'
 import { IpcGitWorkTreeProvider } from './contexts/IpcGitWorkTreeContext'
@@ -33,21 +34,23 @@ if (!window.api) {
           descendants can use useApi() instead of touching window directly. */}
       <ApiProvider api={window.api}>
         <ThemeProvider>
-          <IpcTelemetryProvider>
-            <IpcSessionProvider>
-              <ErrorReportingProvider>
-                <IpcExecutableRegistryProvider>
-                  <GeneratedFilesProvider>
-                    <IpcGitWorkTreeProvider>
-                      <LogsProvider>
-                        <App />
-                      </LogsProvider>
-                    </IpcGitWorkTreeProvider>
-                  </GeneratedFilesProvider>
-                </IpcExecutableRegistryProvider>
-              </ErrorReportingProvider>
-            </IpcSessionProvider>
-          </IpcTelemetryProvider>
+          <InstructionModeProvider>
+            <IpcTelemetryProvider>
+              <IpcSessionProvider>
+                <ErrorReportingProvider>
+                  <IpcExecutableRegistryProvider>
+                    <GeneratedFilesProvider>
+                      <IpcGitWorkTreeProvider>
+                        <LogsProvider>
+                          <App />
+                        </LogsProvider>
+                      </IpcGitWorkTreeProvider>
+                    </GeneratedFilesProvider>
+                  </IpcExecutableRegistryProvider>
+                </ErrorReportingProvider>
+              </IpcSessionProvider>
+            </IpcTelemetryProvider>
+          </InstructionModeProvider>
         </ThemeProvider>
       </ApiProvider>
     </StrictMode>,

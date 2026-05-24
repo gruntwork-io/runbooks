@@ -1,24 +1,67 @@
 name: Build and Release
 
+# Manual release flow (modeled on gruntwork-io/terragrunt's release.yml):
+#
+#   1. A maintainer creates a DRAFT GitHub release for the version, targeting a
+#      specific commit (not a branch). The draft holds the release notes.
+#   2. They run this workflow via "Run workflow", passing that version.
+#   3. `validate` confirms the draft exists, the tag is strict semver, and the
+#      draft targets a full commit SHA (so no new commits can slip in between
+#      draft creation and publishing).
+#   4. The per-platform `build-*` jobs build and package from that exact commit.
+#   5. `upload-assets` attaches the binaries + checksums to the draft release.
+#   6. The maintainer publishes the draft from the Releases page when ready.
+
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (must match an existing draft release, e.g. v1.0.2)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  build-macos:
-    name: Build macOS (${{ matrix.arch }})
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [arm64, x64]
+  # Validate the release is an existing release with a valid semver tag,
+  # targeting an explicit commit SHA.
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.resolve.outputs.ref }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Resolve version and ref
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/release/resolve-version-ref.sh
+
+      - name: Validate semver
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: .github/scripts/release/validate-semver.sh "$VERSION"
+
+      - name: Enforce commit SHA target
+        env:
+          REF: ${{ steps.resolve.outputs.ref }}
+        run: .github/scripts/release/enforce-commit-sha.sh "$REF"
+
+  build-macos:
+    name: Build macOS
+    needs: validate
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - uses: jdx/mise-action@v2
 
@@ -28,20 +71,23 @@ jobs:
       - name: Build Electron app
         run: just build
 
-      # Fetch boilerplate for the *target* arch, not the runner's arch. The
-      # matrix runs both arm64 and x64 builds on macos-latest (arm64), so the
-      # x64 job must cross-fetch amd64 — host detection would mis-bundle it.
-      - name: Fetch boilerplate
-        env:
-          MATRIX_ARCH: ${{ matrix.arch }}
-        run: |
-          case "$MATRIX_ARCH" in
-            arm64) bp_arch=arm64 ;;
-            x64)   bp_arch=amd64 ;;
-            *) echo "Unhandled matrix.arch: $MATRIX_ARCH" >&2; exit 1 ;;
-          esac
-          just fetch-boilerplate darwin "$bp_arch"
-
+      # Build both arches in a single job, one arch at a time. This must NOT be
+      # a matrix and must NOT be a single `electron-builder --mac` that emits
+      # both arches at once, because:
+      #   1. `resources/bin/boilerplate` is a single, arch-specific binary
+      #      (fetch-boilerplate deletes the alternate). Each arch must be
+      #      packaged with its matching boilerplate, so we re-fetch between
+      #      passes — a both-at-once build would bundle the wrong-arch CLI.
+      #   2. A matrix had each job build BOTH arches anyway (the package.json
+      #      `mac.target` arch arrays override the `--arm64`/`--x64` flag), so
+      #      every artifact was produced twice under two artifact bundles. The
+      #      create-release `download-artifact ... merge-multiple: true` then
+      #      extracted the colliding filenames concurrently into one dir, which
+      #      tore the bytes of whichever copy lost the race and shipped a DMG
+      #      that failed `hdiutil verify` ("disk not readable"). One job, one
+      #      copy of each artifact, one upload bundle = no collision.
+      # The `arch` arrays were removed from package.json `mac.target` so the
+      # `--arm64`/`--x64` flag below actually restricts each pass to one arch.
       - name: Package for macOS
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -49,9 +95,8 @@ jobs:
           APPLE_ID: ${{ secrets.MACOS_AC_LOGIN }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MACOS_AC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.MACOS_AC_PROVIDER }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EB_ARCH: ${{ matrix.arch }}
         run: |
+          set -euo pipefail
           # Only enable code signing when a certificate is actually configured.
           # An empty CSC_LINK is treated by electron-builder as a file path that
           # resolves to the project root, failing with "<projectDir> not a file".
@@ -62,12 +107,36 @@ jobs:
             echo "No MACOS_CERTIFICATE secret set; building an unsigned macOS app."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          mise x node -- npx electron-builder --mac --${EB_ARCH}
+
+          # arm64 pass (boilerplate arch arm64). `--publish never`: the
+          # upload-assets job is the sole uploader; electron-builder must not
+          # also push to the release (its implicit tag-publish caused duplicate,
+          # racing uploads of identically named assets).
+          just fetch-boilerplate darwin arm64
+          mise x node -- npx electron-builder --mac --arm64 --publish never
+
+          # x64 pass (boilerplate arch amd64). Cross-built on the arm64 runner.
+          just fetch-boilerplate darwin amd64
+          mise x node -- npx electron-builder --mac --x64 --publish never
+
+      # Fail the build loudly if any artifact is corrupt, instead of shipping a
+      # bad file with a matching checksum (the original failure mode).
+      - name: Verify macOS artifacts
+        run: |
+          set -euo pipefail
+          for f in out/*.dmg; do
+            echo "Verifying $f"
+            hdiutil verify "$f"
+          done
+          for z in out/*.zip; do
+            echo "Testing $z"
+            unzip -t "$z" >/dev/null
+          done
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}
+          name: macos
           path: |
             out/*.dmg
             out/*.zip
@@ -77,10 +146,13 @@ jobs:
 
   build-linux:
     name: Build Linux
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - uses: jdx/mise-action@v2
 
@@ -93,10 +165,9 @@ jobs:
       - name: Fetch boilerplate
         run: just fetch-boilerplate linux amd64
 
+      # `--publish never`: the upload-assets job is the sole uploader.
       - name: Package for Linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: mise x node -- npx electron-builder --linux
+        run: mise x node -- npx electron-builder --linux --publish never
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -111,10 +182,13 @@ jobs:
 
   build-windows:
     name: Build Windows
+    needs: validate
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - uses: jdx/mise-action@v2
 
@@ -128,10 +202,9 @@ jobs:
         shell: bash
         run: just fetch-boilerplate windows amd64
 
+      # `--publish never`: the upload-assets job is the sole uploader.
       - name: Package for Windows
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: mise x node -- npx electron-builder --win
+        run: mise x node -- npx electron-builder --win --publish never
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -143,14 +216,23 @@ jobs:
             out/latest*.yml
           retention-days: 7
 
-  create-release:
-    name: Create GitHub Release
-    needs: [build-macos, build-linux, build-windows]
+  # Attach the built binaries + checksums to the existing draft release.
+  upload-assets:
+    name: Upload Release Assets
+    needs: [validate, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+
+      - name: Check if release exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: .github/scripts/release/check-release-exists.sh
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -159,24 +241,26 @@ jobs:
           merge-multiple: true
 
       - name: Generate checksums
-        run: |
-          cd artifacts
-          sha256sum *.dmg *.zip *.AppImage *.deb *.exe 2>/dev/null > SHA256SUMS || true
-          cat SHA256SUMS
+        run: .github/scripts/release/generate-checksums.sh artifacts
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/*.dmg
-            artifacts/*.zip
-            artifacts/*.AppImage
-            artifacts/*.deb
-            artifacts/*.exe
-            artifacts/*.blockmap
-            artifacts/*.yml
-            artifacts/SHA256SUMS
-          draft: false
-          generate_release_notes: true
+      - name: Upload assets to release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          CLOBBER: "true"
+        run: .github/scripts/release/upload-assets.sh artifacts
+
+      - name: Verify all assets uploaded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          CLOBBER: "true"
+        run: .github/scripts/release/verify-assets-uploaded.sh artifacts
+
+      - name: Upload summary
+        if: always()
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_ID: ${{ steps.check_release.outputs.release_id }}
+          IS_DRAFT: ${{ steps.check_release.outputs.is_draft }}
+        run: .github/scripts/release/generate-upload-summary.sh artifacts

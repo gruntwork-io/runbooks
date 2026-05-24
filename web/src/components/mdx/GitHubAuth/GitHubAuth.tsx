@@ -6,7 +6,9 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { GitHubAuthInstruction } from "./GitHubAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import type { AppError } from "@/types/error"
@@ -20,7 +22,7 @@ import { OAuthFlow } from "./components/OAuthFlow"
 import { CustomOAuthWarning } from "./components/CustomOAuthWarning"
 import { GitHubLogo } from "./components/GitHubLogo"
 
-export function GitHubAuth({
+function GitHubAuthInteractive({
   id,
   title = "GitHub Authentication",
   description,
@@ -246,6 +248,21 @@ export function GitHubAuth({
       </div>
     </div>
   )
+}
+
+/**
+ * GitHubAuth entry point. A thin wrapper that branches on instruction mode
+ * before any auth hooks run: in instruction mode it renders a plain "Log into
+ * GitHub" instruction (no token capture); otherwise it renders the interactive
+ * authentication UI. Branching here keeps `useGitHubAuth` (and its on-mount
+ * detection) out of the instruction path entirely.
+ */
+export function GitHubAuth(props: GitHubAuthProps) {
+  const { enabled: instructionMode } = useInstructionMode()
+  if (instructionMode) {
+    return <GitHubAuthInstruction {...props} />
+  }
+  return <GitHubAuthInteractive {...props} />
 }
 
 // Set displayName for React DevTools and component detection

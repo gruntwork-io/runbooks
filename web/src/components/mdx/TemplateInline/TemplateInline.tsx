@@ -15,6 +15,7 @@ import { CodeFile } from '@/components/artifacts/code/CodeFile'
 import { AlertTriangle } from 'lucide-react'
 import { DuplicateIdError } from '../_shared/components/DuplicateIdError'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
+import { useInstructionMode } from '@/contexts/useInstructionMode'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
@@ -67,6 +68,13 @@ function TemplateInline({
     }
     return null
   }, [id])
+
+  // Instruction mode: render the same copyable preview, but never write files.
+  // TemplateInline's only side effect is the render-to-disk path that fires when
+  // generateFile is true, so forcing it off keeps the displayed output identical
+  // while guaranteeing nothing is generated (spec §6.4).
+  const { enabled: instructionMode } = useInstructionMode()
+  const effectiveGenerateFile = instructionMode ? false : generateFile
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
@@ -190,19 +198,19 @@ function TemplateInline({
     debouncedRequest?.({
       templateFiles,
       inputs: payload,
-      generateFile,
+      generateFile: effectiveGenerateFile,
       ...(target ? { target } : {}),
     });
-  }, [inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, generateFile, target, debouncedRequest, isDuplicate]);
+  }, [inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, effectiveGenerateFile, target, debouncedRequest, isDuplicate]);
 
   // Apply file tree updates when render data arrives
   useEffect(() => {
     if (!data) return;
     setHasRendered(true);
-    if (generateFile) {
+    if (effectiveGenerateFile) {
       applyFileTreeUpdate(data);
     }
-  }, [data, generateFile, applyFileTreeUpdate]);
+  }, [data, effectiveGenerateFile, applyFileTreeUpdate]);
 
   // Early return for validation errors
   if (validationError) {

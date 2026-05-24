@@ -1,0 +1,83 @@
+---
+title: Instruction Mode
+sidebar:
+  order: 8
+---
+
+By default, Runbooks is interactive: when you click **Run**, **Authenticate**,
+**Generate**, **Clone**, or **Create PR**, the app performs that action on your
+machine — it executes scripts, captures credentials, renders templates to disk,
+and talks to git and GitHub for you.
+
+**Instruction mode** flattens that same runbook into an explicit, ordered,
+copy-pasteable set of *instructions you run yourself*. The document still renders
+top to bottom with the same prose; only the blocks change — from "do it for me"
+to "here is exactly what to do, and a button to copy it."
+
+When instruction mode is on, **Runbooks performs no actions**: nothing is
+executed, no credentials are captured, and no files, clones, or pull requests are
+written. Every block becomes a description of what to do by hand.
+
+## When to use it
+
+- **Windows and other non-POSIX environments.** Many runbook scripts and the
+  boilerplate generator assume a Unix-style shell. Instruction mode shows the
+  exact command so you can run it (or adapt it to PowerShell) yourself.
+- **Locked-down or managed machines** where the app can't run scripts, write
+  files, or hold credentials.
+- **Transparency.** Read exactly what *would* run, then do it yourself, in your
+  own terminal, fully in control.
+
+## Turning it on
+
+Instruction mode is a global setting, modeled on the light/dark theme control:
+
+1. Open the **Menu** in the top-right of the window.
+2. Under **Mode**, toggle **Instruction mode**.
+
+The setting is remembered across launches and is off by default. Toggling it off
+instantly restores the interactive experience with no loss of state. While it is
+on, a banner at the top of every runbook reminds you that nothing runs
+automatically.
+
+## What each block becomes
+
+| Block | Interactive | Instruction mode |
+|---|---|---|
+| **Command / Check** | Run button; the app executes the script | "Run this:" with the resolved command in a copy block. File-backed scripts keep the source viewer. |
+| **AwsAuth** | SSO / profile / key UI; captures credentials | "Log into AWS in the `<account>` account" (with the configured SSO details). No capture. |
+| **GitHubAuth** | OAuth / PAT entry; holds a token | "Log into GitHub" noting the scopes the block needs. No capture. |
+| **Inputs** | Form you fill | Still a form — it's how you supply values that get substituted into the displayed commands. |
+| **Template** | Generate button; renders boilerplate to disk | The variable form plus a copy-pasteable `boilerplate` invocation. No files written. |
+| **TemplateInline** | Inline rendered preview | The rendered text as a copy block. |
+| **GitClone** | Clone button | A copyable `git clone …` command (with a sparse-checkout note for sub-paths). |
+| **GitHubPullRequest** | Create PR button | A copyable `gh pr create …` command, plus a reminder to push your branch first. |
+| **DirPicker** | Native directory picker | An instruction to choose a directory; the path you enter flows into later commands. |
+| **Admonition** | Static callout | Unchanged. |
+
+## Filling in values
+
+Runbooks substitutes every value you supply into the displayed commands, so you
+never see an unresolved `{{ … }}` template:
+
+- **`Inputs` form values** are substituted directly into the commands shown.
+- **Values produced by an earlier step** (a script's outputs) can't be known by
+  the app, because it runs nothing. When a command needs one, instruction mode
+  shows a small field labeled with the value it stands in for (for example,
+  *`account_id` — output of step `create_account`*). Run that earlier step
+  yourself, then paste the value in; the command updates as you type.
+
+## Tracking your progress
+
+Each step has a **Mark as done** checkbox in its top-right corner. Tick it once
+you've performed that step by hand and the block turns green, so you can see at a
+glance what's left. Your progress is remembered per runbook across reloads and
+even if you toggle instruction mode off and back on.
+
+## Notes
+
+- **Fidelity.** Commands are resolved with the same template engine the
+  interactive UI uses to preview them. If that engine is unavailable, a simpler
+  client-side resolver is used and a small note is shown.
+- Instruction mode is a *rendering* mode for a human reading the app — it is not
+  a headless CLI or CI runner.

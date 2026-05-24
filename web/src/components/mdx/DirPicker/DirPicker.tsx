@@ -8,10 +8,12 @@ import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { DirPickerInstruction } from "./DirPickerInstruction"
 import type { AppError } from "@/types/error"
 import type { DirPickerProps } from "./types"
 
-function DirPicker({
+function DirPickerInteractive({
   id,
   rootDir,
   gitCloneId,
@@ -222,6 +224,21 @@ function DirPicker({
       </div>
     </div>
   )
+}
+
+/**
+ * DirPicker entry point. Branches on instruction mode before any picker hooks
+ * run: in instruction mode it renders an instruction to choose a directory and
+ * publishes the entered path as this block's `PATH` output; otherwise the
+ * interactive directory browser. Branching here keeps `useDirPicker` (filesystem
+ * IPC) out of the instruction path.
+ */
+function DirPicker(props: DirPickerProps) {
+  const { enabled: instructionMode } = useInstructionMode()
+  if (instructionMode) {
+    return <DirPickerInstruction {...props} />
+  }
+  return <DirPickerInteractive {...props} />
 }
 
 // Set displayName for React DevTools and component detection

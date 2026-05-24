@@ -9,7 +9,9 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useTheme } from "@/contexts/useTheme"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
+import { AwsAuthInstruction } from "./AwsAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import type { AppError } from "@/types/error"
@@ -23,7 +25,7 @@ import { SsoForm, SsoAccountSelector, SsoRoleSelector } from "./components/SsoFl
 import { ProfileSelector } from "./components/ProfileSelector"
 import { DetectedCredentialsPrompt } from "./components/DetectedCredentialsPrompt"
 
-function AwsAuth({
+function AwsAuthInteractive({
   id,
   title = "AWS Authentication",
   description,
@@ -363,6 +365,22 @@ function AwsAuth({
       </div>
     </div>
   )
+}
+
+/**
+ * AwsAuth entry point. A thin wrapper that branches on instruction mode before
+ * any auth hooks run: in instruction mode it renders a plain "Log into AWS"
+ * instruction (no credential capture); otherwise it renders the interactive
+ * authentication UI. Branching here — rather than inside the interactive
+ * component — keeps `useAwsAuth` (and its on-mount credential detection) out of
+ * the instruction path entirely.
+ */
+function AwsAuth(props: AwsAuthProps) {
+  const { enabled: instructionMode } = useInstructionMode()
+  if (instructionMode) {
+    return <AwsAuthInstruction {...props} />
+  }
+  return <AwsAuthInteractive {...props} />
 }
 
 // Set displayName for React DevTools and component detection

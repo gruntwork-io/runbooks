@@ -20,6 +20,7 @@ import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
 import { DirPicker } from '@/components/mdx/DirPicker'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
+import { InstructionModeBanner } from '@/components/mdx/_shared/components/InstructionModeBanner'
 
 /**
  * This component renders a markdown/MDX document.
@@ -111,6 +112,10 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
                 <p>Runbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this Runbook and carefully review embedded code snippets before running them.</p>
                 <p>If you do not trust this Runbook, do not run it.</p>
               </Admonition>
+            </div>
+            {/* Instruction-mode indicator — renders only when the mode is on */}
+            <div className="mb-4 empty:mb-0">
+              <InstructionModeBanner />
             </div>
             <CustomMDXComponent />
           </CustomMDXComponentErrorBoundary>
@@ -238,6 +243,33 @@ const stripFrontMatter = (content: string): string => {
   return content.slice(endMatch[0].length)
 }
 
+/**
+ * The MDX element → block component registry. Exported so tests can enumerate
+ * the exact set of blocks the renderer supports and assert each interactive
+ * block honors instruction mode (spec §9/§10) — a new block added here without
+ * instruction-mode handling fails that test.
+ */
+export const MDX_COMPONENTS = {
+  // Form and template components
+  Inputs,
+  Template,
+  TemplateInline,
+  DirPicker,
+  // Script execution components
+  Check,
+  Command,
+  // Authentication components
+  AwsAuth,
+  GitHubAuth,
+  // Git operations
+  GitClone,
+  GitHubPullRequest,
+  // Utility components
+  Admonition,
+  a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
+  pre: CodeBlock, // Code blocks with copy-on-hover button
+} as const
+
 // Compiles MDX content into a custom React component that can render the MDX content.
 const compileMDX = async (content: string): Promise<React.ComponentType> => {
   // Strip front matter before MDX compilation (front matter is metadata, not content)
@@ -250,26 +282,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     baseUrl: import.meta.url,
     remarkPlugins: [remarkGfm], // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
     rehypePlugins: [rehypeTransformAssetPaths],
-    useMDXComponents: () => ({
-      // Form and template components
-      Inputs,
-      Template,
-      TemplateInline,
-      DirPicker,
-      // Script execution components
-      Check,
-      Command,
-      // Authentication components
-      AwsAuth,
-      GitHubAuth,
-      // Git operations
-      GitClone,
-      GitHubPullRequest,
-      // Utility components
-      Admonition,
-      a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
-      pre: CodeBlock, // Code blocks with copy-on-hover button
-    })
+    useMDXComponents: () => MDX_COMPONENTS,
   })
 
   return compiledMDX.default

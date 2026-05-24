@@ -14,6 +14,8 @@ import { useGitHubPullRequest } from "./hooks/useGitHubPullRequest"
 import { PRForm } from "./components/PRForm"
 import { PRResultDisplay } from "./components/PRResult"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { GitHubPullRequestInstruction } from "./GitHubPullRequestInstruction"
 import type { AppError } from "@/types/error"
 import type { GitHubPullRequestProps, PRBlockStatus } from "./types"
 
@@ -31,7 +33,7 @@ function resolveAndUnescape(template: string, ctx: import('@/lib/templateUtils')
   return resolveTemplateReferences(template, ctx).replace(/\\n/g, '\n')
 }
 
-function GitHubPullRequest({
+function GitHubPullRequestInteractive({
   id,
   title = "Create Pull Request",
   description = "Open a pull request with your changes",
@@ -455,6 +457,20 @@ function GitHubPullRequest({
       )}
     </div>
   )
+}
+
+/**
+ * GitHubPullRequest entry point. Branches on instruction mode before any PR
+ * hooks run: in instruction mode it renders a copyable `gh pr create` command
+ * (no push, no PR); otherwise the interactive PR UI. Branching here keeps
+ * `useGitHubPullRequest` IPC out of the instruction path.
+ */
+function GitHubPullRequest(props: GitHubPullRequestProps) {
+  const { enabled: instructionMode } = useInstructionMode()
+  if (instructionMode) {
+    return <GitHubPullRequestInstruction {...props} />
+  }
+  return <GitHubPullRequestInteractive {...props} />
 }
 
 GitHubPullRequest.displayName = 'GitHubPullRequest'
