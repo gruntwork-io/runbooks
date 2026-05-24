@@ -90,6 +90,18 @@ describe('resolveCommandClientSide + buildMergedContext', () => {
     expect(hasUnresolvedTemplate(resolved)).toBe(false)
     expect(resolved).toBe('echo <arn>')
   })
+
+  it('preserves a block\'s other output keys when layering a manual value', () => {
+    // `step` already published `path` in context; only `step.arn` needs a prompt
+    // (as fieldsNeedingPrompt would filter). Merging it must not drop `step.path`.
+    const ctx: TemplateContext = {
+      inputs: {},
+      outputs: { step: { path: '/tmp/work' } },
+    }
+    const fields = detectManualFields('echo {{ .outputs.step.arn }}')
+    const merged = buildMergedContext(ctx, fields, { 'outputs.step.arn': 'arn:aws:s3' })
+    expect(merged.outputs.step).toEqual({ path: '/tmp/work', arn: 'arn:aws:s3' })
+  })
 })
 
 describe('normalizeCommandList', () => {

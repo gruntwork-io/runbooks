@@ -49,6 +49,7 @@ export function DirPickerInstruction({
   )
 
   const [path, setPath] = useState('')
+  const inputId = `dirpicker-path-${id}`
 
   const { completed, toggle } = useBlockCompletion(id)
 
@@ -87,7 +88,7 @@ export function DirPickerInstruction({
           </div>
 
           <div>
-            <label className="text-sm font-semibold text-foreground mb-0.5 block">
+            <label htmlFor={inputId} className="text-sm font-semibold text-foreground mb-0.5 block">
               {resolvedPathLabel}
             </label>
             {resolvedPathLabelDescription && (
@@ -96,6 +97,7 @@ export function DirPickerInstruction({
               </p>
             )}
             <input
+              id={inputId}
               type="text"
               value={path}
               onChange={(e) => setPath(e.target.value)}

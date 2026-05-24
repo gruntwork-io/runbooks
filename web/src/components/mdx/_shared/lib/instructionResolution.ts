@@ -138,9 +138,17 @@ export function buildMergedContext(
   values: Record<string, string>,
 ): TemplateContext {
   const manualOutputs = buildManualOutputs(fields, values)
+
+  // Merge per-block so manual values for one output key don't drop the block's
+  // other keys already resolved in context (e.g. a DirPicker's published PATH).
+  const mergedOutputs: TemplateOutputs = { ...baseContext.outputs }
+  for (const [blockId, outputValues] of Object.entries(manualOutputs)) {
+    mergedOutputs[blockId] = { ...(mergedOutputs[blockId] ?? {}), ...outputValues }
+  }
+
   return {
     inputs: baseContext.inputs,
-    outputs: { ...baseContext.outputs, ...manualOutputs },
+    outputs: mergedOutputs,
   }
 }
 

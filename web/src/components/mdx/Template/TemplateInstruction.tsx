@@ -60,9 +60,14 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
     [config, id, inputValues, registerInputs],
   )
 
+  // Publish defaults/imported values, but let any value the user has already
+  // entered win — otherwise a later change to imported `inputValues` would
+  // re-run this effect and clobber the user's edits in context with defaults.
   useEffect(() => {
-    if (config) registerInputs(id, { ...inputValues, ...initialData }, config)
-  }, [config, id, inputValues, initialData, registerInputs])
+    if (config) {
+      registerInputs(id, { ...inputValues, ...initialData, ...formValues }, config)
+    }
+  }, [config, id, inputValues, initialData, formValues, registerInputs])
 
   const invocation = useMemo(
     () =>
