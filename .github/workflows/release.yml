@@ -1,21 +1,67 @@
 name: Build and Release
 
+# Manual release flow (modeled on gruntwork-io/terragrunt's release.yml):
+#
+#   1. A maintainer creates a DRAFT GitHub release for the version, targeting a
+#      specific commit (not a branch). The draft holds the release notes.
+#   2. They run this workflow via "Run workflow", passing that version.
+#   3. `validate` confirms the draft exists, the tag is strict semver, and the
+#      draft targets a full commit SHA (so no new commits can slip in between
+#      draft creation and publishing).
+#   4. The per-platform `build-*` jobs build and package from that exact commit.
+#   5. `upload-assets` attaches the binaries + checksums to the draft release.
+#   6. The maintainer publishes the draft from the Releases page when ready.
+
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (must match an existing draft release, e.g. v1.0.2)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
+  # Validate the release is an existing release with a valid semver tag,
+  # targeting an explicit commit SHA.
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve version and ref
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/release/resolve-version-ref.sh
+
+      - name: Validate semver
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: .github/scripts/release/validate-semver.sh "$VERSION"
+
+      - name: Enforce commit SHA target
+        env:
+          REF: ${{ steps.resolve.outputs.ref }}
+        run: .github/scripts/release/enforce-commit-sha.sh "$REF"
+
   build-macos:
     name: Build macOS
+    needs: validate
     runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - uses: jdx/mise-action@v2
 
@@ -63,7 +109,7 @@ jobs:
           fi
 
           # arm64 pass (boilerplate arch arm64). `--publish never`: the
-          # create-release job is the sole uploader; electron-builder must not
+          # upload-assets job is the sole uploader; electron-builder must not
           # also push to the release (its implicit tag-publish caused duplicate,
           # racing uploads of identically named assets).
           just fetch-boilerplate darwin arm64
@@ -100,10 +146,13 @@ jobs:
 
   build-linux:
     name: Build Linux
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - uses: jdx/mise-action@v2
 
@@ -116,7 +165,7 @@ jobs:
       - name: Fetch boilerplate
         run: just fetch-boilerplate linux amd64
 
-      # `--publish never`: the create-release job is the sole uploader.
+      # `--publish never`: the upload-assets job is the sole uploader.
       - name: Package for Linux
         run: mise x node -- npx electron-builder --linux --publish never
 
@@ -133,10 +182,13 @@ jobs:
 
   build-windows:
     name: Build Windows
+    needs: validate
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - uses: jdx/mise-action@v2
 
@@ -150,7 +202,7 @@ jobs:
         shell: bash
         run: just fetch-boilerplate windows amd64
 
-      # `--publish never`: the create-release job is the sole uploader.
+      # `--publish never`: the upload-assets job is the sole uploader.
       - name: Package for Windows
         run: mise x node -- npx electron-builder --win --publish never
 
@@ -164,14 +216,23 @@ jobs:
             out/latest*.yml
           retention-days: 7
 
-  create-release:
-    name: Create GitHub Release
-    needs: [build-macos, build-linux, build-windows]
+  # Attach the built binaries + checksums to the existing draft release.
+  upload-assets:
+    name: Upload Release Assets
+    needs: [validate, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+
+      - name: Check if release exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: .github/scripts/release/check-release-exists.sh
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -180,24 +241,26 @@ jobs:
           merge-multiple: true
 
       - name: Generate checksums
-        run: |
-          cd artifacts
-          sha256sum *.dmg *.zip *.AppImage *.deb *.exe 2>/dev/null > SHA256SUMS || true
-          cat SHA256SUMS
+        run: .github/scripts/release/generate-checksums.sh artifacts
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/*.dmg
-            artifacts/*.zip
-            artifacts/*.AppImage
-            artifacts/*.deb
-            artifacts/*.exe
-            artifacts/*.blockmap
-            artifacts/*.yml
-            artifacts/SHA256SUMS
-          draft: false
-          generate_release_notes: true
+      - name: Upload assets to release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          CLOBBER: "true"
+        run: .github/scripts/release/upload-assets.sh artifacts
+
+      - name: Verify all assets uploaded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          CLOBBER: "true"
+        run: .github/scripts/release/verify-assets-uploaded.sh artifacts
+
+      - name: Upload summary
+        if: always()
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_ID: ${{ steps.check_release.outputs.release_id }}
+          IS_DRAFT: ${{ steps.check_release.outputs.is_draft }}
+        run: .github/scripts/release/generate-upload-summary.sh artifacts
