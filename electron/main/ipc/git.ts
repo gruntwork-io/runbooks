@@ -9,7 +9,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { Cause, Effect, Exit, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime, sessionManager, getSessionToken } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
   resolveClonePaths,
@@ -31,29 +31,20 @@ import { makeLogger } from "../logger.ts"
 const log = makeLogger("ipc:git:clone")
 
 /**
- * Resolve the GitHub token from the current session's environment.
- *
- * The token is populated by the GitHubAuth block (via github:* handlers and
- * session:set-env) and is the single source of truth for "which token do git
- * and GitHub API calls use" — the renderer never holds it directly. This
- * mirrors getSessionToken() in github.ts.
+ * Resolve the GitHub token from the session env, failing with a typed
+ * GitError so the failure flows through errorMessage() / git:error like every
+ * other git failure. See getSessionToken() in runtime.ts for the shared lookup.
  */
-const getSessionToken = () =>
-  Effect.gen(function* () {
-    const session = yield* sessionManager.getSession()
-    const token = session.env.get("GITHUB_TOKEN")
-    if (!token) {
-      return yield* Effect.fail(
-        new GitError({
-          command: "resolve github token",
-          stderr:
-            "No GitHub token available in session. Authenticate with the GitHub Auth block before creating a pull request.",
-          exitCode: 1,
-        }),
-      )
-    }
-    return token
-  })
+const resolveGitToken = () =>
+  getSessionToken(
+    () =>
+      new GitError({
+        command: "resolve github token",
+        stderr:
+          "No GitHub token available in session. Authenticate with the GitHub Auth block before creating a pull request.",
+        exitCode: 1,
+      }),
+  )
 
 /**
  * Extract a human-readable message from a typed Effect failure so it can be
@@ -266,7 +257,7 @@ export function registerGitHandlers(): void {
 
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
-        const token = yield* getSessionToken()
+        const token = yield* resolveGitToken()
 
         const options: PushOptions = { token, setUpstream: true }
 
@@ -321,7 +312,7 @@ export function registerGitHandlers(): void {
       // event the renderer can act on (e.g. the branch_exists recovery flow).
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
-        const token = yield* getSessionToken()
+        const token = yield* resolveGitToken()
 
         const prParams: CreatePullRequestParams = {
           owner: params.owner,
@@ -335,12 +326,9 @@ export function registerGitHandlers(): void {
           repoPath,
         }
 
-        sendLog(`Creating branch ${params.headBranch}…`)
-        sendLog("Staging and committing changes…")
-        sendLog(`Pushing ${params.headBranch} to origin…`)
-        sendLog("Opening pull request…")
-
-        return yield* createPullRequest(token, prParams)
+        // sendLog is threaded in as the progress sink so each line is emitted
+        // when its step actually runs, not all at once before the work starts.
+        return yield* createPullRequest(token, prParams, sendLog)
       })
 
       const exit = await runtime.runPromiseExit(program)
