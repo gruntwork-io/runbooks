@@ -193,14 +193,21 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   }, [id, registerOutputs])
 
   // Create pull request
+  //
+  // The token is intentionally NOT passed: the main process resolves it from
+  // the session environment (populated by the GitHubAuth block), so it never
+  // crosses the IPC boundary. Field names match the git:pull-request channel
+  // contract (PullRequestRequest).
   const createPullRequest = useCallback(async (params: {
+    owner: string
+    repo: string
+    baseBranch: string
+    headBranch: string
     title: string
-    description: string
-    labels: string[]
-    branchName: string
+    body: string
     commitMessage: string
-    localPath: string
-    repoUrl: string
+    labels: string[]
+    worktreePath: string
   }) => {
     setStatus('creating')
     setLogs([])
@@ -227,7 +234,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
 
     await executeIPCRequest({
       channel: 'git:push',
-      body: { localPath, branchName },
+      body: { worktreePath: localPath, branchName },
       onError: setPushError,
       errorStatus: 'success',  // Stay in success state with inline error
       errorPrefix: 'Push error',

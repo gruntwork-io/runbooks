@@ -166,6 +166,14 @@ export function registerGitHubHandlers(): void {
 
     try {
       const { user, scopes } = await runtime.runPromise(validateToken(token))
+
+      // Inject the token into the session environment so git/GitHub operations
+      // (e.g. git:pull-request) can resolve it server-side, matching the
+      // env-credentials and oauth paths.
+      await runtime.runPromise(
+        sessionManager.appendToEnv({ GITHUB_TOKEN: token }),
+      )
+
       return { found: true as const, token, user, scopes, tokenType }
     } catch (err) {
       return {
