@@ -14,6 +14,16 @@
     white-space: pre-wrap;
   }
 
+  /* No-wrap mode: preserve whitespace on a single line so the parent
+     container can scroll horizontally instead of wrapping long lines. */
+  &.terminal-text--nowrap {
+    white-space: pre;
+
+    & code {
+      white-space: pre;
+    }
+  }
+
   /* Foreground colors (class names from ansi-to-react) */
   & .ansi-red-fg,
   & .ansi-bright-red-fg {

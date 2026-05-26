@@ -150,6 +150,17 @@ export const executeScript = (
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    log.debug("step 3b: creating log file")
+    // Create a durable log file for this execution. The spawner appends every
+    // stdout/stderr line here as it runs, so the file can be tailed externally
+    // and inspected after the fact. NOTE: unlike the dirs above, we intentionally
+    // do NOT register a cleanup finalizer — the file must outlive the execution
+    // so the user can open it from the surfaced path. These live under the OS
+    // temp dir, which the OS reclaims on its own schedule.
+    const logsDir = yield* fs.mkdtemp("runbook-logs-")
+    const logFilePath = `${logsDir}/exec.log`
+    yield* fs.writeFile(logFilePath, "")
+
     // Resolve the effective execution timeout: per-request override, falling back to the default.
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
 
@@ -184,6 +195,7 @@ export const executeScript = (
     const process = yield* spawner.spawn(scriptSetup.interpreter, cmdArgs, {
       cwd: sessionContext.workDir || undefined,
       env: execEnv,
+      logFilePath,
     })
 
     // Kill the child process when the scope closes (e.g. on cancellation)
@@ -282,5 +294,5 @@ export const executeScript = (
       return events
     })
 
-    return { logStream, completionEffect }
+    return { logStream, completionEffect, logFilePath }
   })

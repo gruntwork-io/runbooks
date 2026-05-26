@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download } from "lucide-react"
+import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download, WrapText, FileText } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import type { ExecutionStatus } from "../types"
 import { TerminalText } from "@/components/shared/TerminalText"
@@ -24,16 +24,22 @@ interface ViewLogsProps {
   status: ExecutionStatus
   autoOpen?: boolean
   blockId: string
+  /** Absolute path to the on-disk log file, when one is available (e.g. desktop runs). */
+  logFilePath?: string | null
 }
 
-export function ViewLogs({ 
-  logs, 
-  status, 
+export function ViewLogs({
+  logs,
+  status,
   autoOpen = false,
   blockId,
+  logFilePath,
 }: ViewLogsProps) {
   const [showLogs, setShowLogs] = useState(autoOpen)
   const [copied, setCopied] = useState(false)
+  const [pathCopied, setPathCopied] = useState(false)
+  // Default to no-wrap: long log lines scroll horizontally rather than wrap.
+  const [wrap, setWrap] = useState(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const userHasScrolledUp = useRef(false)
 
@@ -64,6 +70,17 @@ export function ViewLogs({
     if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  // Handle copy of the on-disk log path (for inspecting the file directly)
+  const handleCopyPath = async (e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent toggle
+    if (!logFilePath) return
+    const ok = await copyTextToClipboard(logFilePath)
+    if (ok) {
+      setPathCopied(true)
+      setTimeout(() => setPathCopied(false), 2000)
     }
   }
 
@@ -101,9 +118,54 @@ export function ViewLogs({
           <span className="text-sm text-foreground">View Logs</span>
         </button>
 
-        {/* Copy and Download buttons - only show when there are logs */}
-        {hasLogs && (
+        {/* Action buttons. The copy-path button appears whenever an on-disk
+            log file exists (even before any output), so the file can be opened
+            directly; the rest require logs to act on. */}
+        {(hasLogs || logFilePath) && (
           <div className="flex items-center gap-1">
+            {/* Copy log path — only when a file path is available */}
+            {logFilePath && (
+              <Tooltip delayDuration={350}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopyPath}
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  >
+                    {pathCopied ? (
+                      <Check className="size-3.5 text-success" />
+                    ) : (
+                      <FileText className="size-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{pathCopied ? "Copied!" : "Copy log file path"}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {hasLogs && (
+            <>
+            {/* Wrap toggle */}
+            <Tooltip delayDuration={350}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-pressed={wrap}
+                  onClick={(e) => { e.stopPropagation(); setWrap(w => !w) }}
+                  className={`h-6 w-6 hover:text-foreground ${wrap ? 'text-foreground bg-accent' : 'text-muted-foreground'}`}
+                >
+                  <WrapText className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{wrap ? "Disable line wrap" : "Enable line wrap"}</p>
+              </TooltipContent>
+            </Tooltip>
+
             {/* Copy Button */}
             <Tooltip delayDuration={350}>
               <TooltipTrigger asChild>
@@ -148,6 +210,8 @@ export function ViewLogs({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </>
+            )}
           </div>
         )}
       </div>
@@ -164,16 +228,19 @@ export function ViewLogs({
             const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32
             userHasScrolledUp.current = !atBottom
           }}
-          className="border-t border-border p-3 bg-gray-900 max-h-64 overflow-y-auto"
+          className={`border-t border-border p-3 bg-gray-900 max-h-64 overflow-y-auto ${wrap ? '' : 'overflow-x-auto'}`}
         >
           {logs.length > 0 && (
             <div className="space-y-1">
               {logs.map((log, index) => (
-                <div key={`${log.timestamp}-${index}`} className="text-xs font-mono text-gray-100">
+                <div
+                  key={`${log.timestamp}-${index}`}
+                  className={`text-xs font-mono text-gray-100 ${wrap ? '' : 'whitespace-nowrap'}`}
+                >
                   <span className="text-gray-400 mr-2">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <TerminalText text={log.line} />
+                  <TerminalText text={log.line} wrap={wrap} />
                 </div>
               ))}
             </div>

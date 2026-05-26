@@ -56,7 +56,13 @@ export interface ExecState {
   exitCode: number | null
   error: AppError | null
   outputs: Record<string, string> | null
+  /** Absolute path to the on-disk log file for this execution, if available. */
+  logFilePath: string | null
 }
+
+const ExecLogFileEventSchema = z.object({
+  path: z.string(),
+})
 
 export interface UseApiExecOptions {
   /** Callback invoked when files are captured from a command execution */
@@ -94,6 +100,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     exitCode: null,
     error: null,
     outputs: null,
+    logFilePath: null,
   })
 
   const cleanupRef = useRef<(() => void) | null>(null)
@@ -131,6 +138,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       exitCode: null,
       error: null,
       outputs: null,
+      logFilePath: null,
     })
   }, [cancel])
 
@@ -160,6 +168,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       exitCode: null,
       error: null,
       outputs: null,
+      logFilePath: null,
     })
 
     // Subscribe to IPC streaming events before starting execution.
@@ -178,6 +187,14 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
             ? [...prev.logs.slice(0, -1), newEntry]
             : [...prev.logs, newEntry],
         }))
+      }
+    }))
+
+    unsubs.push(window.api.on('exec:log-file', (data: unknown) => {
+      if (activeExecId !== execId) return
+      const parsed = ExecLogFileEventSchema.safeParse(data)
+      if (parsed.success) {
+        setState((prev) => ({ ...prev, logFilePath: parsed.data.path }))
       }
     }))
 

@@ -93,6 +93,7 @@ function Check({
     templateContext,
     status: checkStatus,
     logs,
+    logFilePath,
     execError,
     execute: handleExecute,
     cancel,
@@ -513,11 +514,12 @@ function Check({
 
       {/* Expandable sections inside the main box */}
       <div className="mt-4 space-y-2">
-        <ViewLogs 
+        <ViewLogs
             logs={logs}
             status={checkStatus}
             autoOpen={checkStatus === 'running'}
             blockId={id}
+            logFilePath={logFilePath}
           />
           <ViewOutputs 
             outputs={outputs}

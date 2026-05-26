@@ -113,10 +113,12 @@ interface UseScriptExecutionReturn {
   // Execution
   status: ExecutionStatus
   logs: LogEntry[]
+  /** Absolute path to the on-disk log file for the latest execution, if available. */
+  logFilePath: string | null
   execError: AppError | null
   execute: () => void
   cancel: () => void
-  
+
   // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT)
   outputs: Record<string, string> | null
   
@@ -381,6 +383,7 @@ export function useScriptExecution({
       : execState.status as ExecutionStatus
   
   const logs = execState.logs
+  const logFilePath = execState.logFilePath
   const execError = execState.error
   const outputs = execState.outputs
   
@@ -650,6 +653,7 @@ export function useScriptExecution({
     // Execution
     status,
     logs,
+    logFilePath,
     execError: combinedExecError,
     execute,
     cancel: cancelExec,

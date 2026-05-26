@@ -94,6 +94,7 @@ function Command({
     templateContext,
     status: commandStatus,
     logs,
+    logFilePath,
     execError,
     execute: handleExecute,
     cancel,
@@ -524,11 +525,12 @@ function Command({
 
       {/* Expandable sections inside the main box */}
       <div className="mt-4 space-y-2">
-        <ViewLogs 
+        <ViewLogs
             logs={logs}
             status={commandStatus}
             autoOpen={commandStatus === 'running'}
             blockId={id}
+            logFilePath={logFilePath}
           />
           <ViewOutputs 
             outputs={outputs}

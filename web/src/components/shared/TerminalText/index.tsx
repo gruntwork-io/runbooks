@@ -6,6 +6,12 @@ interface TerminalTextProps {
   text: string
   /** If true, also linkify URLs in the text */
   linkify?: boolean
+  /**
+   * Whether long lines wrap. Defaults to true (preserve existing behavior).
+   * When false, whitespace is preserved on a single line so the container
+   * can scroll horizontally instead of wrapping.
+   */
+  wrap?: boolean
 }
 
 /**
@@ -31,25 +37,31 @@ function stripNonColorAnsi(text: string): string {
  *   <TerminalText text="Plain text with https://example.com" />
  *   <TerminalText text="\x1b[32mGreen text\x1b[0m" />
  */
-export function TerminalText({ text, linkify = true }: TerminalTextProps) {
+export function TerminalText({ text, linkify = true, wrap = true }: TerminalTextProps) {
   // Strip non-color ANSI sequences that ansi-to-react can't handle
   const cleanedText = stripNonColorAnsi(text)
-  
+
   // Check if text contains color ANSI codes (CSI sequences)
   // eslint-disable-next-line no-control-regex
   const hasAnsi = /\x1b\[/.test(cleanedText)
-  
+
+  const className = wrap ? 'terminal-text' : 'terminal-text terminal-text--nowrap'
+
   if (!hasAnsi) {
     // No ANSI codes - use LinkifiedText for URL detection
-    return linkify ? <LinkifiedText text={cleanedText} /> : <span>{cleanedText}</span>
+    return (
+      <span className={className}>
+        {linkify ? <LinkifiedText text={cleanedText} /> : cleanedText}
+      </span>
+    )
   }
-  
+
   // Has ANSI codes - render with ansi-to-react
   // Note: ansi-to-react handles the conversion, but URLs inside won't be clickable
   // This is a trade-off for supporting colors
   // Use useClasses to output CSS class names instead of inline styles (easier to customize)
   return (
-    <span className="terminal-text">
+    <span className={className}>
       <Ansi useClasses>{cleanedText}</Ansi>
     </span>
   )

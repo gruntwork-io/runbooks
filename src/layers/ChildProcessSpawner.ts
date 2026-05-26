@@ -2,8 +2,9 @@
  * Live implementation of the ProcessSpawner service using child_process.spawn.
  */
 import { spawn as cpSpawn } from "node:child_process"
+import { createWriteStream, type WriteStream } from "node:fs"
 import * as readline from "node:readline"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Option, Stream } from "effect"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import type { ProcessSpawnerShape, SpawnedProcess, OutputLine, SpawnOptions } from "../services/ProcessSpawner.ts"
 import { SpawnError } from "../errors/index.ts"
@@ -25,44 +26,78 @@ const impl: ProcessSpawnerShape = {
           proc.stdin.end()
         }
 
-        // Collect output lines eagerly. We do NOT use Effect streams
-        // (Stream.async, Stream.asyncPush) because they have a fundamental
-        // issue: emit.end() called from a Node.js event callback does not
-        // reliably terminate the stream within Effect's runtime after
-        // multiple sequential invocations. Instead, we collect lines into
-        // an array and resolve a Promise when the process closes.
+        // Optional durable log file. When a path is given, every line is appended
+        // (in arrival order, both streams interleaved) as it arrives, so the file
+        // can be tailed externally and inspected after the run. Writing is
+        // best-effort: a file error must never break execution or streaming.
+        let logFile: WriteStream | null = null
+        if (options?.logFilePath) {
+          try {
+            logFile = createWriteStream(options.logFilePath, { flags: "a" })
+            logFile.on("error", () => {
+              logFile = null
+            })
+          } catch {
+            logFile = null
+          }
+        }
+
+        // Lines are collected into an array and the `output` stream tails that
+        // array live (see below). We deliberately avoid Stream.async /
+        // Stream.asyncPush: emit.end() called from a Node.js event callback does
+        // not reliably terminate the stream within Effect's runtime after
+        // multiple sequential invocations. Polling a plain array with a
+        // controlled "closed" flag sidesteps that entirely.
         const collectedLines: OutputLine[] = []
+        let streamClosed = false
+
+        const record = (line: string, source: "stdout" | "stderr") => {
+          collectedLines.push({ line, source })
+          logFile?.write(line + "\n")
+        }
 
         if (proc.stdout) {
           const stdoutRl = readline.createInterface({ input: proc.stdout })
-          stdoutRl.on("line", (line) => {
-            collectedLines.push({ line, source: "stdout" as const })
-          })
+          stdoutRl.on("line", (line) => record(line, "stdout"))
         }
 
         if (proc.stderr) {
           const stderrRl = readline.createInterface({ input: proc.stderr })
-          stderrRl.on("line", (line) => {
-            collectedLines.push({ line, source: "stderr" as const })
-          })
+          stderrRl.on("line", (line) => record(line, "stderr"))
         }
 
         // Single exit promise — eagerly registered to never miss the event.
+        // The process "close" event fires after all stdio streams have ended, so
+        // by the time it runs every readline "line" event has already been
+        // delivered into collectedLines.
         const exitPromise = new Promise<number>((resolve) => {
-          proc.on("close", (code) => resolve(code ?? 1))
-          proc.on("error", () => resolve(1))
+          const finish = (code: number) => {
+            streamClosed = true
+            logFile?.end()
+            resolve(code)
+          }
+          proc.on("close", (code) => finish(code ?? 1))
+          proc.on("error", () => finish(1))
         })
 
-        // Output: wait for exit, then return collected lines.
-        // Uses Effect.tryPromise to bridge the Node.js Promise.
-        const output: Stream.Stream<OutputLine> = Stream.fromEffect(
-          Effect.tryPromise({
-            try: () => exitPromise.then(() => [...collectedLines]),
-            catch: () => new SpawnError({ command, cause: new Error("Process failed") }),
-          }),
-        ).pipe(
-          Stream.flatMap((lines) => Stream.fromIterable(lines)),
+        // Output: tail collectedLines live. Each pull emits the next buffered
+        // line; when none are pending it polls until more arrive, and once the
+        // process has closed it drains any remaining lines and then ends.
+        let cursor = 0
+        const pullLine: Effect.Effect<OutputLine, Option.Option<never>> = Effect.gen(
+          function* () {
+            while (true) {
+              if (cursor < collectedLines.length) {
+                return collectedLines[cursor++]
+              }
+              if (streamClosed) {
+                return yield* Effect.fail(Option.none<never>())
+              }
+              yield* Effect.sleep("50 millis")
+            }
+          },
         )
+        const output: Stream.Stream<OutputLine> = Stream.repeatEffectOption(pullLine)
 
         const exitCode: Effect.Effect<number> = Effect.tryPromise({
           try: () => exitPromise,

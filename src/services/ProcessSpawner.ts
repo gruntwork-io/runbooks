@@ -5,6 +5,13 @@ export interface SpawnOptions {
   readonly cwd?: string
   readonly env?: Record<string, string | undefined>
   readonly stdin?: string
+  /**
+   * When set, combined stdout/stderr lines are appended to this file (in arrival
+   * order) as the process runs, producing a durable, tailable log on disk. The
+   * file is written in parallel with the `output` stream; both reflect the same
+   * data. The caller owns the file's lifecycle (creation and cleanup).
+   */
+  readonly logFilePath?: string
 }
 
 export interface OutputLine {
