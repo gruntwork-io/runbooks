@@ -317,7 +317,7 @@ function App() {
 
                 {/* Artifacts - Desktop layout (grows/shrinks width smoothly) */}
                 <div 
-                  className={`hidden lg:block relative max-w-4xl transition-all duration-700 ease-in-out overflow-hidden ${
+                  className={`hidden lg:block relative max-w-7xl transition-all duration-700 ease-in-out overflow-hidden ${
                     showArtifacts ? 'flex-2' : 'w-0'
                   }`}
                 >

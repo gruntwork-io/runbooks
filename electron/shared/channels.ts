@@ -270,6 +270,7 @@ export interface IpcChannelMap {
 
 export interface IpcEventMap {
   "exec:log": { line: string; timestamp: string; replace?: boolean }
+  "exec:log-file": { path: string }
   "exec:status": { status: string; exitCode: number }
   "exec:outputs": { outputs: Record<string, string> }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }

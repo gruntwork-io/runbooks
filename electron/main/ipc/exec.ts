@@ -105,7 +105,7 @@ export function registerExecHandlers(): void {
                 : ""
 
               // Execute the script — returns log stream + completion effect
-              const { logStream, completionEffect } = yield* executeScript(
+              const { logStream, completionEffect, logFilePath } = yield* executeScript(
                 scriptContent,
                 executable.language,
                 params,
@@ -113,6 +113,12 @@ export function registerExecHandlers(): void {
                 workTreePath,
                 outputPath,
               )
+
+              // Surface the on-disk log path up front so the UI can offer it
+              // (e.g. a "copy log path" action) while the script is still running.
+              if (!abortController.signal.aborted) {
+                event.sender.send("exec:log-file", { path: logFilePath })
+              }
 
               // Phase 1: Stream log events to renderer in real-time
               log.debug("Phase 1: starting log stream drain")

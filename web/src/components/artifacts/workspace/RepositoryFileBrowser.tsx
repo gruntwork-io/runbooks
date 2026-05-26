@@ -9,7 +9,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree } from '../code/FileTree'
-import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX } from 'lucide-react'
+import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX, WrapText } from 'lucide-react'
 import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
@@ -271,17 +271,46 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
   }
 
   // Text content
+  return <TextFileViewer filePath={filePath} fileContent={fileContent} />
+}
+
+/**
+ * Renders a text/code file with syntax highlighting. Defaults to no line
+ * wrapping (horizontal scroll for long lines); a toggle switches to wrapping.
+ */
+function TextFileViewer({ filePath, fileContent }: {
+  filePath: string
+  fileContent: { path: string; content?: string; language: string; size: number }
+}) {
+  const [wrap, setWrap] = useState(false)
+
   return (
     <div data-testid={`code-file-${filePath}`} className="h-full flex flex-col">
-      <div className="px-3 py-2 bg-muted border-b border-border text-xs text-muted-foreground font-mono flex items-center justify-between">
-        <span>{fileContent.path.split('/').pop()}</span>
-        <span className="text-muted-foreground">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
+      <div className="px-3 py-2 bg-muted border-b border-border text-xs text-muted-foreground font-mono flex items-center justify-between gap-2">
+        <span className="truncate">{fileContent.path.split('/').pop()}</span>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-muted-foreground">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
+          <button
+            type="button"
+            onClick={() => setWrap(w => !w)}
+            aria-pressed={wrap}
+            title={wrap ? 'Disable line wrap' : 'Enable line wrap'}
+            className={cn(
+              'flex items-center gap-1 rounded-sm px-1.5 py-0.5 hover:bg-accent transition-colors',
+              wrap ? 'text-foreground' : 'text-muted-foreground'
+            )}
+          >
+            <WrapText className="size-3.5" />
+            <span>Wrap</span>
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-auto">
         <SyntaxHighlighter
           language={fileContent.language}
           style={coy}
           showLineNumbers={true}
+          wrapLongLines={wrap}
           customStyle={{
             fontSize: '12px',
             margin: 0,
@@ -289,6 +318,8 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
             border: 'none',
             padding: '14px 0px',
             background: 'transparent',
+            whiteSpace: wrap ? 'pre-wrap' : 'pre',
+            overflowX: 'auto',
           }}
           lineNumberStyle={{
             color: '#999',
