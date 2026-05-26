@@ -135,27 +135,37 @@ export const deleteBranch = (repoPath: string, branch: string) =>
 export const createPullRequest = (
   token: string,
   params: CreatePullRequestParams,
+  /**
+   * Optional progress sink, invoked as each step actually starts. Lets callers
+   * stream accurate progress (e.g. to the renderer) instead of guessing the
+   * sequence up front.
+   */
+  onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
     const ghClient = yield* GitHubClient
+    const report = (line: string) =>
+      Effect.sync(() => onProgress?.(line))
 
     // Create and switch to the head branch
+    yield* report(`Creating branch ${params.headBranch}…`)
     yield* gitClient.createBranch(params.repoPath, params.headBranch)
 
-    // Stage all changes
+    // Stage all changes and commit
+    yield* report("Staging and committing changes…")
     yield* gitClient.stageAll(params.repoPath)
-
-    // Commit
     yield* gitClient.commit(params.repoPath, params.commitMessage)
 
     // Push the branch to origin
+    yield* report(`Pushing ${params.headBranch} to origin…`)
     yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
       token,
       setUpstream: true,
     })
 
     // Create the PR via GitHub API
+    yield* report("Opening pull request…")
     const prParams: CreatePRParams = {
       owner: params.owner,
       repo: params.repo,

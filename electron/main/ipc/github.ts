@@ -6,7 +6,11 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import {
+  runtime,
+  sessionManager,
+  getSessionToken as resolveSessionToken,
+} from "./runtime.ts"
 import {
   validateToken,
   detectTokenType,
@@ -22,20 +26,14 @@ import {
 } from "../../../src/domain/github/auth.ts"
 
 /**
- * Resolve the GitHub token from the current session's environment. The env
- * is populated by github:env-credentials / github:cli-credentials / user
- * paste, and is the single source of truth for "which token do API calls
- * use" — the renderer never sees the token directly.
+ * Resolve the GitHub token from the session env, failing with a plain Error
+ * (the message these handlers surface from their catch blocks). The env is
+ * populated by github:env-credentials / github:cli-credentials / user paste,
+ * and is the single source of truth for "which token do API calls use" — the
+ * renderer never sees the token directly. See getSessionToken() in runtime.ts.
  */
 const getSessionToken = () =>
-  Effect.gen(function* () {
-    const session = yield* sessionManager.getSession()
-    const token = session.env.get("GITHUB_TOKEN")
-    if (!token) {
-      return yield* Effect.fail(new Error("No GitHub token available in session"))
-    }
-    return token
-  })
+  resolveSessionToken(() => new Error("No GitHub token available in session"))
 
 export function registerGitHubHandlers(): void {
   ipcMain.handle(

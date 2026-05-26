@@ -5,7 +5,7 @@
  * implementations (FileSystem, ProcessSpawner, AwsClient, etc.). IPC handler
  * modules import the runtime to bridge async IPC calls into Effect programs.
  */
-import { ManagedRuntime } from "effect"
+import { Effect, ManagedRuntime } from "effect"
 import { AppLive } from "../../../src/layers/AppLayer.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
@@ -27,6 +27,25 @@ export const runtime = ManagedRuntime.make(AppLive)
 
 /** Singleton session manager -- one session per app instance. */
 export const sessionManager = new SessionManager()
+
+/**
+ * Resolve the GitHub token from the current session's environment.
+ *
+ * The token is populated by the GitHubAuth block (github:* handlers via
+ * session:set-env) and is the single source of truth for "which token do git
+ * and GitHub API calls use" — the renderer never holds it directly. Callers
+ * supply `onMissing` so each can fail with the error type its pipeline expects
+ * (e.g. a typed GitError for git handlers, a plain Error for API handlers).
+ */
+export const getSessionToken = <E>(onMissing: () => E) =>
+  Effect.gen(function* () {
+    const session = yield* sessionManager.getSession()
+    const token = session.env.get("GITHUB_TOKEN")
+    if (!token) {
+      return yield* Effect.fail(onMissing())
+    }
+    return token
+  })
 
 /** Executable registry -- populated when a runbook is loaded. */
 export let executableRegistry: ExecutableRegistry | null = null
