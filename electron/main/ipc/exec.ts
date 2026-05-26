@@ -16,6 +16,7 @@ import {
 import { executeScript, type ExecEvent } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
+import { resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { makeLogger } from "../logger.ts"
 
@@ -95,7 +96,29 @@ export function registerExecHandlers(): void {
               let scriptContent = executable.content
               if (params.templateVarValues) {
                 const renderer = yield* BoilerplateRenderer
-                const escapedVars = shellEscapeDeep(params.templateVarValues as Record<string, unknown>)
+                const rawVars = params.templateVarValues as Record<string, unknown>
+
+                // Resolve nested input templates first. An input value can itself
+                // be a template — e.g. a Template block exposes
+                //   LogsAccountEmail = "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}"
+                // via inputsId. A single renderFile pass would insert that value
+                // verbatim, leaving the inner `{{ .inputs.* }}` unrendered. We
+                // resolve the inputs namespace to a fixed point against the other
+                // inputs/outputs first — mirroring what flattenVariables does for
+                // the Template render path so exec and render behave identically.
+                const rawInputs =
+                  rawVars.inputs &&
+                  typeof rawVars.inputs === "object" &&
+                  !Array.isArray(rawVars.inputs)
+                    ? (rawVars.inputs as Record<string, unknown>)
+                    : {}
+                const resolvedInputs = yield* resolveInputTemplates(
+                  rawInputs,
+                  rawVars.outputs,
+                )
+                const resolvedVars = { ...rawVars, inputs: resolvedInputs }
+
+                const escapedVars = shellEscapeDeep(resolvedVars)
                 scriptContent = yield* renderer.renderFile(scriptContent, escapedVars)
               }
 

@@ -191,6 +191,29 @@ describe("resolveInputTemplates", () => {
     expect(result.LogsAccountEmail).toBe("alice+logsct5@example.com")
   })
 
+  it("resolves all derived emails for the get-core-account-ids scenario", async () => {
+    // Mirrors the bootstrap runbook: a Template block exposes three derived
+    // email inputs (each composing EmailUsername + EmailDomainName) via
+    // inputsId, alongside a concrete output. The downstream Command script
+    // renders `{{ .inputs.LogsAccountEmail }}` etc., so these must resolve to
+    // concrete addresses before the script runs.
+    const result = await Effect.runPromise(
+      resolveInputTemplates(
+        {
+          EmailUsername: "acme",
+          EmailDomainName: "example.com",
+          LogsAccountEmail: "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}",
+          SecurityAccountEmail: "{{ .inputs.EmailUsername }}+security@{{ .inputs.EmailDomainName }}",
+          SharedAccountEmail: "{{ .inputs.EmailUsername }}+shared@{{ .inputs.EmailDomainName }}",
+        },
+        { get_management_account: { ManagementAccountId: "145770590841" } },
+      ).pipe(Effect.provide(fakeWasmLayer())),
+    )
+    expect(result.LogsAccountEmail).toBe("acme+logs@example.com")
+    expect(result.SecurityAccountEmail).toBe("acme+security@example.com")
+    expect(result.SharedAccountEmail).toBe("acme+shared@example.com")
+  })
+
   it("leaves partially unresolvable templates as-is (one ref missing)", async () => {
     const original = "{{ .inputs.HaveThis }}+{{ .inputs.Missing }}@x"
     const result = await Effect.runPromise(

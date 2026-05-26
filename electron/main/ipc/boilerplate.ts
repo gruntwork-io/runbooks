@@ -12,7 +12,7 @@ import {
   parseBoilerplateConfig,
   extractOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
-import { flattenVariables } from "../../../src/domain/boilerplate/flattenInputs.ts"
+import { flattenVariables, resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
@@ -567,6 +567,21 @@ export function registerBoilerplateHandlers(): void {
           for (const input of params.inputs) {
             variables[input.name] = input.value
           }
+
+          // Resolve nested input templates before rendering. An input value can
+          // itself be a template — e.g. a Template block exposes
+          //   LogsAccountEmail = "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}"
+          // via inputsId. Without this, a single renderFile pass substitutes that
+          // value verbatim and leaves the inner `{{ .inputs.* }}` unrendered, so
+          // the "View Source" preview diverges from what exec actually runs. This
+          // mirrors the exec path and flattenVariables.
+          const rawInputs =
+            variables.inputs &&
+            typeof variables.inputs === "object" &&
+            !Array.isArray(variables.inputs)
+              ? (variables.inputs as Record<string, unknown>)
+              : {}
+          variables.inputs = yield* resolveInputTemplates(rawInputs, variables.outputs)
 
           // Render each template file
           const renderedFiles: Record<string, any> = {}

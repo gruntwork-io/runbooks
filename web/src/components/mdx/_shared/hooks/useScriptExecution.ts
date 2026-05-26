@@ -493,6 +493,17 @@ export function useScriptExecution({
       return
     }
 
+    if (!hasAllOutputDependencies) {
+      // A referenced block hasn't produced its outputs yet. Rendering now would
+      // fail on the missing `{{ .outputs.X.Y }}` keys and surface a confusing
+      // template error. Instead, fall back to the raw template (clearing any
+      // stale render/error) and let this effect re-run once the outputs land —
+      // it already depends on `allOutputs`, so it renders automatically then.
+      setRenderError(null)
+      setRenderedScript(null)
+      return
+    }
+
     // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
     // a number field before typing a new value). Sending "" to the backend would
     // cause type-conversion errors like strconv.Atoi("").
@@ -534,7 +545,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, templateContext, renderScript])
+  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {
