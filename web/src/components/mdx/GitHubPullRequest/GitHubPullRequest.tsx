@@ -255,13 +255,16 @@ function GitHubPullRequestInteractive({
   const handleCreatePR = useCallback(() => {
     if (!activeWorkTree) return
     createPullRequest({
+      owner: activeWorkTree.gitInfo.repoOwner,
+      repo: activeWorkTree.gitInfo.repoName,
+      // The ref the worktree was cloned at is the PR's base branch.
+      baseBranch: activeWorkTree.gitInfo.ref,
+      headBranch: branchName.trim(),
       title: prTitle.trim(),
-      description: prDescription,
-      labels: selectedLabels,
-      branchName: branchName.trim(),
+      body: prDescription,
       commitMessage: commitMessage.trim() || defaultCommitMessage,
-      localPath: activeWorkTree.localPath,
-      repoUrl: activeWorkTree.repoUrl,
+      labels: selectedLabels,
+      worktreePath: activeWorkTree.localPath,
     })
   }, [activeWorkTree, prTitle, prDescription, selectedLabels, branchName, commitMessage, defaultCommitMessage, createPullRequest])
 

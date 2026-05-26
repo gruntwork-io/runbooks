@@ -9,7 +9,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { Cause, Effect, Exit, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime, sessionManager, getSessionToken } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
   resolveClonePaths,
@@ -29,6 +29,40 @@ import { validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:git:clone")
+
+/**
+ * Resolve the GitHub token from the session env, failing with a typed
+ * GitError so the failure flows through errorMessage() / git:error like every
+ * other git failure. See getSessionToken() in runtime.ts for the shared lookup.
+ */
+const resolveGitToken = () =>
+  getSessionToken(
+    () =>
+      new GitError({
+        command: "resolve github token",
+        stderr:
+          "No GitHub token available in session. Authenticate with the GitHub Auth block before creating a pull request.",
+        exitCode: 1,
+      }),
+  )
+
+/**
+ * Extract a human-readable message from a typed Effect failure so it can be
+ * forwarded to the renderer via a git:error event.
+ */
+function errorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "_tag" in err) {
+    const tag = (err as { _tag: string })._tag
+    if (tag === "GitError") {
+      const g = err as GitError
+      return g.stderr || `git ${g.command} failed (exit ${g.exitCode})`
+    }
+    if (tag === "PathTraversalError") {
+      return (err as PathTraversalError).message
+    }
+  }
+  return err instanceof Error ? err.message : String(err)
+}
 
 /**
  * Run an Effect program and surface typed failures as plain Errors whose
@@ -212,52 +246,128 @@ export function registerGitHandlers(): void {
       event,
       params: {
         worktreePath: string
-        remote: string
-        branch: string
-        token?: string
-        setUpstream?: boolean
+        branchName: string
       },
     ) => {
-      return runAndUnwrap(
-        Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
+      const sendLog = (line: string) =>
+        event.sender.send("git:log", {
+          line,
+          timestamp: new Date().toISOString(),
+        })
 
-          const options: PushOptions = {
-            token: params.token,
-            setUpstream: params.setUpstream,
-          }
+      const program = Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const token = yield* resolveGitToken()
 
-          event.sender.send("git:push-progress", {
-            line: `Pushing ${params.branch} to ${params.remote}...`,
-            timestamp: new Date().toISOString(),
-          })
+        const options: PushOptions = { token, setUpstream: true }
 
-          yield* pushBranch(
-            params.worktreePath,
-            params.remote,
-            params.branch,
-            options,
-          )
+        sendLog(`Pushing ${params.branchName} to origin…`)
+        yield* pushBranch(repoPath, "origin", params.branchName, options)
+        sendLog("Push complete.")
+      })
 
-          event.sender.send("git:push-progress", {
-            line: `Push complete.`,
-            timestamp: new Date().toISOString(),
-          })
+      const exit = await runtime.runPromiseExit(program)
 
-          return { ok: true as const }
-        }),
-      )
+      if (Exit.isSuccess(exit)) {
+        event.sender.send("git:status", { status: "success", exitCode: 0 })
+        return { ok: true as const }
+      }
+
+      const failure = Cause.failureOption(exit.cause)
+      const message =
+        failure._tag === "Some"
+          ? errorMessage(failure.value)
+          : Cause.pretty(exit.cause)
+      event.sender.send("git:error", { message })
+      event.sender.send("git:status", { status: "fail", exitCode: 1 })
+      return { error: message }
     },
   )
 
   ipcMain.handle(
     "git:pull-request",
     async (
-      _event,
-      params: { token: string } & CreatePullRequestParams,
+      event,
+      params: {
+        worktreePath: string
+        owner: string
+        repo: string
+        title: string
+        body?: string
+        baseBranch: string
+        headBranch: string
+        commitMessage: string
+        labels?: string[]
+      },
     ) => {
-      const { token, ...prParams } = params
-      return runAndUnwrap(createPullRequest(token, prParams))
+      const sendLog = (line: string) =>
+        event.sender.send("git:log", {
+          line,
+          timestamp: new Date().toISOString(),
+        })
+
+      // Resolve the token server-side, map the renderer payload to the domain
+      // shape, and create the PR. We run via runPromiseExit (instead of
+      // runAndUnwrap) so that on failure we can emit a structured git:error
+      // event the renderer can act on (e.g. the branch_exists recovery flow).
+      const program = Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const token = yield* resolveGitToken()
+
+        const prParams: CreatePullRequestParams = {
+          owner: params.owner,
+          repo: params.repo,
+          title: params.title,
+          body: params.body,
+          baseBranch: params.baseBranch,
+          headBranch: params.headBranch,
+          commitMessage: params.commitMessage,
+          labels: params.labels,
+          repoPath,
+        }
+
+        // sendLog is threaded in as the progress sink so each line is emitted
+        // when its step actually runs, not all at once before the work starts.
+        return yield* createPullRequest(token, prParams, sendLog)
+      })
+
+      const exit = await runtime.runPromiseExit(program)
+
+      if (Exit.isSuccess(exit)) {
+        const pr = exit.value
+        event.sender.send("git:pr-result", {
+          prUrl: pr.url,
+          prNumber: pr.number,
+          branchName: pr.branch,
+        })
+        event.sender.send("git:outputs", {
+          outputs: {
+            pr_url: pr.url,
+            pr_number: String(pr.number),
+            pr_branch: pr.branch,
+          },
+        })
+        event.sender.send("git:status", { status: "success", exitCode: 0 })
+        return { url: pr.url, number: pr.number }
+      }
+
+      const failure = Cause.failureOption(exit.cause)
+      const message =
+        failure._tag === "Some"
+          ? errorMessage(failure.value)
+          : Cause.pretty(exit.cause)
+      // `git checkout -b` fails with "a branch named 'x' already exists" when
+      // the head branch is left over from a prior attempt; surface that as a
+      // recoverable code so the renderer can offer to delete & retry.
+      const code = /already exists/i.test(message) ? "branch_exists" : undefined
+
+      event.sender.send("git:error", {
+        message,
+        ...(code ? { code, branchName: params.headBranch } : {}),
+      })
+      event.sender.send("git:status", { status: "fail", exitCode: 1 })
+
+      return { error: message }
     },
   )
 

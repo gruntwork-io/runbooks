@@ -190,8 +190,8 @@ export interface IpcChannelMap {
     params: GitCloneRequest
     result: { status: string; error?: string; fileCount?: number; absolutePath?: string; relativePath?: string; outputs?: Record<string, string> }
   }
-  "git:push": { params: { worktreePath: string; remote: string; branch: string }; result: { ok: true } }
-  "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } }
+  "git:push": { params: { worktreePath: string; branchName: string }; result: { ok: true } | { error: string } }
+  "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
 
   // Workspace
@@ -432,8 +432,8 @@ export interface PullRequestRequest {
   body?: string
   baseBranch: string
   headBranch: string
+  commitMessage: string
   labels?: string[]
-  token: string
 }
 
 export interface WorkspaceTreeNode {
