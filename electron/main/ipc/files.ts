@@ -13,7 +13,7 @@ import {
   deleteGeneratedFiles,
   resolveToAbsolutePath,
 } from "../../../src/domain/files/generated.ts"
-import { containsPathTraversal, isContainedIn } from "../../../src/path-validation.ts"
+import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
 import { validateSessionPath } from "./path-guard.ts"
 
 export function registerFileHandlers(): void {
@@ -32,8 +32,11 @@ export function registerFileHandlers(): void {
         resolvedPath = path.resolve(runbookDir, params.path)
       }
 
-      if (!isContainedIn(resolvedPath, workingDir) &&
-          (!runbookDir || !isContainedIn(resolvedPath, runbookDir))) {
+      // Resolve symlinks before the containment check: the fs read below
+      // follows them, so a symlink inside the working/runbook dir must not be
+      // allowed to dereference to a file outside it.
+      if (!(await isContainedInReal(resolvedPath, workingDir)) &&
+          (!runbookDir || !(await isContainedInReal(resolvedPath, runbookDir)))) {
         throw new Error("Path outside allowed directories")
       }
       return runtime.runPromise(readFileMetadata(resolvedPath))

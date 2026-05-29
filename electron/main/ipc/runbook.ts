@@ -17,7 +17,7 @@ import {
 } from "./runtime.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
-import { containsPathTraversal, isContainedIn } from "../../../src/path-validation.ts"
+import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
@@ -136,7 +136,10 @@ export function registerRunbookHandlers(): void {
       if (containsPathTraversal(params.assetPath)) {
         throw new Error("Asset path contains directory traversal")
       }
-      if (!isContainedIn(fullPath, runbookDir)) {
+      // Resolve symlinks before the containment check: the asset read below
+      // follows them, so a symlink inside the runbook dir must not dereference
+      // to a file outside it.
+      if (!(await isContainedInReal(fullPath, runbookDir))) {
         throw new Error("Asset path escapes runbook directory")
       }
 
