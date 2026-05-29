@@ -241,24 +241,29 @@ function App() {
               </div>
             </div>
           </div>
-        ) : (getRunbookResult.error?.message || getRunbookResult.error?.details) && !hasEverLoadedRef.current ? (
+        ) : getRunbookResult.error && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
               <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6">
                 <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">
                   <AlertTriangle className="w-6 h-6 text-destructive" />
                 </div>
-                <h3 className="text-lg font-medium text-destructive mb-2">Failed to Load Runbook</h3>
-                <p className="text-destructive mb-2">{getRunbookResult.error?.message}</p>
-                <p className="text-sm text-destructive mb-4">
-                  {getRunbookResult.error?.details}
-                </p>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="px-4 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2"
-                >
-                  Retry
-                </button>
+                <h3 className="text-lg font-medium text-destructive mb-2">Couldn't open runbook</h3>
+                <p className="text-sm text-destructive mb-6 whitespace-pre-line">{getRunbookResult.error.message}</p>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    onClick={handleOpenRunbook}
+                    className="px-4 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 cursor-pointer"
+                  >
+                    Choose Another Folder
+                  </button>
+                  <button
+                    onClick={() => getRunbookResult.refetch()}
+                    className="px-4 py-2 border border-destructive/40 text-destructive rounded-md hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
               </div>
             </div>
           </div>

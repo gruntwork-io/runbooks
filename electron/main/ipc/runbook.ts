@@ -22,6 +22,28 @@ import { FileSystem } from "../../../src/services/FileSystem.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
 import { getMainWindow } from "../window.ts"
+import { makeLogger } from "../logger.ts"
+
+const log = makeLogger("ipc:runbook")
+
+/**
+ * Build a clean, user-facing message for a failed runbook resolution.
+ *
+ * `resolveRunbookPath` fails with an Effect `FiberFailure` whose message leaks
+ * internal stack detail — surfacing that verbatim in the renderer is the "ugly
+ * error" we're replacing. This returns a short explanation the error screen can
+ * show directly while offering a "choose another folder" retry.
+ */
+function describeRunbookOpenError(inputPath: string): string {
+  try {
+    if (fs.statSync(inputPath).isDirectory()) {
+      return `This folder doesn't contain a runbook.mdx file:\n\n${inputPath}\n\nChoose a folder that contains a runbook.mdx file, or select a runbook file directly.`
+    }
+  } catch {
+    return `This path no longer exists:\n\n${inputPath}`
+  }
+  return `This runbook couldn't be opened:\n\n${inputPath}`
+}
 
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
@@ -43,8 +65,17 @@ export function registerRunbookHandlers(): void {
         throw new Error("runbook path must not be a filesystem root")
       }
 
-      // Resolve the path — if it's a directory, look for runbook.mdx inside it
-      const runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
+      // Resolve the path — if it's a directory, look for runbook.mdx inside it.
+      // Translate any resolution failure into a clean, user-facing message so
+      // the renderer can show a friendly error (and a retry) instead of a raw
+      // Effect FiberFailure dump.
+      let runbookPath: string
+      try {
+        runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
+      } catch (err) {
+        log.debug("failed to resolve runbook path", params.path, err)
+        throw new Error(describeRunbookOpenError(params.path))
+      }
       const config: RunbookConfig = {
         localPath: runbookPath,
         remoteSourceURL: params.remoteSource,
