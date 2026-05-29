@@ -211,6 +211,20 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           let diffTruncated = false
 
           if (!isBinary) {
+            // Original (HEAD) content. The Changed Files view needs this to
+            // render deleted files at all and to compute the before/after diff
+            // for modified files. Files not present in HEAD (e.g. newly added)
+            // make `git show` fail; treat that as "no original" rather than an
+            // error so the rest of the diff still renders.
+            originalContent = yield* runGit(
+              spawner,
+              ["show", `HEAD:${diffPath}`],
+              repoPath,
+            ).pipe(
+              Effect.map((lines) => lines.join("\n")),
+              Effect.catchAll(() => Effect.succeed(undefined)),
+            )
+
             const contentArgs = ["diff", "--", diffPath]
             const contentLines = yield* runGit(spawner, contentArgs, repoPath).pipe(
               Effect.catchAll(() => Effect.succeed([] as string[])),
