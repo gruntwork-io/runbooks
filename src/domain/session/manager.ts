@@ -88,11 +88,7 @@ function recordToMap(rec: Record<string, string>): Map<string, string> {
 }
 
 function mapToRecord(m: Map<string, string>): Record<string, string> {
-  const rec: Record<string, string> = {}
-  for (const [k, v] of m) {
-    rec[k] = v
-  }
-  return rec
+  return Object.fromEntries(m)
 }
 
 /**

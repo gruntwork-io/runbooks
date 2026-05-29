@@ -101,20 +101,11 @@ export class SessionError extends Data.TaggedError("SessionError")<{
 export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{}> {}
 
 // Execution
-export class ExecError extends Data.TaggedError("ExecError")<{
-  readonly message: string
-  readonly cause?: unknown
-}> {}
-
 export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
   readonly timeoutMs: number
 }> {}
 
 // Registry
-export class RegistryError extends Data.TaggedError("RegistryError")<{
-  readonly message: string
-}> {}
-
 export class ExecutableNotFoundError extends Data.TaggedError("ExecutableNotFoundError")<{
   readonly id: string
 }> {}

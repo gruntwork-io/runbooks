@@ -1,4 +1,4 @@
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer } from "effect"
 import { makeTestFileSystem } from "./TestFileSystem.ts"
 import { makeTestSpawner } from "./TestSpawner.ts"
 import type { SpawnExpectation } from "./TestSpawner.ts"
@@ -74,8 +74,6 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
 })
 
 const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientShape => ({
-  clone: (_url, _dest, _options) =>
-    Stream.fail(new GitError({ command: "clone", stderr: notConfigured("GitClient", "clone"), exitCode: 1 })),
   cloneSimple: (_url, _dest, _options) =>
     Effect.fail(new GitError({ command: "clone", stderr: notConfigured("GitClient", "cloneSimple"), exitCode: 1 })),
   push: (_repoPath, _remote, _branch, _options) =>

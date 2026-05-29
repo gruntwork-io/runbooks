@@ -15,6 +15,5 @@ export const makeTestEnvironment = (env: Record<string, string> = {}) => {
       Effect.sync(() => {
         delete store[key]
       }),
-    snapshot: () => Effect.succeed({ ...store }),
   })
 }

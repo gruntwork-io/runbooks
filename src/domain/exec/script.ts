@@ -47,6 +47,9 @@ log_debug() {
 # --- End Runbooks Logging Functions ---
 `
 
+/** Valid shell/output identifier: starts with a letter or underscore, rest alphanumeric or underscore. */
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -343,31 +346,7 @@ export const prepareScript = (
  * Must start with a letter or underscore, rest alphanumeric or underscore.
  */
 export function isValidEnvVarName(name: string): boolean {
-  if (name.length === 0) return false
-  const first = name[0]
-  if (
-    !(
-      (first >= "A" && first <= "Z") ||
-      (first >= "a" && first <= "z") ||
-      first === "_"
-    )
-  ) {
-    return false
-  }
-  for (let i = 1; i < name.length; i++) {
-    const c = name[i]
-    if (
-      !(
-        (c >= "A" && c <= "Z") ||
-        (c >= "a" && c <= "z") ||
-        (c >= "0" && c <= "9") ||
-        c === "_"
-      )
-    ) {
-      return false
-    }
-  }
-  return true
+  return IDENT_RE.test(name)
 }
 
 /**
@@ -456,31 +435,7 @@ export const parseEnvCapture = (
  * Check if a key matches ^[a-zA-Z_][a-zA-Z0-9_]*$
  */
 function isValidOutputKey(key: string): boolean {
-  if (key.length === 0) return false
-  const first = key[0]
-  if (
-    !(
-      (first >= "a" && first <= "z") ||
-      (first >= "A" && first <= "Z") ||
-      first === "_"
-    )
-  ) {
-    return false
-  }
-  for (let i = 1; i < key.length; i++) {
-    const c = key[i]
-    if (
-      !(
-        (c >= "a" && c <= "z") ||
-        (c >= "A" && c <= "Z") ||
-        (c >= "0" && c <= "9") ||
-        c === "_"
-      )
-    ) {
-      return false
-    }
-  }
-  return true
+  return IDENT_RE.test(key)
 }
 
 /**

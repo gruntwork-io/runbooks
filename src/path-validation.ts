@@ -2,30 +2,6 @@ import path from "path"
 import { Effect } from "effect"
 import { PathTraversalError, PathValidationError } from "./errors/index.ts"
 
-/** System directories that must never be used as output targets. */
-const DANGEROUS_PATHS = new Set([
-  "/",
-  "/bin",
-  "/boot",
-  "/dev",
-  "/etc",
-  "/home",
-  "/lib",
-  "/lib64",
-  "/opt",
-  "/proc",
-  "/root",
-  "/sbin",
-  "/sys",
-  "/usr",
-  "/var",
-  "c:/",
-  "c:/windows",
-  "c:/program files",
-  "c:/program files (x86)",
-  "c:/users",
-])
-
 export function containsPathTraversal(p: string): boolean {
   const segments = p.split(/[/\\]/)
   return segments.some((s) => s === "..")
@@ -67,27 +43,6 @@ export const validateRelativePathIn = (p: string, dir: string) =>
     if (!isContainedIn(resolved, dir)) {
       return yield* Effect.fail(
         new PathTraversalError({ path: p, message: `resolved path escapes directory: ${dir}` }),
-      )
-    }
-  })
-
-export const validateAbsolutePathInDir = (p: string, dir: string) =>
-  Effect.gen(function* () {
-    if (!p) {
-      return yield* Effect.fail(new PathValidationError({ path: p, message: "path must not be empty" }))
-    }
-    if (!isAbsolutePath(p)) {
-      return yield* Effect.fail(new PathValidationError({ path: p, message: "path must be absolute" }))
-    }
-    const clean = path.resolve(p)
-    if (!isContainedIn(clean, dir)) {
-      return yield* Effect.fail(
-        new PathTraversalError({ path: p, message: `path escapes directory: ${dir}` }),
-      )
-    }
-    if (DANGEROUS_PATHS.has(clean.toLowerCase())) {
-      return yield* Effect.fail(
-        new PathValidationError({ path: p, message: "path points to a system directory" }),
       )
     }
   })

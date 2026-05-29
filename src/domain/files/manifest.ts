@@ -132,22 +132,6 @@ export function buildManifestFromDirectoryWithContent(rootDir: string) {
   })
 }
 
-/**
- * Scan a directory recursively and build a manifest of all files with their
- * SHA-256 content hashes. Thin wrapper around
- * {@link buildManifestFromDirectoryWithContent} that drops the content field.
- */
-export function buildManifestFromDirectory(rootDir: string) {
-  return buildManifestFromDirectoryWithContent(rootDir).pipe(
-    Effect.map((entries) =>
-      entries.map(
-        ({ path, contentHash }) =>
-          ({ path, contentHash }) satisfies ManifestEntry,
-      ),
-    ),
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Diff computation
 // ---------------------------------------------------------------------------
@@ -267,27 +251,6 @@ export interface ApplyDiffResult {
 }
 
 /**
- * Copy a single file from sourceDir to outputDir, preserving the relative path
- * and creating parent directories as needed.
- */
-function copyFileForManifest(
-  sourceDir: string,
-  outputDir: string,
-  relPath: string,
-) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem
-    const srcPath = path.join(sourceDir, relPath)
-    const dstPath = path.join(outputDir, relPath)
-
-    // Use buffer read/write so binary files round-trip intact.
-    const content = yield* fs.readFileBuffer(srcPath)
-    yield* fs.mkdir(path.dirname(dstPath), { recursive: true })
-    yield* fs.writeFile(dstPath, content)
-  })
-}
-
-/**
  * Walk up from `dir` removing empty directories, stopping at `stopAt`.
  * Never removes `stopAt` itself, anything outside `stopAt`, or a filesystem
  * root. Silently ignores removal failures (non-empty, permission, etc.).
@@ -356,52 +319,17 @@ function restoreMissingUnchanged<E, R>(
 }
 
 /**
- * Apply a manifest diff by patching `outputDir` to match `sourceDir`:
+ * Apply a manifest diff by patching `outputDir`, taking created/modified file
+ * contents from an in-memory {path → content} map rather than a directory on
+ * disk. Used by the warm-render path where the boilerplate WASM bridge hands us
+ * file contents directly and there's no tempdir to copy from:
  *  - delete orphaned files (present in the prior manifest but not the new one)
- *  - copy created and modified files from `sourceDir` to `outputDir`
- *  - leave unchanged files alone, but recreate them if the user manually
- *    deleted them between renders
+ *  - write created and modified files from the content map
+ *  - leave unchanged files alone, but recreate them (when their content is
+ *    available) if the user manually deleted them between renders
  *
  * Orphan scope is manifest-based, so files in `outputDir` that this template
  * never produced are never touched — safe to run against a shared worktree.
- */
-export function applyDiff(
-  diff: ManifestDiffResult,
-  sourceDir: string,
-  outputDir: string,
-) {
-  return Effect.gen(function* () {
-    yield* assertSafeDiffPaths(diff)
-    const deleted = yield* deleteOrphans(diff.orphaned, outputDir)
-
-    // Write created + modified files in one parallel batch — they're
-    // independent and skipping the barrier between them avoids latency
-    // when one bucket is much smaller than the other.
-    const writes = [...diff.created, ...diff.modified]
-    yield* Effect.forEach(
-      writes,
-      (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
-      { concurrency: BATCH_IO_CONCURRENCY },
-    )
-
-    const restored = yield* restoreMissingUnchanged(
-      diff.unchanged,
-      outputDir,
-      (relPath) => copyFileForManifest(sourceDir, outputDir, relPath),
-    )
-
-    return { written: writes.length + restored, deleted } satisfies ApplyDiffResult
-  })
-}
-
-/**
- * Like {@link applyDiff} but the source is an in-memory {path → content} map
- * rather than a directory on disk. Used by the warm-render path where the
- * boilerplate WASM bridge hands us file contents directly and there's no
- * tempdir to copy from.
- *
- * Behavior matches {@link applyDiff} for orphans / unchanged restoration —
- * only the "write a created/modified file" branch differs.
  */
 export function applyDiffFromContent(
   diff: ManifestDiffResult,

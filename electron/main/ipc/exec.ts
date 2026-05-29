@@ -5,7 +5,7 @@
  * renderer process via event.sender.send(). The handler returns the final
  * status when execution completes.
  */
-import { Effect, Stream, Fiber, Exit, Cause } from "effect"
+import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import {
   runtime,
@@ -13,7 +13,7 @@ import {
   executableRegistry,
   runbookConfig,
 } from "./runtime.ts"
-import { executeScript, type ExecEvent } from "../../../src/domain/exec/executor.ts"
+import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"

@@ -143,7 +143,7 @@ export function buildMergedContext(
   // other keys already resolved in context (e.g. a DirPicker's published PATH).
   const mergedOutputs: TemplateOutputs = { ...baseContext.outputs }
   for (const [blockId, outputValues] of Object.entries(manualOutputs)) {
-    mergedOutputs[blockId] = { ...(mergedOutputs[blockId] ?? {}), ...outputValues }
+    mergedOutputs[blockId] = { ...mergedOutputs[blockId], ...outputValues }
   }
 
   return {

@@ -10,7 +10,6 @@ import { GitClient } from "../services/GitClient.ts"
 import type {
   GitClientShape,
   CloneOptions,
-  CloneProgress,
   CloneResult,
   PushOptions,
   DiffEntry,
@@ -57,30 +56,6 @@ function runGit(
 
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
-    clone: (url: string, dest: string, options?: CloneOptions) => {
-      const args = ["clone", "--progress"]
-      const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
-
-      if (options?.ref) {
-        args.push("--branch", options.ref)
-      }
-
-      args.push(effectiveUrl, dest)
-
-      return Stream.unwrap(
-        Effect.gen(function* () {
-          const proc = yield* spawner.spawn("git", args, {
-            cwd: options?.repoPath,
-          })
-
-          return Stream.map(proc.output, (outputLine): CloneProgress => ({
-            line: outputLine.line,
-            timestamp: new Date().toISOString(),
-          }))
-        }),
-      )
-    },
-
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
         const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url

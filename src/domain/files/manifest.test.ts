@@ -7,12 +7,9 @@ import {
   hashFileContent,
   FileManifestStore,
   computeDiff,
-  buildManifestFromDirectory,
-  applyDiff,
   applyDiffFromContent,
 } from "./manifest.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
-import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { Layer, Stream } from "effect"
 import type { ManifestDiffResult } from "../../types.ts"
@@ -134,51 +131,21 @@ describe("computeDiff", () => {
   })
 })
 
-describe("buildManifestFromDirectory", () => {
-  it("scans directory and returns entries with hashes", async () => {
-    const layer = makeTestFileSystem({
-      "/root/file1.txt": "content1",
-      "/root/sub/file2.txt": "content2",
-    })
-
-    const entries = await Effect.runPromise(
-      buildManifestFromDirectory("/root").pipe(Effect.provide(layer)),
-    )
-
-    expect(entries).toHaveLength(2)
-    const paths = entries.map((e) => e.path).sort()
-    expect(paths).toEqual(["file1.txt", "sub/file2.txt"])
-    expect(entries[0].contentHash).toHaveLength(64)
-  })
-
-  it("handles empty directory", async () => {
-    const layer = makeTestFileSystem({})
-
-    const entries = await Effect.runPromise(
-      buildManifestFromDirectory("/empty").pipe(Effect.provide(layer)),
-    )
-
-    expect(entries).toEqual([])
-  })
-})
-
 // ---------------------------------------------------------------------------
-// applyDiff — patches an output dir from a rendered source tree.
+// applyDiffFromContent — writes created/modified files from an in-memory
+// content map, deletes orphans, and restores manually-deleted unchanged files.
 //
 // These tests use a real temp directory because we exercise symlinks and
 // empty-parent cleanup, which the in-memory TestFileSystem doesn't model.
 // ---------------------------------------------------------------------------
 
-describe("applyDiff", () => {
+describe("applyDiffFromContent", () => {
   let tmp: string
-  let sourceDir: string
   let outputDir: string
 
   beforeEach(() => {
-    tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "manifest-test-"))
-    sourceDir = nodePath.join(tmp, "src")
+    tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "manifest-content-"))
     outputDir = nodePath.join(tmp, "out")
-    nodeFs.mkdirSync(sourceDir, { recursive: true })
     nodeFs.mkdirSync(outputDir, { recursive: true })
   })
 
@@ -186,27 +153,33 @@ describe("applyDiff", () => {
     nodeFs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  const runApply = (diff: ManifestDiffResult) =>
+  const runApply = (
+    diff: ManifestDiffResult,
+    contents: ReadonlyMap<string, string> = new Map<string, string>(),
+  ) =>
     Effect.runPromise(
-      applyDiff(diff, sourceDir, outputDir).pipe(Effect.provide(NodeFileSystemLive)),
+      applyDiffFromContent(diff, contents, outputDir).pipe(
+        Effect.provide(NodeFileSystemLive),
+      ),
     )
 
-  it("creates new files, modifies changed files, removes orphans", async () => {
-    // Source: a.txt = "new-a", b/c.txt = "new-c"
-    nodeFs.writeFileSync(nodePath.join(sourceDir, "a.txt"), "new-a")
-    nodeFs.mkdirSync(nodePath.join(sourceDir, "b"), { recursive: true })
-    nodeFs.writeFileSync(nodePath.join(sourceDir, "b", "c.txt"), "new-c")
-
-    // Output starts with stale a.txt and an orphan
+  it("writes created/modified files and removes orphans", async () => {
+    // Output starts with a stale a.txt and an orphan.
     nodeFs.writeFileSync(nodePath.join(outputDir, "a.txt"), "old-a")
     nodeFs.writeFileSync(nodePath.join(outputDir, "orphan.txt"), "bye")
 
-    const result = await runApply({
-      created: ["b/c.txt"],
-      modified: ["a.txt"],
-      orphaned: ["orphan.txt"],
-      unchanged: [],
-    })
+    const result = await runApply(
+      {
+        created: ["b/c.txt"],
+        modified: ["a.txt"],
+        orphaned: ["orphan.txt"],
+        unchanged: [],
+      },
+      new Map([
+        ["a.txt", "new-a"],
+        ["b/c.txt", "new-c"],
+      ]),
+    )
 
     expect(result).toEqual({ written: 2, deleted: 1 })
     expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe(
@@ -218,15 +191,30 @@ describe("applyDiff", () => {
     expect(nodeFs.existsSync(nodePath.join(outputDir, "orphan.txt"))).toBe(false)
   })
 
-  it("restores a manually deleted unchanged file", async () => {
-    nodeFs.writeFileSync(nodePath.join(sourceDir, "keep.txt"), "keep")
+  it("writes plain created files from a content map", async () => {
+    const result = await runApply(
+      { created: ["a.txt", "b/c.txt"], modified: [], orphaned: [], unchanged: [] },
+      new Map([
+        ["a.txt", "hello"],
+        ["b/c.txt", "nested"],
+      ]),
+    )
+
+    expect(result).toEqual({ written: 2, deleted: 0 })
+    expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe(
+      "hello",
+    )
+    expect(
+      nodeFs.readFileSync(nodePath.join(outputDir, "b", "c.txt"), "utf8"),
+    ).toBe("nested")
+  })
+
+  it("restores a manually deleted unchanged file when its content is available", async () => {
     // outputDir is empty — file was manually removed between renders.
-    const result = await runApply({
-      created: [],
-      modified: [],
-      orphaned: [],
-      unchanged: ["keep.txt"],
-    })
+    const result = await runApply(
+      { created: [], modified: [], orphaned: [], unchanged: ["keep.txt"] },
+      new Map([["keep.txt", "keep"]]),
+    )
     expect(result.written).toBe(1)
     expect(nodeFs.readFileSync(nodePath.join(outputDir, "keep.txt"), "utf8")).toBe(
       "keep",
@@ -274,7 +262,7 @@ describe("applyDiff", () => {
   })
 
   // -------------------------------------------------------------------------
-  // Safety: unsafe diff paths
+  // Safety: unsafe diff paths are rejected before touching disk
   // -------------------------------------------------------------------------
 
   const unsafeCases: Array<{
@@ -308,7 +296,7 @@ describe("applyDiff", () => {
       nodeFs.writeFileSync(tripwire, "DO NOT DELETE")
 
       const result = await Effect.runPromise(
-        applyDiff(diff, sourceDir, outputDir).pipe(
+        applyDiffFromContent(diff, new Map([[pathValue, "x"]]), outputDir).pipe(
           Effect.provide(NodeFileSystemLive),
           Effect.either,
         ),
@@ -353,78 +341,11 @@ describe("applyDiff", () => {
 })
 
 // ---------------------------------------------------------------------------
-// applyDiffFromContent — same safety + in-memory write variant.
-// ---------------------------------------------------------------------------
-
-describe("applyDiffFromContent", () => {
-  let tmp: string
-  let outputDir: string
-
-  beforeEach(() => {
-    tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "manifest-content-"))
-    outputDir = nodePath.join(tmp, "out")
-    nodeFs.mkdirSync(outputDir, { recursive: true })
-  })
-
-  afterEach(() => {
-    nodeFs.rmSync(tmp, { recursive: true, force: true })
-  })
-
-  it("writes files from a content map", async () => {
-    const contents = new Map<string, string>([
-      ["a.txt", "hello"],
-      ["b/c.txt", "nested"],
-    ])
-    const result = await Effect.runPromise(
-      applyDiffFromContent(
-        { created: ["a.txt", "b/c.txt"], modified: [], orphaned: [], unchanged: [] },
-        contents,
-        outputDir,
-      ).pipe(Effect.provide(NodeFileSystemLive)),
-    )
-
-    expect(result).toEqual({ written: 2, deleted: 0 })
-    expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe(
-      "hello",
-    )
-    expect(
-      nodeFs.readFileSync(nodePath.join(outputDir, "b", "c.txt"), "utf8"),
-    ).toBe("nested")
-  })
-
-  it("rejects unsafe diff paths before touching disk", async () => {
-    const tripwire = nodePath.join(tmp, "evil.txt")
-    nodeFs.writeFileSync(tripwire, "DO NOT DELETE")
-
-    const result = await Effect.runPromise(
-      applyDiffFromContent(
-        {
-          created: ["../evil.txt"],
-          modified: [],
-          orphaned: [],
-          unchanged: [],
-        },
-        new Map([["../evil.txt", "pwned"]]),
-        outputDir,
-      ).pipe(Effect.provide(NodeFileSystemLive), Effect.either),
-    )
-
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect((result.left as unknown as { _tag: string })._tag).toBe(
-        "PathTraversalError",
-      )
-    }
-    expect(nodeFs.readFileSync(tripwire, "utf8")).toBe("DO NOT DELETE")
-  })
-})
-
-// ---------------------------------------------------------------------------
 // Idempotent re-render: a diff with only `unchanged` (and files present)
 // performs zero writes.
 // ---------------------------------------------------------------------------
 
-describe("applyDiff idempotency", () => {
+describe("applyDiffFromContent idempotency", () => {
   it("emits zero writes when re-rendering identical content", async () => {
     let writeCount = 0
     let rmCount = 0
@@ -462,9 +383,9 @@ describe("applyDiff idempotency", () => {
     })
 
     const result = await Effect.runPromise(
-      applyDiff(
+      applyDiffFromContent(
         { created: [], modified: [], orphaned: [], unchanged: ["a.txt"] },
-        "/src",
+        new Map([["a.txt", ""]]),
         "/out",
       ).pipe(Effect.provide(spyLayer)),
     )
