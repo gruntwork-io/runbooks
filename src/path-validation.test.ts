@@ -1,10 +1,14 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll } from "bun:test"
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { Effect, Exit } from "effect"
 import {
   containsPathTraversal,
   isAbsolutePath,
   isFilesystemRoot,
   isContainedIn,
+  isContainedInReal,
   validateRelativePath,
   validateRelativePathIn,
 } from "./path-validation.ts"
@@ -80,6 +84,71 @@ describe("isContainedIn", () => {
 
   it("returns false when file is above container", () => {
     expect(isContainedIn("/a", "/a/b")).toBe(false)
+  })
+})
+
+// Regression guard for the lexical-vs-realpath symlink-escape class
+// (`sec-path-traversal`): renderer-supplied paths run through symlink-following
+// fs ops, so a symlink planted inside the session root must not be allowed to
+// dereference to a file outside it. These tests exercise real symlinks on a
+// temp dir — the same gate every IPC read/write entry point now routes through.
+describe("isContainedInReal", () => {
+  let root: string
+  let container: string
+  let outside: string
+
+  beforeAll(() => {
+    // os.tmpdir() is itself often a symlink (e.g. macOS /var -> /private/var),
+    // which is exactly the case where lexical comparison breaks and realpath
+    // resolution is required on both sides.
+    root = mkdtempSync(path.join(tmpdir(), "rb-pathtest-"))
+    container = path.join(root, "session")
+    outside = path.join(root, "outside")
+    mkdirSync(container)
+    mkdirSync(outside)
+    writeFileSync(path.join(container, "real.txt"), "inside")
+    writeFileSync(path.join(outside, "secret.txt"), "secret")
+    // A symlink inside the container pointing OUT to the sibling dir.
+    symlinkSync(outside, path.join(container, "escape-dir"))
+    // A symlink inside the container pointing to a real file inside it.
+    symlinkSync(path.join(container, "real.txt"), path.join(container, "inside-link"))
+    // A dangling symlink inside the container pointing OUT (write-through escape).
+    symlinkSync(path.join(outside, "ghost.txt"), path.join(container, "dangling-escape"))
+  })
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it("allows a real file inside the container", async () => {
+    expect(await isContainedInReal(path.join(container, "real.txt"), container)).toBe(true)
+  })
+
+  it("allows the container itself", async () => {
+    expect(await isContainedInReal(container, container)).toBe(true)
+  })
+
+  it("allows a not-yet-existing write target inside the container", async () => {
+    expect(await isContainedInReal(path.join(container, "new-output.txt"), container)).toBe(true)
+  })
+
+  it("allows a symlink inside the container that points to a file inside it", async () => {
+    expect(await isContainedInReal(path.join(container, "inside-link"), container)).toBe(true)
+  })
+
+  it("rejects a path that escapes via a symlink to an existing outside target", async () => {
+    const escaped = path.join(container, "escape-dir", "secret.txt")
+    // The lexical check is fooled — this is the bug the realpath guard closes.
+    expect(isContainedIn(escaped, container)).toBe(true)
+    expect(await isContainedInReal(escaped, container)).toBe(false)
+  })
+
+  it("rejects a write through a dangling symlink that points outside", async () => {
+    expect(await isContainedInReal(path.join(container, "dangling-escape"), container)).toBe(false)
+  })
+
+  it("rejects a plainly out-of-container path", async () => {
+    expect(await isContainedInReal(path.join(outside, "secret.txt"), container)).toBe(false)
   })
 })
 

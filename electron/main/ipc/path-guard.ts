@@ -7,7 +7,7 @@
 import path from "path"
 import { Effect } from "effect"
 import { sessionManager, runbookConfig } from "./runtime.ts"
-import { isContainedIn } from "../../../src/path-validation.ts"
+import { isContainedInReal } from "../../../src/path-validation.ts"
 import { PathTraversalError } from "../../../src/errors/index.ts"
 
 /**
@@ -44,21 +44,23 @@ export const validateSessionPath = (p: string) =>
       return resolved
     }
 
-    // Allow paths contained within a registered worktree
+    // Allow paths contained within a registered worktree. Containment is
+    // checked against the symlink-resolved (realpath) form of both paths so a
+    // symlink planted inside the root can't dereference to an arbitrary file.
     for (const wt of session.registeredWorkTreePaths) {
-      if (isContainedIn(resolved, wt)) {
+      if (yield* Effect.promise(() => isContainedInReal(resolved, wt))) {
         return resolved
       }
     }
 
     // Allow paths contained within the session working directory
-    if (isContainedIn(resolved, session.workingDir)) {
+    if (yield* Effect.promise(() => isContainedInReal(resolved, session.workingDir))) {
       return resolved
     }
 
     // Allow paths contained within the runbook directory
     const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
-    if (runbookDir && isContainedIn(resolved, runbookDir)) {
+    if (runbookDir && (yield* Effect.promise(() => isContainedInReal(resolved, runbookDir)))) {
       return resolved
     }
 
