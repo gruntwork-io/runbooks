@@ -33,7 +33,7 @@ When paired with a `<GitHubAuth>` block, the GitClone block enables a "Browse Gi
 
 <GitClone
   id="clone-repo"
-  gitHubAuthId="gh-auth"
+  githubAuthId="gh-auth"
   title="Clone a Repo"
   description="Browse or enter a git URL to clone"
 />
@@ -61,7 +61,7 @@ You can pre-populate the URL, ref, sparse checkout path, and local path fields. 
 | `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown. |
 | `description` | `string` | No | Description text below the title. Supports inline markdown. |
-| `gitHubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
+| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
 | `prefilledUrl` | `string` | No | Pre-fills the Git URL input field. The user can edit this value before cloning. |
 | `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
 | `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path. When set, only the specified subdirectory of the repository will be cloned (e.g., `modules/vpc`). |
@@ -104,7 +104,7 @@ The GitClone block accepts the following URL formats:
 
 The GitClone block resolves GitHub credentials in the following order:
 
-1. **`gitHubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs.
+1. **`githubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs.
 2. **Session environment** — Checks the session environment for `GITHUB_TOKEN` or `GH_TOKEN`.
 3. **No token** — The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
 
@@ -194,7 +194,7 @@ The GitClone block includes a collapsible "View Logs" section (identical to the 
 
 <GitClone
   id="clone-infra"
-  gitHubAuthId="gh-auth"
+  githubAuthId="gh-auth"
   title="Clone Infrastructure Repo"
   description="Clone the infrastructure repository to make changes"
   prefilledUrl="https://github.com/acme-corp/infrastructure-live"

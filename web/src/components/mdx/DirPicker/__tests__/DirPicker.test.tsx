@@ -17,6 +17,19 @@ describe('DirPicker', () => {
     vi.clearAllMocks()
   })
 
+  it('renders without crashing when dirLabels is omitted', () => {
+    // Regression guard: dirLabels was a required prop dereferenced via
+    // `dirLabels.length`, so omitting it crashed the block at render.
+    render(
+      <TestWrapper>
+        <DirPicker id="test-picker" rootDir="/tmp/test-dir" />
+      </TestWrapper>
+    )
+
+    expect(screen.getByTestId('test-picker')).toBeDefined()
+    expect(screen.queryByText(/requires either a/)).toBeNull()
+  })
+
   it('renders title and description', () => {
     render(
       <TestWrapper>

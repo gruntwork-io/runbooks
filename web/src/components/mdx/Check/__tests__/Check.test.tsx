@@ -34,9 +34,15 @@ const defaultScriptExecution = {
 }
 
 let mockScriptExecution = { ...defaultScriptExecution }
+// Captures the props the component passes to useScriptExecution so tests can
+// assert wiring (e.g. that timeoutMs is forwarded).
+let lastScriptExecutionProps: Record<string, unknown> | null = null
 
 vi.mock("@/components/mdx/_shared/hooks/useScriptExecution", () => ({
-  useScriptExecution: () => mockScriptExecution,
+  useScriptExecution: (props: Record<string, unknown>) => {
+    lastScriptExecutionProps = props
+    return mockScriptExecution
+  },
 }))
 
 vi.mock("@/contexts/useLogs", () => ({
@@ -54,11 +60,30 @@ function renderCheck(props: Partial<React.ComponentProps<typeof Check>> = {}) {
 describe("Check", () => {
   beforeEach(() => {
     mockScriptExecution = { ...defaultScriptExecution, execute: vi.fn(), cancel: vi.fn() }
+    lastScriptExecutionProps = null
   })
 
   it("renders with valid props", () => {
     renderCheck()
     expect(screen.getByTestId("test-check")).toBeInTheDocument()
+  })
+
+  it("renders without a title (title is optional, matching <Command>)", () => {
+    // Regression guard: title used to be required and rendered a validation
+    // error block when omitted. It is now optional.
+    render(
+      <TestWrapper>
+        <Check id="no-title-check" command="exit 0" />
+      </TestWrapper>,
+    )
+    expect(screen.getByTestId("no-title-check")).toBeInTheDocument()
+    expect(screen.queryByText(/required but was not provided/)).toBeNull()
+    expect(screen.queryByText(/Missing required props/)).toBeNull()
+  })
+
+  it("forwards timeoutMs to the execution hook", () => {
+    renderCheck({ timeoutMs: 1234 })
+    expect(lastScriptExecutionProps?.timeoutMs).toBe(1234)
   })
 
   it("renders title and description", () => {

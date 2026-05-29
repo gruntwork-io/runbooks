@@ -14,7 +14,7 @@ import type { AppError } from "@/types/error"
 
 interface CheckProps {
   id: string
-  title: string
+  title?: string
   description?: string
   path?: string
   command?: string
@@ -31,6 +31,8 @@ interface CheckProps {
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
   usePty?: boolean
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (5 minutes) applies. */
+  timeoutMs?: number
 }
 
 function Check({
@@ -48,6 +50,7 @@ function Check({
   runningMessage = "Checking...",
   children,
   usePty,
+  timeoutMs,
 }: CheckProps) {
   // Validate required props
   const validationError = useMemo((): AppError | null => {
@@ -109,6 +112,7 @@ function Check({
     children,
     componentType: 'check',
     usePty,
+    timeoutMs,
   })
   
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -143,19 +147,15 @@ function Check({
     return null
   }, [path, command, sourceCode])
 
-  // Validate required props after all hooks are called (Rules of Hooks)
+  // Validate required props after all hooks are called (Rules of Hooks).
+  // `title` is optional (matching <Command>); add future prop validations here.
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
-    
-    if (!title) {
-      errors.push('The "title" prop is required but was not provided.');
-    }
-    
-    // Add more validation checks here as needed
+
     // Example: if (!path && !children) { errors.push('Either path or children must be provided.'); }
-    
+
     return errors;
-  }, [title]);
+  }, []);
 
   // Resolve display string props using template context
   const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateContext) : title, [title, templateContext])
@@ -401,9 +401,11 @@ function Check({
 
         <div className="">
         <div className="flex-1 space-y-2">
-          <div className="text-md font-bold text-muted-foreground">
-            <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
-          </div>
+          {resolvedTitle && (
+            <div className="text-md font-bold text-muted-foreground">
+              <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
+            </div>
+          )}
           {resolvedDescription && (
             <div className="text-md text-muted-foreground mb-3">
               <InlineMarkdown>{resolvedDescription}</InlineMarkdown>

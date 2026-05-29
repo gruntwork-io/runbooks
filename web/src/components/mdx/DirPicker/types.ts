@@ -12,8 +12,8 @@ export interface DirPickerProps {
   title?: string
   /** Description text (supports inline markdown). */
   description?: string
-  /** Ordered labels for each cascading directory level (e.g., ['Environment', 'Region', 'Category']). Each dropdown is labelled with the corresponding entry. Also controls the maximum depth unless dirLabelsExtra is true. */
-  dirLabels: string[]
+  /** Ordered labels for each cascading directory level (e.g., ['Environment', 'Region', 'Category']). Each dropdown is labelled with the corresponding entry. Also controls the maximum depth unless dirLabelsExtra is true. When omitted, levels are labelled "Level N" and depth is unbounded. */
+  dirLabels?: string[]
   /** When true, allow navigating deeper than dirLabels.length. Extra levels are labelled "Level N". Defaults to false. */
   dirLabelsExtra?: boolean
   /** Label for the editable path input. Defaults to "Target Path". */

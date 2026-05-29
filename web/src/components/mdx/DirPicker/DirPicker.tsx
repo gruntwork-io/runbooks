@@ -19,7 +19,7 @@ function DirPickerInteractive({
   gitCloneId,
   title = "Select Directory",
   description = "Choose a target directory",
-  dirLabels,
+  dirLabels = [],
   dirLabelsExtra = false,
   pathLabel = "Target Path",
   pathLabelDescription,
@@ -59,8 +59,10 @@ function DirPickerInteractive({
     trackBlockRender('DirPicker')
   }, [id, trackBlockRender])
 
-  // Cap dropdown depth to dirLabels.length unless dirLabelsExtra is true
-  const maxLevels = dirLabelsExtra ? undefined : dirLabels.length
+  // Cap dropdown depth to dirLabels.length unless dirLabelsExtra is true. When
+  // dirLabels is omitted (empty), leave depth unbounded — levels then fall back
+  // to "Level N" labels below.
+  const maxLevels = dirLabelsExtra || dirLabels.length === 0 ? undefined : dirLabels.length
 
   // Core hook
   const {
