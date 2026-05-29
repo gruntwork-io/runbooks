@@ -9,6 +9,7 @@ import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electro
 import * as path from "path"
 import * as fs from "fs"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
+import { openRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
@@ -224,14 +225,25 @@ ipcMain.handle("native:get-cli-config", () => ({
 // macOS: handle open-file events (double-click .mdx in Finder)
 // ---------------------------------------------------------------------------
 
+// Holds a path from an open-file event that arrived before the window existed
+// (cold launch). The whenReady handler below delivers it once the window is up.
+let pendingOpenFilePath: string | null = null
+
 app.on("open-file", (event, filePath) => {
   event.preventDefault()
   const win = getMainWindow()
   if (win) {
-    win.webContents.send("file:open-runbook", { path: filePath })
+    // App already running (e.g. "Open with… > Runbooks"): hand it straight to
+    // the window. openRunbookInWindow defers internally if it's mid-load.
+    openRunbookInWindow(win, { path: filePath })
   } else {
-    // App hasn't finished launching yet — stash the path so we can open it
-    // once the window is ready.
+    // App hasn't finished launching yet (Finder double-click on a cold start).
+    // On macOS this event commonly fires before app.whenReady() has created
+    // the window, so stash the path for the whenReady handler to open. Also
+    // seed runbookConfig.localPath so the runbook-asset protocol resolves
+    // assets correctly if an image request races ahead of the renderer's
+    // runbook:get call (mirrors the CLI-path handling above).
+    pendingOpenFilePath = filePath
     setRunbookConfig({ ...runbookConfig, localPath: filePath })
   }
 })
@@ -310,10 +322,16 @@ app.whenReady().then(() => {
         })
     })
   } else if (cliConfig.runbookPath) {
+    const runbookPath = cliConfig.runbookPath
     const win = getMainWindow()
-    win?.webContents.once("did-finish-load", () => {
-      win.webContents.send("file:open-runbook", { path: cliConfig.runbookPath })
-    })
+    if (win) openRunbookInWindow(win, { path: runbookPath })
+  } else if (pendingOpenFilePath) {
+    // A macOS open-file event (Finder double-click) arrived before the window
+    // was ready. Now that the window exists, open the stashed runbook.
+    const filePath = pendingOpenFilePath
+    pendingOpenFilePath = null
+    const win = getMainWindow()
+    if (win) openRunbookInWindow(win, { path: filePath })
   }
 
   app.on("activate", () => {
