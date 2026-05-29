@@ -140,7 +140,6 @@ jobs:
           path: |
             out/*.dmg
             out/*.zip
-            out/*.blockmap
             out/latest-mac*.yml
           retention-days: 7
 
@@ -169,6 +168,8 @@ jobs:
       - name: Package for Linux
         run: mise x node -- npx electron-builder --linux --publish never
 
+      # latest-linux.yml drives AppImage auto-update; keep it. *.blockmap delta
+      # files are omitted (see the macOS step for the full rationale).
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -176,7 +177,6 @@ jobs:
           path: |
             out/*.AppImage
             out/*.deb
-            out/*.blockmap
             out/latest-linux*.yml
           retention-days: 7
 
@@ -206,13 +206,14 @@ jobs:
       - name: Package for Windows
         run: mise x node -- npx electron-builder --win --publish never
 
+      # latest.yml drives Windows (NSIS) auto-update; keep it. *.blockmap delta
+      # files are omitted (see the macOS step for the full rationale).
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
           path: |
             out/*.exe
-            out/*.blockmap
             out/latest*.yml
           retention-days: 7
 
