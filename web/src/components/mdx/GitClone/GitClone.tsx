@@ -41,7 +41,7 @@ function GitCloneInteractive({
   title = "Clone Repository",
   description = "Enter a git URL to clone a repository",
   inputsId,
-  gitHubAuthId,
+  githubAuthId,
   prefilledUrl = '',
   prefilledRef = '',
   prefilledRepoPath = '',
@@ -138,7 +138,7 @@ function GitCloneInteractive({
     fetchOrgs,
     fetchRepos,
     fetchRefs,
-  } = useGitClone({ id, gitHubAuthId })
+  } = useGitClone({ id, githubAuthId })
 
   // Get registered outputs for this block
   const outputValues = useOutputs(id)
@@ -346,7 +346,7 @@ function GitCloneInteractive({
               <div>
                 <p className="text-sm font-medium text-warning-foreground m-0">Waiting for GitHub authentication</p>
                 <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                  Complete the &apos;{gitHubAuthId}&apos; GitHubAuth block above before cloning.
+                  Complete the &apos;{githubAuthId}&apos; GitHubAuth block above before cloning.
                 </p>
               </div>
             </div>

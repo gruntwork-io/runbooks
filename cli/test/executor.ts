@@ -1144,10 +1144,10 @@ export class TestExecutor {
     // Inject token for GitHub URLs
     let effectiveURL = cloneURL
     if (cloneURL.includes("github.com")) {
-      const gitHubAuthId = extractProp(block.props, "gitHubAuthId")
+      const githubAuthId = extractProp(block.props, "githubAuthId")
       let token = ""
-      if (gitHubAuthId) {
-        const creds = this.authBlockCredentials.get(gitHubAuthId)
+      if (githubAuthId) {
+        const creds = this.authBlockCredentials.get(githubAuthId)
         if (creds) token = creds["GITHUB_TOKEN"] ?? ""
       }
       if (!token) {

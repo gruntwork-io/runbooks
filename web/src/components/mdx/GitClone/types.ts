@@ -8,8 +8,8 @@ export interface GitCloneProps {
   description?: string
   /** ID or array of IDs of Inputs components to get variable values from */
   inputsId?: string | string[]
-  /** Reference to a GitHubAuth block for token */
-  gitHubAuthId?: string
+  /** Reference to a GitHubAuth block by ID for credentials. Matches the `githubAuthId` prop used by every other block (Command, Check, GitHubPullRequest). */
+  githubAuthId?: string
   /** Pre-fill the Git URL input (supports template expressions like {{ .inputs.repo_url }}) */
   prefilledUrl?: string
   /** Pre-fill the ref (branch or tag) to clone (supports template expressions) */
