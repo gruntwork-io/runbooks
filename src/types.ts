@@ -167,13 +167,6 @@ export interface RenderInlineRequest {
   target?: "generated" | "worktree"
 }
 
-export interface RenderInlineResponse {
-  message: string
-  renderedFiles: Record<string, FileData>
-  fileTree: FileTreeNode[]
-  meta: FileTreeMeta
-}
-
 // ---------------------------------------------------------------------------
 // Boilerplate request
 // ---------------------------------------------------------------------------

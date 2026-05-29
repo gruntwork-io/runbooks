@@ -4,13 +4,8 @@
 import path from "path"
 import { Effect, Stream, Chunk } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
-import type {
-  CloneOptions,
-  PushOptions,
-} from "../../services/GitClient.ts"
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
-import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 
@@ -57,54 +52,8 @@ export interface OwnerRepo {
 }
 
 // ---------------------------------------------------------------------------
-// Clone Operations
-// ---------------------------------------------------------------------------
-
-/**
- * Clone a repository and return a stream of progress events.
- * Delegates to GitClient.clone which produces a Stream of CloneProgress.
- */
-export const cloneRepository = (
-  url: string,
-  dest: string,
-  options?: CloneOptions,
-) =>
-  Effect.gen(function* () {
-    const gitClient = yield* GitClient
-    return gitClient.clone(url, dest, options)
-  })
-
-/**
- * Clone a repository without streaming progress. Returns the final
- * CloneResult once the clone is complete.
- */
-export const cloneSimple = (
-  url: string,
-  dest: string,
-  options?: CloneOptions,
-) =>
-  Effect.gen(function* () {
-    const gitClient = yield* GitClient
-    return yield* gitClient.cloneSimple(url, dest, options)
-  })
-
-// ---------------------------------------------------------------------------
 // Branch Operations
 // ---------------------------------------------------------------------------
-
-/**
- * Push a branch to a remote.
- */
-export const pushBranch = (
-  repoPath: string,
-  remote: string,
-  branch: string,
-  options?: PushOptions,
-) =>
-  Effect.gen(function* () {
-    const gitClient = yield* GitClient
-    return yield* gitClient.push(repoPath, remote, branch, options)
-  })
 
 /**
  * Delete a local branch. Refuses to delete protected branches (main, master,

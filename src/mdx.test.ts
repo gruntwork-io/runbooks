@@ -2,7 +2,6 @@ import { describe, it, expect } from "bun:test"
 import {
   findFencedCodeBlockRanges,
   isInsideFencedCodeBlock,
-  stripFencedCodeBlocks,
 } from "./mdx.ts"
 
 describe("findFencedCodeBlockRanges", () => {
@@ -55,30 +54,5 @@ describe("isInsideFencedCodeBlock", () => {
   it("returns true at boundary end", () => {
     const ranges: Array<[number, number]> = [[5, 20]]
     expect(isInsideFencedCodeBlock(20, ranges)).toBe(true)
-  })
-})
-
-describe("stripFencedCodeBlocks", () => {
-  it("removes fenced blocks and preserves surrounding content", () => {
-    const content = "before\n```\ncode here\n```\nafter"
-    const result = stripFencedCodeBlocks(content)
-    expect(result).toContain("before")
-    expect(result).toContain("after")
-    expect(result).not.toContain("code here")
-  })
-
-  it("handles multiple blocks", () => {
-    const content = "a\n```\nb\n```\nc\n```\nd\n```\ne"
-    const result = stripFencedCodeBlocks(content)
-    expect(result).toContain("a")
-    expect(result).toContain("c")
-    expect(result).toContain("e")
-    expect(result).not.toContain("b")
-    expect(result).not.toContain("d")
-  })
-
-  it("returns content unchanged if no fences", () => {
-    const content = "no fences here"
-    expect(stripFencedCodeBlocks(content)).toBe(content)
   })
 })

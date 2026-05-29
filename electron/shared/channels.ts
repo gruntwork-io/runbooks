@@ -274,10 +274,8 @@ export interface IpcEventMap {
   "exec:status": { status: string; exitCode: number }
   "exec:outputs": { outputs: Record<string, string> }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
-  "exec:error": { message: string; details?: string }
   "watch:file-change": { type: "reload" }
   "git:clone-progress": { line: string; timestamp: string }
-  "git:push-progress": { line: string; timestamp: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }
   "git:status": { status: string; exitCode: number }
   "git:pr-result": { prUrl: string; prNumber: number; branchName: string }
@@ -360,10 +358,6 @@ export interface RenderInlineRequest {
   inputs?: Array<{ name: string; value: unknown }>
   generateFile?: boolean
   outputPath?: string
-}
-
-export interface RenderInlineResponse {
-  content: string
 }
 
 export interface ProfileInfo {

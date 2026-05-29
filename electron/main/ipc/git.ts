@@ -16,12 +16,12 @@ import {
   countFiles,
   deleteBranch,
   createPullRequest,
-  pushBranch,
   isValidGitURL,
   parseOwnerRepoFromURL,
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
+import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError } from "../../../src/errors/index.ts"
@@ -262,7 +262,8 @@ export function registerGitHandlers(): void {
         const options: PushOptions = { token, setUpstream: true }
 
         sendLog(`Pushing ${params.branchName} to origin…`)
-        yield* pushBranch(repoPath, "origin", params.branchName, options)
+        const gitClient = yield* GitClient
+        yield* gitClient.push(repoPath, "origin", params.branchName, options)
         sendLog("Push complete.")
       })
 

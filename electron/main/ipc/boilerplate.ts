@@ -20,7 +20,6 @@ import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import {
   buildManifestFromDirectoryWithContent,
   computeDiff,
-  applyDiff,
   applyDiffFromContent,
   hashFileContent,
   BATCH_IO_CONCURRENCY,
@@ -416,8 +415,9 @@ export function registerBoilerplateHandlers(): void {
         const tApply = Date.now()
         // Pure warm: write content directly. Cold-fallback: same — we
         // already merged everything into contentMap above. Either way we
-        // bypass the tempdir-copy logic in `applyDiff` for the write
-        // step. (Cleanup of the tempdir, if we made one, happens below.)
+        // write from the in-memory content map rather than copying from a
+        // tempdir for the write step. (Cleanup of the tempdir, if we made
+        // one, happens below.)
         const applied = yield* applyDiffFromContent(diff, contentMap, outputDir)
         const dApply = Date.now() - tApply
 

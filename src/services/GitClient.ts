@@ -1,4 +1,4 @@
-import { Context, Effect, Stream } from "effect"
+import { Context, Effect } from "effect"
 import type { GitError } from "../errors/index.ts"
 
 export interface CloneOptions {
@@ -8,11 +8,6 @@ export interface CloneOptions {
   readonly force?: boolean
   /** When set, use sparse checkout to only fetch this subpath within the repo. */
   readonly sparse?: string
-}
-
-export interface CloneProgress {
-  readonly line: string
-  readonly timestamp: string
 }
 
 export interface CloneResult {
@@ -50,7 +45,6 @@ export interface GitInfo {
 }
 
 export interface GitClientShape {
-  readonly clone: (url: string, dest: string, options?: CloneOptions) => Stream.Stream<CloneProgress, GitError>
   readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<CloneResult, GitError>
   readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError>
   readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError>

@@ -29,8 +29,6 @@ const impl: EnvironmentShape = {
     Effect.sync(() => {
       delete process.env[key]
     }),
-
-  snapshot: () => Effect.sync(() => filterStringValues(process.env)),
 }
 
 export const ProcessEnvironmentLive = Layer.succeed(Environment, impl)

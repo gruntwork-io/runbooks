@@ -75,8 +75,3 @@ export function getPerfPayload(): RenderPerfPayload | undefined {
     sentAt: Date.now(),
   }
 }
-
-/** True if perf tracing is currently enabled. Cheaper than a string parse at callsites. */
-export function isPerfEnabled(): boolean {
-  return isEnabled()
-}

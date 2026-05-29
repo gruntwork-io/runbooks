@@ -36,8 +36,6 @@ interface UseScriptExecutionProps {
 }
 
 export type { BlockOutput } from '@/lib/templateUtils'
-/** @deprecated Use BlockOutput instead */
-export type UnmetOutputDependency = BlockOutput
 
 /** Information about an unmet auth dependency (AWS or GitHub) */
 export interface UnmetAuthDependency {

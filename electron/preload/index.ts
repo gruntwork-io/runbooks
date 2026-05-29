@@ -24,9 +24,9 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
 ])
 
 const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
-  "exec:log", "exec:log-file", "exec:status", "exec:outputs", "exec:files-captured", "exec:error",
+  "exec:log", "exec:log-file", "exec:status", "exec:outputs", "exec:files-captured",
   "watch:file-change",
-  "git:clone-progress", "git:push-progress",
+  "git:clone-progress",
   "git:log", "git:status", "git:pr-result", "git:outputs", "git:error",
   "file:open-runbook",
   "menu:open-url-prompt",

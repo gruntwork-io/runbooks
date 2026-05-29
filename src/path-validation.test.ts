@@ -7,7 +7,6 @@ import {
   isContainedIn,
   validateRelativePath,
   validateRelativePathIn,
-  validateAbsolutePathInDir,
 } from "./path-validation.ts"
 
 describe("containsPathTraversal", () => {
@@ -116,32 +115,6 @@ describe("validateRelativePathIn", () => {
 
   it("fails when resolved path escapes directory", async () => {
     const exit = await Effect.runPromiseExit(validateRelativePathIn("../../etc/passwd", "/workspace"))
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-})
-
-describe("validateAbsolutePathInDir", () => {
-  it("succeeds for path within directory", async () => {
-    await Effect.runPromise(validateAbsolutePathInDir("/workspace/foo", "/workspace"))
-  })
-
-  it("fails for empty path", async () => {
-    const exit = await Effect.runPromiseExit(validateAbsolutePathInDir("", "/workspace"))
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  it("fails for relative path", async () => {
-    const exit = await Effect.runPromiseExit(validateAbsolutePathInDir("relative/path", "/workspace"))
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  it("fails for path escaping directory", async () => {
-    const exit = await Effect.runPromiseExit(validateAbsolutePathInDir("/other/place", "/workspace"))
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  it("fails for dangerous system directories", async () => {
-    const exit = await Effect.runPromiseExit(validateAbsolutePathInDir("/etc", "/"))
     expect(Exit.isFailure(exit)).toBe(true)
   })
 })
