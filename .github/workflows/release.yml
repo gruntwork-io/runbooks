@@ -140,7 +140,6 @@ jobs:
           path: |
             out/*.dmg
             out/*.zip
-            out/*.blockmap
             out/latest-mac*.yml
           retention-days: 7
 
@@ -176,7 +175,6 @@ jobs:
           path: |
             out/*.AppImage
             out/*.deb
-            out/*.blockmap
             out/latest-linux*.yml
           retention-days: 7
 
@@ -212,7 +210,6 @@ jobs:
           name: windows-x64
           path: |
             out/*.exe
-            out/*.blockmap
             out/latest*.yml
           retention-days: 7
 
