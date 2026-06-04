@@ -25,8 +25,12 @@ interface Props {
 
 const { file, lang, title, hideTitle } = Astro.props;
 
-// Resolve path relative to repo root (docs is one level down from repo root)
-const repoRoot = path.resolve(import.meta.dirname, '../../..');
+// Resolve path relative to the repo root. We anchor on process.cwd() (the docs
+// project root during both `astro dev` and `astro build`) rather than
+// import.meta.dirname: Astro 6 bundles component frontmatter into dist/.prerender
+// chunks at build time, so import.meta.dirname no longer points at this source
+// file. testdata/ lives one level up at the repo root.
+const repoRoot = path.resolve(process.cwd(), '..');
 const absolutePath = path.resolve(repoRoot, file);
 const displayTitle = title || path.basename(file);
 

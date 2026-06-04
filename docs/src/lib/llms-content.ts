@@ -4,6 +4,8 @@
 import { getSidebar } from "../../node_modules/@astrojs/starlight/utils/navigation.ts";
 // @ts-ignore - internal Starlight module
 import { routes } from "../../node_modules/@astrojs/starlight/utils/routing/index.ts";
+// @ts-ignore - internal Starlight module
+import { slugToPathname } from "../../node_modules/@astrojs/starlight/utils/slugs.ts";
 
 interface SidebarLink {
   type: "link";
@@ -18,12 +20,12 @@ interface SidebarGroup {
 type SidebarEntry = SidebarLink | SidebarGroup;
 
 
-/** Build a map from sidebar href to route entry for O(1) lookup. */
-const routesByPath = new Map(routes.map((r) => [`/${r.slug}/`, r]));
-// Also map the root route.
-for (const r of routes) {
-  if (r.slug === "") routesByPath.set("/", r);
-}
+// Build a map from sidebar href to route entry for O(1) lookup. Sidebar links
+// carry an href that is a pathname (e.g. "/intro/overview/"), so we key on the
+// same pathname Starlight derives from each route. Note: a route exposes its
+// slug as `id` (this was `slug` before Starlight 0.39), and slugToPathname maps
+// the root route ("") to "/" for us.
+const routesByPath = new Map(routes.map((r) => [slugToPathname(r.id), r]));
 
 /** Strip MDX/JSX syntax from raw markdown body to produce clean plaintext markdown. */
 function stripMdx(body: string): string {
@@ -101,7 +103,7 @@ function walkSidebar(entries: SidebarEntry[], parts: string[], depth: number): v
       if (!route) continue;
 
       // Skip the homepage — it's a splash page.
-      if (route.slug === "") continue;
+      if (route.id === "") continue;
 
       const title = route.entry.data.title || route.id;
       const heading = "#".repeat(Math.min(depth + 2, 4));

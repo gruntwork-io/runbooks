@@ -15,13 +15,13 @@
     "linkcheck:external": "linkinator ./dist --recurse"
   },
   "dependencies": {
-    "@astrojs/starlight": "0.37.3",
-    "@vercel/analytics": "^1.5.0",
-    "astro": "5.16.11",
-    "sharp": "^0.34.2"
+    "@astrojs/starlight": "0.39.2",
+    "@vercel/analytics": "2.0.1",
+    "astro": "6.4.2",
+    "sharp": "0.34.5"
   },
   "devDependencies": {
-    "cspell": "^9.4.0",
-    "linkinator": "^7.5.1"
+    "cspell": "10.0.0",
+    "linkinator": "7.6.1"
   }
 }
