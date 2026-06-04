@@ -204,33 +204,45 @@ export const countFiles = (dir: string) =>
 // ---------------------------------------------------------------------------
 
 /**
- * Parse owner and repo from a GitHub URL.
+ * Parse owner and repo from a git remote URL.
  * Supports both HTTPS and SSH formats:
  *   https://github.com/owner/repo.git
  *   https://github.com/owner/repo
  *   git@github.com:owner/repo.git
  *   git@github.com:owner/repo
+ *
+ * The last path segment is treated as the repo (project) and everything
+ * before it as the owner. This keeps GitHub URLs (always `owner/repo`)
+ * unchanged while correctly handling GitLab nested groups, where the owner
+ * is the full group path:
+ *   https://gitlab.com/group/subgroup/project.git → owner "group/subgroup",
+ *                                                    repo  "project"
  */
 export const parseOwnerRepoFromURL = (rawURL: string): OwnerRepo | undefined => {
-  // Try SSH format: git@github.com:owner/repo.git
-  const sshMatch = rawURL.match(/^git@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/)
+  // Extract the path portion (everything after the host) for both forms.
+  //   SSH:   git@host:group/.../repo.git → path is the part after the colon
+  //   HTTPS: https://host/group/.../repo → path is the URL pathname
+  let path: string
+  const sshMatch = rawURL.match(/^git@[^:]+:(.+)$/)
   if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] }
-  }
-
-  // Try HTTPS format
-  try {
-    const url = new URL(rawURL)
-    const parts = url.pathname.split("/").filter(Boolean)
-    if (parts.length >= 2) {
-      const repo = parts[1].replace(/\.git$/, "")
-      return { owner: parts[0], repo }
+    path = sshMatch[1]
+  } else {
+    try {
+      path = new URL(rawURL).pathname
+    } catch {
+      // Not a valid URL
+      return undefined
     }
-  } catch {
-    // Not a valid URL
   }
 
-  return undefined
+  const parts = path.split("/").filter(Boolean)
+  if (parts.length < 2) {
+    return undefined
+  }
+
+  const repo = parts[parts.length - 1].replace(/\.git$/, "")
+  const owner = parts.slice(0, -1).join("/")
+  return { owner, repo }
 }
 
 /**

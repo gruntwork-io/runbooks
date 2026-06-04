@@ -33,6 +33,32 @@ describe("parseRemoteSource", () => {
       expect(result.path).toBe("modules/vpc")
       expect(result.ref).toBeUndefined()
     })
+
+    it("parses git::https URL with GitLab nested groups", () => {
+      const result = parse(
+        "git::https://gitlab.com/group/subgroup/project.git//modules/vpc?ref=v1.0",
+      )
+      expect(result.host).toBe("gitlab.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.path).toBe("modules/vpc")
+      expect(result.ref).toBe("v1.0")
+      expect(result.cloneURL).toBe(
+        "https://gitlab.com/group/subgroup/project.git",
+      )
+    })
+
+    it("parses git::https URL on a self-hosted host with nested groups", () => {
+      const result = parse(
+        "git::https://gitlab.example.com/group/subgroup/project.git//path?ref=main",
+      )
+      expect(result.host).toBe("gitlab.example.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.cloneURL).toBe(
+        "https://gitlab.example.com/group/subgroup/project.git",
+      )
+    })
   })
 
   describe("GitHub shorthand", () => {
@@ -76,6 +102,42 @@ describe("parseRemoteSource", () => {
       const result = parse("https://gitlab.com/owner/repo/-/blob/main/file.ts")
       expect(result.isBlobURL).toBe(true)
     })
+
+    it("parses tree URL with nested groups (full group path as owner)", () => {
+      const result = parse(
+        "https://gitlab.com/group/subgroup/project/-/tree/main/path/to/dir",
+      )
+      expect(result.host).toBe("gitlab.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.path).toBe("main/path/to/dir")
+      expect(result.cloneURL).toBe(
+        "https://gitlab.com/group/subgroup/project.git",
+      )
+    })
+
+    it("parses blob URL with nested groups", () => {
+      const result = parse(
+        "https://gitlab.com/group/subgroup/project/-/blob/main/file.ts",
+      )
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.path).toBe("main/file.ts")
+      expect(result.isBlobURL).toBe(true)
+    })
+
+    it("parses a tree URL on a self-hosted GitLab instance", () => {
+      const result = parse(
+        "https://gitlab.example.com/group/subgroup/project/-/tree/main/path",
+      )
+      expect(result.host).toBe("gitlab.example.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.path).toBe("main/path")
+      expect(result.cloneURL).toBe(
+        "https://gitlab.example.com/group/subgroup/project.git",
+      )
+    })
   })
 
   describe("plain repo URLs", () => {
@@ -91,6 +153,22 @@ describe("parseRemoteSource", () => {
     it("parses GitLab repo URL", () => {
       const result = parse("https://gitlab.com/owner/repo")
       expect(result.host).toBe("gitlab.com")
+    })
+
+    it("parses GitLab repo URL with nested groups", () => {
+      const result = parse("https://gitlab.com/group/subgroup/project")
+      expect(result.host).toBe("gitlab.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.cloneURL).toBe(
+        "https://gitlab.com/group/subgroup/project.git",
+      )
+    })
+
+    it("parses GitLab repo URL with nested groups and .git suffix", () => {
+      const result = parse("https://gitlab.com/group/subgroup/project.git")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
     })
   })
 
