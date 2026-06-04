@@ -52,6 +52,34 @@ describe("parseOwnerRepoFromURL", () => {
     expect(result).toEqual({ owner: "group", repo: "project" })
   })
 
+  it("parses GitLab HTTPS URL with nested groups (full group path as owner)", () => {
+    const result = parseOwnerRepoFromURL(
+      "https://gitlab.com/group/subgroup/project.git",
+    )
+    expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
+  })
+
+  it("parses GitLab HTTPS URL with deeply nested groups", () => {
+    const result = parseOwnerRepoFromURL(
+      "https://gitlab.com/group/subgroup/deeper/project",
+    )
+    expect(result).toEqual({ owner: "group/subgroup/deeper", repo: "project" })
+  })
+
+  it("parses GitLab SSH URL with nested groups", () => {
+    const result = parseOwnerRepoFromURL(
+      "git@gitlab.com:group/subgroup/project.git",
+    )
+    expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
+  })
+
+  it("parses self-hosted GitLab SSH URL with nested groups", () => {
+    const result = parseOwnerRepoFromURL(
+      "git@gitlab.example.com:group/subgroup/project.git",
+    )
+    expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
+  })
+
   it("strips .git suffix from HTTPS URL with trailing slash absent", () => {
     const result = parseOwnerRepoFromURL("https://github.com/owner/repo.git")
     expect(result).toEqual({ owner: "owner", repo: "repo" })

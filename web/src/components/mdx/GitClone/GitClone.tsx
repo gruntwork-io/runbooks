@@ -23,17 +23,36 @@ import { GitCloneInstruction } from "./GitCloneInstruction"
 import type { AppError } from "@/types/error"
 import type { GitCloneProps } from "./types"
 
-/** Parse org and repo from a GitHub URL */
-function parseGitHubURL(url: string): { org: string; repo: string } | null {
-  try {
-    const match = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/)
-    if (match) {
-      return { org: match[1], repo: match[2] }
+/**
+ * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted).
+ *
+ * The last path segment is the repo (project) and everything before it is the
+ * owner. This handles GitHub's `owner/repo` as well as GitLab nested groups,
+ * where the owner is the full group path (e.g. `group/subgroup`).
+ */
+function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | null {
+  // Extract the path after the host for both SSH (git@host:path) and HTTPS forms.
+  let path: string
+  const sshMatch = url.trim().match(/^git@[^:]+:(.+)$/)
+  if (sshMatch) {
+    path = sshMatch[1]
+  } else {
+    try {
+      path = new URL(url.trim()).pathname
+    } catch {
+      // Not a parseable URL
+      return null
     }
-  } catch {
-    // Not a parseable URL
   }
-  return null
+
+  const parts = path.split('/').filter(Boolean)
+  if (parts.length < 2) {
+    return null
+  }
+
+  const repo = parts[parts.length - 1].replace(/\.git$/, '')
+  const org = parts.slice(0, -1).join('/')
+  return { org, repo }
 }
 
 function GitCloneInteractive({
@@ -226,7 +245,7 @@ function GitCloneInteractive({
   useEffect(() => {
     if (cloneStatus === 'success' && cloneResult && showFileTree) {
       // Parse owner/repoName from the git URL
-      const parsed = parseGitHubURL(gitUrl)
+      const parsed = parseOwnerRepoFromURL(gitUrl)
       registerWorkTree({
         id,
         repoUrl: gitUrl.trim(),
@@ -246,10 +265,11 @@ function GitCloneInteractive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloneStatus, cloneResult])
 
-  // Determine if the GitHub browser should be pre-opened
+  // Seed the GitHub browser's org/repo, but only from GitHub URLs — feeding a
+  // GitLab owner/repo into the GitHub browser would be meaningless.
   const prefilledGitHub = useMemo(() => {
-    if (resolvedUrl) {
-      return parseGitHubURL(resolvedUrl)
+    if (resolvedUrl && /(?:\/\/|@)github\.com[/:]/.test(resolvedUrl)) {
+      return parseOwnerRepoFromURL(resolvedUrl)
     }
     return null
   }, [resolvedUrl])

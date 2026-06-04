@@ -14,9 +14,13 @@ import type { ParsedRemoteSource } from "./types.ts"
 // URL patterns
 // ---------------------------------------------------------------------------
 
-/** OpenTofu git:: prefix: git::https://host/owner/repo.git//path?ref=v1.0 */
+/**
+ * OpenTofu git:: prefix: git::https://host/owner/.../repo.git//path?ref=v1.0
+ * The owner/repo portion (everything between the host and the `//` path
+ * delimiter) may be a nested group path on GitLab.
+ */
 const GIT_PREFIX_REGEX =
-  /^git::https?:\/\/([^/]+)\/([^/]+)\/([^/.]+?)(?:\.git)?\/\/(.+?)(?:\?ref=(.+))?$/
+  /^git::https?:\/\/([^/]+)\/(.+?)\/\/(.+?)(?:\?ref=(.+))?$/
 
 /** OpenTofu GitHub shorthand: github.com/owner/repo//path?ref=v1.0 */
 const GITHUB_SHORTHAND_REGEX =
@@ -30,17 +34,45 @@ const GITHUB_TREE_REGEX =
 const GITHUB_BLOB_REGEX =
   /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/
 
-/** GitLab browser tree URL: https://gitlab.com/owner/repo/-/tree/ref/path */
+/**
+ * GitLab browser tree URL: https://host/group/.../repo/-/tree/ref/path
+ * The `/-/` marker is GitLab-specific, so the host may be gitlab.com or a
+ * self-hosted instance, and the owner may be a nested group path.
+ */
 const GITLAB_TREE_REGEX =
-  /^https?:\/\/gitlab\.com\/([^/]+)\/([^/]+)\/-\/tree\/(.+)$/
+  /^https?:\/\/([^/]+)\/(.+?)\/-\/tree\/(.+)$/
 
-/** GitLab browser blob URL: https://gitlab.com/owner/repo/-/blob/ref/file */
+/** GitLab browser blob URL: https://host/group/.../repo/-/blob/ref/file */
 const GITLAB_BLOB_REGEX =
-  /^https?:\/\/gitlab\.com\/([^/]+)\/([^/]+)\/-\/blob\/(.+)$/
+  /^https?:\/\/([^/]+)\/(.+?)\/-\/blob\/(.+)$/
 
-/** Plain repo URL: https://github.com/owner/repo or https://gitlab.com/owner/repo */
-const PLAIN_REPO_REGEX =
-  /^https?:\/\/(github\.com|gitlab\.com)\/([^/]+)\/([^/.]+?)(?:\.git)?$/
+/** Plain GitHub repo URL: https://github.com/owner/repo (no nested groups) */
+const PLAIN_GITHUB_REPO_REGEX =
+  /^https?:\/\/github\.com\/([^/]+)\/([^/.]+?)(?:\.git)?$/
+
+/**
+ * Plain GitLab repo URL: https://gitlab.com/group/.../repo
+ * Supports nested groups — the last path segment is the repo (project) and
+ * everything before it is the owner.
+ */
+const PLAIN_GITLAB_REPO_REGEX =
+  /^https?:\/\/gitlab\.com\/(.+?)(?:\.git)?$/
+
+/**
+ * Split a slash-delimited `owner/.../repo` path into its owner and repo parts.
+ * The last segment is the repo (project, with any `.git` suffix stripped) and
+ * everything before it is the owner. For GitLab nested groups the owner is the
+ * full group path, e.g. `group/subgroup/project` → owner "group/subgroup",
+ * repo "project".
+ */
+const splitOwnerRepo = (
+  ownerRepoPath: string,
+): { owner: string; repo: string } => {
+  const segments = ownerRepoPath.split("/").filter(Boolean)
+  const repo = segments[segments.length - 1].replace(/\.git$/, "")
+  const owner = segments.slice(0, -1).join("/")
+  return { owner, repo }
+}
 
 // ---------------------------------------------------------------------------
 // parseRemoteSource
@@ -53,10 +85,11 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
       return yield* Effect.fail(new RemoteSourceError({ url: raw, message: "empty URL" }))
     }
 
-    // 1) git::https://host/owner/repo.git//path?ref=v1.0
+    // 1) git::https://host/owner/.../repo.git//path?ref=v1.0
     let match = trimmed.match(GIT_PREFIX_REGEX)
     if (match) {
-      const [, host, owner, repo, path, ref] = match
+      const [, host, ownerRepoPath, path, ref] = match
+      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
       return {
         host,
         owner,
@@ -115,13 +148,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
     // 5) GitLab tree URL
     match = trimmed.match(GITLAB_TREE_REGEX)
     if (match) {
-      const [, owner, repo, refAndPath] = match
+      const [, host, ownerRepoPath, refAndPath] = match
+      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
       return {
-        host: "gitlab.com",
+        host,
         owner,
         repo,
         path: refAndPath,
-        cloneURL: `https://gitlab.com/${owner}/${repo}.git`,
+        cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: false,
       }
     }
@@ -129,27 +163,45 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
     // 6) GitLab blob URL
     match = trimmed.match(GITLAB_BLOB_REGEX)
     if (match) {
-      const [, owner, repo, refAndPath] = match
-      return {
-        host: "gitlab.com",
-        owner,
-        repo,
-        path: refAndPath,
-        cloneURL: `https://gitlab.com/${owner}/${repo}.git`,
-        isBlobURL: true,
-      }
-    }
-
-    // 7) Plain repo URL
-    match = trimmed.match(PLAIN_REPO_REGEX)
-    if (match) {
-      const [, host, owner, repo] = match
+      const [, host, ownerRepoPath, refAndPath] = match
+      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
       return {
         host,
         owner,
         repo,
+        path: refAndPath,
         cloneURL: `https://${host}/${owner}/${repo}.git`,
+        isBlobURL: true,
+      }
+    }
+
+    // 7) Plain GitHub repo URL (GitHub has no nested groups → exactly owner/repo)
+    match = trimmed.match(PLAIN_GITHUB_REPO_REGEX)
+    if (match) {
+      const [, owner, repo] = match
+      return {
+        host: "github.com",
+        owner,
+        repo,
+        cloneURL: `https://github.com/${owner}/${repo}.git`,
         isBlobURL: false,
+      }
+    }
+
+    // 8) Plain GitLab repo URL (supports nested groups → last segment is the repo)
+    match = trimmed.match(PLAIN_GITLAB_REPO_REGEX)
+    if (match) {
+      const { owner, repo } = splitOwnerRepo(match[1])
+      // A GitLab project always lives under at least one namespace, so a
+      // single-segment path (no owner) is not a valid repo URL.
+      if (owner) {
+        return {
+          host: "gitlab.com",
+          owner,
+          repo,
+          cloneURL: `https://gitlab.com/${owner}/${repo}.git`,
+          isBlobURL: false,
+        }
       }
     }
 
