@@ -85,8 +85,84 @@ describe('useGitAuth — GitLab provider', () => {
       env: { GITLAB_TOKEN: 'glpat-abc', GITLAB_USER: 'tanuki' },
     })
     expect(result.current.authStatus).toBe('authenticated')
-    // GitLab never warns about scopes (no scope header exposed).
+    // No scopes returned (introspection unavailable) → no claim about missing scopes.
     expect(result.current.scopeWarning).toBeNull()
+  })
+
+  it('shows introspected scopes and does not warn when write_repository is present', async () => {
+    installApi(async (channel) => {
+      if (channel === 'gitlab:validate') {
+        return {
+          valid: true,
+          user: { login: 'tanuki' },
+          tokenType: 'pat',
+          scopes: ['read_user', 'write_repository'],
+        }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
+    )
+
+    act(() => result.current.setPatToken('glpat-abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(result.current.detectedScopes).toEqual(['read_user', 'write_repository'])
+    expect(result.current.scopeWarning).toBeNull()
+  })
+
+  it('does not warn when the token has the api superset scope', async () => {
+    installApi(async (channel) => {
+      if (channel === 'gitlab:validate') {
+        return { valid: true, user: { login: 'tanuki' }, tokenType: 'pat', scopes: ['api'] }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
+    )
+
+    act(() => result.current.setPatToken('glpat-abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(result.current.detectedScopes).toEqual(['api'])
+    expect(result.current.scopeWarning).toBeNull()
+  })
+
+  it('warns when the token grants no repository write access', async () => {
+    installApi(async (channel) => {
+      if (channel === 'gitlab:validate') {
+        return {
+          valid: true,
+          user: { login: 'tanuki' },
+          tokenType: 'pat',
+          scopes: ['read_user', 'read_repository'],
+        }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
+    )
+
+    act(() => result.current.setPatToken('glpat-abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(result.current.detectedScopes).toEqual(['read_user', 'read_repository'])
+    expect(result.current.scopeWarning).toContain('write_repository')
   })
 
   it('detection warnings reference GITLAB_TOKEN / glab, never GITHUB_TOKEN', async () => {

@@ -1,15 +1,18 @@
 import type { ProviderConfig } from './index'
 import { GitLabLogo } from '../components/GitLabLogo'
 
-// GitLab's GET /user exposes no scope header, so scope chips are not shown for
-// GitLab tokens. These descriptions exist only for completeness if a future
-// scope-introspection path is added.
+// GitLab's GET /user exposes no scope header, but scopes are introspected
+// separately (/oauth/token/info for OAuth tokens, /personal_access_tokens/self
+// for PATs), so the success card shows the token's permissions like GitHub.
 const GITLAB_SCOPE_DESCRIPTIONS: Record<string, string> = {
   api: 'Full read/write access to the API.',
   read_api: 'Read access to the API.',
   read_repository: 'Read access to repositories.',
   write_repository: 'Read/write access to repositories.',
   read_user: 'Read access to user profile.',
+  openid: 'Authenticate with OpenID Connect.',
+  profile: 'Read access to profile information.',
+  email: 'Read access to your email address.',
 }
 
 export const gitlabProviderConfig: ProviderConfig = {
@@ -40,9 +43,11 @@ export const gitlabProviderConfig: ProviderConfig = {
     scopesDocsUrl:
       'https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html#personal-access-token-scopes',
     scopeDescriptions: GITLAB_SCOPE_DESCRIPTIONS,
-    // GitLab exposes no scopes via GET /user, so never warn about missing scopes.
-    showScopeWarning: false,
-    requiredScope: undefined,
+    // Warn when the token grants no repository write access. `api` is a superset
+    // of `write_repository`, so either satisfies the requirement.
+    showScopeWarning: true,
+    requiredScope: 'write_repository',
+    acceptableScopes: ['api', 'write_repository'],
     showAppInstallBranch: false,
     showFineGrainedNote: false,
     unknownTokenLabel: 'Access Token',

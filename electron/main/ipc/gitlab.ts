@@ -2,7 +2,8 @@
  * IPC handlers for GitLab authentication operations.
  *
  * Bridges Electron ipcMain to the GitLab auth domain module, providing token
- * validation and credential detection (env var + `glab` CLI). Mirrors github.ts:
+ * validation and credential detection (env var, `glab` CLI, and glab's
+ * config.yml). Mirrors github.ts:
  * detection handlers inject the resolved token into the session environment so
  * git operations against gitlab.com can resolve it server-side, while
  * `gitlab:validate` only validates (the renderer owns the PAT-paste session
@@ -15,6 +16,7 @@ import {
   detectTokenType,
   detectEnvCredentials,
   detectCliCredentials,
+  detectConfigCredentials,
 } from "../../../src/domain/gitlab/auth.ts"
 
 export function registerGitLabHandlers(): void {
@@ -73,7 +75,13 @@ export function registerGitLabHandlers(): void {
   })
 
   ipcMain.handle("gitlab:cli-credentials", async () => {
-    const token = await runtime.runPromise(detectCliCredentials())
+    // Prefer the `glab` binary (it refreshes OAuth tokens), then fall back to
+    // reading glab's config.yml directly. `glab auth login` only writes the
+    // token to config.yml, and the binary may not be on PATH inside Electron's
+    // spawn environment, so the file is the more reliable source.
+    const token =
+      (await runtime.runPromise(detectCliCredentials())) ??
+      (await runtime.runPromise(detectConfigCredentials()))
     if (!token) {
       return { found: false as const }
     }

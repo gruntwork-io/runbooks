@@ -51,6 +51,12 @@ export interface ProviderConfig {
     scopeDescriptions: Record<string, string>
     showScopeWarning: boolean
     requiredScope?: string
+    /**
+     * Scopes that each satisfy the requirement (any-of). Used when several
+     * scopes grant the needed access — e.g. GitLab's `api` is a superset of
+     * `write_repository`. Defaults to `[requiredScope]` when omitted.
+     */
+    acceptableScopes?: string[]
     showAppInstallBranch: boolean
     showFineGrainedNote: boolean
     /** Label shown for an unrecognized token type. */

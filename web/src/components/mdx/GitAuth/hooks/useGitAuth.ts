@@ -75,11 +75,16 @@ export function useGitAuth({
   const effectiveClientId = oauthClientId || DEFAULT_GITHUB_OAUTH_CLIENT_ID
   const isCustomClientId = oauthClientId !== undefined && oauthClientId !== '' && oauthClientId !== DEFAULT_GITHUB_OAUTH_CLIENT_ID
 
-  // Whether to warn about a missing required scope (GitHub only — GitLab
-  // exposes no scopes and sets showScopeWarning=false).
+  // Whether to warn about a missing required scope. Only warns when the token's
+  // scopes are actually known (an unknown/empty list means we can't claim a
+  // scope is missing) and none of the acceptable scopes are present. Acceptable
+  // scopes default to [requiredScope], but a provider can list several when more
+  // than one grants the needed access (e.g. GitLab's `api` ⊇ `write_repository`).
   const shouldWarnMissingScope = useCallback((scopes: string[] | undefined): boolean => {
     if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
-    return !(scopes?.includes(provider.success.requiredScope) ?? false)
+    if (!scopes || scopes.length === 0) return false
+    const acceptable = provider.success.acceptableScopes ?? [provider.success.requiredScope]
+    return !scopes.some((scope) => acceptable.includes(scope))
   }, [provider])
 
   // Helper to check for credentials from block outputs

@@ -11,10 +11,11 @@ export interface GitLabUser {
 export interface GitLabTokenValidation {
   readonly user: GitLabUser
   /**
-   * GitLab's `GET /user` endpoint exposes no scope header, so token scopes are
-   * not reliably discoverable for personal access tokens. Always undefined for
-   * now; introspecting scopes via `GET /personal_access_tokens/self` is a
-   * possible follow-up.
+   * GitLab's `GET /user` exposes no scope header, so scopes are introspected
+   * separately (best-effort): `/oauth/token/info` for OAuth tokens and
+   * `/personal_access_tokens/self` for personal access tokens. Undefined when
+   * scopes can't be determined (e.g. a project/group token or an introspection
+   * failure).
    */
   readonly scopes?: string[]
 }
