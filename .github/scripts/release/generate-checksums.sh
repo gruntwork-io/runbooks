@@ -16,8 +16,10 @@ function main {
 	# Use pushd/popd to avoid side effects on caller's working directory
 	pushd "$bin_dir" >/dev/null || return 1
 
-	# Checksum the user-facing installers/archives. Auto-update sidecar files
-	# (*.blockmap, latest*.yml) are uploaded but deliberately excluded here.
+	# Checksum the user-facing installers/archives. The latest*.yml update
+	# manifests are uploaded but deliberately excluded here (electron-updater
+	# verifies them via its own sha512). *.blockmap delta files are not uploaded
+	# to the release at all (omitted at the upload-artifact step in release.yml).
 	shopt -s nullglob
 	local -a files=(*.dmg *.zip *.AppImage *.deb *.exe)
 	shopt -u nullglob

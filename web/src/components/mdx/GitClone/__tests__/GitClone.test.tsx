@@ -1,11 +1,13 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import GitClone from ".."
+import { useGitClone } from "../hooks/useGitClone"
 
-// Mock useGitClone hook
+// Mock useGitClone hook. A vi.fn lets us assert which auth id the component
+// forwards to the hook.
 vi.mock("../hooks/useGitClone", () => ({
-  useGitClone: () => ({
+  useGitClone: vi.fn(() => ({
     status: "idle",
     progress: null,
     cloneResult: null,
@@ -13,7 +15,7 @@ vi.mock("../hooks/useGitClone", () => ({
     logs: [],
     handleClone: vi.fn(),
     handleCancel: vi.fn(),
-  }),
+  })),
 }))
 
 // Mock useGitWorkTree context
@@ -35,6 +37,10 @@ function renderGitClone(props: Record<string, unknown> = {}) {
 }
 
 describe("GitClone", () => {
+  beforeEach(() => {
+    vi.mocked(useGitClone).mockClear()
+  })
+
   it("renders with default title", () => {
     renderGitClone()
     expect(screen.getByTestId("test-clone")).toBeInTheDocument()
@@ -64,5 +70,10 @@ describe("GitClone", () => {
     renderGitClone()
     const block = screen.getByTestId("test-clone")
     expect(block.querySelector(".bg-destructive-muted")).toBeNull()
+  })
+
+  it("forwards githubAuthId to the hook", () => {
+    renderGitClone({ githubAuthId: "gh-auth" })
+    expect(useGitClone).toHaveBeenCalledWith({ id: "test-clone", githubAuthId: "gh-auth" })
   })
 })

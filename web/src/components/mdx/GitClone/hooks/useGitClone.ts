@@ -21,10 +21,10 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
 
 interface UseGitCloneOptions {
   id: string
-  gitHubAuthId?: string
+  githubAuthId?: string
 }
 
-export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
+export function useGitClone({ id, githubAuthId }: UseGitCloneOptions) {
   const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
@@ -40,11 +40,11 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
   // Ref to the progress listener unsubscriber so cancel() can clean up
   const unsubLogRef = useRef<(() => void) | null>(null)
 
-  // Check if gitHubAuthId dependency is met
+  // Check if the githubAuthId dependency is met
   const gitHubAuthMet = useMemo((): boolean => {
-    if (!gitHubAuthId) return true // No dependency
+    if (!githubAuthId) return true // No dependency
 
-    const normalizedId = normalizeBlockId(gitHubAuthId)
+    const normalizedId = normalizeBlockId(githubAuthId)
     const blockOutputs = allOutputs[normalizedId]
 
     // Check for GITHUB_TOKEN in outputs
@@ -58,7 +58,7 @@ export function useGitClone({ id, gitHubAuthId }: UseGitCloneOptions) {
     }
 
     return false
-  }, [gitHubAuthId, allOutputs])
+  }, [githubAuthId, allOutputs])
 
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {

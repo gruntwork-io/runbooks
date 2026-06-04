@@ -40,6 +40,7 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 - `failMessage` (string) - Message shown when check fails (default: "Failed"). Supports inline markdown.
 - `runningMessage` (string) - Message shown while running (default: "Checking..."). Supports inline markdown.
 - `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
+- `timeoutMs` (number) - Maximum time, in milliseconds, the check script is allowed to run before it is killed and the block is marked as failed. Defaults to `300000` (5 minutes). Use this for checks that legitimately take longer than the default — for example, `timeoutMs={1800000}` for a 30-minute probe.
 
 ### Inline content
 

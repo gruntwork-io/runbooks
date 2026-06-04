@@ -21,6 +21,21 @@ export interface UseIpcReturn<T> {
 }
 
 /**
+ * Strip Electron's IPC wrapper from a rejected invoke message so the renderer
+ * can show the handler's actual message. Electron rejects with
+ * "Error invoking remote method 'channel': Error: <message>"; we want just
+ * "<message>".
+ */
+function cleanIpcErrorMessage(raw: string): string {
+  let msg = raw.replace(/^Error invoking remote method '[^']*':\s*/, '')
+  // Serialization can leave one or more leading "Error: " prefixes.
+  while (/^Error:\s*/.test(msg)) {
+    msg = msg.replace(/^Error:\s*/, '')
+  }
+  return msg.trim()
+}
+
+/**
  * Base IPC hook that replaces useApi for Electron.
  * Invokes an IPC channel with optional params, returning data/loading/error state.
  */
@@ -51,10 +66,10 @@ export function useIpc<T>(
       setIsLoading(false)
     } catch (err: unknown) {
       setIsLoading(false)
-      setError(createAppError(
-        err instanceof Error ? err.message : 'An unexpected error occurred',
-        err instanceof Error ? err.message : 'IPC invocation failed'
-      ))
+      const message = err instanceof Error
+        ? cleanIpcErrorMessage(err.message)
+        : 'An unexpected error occurred'
+      setError(createAppError(message, message))
     }
   }, [api, channel])
 

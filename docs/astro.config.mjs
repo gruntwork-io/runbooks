@@ -44,12 +44,12 @@ export default defineConfig({
 			sidebar: [
 				{
 					label: 'Intro',
-					autogenerate: { directory: 'intro' },
+					items: [{ autogenerate: { directory: 'intro' } }],
 				},
 				{
 					label: 'App & CLI',
-					autogenerate: { directory: 'commands' },
 					collapsed: true,
+					items: [{ autogenerate: { directory: 'commands' } }],
 				},
 			{
 				label: 'Authoring Runbooks',
@@ -64,24 +64,24 @@ export default defineConfig({
 					'authoring/testing',
 					{
 						label: 'Blocks',
-						autogenerate: { directory: 'authoring/blocks' },
+						items: [{ autogenerate: { directory: 'authoring/blocks' } }],
 					},
 				],
 			},
 				{
 					label: 'Security',
-					autogenerate: { directory: 'security' },
 					collapsed: true,
+					items: [{ autogenerate: { directory: 'security' } }],
 				},
 				{
 					label: 'Development',
-					autogenerate: { directory: 'development' },
 					collapsed: true,
+					items: [{ autogenerate: { directory: 'development' } }],
 				},
 				{
 					label: 'Runbooks Pro',
-					autogenerate: { directory: 'pro' },
 					collapsed: true,
+					items: [{ autogenerate: { directory: 'pro' } }],
 				},
 			],
 		}),

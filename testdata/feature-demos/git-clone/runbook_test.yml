@@ -29,7 +29,7 @@ tests:
       - block: gh-auth
         expect: skip
       - block: clone-github
-        expect: skip  # Skipped because gitHubAuthId dependency was skipped
+        expect: skip  # Skipped because githubAuthId dependency was skipped
 
   - name: generic-clone-public-repo
     description: Clone a public repo without any GitHub authentication
