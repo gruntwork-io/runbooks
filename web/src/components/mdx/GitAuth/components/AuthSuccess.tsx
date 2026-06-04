@@ -1,20 +1,22 @@
 import { useState } from "react"
 import { AlertTriangle, Bot, ChevronDown, ChevronRight, ExternalLink, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { GitHubUserInfo, GitHubDetectionSource, GitHubTokenType } from "../types"
+import type { GitUserInfo, GitDetectionSource, GitTokenType } from "../types"
+import type { ProviderConfig } from "../providers"
 
 interface AuthSuccessProps {
-  userInfo: GitHubUserInfo
-  detectionSource?: GitHubDetectionSource
+  userInfo: GitUserInfo
+  provider: ProviderConfig
+  detectionSource?: GitDetectionSource
   detectedScopes?: string[] | null
-  detectedTokenType?: GitHubTokenType | null
+  detectedTokenType?: GitTokenType | null
   scopeWarning?: string | null
   sessionEnvWarning?: string | null
   onReAuthenticate?: () => void
 }
 
 // Helper to get user-friendly token type label
-function getTokenTypeLabel(tokenType: GitHubTokenType): string {
+function getTokenTypeLabel(tokenType: GitTokenType, unknownLabel: string): string {
   switch (tokenType) {
     case 'fine_grained_pat':
       return 'Fine-grained PAT'
@@ -25,52 +27,13 @@ function getTokenTypeLabel(tokenType: GitHubTokenType): string {
     case 'github_app':
       return 'GitHub App Token'
     default:
-      return 'Token'
+      return unknownLabel
   }
-}
-
-// GitHub scopes documentation URL
-const GITHUB_SCOPES_DOCS_URL = 'https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps#available-scopes'
-
-// Brief descriptions for common GitHub scopes
-const SCOPE_DESCRIPTIONS: Record<string, string> = {
-  'repo': 'Full access to repositories',
-  'repo:status': 'Access commit statuses',
-  'repo_deployment': 'Access deployment statuses',
-  'public_repo': 'Access public repositories only',
-  'repo:invite': 'Accept/decline repo invitations',
-  'security_events': 'Read/write security events',
-  'admin:repo_hook': 'Full control of repository hooks',
-  'write:repo_hook': 'Write repository hooks',
-  'read:repo_hook': 'Read repository hooks',
-  'admin:org': 'Full control of orgs and teams',
-  'write:org': 'Read/write org membership',
-  'read:org': 'Read org membership',
-  'admin:public_key': 'Full control of public keys',
-  'write:public_key': 'Write public keys',
-  'read:public_key': 'Read public keys',
-  'admin:org_hook': 'Full control of organization hooks',
-  'gist': 'Create gists',
-  'notifications': 'Access notifications',
-  'user': 'Read/write user profile',
-  'read:user': 'Read user profile',
-  'user:email': 'Access user email',
-  'user:follow': 'Follow/unfollow users',
-  'project': 'Read/write projects',
-  'read:project': 'Read projects',
-  'delete_repo': 'Delete repositories',
-  'write:packages': 'Upload packages',
-  'read:packages': 'Download packages',
-  'delete:packages': 'Delete packages',
-  'admin:gpg_key': 'Full control of GPG keys',
-  'write:gpg_key': 'Write GPG keys',
-  'read:gpg_key': 'Read GPG keys',
-  'codespace': 'Full control of codespaces',
-  'workflow': 'Update GitHub Actions workflows',
 }
 
 export function AuthSuccess({
   userInfo,
+  provider,
   detectionSource,
   detectedScopes,
   detectedTokenType,
@@ -79,12 +42,17 @@ export function AuthSuccess({
   onReAuthenticate,
 }: AuthSuccessProps) {
   const [showPermissions, setShowPermissions] = useState(false)
+  const scopeDescriptions = provider.success.scopeDescriptions
   const isFineGrainedPat = detectedTokenType === 'fine_grained_pat'
   // ghs_ installation tokens have no user context — /user returns 403 — so
   // validateToken synthesizes a user without an avatar. ghu_ tokens also
   // detect as 'github_app' but hit /user successfully and have a real avatar,
-  // so they fall through to the normal user card.
-  const isAppInstallation = detectedTokenType === 'github_app' && !userInfo.avatarUrl
+  // so they fall through to the normal user card. GitLab never reaches here
+  // (showAppInstallBranch is false).
+  const isAppInstallation =
+    provider.success.showAppInstallBranch &&
+    detectedTokenType === 'github_app' &&
+    !userInfo.avatarUrl
 
   if (isAppInstallation) {
     return (
@@ -94,7 +62,7 @@ export function AuthSuccess({
           {detectionSource && (
             <span className="text-xs bg-info-muted text-info px-2 py-0.5 rounded font-normal">
               {detectionSource === 'env' && 'From Environment'}
-              {detectionSource === 'cli' && 'Via GitHub CLI'}
+              {detectionSource === 'cli' && `Via ${provider.cli.label}`}
               {detectionSource === 'block' && 'From Command'}
             </span>
           )}
@@ -142,11 +110,11 @@ export function AuthSuccess({
   return (
     <div className="mb-4">
       <div className="text-success font-semibold text-sm mb-2 flex items-center gap-2">
-        <span>✓ Authenticated to GitHub</span>
+        <span>✓ Authenticated to {provider.label}</span>
         {detectionSource && (
           <span className="text-xs bg-info-muted text-info px-2 py-0.5 rounded font-normal">
             {detectionSource === 'env' && 'From Environment'}
-            {detectionSource === 'cli' && 'Via GitHub CLI'}
+            {detectionSource === 'cli' && `Via ${provider.cli.label}`}
             {detectionSource === 'block' && 'From Command'}
           </span>
         )}
@@ -154,8 +122,8 @@ export function AuthSuccess({
       <div className="bg-success-muted/50 rounded p-3 text-sm">
         <div className="flex items-center gap-3">
           {userInfo.avatarUrl && (
-            <img 
-              src={userInfo.avatarUrl} 
+            <img
+              src={userInfo.avatarUrl}
               alt={userInfo.login}
               className="w-10 h-10 rounded-full border border-success/30"
             />
@@ -172,12 +140,12 @@ export function AuthSuccess({
             {detectedTokenType && (
               <div className="text-muted-foreground text-xs mt-1 flex items-center gap-1">
                 {isFineGrainedPat && <Shield className="size-3" />}
-                <span>{getTokenTypeLabel(detectedTokenType)}</span>
+                <span>{getTokenTypeLabel(detectedTokenType, provider.success.unknownTokenLabel)}</span>
               </div>
             )}
           </div>
         </div>
-        
+
         {/* Show scopes as a collapsible section */}
         {detectedScopes && detectedScopes.length > 0 && (
           <div className="mt-3 pt-3 border-t border-success/30">
@@ -199,17 +167,17 @@ export function AuthSuccess({
                     <span
                       key={scope}
                       className="inline-flex items-center gap-1 bg-muted text-muted-foreground px-2 py-0.5 rounded text-xs"
-                      title={SCOPE_DESCRIPTIONS[scope] || scope}
+                      title={scopeDescriptions[scope] || scope}
                     >
                       <code className="text-[10px] font-mono">{scope}</code>
-                      {SCOPE_DESCRIPTIONS[scope] && (
-                        <span className="text-muted-foreground">— {SCOPE_DESCRIPTIONS[scope]}</span>
+                      {scopeDescriptions[scope] && (
+                        <span className="text-muted-foreground">— {scopeDescriptions[scope]}</span>
                       )}
                     </span>
                   ))}
                 </div>
                 <a
-                  href={GITHUB_SCOPES_DOCS_URL}
+                  href={provider.success.scopesDocsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline mt-2"
@@ -221,14 +189,14 @@ export function AuthSuccess({
             )}
           </div>
         )}
-        
-        {/* Note for fine-grained PATs */}
-        {isFineGrainedPat && !detectedScopes?.length && (
+
+        {/* Note for fine-grained PATs (GitHub only) */}
+        {provider.success.showFineGrainedNote && isFineGrainedPat && !detectedScopes?.length && (
           <div className="mt-3 pt-3 border-t border-success/30 text-muted-foreground text-xs">
             Fine-grained PATs use repository-specific permissions.{' '}
-            <a 
-              href="https://github.com/settings/personal-access-tokens" 
-              target="_blank" 
+            <a
+              href="https://github.com/settings/personal-access-tokens"
+              target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline inline-flex items-center gap-0.5"
             >
@@ -242,7 +210,7 @@ export function AuthSuccess({
           <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
             <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
             <div>
-              <strong>Missing "repo" scope</strong>
+              <strong>Missing "{provider.success.requiredScope}" scope</strong>
               <br />
               Operations on private repos, issues, and PRs may fail.
             </div>
@@ -258,9 +226,9 @@ export function AuthSuccess({
       {/* Action button */}
       {onReAuthenticate && (
         <div className="mt-3">
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onReAuthenticate}
           >
             {scopeWarning ? 'Re-authenticate with full permissions' : 'Re-authenticate'}

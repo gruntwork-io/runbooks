@@ -29,23 +29,40 @@ export const runtime = ManagedRuntime.make(AppLive)
 export const sessionManager = new SessionManager()
 
 /**
- * Resolve the GitHub token from the current session's environment.
+ * Resolve an auth token for a git host from the current session's environment.
  *
- * The token is populated by the GitHubAuth block (github:* handlers via
- * session:set-env) and is the single source of truth for "which token do git
- * and GitHub API calls use" — the renderer never holds it directly. Callers
- * supply `onMissing` so each can fail with the error type its pipeline expects
- * (e.g. a typed GitError for git handlers, a plain Error for API handlers).
+ * Tokens are populated by the GitAuth block (github:* / gitlab:* handlers via
+ * session:set-env) and are the single source of truth for "which token do git
+ * and API calls use" — the renderer never holds them directly. The host
+ * selects which env var to read:
+ *   - github.com -> GITHUB_TOKEN, then GH_TOKEN
+ *   - gitlab.com -> GITLAB_TOKEN
+ * Callers supply `onMissing` so each can fail with the error type its pipeline
+ * expects (e.g. a typed GitError for git handlers, a plain Error for API
+ * handlers).
  */
-export const getSessionToken = <E>(onMissing: () => E) =>
+export const getSessionTokenForHost = <E>(host: string, onMissing: () => E) =>
   Effect.gen(function* () {
     const session = yield* sessionManager.getSession()
-    const token = session.env.get("GITHUB_TOKEN")
+    let token: string | undefined
+    if (host === "gitlab.com") {
+      token = session.env.get("GITLAB_TOKEN")
+    } else {
+      token = session.env.get("GITHUB_TOKEN") ?? session.env.get("GH_TOKEN")
+    }
     if (!token) {
       return yield* Effect.fail(onMissing())
     }
     return token
   })
+
+/**
+ * Resolve the GitHub token from the current session's environment. Thin
+ * GitHub-pinned wrapper over getSessionTokenForHost for existing callers (e.g.
+ * github:* API handlers and the pull-request flow, which are GitHub-only).
+ */
+export const getSessionToken = <E>(onMissing: () => E) =>
+  getSessionTokenForHost("github.com", onMissing)
 
 /** Executable registry -- populated when a runbook is loaded. */
 export let executableRegistry: ExecutableRegistry | null = null

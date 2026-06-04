@@ -37,6 +37,29 @@ describe("injectTokenIntoUrl", () => {
     )
   })
 
+  it("uses the GitLab `oauth2` username when requested", () => {
+    // GitLab expects the username `oauth2` with the PAT as the password. The
+    // clone handler passes this for gitlab.com hosts.
+    const result = injectTokenIntoUrl(
+      "https://gitlab.com/group/project.git",
+      TOKEN,
+      "oauth2",
+    )
+    expect(result).toBe(
+      `https://oauth2:${TOKEN}@gitlab.com/group/project.git`,
+    )
+  })
+
+  it("still defaults to `x-access-token` when no username is given", () => {
+    const result = injectTokenIntoUrl(
+      "https://github.com/owner/repo.git",
+      TOKEN,
+    )
+    expect(result).toBe(
+      `https://x-access-token:${TOKEN}@github.com/owner/repo.git`,
+    )
+  })
+
   it("returns an SSH URL unchanged (no place for userinfo)", () => {
     const ssh = "git@github.com:owner/repo.git"
     expect(injectTokenIntoUrl(ssh, TOKEN)).toBe(ssh)

@@ -185,6 +185,38 @@ export interface IpcChannelMap {
   "github:refs": { params: { owner: string; repo: string }; result: GitHubRef[] }
   "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
 
+  // GitLab Authentication
+  "gitlab:validate": {
+    params: { token: string }
+    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string }
+  }
+  "gitlab:env-credentials": {
+    // Param keys mirror github:env-credentials so the shared useGitAuth hook can
+    // call either channel with one payload shape; the gitlab handler ignores
+    // envVar/githubAuthId.
+    params: { envVar?: string; prefix?: string; githubAuthId?: string }
+    result: {
+      found: boolean
+      valid?: boolean
+      token?: string
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+    }
+  }
+  "gitlab:cli-credentials": {
+    params: Record<string, never>
+    result: {
+      found: boolean
+      token?: string
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+    }
+  }
+
   // Git Operations
   "git:clone": {
     params: GitCloneRequest

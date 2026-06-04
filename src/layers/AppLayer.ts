@@ -7,6 +7,7 @@ import { ChildProcessSpawnerLive } from "./ChildProcessSpawner.ts"
 import { ProcessEnvironmentLive } from "./ProcessEnvironment.ts"
 import { AwsSdkClientLive } from "./AwsSdkClient.ts"
 import { GitHubHttpClientLive } from "./GitHubHttpClient.ts"
+import { GitLabHttpClientLive } from "./GitLabHttpClient.ts"
 import { WasmBoilerplateLive } from "./WasmBoilerplate.ts"
 import { NodeWasmRuntimeLive } from "./NodeWasmRuntime.ts"
 import { NodeBundleProducerLive } from "./NodeBundleProducer.ts"
@@ -23,6 +24,7 @@ const BaseLive = Layer.mergeAll(
   ProcessEnvironmentLive,
   AwsSdkClientLive,
   GitHubHttpClientLive,
+  GitLabHttpClientLive,
   MixpanelTelemetryLive,
 )
 

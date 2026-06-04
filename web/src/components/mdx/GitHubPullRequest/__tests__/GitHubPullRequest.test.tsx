@@ -40,7 +40,7 @@ vi.mock("../components/PRResult", () => ({
 vi.mock("../components/CollapsibleToggle", () => ({
   CollapsibleToggle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
-vi.mock("@/components/mdx/GitHubAuth/components/GitHubLogo", () => ({
+vi.mock("@/components/mdx/GitAuth/components/GitHubLogo", () => ({
   GitHubLogo: () => <div>GitHub Logo</div>,
 }))
 

@@ -1,15 +1,15 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TestWrapper } from '@/test/test-utils'
-import { GitHubAuth } from '../GitHubAuth'
+import { GitHubAuth } from '../../GitHubAuth'
 
 vi.mock('@/contexts/useInstructionMode', () => ({
   useInstructionMode: () => ({ enabled: true, setEnabled: vi.fn() }),
 }))
 
-const useGitHubAuthSpy = vi.fn(() => ({ authStatus: 'pending' }))
-vi.mock('../hooks/useGitHubAuth', () => ({
-  useGitHubAuth: () => useGitHubAuthSpy(),
+const useGitAuthSpy = vi.fn(() => ({ authStatus: 'pending' }))
+vi.mock('../hooks/useGitAuth', () => ({
+  useGitAuth: () => useGitAuthSpy(),
 }))
 
 describe('GitHubAuth — instruction mode', () => {
@@ -22,9 +22,12 @@ describe('GitHubAuth — instruction mode', () => {
     expect(screen.getByText('Log into GitHub')).toBeInTheDocument()
     expect(screen.getByText('repo')).toBeInTheDocument()
     expect(screen.getByText('workflow')).toBeInTheDocument()
+    // The GitHub instruction note has no CLI command (byte-identical to the
+    // legacy block) — only GitLab appends a `glab auth login` hint.
+    expect(screen.queryByText('gh auth login')).toBeNull()
   })
 
-  it('shows no auth capture UI and never calls useGitHubAuth', () => {
+  it('shows no auth capture UI and never calls useGitAuth', () => {
     render(
       <TestWrapper>
         <GitHubAuth id="gh" />
@@ -33,6 +36,6 @@ describe('GitHubAuth — instruction mode', () => {
     expect(screen.getByText('Log into GitHub')).toBeInTheDocument()
     // Default scope is repo.
     expect(screen.getByText('repo')).toBeInTheDocument()
-    expect(useGitHubAuthSpy).not.toHaveBeenCalled()
+    expect(useGitAuthSpy).not.toHaveBeenCalled()
   })
 })

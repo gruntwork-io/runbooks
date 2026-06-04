@@ -3,55 +3,61 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import type {
-  GitHubAuthMethod,
-  GitHubAuthStatus,
-  GitHubDetectionStatus,
-  GitHubDetectionSource,
-  GitHubUserInfo,
-  GitHubCredentialSource,
-  GitHubCliCredentialsResponse,
-  GitHubTokenType,
+  GitAuthMethod,
+  GitAuthStatus,
+  GitDetectionStatus,
+  GitDetectionSource,
+  GitUserInfo,
+  GitCredentialSource,
+  GitCliCredentialsResponse,
+  GitTokenType,
 } from "../types"
-import { isCliAuthFound, hasRepoScope } from "../types"
+import { isCliAuthFound } from "../types"
+import type { ProviderConfig } from "../providers"
 
 // Default GitHub OAuth client ID (Gruntwork's registered app)
 // This is a public identifier, not a secret
 const DEFAULT_GITHUB_OAUTH_CLIENT_ID = "Ov23liDbtds8EmGws3np"
 
-interface UseGitHubAuthOptions {
+interface UseGitAuthOptions {
   id: string
+  provider: ProviderConfig
   oauthClientId?: string
   oauthScopes?: string[]
-  detectCredentials?: false | GitHubCredentialSource[]
+  detectCredentials?: false | GitCredentialSource[]
 }
 
-export function useGitHubAuth({
+export function useGitAuth({
   id,
+  provider,
   oauthClientId,
   oauthScopes = ['repo'],
   detectCredentials = ['env', 'cli'],
-}: UseGitHubAuthOptions) {
+}: UseGitAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
-  // Core auth state
-  const [authMethod, setAuthMethod] = useState<GitHubAuthMethod>('oauth')
-  const [authStatus, setAuthStatus] = useState<GitHubAuthStatus>('pending')
+  // Core auth state. The default manual method depends on the provider: GitHub
+  // defaults to OAuth, GitLab (no OAuth) to PAT.
+  const [authMethod, setAuthMethod] = useState<GitAuthMethod>(
+    provider.supportsOAuth ? 'oauth' : 'pat'
+  )
+  const [authStatus, setAuthStatus] = useState<GitAuthStatus>('pending')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [userInfo, setUserInfo] = useState<GitHubUserInfo | null>(null)
+  const [userInfo, setUserInfo] = useState<GitUserInfo | null>(null)
 
   // Detection state
-  const [detectionStatus, setDetectionStatus] = useState<GitHubDetectionStatus>(
+  const [detectionStatus, setDetectionStatus] = useState<GitDetectionStatus>(
     detectCredentials === false ? 'done' : 'pending'
   )
-  const [detectionSource, setDetectionSource] = useState<GitHubDetectionSource>(null)
+  const [detectionSource, setDetectionSource] = useState<GitDetectionSource>(null)
   const [detectedScopes, setDetectedScopes] = useState<string[] | null>(null)
-  const [detectedTokenType, setDetectedTokenType] = useState<GitHubTokenType | null>(null)
+  const [detectedTokenType, setDetectedTokenType] = useState<GitTokenType | null>(null)
   const [scopeWarning, setScopeWarning] = useState<string | null>(null)
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const detectionAttemptedRef = useRef(false)
-  
+
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
 
@@ -65,9 +71,16 @@ export function useGitHubAuth({
   const oauthPollingCancelledRef = useRef(false)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Determine the effective client ID
+  // Determine the effective client ID (GitHub OAuth only)
   const effectiveClientId = oauthClientId || DEFAULT_GITHUB_OAUTH_CLIENT_ID
   const isCustomClientId = oauthClientId !== undefined && oauthClientId !== '' && oauthClientId !== DEFAULT_GITHUB_OAUTH_CLIENT_ID
+
+  // Whether to warn about a missing required scope (GitHub only — GitLab
+  // exposes no scopes and sets showScopeWarning=false).
+  const shouldWarnMissingScope = useCallback((scopes: string[] | undefined): boolean => {
+    if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
+    return !(scopes?.includes(provider.success.requiredScope) ?? false)
+  }, [provider])
 
   // Helper to check for credentials from block outputs
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; token?: string; error?: string } => {
@@ -78,47 +91,55 @@ export function useGitHubAuth({
       return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
     }
 
-    const token = outputs.GITHUB_TOKEN || outputs.GH_TOKEN
+    const token = outputs[provider.env.tokenVar] ||
+      provider.env.altTokenVars.map((v) => outputs[v]).find(Boolean)
     if (!token) {
-      return { found: false, error: `Block "${blockId}" did not output GITHUB_TOKEN or GH_TOKEN` }
+      const names = [provider.env.tokenVar, ...provider.env.altTokenVars].join(' or ')
+      return { found: false, error: `Block "${blockId}" did not output ${names}` }
     }
 
     return { found: true, token }
-  }, [blockOutputs])
+  }, [blockOutputs, provider])
 
   // Register credentials as outputs and set session environment
   // Returns { authenticated: true, sessionEnvSynced: boolean } to indicate partial success
   // Sets sessionEnvWarning if the session env sync fails
-  const registerCredentials = useCallback(async (token: string, user: GitHubUserInfo): Promise<{ authenticated: true; sessionEnvSynced: boolean }> => {
+  const registerCredentials = useCallback(async (token: string, user: GitUserInfo): Promise<{ authenticated: true; sessionEnvSynced: boolean }> => {
     const outputs: Record<string, string> = {
-      GITHUB_TOKEN: token,
-      GITHUB_USER: user.login,
+      [provider.env.tokenVar]: token,
+      [provider.env.userVar]: user.login,
     }
 
     registerOutputs(id, outputs)
 
-    // Also set in session environment for blocks that don't specify githubAuthId
+    // Also set in session environment for blocks that don't reference this block
     try {
       await window.api.invoke('session:set-env', { env: outputs })
       setSessionEnvWarning(null)
       return { authenticated: true, sessionEnvSynced: true }
     } catch (error) {
-      const message = 'Credentials saved, but session sync failed. Blocks without githubAuthId may not receive credentials.'
+      const message = 'Credentials saved, but session sync failed. Blocks without an explicit auth reference may not receive credentials.'
       console.warn('Failed to set session environment variables:', error)
       setSessionEnvWarning(message)
       return { authenticated: true, sessionEnvSynced: false }
     }
+  }, [id, provider, registerOutputs])
+
+  // Clear this block's registered outputs (used when switching providers so the
+  // prior provider's token/user don't linger under this block id).
+  const clearRegisteredOutputs = useCallback(() => {
+    registerOutputs(id, {})
   }, [id, registerOutputs])
 
-  // Validate a token via the GitHub API
-  const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string }> => {
+  // Validate a token via the provider's API
+  const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string }> => {
     try {
-      const data = await window.api.invoke('github:validate', { token })
+      const data = await window.api.invoke(provider.channels.validate, { token })
       return {
         valid: data.valid,
-        user: data.user as GitHubUserInfo | undefined,
+        user: data.user as GitUserInfo | undefined,
         scopes: data.scopes,
-        tokenType: data.tokenType as GitHubTokenType | undefined,
+        tokenType: data.tokenType as GitTokenType | undefined,
         error: data.error
       }
     } catch (error) {
@@ -127,12 +148,12 @@ export function useGitHubAuth({
         error: error instanceof Error ? error.message : 'Failed to validate token'
       }
     }
-  }, [])
+  }, [provider])
 
   // Try to detect credentials from environment variables
-  const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; tokenType?: GitHubTokenType; error?: string; foundButInvalid?: boolean }> => {
+  const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean }> => {
     try {
-      const data = await window.api.invoke('github:env-credentials', {
+      const data = await window.api.invoke(provider.channels.envCredentials, {
         envVar: '',
         prefix: options?.prefix || '',
         githubAuthId: id,
@@ -147,16 +168,16 @@ export function useGitHubAuth({
         return { success: false, error: data.error, foundButInvalid: true }
       }
 
-      return { success: true, user: data.user as GitHubUserInfo | undefined, scopes: data.scopes, tokenType: data.tokenType as GitHubTokenType | undefined }
+      return { success: true, user: data.user as GitUserInfo | undefined, scopes: data.scopes, tokenType: data.tokenType as GitTokenType | undefined }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [id])
+  }, [id, provider])
 
-  // Try to detect credentials from GitHub CLI
-  const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitHubUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean }> => {
+  // Try to detect credentials from the provider's CLI
+  const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean }> => {
     try {
-      const data = await window.api.invoke('github:cli-credentials', {} as Record<string, never>) as unknown as GitHubCliCredentialsResponse
+      const data = await window.api.invoke(provider.channels.cliCredentials, {} as Record<string, never>) as unknown as GitCliCredentialsResponse
 
       if (!isCliAuthFound(data)) {
         // Check if token was found but invalid (error contains "invalid")
@@ -169,10 +190,10 @@ export function useGitHubAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
     }
-  }, [])
+  }, [provider])
 
   // Try to detect credentials from block outputs
-  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitHubUserInfo; error?: string }> => {
+  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitUserInfo; error?: string }> => {
     const result = getBlockCredentials(blockId)
 
     if (!result.found || !result.token) {
@@ -207,7 +228,7 @@ export function useGitHubAuth({
 
     const runDetection = async () => {
       const warnings: string[] = []
-      
+
       for (const source of detectCredentials) {
         // Check for 'env' - standard env vars
         if (source === 'env') {
@@ -221,8 +242,8 @@ export function useGitHubAuth({
             }
             if (result.scopes && result.scopes.length > 0) {
               setDetectedScopes(result.scopes)
-              if (!result.scopes.includes('repo')) {
-                setScopeWarning('Missing "repo" scope - some operations may fail')
+              if (shouldWarnMissingScope(result.scopes)) {
+                setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
               }
             }
             setDetectionStatus('done')
@@ -230,7 +251,7 @@ export function useGitHubAuth({
             return
           }
           if (result.foundButInvalid) {
-            warnings.push('GITHUB_TOKEN is invalid or expired')
+            warnings.push(`${provider.env.tokenVar} is invalid or expired`)
           }
         }
         // Check for { env: { prefix: 'PREFIX_' } } - prefixed env vars
@@ -246,8 +267,8 @@ export function useGitHubAuth({
             }
             if (result.scopes && result.scopes.length > 0) {
               setDetectedScopes(result.scopes)
-              if (!result.scopes.includes('repo')) {
-                setScopeWarning('Missing "repo" scope - some operations may fail')
+              if (shouldWarnMissingScope(result.scopes)) {
+                setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
               }
             }
             setDetectionStatus('done')
@@ -255,10 +276,10 @@ export function useGitHubAuth({
             return
           }
           if (result.foundButInvalid) {
-            warnings.push(`${prefix}GITHUB_TOKEN is invalid or expired`)
+            warnings.push(`${prefix}${provider.env.tokenVar} is invalid or expired`)
           }
         }
-        // Check for 'cli' - GitHub CLI
+        // Check for 'cli' - provider CLI
         else if (source === 'cli') {
           const result = await tryCliCredentials()
           if (result.success && result.user) {
@@ -266,15 +287,15 @@ export function useGitHubAuth({
             setAuthStatus('authenticated')
             setUserInfo(result.user)
             setDetectedScopes(result.scopes ?? null)
-            if (!hasRepoScope({ user: result.user, scopes: result.scopes })) {
-              setScopeWarning('Missing "repo" scope - some operations may fail')
+            if (shouldWarnMissingScope(result.scopes)) {
+              setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
             }
             setDetectionStatus('done')
             registerOutputs(id, { __AUTHENTICATED: 'true' })
             return
           }
           if (result.foundButInvalid) {
-            warnings.push('GitHub CLI token is invalid or expired')
+            warnings.push(`${provider.cli.label} token is invalid or expired`)
           }
         }
         // Check for { block: 'id' } - block outputs
@@ -297,18 +318,18 @@ export function useGitHubAuth({
           }
         }
       }
-      
+
       // Set any warnings from invalid credentials we found
       if (warnings.length > 0) {
         setDetectionWarning(warnings.join('; '))
       }
-      
+
       // Nothing found
       setDetectionStatus('done')
     }
 
     runDetection()
-  }, [detectCredentials, id, sessionReady, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, registerOutputs])
+  }, [detectCredentials, id, provider, sessionReady, shouldWarnMissingScope, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, registerOutputs])
 
   // Watch for block outputs when waiting for a block
   useEffect(() => {
@@ -362,21 +383,21 @@ export function useGitHubAuth({
     await registerCredentials(patToken, validation.user)
     setAuthStatus('authenticated')
     setUserInfo(validation.user)
-    
+
     // Set token type if available
     if (validation.tokenType) {
       setDetectedTokenType(validation.tokenType)
     }
-    
-    // Set scopes if available (classic PATs return scopes from X-OAuth-Scopes header)
-    // Fine-grained PATs don't return scopes via the header
+
+    // Set scopes if available (GitHub classic PATs return scopes from
+    // X-OAuth-Scopes header; fine-grained PATs and GitLab tokens do not).
     if (validation.scopes && validation.scopes.length > 0) {
       setDetectedScopes(validation.scopes)
-      if (!validation.scopes.includes('repo')) {
-        setScopeWarning('Missing "repo" scope - some operations may fail')
+      if (shouldWarnMissingScope(validation.scopes)) {
+        setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
       }
     }
-  }, [patToken, validateToken, registerCredentials])
+  }, [patToken, provider, shouldWarnMissingScope, validateToken, registerCredentials])
 
   // Poll for OAuth completion
   const pollOAuthCompletion = useCallback(async (deviceCode: string, interval: number = 5) => {
@@ -404,10 +425,10 @@ export function useGitHubAuth({
           oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
         } else if (data.status === 'complete') {
           // Success!
-          await registerCredentials(data.accessToken!, data.user as unknown as GitHubUserInfo)
+          await registerCredentials(data.accessToken!, data.user as unknown as GitUserInfo)
           if (oauthPollingCancelledRef.current) return
           setAuthStatus('authenticated')
-          setUserInfo(data.user as unknown as GitHubUserInfo)
+          setUserInfo(data.user as unknown as GitUserInfo)
         } else if (data.status === 'expired') {
           if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
@@ -506,8 +527,19 @@ export function useGitHubAuth({
     setDetectedTokenType(null)
     setScopeWarning(null)
     setSessionEnvWarning(null)
+    setDetectionWarning(null)
     oauthPollingCancelledRef.current = false
   }, [])
+
+  // Reset detection so it re-runs for a freshly-selected provider. Setting
+  // detectionStatus back to 'pending' (when detection is enabled) shows the
+  // "Checking…" state instead of flashing the manual form, and clearing
+  // detectionAttemptedRef lets the detection effect fire again.
+  const resetDetectionState = useCallback(() => {
+    detectionAttemptedRef.current = false
+    setWaitingForBlockId(null)
+    setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
+  }, [detectCredentials])
 
   return {
     // Auth state
@@ -516,7 +548,7 @@ export function useGitHubAuth({
     authStatus,
     errorMessage,
     userInfo,
-    
+
     // Detection state
     detectionStatus,
     detectionSource,
@@ -526,14 +558,15 @@ export function useGitHubAuth({
     detectionWarning,
     sessionEnvWarning,
     waitingForBlockId,
-    
+    detectionAttemptedRef,
+
     // PAT form
     patToken,
     setPatToken,
     showPatToken,
     setShowPatToken,
     handlePatSubmit,
-    
+
     // OAuth
     effectiveClientId,
     isCustomClientId,
@@ -541,8 +574,10 @@ export function useGitHubAuth({
     oauthVerificationUri,
     startOAuth,
     cancelOAuth,
-    
+
     // Actions
     resetAuth,
+    resetDetectionState,
+    clearRegisteredOutputs,
   }
 }

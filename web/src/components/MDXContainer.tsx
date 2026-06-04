@@ -14,7 +14,9 @@ import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
+import { GitAuth } from '@/components/mdx/GitAuth'
 import { GitHubAuth } from '@/components/mdx/GitHubAuth'
+import { GitLabAuth } from '@/components/mdx/GitLabAuth'
 import { GitClone } from '@/components/mdx/GitClone'
 import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
 import { DirPicker } from '@/components/mdx/DirPicker'
@@ -260,7 +262,9 @@ export const MDX_COMPONENTS = {
   Command,
   // Authentication components
   AwsAuth,
+  GitAuth,
   GitHubAuth,
+  GitLabAuth,
   // Git operations
   GitClone,
   GitHubPullRequest,

@@ -1,0 +1,102 @@
+---
+title: <GitAuth>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GitAuth>` block provides a streamlined interface for authenticating to a git host — **GitHub or GitLab** — from a single block with a provider dropdown.
+
+It automatically detects whether the user is already authenticated by checking their local environment variables or the provider's CLI (`gh` for GitHub, `glab` for GitLab). Users can also authenticate manually: GitHub supports OAuth and a Personal Access Token (PAT); GitLab supports a PAT. Once authenticated, the credentials are available to subsequent [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
+
+### Basic Usage
+
+Default to GitHub and let the user pick the provider from the dropdown:
+
+```mdx
+<GitAuth id="git-auth" title="Authenticate to Git" />
+```
+
+Pre-select GitLab and hide the dropdown so the runbook is GitLab-only:
+
+```mdx
+<GitAuth
+  id="git-auth"
+  provider="gitlab"
+  hideProviderSelect
+  title="Authenticate to GitLab"
+/>
+
+<Command
+  id="clone-repo"
+  gitAuthId="git-auth"
+  title="Clone Repository"
+  command="git clone https://gitlab.com/gruntwork-io/runbooks.git"
+/>
+```
+
+By default, Runbooks automatically detects and uses credentials from, in order:
+
+1. Environment variables — `GITHUB_TOKEN` / `GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab)
+2. The provider CLI — `gh auth token` (GitHub) or `glab auth token` (GitLab)
+
+If no credentials are detected, users authenticate manually.
+
+### Providers
+
+| Provider | Methods | CLI | Token env var | OAuth |
+| --- | --- | --- | --- | --- |
+| `github` (default) | OAuth, PAT, CLI, env | `gh` | `GITHUB_TOKEN` (or `GH_TOKEN`) | Yes |
+| `gitlab` | PAT, CLI, env | `glab` | `GITLAB_TOKEN` | No |
+
+<Aside type="note">
+GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so GitLab authenticates via a Personal Access Token, the `glab` CLI, or the `GITLAB_TOKEN` environment variable. GitLab's API exposes no token scopes, so Runbooks does not display or warn about GitLab scopes.
+</Aside>
+
+Only `gitlab.com` and `github.com` are supported today. Self-managed GitLab and GitHub Enterprise hosts are not yet configurable.
+
+## Props
+
+| Prop | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `id` | `string` | Yes | — | Unique block ID. |
+| `provider` | `'github' \| 'gitlab'` | No | `'github'` | The initially selected provider. |
+| `hideProviderSelect` | `boolean` | No | `false` | When `true`, hide the provider dropdown and lock the provider to `provider`. |
+| `title` | `string` | No | `"Git Authentication"` | Block title (supports template expressions). |
+| `description` | `string` | No | — | Block description (supports template expressions). |
+| `oauthClientId` | `string` | No | Gruntwork's app | Custom GitHub OAuth App client ID. GitHub only. |
+| `oauthScopes` | `string[]` | No | `['repo']` (GitHub) | OAuth scopes to request. |
+| `detectCredentials` | `false \| GitCredentialSource[]` | No | `['env', 'cli']` | Credential auto-detection sources, applied to the selected provider. Set to `false` to disable. |
+| `inputsId` | `string \| string[]` | No | — | Reference one or more `<Inputs>` blocks for template expressions in props. |
+
+## Usage
+
+On successful authentication, the block sets these session environment variables, which downstream blocks inherit automatically:
+
+| Provider | Variables |
+| --- | --- |
+| `github` | `GITHUB_TOKEN`, `GITHUB_USER` |
+| `gitlab` | `GITLAB_TOKEN`, `GITLAB_USER` |
+
+A `git clone` of a private `gitlab.com` repository automatically uses the session `GITLAB_TOKEN` (and `github.com` uses `GITHUB_TOKEN`), so no extra wiring is needed.
+
+### Explicit block references
+
+Blocks can reference an auth block by ID so they wait for authentication and receive its credentials for that execution only:
+
+- `gitAuthId` — provider-agnostic. References a `<GitAuth>` block of **either** provider and injects whichever token/user it produced. Use this for GitLab.
+- `githubAuthId` — GitHub only (the legacy prop). It reads `GITHUB_TOKEN`/`GITHUB_USER`, so it cannot reference a GitLab block.
+
+<Aside type="caution">
+A GitLab `<GitAuth>` block cannot be referenced via `githubAuthId` — use `gitAuthId`, or rely on the session environment (any `<Command>`/`<Check>` inherits `GITLAB_TOKEN` without an explicit reference).
+</Aside>
+
+## Provider-locked aliases
+
+Two convenience aliases lock `<GitAuth>` to a single provider (no dropdown):
+
+- [`<GitHubAuth>`](/authoring/blocks/githubauth/) — equivalent to `<GitAuth provider="github" hideProviderSelect />`. The original block name; existing runbooks using it continue to work unchanged.
+- [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) — equivalent to `<GitAuth provider="gitlab" hideProviderSelect />`.
+
+## Detailed Example
+
+See the [git-auth demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/git-auth) for a complete GitLab example.

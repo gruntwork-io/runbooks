@@ -2,16 +2,30 @@ import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 
-vi.mock("../hooks/useGitHubAuth", () => ({
-  useGitHubAuth: () => ({
+// The legacy <GitHubAuth> wrapper renders the generic <GitAuth>, which drives
+// the shared useGitAuth hook. Mock the hook to a stable, authenticated-pending
+// shape so this test focuses on the wrapper's backward-compatible rendering.
+vi.mock("../hooks/useGitAuth", () => ({
+  useGitAuth: () => ({
     authStatus: "pending",
     authMethod: "pat",
     setAuthMethod: vi.fn(),
-    user: null,
-    error: null,
+    detectionStatus: "done",
+    detectionAttemptedRef: { current: false },
+    userInfo: null,
+    errorMessage: null,
+    patToken: "",
+    setPatToken: vi.fn(),
+    showPatToken: false,
+    setShowPatToken: vi.fn(),
     handlePatSubmit: vi.fn(),
-    handleOAuthStart: vi.fn(),
-    handleLogout: vi.fn(),
+    startOAuth: vi.fn(),
+    cancelOAuth: vi.fn(),
+    resetAuth: vi.fn(),
+    resetDetectionState: vi.fn(),
+    clearRegisteredOutputs: vi.fn(),
+    effectiveClientId: "client-id",
+    isCustomClientId: false,
   }),
 }))
 
@@ -35,7 +49,7 @@ vi.mock("../components/GitHubLogo", () => ({
   GitHubLogo: () => <div>GitHub Logo</div>,
 }))
 
-import { GitHubAuth } from "../GitHubAuth"
+import { GitHubAuth } from "../../GitHubAuth"
 
 function renderGitHubAuth(props: Record<string, unknown> = {}) {
   return render(
@@ -45,8 +59,8 @@ function renderGitHubAuth(props: Record<string, unknown> = {}) {
   )
 }
 
-describe("GitHubAuth", () => {
-  it("renders with default title", () => {
+describe("GitHubAuth (backward-compat alias)", () => {
+  it("renders with the legacy default title", () => {
     renderGitHubAuth()
     expect(screen.getByTestId("test-gh")).toBeInTheDocument()
     expect(screen.getByText("GitHub Authentication")).toBeInTheDocument()
@@ -60,6 +74,13 @@ describe("GitHubAuth", () => {
   it("renders description", () => {
     renderGitHubAuth({ description: "Sign in with GitHub" })
     expect(screen.getByText("Sign in with GitHub")).toBeInTheDocument()
+  })
+
+  it("is GitHub-locked: never shows the provider picker", () => {
+    renderGitHubAuth()
+    // hideProviderSelect is forced, so the GitHub/GitLab picker is absent.
+    expect(screen.queryByRole("tablist", { name: "Git provider" })).toBeNull()
+    expect(screen.queryByText("GitLab")).toBeNull()
   })
 
   it("shows error for missing id", () => {

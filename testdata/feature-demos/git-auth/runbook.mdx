@@ -1,0 +1,31 @@
+---
+title: Git Authentication Demo (GitLab)
+---
+
+# Git Authentication
+
+This runbook demonstrates the generic `<GitAuth>` block with the GitLab
+provider. The same block also supports GitHub — set `provider="github"` (the
+default) or let the user pick from the dropdown.
+
+## Step 1: Authenticate to GitLab
+
+<GitAuth
+  id="git-auth"
+  provider="gitlab"
+  hideProviderSelect
+  title="Connect to GitLab"
+  description="Authenticate to access private GitLab repositories"
+/>
+
+## Step 2: Verify Authentication
+
+The verify step references the auth block by `gitAuthId`, so it waits for
+authentication and inherits the `GITLAB_TOKEN` from the session environment.
+
+<Command
+  id="verify-auth"
+  gitAuthId="git-auth"
+  title="Verify GitLab Access"
+  path="./scripts/verify-auth.sh"
+/>
