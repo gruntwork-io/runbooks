@@ -48,6 +48,12 @@ export interface GitAuthProps {
   provider?: GitProvider
   /** When true, the provider picker is hidden and the provider is locked. */
   hideProviderSelect?: boolean
+  /**
+   * Self-hosted GitLab instance URL (e.g. `https://gitlab.example.com`). GitLab
+   * only. Seeds the editable "Instance URL" field in the PAT form and is used to
+   * validate the token against that instance. Defaults to gitlab.com.
+   */
+  instanceUrl?: string
   /** GitHub OAuth App client ID (defaults to Gruntwork's app). GitHub only. */
   oauthClientId?: string
   /** OAuth scopes to request (GitHub default: ['repo']). */

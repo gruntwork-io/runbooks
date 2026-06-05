@@ -185,16 +185,19 @@ export interface IpcChannelMap {
   "github:refs": { params: { owner: string; repo: string }; result: GitHubRef[] }
   "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
 
-  // GitLab Authentication
+  // GitLab Authentication.
+  // `instanceUrl` is the optional self-hosted GitLab origin
+  // (e.g. https://gitlab.example.com) the token is validated against; omitted /
+  // empty means gitlab.com.
   "gitlab:validate": {
-    params: { token: string }
+    params: { token: string; instanceUrl?: string }
     result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string }
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
     // call either channel with one payload shape; the gitlab handler ignores
     // envVar/githubAuthId.
-    params: { envVar?: string; prefix?: string; githubAuthId?: string }
+    params: { envVar?: string; prefix?: string; githubAuthId?: string; instanceUrl?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -206,7 +209,7 @@ export interface IpcChannelMap {
     }
   }
   "gitlab:cli-credentials": {
-    params: Record<string, never>
+    params: { instanceUrl?: string }
     result: {
       found: boolean
       token?: string
@@ -216,7 +219,9 @@ export interface IpcChannelMap {
       error?: string
     }
   }
-  "gitlab:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
+  // `host` is the GitLab instance host the repo lives on (self-hosted or
+  // gitlab.com), derived by the renderer from the repo's remote URL.
+  "gitlab:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
 
   // Git Operations
   "git:clone": {

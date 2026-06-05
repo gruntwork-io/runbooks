@@ -1,10 +1,13 @@
 /**
  * Live implementation of the GitLabClient service using fetch.
  *
- * Mirrors GitHubHttpClient, but targets gitlab.com's REST API. Personal,
- * project, and group access tokens authenticate via the `PRIVATE-TOKEN` header;
- * OAuth tokens (e.g. from `glab auth login`'s web flow) are rejected by it and
- * require `Authorization: Bearer`, so we fall back to Bearer on an auth failure.
+ * Mirrors GitHubHttpClient, but targets GitLab's REST API. The instance origin
+ * is per-call (`baseUrl`, defaulting to gitlab.com) so a self-hosted GitLab is
+ * supported — the auth block supplies its instance URL, and operations on a
+ * cloned repo derive it from the repo's own remote. Personal, project, and
+ * group access tokens authenticate via the `PRIVATE-TOKEN` header; OAuth tokens
+ * (e.g. from `glab auth login`'s web flow) are rejected by it and require
+ * `Authorization: Bearer`, so we fall back to Bearer on an auth failure.
  * Unlike GitHub, `GET /user` exposes no scope header, so token scopes are
  * introspected with a second, best-effort call (`/oauth/token/info` for OAuth
  * tokens, `/personal_access_tokens/self` for PATs).
@@ -19,9 +22,7 @@ import type {
   MergeRequestResult,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
-
-const GITLAB_BASE = "https://gitlab.com"
-const API_BASE = `${GITLAB_BASE}/api/v4`
+import { DEFAULT_GITLAB_BASE_URL, gitlabApiBase } from "../domain/git/gitlab-host.ts"
 
 type AuthScheme = "private" | "bearer"
 
@@ -49,13 +50,14 @@ function toStringArray(value: unknown): string[] | undefined {
 async function fetchScopes(
   token: string,
   scheme: AuthScheme,
+  baseUrl: string,
 ): Promise<string[] | undefined> {
   // OAuth tokens expose scopes via /oauth/token/info (`scope`); PATs via
   // /api/v4/personal_access_tokens/self (`scopes`).
   const [url, field] =
     scheme === "bearer"
-      ? ([`${GITLAB_BASE}/oauth/token/info`, "scope"] as const)
-      : ([`${API_BASE}/personal_access_tokens/self`, "scopes"] as const)
+      ? ([`${baseUrl}/oauth/token/info`, "scope"] as const)
+      : ([`${gitlabApiBase(baseUrl)}/personal_access_tokens/self`, "scopes"] as const)
   try {
     const resp = await fetch(url, { headers: authHeaders(token, scheme) })
     if (!resp.ok) return undefined
@@ -119,16 +121,20 @@ async function paginateAll<T>(
   return results
 }
 
-async function validateUserToken(token: string): Promise<GitLabTokenValidation> {
+async function validateUserToken(
+  token: string,
+  baseUrl: string,
+): Promise<GitLabTokenValidation> {
+  const apiBase = gitlabApiBase(baseUrl)
   // PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are rejected by it
   // (401) and require Authorization: Bearer (which also accepts PATs). Retry
   // with Bearer only on 401 — a 403 means the token authenticated but lacks the
   // scope to read /user, which Bearer (same token, same scopes) can't fix.
   let scheme: AuthScheme = "private"
-  let resp = await fetch(`${API_BASE}/user`, { headers: authHeaders(token, scheme) })
+  let resp = await fetch(`${apiBase}/user`, { headers: authHeaders(token, scheme) })
   if (resp.status === 401) {
     scheme = "bearer"
-    resp = await fetch(`${API_BASE}/user`, { headers: authHeaders(token, scheme) })
+    resp = await fetch(`${apiBase}/user`, { headers: authHeaders(token, scheme) })
   }
   if (!resp.ok) {
     const body = await resp.text().catch(() => "")
@@ -141,7 +147,7 @@ async function validateUserToken(token: string): Promise<GitLabTokenValidation> 
     email?: string
   }
   // GET /user exposes no scopes; introspect them with the scheme that validated.
-  const scopes = await fetchScopes(token, scheme)
+  const scopes = await fetchScopes(token, scheme, baseUrl)
   return {
     user: {
       login: data.username,
@@ -154,9 +160,9 @@ async function validateUserToken(token: string): Promise<GitLabTokenValidation> 
 }
 
 const impl: GitLabClientShape = {
-  validateToken: (token: string) =>
+  validateToken: (token: string, baseUrl: string = DEFAULT_GITLAB_BASE_URL) =>
     Effect.tryPromise({
-      try: (): Promise<GitLabTokenValidation> => validateUserToken(token),
+      try: (): Promise<GitLabTokenValidation> => validateUserToken(token, baseUrl),
       catch: (err) =>
         err instanceof GitLabApiError
           ? err
@@ -169,6 +175,7 @@ const impl: GitLabClientShape = {
   createMergeRequest: (token: string, params: CreateMRParams) =>
     Effect.tryPromise({
       try: async (): Promise<MergeRequestResult> => {
+        const apiBase = gitlabApiBase(params.baseUrl ?? DEFAULT_GITLAB_BASE_URL)
         // `:id` is the URL-encoded full project path; encodeURIComponent turns
         // the slashes of a nested group path (group/subgroup/project) into %2F.
         const projectId = encodeURIComponent(`${params.owner}/${params.repo}`)
@@ -184,7 +191,7 @@ const impl: GitLabClientShape = {
           body.labels = params.labels.join(",")
         }
         const resp = await gitlabFetch(
-          `${API_BASE}/projects/${projectId}/merge_requests`,
+          `${apiBase}/projects/${projectId}/merge_requests`,
           token,
           {
             method: "POST",
@@ -211,12 +218,13 @@ const impl: GitLabClientShape = {
           : new GitLabApiError({ status: 0, message: `${err}` }),
     }),
 
-  listLabels: (token: string, owner: string, repo: string) =>
+  listLabels: (token: string, owner: string, repo: string, baseUrl: string = DEFAULT_GITLAB_BASE_URL) =>
     Effect.tryPromise({
       try: async (): Promise<string[]> => {
+        const apiBase = gitlabApiBase(baseUrl)
         const projectId = encodeURIComponent(`${owner}/${repo}`)
         const labels = await paginateAll<{ name: string }>(
-          `${API_BASE}/projects/${projectId}/labels?include_ancestor_groups=true`,
+          `${apiBase}/projects/${projectId}/labels?include_ancestor_groups=true`,
           token,
         )
         return labels.map((l) => l.name)

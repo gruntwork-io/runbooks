@@ -9,7 +9,7 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
 import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
-import { deriveProviderFromAuth, deriveProviderFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
 import { useGitFileChanges } from "@/hooks/useGitFileChanges"
 import { PR_PROVIDERS } from "./providers"
 import { useGitPullRequest } from "./hooks/useGitPullRequest"
@@ -246,12 +246,17 @@ function GitPullRequestInteractive({
     return status
   }, [status, authMet, activeWorkTree, wrongProvider])
 
-  // Fetch labels when ready
+  // Fetch labels when ready. Pass the repo's host so a self-hosted GitLab's
+  // labels are fetched from its own instance, not gitlab.com.
   useEffect(() => {
     if (effectiveStatus === 'ready' && activeWorkTree?.gitInfo?.repoOwner && activeWorkTree?.gitInfo?.repoName) {
-      fetchLabels(activeWorkTree.gitInfo.repoOwner, activeWorkTree.gitInfo.repoName)
+      fetchLabels(
+        activeWorkTree.gitInfo.repoOwner,
+        activeWorkTree.gitInfo.repoName,
+        hostFromRepoUrl(activeWorkTree?.gitInfo?.repoUrl),
+      )
     }
-  }, [effectiveStatus, activeWorkTree?.gitInfo?.repoOwner, activeWorkTree?.gitInfo?.repoName, fetchLabels])
+  }, [effectiveStatus, activeWorkTree?.gitInfo?.repoOwner, activeWorkTree?.gitInfo?.repoName, activeWorkTree?.gitInfo?.repoUrl, fetchLabels])
 
   // Report configuration errors
   useEffect(() => {

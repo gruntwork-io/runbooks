@@ -1,6 +1,29 @@
 import { CheckCircle, XCircle, Loader2, KeyRound } from "lucide-react"
 import type { GitAuthStatus } from "./types"
 
+/**
+ * Normalize a user-entered GitLab instance URL (or bare host) into a clean
+ * origin (`https://gitlab.example.com`), or null when empty/invalid. Mirrors the
+ * backend's normalizeGitLabBaseUrl; used to build the self-hosted
+ * token-creation link. A missing scheme is assumed https.
+ */
+export const normalizeInstanceBaseUrl = (input: string | undefined | null): string | null => {
+  const raw = (input ?? "").trim()
+  if (!raw) return null
+  // Reject a non-http(s) scheme rather than gluing https:// in front of it
+  // (which would turn `ftp://host` into the bogus `https://ftp`).
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+  if (hasScheme && !/^https?:\/\//i.test(raw)) return null
+  const withScheme = hasScheme ? raw : `https://${raw}`
+  try {
+    const u = new URL(withScheme)
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null
+    return `${u.protocol}//${u.host}`
+  } catch {
+    return null
+  }
+}
+
 // Get status-based styling for the container
 export const getStatusClasses = (authStatus: GitAuthStatus): string => {
   const statusMap: Record<GitAuthStatus, string> = {

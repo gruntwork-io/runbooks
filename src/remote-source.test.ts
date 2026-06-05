@@ -170,6 +170,16 @@ describe("parseRemoteSource", () => {
       expect(result.owner).toBe("group/subgroup")
       expect(result.repo).toBe("project")
     })
+
+    it("parses a plain repo URL on a self-hosted GitLab instance", () => {
+      const result = parse("https://gitlab.example.com/group/subgroup/project")
+      expect(result.host).toBe("gitlab.example.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.cloneURL).toBe(
+        "https://gitlab.example.com/group/subgroup/project.git",
+      )
+    })
   })
 
   describe("invalid URLs", () => {
@@ -423,6 +433,19 @@ describe("getTokenForHost(gitlab.com)", () => {
       getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
     )
     expect(result).toBeUndefined()
+  })
+})
+
+describe("getTokenForHost(self-hosted GitLab)", () => {
+  it("resolves GITLAB_TOKEN for a self-hosted gitlab host", async () => {
+    const layer = Layer.mergeAll(
+      makeTestEnvironment({ GITLAB_TOKEN: "gl_self" }),
+      makeTestSpawner([]),
+    )
+    const result = await Effect.runPromise(
+      getTokenForHost("gitlab.example.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("gl_self")
   })
 })
 

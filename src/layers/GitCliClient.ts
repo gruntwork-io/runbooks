@@ -19,6 +19,7 @@ import type {
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
 import { injectTokenIntoUrl } from "../domain/git/url.ts"
+import { gitSpawnEnv } from "../domain/git/env.ts"
 
 /**
  * Run a git command, collect all output, and return stdout lines.
@@ -31,7 +32,7 @@ function runGit(
   stdin?: string,
 ) {
   return Effect.gen(function* () {
-    const proc = yield* spawner.spawn("git", args, { cwd, stdin })
+    const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: gitSpawnEnv() })
     const chunks = yield* Stream.runCollect(proc.output)
     const lines = Chunk.toArray(chunks)
     const code = yield* proc.exitCode
@@ -82,6 +83,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
           const proc = yield* spawner.spawn("git", args, {
             cwd: options?.repoPath,
+            env: gitSpawnEnv(),
           })
           const chunks = yield* Stream.runCollect(proc.output)
           const code = yield* proc.exitCode
@@ -283,6 +285,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         const proc = yield* spawner.spawn("git", ["check-ignore", "--stdin"], {
           cwd: repoPath,
           stdin,
+          env: gitSpawnEnv(),
         })
         const chunks = yield* Stream.runCollect(proc.output)
         // Ignore exit code — 1 just means "no ignored files found"
