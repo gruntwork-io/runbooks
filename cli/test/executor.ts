@@ -46,7 +46,7 @@ import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 
 type BlockState = "success" | "skipped"
 
-const AUTH_BLOCK_TYPES = new Set(["AwsAuth", "GitHubAuth"])
+const AUTH_BLOCK_TYPES = new Set(["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"])
 
 function isAuthBlock(blockType: string): boolean {
   return AUTH_BLOCK_TYPES.has(blockType)
