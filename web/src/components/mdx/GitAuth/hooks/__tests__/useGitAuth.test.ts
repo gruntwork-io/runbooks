@@ -210,4 +210,22 @@ describe('useGitAuth — GitHub provider (regression)', () => {
       GITHUB_USER: 'octocat',
     })
   })
+
+  it('does not warn for a CLI-detected token with no readable scopes (e.g. fine-grained PAT)', async () => {
+    // gh auth token can surface a fine-grained PAT whose X-OAuth-Scopes is empty;
+    // we can't claim "repo" is missing when scopes are unknown, so no warning.
+    installApi(async (channel) => {
+      if (channel === 'github:env-credentials') return { found: false }
+      if (channel === 'github:cli-credentials') {
+        return { found: true, user: { login: 'octocat' }, tokenType: 'fine_grained_pat', scopes: undefined }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.scopeWarning).toBeNull()
+  })
 })

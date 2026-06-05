@@ -75,10 +75,9 @@ export function registerGitLabHandlers(): void {
   })
 
   ipcMain.handle("gitlab:cli-credentials", async () => {
-    // Prefer the `glab` binary (it refreshes OAuth tokens), then fall back to
-    // reading glab's config.yml directly. `glab auth login` only writes the
-    // token to config.yml, and the binary may not be on PATH inside Electron's
-    // spawn environment, so the file is the more reliable source.
+    // Prefer the `glab` binary (it refreshes OAuth tokens); if it yields no
+    // token (not on PATH, not installed, not authenticated, or it timed out),
+    // read glab's config.yml directly, where `glab auth login` stores the token.
     const token =
       (await runtime.runPromise(detectCliCredentials())) ??
       (await runtime.runPromise(detectConfigCredentials()))

@@ -147,9 +147,11 @@ const GITLAB_HOST = "gitlab.com"
  *        Windows: %LOCALAPPDATA%       (fallback ~/AppData/Local)
  *        Linux:   ~/.config            (same as the legacy location)
  *
- * We probe each in order and use the first file that exists and holds a token,
- * which reproduces glab's precedence (it picks the first directory that
- * contains a config.yml). Exported for testing.
+ * We probe these in glab's directory-precedence order and return the first
+ * gitlab.com token found. (glab itself uses the first directory whose config.yml
+ * exists; we instead skip a config that has no gitlab.com token, since our only
+ * goal is to surface a usable gitlab.com credential the user already has.)
+ * Exported for testing.
  */
 export function resolveGlabConfigPaths(opts: {
   env: Record<string, string | undefined>
@@ -186,7 +188,6 @@ export function resolveGlabConfigPaths(opts: {
 }
 
 interface GlabConfig {
-  host?: string
   hosts?: Record<string, { token?: unknown } | undefined>
 }
 
@@ -223,10 +224,10 @@ export function parseGlabToken(yamlContent: string): string | undefined {
  * Detect a GitLab token from glab's CLI config file (`config.yml`).
  *
  * `glab auth login` does not export an environment variable; it writes the
- * token into glab's `config.yml`. This reads that file directly, which also
- * works when the `glab` binary is not on PATH (common inside Electron's spawn
- * environment, where `glab auth token` would fail to launch). Returns undefined
- * if no config file or gitlab.com token is found.
+ * token into glab's `config.yml`. This reads that file directly, so detection
+ * still works when `glab auth token` yields nothing — e.g. the `glab` binary is
+ * not on PATH (common inside Electron's spawn environment). Returns undefined if
+ * no config file or gitlab.com token is found.
  */
 export const detectConfigCredentials = () =>
   Effect.gen(function* () {
@@ -240,9 +241,8 @@ export const detectConfigCredentials = () =>
     })
 
     for (const path of candidates) {
-      const exists = yield* fs.exists(path)
-      if (!exists) continue
-
+      // readFile already falls back to "" for a missing/unreadable file, so no
+      // separate existence check is needed.
       const content = yield* fs
         .readFile(path)
         .pipe(Effect.orElseSucceed(() => ""))

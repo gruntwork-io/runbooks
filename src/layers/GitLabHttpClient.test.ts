@@ -91,25 +91,27 @@ describe("GitLabHttpClient.validateToken", () => {
     expect(calls.filter((u) => u.endsWith("/api/v4/user"))).toHaveLength(2)
   })
 
-  it("falls back to Bearer when PRIVATE-TOKEN returns 403", async () => {
-    let bearerSeen: string | null = null
+  it("does not retry with Bearer on 403 (insufficient scope, not a wrong scheme)", async () => {
+    // A 403 means the token authenticated but lacks scope to read /user; retrying
+    // with Bearer (same token/scopes) can't help, so it must fail fast.
+    let bearerAttempted = false
     mockFetch((url, init) => {
       const headers = new Headers(init?.headers)
+      if (headers.get("Authorization")?.startsWith("Bearer")) bearerAttempted = true
       if (url.endsWith("/api/v4/user")) {
-        if (headers.get("PRIVATE-TOKEN") !== null) {
-          return new Response("403 Forbidden", { status: 403 })
-        }
-        bearerSeen = headers.get("Authorization")
-        return json({ username: "odgrim" })
+        return new Response("403 Forbidden", { status: 403 })
       }
       return new Response("not found", { status: 404 })
     })
 
-    const result = await Effect.runPromise(validate("oauth-token-xyz"))
+    const result = await Effect.runPromise(Effect.either(validate("glpat-scoped")))
 
-    expect(result.user.login).toBe("odgrim")
-    expect(bearerSeen).toBe("Bearer oauth-token-xyz")
-    expect(result.scopes).toBeUndefined()
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(GitLabApiError)
+      expect(result.left.status).toBe(403)
+    }
+    expect(bearerAttempted).toBe(false)
   })
 
   it("still validates when scope introspection is unavailable", async () => {

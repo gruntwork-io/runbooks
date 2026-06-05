@@ -48,33 +48,30 @@ async function fetchScopes(
   token: string,
   scheme: AuthScheme,
 ): Promise<string[] | undefined> {
+  // OAuth tokens expose scopes via /oauth/token/info (`scope`); PATs via
+  // /api/v4/personal_access_tokens/self (`scopes`).
+  const [url, field] =
+    scheme === "bearer"
+      ? ([`${GITLAB_BASE}/oauth/token/info`, "scope"] as const)
+      : ([`${API_BASE}/personal_access_tokens/self`, "scopes"] as const)
   try {
-    if (scheme === "bearer") {
-      const resp = await fetch(`${GITLAB_BASE}/oauth/token/info`, {
-        headers: authHeaders(token, "bearer"),
-      })
-      if (!resp.ok) return undefined
-      const data = (await resp.json()) as { scope?: unknown }
-      return toStringArray(data.scope)
-    }
-    const resp = await fetch(`${API_BASE}/personal_access_tokens/self`, {
-      headers: authHeaders(token, "private"),
-    })
+    const resp = await fetch(url, { headers: authHeaders(token, scheme) })
     if (!resp.ok) return undefined
-    const data = (await resp.json()) as { scopes?: unknown }
-    return toStringArray(data.scopes)
+    const data = (await resp.json()) as Record<string, unknown>
+    return toStringArray(data[field])
   } catch {
     return undefined
   }
 }
 
 async function validateUserToken(token: string): Promise<GitLabTokenValidation> {
-  // PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are rejected by it and
-  // require Authorization: Bearer (which also accepts PATs). Try PRIVATE-TOKEN
-  // first, then retry with Bearer on an auth failure before giving up.
+  // PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are rejected by it
+  // (401) and require Authorization: Bearer (which also accepts PATs). Retry
+  // with Bearer only on 401 — a 403 means the token authenticated but lacks the
+  // scope to read /user, which Bearer (same token, same scopes) can't fix.
   let scheme: AuthScheme = "private"
   let resp = await fetch(`${API_BASE}/user`, { headers: authHeaders(token, scheme) })
-  if (resp.status === 401 || resp.status === 403) {
+  if (resp.status === 401) {
     scheme = "bearer"
     resp = await fetch(`${API_BASE}/user`, { headers: authHeaders(token, scheme) })
   }

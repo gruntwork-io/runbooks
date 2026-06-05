@@ -37,7 +37,7 @@ Pre-select GitLab and hide the dropdown so the runbook is GitLab-only:
 By default, Runbooks automatically detects and uses credentials from, in order:
 
 1. Environment variables — `GITHUB_TOKEN` / `GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab)
-2. The provider CLI — `gh auth token` (GitHub) or `glab auth token` (GitLab). For GitLab, Runbooks also reads glab's `config.yml` directly (where `glab auth login` stores the token) when the `glab` binary is not on `PATH`.
+2. The provider CLI — `gh auth token` (GitHub) or `glab auth token` (GitLab). For GitLab, Runbooks also reads glab's `config.yml` directly (where `glab auth login` stores the token) when `glab auth token` returns nothing — for example when the `glab` binary is not on `PATH`.
 
 If no credentials are detected, users authenticate manually.
 
