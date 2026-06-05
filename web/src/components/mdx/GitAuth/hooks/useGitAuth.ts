@@ -134,10 +134,12 @@ export function useGitAuth({
     }
   }, [id, provider, registerOutputs])
 
-  // Clear this block's registered outputs (used when switching providers so the
-  // prior provider's token/user don't linger under this block id).
-  const clearRegisteredOutputs = useCallback(() => {
-    registerOutputs(id, {})
+  // Clear this block's registered outputs. When the user explicitly switches
+  // providers, pass `retainProvider` so the new provider's id is written
+  // immediately — downstream blocks (e.g. GitPullRequest) need GIT_PROVIDER
+  // to derive the right channel even before authentication completes.
+  const clearRegisteredOutputs = useCallback((retainProvider?: string) => {
+    registerOutputs(id, retainProvider ? { GIT_PROVIDER: retainProvider } : {})
   }, [id, registerOutputs])
 
   // Validate a token via the provider's API

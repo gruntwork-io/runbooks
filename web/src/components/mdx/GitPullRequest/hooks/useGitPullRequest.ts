@@ -87,6 +87,9 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
 
   // Track whether an operation is in progress for cancellation
   const isRunningRef = useRef(false)
+  // Set when the user cancels mid-flight so the pending invoke's continuation
+  // (and any late events) don't clobber the reset UI state.
+  const canceledRef = useRef(false)
   const isMountedRef = useRef(true)
   // Store active event unsubscribers so unmount can clean them up
   const activeUnsubscribersRef = useRef<Array<() => void>>([])
@@ -150,6 +153,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     activeUnsubscribersRef.current = []
     const unsubscribers: Array<() => void> = []
     isRunningRef.current = true
+    canceledRef.current = false
 
     try {
       // Subscribe to IPC events BEFORE invoking the command
@@ -208,18 +212,46 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       // Invoke the IPC command. The channel is one of a fixed set whose params
       // are PullRequestRequest (create) or the push payload; `as never` bridges
       // the union without widening to `any`.
-      await window.api.invoke(opts.channel, opts.body as never)
+      const result = await window.api.invoke(opts.channel, opts.body as never) as
+        | { error?: string; url?: string; number?: number }
+        | undefined
 
-      // Clean up listeners after a short delay to allow late-arriving
-      // IPC events to be delivered (event.sender.send events arrive
-      // asynchronously after invoke resolves).
+      isRunningRef.current = false
+
+      // Resolve final status IMMEDIATELY from the invoke return value — the
+      // invoke promise is the most reliable completion signal. The git:status
+      // and git:error IPC events are sent by the main handler before returning,
+      // so they may have already fired (great), or they may arrive within the
+      // next few hundred ms (the 500ms listener window below). Either way the
+      // status is correct now and the spinner is never permanently stuck.
+      if (isMountedRef.current && !canceledRef.current) {
+        if (result && 'error' in result && result.error) {
+          opts.onError(result.error)
+          setStatus(prev =>
+            prev === 'creating' || prev === 'pushing' ? opts.errorStatus : prev,
+          )
+          // Surface branch-exists code if the git:error event didn't arrive yet
+          if (/already exists/i.test(result.error)) {
+            setErrorCode(prev => prev ?? 'branch_exists')
+            if ('headBranch' in opts.body) {
+              setConflictBranchName(prev => prev ?? (opts.body as CreateRequestBody).headBranch)
+            }
+          }
+        } else {
+          setStatus(prev =>
+            prev === 'creating' || prev === 'pushing' ? 'success' : prev,
+          )
+        }
+      }
+
+      // Keep listeners alive briefly so late-arriving git:pr-result and
+      // git:outputs events (URL / outputs registration) can still be processed.
       setTimeout(() => {
         for (const unsub of unsubscribers) unsub()
         activeUnsubscribersRef.current = []
-      }, 200)
-      isRunningRef.current = false
+      }, 500)
     } catch (error) {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && !canceledRef.current) {
         const msg = error instanceof Error ? error.message : `${opts.errorPrefix} failed`
         opts.onError(msg)
         setStatus(opts.errorStatus)
@@ -282,11 +314,23 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     })
   }, [executeIPCRequest, cfg])
 
-  // Cancel operation
+  // Cancel operation.
+  //
+  // We can't abort the main-process git work over the existing invoke (there's
+  // no cancel channel), but we stop listening for its events and return the UI
+  // to a usable state so the user is never trapped on a spinner — previously
+  // this only flipped a ref and left `status` stuck at 'creating'/'pushing'.
   const cancel = useCallback(() => {
-    if (isRunningRef.current) {
-      isRunningRef.current = false
-    }
+    canceledRef.current = true
+    isRunningRef.current = false
+    for (const unsub of activeUnsubscribersRef.current) unsub()
+    activeUnsubscribersRef.current = []
+    setStatus('ready')
+    setErrorMessage(null)
+    setErrorCode(null)
+    setConflictBranchName(null)
+    setPushError(null)
+    setLogs(prev => prev.length > 0 ? [...prev, createLogEntry('Canceled.')] : prev)
   }, [])
 
   // Delete a local branch and reset to ready state

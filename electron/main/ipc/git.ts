@@ -378,9 +378,20 @@ export function registerGitHandlers(): void {
       // shape, and create the PR. We run via runPromiseExit (instead of
       // runAndUnwrap) so that on failure we can emit a structured git:error
       // event the renderer can act on (e.g. the branch_exists recovery flow).
+      // [diagnostic] See git:merge-request note. Remove once the hang is found.
+      console.log("[ipc git:pull-request] received", {
+        worktreePath: params.worktreePath,
+        owner: params.owner,
+        repo: params.repo,
+        baseBranch: params.baseBranch,
+        headBranch: params.headBranch,
+      })
+
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
+        console.log("[ipc git:pull-request] path validated:", repoPath)
         const token = yield* resolveGitToken()
+        console.log("[ipc git:pull-request] github token resolved; starting git steps")
 
         const prParams: CreatePullRequestParams = {
           owner: params.owner,
@@ -400,6 +411,7 @@ export function registerGitHandlers(): void {
       })
 
       const exit = await runtime.runPromiseExit(program)
+      console.log("[ipc git:pull-request] settled:", Exit.isSuccess(exit) ? "success" : "failure")
 
       if (Exit.isSuccess(exit)) {
         const pr = exit.value
@@ -465,8 +477,19 @@ export function registerGitHandlers(): void {
       // github-pinned resolveGitToken) and opens an MR. Reuses the git:pr-result
       // / git:outputs / git:error contract so the renderer handles both
       // providers with one set of event listeners.
+      // [diagnostic] These handlers were silent in the main log, masking where
+      // a stuck "create" actually stalls. Remove once the hang is root-caused.
+      console.log("[ipc git:merge-request] received", {
+        worktreePath: params.worktreePath,
+        owner: params.owner,
+        repo: params.repo,
+        baseBranch: params.baseBranch,
+        headBranch: params.headBranch,
+      })
+
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
+        console.log("[ipc git:merge-request] path validated:", repoPath)
         const token = yield* getSessionTokenForProvider(
           "gitlab",
           () =>
@@ -477,6 +500,7 @@ export function registerGitHandlers(): void {
               exitCode: 1,
             }),
         )
+        console.log("[ipc git:merge-request] gitlab token resolved; starting git steps")
 
         const mrParams: CreatePullRequestParams = {
           owner: params.owner,
@@ -494,6 +518,7 @@ export function registerGitHandlers(): void {
       })
 
       const exit = await runtime.runPromiseExit(program)
+      console.log("[ipc git:merge-request] settled:", Exit.isSuccess(exit) ? "success" : "failure")
 
       if (Exit.isSuccess(exit)) {
         const mr = exit.value
