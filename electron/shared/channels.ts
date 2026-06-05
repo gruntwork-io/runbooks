@@ -216,14 +216,16 @@ export interface IpcChannelMap {
       error?: string
     }
   }
+  "gitlab:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
 
   // Git Operations
   "git:clone": {
     params: GitCloneRequest
     result: { status: string; error?: string; fileCount?: number; absolutePath?: string; relativePath?: string; outputs?: Record<string, string> }
   }
-  "git:push": { params: { worktreePath: string; branchName: string }; result: { ok: true } | { error: string } }
+  "git:push": { params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }; result: { ok: true } | { error: string } }
   "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
+  "git:merge-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
 
   // Workspace
@@ -447,6 +449,14 @@ export interface GitCloneRequest {
   ref?: string
   repo_path?: string
   credentials?: { token: string }
+  /**
+   * Provider of the linked Git Auth block ("github" | "gitlab"). Selects which
+   * session token authenticates a private clone, independent of the remote
+   * hostname — required for self-hosted instances. Omitted by callers with no
+   * linked auth block, in which case the backend falls back to the well-known
+   * SaaS hostnames.
+   */
+  provider?: "github" | "gitlab"
   use_pty?: boolean
   force?: boolean
 }

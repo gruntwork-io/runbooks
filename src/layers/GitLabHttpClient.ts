@@ -15,6 +15,8 @@ import type {
   GitLabClientShape,
   GitLabTokenValidation,
   GitLabTokenType,
+  CreateMRParams,
+  MergeRequestResult,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
 
@@ -64,6 +66,59 @@ async function fetchScopes(
   }
 }
 
+/**
+ * Authenticated GitLab API request with the same scheme-fallback as token
+ * validation: PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are
+ * rejected by it (401) and require Authorization: Bearer. We try PRIVATE-TOKEN
+ * first and retry once with Bearer on a 401 only. Any caller-supplied headers
+ * (e.g. Content-Type for a POST body) are merged after the auth headers.
+ */
+async function gitlabFetch(
+  url: string,
+  token: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const extra = init.headers as Record<string, string> | undefined
+  let scheme: AuthScheme = "private"
+  let resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
+  if (resp.status === 401) {
+    scheme = "bearer"
+    resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
+  }
+  return resp
+}
+
+/**
+ * Fetch every page of a GitLab list endpoint, following the `x-next-page`
+ * header. GitLab omits total-count headers for result sets over 10,000 records,
+ * so we drive the loop off `x-next-page` (and a short final page) rather than
+ * `x-total-pages`. Mirrors GitHubHttpClient.paginateAll.
+ */
+async function paginateAll<T>(
+  url: string,
+  token: string,
+  perPage = 100,
+): Promise<T[]> {
+  const results: T[] = []
+  let page = 1
+  while (true) {
+    const sep = url.includes("?") ? "&" : "?"
+    const resp = await gitlabFetch(`${url}${sep}per_page=${perPage}&page=${page}`, token)
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "")
+      throw new GitLabApiError({ status: resp.status, message: body || resp.statusText })
+    }
+    const items = (await resp.json()) as T[]
+    results.push(...items)
+    const next = resp.headers.get("x-next-page")
+    if (!next || items.length < perPage) break
+    const nextPage = Number(next)
+    if (!Number.isFinite(nextPage) || nextPage <= page) break
+    page = nextPage
+  }
+  return results
+}
+
 async function validateUserToken(token: string): Promise<GitLabTokenValidation> {
   // PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are rejected by it
   // (401) and require Authorization: Bearer (which also accepts PATs). Retry
@@ -110,6 +165,67 @@ const impl: GitLabClientShape = {
 
   detectTokenType: (token: string): GitLabTokenType =>
     token.startsWith("glpat-") ? "pat" : "unknown",
+
+  createMergeRequest: (token: string, params: CreateMRParams) =>
+    Effect.tryPromise({
+      try: async (): Promise<MergeRequestResult> => {
+        // `:id` is the URL-encoded full project path; encodeURIComponent turns
+        // the slashes of a nested group path (group/subgroup/project) into %2F.
+        const projectId = encodeURIComponent(`${params.owner}/${params.repo}`)
+        const body: Record<string, unknown> = {
+          source_branch: params.headBranch,
+          target_branch: params.baseBranch,
+          title: params.title,
+        }
+        if (params.body) body.description = params.body
+        // On create, `labels` is a comma-separated STRING (the response returns
+        // them as an array). Set inline — no separate add-labels round-trip.
+        if (params.labels && params.labels.length > 0) {
+          body.labels = params.labels.join(",")
+        }
+        const resp = await gitlabFetch(
+          `${API_BASE}/projects/${projectId}/merge_requests`,
+          token,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        )
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => "")
+          throw new GitLabApiError({ status: resp.status, message: text || resp.statusText })
+        }
+        // `iid` is the project-scoped, user-facing number (!42); `id` is the
+        // global DB id — never surface that one.
+        const data = (await resp.json()) as {
+          web_url: string
+          iid: number
+          source_branch: string
+        }
+        return { url: data.web_url, number: data.iid, branch: data.source_branch }
+      },
+      catch: (err) =>
+        err instanceof GitLabApiError
+          ? err
+          : new GitLabApiError({ status: 0, message: `${err}` }),
+    }),
+
+  listLabels: (token: string, owner: string, repo: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<string[]> => {
+        const projectId = encodeURIComponent(`${owner}/${repo}`)
+        const labels = await paginateAll<{ name: string }>(
+          `${API_BASE}/projects/${projectId}/labels?include_ancestor_groups=true`,
+          token,
+        )
+        return labels.map((l) => l.name)
+      },
+      catch: (err) =>
+        err instanceof GitLabApiError
+          ? err
+          : new GitLabApiError({ status: 0, message: `${err}` }),
+    }),
 }
 
 export const GitLabHttpClientLive = Layer.succeed(GitLabClient, impl)

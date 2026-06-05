@@ -26,16 +26,21 @@ const INTERACTIVE_BLOCKS = [
   'Template',
   'TemplateInline',
   'GitClone',
+  'GitPullRequest',
   'GitHubPullRequest',
+  'GitLabMergeRequest',
   'DirPicker',
 ] as const
 
 // Blocks whose source file lives under a different directory than their
-// registry key. <GitHubAuth> and <GitLabAuth> are thin aliases whose
-// instruction-mode wiring lives in GitAuth/GitAuth.tsx.
+// registry key. <GitHubAuth>/<GitLabAuth> alias GitAuth, and
+// <GitHubPullRequest>/<GitLabMergeRequest> alias GitPullRequest — their
+// instruction-mode wiring (useInstructionMode) lives in the generic block.
 const ALIAS_SOURCE: Record<string, string> = {
   GitHubAuth: 'GitAuth',
   GitLabAuth: 'GitAuth',
+  GitHubPullRequest: 'GitPullRequest',
+  GitLabMergeRequest: 'GitPullRequest',
 }
 
 // Blocks intentionally identical in both modes:

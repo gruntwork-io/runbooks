@@ -115,7 +115,11 @@ export function useGitAuth({
       [provider.env.userVar]: user.login,
     }
 
-    registerOutputs(id, outputs)
+    // GIT_PROVIDER is a BLOCK OUTPUT only, so a downstream Git PR/MR block can
+    // derive which instance this auth block is for ("github" | "gitlab"). It is
+    // intentionally excluded from the session:set-env payload below — it's
+    // metadata, not a credential, and nothing shell-side consumes it.
+    registerOutputs(id, { ...outputs, GIT_PROVIDER: provider.id })
 
     // Also set in session environment for blocks that don't reference this block
     try {
@@ -130,10 +134,12 @@ export function useGitAuth({
     }
   }, [id, provider, registerOutputs])
 
-  // Clear this block's registered outputs (used when switching providers so the
-  // prior provider's token/user don't linger under this block id).
-  const clearRegisteredOutputs = useCallback(() => {
-    registerOutputs(id, {})
+  // Clear this block's registered outputs. When the user explicitly switches
+  // providers, pass `retainProvider` so the new provider's id is written
+  // immediately — downstream blocks (e.g. GitPullRequest) need GIT_PROVIDER
+  // to derive the right channel even before authentication completes.
+  const clearRegisteredOutputs = useCallback((retainProvider?: string) => {
+    registerOutputs(id, retainProvider ? { GIT_PROVIDER: retainProvider } : {})
   }, [id, registerOutputs])
 
   // Validate a token via the provider's API
@@ -252,7 +258,7 @@ export function useGitAuth({
               }
             }
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           if (result.foundButInvalid) {
@@ -277,7 +283,7 @@ export function useGitAuth({
               }
             }
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           if (result.foundButInvalid) {
@@ -296,7 +302,7 @@ export function useGitAuth({
               setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
             }
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           if (result.foundButInvalid) {
@@ -311,7 +317,7 @@ export function useGitAuth({
             setAuthStatus('authenticated')
             setUserInfo(result.user)
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           // If block hasn't run yet, we need to wait for it
@@ -356,7 +362,7 @@ export function useGitAuth({
         setUserInfo(authResult.user)
         setDetectionStatus('done')
         setWaitingForBlockId(null)
-        registerOutputs(id, { __AUTHENTICATED: 'true' })
+        registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
       } else {
         // Block auth failed, continue to manual auth
         setDetectionStatus('done')
@@ -365,7 +371,7 @@ export function useGitAuth({
     }
 
     doAuth()
-  }, [waitingForBlockId, authStatus, blockOutputs, getBlockCredentials, tryBlockCredentials, id, registerOutputs])
+  }, [waitingForBlockId, authStatus, blockOutputs, getBlockCredentials, tryBlockCredentials, id, provider, registerOutputs])
 
   // Handle PAT submission
   const handlePatSubmit = useCallback(async () => {

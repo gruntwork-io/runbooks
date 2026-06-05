@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildGitCloneCommand,
   buildGhPrCommand,
+  buildGlabMrCommand,
   buildBoilerplateInvocation,
 } from './instructionCommands'
 
@@ -43,6 +44,27 @@ describe('buildGhPrCommand', () => {
 
   it('escapes embedded single quotes', () => {
     const cmd = buildGhPrCommand({ title: "it's done" })
+    expect(cmd).toContain("--title 'it'\\''s done'")
+  })
+})
+
+describe('buildGlabMrCommand', () => {
+  it('builds title + description (NOT --body) + labels', () => {
+    const cmd = buildGlabMrCommand({
+      title: 'My MR',
+      description: 'Some changes',
+      labels: ['enhancement', 'infra'],
+    })
+    expect(cmd).toContain('glab mr create')
+    expect(cmd).toContain("--title 'My MR'")
+    expect(cmd).toContain("--description 'Some changes'")
+    expect(cmd).not.toContain('--body')
+    expect(cmd).toContain("--label 'enhancement'")
+    expect(cmd).toContain("--label 'infra'")
+  })
+
+  it('escapes embedded single quotes', () => {
+    const cmd = buildGlabMrCommand({ title: "it's done" })
     expect(cmd).toContain("--title 'it'\\''s done'")
   })
 })

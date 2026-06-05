@@ -8,8 +8,8 @@ vi.mock('@/contexts/useInstructionMode', () => ({
 }))
 
 const usePRSpy = vi.fn(() => ({ status: 'ready', logs: [] }))
-vi.mock('../hooks/useGitHubPullRequest', () => ({
-  useGitHubPullRequest: () => usePRSpy(),
+vi.mock('@/components/mdx/GitPullRequest/hooks/useGitPullRequest', () => ({
+  useGitPullRequest: () => usePRSpy(),
 }))
 
 describe('GitHubPullRequest — instruction mode', () => {

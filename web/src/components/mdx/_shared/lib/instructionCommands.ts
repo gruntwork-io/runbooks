@@ -49,6 +49,29 @@ export function buildGhPrCommand({ title, body, labels }: GhPrArgs): string {
   return parts.join(' \\\n  ')
 }
 
+export interface GlabMrArgs {
+  title: string
+  description?: string
+  labels?: string[]
+  branch?: string
+}
+
+/**
+ * `glab mr create --title <…> --description <…> [--label <…>]`. GitLab's CLI uses
+ * `--description` (not `--body`) and defaults the source to the current branch,
+ * so — like the gh builder — the branch is surfaced as a note (the user must
+ * push it first) rather than folded into the command.
+ */
+export function buildGlabMrCommand({ title, description, labels }: GlabMrArgs): string {
+  const parts = ['glab mr create']
+  parts.push(`--title ${shellQuote(title || '<merge request title>')}`)
+  parts.push(`--description ${shellQuote(description ?? '')}`)
+  for (const label of labels ?? []) {
+    if (label) parts.push(`--label ${shellQuote(label)}`)
+  }
+  return parts.join(' \\\n  ')
+}
+
 export interface BoilerplateArgs {
   /** The boilerplate template directory (the block's `path`). */
   path: string

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
+import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef } from '../types'
 
@@ -57,6 +58,15 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     }
     return isAuthMet(githubAuthId) && isAuthMet(gitAuthId)
   }, [githubAuthId, gitAuthId, allOutputs])
+
+  // Provider of the linked auth block, derived from its outputs. Passed to the
+  // clone so the backend resolves the matching session token (and oauth2 vs
+  // x-access-token username) by PROVIDER rather than parsing the remote host —
+  // the only thing that works for self-hosted GitHub/GitLab instances.
+  const authProvider = useMemo(
+    () => deriveProviderFromAuth(gitAuthId, allOutputs) ?? deriveProviderFromAuth(githubAuthId, allOutputs),
+    [gitAuthId, githubAuthId, allOutputs],
+  )
 
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
@@ -139,6 +149,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       if (localPath) body.local_path = localPath
       if (usePty !== undefined) body.use_pty = usePty
       if (force) body.force = true
+      if (authProvider) body.provider = authProvider
 
       // Subscribe to streaming events before starting the clone.
       // Store in ref so cancel() can unsubscribe.
@@ -187,7 +198,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       }
       unsubLogRef.current = null
     }
-  }, [api, id, registerOutputs])
+  }, [api, id, registerOutputs, authProvider])
 
   // Cancel an in-progress clone by unsubscribing from progress events
   const cancel = useCallback(() => {

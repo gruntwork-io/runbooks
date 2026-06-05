@@ -88,7 +88,9 @@ describe("GitAuth", () => {
     const gitlabTab = screen.getByRole("tab", { name: /GitLab/ })
     fireEvent.click(gitlabTab)
     expect(cancelOAuth).toHaveBeenCalled()
-    expect(clearRegisteredOutputs).toHaveBeenCalled()
+    // New provider is passed so GIT_PROVIDER is written immediately on switch,
+    // before authentication completes — lets downstream blocks derive the provider.
+    expect(clearRegisteredOutputs).toHaveBeenCalledWith('gitlab')
     expect(resetAuth).toHaveBeenCalled()
     // After switching, the hook is re-invoked with the gitlab provider.
     expect((hookCalls.at(-1)!.provider as { id: string }).id).toBe("gitlab")

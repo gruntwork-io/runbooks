@@ -91,7 +91,7 @@ function GitAuthInteractive({
   const handleSelectProvider = (next: GitProvider) => {
     if (next === provider) return
     auth.cancelOAuth()
-    auth.clearRegisteredOutputs()
+    auth.clearRegisteredOutputs(next)
     auth.resetAuth()
     auth.resetDetectionState()
     auth.setAuthMethod(PROVIDERS[next].supportsOAuth ? 'oauth' : 'pat')

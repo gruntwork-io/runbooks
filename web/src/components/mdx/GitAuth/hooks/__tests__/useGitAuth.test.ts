@@ -77,10 +77,14 @@ describe('useGitAuth — GitLab provider', () => {
     })
 
     expect(invoke).toHaveBeenCalledWith('gitlab:validate', { token: 'glpat-abc' })
+    // GIT_PROVIDER is registered as a block output so downstream PR/MR blocks can
+    // derive the linked instance...
     expect(registerOutputs).toHaveBeenCalledWith('git', {
       GITLAB_TOKEN: 'glpat-abc',
       GITLAB_USER: 'tanuki',
+      GIT_PROVIDER: 'gitlab',
     })
+    // ...but it is NOT written to the session env (it's metadata, not a credential).
     expect(invoke).toHaveBeenCalledWith('session:set-env', {
       env: { GITLAB_TOKEN: 'glpat-abc', GITLAB_USER: 'tanuki' },
     })
@@ -208,6 +212,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
     expect(registerOutputs).toHaveBeenCalledWith('gh', {
       GITHUB_TOKEN: 'ghp_abc',
       GITHUB_USER: 'octocat',
+      GIT_PROVIDER: 'github',
     })
   })
 

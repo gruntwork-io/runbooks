@@ -342,6 +342,8 @@ export interface WorkspaceFileChange {
   newContent?: string
   isBinary: boolean
   diffTruncated: boolean
+  /** True when the entry is a directory / embedded git repo (no inline diff). */
+  isDirectory?: boolean
 }
 
 export interface WorkspaceChangesResponse {

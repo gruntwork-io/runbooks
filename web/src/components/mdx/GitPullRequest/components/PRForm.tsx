@@ -15,12 +15,17 @@ import { MarkdownEditor } from "./MarkdownEditor"
 import { LabelSelector } from "./LabelSelector"
 import { InfoTooltip } from "./InfoTooltip"
 import { CollapsibleToggle } from "./CollapsibleToggle"
-import type { GitHubLabel, PRBlockStatus, ChangeSummary } from "../types"
+import type { PRProviderConfig } from "../providers"
+import type { GitLabel, PRBlockStatus, ChangeSummary } from "../types"
 
 const INPUT_CLASS =
   "w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
 
 interface PRFormProps {
+  /** The change-request noun (Pull Request / Merge Request) for all copy. */
+  noun: PRProviderConfig["noun"]
+  /** Provider display name (GitHub / GitLab) for repository-scoped copy. */
+  providerLabel: string
   prTitle: string
   setPRTitle: (v: string) => void
   prDescription: string
@@ -32,7 +37,7 @@ interface PRFormProps {
   defaultCommitMessage: string
   selectedLabels: string[]
   setSelectedLabels: (labels: string[]) => void
-  availableLabels: GitHubLabel[]
+  availableLabels: GitLabel[]
   labelsLoading: boolean
   changeSummary: ChangeSummary | null
   status: PRBlockStatus
@@ -42,6 +47,8 @@ interface PRFormProps {
 }
 
 export function PRForm({
+  noun,
+  providerLabel,
   prTitle,
   setPRTitle,
   prDescription,
@@ -82,25 +89,25 @@ export function PRForm({
       {/* Separator */}
       <div className="border-b border-border" />
 
-      {/* PR Title */}
+      {/* Title */}
       <div>
         <label className="text-sm font-medium text-foreground mb-1 block">
-          PR Title <span className="text-destructive">*</span>
+          {noun.abbrev} Title <span className="text-destructive">*</span>
         </label>
         <input
           type="text"
           value={prTitle}
           onChange={(e) => setPRTitle(e.target.value)}
-          placeholder="Enter pull request title"
+          placeholder={`Enter ${noun.lower} title`}
           disabled={isFormDisabled}
           className={INPUT_CLASS}
         />
       </div>
 
-      {/* PR Description */}
+      {/* Description */}
       <div>
         <label className="text-sm font-medium text-foreground mb-1 block">
-          PR Description
+          {noun.abbrev} Description
         </label>
         <MarkdownEditor
           value={prDescription}
@@ -116,7 +123,7 @@ export function PRForm({
           <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
             Labels
             <InfoTooltip>
-              Labels to apply to the pull request. These must already exist in the GitHub repository.
+              Labels to apply to the {noun.lower}. These must already exist in the {providerLabel} repository.
             </InfoTooltip>
           </label>
           <LabelSelector
@@ -142,7 +149,7 @@ export function PRForm({
             <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
               Branch name
               <InfoTooltip>
-                The name of the new git branch that will be created for this pull request. Changes are committed to this branch and pushed to the remote before the PR is opened.
+                The name of the new git branch that will be created for this {noun.lower}. Changes are committed to this branch and pushed to the remote before the {noun.singular} is opened.
               </InfoTooltip>
             </label>
             <input
@@ -160,7 +167,7 @@ export function PRForm({
             <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
               Commit message
               <InfoTooltip>
-                The message used for the git commit. This appears in the commit history of the pull request.
+                The message used for the git commit. This appears in the commit history of the {noun.lower}.
               </InfoTooltip>
             </label>
             <input
@@ -185,7 +192,7 @@ export function PRForm({
         <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
           {changeSummary && changeSummary.fileCount > 0 ? (
             <p className="m-0">
-              This pull request will commit{' '}
+              This {noun.lower} will commit{' '}
               <span className="font-medium">{changeSummary.fileCount}</span>{' '}
               {changeSummary.fileCount === 1 ? 'file' : 'files'}
               {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
@@ -202,7 +209,7 @@ export function PRForm({
                 </>
               )}
               {' '}from the <span className="font-semibold">Changed files</span> tab in the workspace panel.
-              Review your changes there before creating the pull request.
+              Review your changes there before creating the {noun.lower}.
             </p>
           ) : (
             <p className="m-0">
@@ -223,10 +230,10 @@ export function PRForm({
           {isCreating ? (
             <>
               <Loader2 className="size-4 mr-1 animate-spin" />
-              Creating Pull Request...
+              Creating {noun.singular}...
             </>
           ) : (
-            'Create Pull Request'
+            `Create ${noun.singular}`
           )}
         </Button>
         {isCreating && (
@@ -247,7 +254,7 @@ export function PRForm({
           <AlertDialogHeader>
             <AlertDialogTitle>No file changes detected</AlertDialogTitle>
             <AlertDialogDescription>
-              There are no modified files in the workspace. The pull request will be created with an empty commit. Are you sure you want to continue?
+              There are no modified files in the workspace. The {noun.lower} will be created with an empty commit. Are you sure you want to continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

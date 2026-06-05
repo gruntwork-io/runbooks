@@ -4,8 +4,11 @@
 import path from "path"
 import { Effect, Stream, Chunk } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
+import { FileSystem } from "../../services/FileSystem.ts"
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
+import { GitLabClient } from "../../services/GitLabClient.ts"
+import type { CreateMRParams } from "../../services/GitLabClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 
@@ -78,8 +81,82 @@ export const deleteBranch = (repoPath: string, branch: string) =>
 // ---------------------------------------------------------------------------
 
 /**
- * Create a pull request by orchestrating: create branch, stage all changes,
- * commit, push, create PR via GitHub API, and optionally add labels.
+ * Find untracked entries that are embedded git repositories (a nested `.git`).
+ * `git status --porcelain` reports these as a single directory entry with a
+ * trailing slash; `git add -A` would stage each as a broken submodule gitlink
+ * (mode 160000) pointing at a commit absent from the target repo. We surface
+ * the relative paths so staging can exclude them.
+ *
+ * Best-effort: any failure (status error, fs error) resolves to an empty list
+ * so detection never blocks MR/PR creation.
+ */
+const detectEmbeddedRepos = (repoPath: string) =>
+  Effect.gen(function* () {
+    const git = yield* GitClient
+    const fs = yield* FileSystem
+    const entries = yield* git.status(repoPath)
+    const dirs = entries
+      .filter((e) => e.status === "??" && e.path.endsWith("/"))
+      .map((e) => e.path.replace(/\/+$/, ""))
+    const embedded: string[] = []
+    for (const rel of dirs) {
+      if (yield* fs.exists(path.join(repoPath, rel, ".git"))) {
+        embedded.push(rel)
+      }
+    }
+    return embedded
+  }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])))
+
+/**
+ * Shared local-git half of opening a PR/MR: create + switch to the head branch,
+ * stage all changes, commit, and push to origin. Provider-neutral — the push
+ * authenticates with whatever host token the caller resolved (GitHub or GitLab;
+ * the clone flow's oauth2 handling makes the push itself host-agnostic).
+ */
+const runGitSteps = (
+  token: string,
+  params: CreatePullRequestParams,
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    const report = (line: string) => Effect.sync(() => onProgress?.(line))
+
+    // Create and switch to the head branch
+    yield* report(`Creating branch ${params.headBranch}…`)
+    yield* gitClient.createBranch(params.repoPath, params.headBranch)
+
+    // Keep embedded git repos out of the commit: `git add -A` would otherwise
+    // stage them as broken submodule gitlinks pointing at commits the target
+    // repo can't resolve. Detection is best-effort and never blocks creation.
+    const embedded = yield* detectEmbeddedRepos(params.repoPath)
+    if (embedded.length > 0) {
+      yield* report(
+        `Skipping ${embedded.length} embedded git ${
+          embedded.length === 1 ? "repository" : "repositories"
+        } (cloned into the workspace; not committed as submodules): ${embedded.join(
+          ", ",
+        )}`,
+      )
+    }
+
+    // Stage all changes and commit
+    yield* report("Staging and committing changes…")
+    yield* gitClient.stageAll(params.repoPath, embedded)
+    yield* gitClient.commit(params.repoPath, params.commitMessage)
+
+    // Push the branch to origin
+    yield* report(`Pushing ${params.headBranch} to origin…`)
+    yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
+      token,
+      setUpstream: true,
+    })
+  })
+
+/**
+ * Create a pull request by orchestrating: the shared git steps (branch, stage,
+ * commit, push), then create the PR via the GitHub API and optionally add
+ * labels.
  */
 export const createPullRequest = (
   token: string,
@@ -92,26 +169,10 @@ export const createPullRequest = (
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
-    const gitClient = yield* GitClient
+    yield* runGitSteps(token, params, onProgress)
+
     const ghClient = yield* GitHubClient
-    const report = (line: string) =>
-      Effect.sync(() => onProgress?.(line))
-
-    // Create and switch to the head branch
-    yield* report(`Creating branch ${params.headBranch}…`)
-    yield* gitClient.createBranch(params.repoPath, params.headBranch)
-
-    // Stage all changes and commit
-    yield* report("Staging and committing changes…")
-    yield* gitClient.stageAll(params.repoPath)
-    yield* gitClient.commit(params.repoPath, params.commitMessage)
-
-    // Push the branch to origin
-    yield* report(`Pushing ${params.headBranch} to origin…`)
-    yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
-      token,
-      setUpstream: true,
-    })
+    const report = (line: string) => Effect.sync(() => onProgress?.(line))
 
     // Create the PR via GitHub API
     yield* report("Opening pull request…")
@@ -139,6 +200,37 @@ export const createPullRequest = (
     }
 
     return pr
+  })
+
+/**
+ * Create a merge request by orchestrating: the shared git steps (branch, stage,
+ * commit, push), then create the MR via the GitLab API. Unlike GitHub, labels
+ * are set inline on create (no separate add-labels call).
+ */
+export const createMergeRequest = (
+  token: string,
+  params: CreatePullRequestParams,
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    yield* runGitSteps(token, params, onProgress)
+
+    const glClient = yield* GitLabClient
+    const report = (line: string) => Effect.sync(() => onProgress?.(line))
+
+    // Create the MR via GitLab API (labels applied inline)
+    yield* report("Opening merge request…")
+    const mrParams: CreateMRParams = {
+      owner: params.owner,
+      repo: params.repo,
+      title: params.title,
+      body: params.body,
+      baseBranch: params.baseBranch,
+      headBranch: params.headBranch,
+      labels: params.labels,
+    }
+
+    return yield* glClient.createMergeRequest(token, mrParams)
   })
 
 // ---------------------------------------------------------------------------

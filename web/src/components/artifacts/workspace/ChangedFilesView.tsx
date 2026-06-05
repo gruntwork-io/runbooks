@@ -538,7 +538,11 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         
         {/* Diff Content */}
         {!isCollapsed && (
-          change.isBinary ? (
+          change.isDirectory ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              Directory or embedded git repository — no inline diff to show.
+            </div>
+          ) : change.isBinary ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               Binary file — cannot display diff
             </div>

@@ -9,8 +9,10 @@
  * `gitlab:validate` only validates (the renderer owns the PAT-paste session
  * write, matching the GitHub flow).
  */
+import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime, sessionManager, getSessionTokenForProvider } from "./runtime.ts"
+import { GitLabClient } from "../../../src/services/GitLabClient.ts"
 import {
   validateToken,
   detectTokenType,
@@ -106,4 +108,29 @@ export function registerGitLabHandlers(): void {
       }
     }
   })
+
+  // List a GitLab project's labels for the MR label picker. Resolves the token
+  // from the session env (populated by the GitAuth block), so the renderer
+  // never handles it. Returns an empty list on failure — labels are enrichment
+  // and must never block opening a merge request.
+  ipcMain.handle(
+    "gitlab:labels",
+    async (_event, params: { owner: string; repo: string }) => {
+      const program = Effect.gen(function* () {
+        const token = yield* getSessionTokenForProvider(
+          "gitlab",
+          () => new Error("No GitLab token available in session"),
+        )
+        const client = yield* GitLabClient
+        return yield* client.listLabels(token, params.owner, params.repo)
+      })
+
+      try {
+        const labels = await runtime.runPromise(program)
+        return { labels }
+      } catch {
+        return { labels: [] }
+      }
+    },
+  )
 }

@@ -6,8 +6,10 @@ import {
   deleteBranch,
   resolveClonePaths,
   countFiles,
+  createMergeRequest,
 } from "./operations.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
+import { GitLabApiError } from "../../errors/index.ts"
 
 // ---------------------------------------------------------------------------
 // parseOwnerRepoFromURL
@@ -246,5 +248,125 @@ describe("countFiles", () => {
       countFiles("/empty").pipe(Effect.provide(layer)),
     )
     expect(count).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// createMergeRequest
+// ---------------------------------------------------------------------------
+
+describe("createMergeRequest", () => {
+  const params = {
+    owner: "group/subgroup",
+    repo: "project",
+    title: "My MR",
+    body: "Body",
+    baseBranch: "main",
+    headBranch: "runbook/123",
+    commitMessage: "Changes",
+    labels: ["enhancement"],
+    repoPath: "/repo",
+  }
+
+  it("runs the git steps then opens the MR with labels inline (no separate add-labels call)", async () => {
+    const steps: string[] = []
+    let mrLabels: string[] | undefined
+
+    const layer = makeTestLayer({
+      git: {
+        status: () => Effect.succeed([]),
+        createBranch: () => Effect.sync(() => void steps.push("createBranch")),
+        stageAll: () => Effect.sync(() => void steps.push("stageAll")),
+        commit: () => Effect.sync(() => void steps.push("commit")),
+        push: () => Effect.sync(() => void steps.push("push")),
+      },
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.sync(() => {
+            mrLabels = p.labels
+            return { url: "https://gitlab.com/group/subgroup/project/-/merge_requests/7", number: 7, branch: p.headBranch }
+          }),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params).pipe(Effect.provide(layer)),
+    )
+
+    // git half ran in order, then the MR was opened
+    expect(steps).toEqual(["createBranch", "stageAll", "commit", "push"])
+    // iid surfaces as the user-facing number
+    expect(result.number).toBe(7)
+    expect(result.url).toContain("/merge_requests/7")
+    // labels are passed to the MR create itself, not a follow-up call
+    expect(mrLabels).toEqual(["enhancement"])
+  })
+
+  it("propagates a non-empty message when GitLab rejects with a 409", async () => {
+    const layer = makeTestLayer({
+      git: {
+        createBranch: () => Effect.void,
+        stageAll: () => Effect.void,
+        commit: () => Effect.void,
+        push: () => Effect.void,
+      },
+      gitlab: {
+        createMergeRequest: () =>
+          Effect.fail(new GitLabApiError({ status: 409, message: "Cannot Create: This merge request already exists" })),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(GitLabApiError)
+      expect(result.left.status).toBe(409)
+      expect(result.left.message).toContain("already exists")
+    }
+  })
+
+  it("excludes embedded git repos from staging and reports them", async () => {
+    let stagedExcludes: string[] | undefined
+    const logs: string[] = []
+
+    const layer = makeTestLayer({
+      // The nested .git makes detectEmbeddedRepos flag `sub/` as an embedded repo.
+      files: { "/repo/sub/.git": "gitdir: ..." },
+      git: {
+        status: () =>
+          Effect.succeed([
+            { path: "file.txt", status: "??" },
+            { path: "sub/", status: "??" },
+          ]),
+        createBranch: () => Effect.void,
+        stageAll: (_repoPath, excludePaths) =>
+          Effect.sync(() => {
+            stagedExcludes = excludePaths
+          }),
+        commit: () => Effect.void,
+        push: () => Effect.void,
+      },
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.succeed({
+            url: "https://gitlab.com/group/subgroup/project/-/merge_requests/9",
+            number: 9,
+            branch: p.headBranch,
+          }),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params, (line) => logs.push(line)).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(stagedExcludes).toEqual(["sub"])
+    expect(result.number).toBe(9)
+    expect(logs.some((l) => /Skipping 1 embedded git repository/.test(l))).toBe(true)
   })
 })

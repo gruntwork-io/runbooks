@@ -14,6 +14,7 @@ export interface WorkspaceFileChange {
   language: string
   isBinary?: boolean
   diffTruncated?: boolean
+  isDirectory?: boolean
   sourceBlockId?: string
   sourceBlockType?: string
 }

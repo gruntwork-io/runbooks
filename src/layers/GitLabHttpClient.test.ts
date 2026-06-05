@@ -140,6 +140,113 @@ describe("GitLabHttpClient.validateToken", () => {
   })
 })
 
+describe("GitLabHttpClient.createMergeRequest", () => {
+  const baseParams = {
+    owner: "group/subgroup",
+    repo: "project",
+    title: "Add feature",
+    body: "Description here",
+    baseBranch: "main",
+    headBranch: "runbook/123",
+    labels: ["enhancement", "needs-review"],
+  }
+
+  const createMR = (token: string, params = baseParams) =>
+    Effect.gen(function* () {
+      const client = yield* GitLabClient
+      return yield* client.createMergeRequest(token, params)
+    }).pipe(Effect.provide(GitLabHttpClientLive))
+
+  it("URL-encodes the nested project path, maps iid (not id), and sends labels as a comma string", async () => {
+    let requestedUrl: string | null = null
+    let sentBody: Record<string, unknown> | null = null
+    mockFetch((url, init) => {
+      requestedUrl = url
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return json({
+        id: 9999, // global DB id — must NOT be surfaced
+        iid: 42, // project-scoped, user-facing number
+        web_url: "https://gitlab.com/group/subgroup/project/-/merge_requests/42",
+        source_branch: "runbook/123",
+      })
+    })
+
+    const result = await Effect.runPromise(createMR("glpat-abc"))
+
+    // group/subgroup/project -> group%2Fsubgroup%2Fproject
+    expect(requestedUrl).toBe(
+      "https://gitlab.com/api/v4/projects/group%2Fsubgroup%2Fproject/merge_requests",
+    )
+    expect(sentBody).toEqual({
+      source_branch: "runbook/123",
+      target_branch: "main",
+      title: "Add feature",
+      description: "Description here",
+      labels: "enhancement,needs-review",
+    })
+    // iid, not id
+    expect(result.number).toBe(42)
+    expect(result.url).toBe("https://gitlab.com/group/subgroup/project/-/merge_requests/42")
+    expect(result.branch).toBe("runbook/123")
+  })
+
+  it("omits description and labels when not provided", async () => {
+    let sentBody: Record<string, unknown> | null = null
+    mockFetch((_url, init) => {
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return json({ iid: 1, web_url: "https://gitlab.com/x/y/-/merge_requests/1", source_branch: "b" })
+    })
+
+    await Effect.runPromise(
+      createMR("glpat-abc", {
+        owner: "x",
+        repo: "y",
+        title: "t",
+        baseBranch: "main",
+        headBranch: "b",
+      } as typeof baseParams),
+    )
+
+    expect(sentBody).toEqual({ source_branch: "b", target_branch: "main", title: "t" })
+  })
+
+  it("fails with GitLabApiError carrying status 409 when an MR already exists", async () => {
+    mockFetch(() => new Response("Cannot Create: This merge request already exists", { status: 409 }))
+
+    const result = await Effect.runPromise(Effect.either(createMR("glpat-abc")))
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(GitLabApiError)
+      expect(result.left.status).toBe(409)
+    }
+  })
+})
+
+describe("GitLabHttpClient.listLabels", () => {
+  const listLabels = (token: string, owner: string, repo: string) =>
+    Effect.gen(function* () {
+      const client = yield* GitLabClient
+      return yield* client.listLabels(token, owner, repo)
+    }).pipe(Effect.provide(GitLabHttpClientLive))
+
+  it("encodes the project path, requests ancestor groups, and returns names", async () => {
+    let requestedUrl: string | null = null
+    mockFetch((url) => {
+      requestedUrl = url
+      return json([
+        { name: "bug", color: "#ff0000" },
+        { name: "enhancement", color: "#00ff00" },
+      ])
+    })
+
+    const labels = await Effect.runPromise(listLabels("glpat-abc", "group/sub", "proj"))
+
+    expect(requestedUrl).toContain("/api/v4/projects/group%2Fsub%2Fproj/labels")
+    expect(requestedUrl).toContain("include_ancestor_groups=true")
+    expect(labels).toEqual(["bug", "enhancement"])
+  })
+})
+
 describe("GitLabHttpClient.detectTokenType", () => {
   it("classifies glpat- tokens as pat, others as unknown", async () => {
     const types = await Effect.runPromise(
