@@ -97,6 +97,10 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   const activeUnsubscribersRef = useRef<Array<() => void>>([])
 
   useEffect(() => {
+    // Reset to true on every mount (including Strict Mode's remount cycle, which
+    // runs the cleanup below and then re-runs the setup — without this the ref
+    // stays false after the Strict Mode unmount and all IPC continuations bail).
+    isMountedRef.current = true
     return () => {
       isMountedRef.current = false
       for (const unsub of activeUnsubscribersRef.current) unsub()
