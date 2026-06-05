@@ -42,6 +42,11 @@ export function AuthSuccess({
   onReAuthenticate,
 }: AuthSuccessProps) {
   const [showPermissions, setShowPermissions] = useState(false)
+  // Avatars are hot-linked, so a CSP-blocked host (e.g. a self-hosted GitLab
+  // instance, or a Gravatar host not in img-src) makes the <img> fire `error`
+  // rather than render. Fall back to the provider logo so the card still looks
+  // intentional instead of showing a broken-image glyph.
+  const [avatarFailed, setAvatarFailed] = useState(false)
   const scopeDescriptions = provider.success.scopeDescriptions
   const isFineGrainedPat = detectedTokenType === 'fine_grained_pat'
   // ghs_ installation tokens have no user context — /user returns 403 — so
@@ -121,13 +126,18 @@ export function AuthSuccess({
       </div>
       <div className="bg-success-muted/50 rounded p-3 text-sm">
         <div className="flex items-center gap-3">
-          {userInfo.avatarUrl && (
+          {userInfo.avatarUrl && !avatarFailed ? (
             <img
               src={userInfo.avatarUrl}
               alt={userInfo.login}
+              onError={() => setAvatarFailed(true)}
               className="w-10 h-10 rounded-full border border-success/30"
             />
-          )}
+          ) : userInfo.avatarUrl ? (
+            <div className="w-10 h-10 rounded-full border border-success/30 bg-card flex items-center justify-center">
+              <provider.Logo className="size-5" ariaLabel={`${provider.label} avatar`} />
+            </div>
+          ) : null}
           <div>
             <div className="text-foreground font-medium">
               {userInfo.name || userInfo.login}
