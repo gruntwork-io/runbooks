@@ -292,6 +292,83 @@ describe("getWorkspaceChanges", () => {
     expect(result.changes[0].isBinary).toBe(true)
     expect(result.changes[0].newContent).toBeUndefined()
   })
+
+  it("treats a trailing-slash entry as a directory without reading it", async () => {
+    // Git reports embedded git repos / untracked dirs as a single entry with a
+    // trailing slash; reading one as a file throws EISDIR. Before the fix this
+    // rejected the whole batch (the polled IPC error loop).
+    const layer = makeTestLayer({
+      files: {
+        "/workspace/file.mdx": "modified content",
+      },
+      git: {
+        status: () =>
+          Effect.succeed([
+            { path: "file.mdx", status: " M" },
+            { path: "embedded-repo/", status: "??" },
+          ]),
+        diff: () =>
+          Effect.succeed([
+            { path: "file.mdx", originalContent: "old", additions: 1, deletions: 1 },
+          ]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    // Count stays consistent — the directory is kept in the list, not dropped.
+    expect(result.totalChanges).toBe(2)
+    expect(result.changes).toHaveLength(2)
+    const dir = result.changes.find((c) => c.path === "embedded-repo/")
+    expect(dir?.isDirectory).toBe(true)
+    expect(dir?.additions).toBe(0)
+    expect(dir?.newContent).toBeUndefined()
+  })
+
+  it("returns a directory entry (no diff) in single-file mode", async () => {
+    // Exercises the getSingleFileDiff → populateDiffContent path.
+    const layer = makeTestLayer({
+      files: {},
+      git: {
+        status: () =>
+          Effect.succeed([{ path: "embedded-repo/", status: "??" }]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace", "embedded-repo/").pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0].isDirectory).toBe(true)
+    expect(result.changes[0].newContent).toBeUndefined()
+  })
+
+  it("degrades gracefully when an added file cannot be read", async () => {
+    // The file is deliberately unregistered, so readFile fails — standing in
+    // for a real-world EISDIR/EACCES/race. Before the fix the unguarded
+    // "added" read rejected the whole batch.
+    const layer = makeTestLayer({
+      files: {},
+      git: {
+        status: () =>
+          Effect.succeed([{ path: "vanished.txt", status: "??" }]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0].changeType).toBe("added")
+    expect(result.changes[0].additions).toBe(0)
+    expect(result.changes[0].newContent).toBeUndefined()
+  })
 })
 
 describe("getWorkspaceTree", () => {

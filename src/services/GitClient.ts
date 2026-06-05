@@ -57,7 +57,7 @@ export interface GitClientShape {
   readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError>
   readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError>
-  readonly stageAll: (repoPath: string) => Effect.Effect<void, GitError>
+  readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError>
   readonly commit: (repoPath: string, message: string, allowEmpty?: boolean) => Effect.Effect<void, GitError>
 }
 

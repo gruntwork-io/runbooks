@@ -298,9 +298,19 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         yield* runGit(spawner, ["checkout", "-b", branch], repoPath)
       }),
 
-    stageAll: (repoPath: string) =>
+    stageAll: (repoPath: string, excludePaths: string[] = []) =>
       Effect.gen(function* () {
-        yield* runGit(spawner, ["add", "-A"], repoPath)
+        if (excludePaths.length === 0) {
+          yield* runGit(spawner, ["add", "-A"], repoPath)
+          return
+        }
+        // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
+        // alongside it. Used to keep embedded git repos out of the commit so
+        // they aren't staged as broken submodule gitlinks.
+        const excludes = excludePaths.map(
+          (p) => `:(exclude)${p.replace(/\/+$/, "")}`,
+        )
+        yield* runGit(spawner, ["add", "-A", "--", ".", ...excludes], repoPath)
       }),
 
     commit: (repoPath: string, message: string, allowEmpty?: boolean) =>

@@ -597,11 +597,27 @@ const populateDiffContent = (
     const git = yield* GitClient
     const absFilePath = path.join(worktreePath, change.path)
 
+    // Git reports untracked directories / embedded git repos as a single entry
+    // with a trailing slash, even with --untracked-files=all. Reading one as a
+    // file throws EISDIR; flag it and skip file I/O so a single embedded repo
+    // can't fail the whole workspace:changes batch (polled every 3s → error loop).
+    if (change.path.endsWith("/")) {
+      ;(change as { isDirectory: boolean }).isDirectory = true
+      return
+    }
+
     switch (change.changeType) {
       case "added": {
-        const content = yield* fs.readFile(absFilePath)
-        ;(change as { newContent: string }).newContent = content
-        ;(change as { additions: number }).additions = countLines(content)
+        // Defense-in-depth: any unreadable path (an EISDIR we missed, EACCES, a
+        // TOCTOU race) degrades to empty content instead of failing the batch —
+        // mirroring the "modified" branch below.
+        const contentResult = yield* Effect.either(fs.readFile(absFilePath))
+        if (contentResult._tag === "Right") {
+          ;(change as { newContent: string }).newContent = contentResult.right
+          ;(change as { additions: number }).additions = countLines(
+            contentResult.right,
+          )
+        }
         break
       }
 

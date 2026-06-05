@@ -274,6 +274,7 @@ describe("createMergeRequest", () => {
 
     const layer = makeTestLayer({
       git: {
+        status: () => Effect.succeed([]),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -325,5 +326,47 @@ describe("createMergeRequest", () => {
       expect(result.left.status).toBe(409)
       expect(result.left.message).toContain("already exists")
     }
+  })
+
+  it("excludes embedded git repos from staging and reports them", async () => {
+    let stagedExcludes: string[] | undefined
+    const logs: string[] = []
+
+    const layer = makeTestLayer({
+      // The nested .git makes detectEmbeddedRepos flag `sub/` as an embedded repo.
+      files: { "/repo/sub/.git": "gitdir: ..." },
+      git: {
+        status: () =>
+          Effect.succeed([
+            { path: "file.txt", status: "??" },
+            { path: "sub/", status: "??" },
+          ]),
+        createBranch: () => Effect.void,
+        stageAll: (_repoPath, excludePaths) =>
+          Effect.sync(() => {
+            stagedExcludes = excludePaths
+          }),
+        commit: () => Effect.void,
+        push: () => Effect.void,
+      },
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.succeed({
+            url: "https://gitlab.com/group/subgroup/project/-/merge_requests/9",
+            number: 9,
+            branch: p.headBranch,
+          }),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params, (line) => logs.push(line)).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(stagedExcludes).toEqual(["sub"])
+    expect(result.number).toBe(9)
+    expect(logs.some((l) => /Skipping 1 embedded git repository/.test(l))).toBe(true)
   })
 })

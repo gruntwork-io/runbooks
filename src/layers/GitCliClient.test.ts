@@ -27,23 +27,33 @@ const runDiff = (repoPath: string, filePath?: string) =>
     }).pipe(Effect.provide(layer)),
   )
 
+const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.stageAll(repoPath, excludePaths)
+    }).pipe(Effect.provide(layer)),
+  )
+
+/** git config args shared by the deterministic helpers below. */
+const GIT_CONFIG = [
+  "-c", "user.email=test@example.com",
+  "-c", "user.name=Test",
+  "-c", "commit.gpgsign=false",
+  "-c", "init.defaultBranch=main",
+]
+
 /** Run git in the repo with deterministic, environment-independent config. */
 function git(repoPath: string, ...args: string[]): void {
-  execFileSync(
-    "git",
-    [
-      "-c",
-      "user.email=test@example.com",
-      "-c",
-      "user.name=Test",
-      "-c",
-      "commit.gpgsign=false",
-      "-c",
-      "init.defaultBranch=main",
-      ...args,
-    ],
-    { cwd: repoPath, stdio: "pipe" },
-  )
+  execFileSync("git", [...GIT_CONFIG, ...args], { cwd: repoPath, stdio: "pipe" })
+}
+
+/** Like `git`, but returns stdout (for inspecting the index, etc.). */
+function gitOut(repoPath: string, ...args: string[]): string {
+  return execFileSync("git", [...GIT_CONFIG, ...args], {
+    cwd: repoPath,
+    stdio: ["pipe", "pipe", "pipe"],
+  }).toString()
 }
 
 describe("GitCliClientLive.diff (real repo)", () => {
@@ -97,5 +107,49 @@ describe("GitCliClientLive.diff (real repo)", () => {
 
     expect(entry).toBeDefined()
     expect(entry?.originalContent).toBeUndefined()
+  })
+})
+
+describe("GitCliClientLive.stageAll (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitstage-"))
+    git(repoPath, "init")
+    // A plain untracked file that SHOULD be staged.
+    fs.writeFileSync(path.join(repoPath, "normal.txt"), "hello\n")
+    // An embedded git repository (nested .git) — git reports it as `sub/` and
+    // `git add -A` would otherwise stage it as a submodule gitlink (mode 160000).
+    const sub = path.join(repoPath, "sub")
+    fs.mkdirSync(sub)
+    git(sub, "init")
+    fs.writeFileSync(path.join(sub, "inner.txt"), "inner\n")
+    git(sub, "add", "inner.txt")
+    git(sub, "commit", "-m", "sub initial")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("excludes an embedded repo from the index while staging the rest", async () => {
+    await runStageAll(repoPath, ["sub"])
+
+    const staged = gitOut(repoPath, "ls-files", "--stage")
+    expect(staged).toContain("normal.txt")
+    // No gitlink (mode 160000) for the embedded repo.
+    expect(staged).not.toContain("160000")
+    expect(staged).not.toContain("sub")
+  })
+
+  it("without excludes, stages the embedded repo as a gitlink (control)", async () => {
+    await runStageAll(repoPath, [])
+
+    const staged = gitOut(repoPath, "ls-files", "--stage")
+    expect(staged).toContain("normal.txt")
+    // The embedded repo lands as a mode-160000 submodule pointer — the broken
+    // behavior the excludePaths argument exists to prevent.
+    expect(staged).toContain("160000")
+    expect(staged).toContain("sub")
   })
 })
