@@ -8,5 +8,6 @@ export type {
   PRBlockStatus,
   PRResult,
   GitHubLabel,
+  GitLabel,
   ChangeSummary,
-} from './types'
+} from '@/components/mdx/GitPullRequest/types'

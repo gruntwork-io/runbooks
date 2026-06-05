@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { X, Loader2, ChevronDown } from "lucide-react"
-import type { GitHubLabel } from "../types"
+import type { GitLabel } from "../types"
 
 interface LabelSelectorProps {
   selectedLabels: string[]
   onLabelsChange: (labels: string[]) => void
-  availableLabels: GitHubLabel[]
+  availableLabels: GitLabel[]
   loading?: boolean
   disabled?: boolean
 }

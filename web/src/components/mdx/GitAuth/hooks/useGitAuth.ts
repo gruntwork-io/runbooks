@@ -115,7 +115,11 @@ export function useGitAuth({
       [provider.env.userVar]: user.login,
     }
 
-    registerOutputs(id, outputs)
+    // GIT_PROVIDER is a BLOCK OUTPUT only, so a downstream Git PR/MR block can
+    // derive which instance this auth block is for ("github" | "gitlab"). It is
+    // intentionally excluded from the session:set-env payload below — it's
+    // metadata, not a credential, and nothing shell-side consumes it.
+    registerOutputs(id, { ...outputs, GIT_PROVIDER: provider.id })
 
     // Also set in session environment for blocks that don't reference this block
     try {
@@ -252,7 +256,7 @@ export function useGitAuth({
               }
             }
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           if (result.foundButInvalid) {
@@ -277,7 +281,7 @@ export function useGitAuth({
               }
             }
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           if (result.foundButInvalid) {
@@ -296,7 +300,7 @@ export function useGitAuth({
               setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
             }
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           if (result.foundButInvalid) {
@@ -311,7 +315,7 @@ export function useGitAuth({
             setAuthStatus('authenticated')
             setUserInfo(result.user)
             setDetectionStatus('done')
-            registerOutputs(id, { __AUTHENTICATED: 'true' })
+            registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
             return
           }
           // If block hasn't run yet, we need to wait for it
@@ -356,7 +360,7 @@ export function useGitAuth({
         setUserInfo(authResult.user)
         setDetectionStatus('done')
         setWaitingForBlockId(null)
-        registerOutputs(id, { __AUTHENTICATED: 'true' })
+        registerOutputs(id, { __AUTHENTICATED: 'true', GIT_PROVIDER: provider.id })
       } else {
         // Block auth failed, continue to manual auth
         setDetectionStatus('done')

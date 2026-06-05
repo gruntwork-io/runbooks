@@ -9,13 +9,14 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { Cause, Effect, Exit, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, getSessionToken, getSessionTokenForHost } from "./runtime.ts"
+import { runtime, sessionManager, getSessionToken, getSessionTokenForProvider } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
   resolveClonePaths,
   countFiles,
   deleteBranch,
   createPullRequest,
+  createMergeRequest,
   isValidGitURL,
   parseOwnerRepoFromURL,
   type CreatePullRequestParams,
@@ -24,7 +25,7 @@ import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
-import { PathTraversalError, GitError } from "../../../src/errors/index.ts"
+import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
 
@@ -59,6 +60,13 @@ function errorMessage(err: unknown): string {
     }
     if (tag === "PathTraversalError") {
       return (err as PathTraversalError).message
+    }
+    if (tag === "GitHubApiError" || tag === "GitLabApiError") {
+      // Data.TaggedError extends Error but leaves the inherited Error.message
+      // empty; the real text is the tagged `message` field. Fall back to the
+      // status so the renderer never shows a bare "An error has occurred".
+      const e = err as GitHubApiError | GitLabApiError
+      return e.message || `${tag} (status ${e.status})`
     }
   }
   return err instanceof Error ? err.message : String(err)
@@ -162,10 +170,13 @@ export function registerGitHandlers(): void {
           }
 
           // Resolve a token for private clones: prefer a renderer-supplied
-          // token, otherwise fall back to the session env keyed by host. This
-          // lets a GitAuth (GitHub or GitLab) login drive private clones without
-          // the renderer ever handling the token. Public repos still clone with
-          // no token (Effect.either turns "no session token" into "no auth").
+          // token, otherwise fall back to the session env keyed by PROVIDER.
+          // The provider comes from the linked Git Auth block (the renderer
+          // passes it), NOT from the remote hostname — that's what lets
+          // self-hosted GitHub/GitLab (arbitrary hostnames) resolve the right
+          // token. For older callers that don't pass a provider, fall back to
+          // the well-known SaaS hostnames. Public repos still clone with no
+          // token (Effect.either turns "no session token" into "no auth").
           const cloneHost = (() => {
             try {
               return new URL(params.url).hostname
@@ -173,11 +184,18 @@ export function registerGitHandlers(): void {
               return ""
             }
           })()
+          const cloneProvider =
+            params.provider ??
+            (cloneHost === "gitlab.com"
+              ? ("gitlab" as const)
+              : cloneHost === "github.com"
+                ? ("github" as const)
+                : undefined)
           let resolvedToken = params.credentials?.token
-          if (!resolvedToken && (cloneHost === "github.com" || cloneHost === "gitlab.com")) {
+          if (!resolvedToken && cloneProvider) {
             const sessionToken = yield* Effect.either(
-              getSessionTokenForHost(
-                cloneHost,
+              getSessionTokenForProvider(
+                cloneProvider,
                 () =>
                   new GitError({
                     command: "resolve git token",
@@ -203,8 +221,9 @@ export function registerGitHandlers(): void {
           if (options.ref) cloneArgs.push("--branch", options.ref)
 
           // GitLab wants username `oauth2` with the PAT as the password;
-          // GitHub accepts the default `x-access-token`.
-          const cloneUsername = cloneHost === "gitlab.com" ? "oauth2" : "x-access-token"
+          // GitHub accepts the default `x-access-token`. Keyed on provider so a
+          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
+          const cloneUsername = cloneProvider === "gitlab" ? "oauth2" : "x-access-token"
           const effectiveUrl = options.token
             ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
             : params.url
@@ -279,6 +298,7 @@ export function registerGitHandlers(): void {
       params: {
         worktreePath: string
         branchName: string
+        provider?: "github" | "gitlab"
       },
     ) => {
       const sendLog = (line: string) =>
@@ -289,12 +309,27 @@ export function registerGitHandlers(): void {
 
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
-        const token = yield* resolveGitToken()
+        const gitClient = yield* GitClient
+
+        // Resolve the token by PROVIDER (passed by the PR/MR block from its
+        // linked auth block), so a GitLab push uses the GitLab token and a
+        // GitHub push the GitHub token — never inferred from the remote host,
+        // which would break self-hosted instances. Defaults to github for older
+        // callers that don't pass a provider.
+        const provider = params.provider ?? "github"
+        const token = yield* getSessionTokenForProvider(
+          provider,
+          () =>
+            new GitError({
+              command: "resolve git token",
+              stderr: `No ${provider} token available in session. Authenticate with the matching Git Auth block before pushing.`,
+              exitCode: 1,
+            }),
+        )
 
         const options: PushOptions = { token, setUpstream: true }
 
         sendLog(`Pushing ${params.branchName} to origin…`)
-        const gitClient = yield* GitClient
         yield* gitClient.push(repoPath, "origin", params.branchName, options)
         sendLog("Push complete.")
       })
@@ -393,6 +428,112 @@ export function registerGitHandlers(): void {
       // the head branch is left over from a prior attempt; surface that as a
       // recoverable code so the renderer can offer to delete & retry.
       const code = /already exists/i.test(message) ? "branch_exists" : undefined
+
+      event.sender.send("git:error", {
+        message,
+        ...(code ? { code, branchName: params.headBranch } : {}),
+      })
+      event.sender.send("git:status", { status: "fail", exitCode: 1 })
+
+      return { error: message }
+    },
+  )
+
+  ipcMain.handle(
+    "git:merge-request",
+    async (
+      event,
+      params: {
+        worktreePath: string
+        owner: string
+        repo: string
+        title: string
+        body?: string
+        baseBranch: string
+        headBranch: string
+        commitMessage: string
+        labels?: string[]
+      },
+    ) => {
+      const sendLog = (line: string) =>
+        event.sender.send("git:log", {
+          line,
+          timestamp: new Date().toISOString(),
+        })
+
+      // Mirrors git:pull-request but resolves the GitLab token (not the
+      // github-pinned resolveGitToken) and opens an MR. Reuses the git:pr-result
+      // / git:outputs / git:error contract so the renderer handles both
+      // providers with one set of event listeners.
+      const program = Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const token = yield* getSessionTokenForProvider(
+          "gitlab",
+          () =>
+            new GitError({
+              command: "resolve gitlab token",
+              stderr:
+                "No GitLab token available in session. Authenticate with the GitLab Auth block before creating a merge request.",
+              exitCode: 1,
+            }),
+        )
+
+        const mrParams: CreatePullRequestParams = {
+          owner: params.owner,
+          repo: params.repo,
+          title: params.title,
+          body: params.body,
+          baseBranch: params.baseBranch,
+          headBranch: params.headBranch,
+          commitMessage: params.commitMessage,
+          labels: params.labels,
+          repoPath,
+        }
+
+        return yield* createMergeRequest(token, mrParams, sendLog)
+      })
+
+      const exit = await runtime.runPromiseExit(program)
+
+      if (Exit.isSuccess(exit)) {
+        const mr = exit.value
+        event.sender.send("git:pr-result", {
+          prUrl: mr.url,
+          prNumber: mr.number,
+          branchName: mr.branch,
+        })
+        event.sender.send("git:outputs", {
+          outputs: {
+            pr_url: mr.url,
+            pr_number: String(mr.number),
+            pr_branch: mr.branch,
+          },
+        })
+        event.sender.send("git:status", { status: "success", exitCode: 0 })
+        return { url: mr.url, number: mr.number }
+      }
+
+      const failure = Cause.failureOption(exit.cause)
+      const failureValue = failure._tag === "Some" ? failure.value : undefined
+      const message =
+        failureValue !== undefined
+          ? errorMessage(failureValue)
+          : Cause.pretty(exit.cause)
+
+      // Two recoverable "branch_exists" conditions, both fixed by deleting the
+      // leftover head branch and retrying: (1) `git checkout -b` failing because
+      // the local branch already exists (a GitError matching /already exists/),
+      // and (2) GitLab rejecting the create with HTTP 409 because an MR already
+      // exists for that source branch (read off the typed GitLabApiError — its
+      // message is unreliable, so match the status, not the text).
+      const isExistingMr =
+        !!failureValue &&
+        typeof failureValue === "object" &&
+        "_tag" in failureValue &&
+        (failureValue as { _tag: string })._tag === "GitLabApiError" &&
+        (failureValue as GitLabApiError).status === 409
+      const code =
+        isExistingMr || /already exists/i.test(message) ? "branch_exists" : undefined
 
       event.sender.send("git:error", {
         message,

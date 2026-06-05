@@ -6,6 +6,8 @@ import { Effect, Stream, Chunk } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
+import { GitLabClient } from "../../services/GitLabClient.ts"
+import type { CreateMRParams } from "../../services/GitLabClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 
@@ -78,24 +80,19 @@ export const deleteBranch = (repoPath: string, branch: string) =>
 // ---------------------------------------------------------------------------
 
 /**
- * Create a pull request by orchestrating: create branch, stage all changes,
- * commit, push, create PR via GitHub API, and optionally add labels.
+ * Shared local-git half of opening a PR/MR: create + switch to the head branch,
+ * stage all changes, commit, and push to origin. Provider-neutral — the push
+ * authenticates with whatever host token the caller resolved (GitHub or GitLab;
+ * the clone flow's oauth2 handling makes the push itself host-agnostic).
  */
-export const createPullRequest = (
+const runGitSteps = (
   token: string,
   params: CreatePullRequestParams,
-  /**
-   * Optional progress sink, invoked as each step actually starts. Lets callers
-   * stream accurate progress (e.g. to the renderer) instead of guessing the
-   * sequence up front.
-   */
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
-    const ghClient = yield* GitHubClient
-    const report = (line: string) =>
-      Effect.sync(() => onProgress?.(line))
+    const report = (line: string) => Effect.sync(() => onProgress?.(line))
 
     // Create and switch to the head branch
     yield* report(`Creating branch ${params.headBranch}…`)
@@ -112,6 +109,28 @@ export const createPullRequest = (
       token,
       setUpstream: true,
     })
+  })
+
+/**
+ * Create a pull request by orchestrating: the shared git steps (branch, stage,
+ * commit, push), then create the PR via the GitHub API and optionally add
+ * labels.
+ */
+export const createPullRequest = (
+  token: string,
+  params: CreatePullRequestParams,
+  /**
+   * Optional progress sink, invoked as each step actually starts. Lets callers
+   * stream accurate progress (e.g. to the renderer) instead of guessing the
+   * sequence up front.
+   */
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    yield* runGitSteps(token, params, onProgress)
+
+    const ghClient = yield* GitHubClient
+    const report = (line: string) => Effect.sync(() => onProgress?.(line))
 
     // Create the PR via GitHub API
     yield* report("Opening pull request…")
@@ -139,6 +158,37 @@ export const createPullRequest = (
     }
 
     return pr
+  })
+
+/**
+ * Create a merge request by orchestrating: the shared git steps (branch, stage,
+ * commit, push), then create the MR via the GitLab API. Unlike GitHub, labels
+ * are set inline on create (no separate add-labels call).
+ */
+export const createMergeRequest = (
+  token: string,
+  params: CreatePullRequestParams,
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    yield* runGitSteps(token, params, onProgress)
+
+    const glClient = yield* GitLabClient
+    const report = (line: string) => Effect.sync(() => onProgress?.(line))
+
+    // Create the MR via GitLab API (labels applied inline)
+    yield* report("Opening merge request…")
+    const mrParams: CreateMRParams = {
+      owner: params.owner,
+      repo: params.repo,
+      title: params.title,
+      body: params.body,
+      baseBranch: params.baseBranch,
+      headBranch: params.headBranch,
+      labels: params.labels,
+    }
+
+    return yield* glClient.createMergeRequest(token, mrParams)
   })
 
 // ---------------------------------------------------------------------------

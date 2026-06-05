@@ -18,7 +18,9 @@ import { GitAuth } from '@/components/mdx/GitAuth'
 import { GitHubAuth } from '@/components/mdx/GitHubAuth'
 import { GitLabAuth } from '@/components/mdx/GitLabAuth'
 import { GitClone } from '@/components/mdx/GitClone'
+import { GitPullRequest } from '@/components/mdx/GitPullRequest'
 import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
+import { GitLabMergeRequest } from '@/components/mdx/GitLabMergeRequest'
 import { DirPicker } from '@/components/mdx/DirPicker'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
@@ -267,7 +269,9 @@ export const MDX_COMPONENTS = {
   GitLabAuth,
   // Git operations
   GitClone,
+  GitPullRequest,
   GitHubPullRequest,
+  GitLabMergeRequest,
   // Utility components
   Admonition,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)

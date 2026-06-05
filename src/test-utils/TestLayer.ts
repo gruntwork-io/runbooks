@@ -7,6 +7,8 @@ import { AwsClient } from "../services/AwsClient.ts"
 import type { AwsClientShape } from "../services/AwsClient.ts"
 import { GitHubClient } from "../services/GitHubClient.ts"
 import type { GitHubClientShape } from "../services/GitHubClient.ts"
+import { GitLabClient } from "../services/GitLabClient.ts"
+import type { GitLabClientShape } from "../services/GitLabClient.ts"
 import { GitClient } from "../services/GitClient.ts"
 import type { GitClientShape } from "../services/GitClient.ts"
 import { BoilerplateRenderer } from "../services/BoilerplateRenderer.ts"
@@ -18,6 +20,7 @@ import {
   AwsConfigError,
   AwsSsoError,
   GitHubApiError,
+  GitLabApiError,
   GitError,
 } from "../errors/index.ts"
 
@@ -70,6 +73,17 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "createPullRequest") })),
   addLabels: (_token, _owner, _repo, _prNumber, _labels) =>
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "addLabels") })),
+  ...overrides,
+})
+
+const makeStubGitLabClient = (overrides: Partial<GitLabClientShape> = {}): GitLabClientShape => ({
+  validateToken: (_token) =>
+    Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "validateToken") })),
+  detectTokenType: (_token) => "unknown" as const,
+  createMergeRequest: (_token, _params) =>
+    Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "createMergeRequest") })),
+  listLabels: (_token, _owner, _repo) =>
+    Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listLabels") })),
   ...overrides,
 })
 
@@ -129,6 +143,9 @@ export const makeTestAwsClient = (overrides: Partial<AwsClientShape> = {}) =>
 export const makeTestGitHubClient = (overrides: Partial<GitHubClientShape> = {}) =>
   Layer.succeed(GitHubClient, makeStubGitHubClient(overrides))
 
+export const makeTestGitLabClient = (overrides: Partial<GitLabClientShape> = {}) =>
+  Layer.succeed(GitLabClient, makeStubGitLabClient(overrides))
+
 export const makeTestGitClient = (overrides: Partial<GitClientShape> = {}) =>
   Layer.succeed(GitClient, makeStubGitClient(overrides))
 
@@ -148,6 +165,7 @@ export interface TestLayerOptions {
   readonly env?: Record<string, string>
   readonly aws?: Partial<AwsClientShape>
   readonly github?: Partial<GitHubClientShape>
+  readonly gitlab?: Partial<GitLabClientShape>
   readonly git?: Partial<GitClientShape>
   readonly boilerplate?: Partial<BoilerplateRendererShape>
   readonly telemetry?: Partial<TelemetryShape>
@@ -160,6 +178,7 @@ export const makeTestLayer = (options: TestLayerOptions = {}) =>
     makeTestEnvironment(options.env),
     makeTestAwsClient(options.aws),
     makeTestGitHubClient(options.github),
+    makeTestGitLabClient(options.gitlab),
     makeTestGitClient(options.git),
     makeTestBoilerplate(options.boilerplate),
     makeTestTelemetry(options.telemetry),

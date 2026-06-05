@@ -3,7 +3,30 @@ import { z } from 'zod'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
-import type { PRBlockStatus, PRResult, GitHubLabel } from '../types'
+import type { GitProvider } from '@/components/mdx/GitAuth/types'
+import type { PRProviderConfig } from '../providers'
+import type { PRBlockStatus, PRResult, GitLabel } from '../types'
+
+/** Body for the create channel (git:pull-request / git:merge-request). Matches
+ *  the backend PullRequestRequest contract. */
+interface CreateRequestBody {
+  worktreePath: string
+  owner: string
+  repo: string
+  title: string
+  body: string
+  baseBranch: string
+  headBranch: string
+  commitMessage: string
+  labels: string[]
+}
+
+/** Body for the git:push channel. */
+interface PushRequestBody {
+  worktreePath: string
+  branchName: string
+  provider?: GitProvider
+}
 
 // Zod schemas for IPC events
 const LogEventSchema = z.object({
@@ -34,12 +57,21 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
   }
 }
 
-interface UseGitHubPullRequestOptions {
+interface UseGitPullRequestOptions {
   id: string
-  githubAuthId?: string
+  /** Provider configuration driving channels, token var, and copy. */
+  cfg: PRProviderConfig
+  /** Linked auth block id (gitAuthId ?? githubAuthId), if any. */
+  authId?: string
+  /**
+   * Provider derived from the linked auth block (auth outputs ONLY). Used to
+   * detect a wrong-auth-block link; undefined means "not derivable" and must
+   * never trip the wrong-provider guard.
+   */
+  authDerivedProvider?: GitProvider
 }
 
-export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestOptions) {
+export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseGitPullRequestOptions) {
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   // State
@@ -50,7 +82,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [conflictBranchName, setConflictBranchName] = useState<string | null>(null)
   const [pushError, setPushError] = useState<string | null>(null)
-  const [labels, setLabels] = useState<GitHubLabel[]>([])
+  const [labels, setLabels] = useState<GitLabel[]>([])
   const [labelsLoading, setLabelsLoading] = useState(false)
 
   // Track whether an operation is in progress for cancellation
@@ -67,42 +99,48 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     }
   }, [])
 
-  // Check if githubAuthId dependency is met
-  const githubAuthMet = useMemo((): boolean => {
-    if (!githubAuthId) return true
+  // Check if the linked auth dependency is met. Met once the referenced block
+  // has emitted this provider's token (or an alt) or the __AUTHENTICATED marker
+  // (env-prefilled credentials stored server-side). Token var comes from the
+  // provider config, never a literal.
+  const authMet = useMemo((): boolean => {
+    if (!authId) return true
 
-    const normalizedId = normalizeBlockId(githubAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-
-    if (blockOutputs?.values?.GITHUB_TOKEN && blockOutputs.values.GITHUB_TOKEN !== '') {
-      return true
-    }
-
-    if (blockOutputs?.values?.__AUTHENTICATED === 'true') {
-      return true
-    }
-
+    const values = allOutputs[normalizeBlockId(authId)]?.values
+    if (!values) return false
+    if (values[cfg.env.tokenVar] && values[cfg.env.tokenVar] !== '') return true
+    if (cfg.env.altTokenVars.some((v) => values[v] && values[v] !== '')) return true
+    if (values.__AUTHENTICATED === 'true') return true
     return false
-  }, [githubAuthId, allOutputs])
+  }, [authId, allOutputs, cfg])
+
+  // True only when a linked auth block resolves to a DIFFERENT provider than
+  // this block's. Driven exclusively by the auth-derived provider: when the
+  // provider isn't derivable (no link, or auth not resolved yet) this is false
+  // and the block falls back to its normal "waiting for auth" state.
+  const wrongProvider = useMemo(
+    (): boolean => !!authId && authDerivedProvider !== undefined && authDerivedProvider !== cfg.id,
+    [authId, authDerivedProvider, cfg],
+  )
 
   // Fetch labels for a repo
   const fetchLabels = useCallback(async (owner: string, repo: string) => {
     if (!owner || !repo) return
     setLabelsLoading(true)
     try {
-      const data = await window.api.invoke('github:labels', { owner, repo })
+      const data = await window.api.invoke(cfg.channels.labels, { owner, repo })
       setLabels((data.labels ?? []).map(name => ({ name, color: '', description: undefined })))
     } catch {
       // Non-critical
     } finally {
       setLabelsLoading(false)
     }
-  }, [])
+  }, [cfg])
 
   // Shared helper for IPC-based requests with event streaming
   const executeIPCRequest = useCallback(async (opts: {
-    channel: string
-    body: unknown
+    channel: 'git:pull-request' | 'git:merge-request' | 'git:push'
+    body: CreateRequestBody | PushRequestBody
     onError: (msg: string) => void
     errorStatus: PRBlockStatus
     errorPrefix: string
@@ -167,8 +205,10 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       )
       activeUnsubscribersRef.current = unsubscribers
 
-      // Invoke the IPC command
-      await (window.api as any).invoke(opts.channel, opts.body)
+      // Invoke the IPC command. The channel is one of a fixed set whose params
+      // are PullRequestRequest (create) or the push payload; `as never` bridges
+      // the union without widening to `any`.
+      await window.api.invoke(opts.channel, opts.body as never)
 
       // Clean up listeners after a short delay to allow late-arriving
       // IPC events to be delivered (event.sender.send events arrive
@@ -192,11 +232,11 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     }
   }, [id, registerOutputs])
 
-  // Create pull request
+  // Create the pull/merge request.
   //
   // The token is intentionally NOT passed: the main process resolves it from
-  // the session environment (populated by the GitHubAuth block), so it never
-  // crosses the IPC boundary. Field names match the git:pull-request channel
+  // the session environment (populated by the auth block) by provider, so it
+  // never crosses the IPC boundary. Field names match the create channel
   // contract (PullRequestRequest).
   const createPullRequest = useCallback(async (params: {
     owner: string
@@ -218,28 +258,29 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     setPushError(null)
 
     await executeIPCRequest({
-      channel: 'git:pull-request',
+      channel: cfg.channels.create,
       body: params,
       onError: setErrorMessage,
       errorStatus: 'fail',
       errorPrefix: 'Error',
     })
-  }, [executeIPCRequest])
+  }, [executeIPCRequest, cfg])
 
-  // Push additional changes
+  // Push additional changes. The provider is passed so the main process resolves
+  // the matching host token (works for self-hosted instances too).
   const pushChanges = useCallback(async (localPath: string, branchName: string) => {
     setStatus('pushing')
     setPushError(null)
     setLogs(prev => [...prev, createLogEntry('─────────────────────────────────')])
 
     await executeIPCRequest({
-      channel: 'git:push',
-      body: { worktreePath: localPath, branchName },
+      channel: cfg.channels.push,
+      body: { worktreePath: localPath, branchName, provider: cfg.id },
       onError: setPushError,
       errorStatus: 'success',  // Stay in success state with inline error
       errorPrefix: 'Push error',
     })
-  }, [executeIPCRequest])
+  }, [executeIPCRequest, cfg])
 
   // Cancel operation
   const cancel = useCallback(() => {
@@ -251,7 +292,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
   // Delete a local branch and reset to ready state
   const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
     try {
-      await window.api.invoke('git:delete-branch', { worktreePath: localPath, branch: branchName })
+      await window.api.invoke(cfg.channels.deleteBranch, { worktreePath: localPath, branch: branchName })
 
       setErrorMessage(null)
       setErrorCode(null)
@@ -264,7 +305,7 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
       setErrorCode(null)
       setConflictBranchName(null)
     }
-  }, [])
+  }, [cfg])
 
   // Reset to ready state
   const reset = useCallback(() => {
@@ -288,7 +329,8 @@ export function useGitHubPullRequest({ id, githubAuthId }: UseGitHubPullRequestO
     pushError,
     labels,
     labelsLoading,
-    githubAuthMet,
+    authMet,
+    wrongProvider,
 
     // Actions
     createPullRequest,

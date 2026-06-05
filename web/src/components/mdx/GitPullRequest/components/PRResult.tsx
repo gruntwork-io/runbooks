@@ -2,9 +2,14 @@ import { useState } from "react"
 import { CheckCircle, ExternalLink, Loader2, XCircle, CircleHelp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CollapsibleToggle } from "./CollapsibleToggle"
+import type { PRProviderConfig } from "../providers"
 import type { PRResult, PRBlockStatus, ChangeSummary } from "../types"
 
 interface PRResultDisplayProps {
+  /** The change-request noun (Pull Request / Merge Request) for all copy. */
+  noun: PRProviderConfig["noun"]
+  /** Display ref symbol: GitHub `#`, GitLab `!`. */
+  refSymbol: PRProviderConfig["refSymbol"]
   result: PRResult
   status: PRBlockStatus
   pushError: string | null
@@ -13,7 +18,7 @@ interface PRResultDisplayProps {
   onCreateAnother: () => void
 }
 
-export function PRResultDisplay({ result, status, pushError, changeSummary, onPush, onCreateAnother }: PRResultDisplayProps) {
+export function PRResultDisplay({ noun, refSymbol, result, status, pushError, changeSummary, onPush, onCreateAnother }: PRResultDisplayProps) {
   const isPushing = status === 'pushing'
   const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
 
@@ -23,7 +28,7 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
       <div className="bg-success-muted border border-success/30 rounded-md p-4 space-y-2">
         <div className="flex items-center gap-2 text-success font-medium">
           <CheckCircle className="size-5 text-success" />
-          PR #{result.prNumber} opened successfully
+          {noun.abbrev} {refSymbol}{result.prNumber} opened successfully
         </div>
 
         <div className="space-y-1">
@@ -76,7 +81,7 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
           disabled={isPushing}
           className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          or create another PR
+          or create another {noun.abbrev}
         </button>
       </div>
 
@@ -112,7 +117,7 @@ export function PRResultDisplay({ result, status, pushError, changeSummary, onPu
           ) : (
             <p className="m-0">
               No new file changes detected. If you make additional changes to the cloned repository,
-              use Git Push to add them to the existing pull request on
+              use Git Push to add them to the existing {noun.lower} on
               the <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
             </p>
           )}
