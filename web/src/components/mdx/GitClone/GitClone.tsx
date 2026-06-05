@@ -61,6 +61,7 @@ function GitCloneInteractive({
   description = "Enter a git URL to clone a repository",
   inputsId,
   githubAuthId,
+  gitAuthId,
   prefilledUrl = '',
   prefilledRef = '',
   prefilledRepoPath = '',
@@ -157,7 +158,7 @@ function GitCloneInteractive({
     fetchOrgs,
     fetchRepos,
     fetchRefs,
-  } = useGitClone({ id, githubAuthId })
+  } = useGitClone({ id, githubAuthId, gitAuthId })
 
   // Get registered outputs for this block
   const outputValues = useOutputs(id)
@@ -359,14 +360,14 @@ function GitCloneInteractive({
             />
           )}
 
-          {/* Blocked state: waiting for GitHubAuth */}
+          {/* Blocked state: waiting for the referenced auth block */}
           {hasAllBlockingDependencies && !gitHubAuthMet && (
             <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">Waiting for GitHub authentication</p>
+                <p className="text-sm font-medium text-warning-foreground m-0">Waiting for git authentication</p>
                 <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                  Complete the &apos;{githubAuthId}&apos; GitHubAuth block above before cloning.
+                  Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above before cloning.
                 </p>
               </div>
             </div>

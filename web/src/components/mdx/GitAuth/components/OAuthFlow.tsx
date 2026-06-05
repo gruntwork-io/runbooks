@@ -1,15 +1,18 @@
 import { Loader2, ExternalLink, XCircle, Copy, Check, HelpCircle, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
-import type { GitHubAuthStatus } from "../types"
+import type { GitAuthStatus } from "../types"
+import type { ProviderConfig } from "../providers"
+import { AutoAuthInfo } from "./AutoAuthInfo"
 
 interface OAuthFlowProps {
-  authStatus: GitHubAuthStatus
+  authStatus: GitAuthStatus
   effectiveClientId: string
   userCode: string | null
   verificationUri: string | null
   onStartOAuth: () => void
   onCancelOAuth: () => void
+  provider: ProviderConfig
 }
 
 export function OAuthFlow({
@@ -19,10 +22,10 @@ export function OAuthFlow({
   verificationUri,
   onStartOAuth,
   onCancelOAuth,
+  provider,
 }: OAuthFlowProps) {
   const [copied, setCopied] = useState(false)
   const [showPermissionsInfo, setShowPermissionsInfo] = useState(false)
-  const [showAutoAuthInfo, setShowAutoAuthInfo] = useState(false)
   const isAuthenticating = authStatus === 'authenticating'
   const isWaitingForAuth = isAuthenticating && userCode && verificationUri
 
@@ -164,37 +167,8 @@ export function OAuthFlow({
           )}
         </div>
 
-        {/* Auto-auth info */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowAutoAuthInfo(!showAutoAuthInfo)}
-            className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
-          >
-            <HelpCircle className="size-3" />
-            <span>How can I authenticate to GitHub automatically?</span>
-            {showAutoAuthInfo ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-          </button>
-          
-          {showAutoAuthInfo && (
-            <div className="mt-2 p-3 bg-muted rounded border border-border text-muted-foreground space-y-2">
-              <p>
-                Runbooks can automatically detect your GitHub credentials so you don't have to sign in manually each time.
-              </p>
-              <p>
-                <strong>Option 1: GitHub CLI</strong> — Run <code className="bg-accent px-1 rounded text-xs">gh auth login</code> in 
-                your terminal.
-              </p>
-              <p>
-                <strong>Option 2: Environment variable</strong> — Set <code className="bg-accent px-1 rounded text-xs">GITHUB_TOKEN</code> to 
-                your GitHub Personal Access Token.
-              </p>
-              <p className="text-muted-foreground">
-                After setting up either option, reload the runbook and Runbooks will detect your credentials automatically.
-              </p>
-            </div>
-          )}
-        </div>
+        {/* Auto-auth info (shared with the GitLab PAT flow) */}
+        <AutoAuthInfo provider={provider} />
       </div>
     </div>
   )

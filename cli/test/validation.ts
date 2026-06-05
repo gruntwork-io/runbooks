@@ -68,19 +68,23 @@ interface BoilerplateConfig {
 
 const KNOWN_BLOCK_TYPES = new Set([
   "Check", "Command", "Inputs", "Template", "TemplateInline",
-  "AwsAuth", "GitHubAuth", "GitClone", "GitHubPullRequest",
-  "DirPicker", "Admonition",
+  "AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth", "GitClone",
+  "GitHubPullRequest", "DirPicker", "Admonition",
 ])
 
 // ---------------------------------------------------------------------------
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_BLOCK_TYPES = ["AwsAuth", "GitHubAuth"] as const
+const AUTH_BLOCK_TYPES = ["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
 const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", "GitHubPullRequest"] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
   GitHubAuth: "githubAuthId",
+  // GitAuth (generic) and GitLabAuth are referenced by the provider-agnostic
+  // `gitAuthId`. GitAuth's computed default is already `gitAuthId`; GitLabAuth's
+  // would be `gitLabAuthId`, so it needs an explicit override.
+  GitLabAuth: "gitAuthId",
 }
 
 function authBlockRefPropName(blockType: string): string {
@@ -122,7 +126,9 @@ export class InputValidator {
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
     components.push(...this.parseAuthBlocks(content, "AwsAuth"))
+    components.push(...this.parseAuthBlocks(content, "GitAuth"))
     components.push(...this.parseAuthBlocks(content, "GitHubAuth"))
+    components.push(...this.parseAuthBlocks(content, "GitLabAuth"))
     components.push(...this.parseAuthBlocks(content, "GitClone"))
 
     // Sort by document position (use the order found in content via indexOf)

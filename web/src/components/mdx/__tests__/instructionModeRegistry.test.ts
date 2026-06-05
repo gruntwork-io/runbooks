@@ -20,13 +20,23 @@ const INTERACTIVE_BLOCKS = [
   'Command',
   'Check',
   'AwsAuth',
+  'GitAuth',
   'GitHubAuth',
+  'GitLabAuth',
   'Template',
   'TemplateInline',
   'GitClone',
   'GitHubPullRequest',
   'DirPicker',
 ] as const
+
+// Blocks whose source file lives under a different directory than their
+// registry key. <GitHubAuth> and <GitLabAuth> are thin aliases whose
+// instruction-mode wiring lives in GitAuth/GitAuth.tsx.
+const ALIAS_SOURCE: Record<string, string> = {
+  GitHubAuth: 'GitAuth',
+  GitLabAuth: 'GitAuth',
+}
 
 // Blocks intentionally identical in both modes:
 // - Inputs is the user's way to supply substitution values (spec §6.5.1).
@@ -56,8 +66,9 @@ describe('instruction mode — MDX registry coverage', () => {
   })
 
   it.each(INTERACTIVE_BLOCKS)('%s wires up useInstructionMode', (block) => {
+    const dir = ALIAS_SOURCE[block] ?? block
     const source = readFileSync(
-      resolve(process.cwd(), `src/components/mdx/${block}/${block}.tsx`),
+      resolve(process.cwd(), `src/components/mdx/${dir}/${dir}.tsx`),
       'utf8',
     )
     expect(source).toContain('useInstructionMode')

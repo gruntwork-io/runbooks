@@ -11,6 +11,7 @@ import { registerExecHandlers } from "./exec.ts"
 import { registerBoilerplateHandlers } from "./boilerplate.ts"
 import { registerAwsHandlers } from "./aws.ts"
 import { registerGitHubHandlers } from "./github.ts"
+import { registerGitLabHandlers } from "./gitlab.ts"
 import { registerGitHandlers } from "./git.ts"
 import { registerWorkspaceHandlers } from "./workspace.ts"
 import { registerFileHandlers } from "./files.ts"
@@ -25,6 +26,7 @@ export function registerAllIpcHandlers(): void {
   registerBoilerplateHandlers()
   registerAwsHandlers()
   registerGitHubHandlers()
+  registerGitLabHandlers()
   registerGitHandlers()
   registerWorkspaceHandlers()
   registerFileHandlers()

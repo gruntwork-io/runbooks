@@ -9,7 +9,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { Cause, Effect, Exit, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, getSessionToken } from "./runtime.ts"
+import { runtime, sessionManager, getSessionToken, getSessionTokenForHost } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
   resolveClonePaths,
@@ -161,9 +161,38 @@ export function registerGitHandlers(): void {
             })
           }
 
+          // Resolve a token for private clones: prefer a renderer-supplied
+          // token, otherwise fall back to the session env keyed by host. This
+          // lets a GitAuth (GitHub or GitLab) login drive private clones without
+          // the renderer ever handling the token. Public repos still clone with
+          // no token (Effect.either turns "no session token" into "no auth").
+          const cloneHost = (() => {
+            try {
+              return new URL(params.url).hostname
+            } catch {
+              return ""
+            }
+          })()
+          let resolvedToken = params.credentials?.token
+          if (!resolvedToken && (cloneHost === "github.com" || cloneHost === "gitlab.com")) {
+            const sessionToken = yield* Effect.either(
+              getSessionTokenForHost(
+                cloneHost,
+                () =>
+                  new GitError({
+                    command: "resolve git token",
+                    stderr: "no session token",
+                    exitCode: 1,
+                  }),
+              ),
+            )
+            resolvedToken =
+              sessionToken._tag === "Right" ? sessionToken.right : undefined
+          }
+
           const options: CloneOptions = {
             ref: params.ref,
-            token: params.credentials?.token,
+            token: resolvedToken,
           }
 
           // Clone the repository using direct process spawning.
@@ -173,8 +202,11 @@ export function registerGitHandlers(): void {
           const cloneArgs = ["clone", "--progress"]
           if (options.ref) cloneArgs.push("--branch", options.ref)
 
+          // GitLab wants username `oauth2` with the PAT as the password;
+          // GitHub accepts the default `x-access-token`.
+          const cloneUsername = cloneHost === "gitlab.com" ? "oauth2" : "x-access-token"
           const effectiveUrl = options.token
-            ? injectTokenIntoUrl(params.url, options.token)
+            ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
             : params.url
 
           cloneArgs.push(effectiveUrl, paths.absolutePath)

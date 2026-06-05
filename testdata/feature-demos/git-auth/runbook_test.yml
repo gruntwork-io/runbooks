@@ -1,0 +1,34 @@
+# Test configuration for git-auth (GitLab provider).
+#
+# CI has no GitLab token, so the only test that runs everywhere is the skip
+# path. To exercise the happy path locally, set GITLAB_TOKEN to a GitLab
+# personal access token and uncomment the `happy-path` test below.
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  - name: skip-without-credentials
+    description: With no GitLab token in the env, git-auth skips and the
+      gitAuthId-dependent verify step skips too.
+    env:
+      GITLAB_TOKEN: ""
+      GL_TOKEN: ""
+    steps:
+      - block: git-auth
+        expect: skip
+      - block: verify-auth
+        expect: skip
+
+  # Requires a real GitLab personal access token; not run in CI.
+  # - name: happy-path
+  #   description: Authenticate to GitLab and verify against GET /api/v4/user.
+  #   steps:
+  #     - block: git-auth
+  #       expect: success
+  #     - block: verify-auth
+  #       expect: success

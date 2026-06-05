@@ -10,6 +10,8 @@ export interface GitCloneProps {
   inputsId?: string | string[]
   /** Reference to a GitHubAuth block by ID for credentials. Matches the `githubAuthId` prop used by every other block (Command, Check, GitHubPullRequest). */
   githubAuthId?: string
+  /** Reference to a GitAuth block by ID (GitHub or GitLab) for credentials. */
+  gitAuthId?: string
   /** Pre-fill the Git URL input (supports template expressions like {{ .inputs.repo_url }}) */
   prefilledUrl?: string
   /** Pre-fill the ref (branch or tag) to clone (supports template expressions) */

@@ -6,6 +6,10 @@ import { Aside } from '@astrojs/starlight/components';
 
 The `<GitHubAuth>` block provides a streamlined interface for authenticating to GitHub. 
 
+<Aside type="tip">
+`<GitHubAuth>` is a GitHub-locked alias of the generic [`<GitAuth>`](/authoring/blocks/gitauth/) block — it is equivalent to `<GitAuth provider="github" hideProviderSelect />`. It remains fully supported, so existing runbooks need no changes. Use [`<GitAuth>`](/authoring/blocks/gitauth/) instead if you also want to support GitLab.
+</Aside>
+
 It automatically detects if the user is already authenticated to GitHub by checking their local environment variables or the GitHub CLI status. It also enables users to authenticate manually via OAuth or by entering a Personal Access Token (PAT). Once authenticated, GitHub credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
 
 You can still authenticate to GitHub without this block by using Runbooks' support for environment variables, however this is the recommended way to authenticate to GitHub in Runbooks.

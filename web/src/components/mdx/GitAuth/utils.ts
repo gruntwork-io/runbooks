@@ -1,9 +1,9 @@
 import { CheckCircle, XCircle, Loader2, KeyRound } from "lucide-react"
-import type { GitHubAuthStatus } from "./types"
+import type { GitAuthStatus } from "./types"
 
 // Get status-based styling for the container
-export const getStatusClasses = (authStatus: GitHubAuthStatus): string => {
-  const statusMap: Record<GitHubAuthStatus, string> = {
+export const getStatusClasses = (authStatus: GitAuthStatus): string => {
+  const statusMap: Record<GitAuthStatus, string> = {
     authenticated: 'bg-success-muted border-success/30',
     failed: 'bg-destructive-muted border-destructive/30',
     authenticating: 'bg-info-muted border-info/40',
@@ -13,8 +13,8 @@ export const getStatusClasses = (authStatus: GitHubAuthStatus): string => {
 }
 
 // Get the appropriate icon component for the current status
-export const getStatusIcon = (authStatus: GitHubAuthStatus) => {
-  const iconMap: Record<GitHubAuthStatus, typeof CheckCircle> = {
+export const getStatusIcon = (authStatus: GitAuthStatus) => {
+  const iconMap: Record<GitAuthStatus, typeof CheckCircle> = {
     authenticated: CheckCircle,
     failed: XCircle,
     authenticating: Loader2,
@@ -24,8 +24,8 @@ export const getStatusIcon = (authStatus: GitHubAuthStatus) => {
 }
 
 // Get icon color classes for the current status
-export const getStatusIconClasses = (authStatus: GitHubAuthStatus): string => {
-  const colorMap: Record<GitHubAuthStatus, string> = {
+export const getStatusIconClasses = (authStatus: GitAuthStatus): string => {
+  const colorMap: Record<GitAuthStatus, string> = {
     authenticated: 'text-success',
     failed: 'text-destructive',
     authenticating: 'text-info',

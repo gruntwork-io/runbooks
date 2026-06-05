@@ -11,6 +11,7 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "aws:env-credentials", "aws:env-credentials-confirm", "aws:profile-auth", "aws:check-region",
   "github:validate", "github:oauth-start", "github:oauth-poll", "github:env-credentials",
   "github:cli-credentials", "github:orgs", "github:repos", "github:refs", "github:labels",
+  "gitlab:validate", "gitlab:env-credentials", "gitlab:cli-credentials",
   "git:clone", "git:push", "git:pull-request", "git:delete-branch",
   "workspace:tree", "workspace:dirs", "workspace:file", "workspace:changes",
   "workspace:register", "workspace:set-active",

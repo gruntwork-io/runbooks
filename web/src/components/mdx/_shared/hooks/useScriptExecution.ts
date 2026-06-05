@@ -27,6 +27,8 @@ interface UseScriptExecutionProps {
   awsAuthId?: string
   /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables for this execution only. */
   githubAuthId?: string
+  /** Reference to a GitAuth block by ID (GitHub or GitLab). Whichever token/user vars the referenced block emitted (GITHUB_* or GITLAB_*) are passed as environment variables for this execution only. */
+  gitAuthId?: string
   children?: ReactNode
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
@@ -135,6 +137,7 @@ export function useScriptExecution({
   inputsId,
   awsAuthId,
   githubAuthId,
+  gitAuthId,
   children,
   componentType,
   usePty,
@@ -327,10 +330,40 @@ export function useScriptExecution({
     
     return Object.keys(envVars).length > 0 ? envVars : undefined
   }, [githubAuthId, allOutputs])
-  
+
+  // Get git auth credentials from outputs if gitAuthId is specified. Unlike
+  // githubAuthId (GitHub only), this is provider-agnostic: it passes through
+  // whichever token/user vars the referenced GitAuth block emitted, so a GitLab
+  // block's GITLAB_TOKEN/GITLAB_USER reach the spawned process under the right
+  // names.
+  const gitAuthEnvVars = useMemo((): Record<string, string> | undefined => {
+    if (!gitAuthId) return undefined
+
+    const normalizedId = normalizeBlockId(gitAuthId)
+    const blockOutputs = allOutputs[normalizedId]
+
+    if (!blockOutputs?.values) return undefined
+
+    const values = blockOutputs.values
+    const envVars: Record<string, string> = {}
+    for (const key of ['GITHUB_TOKEN', 'GITHUB_USER', 'GITLAB_TOKEN', 'GITLAB_USER'] as const) {
+      const value = values[key]
+      if (value && value !== '') {
+        envVars[key] = value
+      }
+    }
+
+    return Object.keys(envVars).length > 0 ? envVars : undefined
+  }, [gitAuthId, allOutputs])
+
+  // A block referencing either a GitHubAuth (githubAuthId) or a GitAuth
+  // (gitAuthId) block is gated until that reference is satisfied. The combined
+  // result drives the existing UnmetGitHubAuthDependency UI.
   const unmetGitHubAuthDependency = useMemo(
-    () => checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs),
-    [githubAuthId, githubAuthEnvVars, allOutputs]
+    () =>
+      checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs) ??
+      checkAuthDependency(gitAuthId, gitAuthEnvVars, allOutputs),
+    [githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs]
   )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
   
@@ -563,10 +596,11 @@ export function useScriptExecution({
       outputs: ctx.outputs,
     }
     
-    // Merge AWS and GitHub auth env vars
+    // Merge AWS, GitHub, and generic Git auth env vars
     const authEnvVars = {
       ...awsAuthEnvVars,
       ...githubAuthEnvVars,
+      ...gitAuthEnvVars,
     }
     const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
     
@@ -590,7 +624,7 @@ export function useScriptExecution({
       // Live reload mode: Send component ID directly
       executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, usePty, timeoutMs])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, gitAuthEnvVars, usePty, timeoutMs])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

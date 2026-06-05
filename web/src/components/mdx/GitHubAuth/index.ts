@@ -3,6 +3,9 @@ import { GitHubAuth } from './GitHubAuth'
 export { GitHubAuth }
 export default GitHubAuth
 
+// GitHubAuth is now a thin alias of <GitAuth>; the types live in the GitAuth
+// module. Re-export the GitHub* aliases here so existing importers of
+// `@/components/mdx/GitHubAuth` keep working unchanged.
 export type {
   GitHubAuthProps,
   GitHubAuthMethod,
@@ -14,6 +17,6 @@ export type {
   GitHubUserInfo,
   GitHubCredentials,
   GitHubCliCredentialsResponse,
-} from './types'
+} from '@/components/mdx/GitAuth/types'
 
-export { isCliAuthFound, hasRepoScope } from './types'
+export { isCliAuthFound, hasRepoScope } from '@/components/mdx/GitAuth/types'

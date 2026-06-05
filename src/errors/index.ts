@@ -57,6 +57,12 @@ export class GitHubApiError extends Data.TaggedError("GitHubApiError")<{
   readonly message: string
 }> {}
 
+// GitLab
+export class GitLabApiError extends Data.TaggedError("GitLabApiError")<{
+  readonly status: number
+  readonly message: string
+}> {}
+
 // Git
 export class GitError extends Data.TaggedError("GitError")<{
   readonly command: string

@@ -22,9 +22,11 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
 interface UseGitCloneOptions {
   id: string
   githubAuthId?: string
+  /** Reference to a GitAuth block (GitHub or GitLab) by ID. */
+  gitAuthId?: string
 }
 
-export function useGitClone({ id, githubAuthId }: UseGitCloneOptions) {
+export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions) {
   const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
@@ -40,25 +42,21 @@ export function useGitClone({ id, githubAuthId }: UseGitCloneOptions) {
   // Ref to the progress listener unsubscriber so cancel() can clean up
   const unsubLogRef = useRef<(() => void) | null>(null)
 
-  // Check if the githubAuthId dependency is met
+  // Check if the auth dependency is met. Supports githubAuthId (GitHub) and the
+  // provider-agnostic gitAuthId (GitHub or GitLab); a referenced block is met
+  // once it has emitted a token (GITHUB_TOKEN or GITLAB_TOKEN) or the
+  // __AUTHENTICATED marker (env-prefilled credentials stored server-side).
   const gitHubAuthMet = useMemo((): boolean => {
-    if (!githubAuthId) return true // No dependency
-
-    const normalizedId = normalizeBlockId(githubAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-
-    // Check for GITHUB_TOKEN in outputs
-    if (blockOutputs?.values?.GITHUB_TOKEN && blockOutputs.values.GITHUB_TOKEN !== '') {
-      return true
+    const isAuthMet = (authId: string | undefined): boolean => {
+      if (!authId) return true // No dependency
+      const values = allOutputs[normalizeBlockId(authId)]?.values
+      if (values?.GITHUB_TOKEN && values.GITHUB_TOKEN !== '') return true
+      if (values?.GITLAB_TOKEN && values.GITLAB_TOKEN !== '') return true
+      if (values?.__AUTHENTICATED === 'true') return true
+      return false
     }
-
-    // Check for __AUTHENTICATED marker (env-prefilled credentials stored server-side)
-    if (blockOutputs?.values?.__AUTHENTICATED === 'true') {
-      return true
-    }
-
-    return false
-  }, [githubAuthId, allOutputs])
+    return isAuthMet(githubAuthId) && isAuthMet(gitAuthId)
+  }, [githubAuthId, gitAuthId, allOutputs])
 
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {

@@ -1,0 +1,49 @@
+---
+title: <GitLabAuth>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GitLabAuth>` block authenticates to GitLab.
+
+<Aside type="tip">
+`<GitLabAuth>` is a GitLab-locked alias of the generic [`<GitAuth>`](/authoring/blocks/gitauth/) block — it is equivalent to `<GitAuth provider="gitlab" hideProviderSelect />`. Use [`<GitAuth>`](/authoring/blocks/gitauth/) directly if you want a provider dropdown so users can pick GitHub or GitLab.
+</Aside>
+
+It automatically detects whether the user is already authenticated by checking the `GITLAB_TOKEN` environment variable or the GitLab CLI (`glab auth token`, falling back to glab's `config.yml` when `glab auth token` returns nothing — for example when the `glab` binary is not on `PATH`). Users can also authenticate manually with a Personal Access Token. Once authenticated, the `GITLAB_TOKEN`/`GITLAB_USER` credentials are available to subsequent [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
+
+GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so authentication is via PAT, the `glab` CLI, or the `GITLAB_TOKEN` environment variable.
+
+### Basic Usage
+
+```mdx
+<GitLabAuth
+  id="git-auth"
+  title="Authenticate to GitLab"
+  description="Sign in to access private repositories"
+/>
+
+<Command
+  id="clone-repo"
+  gitAuthId="git-auth"
+  title="Clone Repository"
+  command="git clone https://gitlab.com/gruntwork-io/runbooks.git"
+/>
+```
+
+By default, Runbooks automatically detects and uses credentials from, in order:
+
+1. The `GITLAB_TOKEN` environment variable
+2. The GitLab CLI (`glab auth token`). `glab auth login` does not export an environment variable — it writes the token to glab's `config.yml`, which Runbooks also reads directly when `glab auth token` returns nothing (for example when the `glab` binary is not on `PATH`).
+
+If no credentials are detected, the user authenticates manually with a Personal Access Token.
+
+## Props
+
+`<GitLabAuth>` accepts the same props as [`<GitAuth>`](/authoring/blocks/gitauth/#props) except `provider` and `hideProviderSelect` (which are fixed to `gitlab` and `true`). The most common are `id` (required), `title`, `description`, `detectCredentials`, and `inputsId`.
+
+## Downstream references
+
+Reference the block from other blocks with `gitAuthId` (provider-agnostic). The `githubAuthId` prop is GitHub-only and cannot reference a GitLab block. See [`<GitAuth>` → Explicit block references](/authoring/blocks/gitauth/#explicit-block-references).
+
+For full details on detection, scopes, and security, see the [`<GitAuth>`](/authoring/blocks/gitauth/) documentation.
