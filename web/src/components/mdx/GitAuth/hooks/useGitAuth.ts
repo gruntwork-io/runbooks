@@ -371,7 +371,7 @@ export function useGitAuth({
     }
 
     doAuth()
-  }, [waitingForBlockId, authStatus, blockOutputs, getBlockCredentials, tryBlockCredentials, id, registerOutputs])
+  }, [waitingForBlockId, authStatus, blockOutputs, getBlockCredentials, tryBlockCredentials, id, provider, registerOutputs])
 
   // Handle PAT submission
   const handlePatSubmit = useCallback(async () => {

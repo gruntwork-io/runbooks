@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
+import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import type { LogEntry } from '@/hooks/useApiExec'
@@ -72,6 +73,7 @@ interface UseGitPullRequestOptions {
 }
 
 export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseGitPullRequestOptions) {
+  const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   // State
@@ -131,14 +133,14 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     if (!owner || !repo) return
     setLabelsLoading(true)
     try {
-      const data = await window.api.invoke(cfg.channels.labels, { owner, repo })
+      const data = await api.invoke(cfg.channels.labels, { owner, repo })
       setLabels((data.labels ?? []).map(name => ({ name, color: '', description: undefined })))
     } catch {
       // Non-critical
     } finally {
       setLabelsLoading(false)
     }
-  }, [cfg])
+  }, [api, cfg])
 
   // Shared helper for IPC-based requests with event streaming
   const executeIPCRequest = useCallback(async (opts: {
@@ -158,7 +160,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     try {
       // Subscribe to IPC events BEFORE invoking the command
       unsubscribers.push(
-        window.api.on('git:log', (data: unknown) => {
+        api.on('git:log', (data: unknown) => {
           if (!isMountedRef.current) return
           const parsed = LogEventSchema.safeParse(data)
           if (parsed.success) {
@@ -171,7 +173,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
             })
           }
         }),
-        window.api.on('git:status', (data: unknown) => {
+        api.on('git:status', (data: unknown) => {
           if (!isMountedRef.current) return
           const parsed = StatusEventSchema.safeParse(data)
           if (parsed.success) {
@@ -182,21 +184,21 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
             }
           }
         }),
-        window.api.on('git:pr-result', (data: unknown) => {
+        api.on('git:pr-result', (data: unknown) => {
           if (!isMountedRef.current) return
           const parsed = PRResultEventSchema.safeParse(data)
           if (parsed.success) {
             setPRResult(parsed.data)
           }
         }),
-        window.api.on('git:outputs', (data: unknown) => {
+        api.on('git:outputs', (data: unknown) => {
           if (!isMountedRef.current) return
           const parsed = OutputsEventSchema.safeParse(data)
           if (parsed.success) {
             registerOutputs(id, parsed.data.outputs)
           }
         }),
-        window.api.on('git:error', (data: unknown) => {
+        api.on('git:error', (data: unknown) => {
           if (!isMountedRef.current) return
           const errorData = data as { message?: string; code?: string; branchName?: string }
           setErrorMessage(errorData.message || 'Operation failed')
@@ -212,7 +214,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       // Invoke the IPC command. The channel is one of a fixed set whose params
       // are PullRequestRequest (create) or the push payload; `as never` bridges
       // the union without widening to `any`.
-      const result = await window.api.invoke(opts.channel, opts.body as never) as
+      const result = await api.invoke(opts.channel, opts.body as never) as
         | { error?: string; url?: string; number?: number }
         | undefined
 
@@ -262,7 +264,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       activeUnsubscribersRef.current = []
       isRunningRef.current = false
     }
-  }, [id, registerOutputs])
+  }, [api, id, registerOutputs])
 
   // Create the pull/merge request.
   //
@@ -336,7 +338,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   // Delete a local branch and reset to ready state
   const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
     try {
-      await window.api.invoke(cfg.channels.deleteBranch, { worktreePath: localPath, branch: branchName })
+      await api.invoke(cfg.channels.deleteBranch, { worktreePath: localPath, branch: branchName })
 
       setErrorMessage(null)
       setErrorCode(null)
@@ -349,7 +351,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       setErrorCode(null)
       setConflictBranchName(null)
     }
-  }, [cfg])
+  }, [api, cfg])
 
   // Reset to ready state
   const reset = useCallback(() => {

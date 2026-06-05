@@ -115,6 +115,7 @@ export function registerGitHandlers(): void {
         ref?: string
         credentials?: { token: string }
         force?: boolean
+        provider?: "github" | "gitlab"
       },
     ) => {
       return runAndUnwrap(

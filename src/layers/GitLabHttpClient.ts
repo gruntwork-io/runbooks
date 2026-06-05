@@ -80,10 +80,10 @@ async function gitlabFetch(
 ): Promise<Response> {
   const extra = init.headers as Record<string, string> | undefined
   let scheme: AuthScheme = "private"
-  let resp = await fetch(url, { ...init, headers: { ...authHeaders(token, scheme), ...extra } })
+  let resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
   if (resp.status === 401) {
     scheme = "bearer"
-    resp = await fetch(url, { ...init, headers: { ...authHeaders(token, scheme), ...extra } })
+    resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
   }
   return resp
 }
