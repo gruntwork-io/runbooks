@@ -35,6 +35,14 @@ const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
     }).pipe(Effect.provide(layer)),
   )
 
+const runCommitEither = (repoPath: string, message: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.commit(repoPath, message)
+    }).pipe(Effect.provide(layer), Effect.either),
+  )
+
 /** git config args shared by the deterministic helpers below. */
 const GIT_CONFIG = [
   "-c", "user.email=test@example.com",
@@ -151,5 +159,46 @@ describe("GitCliClientLive.stageAll (real repo)", () => {
     // behavior the excludePaths argument exists to prevent.
     expect(staged).toContain("160000")
     expect(staged).toContain("sub")
+  })
+})
+
+describe("GitCliClientLive.commit (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitcommit-"))
+    git(repoPath, "init")
+    fs.writeFileSync(path.join(repoPath, "tracked.txt"), "one\n")
+    git(repoPath, "add", "tracked.txt")
+    git(repoPath, "commit", "-m", "initial")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("surfaces git's stdout reason when there is nothing to commit (exit 1)", async () => {
+    // `git commit` with a clean tree exits 1 and prints "nothing to commit,
+    // working tree clean" to STDOUT (not stderr). The error must carry that
+    // reason instead of a bare "exit 1" — this is exactly the MR-block failure.
+    const result = await runCommitEither(repoPath, "[skip ci] no-op commit")
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left.exitCode).not.toBe(0)
+      expect(result.left.stderr.toLowerCase()).toContain("nothing to commit")
+      // command carries the "git " prefix exactly once.
+      expect(result.left.command.startsWith("git commit")).toBe(true)
+    }
+  })
+
+  it("commits successfully when there are staged changes", async () => {
+    fs.writeFileSync(path.join(repoPath, "tracked.txt"), "one\ntwo\n")
+    await runStageAll(repoPath, [])
+
+    const result = await runCommitEither(repoPath, "add line two")
+
+    expect(result._tag).toBe("Right")
+    expect(gitOut(repoPath, "log", "--oneline")).toContain("add line two")
   })
 })

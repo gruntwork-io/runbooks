@@ -76,7 +76,8 @@ describe('useGitAuth — GitLab provider', () => {
       await result.current.handlePatSubmit()
     })
 
-    expect(invoke).toHaveBeenCalledWith('gitlab:validate', { token: 'glpat-abc' })
+    // Validation targets the selected host (gitlab.com by default).
+    expect(invoke).toHaveBeenCalledWith('gitlab:validate', { token: 'glpat-abc', host: 'gitlab.com' })
     // GIT_PROVIDER is registered as a block output so downstream PR/MR blocks can
     // derive the linked instance...
     expect(registerOutputs).toHaveBeenCalledWith('git', {
@@ -85,8 +86,9 @@ describe('useGitAuth — GitLab provider', () => {
       GIT_PROVIDER: 'gitlab',
     })
     // ...but it is NOT written to the session env (it's metadata, not a credential).
+    // The credential is paired with GITLAB_HOST so git/API ops target the right instance.
     expect(invoke).toHaveBeenCalledWith('session:set-env', {
-      env: { GITLAB_TOKEN: 'glpat-abc', GITLAB_USER: 'tanuki' },
+      env: { GITLAB_TOKEN: 'glpat-abc', GITLAB_USER: 'tanuki', GITLAB_HOST: 'gitlab.com' },
     })
     expect(result.current.authStatus).toBe('authenticated')
     // No scopes returned (introspection unavailable) → no claim about missing scopes.
@@ -184,6 +186,82 @@ describe('useGitAuth — GitLab provider', () => {
       expect(result.current.detectionWarning).toContain('GITLAB_TOKEN')
     })
     expect(result.current.detectionWarning).not.toContain('GITHUB_TOKEN')
+  })
+
+  it('enumerates glab hosts and detects against glab\'s default host', async () => {
+    const invoke = installApi(async (channel, args) => {
+      if (channel === 'gitlab:enumerate-hosts') {
+        return { hosts: ['gitlab.com', 'gitlab.gruntwork.io'], defaultHost: 'gitlab.gruntwork.io' }
+      }
+      if (channel === 'gitlab:env-credentials') return { found: false }
+      if (channel === 'gitlab:cli-credentials') {
+        const host = (args as { host?: string }).host
+        return host === 'gitlab.gruntwork.io'
+          ? { found: true, user: { login: 'root' }, scopes: ['api'], host }
+          : { found: false }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return {}
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.availableHosts).toEqual(['gitlab.com', 'gitlab.gruntwork.io'])
+    expect(result.current.selectedHost).toBe('gitlab.gruntwork.io')
+    // Detection targeted the self-managed default host, not gitlab.com.
+    expect(invoke).toHaveBeenCalledWith('gitlab:cli-credentials', { host: 'gitlab.gruntwork.io' })
+  })
+
+  it('changeHost re-runs detection against the newly selected host', async () => {
+    const invoke = installApi(async (channel, args) => {
+      if (channel === 'gitlab:enumerate-hosts') {
+        return { hosts: ['gitlab.com', 'gitlab.gruntwork.io'], defaultHost: 'gitlab.com' }
+      }
+      if (channel === 'gitlab:env-credentials') return { found: false }
+      if (channel === 'gitlab:cli-credentials') {
+        const host = (args as { host?: string }).host
+        return host === 'gitlab.gruntwork.io'
+          ? { found: true, user: { login: 'root' }, host }
+          : { found: false }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return {}
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+
+    // Initial detection targets glab's default (gitlab.com) and finds nothing.
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.authStatus).not.toBe('authenticated')
+
+    await act(async () => {
+      result.current.changeHost('gitlab.gruntwork.io')
+    })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(invoke).toHaveBeenCalledWith('gitlab:cli-credentials', { host: 'gitlab.gruntwork.io' })
+  })
+
+  it('flags a found-but-invalid CLI token even when the error is a bare 401', async () => {
+    // Regression for the silent-failure bug: an expired OAuth token validates as
+    // "401 Unauthorized" (no "invalid"/"expired" keyword), so detection must rely
+    // on `found`/`status` to surface it instead of looking like "no credentials".
+    installApi(async (channel) => {
+      if (channel === 'gitlab:enumerate-hosts') return { hosts: ['gitlab.com'], defaultHost: 'gitlab.com' }
+      if (channel === 'gitlab:env-credentials') return { found: false }
+      if (channel === 'gitlab:cli-credentials') {
+        return { found: true, error: '401 Unauthorized', status: 401, host: 'gitlab.com' }
+      }
+      return {}
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.authStatus).not.toBe('authenticated')
+    expect(result.current.detectionWarning).toContain('glab CLI')
+    expect(result.current.detectionWarning).toContain('gitlab.com')
   })
 })
 

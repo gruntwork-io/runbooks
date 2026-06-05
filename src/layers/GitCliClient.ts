@@ -37,10 +37,15 @@ function runGit(
     const code = yield* proc.exitCode
 
     if (code !== 0) {
-      const stderr = lines
-        .filter((l) => l.source === "stderr")
-        .map((l) => l.line)
-        .join("\n")
+      const pick = (source: "stderr" | "stdout") =>
+        lines
+          .filter((l) => l.source === source)
+          .map((l) => l.line)
+          .join("\n")
+      // Some git failures report only on stdout — notably `git commit` printing
+      // "nothing to commit, working tree clean" and exiting 1. Fall back to
+      // stdout so the real reason surfaces instead of a bare "exit 1".
+      const stderr = pick("stderr") || pick("stdout")
       return yield* Effect.fail(
         new GitError({
           command: `git ${args.join(" ")}`,

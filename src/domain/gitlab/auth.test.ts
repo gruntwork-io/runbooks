@@ -5,8 +5,10 @@ import {
   detectEnvCredentials,
   detectCliCredentials,
   detectConfigCredentials,
+  detectConfigHosts,
   resolveGlabConfigPaths,
   parseGlabToken,
+  enumerateGlabHosts,
 } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestSpawner } from "../../test-utils/TestSpawner.ts"
@@ -240,5 +242,106 @@ describe("detectConfigCredentials", () => {
       detectConfigCredentials().pipe(Effect.provide(layer)),
     )
     expect(result).toBeUndefined()
+  })
+})
+
+// A config like the one `glab` writes for a user logged into gitlab.com (OAuth)
+// and a self-managed instance (PAT) at the same time.
+const multiHostYml =
+  "host: gitlab.com\n" +
+  "hosts:\n" +
+  "  gitlab.com:\n" +
+  "    token: !!null oauthdotcom0000\n" +
+  '    is_oauth2: "true"\n' +
+  "    user: odgrim\n" +
+  "  gitlab.gruntwork.io:\n" +
+  "    token: glpat-selfmanaged\n" +
+  "    api_host: gitlab.gruntwork.io\n" +
+  "    user: root\n"
+
+describe("parseGlabToken (multi-host)", () => {
+  it("reads the requested host's token, not just gitlab.com", () => {
+    expect(parseGlabToken(multiHostYml, "gitlab.gruntwork.io")).toBe("glpat-selfmanaged")
+  })
+
+  it("defaults to gitlab.com when no host is given", () => {
+    expect(parseGlabToken(multiHostYml)).toBe("oauthdotcom0000")
+  })
+
+  it("returns undefined for a host not present in the config", () => {
+    expect(parseGlabToken(multiHostYml, "gitlab.absent.io")).toBeUndefined()
+  })
+})
+
+describe("enumerateGlabHosts", () => {
+  it("lists every host and reports glab's declared default", () => {
+    expect(enumerateGlabHosts(multiHostYml)).toEqual({
+      hosts: ["gitlab.com", "gitlab.gruntwork.io"],
+      defaultHost: "gitlab.com",
+    })
+  })
+
+  it("falls back to the first host when the declared default is absent", () => {
+    const yaml =
+      "host: gitlab.absent.io\n" +
+      "hosts:\n  gitlab.gruntwork.io:\n    token: glpat-x\n"
+    expect(enumerateGlabHosts(yaml)).toEqual({
+      hosts: ["gitlab.gruntwork.io"],
+      defaultHost: "gitlab.gruntwork.io",
+    })
+  })
+
+  it("returns an empty list and the gitlab.com default for empty/malformed content", () => {
+    expect(enumerateGlabHosts("")).toEqual({ hosts: [], defaultHost: "gitlab.com" })
+    expect(enumerateGlabHosts("not: [valid")).toEqual({ hosts: [], defaultHost: "gitlab.com" })
+  })
+})
+
+describe("detectConfigCredentials (multi-host)", () => {
+  it("reads a self-managed host's token from the config file", async () => {
+    const home = "/home/tester"
+    const layer = Layer.merge(
+      makeTestFileSystem({
+        [`${home}/.config/glab-cli/config.yml`]: multiHostYml,
+      }),
+      makeTestEnvironment({ HOME: home }),
+    )
+
+    const result = await Effect.runPromise(
+      detectConfigCredentials("gitlab.gruntwork.io").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("glpat-selfmanaged")
+  })
+})
+
+describe("detectConfigHosts", () => {
+  it("enumerates hosts and the default from the first glab config found", async () => {
+    const home = "/home/tester"
+    const layer = Layer.merge(
+      makeTestFileSystem({
+        [`${home}/.config/glab-cli/config.yml`]: multiHostYml,
+      }),
+      makeTestEnvironment({ HOME: home }),
+    )
+
+    const result = await Effect.runPromise(
+      detectConfigHosts().pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({
+      hosts: ["gitlab.com", "gitlab.gruntwork.io"],
+      defaultHost: "gitlab.com",
+    })
+  })
+
+  it("returns an empty list with the gitlab.com default when no glab config exists", async () => {
+    const layer = Layer.merge(
+      makeTestFileSystem({}),
+      makeTestEnvironment({ HOME: "/home/tester" }),
+    )
+
+    const result = await Effect.runPromise(
+      detectConfigHosts().pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ hosts: [], defaultHost: "gitlab.com" })
   })
 })

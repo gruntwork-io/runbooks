@@ -12,6 +12,8 @@ interface AuthSuccessProps {
   detectedTokenType?: GitTokenType | null
   scopeWarning?: string | null
   sessionEnvWarning?: string | null
+  /** The host authenticated against (GitLab); shown so multi-host users see which instance. */
+  host?: string
   onReAuthenticate?: () => void
 }
 
@@ -39,8 +41,13 @@ export function AuthSuccess({
   detectedTokenType,
   scopeWarning,
   sessionEnvWarning,
+  host,
   onReAuthenticate,
 }: AuthSuccessProps) {
+  // For multi-host providers (GitLab), name the instance the token belongs to so
+  // a user logged into several hosts can tell gitlab.com from a self-managed one.
+  const authTarget =
+    provider.supportsHostSelection && host ? `${provider.label} (${host})` : provider.label
   const [showPermissions, setShowPermissions] = useState(false)
   // Avatars are hot-linked, so a CSP-blocked host (e.g. a self-hosted GitLab
   // instance, or a Gravatar host not in img-src) makes the <img> fire `error`
@@ -115,7 +122,7 @@ export function AuthSuccess({
   return (
     <div className="mb-4">
       <div className="text-success font-semibold text-sm mb-2 flex items-center gap-2">
-        <span>✓ Authenticated to {provider.label}</span>
+        <span>✓ Authenticated to {authTarget}</span>
         {detectionSource && (
           <span className="text-xs bg-info-muted text-info px-2 py-0.5 rounded font-normal">
             {detectionSource === 'env' && 'From Environment'}

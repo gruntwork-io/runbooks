@@ -30,7 +30,14 @@ export interface ProviderConfig {
     validate: 'github:validate' | 'gitlab:validate'
     envCredentials: 'github:env-credentials' | 'gitlab:env-credentials'
     cliCredentials: 'github:cli-credentials' | 'gitlab:cli-credentials'
+    /** Enumerate available hosts for the host picker (GitLab only). */
+    enumerateHosts?: 'gitlab:enumerate-hosts'
   }
+  /**
+   * Whether this provider supports choosing among multiple hosts/instances
+   * (GitLab self-managed vs gitlab.com). GitHub is single-host here, so false.
+   */
+  supportsHostSelection?: boolean
   /** Session/output env var names this provider writes. */
   env: {
     tokenVar: 'GITHUB_TOKEN' | 'GITLAB_TOKEN'

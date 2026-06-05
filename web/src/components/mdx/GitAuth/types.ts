@@ -54,6 +54,13 @@ export interface GitAuthProps {
   oauthScopes?: string[]
   /** Credential detection configuration (default: ['env', 'cli']). */
   detectCredentials?: false | GitCredentialSource[]
+  /**
+   * GitLab only: pin the GitLab instance to authenticate against (e.g.
+   * "gitlab.gruntwork.io"). When set, the host picker is hidden and detection
+   * targets this host. When omitted, the block enumerates the hosts the user is
+   * logged into via glab and shows a picker if there is more than one.
+   */
+  host?: string
   /** Reference to one or more Inputs by ID for template expressions in props */
   inputsId?: string | string[]
 }
@@ -92,9 +99,17 @@ export interface GitEnvCredentialsResponse {
 }
 
 export interface GitCliCredentialsResponse {
+  found?: boolean
+  valid?: boolean
+  token?: string
   user?: GitUserInfo
   scopes?: string[]
+  tokenType?: GitTokenType
   error?: string
+  /** HTTP status when validation failed (e.g. 401/403) — used to flag found-but-invalid. */
+  status?: number
+  /** The GitLab host this credential was detected/validated against. */
+  host?: string
 }
 
 // Helper functions for CLI credentials response

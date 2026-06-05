@@ -28,10 +28,10 @@ const GLAB_CLI_TIMEOUT_MS = 5_000
 /**
  * Validate a GitLab token by calling the GitLab API (GET /user).
  */
-export const validateToken = (token: string) =>
+export const validateToken = (token: string, host?: string) =>
   Effect.gen(function* () {
     const glClient = yield* GitLabClient
-    return yield* glClient.validateToken(token)
+    return yield* glClient.validateToken(token, host)
   })
 
 // ---------------------------------------------------------------------------
@@ -126,11 +126,12 @@ export const detectCliCredentials = () =>
 // ---------------------------------------------------------------------------
 
 /**
- * The GitLab host this app authenticates against. The HTTP client targets
- * gitlab.com only, so we read the gitlab.com credentials out of glab's config
- * regardless of which host glab itself defaults to.
+ * The GitLab host used when a caller does not name one. The renderer resolves
+ * an explicit host (an authored `host` prop or the user's pick from the host
+ * picker) and threads it through; this is only the fallback for single-host
+ * setups and backward compatibility.
  */
-const GITLAB_HOST = "gitlab.com"
+export const DEFAULT_GITLAB_HOST = "gitlab.com"
 
 /**
  * Resolve the candidate paths to glab's `config.yml`, in glab's own lookup
@@ -148,9 +149,10 @@ const GITLAB_HOST = "gitlab.com"
  *        Linux:   ~/.config            (same as the legacy location)
  *
  * We probe these in glab's directory-precedence order and return the first
- * gitlab.com token found. (glab itself uses the first directory whose config.yml
- * exists; we instead skip a config that has no gitlab.com token, since our only
- * goal is to surface a usable gitlab.com credential the user already has.)
+ * config that holds a token for the requested host. (glab itself uses the first
+ * directory whose config.yml exists; we instead skip a config that lacks the
+ * requested host's token, since our goal is to surface a usable credential the
+ * user already has.)
  * Exported for testing.
  */
 export function resolveGlabConfigPaths(opts: {
@@ -188,27 +190,35 @@ export function resolveGlabConfigPaths(opts: {
 }
 
 interface GlabConfig {
+  /** glab's top-level default host (the `host:` key in config.yml). */
+  host?: unknown
   hosts?: Record<string, { token?: unknown } | undefined>
 }
 
 /**
- * Extract the gitlab.com access token from glab `config.yml` contents.
+ * Extract a host's access token from glab `config.yml` contents.
  *
  * glab obfuscates stored secrets by tagging them as `!!null`
  * (e.g. `token: !!null glpat-...`), which makes a naive YAML load return null.
  * We strip that tag before parsing so the value survives. OAuth logins store an
  * opaque access token here (no `glpat-` prefix); token logins store the PAT.
  *
+ * `host` selects which entry under `hosts:` to read (defaults to gitlab.com),
+ * so a user logged into several GitLab instances can surface the right one.
+ *
  * Exported for testing.
  */
-export function parseGlabToken(yamlContent: string): string | undefined {
+export function parseGlabToken(
+  yamlContent: string,
+  host: string = DEFAULT_GITLAB_HOST,
+): string | undefined {
   // Strip glab's `!!null ` secret tag so the scalar parses as its string value.
   const cleaned = yamlContent.replace(/!!null\s+/g, "")
 
   let token: unknown
   try {
     const parsed = YAML.parse(cleaned, { logLevel: "silent" }) as GlabConfig | null
-    token = parsed?.hosts?.[GITLAB_HOST]?.token
+    token = parsed?.hosts?.[host]?.token
   } catch {
     return undefined
   }
@@ -220,16 +230,51 @@ export function parseGlabToken(yamlContent: string): string | undefined {
   return undefined
 }
 
+export interface GlabHostsInfo {
+  /** Every host key present under `hosts:` in glab's config. */
+  readonly hosts: string[]
+  /**
+   * glab's configured default host (the top-level `host:` field) when it is one
+   * of the enumerated hosts; otherwise the first host, or gitlab.com when none.
+   */
+  readonly defaultHost: string
+}
+
+/**
+ * Enumerate the GitLab hosts a glab `config.yml` defines, plus glab's default
+ * host. Used to drive the GitAuth host picker when the user is logged into more
+ * than one instance (e.g. gitlab.com and a self-hosted gitlab.example.com).
+ *
+ * Exported for testing.
+ */
+export function enumerateGlabHosts(yamlContent: string): GlabHostsInfo {
+  const cleaned = yamlContent.replace(/!!null\s+/g, "")
+  try {
+    const parsed = YAML.parse(cleaned, { logLevel: "silent" }) as GlabConfig | null
+    const hosts = Object.keys(parsed?.hosts ?? {})
+    const declared = typeof parsed?.host === "string" ? parsed.host : undefined
+    const defaultHost =
+      declared && hosts.includes(declared)
+        ? declared
+        : (hosts[0] ?? DEFAULT_GITLAB_HOST)
+    return { hosts, defaultHost }
+  } catch {
+    return { hosts: [], defaultHost: DEFAULT_GITLAB_HOST }
+  }
+}
+
 /**
  * Detect a GitLab token from glab's CLI config file (`config.yml`).
  *
  * `glab auth login` does not export an environment variable; it writes the
  * token into glab's `config.yml`. This reads that file directly, so detection
  * still works when `glab auth token` yields nothing — e.g. the `glab` binary is
- * not on PATH (common inside Electron's spawn environment). Returns undefined if
- * no config file or gitlab.com token is found.
+ * not on PATH (common inside Electron's spawn environment), or `glab auth token`
+ * cannot disambiguate which host to use when several are configured. `host`
+ * selects the instance (defaults to gitlab.com). Returns undefined if no config
+ * file or token for that host is found.
  */
-export const detectConfigCredentials = () =>
+export const detectConfigCredentials = (host: string = DEFAULT_GITLAB_HOST) =>
   Effect.gen(function* () {
     const env = yield* Environment
     const fs = yield* FileSystem
@@ -246,9 +291,37 @@ export const detectConfigCredentials = () =>
       const content = yield* fs
         .readFile(path)
         .pipe(Effect.orElseSucceed(() => ""))
-      const token = parseGlabToken(content)
+      const token = parseGlabToken(content, host)
       if (token) return token
     }
 
     return undefined
+  })
+
+/**
+ * Enumerate the GitLab hosts the user is logged into via glab, reading the
+ * first glab `config.yml` (in glab's directory-precedence order) that defines
+ * any hosts. Returns an empty list and the gitlab.com default when no glab
+ * config is present. Powers the GitAuth host picker.
+ */
+export const detectConfigHosts = () =>
+  Effect.gen(function* () {
+    const env = yield* Environment
+    const fs = yield* FileSystem
+
+    const allEnv = yield* env.getAll()
+    const candidates = resolveGlabConfigPaths({
+      env: allEnv,
+      platform: process.platform,
+    })
+
+    for (const path of candidates) {
+      const content = yield* fs
+        .readFile(path)
+        .pipe(Effect.orElseSucceed(() => ""))
+      const info = enumerateGlabHosts(content)
+      if (info.hosts.length > 0) return info
+    }
+
+    return { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST }
   })

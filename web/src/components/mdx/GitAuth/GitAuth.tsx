@@ -18,6 +18,7 @@ import { PROVIDERS } from "./providers"
 import { useGitAuth } from "./hooks/useGitAuth"
 import { getStatusClasses, getStatusIcon, getStatusIconClasses } from "./utils"
 import { ProviderSelect } from "./components/ProviderSelect"
+import { HostSelect } from "./components/HostSelect"
 import { AuthTabs } from "./components/AuthTabs"
 import { AuthSuccess } from "./components/AuthSuccess"
 import { PatForm } from "./components/PatForm"
@@ -36,6 +37,7 @@ function GitAuthInteractive({
   oauthClientId,
   oauthScopes,
   detectCredentials,
+  host,
   inputsId,
   __registryType = 'GitAuth',
 }: GitAuthInternalProps) {
@@ -82,6 +84,7 @@ function GitAuthInteractive({
     oauthClientId: useDefaultOAuth ? undefined : oauthClientId,
     oauthScopes: effectiveOAuthScopes,
     detectCredentials,
+    host,
   })
 
   // Switch providers: cancel any in-flight OAuth poll, drop the prior
@@ -194,6 +197,21 @@ function GitAuthInteractive({
             <ProviderSelect provider={provider} onSelect={handleSelectProvider} />
           )}
 
+          {/* GitLab host picker + config reload. Auto-detection lands on glab's
+              default host first, so the switcher stays visible after
+              authenticating whenever more than one host is available — that's
+              how the user moves from gitlab.com to a self-managed instance. */}
+          {providerConfig.supportsHostSelection &&
+            ((auth.availableHosts?.length ?? 0) > 1 || auth.authStatus !== 'authenticated') && (
+            <HostSelect
+              hosts={auth.availableHosts}
+              value={auth.selectedHost}
+              onChange={auth.changeHost}
+              onReload={auth.reloadDetection}
+              disabled={auth.detectionStatus === 'pending'}
+            />
+          )}
+
           {/* Detection pending state - waiting for block or checking credentials */}
           {auth.detectionStatus === 'pending' && (
             <div className="mb-4 text-info text-sm flex items-center gap-2">
@@ -216,6 +234,7 @@ function GitAuthInteractive({
               detectedTokenType={auth.detectedTokenType}
               scopeWarning={auth.scopeWarning}
               sessionEnvWarning={auth.sessionEnvWarning}
+              host={auth.selectedHost}
               onReAuthenticate={auth.resetAuth}
             />
           )}

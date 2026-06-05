@@ -25,7 +25,11 @@ interface UseGitAuthOptions {
   oauthClientId?: string
   oauthScopes?: string[]
   detectCredentials?: false | GitCredentialSource[]
+  /** GitLab only: an authored host that pins the instance and hides the picker. */
+  host?: string
 }
+
+const DEFAULT_GITLAB_HOST = 'gitlab.com'
 
 export function useGitAuth({
   id,
@@ -33,6 +37,7 @@ export function useGitAuth({
   oauthClientId,
   oauthScopes = ['repo'],
   detectCredentials = ['env', 'cli'],
+  host,
 }: UseGitAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
@@ -57,6 +62,29 @@ export function useGitAuth({
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const detectionAttemptedRef = useRef(false)
+
+  // ---------------------------------------------------------------------------
+  // Host selection (GitLab can be logged into several instances via glab).
+  // For providers without host selection (GitHub) or when the author pinned a
+  // `host`, there is nothing to enumerate and we are "ready" immediately.
+  // ---------------------------------------------------------------------------
+  const hostSelectable = Boolean(provider.supportsHostSelection && !host)
+  const [availableHosts, setAvailableHosts] = useState<string[]>(host ? [host] : [])
+  const [selectedHost, setSelectedHost] = useState<string>(host ?? DEFAULT_GITLAB_HOST)
+  const [hostsReady, setHostsReady] = useState<boolean>(!hostSelectable)
+  // Bumped to force the detection effect to re-run (host change / manual reload).
+  const [detectionNonce, setDetectionNonce] = useState(0)
+  // Bumped to force re-enumeration of glab hosts (manual "reload config").
+  const [hostsReloadNonce, setHostsReloadNonce] = useState(0)
+  // True once the user explicitly picks a host, so a config reload preserves it
+  // instead of snapping back to glab's default.
+  const userPickedHostRef = useRef(false)
+
+  // The host threaded into provider IPC calls. Held in a ref so the credential
+  // callbacks don't need it as a dependency (which would churn the detect loop).
+  const effectiveHost = provider.supportsHostSelection ? (host ?? selectedHost) : undefined
+  const effectiveHostRef = useRef<string | undefined>(effectiveHost)
+  effectiveHostRef.current = effectiveHost
 
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
@@ -121,9 +149,16 @@ export function useGitAuth({
     // metadata, not a credential, and nothing shell-side consumes it.
     registerOutputs(id, { ...outputs, GIT_PROVIDER: provider.id })
 
+    // Pair the token with the GitLab host it belongs to, so server-side git/API
+    // operations target the right instance (e.g. a manually-pasted PAT for a
+    // self-managed host). Omitted for providers without host selection (GitHub).
+    const sessionEnv = effectiveHostRef.current
+      ? { ...outputs, GITLAB_HOST: effectiveHostRef.current }
+      : outputs
+
     // Also set in session environment for blocks that don't reference this block
     try {
-      await window.api.invoke('session:set-env', { env: outputs })
+      await window.api.invoke('session:set-env', { env: sessionEnv })
       setSessionEnvWarning(null)
       return { authenticated: true, sessionEnvSynced: true }
     } catch (error) {
@@ -145,7 +180,7 @@ export function useGitAuth({
   // Validate a token via the provider's API
   const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string }> => {
     try {
-      const data = await window.api.invoke(provider.channels.validate, { token })
+      const data = await window.api.invoke(provider.channels.validate, { token, host: effectiveHostRef.current })
       return {
         valid: data.valid,
         user: data.user as GitUserInfo | undefined,
@@ -168,6 +203,7 @@ export function useGitAuth({
         envVar: '',
         prefix: options?.prefix || '',
         githubAuthId: id,
+        host: effectiveHostRef.current,
       })
 
       if (!data.found) {
@@ -186,18 +222,28 @@ export function useGitAuth({
   }, [id, provider])
 
   // Try to detect credentials from the provider's CLI
-  const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean }> => {
+  const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean; host?: string }> => {
     try {
-      const data = await window.api.invoke(provider.channels.cliCredentials, {} as Record<string, never>) as unknown as GitCliCredentialsResponse
+      const data = await window.api.invoke(provider.channels.cliCredentials, { host: effectiveHostRef.current }) as unknown as GitCliCredentialsResponse
 
       if (!isCliAuthFound(data)) {
-        // Check if token was found but invalid (error contains "invalid")
-        const foundButInvalid = data.error?.toLowerCase().includes('invalid') ||
-                                data.error?.toLowerCase().includes('expired')
-        return { success: false, error: data.error, foundButInvalid }
+        // A token WAS found but did not validate (expired OAuth token, wrong
+        // host, etc.). The backend signals this with `found: true` and/or an
+        // HTTP status; rely on those rather than fragile error-string matching
+        // (a GitLab 401 body reads "401 Unauthorized", not "invalid"/"expired").
+        const error = data.error?.toLowerCase()
+        const foundButInvalid =
+          data.found === true ||
+          data.status === 401 ||
+          data.status === 403 ||
+          error?.includes('invalid') ||
+          error?.includes('expired') ||
+          error?.includes('unauthorized') ||
+          error?.includes('forbidden')
+        return { success: false, error: data.error, foundButInvalid, host: data.host }
       }
 
-      return { success: true, user: data.user, scopes: data.scopes }
+      return { success: true, user: data.user, scopes: data.scopes, host: data.host }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
     }
@@ -223,6 +269,48 @@ export function useGitAuth({
     return { success: true, user: validation.user }
   }, [getBlockCredentials, validateToken, registerCredentials])
 
+  // Discover which GitLab hosts the user is logged into via glab, to drive the
+  // host picker. Skipped for GitHub and when the author pinned a `host`. Re-runs
+  // on a manual config reload (hostsReloadNonce).
+  useEffect(() => {
+    if (!hostSelectable || !provider.channels.enumerateHosts) {
+      setAvailableHosts(host ? [host] : [])
+      setSelectedHost(host ?? DEFAULT_GITLAB_HOST)
+      setHostsReady(true)
+      return
+    }
+    if (!sessionReady) return
+
+    let cancelled = false
+    setHostsReady(false)
+    const channel = provider.channels.enumerateHosts
+    void (async () => {
+      try {
+        const data = await window.api.invoke(channel, {})
+        if (cancelled) return
+        const hosts = data.hosts ?? []
+        setAvailableHosts(hosts)
+        // Honor glab's default on first load; preserve a user's explicit pick
+        // (if still present) across a config reload.
+        setSelectedHost((prev) =>
+          userPickedHostRef.current && hosts.includes(prev)
+            ? prev
+            : (data.defaultHost || hosts[0] || DEFAULT_GITLAB_HOST),
+        )
+      } catch {
+        if (!cancelled) {
+          setAvailableHosts([])
+          setSelectedHost(DEFAULT_GITLAB_HOST)
+        }
+      } finally {
+        if (!cancelled) setHostsReady(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hostSelectable, provider, host, sessionReady, hostsReloadNonce])
+
   // Run credential detection when session is ready
   useEffect(() => {
     // Skip if detection is disabled or already attempted
@@ -232,6 +320,12 @@ export function useGitAuth({
 
     // Wait for session to be ready before making API calls
     if (!sessionReady) {
+      return
+    }
+
+    // Wait until the available hosts are known so detection targets the right
+    // GitLab instance instead of the gitlab.com default.
+    if (!hostsReady) {
       return
     }
 
@@ -306,7 +400,8 @@ export function useGitAuth({
             return
           }
           if (result.foundButInvalid) {
-            warnings.push(`${provider.cli.label} token is invalid or expired`)
+            const where = result.host ? ` for ${result.host}` : ''
+            warnings.push(`${provider.cli.label} token${where} is invalid or expired`)
           }
         }
         // Check for { block: 'id' } - block outputs
@@ -340,7 +435,7 @@ export function useGitAuth({
     }
 
     runDetection()
-  }, [detectCredentials, id, provider, sessionReady, shouldWarnMissingScope, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, registerOutputs])
+  }, [detectCredentials, id, provider, sessionReady, hostsReady, detectionNonce, shouldWarnMissingScope, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, registerOutputs])
 
   // Watch for block outputs when waiting for a block
   useEffect(() => {
@@ -552,6 +647,38 @@ export function useGitAuth({
     setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
   }, [detectCredentials])
 
+  // Clear transient auth/detection state and arm the detection effect to fire
+  // again. Shared by host switching and the manual config reload.
+  const beginRedetect = useCallback(() => {
+    detectionAttemptedRef.current = false
+    setAuthStatus('pending')
+    setUserInfo(null)
+    setDetectionSource(null)
+    setDetectedScopes(null)
+    setDetectedTokenType(null)
+    setScopeWarning(null)
+    setDetectionWarning(null)
+    setWaitingForBlockId(null)
+    setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
+  }, [detectCredentials])
+
+  // Switch the selected GitLab host and re-detect against it.
+  const changeHost = useCallback((nextHost: string) => {
+    if (nextHost === selectedHost) return
+    userPickedHostRef.current = true
+    setSelectedHost(nextHost)
+    beginRedetect()
+    setDetectionNonce((n) => n + 1)
+  }, [selectedHost, beginRedetect])
+
+  // Re-read glab's config (hosts may have changed after a `glab auth login`) and
+  // re-run detection for the current host. Backs the "Reload" button.
+  const reloadDetection = useCallback(() => {
+    beginRedetect()
+    setHostsReloadNonce((n) => n + 1)
+    setDetectionNonce((n) => n + 1)
+  }, [beginRedetect])
+
   return {
     // Auth state
     authMethod,
@@ -570,6 +697,13 @@ export function useGitAuth({
     sessionEnvWarning,
     waitingForBlockId,
     detectionAttemptedRef,
+
+    // Host selection (GitLab)
+    hostSelectable,
+    availableHosts,
+    selectedHost: effectiveHost ?? selectedHost,
+    changeHost,
+    reloadDetection,
 
     // PAT form
     patToken,

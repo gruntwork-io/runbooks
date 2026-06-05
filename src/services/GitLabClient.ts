@@ -52,10 +52,14 @@ export interface MergeRequestResult {
 }
 
 export interface GitLabClientShape {
-  readonly validateToken: (token: string) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
+  /**
+   * Validate a token against `host`'s API (defaults to gitlab.com). `host` is a
+   * bare hostname (e.g. "gitlab.example.com"); the client builds `https://<host>`.
+   */
+  readonly validateToken: (token: string, host?: string) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
   readonly detectTokenType: (token: string) => GitLabTokenType
-  readonly createMergeRequest: (token: string, params: CreateMRParams) => Effect.Effect<MergeRequestResult, GitLabApiError>
-  readonly listLabels: (token: string, owner: string, repo: string) => Effect.Effect<string[], GitLabApiError>
+  readonly createMergeRequest: (token: string, params: CreateMRParams, host?: string) => Effect.Effect<MergeRequestResult, GitLabApiError>
+  readonly listLabels: (token: string, owner: string, repo: string, host?: string) => Effect.Effect<string[], GitLabApiError>
 }
 
 export class GitLabClient extends Context.Tag("GitLabClient")<GitLabClient, GitLabClientShape>() {}

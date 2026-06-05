@@ -56,7 +56,8 @@ function errorMessage(err: unknown): string {
     const tag = (err as { _tag: string })._tag
     if (tag === "GitError") {
       const g = err as GitError
-      return g.stderr || `git ${g.command} failed (exit ${g.exitCode})`
+      // g.command already includes the "git " prefix (see GitCliClient.runGit).
+      return g.stderr || `${g.command} failed (exit ${g.exitCode})`
     }
     if (tag === "PathTraversalError") {
       return (err as PathTraversalError).message
@@ -92,8 +93,9 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
     const err = failure.value as GitError | PathTraversalError | { _tag: string }
     if (err._tag === "GitError") {
       const gitErr = err as GitError
+      // gitErr.command already includes the "git " prefix (see GitCliClient.runGit).
       throw new Error(
-        gitErr.stderr || `git ${gitErr.command} failed (exit ${gitErr.exitCode})`,
+        gitErr.stderr || `${gitErr.command} failed (exit ${gitErr.exitCode})`,
       )
     }
     if (err._tag === "PathTraversalError") {
@@ -503,6 +505,11 @@ export function registerGitHandlers(): void {
         )
         console.log("[ipc git:merge-request] gitlab token resolved; starting git steps")
 
+        // The GitLab host the auth block authenticated against (gitlab.com when
+        // unset). The MR API call must hit the same instance as the token.
+        const session = yield* sessionManager.getSession()
+        const gitlabHost = session.env.get("GITLAB_HOST")
+
         const mrParams: CreatePullRequestParams = {
           owner: params.owner,
           repo: params.repo,
@@ -515,7 +522,7 @@ export function registerGitHandlers(): void {
           repoPath,
         }
 
-        return yield* createMergeRequest(token, mrParams, sendLog)
+        return yield* createMergeRequest(token, mrParams, sendLog, gitlabHost)
       })
 
       const exit = await runtime.runPromiseExit(program)

@@ -211,6 +211,7 @@ export const createMergeRequest = (
   token: string,
   params: CreatePullRequestParams,
   onProgress?: (line: string) => void,
+  host?: string,
 ) =>
   Effect.gen(function* () {
     yield* runGitSteps(token, params, onProgress)
@@ -230,7 +231,7 @@ export const createMergeRequest = (
       labels: params.labels,
     }
 
-    return yield* glClient.createMergeRequest(token, mrParams)
+    return yield* glClient.createMergeRequest(token, mrParams, host)
   })
 
 // ---------------------------------------------------------------------------
