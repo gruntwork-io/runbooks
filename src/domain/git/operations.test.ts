@@ -302,6 +302,59 @@ describe("createMergeRequest", () => {
     expect(mrLabels).toEqual(["enhancement"])
   })
 
+  it("targets the MR at the repo's own GitLab instance (self-hosted), derived from its remote", async () => {
+    let mrBaseUrl: string | undefined
+
+    const layer = makeTestLayer({
+      git: {
+        getRemoteUrl: () => Effect.succeed("https://gitlab.acme.com/group/subgroup/project.git"),
+        status: () => Effect.succeed([]),
+        createBranch: () => Effect.void,
+        stageAll: () => Effect.void,
+        commit: () => Effect.void,
+        push: () => Effect.void,
+      },
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.sync(() => {
+            mrBaseUrl = p.baseUrl
+            return { url: "https://gitlab.acme.com/g/p/-/merge_requests/7", number: 7, branch: p.headBranch }
+          }),
+      },
+    })
+
+    await Effect.runPromise(createMergeRequest("tok", params).pipe(Effect.provide(layer)))
+
+    expect(mrBaseUrl).toBe("https://gitlab.acme.com")
+  })
+
+  it("falls back to gitlab.com when the repo remote can't be read", async () => {
+    let mrBaseUrl: string | undefined
+
+    // getRemoteUrl is left at the test layer's default (which fails), exercising
+    // the orElseSucceed fallback.
+    const layer = makeTestLayer({
+      git: {
+        status: () => Effect.succeed([]),
+        createBranch: () => Effect.void,
+        stageAll: () => Effect.void,
+        commit: () => Effect.void,
+        push: () => Effect.void,
+      },
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.sync(() => {
+            mrBaseUrl = p.baseUrl
+            return { url: "https://gitlab.com/g/p/-/merge_requests/1", number: 1, branch: p.headBranch }
+          }),
+      },
+    })
+
+    await Effect.runPromise(createMergeRequest("tok", params).pipe(Effect.provide(layer)))
+
+    expect(mrBaseUrl).toBe("https://gitlab.com")
+  })
+
   it("propagates a non-empty message when GitLab rejects with a 409", async () => {
     const layer = makeTestLayer({
       git: {

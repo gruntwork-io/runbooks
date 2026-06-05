@@ -247,6 +247,96 @@ describe("GitLabHttpClient.listLabels", () => {
   })
 })
 
+describe("GitLabHttpClient — self-hosted base URL", () => {
+  const SELF_HOSTED = "https://gitlab.example.com"
+
+  it("validateToken targets the supplied instance's /api/v4, not gitlab.com", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      if (url.endsWith("/api/v4/user")) {
+        return json({ username: "tanuki" })
+      }
+      if (url.endsWith("/api/v4/personal_access_tokens/self")) {
+        return json({ scopes: ["api"] })
+      }
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* GitLabClient
+        return yield* client.validateToken("glpat-abc", SELF_HOSTED)
+      }).pipe(Effect.provide(GitLabHttpClientLive)),
+    )
+
+    expect(result.user.login).toBe("tanuki")
+    expect(urls).toContain("https://gitlab.example.com/api/v4/user")
+    expect(urls.every((u) => u.startsWith("https://gitlab.example.com/"))).toBe(true)
+  })
+
+  it("createMergeRequest posts to the instance from params.baseUrl", async () => {
+    let requestedUrl: string | null = null
+    mockFetch((url) => {
+      requestedUrl = url
+      return json({ iid: 7, web_url: `${SELF_HOSTED}/g/p/-/merge_requests/7`, source_branch: "b" })
+    })
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* GitLabClient
+        return yield* client.createMergeRequest("glpat-abc", {
+          owner: "g",
+          repo: "p",
+          title: "t",
+          baseBranch: "main",
+          headBranch: "b",
+          baseUrl: SELF_HOSTED,
+        })
+      }).pipe(Effect.provide(GitLabHttpClientLive)),
+    )
+
+    expect(requestedUrl).toBe("https://gitlab.example.com/api/v4/projects/g%2Fp/merge_requests")
+    expect(result.url).toBe("https://gitlab.example.com/g/p/-/merge_requests/7")
+  })
+
+  it("listLabels reads from the instance's API base", async () => {
+    let requestedUrl: string | null = null
+    mockFetch((url) => {
+      requestedUrl = url
+      return json([{ name: "bug" }])
+    })
+
+    const labels = await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* GitLabClient
+        return yield* client.listLabels("glpat-abc", "g", "p", SELF_HOSTED)
+      }).pipe(Effect.provide(GitLabHttpClientLive)),
+    )
+
+    expect(requestedUrl).toContain("https://gitlab.example.com/api/v4/projects/g%2Fp/labels")
+    expect(labels).toEqual(["bug"])
+  })
+
+  it("defaults to gitlab.com when no base URL is given", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      if (url.endsWith("/api/v4/user")) return json({ username: "tanuki" })
+      return json({ scopes: [] })
+    })
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* GitLabClient
+        return yield* client.validateToken("glpat-abc")
+      }).pipe(Effect.provide(GitLabHttpClientLive)),
+    )
+
+    expect(urls).toContain("https://gitlab.com/api/v4/user")
+  })
+})
+
 describe("GitLabHttpClient.detectTokenType", () => {
   it("classifies glpat- tokens as pat, others as unknown", async () => {
     const types = await Effect.runPromise(

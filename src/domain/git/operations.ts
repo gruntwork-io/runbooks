@@ -11,6 +11,8 @@ import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { CreateMRParams } from "../../services/GitLabClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
+import { gitSpawnEnv } from "./env.ts"
+import { gitlabBaseUrlFromRemoteUrl } from "./gitlab-host.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -215,8 +217,18 @@ export const createMergeRequest = (
   Effect.gen(function* () {
     yield* runGitSteps(token, params, onProgress)
 
+    const gitClient = yield* GitClient
     const glClient = yield* GitLabClient
     const report = (line: string) => Effect.sync(() => onProgress?.(line))
+
+    // Target the MR at the repo's own GitLab instance (self-hosted or
+    // gitlab.com), derived from its remote rather than assumed to be gitlab.com.
+    // Best-effort: if the remote can't be read, the client falls back to
+    // gitlab.com.
+    const remoteUrl = yield* gitClient
+      .getRemoteUrl(params.repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    const baseUrl = gitlabBaseUrlFromRemoteUrl(remoteUrl)
 
     // Create the MR via GitLab API (labels applied inline)
     yield* report("Opening merge request…")
@@ -228,6 +240,7 @@ export const createMergeRequest = (
       baseBranch: params.baseBranch,
       headBranch: params.headBranch,
       labels: params.labels,
+      baseUrl,
     }
 
     return yield* glClient.createMergeRequest(token, mrParams)
@@ -283,7 +296,7 @@ export const resolveClonePaths = (
 export const countFiles = (dir: string) =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir })
+    const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir, env: gitSpawnEnv() })
     const chunks = yield* Stream.runCollect(proc.output)
     const lines = Chunk.toArray(chunks)
     const code = yield* proc.exitCode

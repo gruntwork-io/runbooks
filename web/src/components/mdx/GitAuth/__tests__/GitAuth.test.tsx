@@ -78,6 +78,11 @@ describe("GitAuth", () => {
     expect(gitlabTab).toHaveAttribute("aria-selected", "true")
   })
 
+  it("forwards the instanceUrl prop to the auth hook (self-hosted GitLab)", () => {
+    renderGitAuth({ provider: "gitlab", instanceUrl: "https://gitlab.acme.com" })
+    expect(hookCalls[0].instanceUrl).toBe("https://gitlab.acme.com")
+  })
+
   it("hides the provider picker when hideProviderSelect is set", () => {
     renderGitAuth({ hideProviderSelect: true })
     expect(screen.queryByRole("tablist", { name: "Git provider" })).toBeNull()

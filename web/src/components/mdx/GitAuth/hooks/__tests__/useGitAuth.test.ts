@@ -93,6 +93,94 @@ describe('useGitAuth — GitLab provider', () => {
     expect(result.current.scopeWarning).toBeNull()
   })
 
+  it('sends a self-hosted instanceUrl to gitlab:validate when supplying a token', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:validate') {
+        return { valid: true, user: { login: 'tanuki' }, tokenType: 'pat' }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({
+        id: 'git',
+        provider: PROVIDERS.gitlab,
+        instanceUrl: 'https://gitlab.acme.com',
+        detectCredentials: false,
+      }),
+    )
+
+    act(() => result.current.setPatToken('glpat-abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('gitlab:validate', {
+      token: 'glpat-abc',
+      instanceUrl: 'https://gitlab.acme.com',
+    })
+  })
+
+  it('a runtime instance-URL edit overrides the seeded prop on validate', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:validate') {
+        return { valid: true, user: { login: 'tanuki' }, tokenType: 'pat' }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({
+        id: 'git',
+        provider: PROVIDERS.gitlab,
+        instanceUrl: 'https://seed.example.com',
+        detectCredentials: false,
+      }),
+    )
+
+    act(() => {
+      result.current.setGitlabInstanceUrl('https://edited.example.com')
+      result.current.setPatToken('glpat-abc')
+    })
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('gitlab:validate', {
+      token: 'glpat-abc',
+      instanceUrl: 'https://edited.example.com',
+    })
+  })
+
+  it('threads the instanceUrl through env/cli credential detection', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:env-credentials') return { found: false }
+      if (channel === 'gitlab:cli-credentials') return { found: false }
+      return {}
+    })
+
+    renderHook(() =>
+      useGitAuth({
+        id: 'git',
+        provider: PROVIDERS.gitlab,
+        instanceUrl: 'https://gitlab.acme.com',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'gitlab:env-credentials',
+        expect.objectContaining({ instanceUrl: 'https://gitlab.acme.com' }),
+      )
+      expect(invoke).toHaveBeenCalledWith(
+        'gitlab:cli-credentials',
+        expect.objectContaining({ instanceUrl: 'https://gitlab.acme.com' }),
+      )
+    })
+  })
+
   it('shows introspected scopes and does not warn when write_repository is present', async () => {
     installApi(async (channel) => {
       if (channel === 'gitlab:validate') {

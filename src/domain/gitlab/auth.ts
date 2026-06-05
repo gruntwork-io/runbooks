@@ -27,11 +27,14 @@ const GLAB_CLI_TIMEOUT_MS = 5_000
 
 /**
  * Validate a GitLab token by calling the GitLab API (GET /user).
+ *
+ * `baseUrl` is the instance origin (e.g. `https://gitlab.example.com`) so a
+ * self-hosted token validates against its own instance; defaults to gitlab.com.
  */
-export const validateToken = (token: string) =>
+export const validateToken = (token: string, baseUrl?: string) =>
   Effect.gen(function* () {
     const glClient = yield* GitLabClient
-    return yield* glClient.validateToken(token)
+    return yield* glClient.validateToken(token, baseUrl)
   })
 
 // ---------------------------------------------------------------------------
@@ -126,11 +129,11 @@ export const detectCliCredentials = () =>
 // ---------------------------------------------------------------------------
 
 /**
- * The GitLab host this app authenticates against. The HTTP client targets
- * gitlab.com only, so we read the gitlab.com credentials out of glab's config
- * regardless of which host glab itself defaults to.
+ * The default GitLab host to read credentials for when no self-hosted host is
+ * specified. glab's config.yml stores tokens per host (`hosts: { <host>: ... }`),
+ * so a self-hosted instance is read by passing its host instead.
  */
-const GITLAB_HOST = "gitlab.com"
+const DEFAULT_GITLAB_HOST = "gitlab.com"
 
 /**
  * Resolve the candidate paths to glab's `config.yml`, in glab's own lookup
@@ -149,8 +152,8 @@ const GITLAB_HOST = "gitlab.com"
  *
  * We probe these in glab's directory-precedence order and return the first
  * gitlab.com token found. (glab itself uses the first directory whose config.yml
- * exists; we instead skip a config that has no gitlab.com token, since our only
- * goal is to surface a usable gitlab.com credential the user already has.)
+ * exists; we instead skip a config that has no token for the target host, since
+ * our only goal is to surface a usable credential the user already has.)
  * Exported for testing.
  */
 export function resolveGlabConfigPaths(opts: {
@@ -192,7 +195,8 @@ interface GlabConfig {
 }
 
 /**
- * Extract the gitlab.com access token from glab `config.yml` contents.
+ * Extract a host's access token from glab `config.yml` contents. `host`
+ * defaults to gitlab.com; pass a self-hosted host to read its credentials.
  *
  * glab obfuscates stored secrets by tagging them as `!!null`
  * (e.g. `token: !!null glpat-...`), which makes a naive YAML load return null.
@@ -201,14 +205,17 @@ interface GlabConfig {
  *
  * Exported for testing.
  */
-export function parseGlabToken(yamlContent: string): string | undefined {
+export function parseGlabToken(
+  yamlContent: string,
+  host: string = DEFAULT_GITLAB_HOST,
+): string | undefined {
   // Strip glab's `!!null ` secret tag so the scalar parses as its string value.
   const cleaned = yamlContent.replace(/!!null\s+/g, "")
 
   let token: unknown
   try {
     const parsed = YAML.parse(cleaned, { logLevel: "silent" }) as GlabConfig | null
-    token = parsed?.hosts?.[GITLAB_HOST]?.token
+    token = parsed?.hosts?.[host]?.token
   } catch {
     return undefined
   }
@@ -226,10 +233,11 @@ export function parseGlabToken(yamlContent: string): string | undefined {
  * `glab auth login` does not export an environment variable; it writes the
  * token into glab's `config.yml`. This reads that file directly, so detection
  * still works when `glab auth token` yields nothing — e.g. the `glab` binary is
- * not on PATH (common inside Electron's spawn environment). Returns undefined if
- * no config file or gitlab.com token is found.
+ * not on PATH (common inside Electron's spawn environment). `host` defaults to
+ * gitlab.com; pass a self-hosted host to read its credentials. Returns undefined
+ * if no config file or matching-host token is found.
  */
-export const detectConfigCredentials = () =>
+export const detectConfigCredentials = (host: string = DEFAULT_GITLAB_HOST) =>
   Effect.gen(function* () {
     const env = yield* Environment
     const fs = yield* FileSystem
@@ -246,7 +254,7 @@ export const detectConfigCredentials = () =>
       const content = yield* fs
         .readFile(path)
         .pipe(Effect.orElseSucceed(() => ""))
-      const token = parseGlabToken(content)
+      const token = parseGlabToken(content, host)
       if (token) return token
     }
 

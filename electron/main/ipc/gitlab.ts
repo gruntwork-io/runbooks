@@ -5,9 +5,10 @@
  * validation and credential detection (env var, `glab` CLI, and glab's
  * config.yml). Mirrors github.ts:
  * detection handlers inject the resolved token into the session environment so
- * git operations against gitlab.com can resolve it server-side, while
- * `gitlab:validate` only validates (the renderer owns the PAT-paste session
- * write, matching the GitHub flow).
+ * git operations can resolve it server-side, while `gitlab:validate` only
+ * validates (the renderer owns the PAT-paste session write, matching the GitHub
+ * flow). An optional `instanceUrl` targets a self-hosted GitLab instance for
+ * validation/detection; it defaults to gitlab.com.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
@@ -20,15 +21,17 @@ import {
   detectCliCredentials,
   detectConfigCredentials,
 } from "../../../src/domain/gitlab/auth.ts"
+import { normalizeGitLabBaseUrl } from "../../../src/domain/git/gitlab-host.ts"
 
 export function registerGitLabHandlers(): void {
   ipcMain.handle(
     "gitlab:validate",
-    async (_event, params: { token: string }) => {
+    async (_event, params: { token: string; instanceUrl?: string }) => {
       const tokenType = detectTokenType(params.token)
+      const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl)
       try {
         const { user, scopes } = await runtime.runPromise(
-          validateToken(params.token),
+          validateToken(params.token, baseUrl),
         )
         return { valid: true, user, scopes, tokenType }
       } catch (err) {
@@ -41,16 +44,17 @@ export function registerGitLabHandlers(): void {
     },
   )
 
-  ipcMain.handle("gitlab:env-credentials", async () => {
+  ipcMain.handle("gitlab:env-credentials", async (_event, params?: { envVar?: string; prefix?: string; githubAuthId?: string; instanceUrl?: string }) => {
     const token = await runtime.runPromise(detectEnvCredentials())
     if (!token) {
       return { found: false as const }
     }
 
     const tokenType = detectTokenType(token)
+    const baseUrl = normalizeGitLabBaseUrl(params?.instanceUrl)
 
     try {
-      const { user, scopes } = await runtime.runPromise(validateToken(token))
+      const { user, scopes } = await runtime.runPromise(validateToken(token, baseUrl))
 
       // Inject the token into the session environment (mirrors github.ts).
       await runtime.runPromise(
@@ -76,13 +80,16 @@ export function registerGitLabHandlers(): void {
     }
   })
 
-  ipcMain.handle("gitlab:cli-credentials", async () => {
+  ipcMain.handle("gitlab:cli-credentials", async (_event, params?: { instanceUrl?: string }) => {
+    const baseUrl = normalizeGitLabBaseUrl(params?.instanceUrl)
+    const host = new URL(baseUrl).host
     // Prefer the `glab` binary (it refreshes OAuth tokens); if it yields no
     // token (not on PATH, not installed, not authenticated, or it timed out),
-    // read glab's config.yml directly, where `glab auth login` stores the token.
+    // read glab's config.yml directly for the target host, where
+    // `glab auth login` stores the token.
     const token =
       (await runtime.runPromise(detectCliCredentials())) ??
-      (await runtime.runPromise(detectConfigCredentials()))
+      (await runtime.runPromise(detectConfigCredentials(host)))
     if (!token) {
       return { found: false as const }
     }
@@ -90,7 +97,7 @@ export function registerGitLabHandlers(): void {
     const tokenType = detectTokenType(token)
 
     try {
-      const { user, scopes } = await runtime.runPromise(validateToken(token))
+      const { user, scopes } = await runtime.runPromise(validateToken(token, baseUrl))
 
       // Inject the token into the session environment so git operations
       // (e.g. git:clone) can resolve it server-side, matching the
@@ -115,14 +122,15 @@ export function registerGitLabHandlers(): void {
   // and must never block opening a merge request.
   ipcMain.handle(
     "gitlab:labels",
-    async (_event, params: { owner: string; repo: string }) => {
+    async (_event, params: { owner: string; repo: string; host?: string }) => {
+      const baseUrl = normalizeGitLabBaseUrl(params.host)
       const program = Effect.gen(function* () {
         const token = yield* getSessionTokenForProvider(
           "gitlab",
           () => new Error("No GitLab token available in session"),
         )
         const client = yield* GitLabClient
-        return yield* client.listLabels(token, params.owner, params.repo)
+        return yield* client.listLabels(token, params.owner, params.repo, baseUrl)
       })
 
       try {

@@ -19,6 +19,7 @@ import {
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
 import { GitClient } from "../../src/services/GitClient.ts"
 import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
+import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("remote")
@@ -72,8 +73,8 @@ export function authHintForHost(host: string): string {
   if (host === "github.com") {
     return "GitHub authentication failed. Your token may be expired or missing the `repo` scope. Try setting GITHUB_TOKEN, or run `gh auth login`."
   }
-  if (host === "gitlab.com") {
-    return "GitLab authentication failed. Set GITLAB_TOKEN, or run `glab auth login`."
+  if (isGitLabHost(host)) {
+    return `GitLab authentication failed for ${host}. Set GITLAB_TOKEN, or run \`glab auth login${host === "gitlab.com" ? "" : ` --hostname ${host}`}\`.`
   }
   return `Authentication failed for ${host}. Set the appropriate access-token environment variable for that host.`
 }
