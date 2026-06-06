@@ -37,21 +37,18 @@ const CodeFileImpl = ({
   showCopyPathButton = Boolean(filePath),
   className = ""
 }: CodeFileProps) => {
-  // Use filePath if provided, otherwise fall back to fileName
   const displayPath = filePath || fileName;
 
   return (
     <div data-testid={`code-file-${displayPath}`} className={className}>
-      {/* File Header */}
-      <CodeFileHeader 
+      <CodeFileHeader
         filePath={displayPath}
         code={code}
         showCopyCodeButton={showCopyCodeButton}
         showCopyPathButton={showCopyPathButton}
       />
 
-      {/* Syntax Highlighter */}
-      <SyntaxHighlighter 
+      <SyntaxHighlighter
         language={language}
         style={coy}
         showLineNumbers={showLineNumbers}

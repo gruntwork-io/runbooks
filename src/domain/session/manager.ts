@@ -301,12 +301,7 @@ export class SessionManager {
       return false
     }
 
-    if (this.session.validTokens.has(token)) {
-      this.session.validTokens.delete(token)
-      return true
-    }
-
-    return false
+    return this.session.validTokens.delete(token)
   }
 
   /** Number of active tokens (browser tabs). */

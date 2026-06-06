@@ -80,15 +80,7 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
 
   const getExecutableByComponentId = (componentId: string): Executable | null => {
     if (!registry) return null
-
-    for (const executableId in registry) {
-      const executable = registry[executableId]
-      if (executable && executable.componentId === componentId) {
-        return executable
-      }
-    }
-
-    return null
+    return Object.values(registry).find(e => e?.componentId === componentId) ?? null
   }
 
   // Don't block rendering while loading or on error — the registry is populated

@@ -79,10 +79,8 @@ function TemplateInline({
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
 
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Track block render on mount

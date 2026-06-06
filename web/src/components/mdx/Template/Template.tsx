@@ -66,10 +66,8 @@ function TemplateInteractive({
   // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Template')
   
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
-  
-  // Telemetry context
+
   const { trackBlockRender } = useTelemetry()
   
   // Track block render on mount

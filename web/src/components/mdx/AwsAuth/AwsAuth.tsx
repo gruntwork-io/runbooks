@@ -37,7 +37,6 @@ function AwsAuthInteractive({
   detectCredentials = ['env'],  // Default: auto-detect from env vars
   inputsId,
 }: AwsAuthProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -64,14 +63,12 @@ function AwsAuthInteractive({
   
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
-  
-  // Telemetry context
+
   const { trackBlockRender } = useTelemetry()
 
   // Theme — swap the AWS wordmark for its light variant on dark surfaces
   const { resolvedTheme } = useTheme()
 
-  // All auth state and handlers from custom hook
   const auth = useAwsAuth({
     id,
     ssoStartUrl,
@@ -116,12 +113,10 @@ function AwsAuthInteractive({
     }
   }, [id, isDuplicate, hasMultipleBlockSources, reportError, clearError])
 
-  // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
     return <ErrorDisplay error={validationError} />
   }
 
-  // Early return for duplicate ID
   if (isDuplicate) {
     return (
       <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
@@ -147,7 +142,6 @@ function AwsAuthInteractive({
     )
   }
 
-  // Early return for multiple block sources in detectCredentials
   if (hasMultipleBlockSources) {
     return (
       <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">

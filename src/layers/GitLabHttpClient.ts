@@ -28,6 +28,9 @@ import { gitlabApiBase, normalizeGitLabBaseUrl } from "../domain/git/gitlab-host
 
 type AuthScheme = "private" | "bearer"
 
+const toGitLabApiError = (err: unknown): GitLabApiError =>
+  err instanceof GitLabApiError ? err : new GitLabApiError({ status: 0, message: `${err}` })
+
 function authHeaders(token: string, scheme: AuthScheme): Record<string, string> {
   return scheme === "private"
     ? { Accept: "application/json", "PRIVATE-TOKEN": token }
@@ -54,8 +57,6 @@ async function fetchScopes(
   scheme: AuthScheme,
   baseUrl: string,
 ): Promise<string[] | undefined> {
-  // OAuth tokens expose scopes via /oauth/token/info (`scope`); PATs via
-  // /api/v4/personal_access_tokens/self (`scopes`).
   const [url, field] =
     scheme === "bearer"
       ? ([`${baseUrl}/oauth/token/info`, "scope"] as const)
@@ -166,10 +167,7 @@ const impl: GitLabClientShape = {
     Effect.tryPromise({
       try: (): Promise<GitLabTokenValidation> =>
         validateUserToken(token, normalizeGitLabBaseUrl(baseUrl)),
-      catch: (err) =>
-        err instanceof GitLabApiError
-          ? err
-          : new GitLabApiError({ status: 0, message: `${err}` }),
+      catch: toGitLabApiError,
     }),
 
   detectTokenType: (token: string): GitLabTokenType =>
@@ -215,10 +213,7 @@ const impl: GitLabClientShape = {
         }
         return { url: data.web_url, number: data.iid, branch: data.source_branch }
       },
-      catch: (err) =>
-        err instanceof GitLabApiError
-          ? err
-          : new GitLabApiError({ status: 0, message: `${err}` }),
+      catch: toGitLabApiError,
     }),
 
   listLabels: (token: string, owner: string, repo: string, baseUrl?: string) =>
@@ -232,10 +227,7 @@ const impl: GitLabClientShape = {
         )
         return labels.map((l) => l.name)
       },
-      catch: (err) =>
-        err instanceof GitLabApiError
-          ? err
-          : new GitLabApiError({ status: 0, message: `${err}` }),
+      catch: toGitLabApiError,
     }),
 }
 

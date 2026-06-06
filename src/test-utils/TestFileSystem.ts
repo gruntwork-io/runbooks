@@ -74,7 +74,7 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
       Effect.sync(() => {
         delete files[path]
         dirs.delete(path)
-        // If recursive, remove children
+        // Also remove any descendant paths.
         for (const key of Object.keys(files)) {
           if (key.startsWith(path + "/")) {
             delete files[key]

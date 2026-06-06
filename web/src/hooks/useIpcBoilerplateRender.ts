@@ -57,7 +57,6 @@ export function useIpcBoilerplateRender(
     { debounceMs: 200, disabled: !shouldFetch || !templatePath || !templateId }
   )
 
-  // Auto-render function using the debounced request
   const { debouncedRequest } = ipcResult
   const autoRender = useCallback((templatePath: string, variables: Record<string, unknown>) => {
     if (debouncedRequest && templatePath && templateId) {

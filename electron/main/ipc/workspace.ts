@@ -18,6 +18,29 @@ import { validateSessionPath } from "./path-guard.ts"
 import { PathTraversalError } from "../../../src/errors/index.ts"
 import path from "path"
 
+/**
+ * Resolve a renderer-supplied worktree path and fail if it escapes the session
+ * working directory (or the runbook directory). Returns the resolved path.
+ */
+const resolveValidatedWorktree = (worktreePath: string) =>
+  Effect.gen(function* () {
+    const resolved = path.resolve(worktreePath)
+    const session = yield* sessionManager.getSession()
+    const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
+    if (
+      !isContainedIn(resolved, session.workingDir) &&
+      !(runbookDir && isContainedIn(resolved, runbookDir))
+    ) {
+      return yield* Effect.fail(
+        new PathTraversalError({
+          path: resolved,
+          message: "worktree path is outside session working directory",
+        }),
+      )
+    }
+    return resolved
+  })
+
 export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
     "workspace:tree",
@@ -89,20 +112,7 @@ export function registerWorkspaceHandlers(): void {
     async (_event, params: { worktreePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const resolved = path.resolve(params.worktreePath)
-          const session = yield* sessionManager.getSession()
-          const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
-          if (
-            !isContainedIn(resolved, session.workingDir) &&
-            !(runbookDir && isContainedIn(resolved, runbookDir))
-          ) {
-            return yield* Effect.fail(
-              new PathTraversalError({
-                path: resolved,
-                message: "worktree path is outside session working directory",
-              }),
-            )
-          }
+          const resolved = yield* resolveValidatedWorktree(params.worktreePath)
           sessionManager.registerWorkTreePath(resolved)
           return { ok: true as const }
         }),
@@ -115,20 +125,7 @@ export function registerWorkspaceHandlers(): void {
     async (_event, params: { worktreePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const resolved = path.resolve(params.worktreePath)
-          const session = yield* sessionManager.getSession()
-          const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
-          if (
-            !isContainedIn(resolved, session.workingDir) &&
-            !(runbookDir && isContainedIn(resolved, runbookDir))
-          ) {
-            return yield* Effect.fail(
-              new PathTraversalError({
-                path: resolved,
-                message: "worktree path is outside session working directory",
-              }),
-            )
-          }
+          const resolved = yield* resolveValidatedWorktree(params.worktreePath)
           sessionManager.setActiveWorkTreePath(resolved)
           return { ok: true as const }
         }),

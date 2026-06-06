@@ -20,6 +20,9 @@ import { GitHubApiError } from "../errors/index.ts"
 const API_BASE = "https://api.github.com"
 const OAUTH_BASE = "https://github.com"
 
+const toGitHubApiError = (err: unknown): GitHubApiError =>
+  err instanceof GitHubApiError ? err : new GitHubApiError({ status: 0, message: `${err}` })
+
 async function githubFetch(
   url: string,
   options: RequestInit & { token?: string } = {},
@@ -31,8 +34,7 @@ async function githubFetch(
   if (options.token) {
     headers.Authorization = `Bearer ${options.token}`
   }
-  const resp = await fetch(url, { ...options, headers })
-  return resp
+  return fetch(url, { ...options, headers })
 }
 
 async function githubJson<T>(
@@ -143,10 +145,7 @@ const impl: GitHubClientShape = {
         token.startsWith("ghs_")
           ? validateInstallationToken(token)
           : validateUserToken(token),
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   detectTokenType: (token: string): GitHubTokenType => {
@@ -188,10 +187,7 @@ const impl: GitHubClientShape = {
           interval: data.interval,
         }
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   pollOAuthToken: (clientId: string, deviceCode: string) =>
@@ -225,10 +221,7 @@ const impl: GitHubClientShape = {
         }
         return { token: data.access_token }
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   listOrgs: (token: string) =>
@@ -240,10 +233,7 @@ const impl: GitHubClientShape = {
         )
         return orgs.map((o) => ({ login: o.login, name: o.description }))
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   listRepos: (token: string, owner: string, query?: string) =>
@@ -280,10 +270,7 @@ const impl: GitHubClientShape = {
           defaultBranch: r.default_branch,
         }))
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   listRefs: (token: string, owner: string, repo: string, query?: string) =>
@@ -305,10 +292,7 @@ const impl: GitHubClientShape = {
         }
         return refs
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   listLabels: (token: string, owner: string, repo: string) =>
@@ -320,10 +304,7 @@ const impl: GitHubClientShape = {
         )
         return labels.map((l) => l.name)
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   createPullRequest: (token: string, params: CreatePRParams) =>
@@ -364,10 +345,7 @@ const impl: GitHubClientShape = {
           branch: data.head.ref,
         }
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 
   addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[]) =>
@@ -383,10 +361,7 @@ const impl: GitHubClientShape = {
           },
         )
       },
-      catch: (err) =>
-        err instanceof GitHubApiError
-          ? err
-          : new GitHubApiError({ status: 0, message: `${err}` }),
+      catch: toGitHubApiError,
     }),
 }
 

@@ -43,7 +43,6 @@ export function ViewLogs({
   const logContainerRef = useRef<HTMLDivElement>(null)
   const userHasScrolledUp = useRef(false)
 
-  // Update showLogs when autoOpen changes
   useEffect(() => {
     if (autoOpen) {
       setShowLogs(true)

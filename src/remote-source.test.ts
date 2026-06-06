@@ -241,7 +241,7 @@ describe("adjustBlobPath", () => {
 describe("resolveRef", () => {
   // ls-remote output: <sha>\t<refname>; refs/heads/<branch> or refs/tags/<tag>
   const refOutput = (names: string[]) =>
-    names.map((n, i) => `${"a".repeat(40).slice(0, 40)}${i}\t${n}`)
+    names.map((n, i) => `${"a".repeat(40)}${i}\t${n}`)
 
   it("picks the longest matching ref over a shorter one", async () => {
     const spawner = makeTestSpawner([

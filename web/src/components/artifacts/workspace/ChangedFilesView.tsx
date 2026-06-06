@@ -99,7 +99,6 @@ export const ChangedFilesView = ({
     setDisplayLimit(MAX_DISPLAYED_FILES)
   }, [changes.length])
 
-  // Build file tree from changes
   const fileTree = useMemo(() => buildFileTree(changes), [changes])
 
   // Slice changes to the display limit for the diff pane
@@ -132,7 +131,6 @@ export const ChangedFilesView = ({
     })
   }
 
-  // Toggle file collapse
   const toggleFileCollapse = (filePath: string) => {
     setCollapsedFiles(prev => {
       const next = new Set(prev)
@@ -145,12 +143,10 @@ export const ChangedFilesView = ({
     })
   }
 
-  // Show more files
   const handleShowMore = () => {
     setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT)
   }
 
-  // Register file ref
   const setFileRef = useCallback((filePath: string, el: HTMLDivElement | null) => {
     if (el) {
       fileRefs.current.set(filePath, el)

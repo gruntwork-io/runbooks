@@ -37,7 +37,7 @@ export function extractTemplateFiles(
       // Check if this is a code block (pre > code structure from MDX)
       // MDX can use either native 'pre' elements or custom CodeBlock components
       let isPreElement = false;
-      if (typeof element.type === 'string' && element.type === 'pre') {
+      if (element.type === 'pre') {
         isPreElement = true;
       } else if (typeof element.type === 'function') {
         const funcType = element.type as { name?: string; displayName?: string };

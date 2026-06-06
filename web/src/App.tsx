@@ -41,7 +41,6 @@ function App() {
     return cleanup
   }, [api])
 
-  // Use the useApi hook to fetch runbook data
   const getRunbookResult = useIpcGetRunbook()
 
   // Check for existing generated files when runbook loads.
@@ -114,7 +113,7 @@ function App() {
     if (!showArtifacts) {
       const timer = setTimeout(() => {
         setShowCodeButton(true)
-      }, 500) // 500ms delay
+      }, 500)
       return () => clearTimeout(timer)
     } else {
       setShowCodeButton(false)
@@ -145,7 +144,6 @@ function App() {
     alertDismissedThisSession,
   ]);
   
-  // Extract commonly used values
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ''
   const content = getRunbookResult.data?.content || ''

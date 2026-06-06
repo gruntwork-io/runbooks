@@ -9,6 +9,16 @@ import path from "path"
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
 
+/** Open a URL in the user's default browser if its scheme is allowed. */
+function openExternalIfAllowed(url: string): void {
+  try {
+    const parsed = new URL(url)
+    if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
+      shell.openExternal(url)
+    }
+  } catch { /* ignore invalid URLs */ }
+}
+
 /**
  * Title bar overlay + window background colors per theme. The light values
  * approximate --bg-default (the renderer's app background) and
@@ -79,12 +89,7 @@ export function createMainWindow(): BrowserWindow {
   // links). Instead, open the URL in the user's default browser if it uses a
   // safe scheme.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const parsed = new URL(url)
-      if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
-        shell.openExternal(url)
-      }
-    } catch { /* ignore invalid URLs */ }
+    openExternalIfAllowed(url)
     return { action: "deny" }
   })
 
@@ -100,12 +105,7 @@ export function createMainWindow(): BrowserWindow {
     // Production, or a cross-origin navigation in dev — open externally if
     // the scheme is allowed.
     event.preventDefault()
-    try {
-      const parsed = new URL(url)
-      if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
-        shell.openExternal(url)
-      }
-    } catch { /* ignore invalid URLs */ }
+    openExternalIfAllowed(url)
   })
 
   // Avoid white flash — only show once content is painted.

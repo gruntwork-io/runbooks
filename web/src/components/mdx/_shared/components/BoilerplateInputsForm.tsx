@@ -300,7 +300,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     })
   }
 
-  const shouldShowSubmitButton = variant === 'embedded' ? false : showSubmitButton;
+  const shouldShowSubmitButton = variant !== 'embedded' && showSubmitButton
 
   // Check if form is currently valid (for FormStatus)
   const formIsValid = isFormValid(formData)

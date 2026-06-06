@@ -74,7 +74,6 @@ export function useApiBoilerplateRender(
     true, // lazy
   );
 
-  // Auto-render function using the debounced request
   const { debouncedRequest } = apiResult;
   const autoRender = useCallback((templatePath: string, variables: Record<string, unknown>) => {
     if (debouncedRequest && templatePath && templateId) {

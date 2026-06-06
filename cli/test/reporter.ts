@@ -78,7 +78,6 @@ export class TextReporter implements Reporter {
           for (const ar of result.assertions) {
             const arIcon = ar.passed ? "✓" : "✗"
             const arColor = ar.passed ? "\x1b[32m" : "\x1b[31m"
-            const reset = "\x1b[0m"
             this.write(`    ${arColor}${arIcon}${reset} Assertion ${ar.type}\n`)
             if (ar.message) {
               this.write(`      ${ar.message}\n`)

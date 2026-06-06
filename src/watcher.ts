@@ -34,14 +34,10 @@ export const createWatcher = (
     const fs = yield* FileSystem
     const watchDir = path.dirname(path.resolve(runbookPath))
 
-    const rawStream = fs.watch([watchDir])
-
     // Filter to write/create events only, then debounce.
-    const filtered = pipe(
-      rawStream,
+    return pipe(
+      fs.watch([watchDir]),
       Stream.filter((event) => event.type === "add" || event.type === "change"),
       Stream.debounce(DEBOUNCE_MS),
     )
-
-    return filtered
   })

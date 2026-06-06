@@ -48,10 +48,8 @@ function DirPickerInteractive({
   // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'DirPicker')
 
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Track render

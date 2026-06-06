@@ -166,15 +166,6 @@ export class InputValidator {
     return ""
   }
 
-  getConfigErrorById(componentId: string): string {
-    for (const err of this.configErrors) {
-      if (err.componentId === componentId) {
-        return err.message
-      }
-    }
-    return ""
-  }
-
   /** Validate test input values against discovered boilerplate schemas. */
   validateInputValues(inputs: Record<string, unknown>): ValidationError[] {
     const errors: ValidationError[] = []

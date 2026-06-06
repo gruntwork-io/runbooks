@@ -53,7 +53,6 @@ function Command({
   usePty,
   timeoutMs,
 }: CommandProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -67,16 +66,13 @@ function Command({
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Command')
   
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
   
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Instruction mode flattens this block into a copy-pasteable instruction.
   const { enabled: instructionMode } = useInstructionMode()
 
-  // Use shared script execution hook
   const {
     sourceCode,
     rawScriptContent,
@@ -174,12 +170,10 @@ function Command({
   const IconComponent = getStatusIcon()
   const iconClasses = getStatusIconClasses()
 
-  // Handle starting the command
   const handleStartCommand = () => {
     handleExecute()
   }
 
-  // Handle stopping the command
   const handleStopCommand = () => {
     cancel()
   }

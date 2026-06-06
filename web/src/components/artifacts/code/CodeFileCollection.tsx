@@ -114,7 +114,6 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     }
   };
 
-  // Toggle file collapse
   const toggleFileCollapse = (fileId: string) => {
     setCollapsedFiles(prev => {
       const next = new Set(prev);
@@ -127,12 +126,10 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     });
   };
 
-  // Show more files
   const handleShowMore = () => {
     setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT);
   };
 
-  // Register file ref
   const setFileRef = useCallback((fileId: string, el: HTMLDivElement | null) => {
     if (el) {
       fileRefs.current.set(fileId, el);

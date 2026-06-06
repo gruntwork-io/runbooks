@@ -431,9 +431,7 @@ export const parseEnvCapture = (
 // Block Output Parsing
 // ---------------------------------------------------------------------------
 
-/**
- * Check if a key matches ^[a-zA-Z_][a-zA-Z0-9_]*$
- */
+/** Valid output key: matches IDENT_RE. */
 function isValidOutputKey(key: string): boolean {
   return IDENT_RE.test(key)
 }

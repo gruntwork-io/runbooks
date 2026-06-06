@@ -55,7 +55,6 @@ function Check({
   usePty,
   timeoutMs,
 }: CheckProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -69,16 +68,13 @@ function Check({
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Check')
   
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
   
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Instruction mode flattens this block into a copy-pasteable instruction.
   const { enabled: instructionMode } = useInstructionMode()
 
-  // Use shared script execution hook
   const {
     sourceCode,
     rawScriptContent,
@@ -273,12 +269,10 @@ function Check({
   const IconComponent = getStatusIcon()
   const iconClasses = getStatusIconClasses()
 
-  // Handle starting the check
   const handleStartCheck = () => {
     handleExecute()
   }
 
-  // Handle stopping the check
   const handleStopCheck = () => {
     cancel()
   }

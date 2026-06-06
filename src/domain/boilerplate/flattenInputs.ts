@@ -63,10 +63,7 @@ function liftInputsToRoot(
 export function stripTemplateValues(value: unknown): unknown {
   if (isTemplateString(value)) return undefined
   if (Array.isArray(value)) {
-    const cleaned = value
-      .map(stripTemplateValues)
-      .filter((v) => v !== undefined)
-    return cleaned
+    return value.map(stripTemplateValues).filter((v) => v !== undefined)
   }
   if (value && typeof value === "object") {
     const cleaned: Record<string, unknown> = {}

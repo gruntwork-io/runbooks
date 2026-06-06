@@ -69,7 +69,6 @@ function GitCloneInteractive({
   usePty,
   showFileTree = true,
 }: GitCloneProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -123,24 +122,19 @@ function GitCloneInteractive({
 
   // --- End template dependency resolution ---
 
-  // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitClone')
 
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Git worktree context for registering cloned repos with the workspace
   const { registerWorkTree } = useGitWorkTree()
 
-  // Track render
   useEffect(() => {
     trackBlockRender('GitClone')
   }, [id, trackBlockRender])
 
-  // Core hook
   const {
     cloneStatus,
     logs,
@@ -160,7 +154,6 @@ function GitCloneInteractive({
     fetchRefs,
   } = useGitClone({ id, githubAuthId, gitAuthId })
 
-  // Get registered outputs for this block
   const outputValues = useOutputs(id)
   const registeredOutputs = useMemo(() => {
     if (!outputValues || outputValues.length === 0) return null
@@ -275,10 +268,8 @@ function GitCloneInteractive({
     return null
   }, [resolvedUrl])
 
-  // Overwrite confirmation state
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
-  // Handle clone button
   const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
     setShowOverwriteConfirm(false)
@@ -288,18 +279,15 @@ function GitCloneInteractive({
     }
   }, [gitUrl, ref, repoPath, localPath, clone, usePty])
 
-  // Handle repo selected from GitHub browser
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
     setShowOverwriteConfirm(false)
   }, [])
 
-  // Handle ref selected from GitHub browser
   const handleRefSelected = useCallback((selectedRef: string) => {
     setRef(selectedRef)
   }, [])
 
-  // Handle clone again
   const handleCloneAgain = useCallback(() => {
     reset()
     setShowOverwriteConfirm(false)

@@ -273,8 +273,8 @@ export const resolveRef = (
     for (const line of lines) {
       const parts = line.split("\t")
       if (parts.length >= 2) {
-        let refName = parts[1].trim()
-        refName = refName
+        const refName = parts[1]
+          .trim()
           .replace(/^refs\/heads\//, "")
           .replace(/^refs\/tags\//, "")
         knownRefs.add(refName)

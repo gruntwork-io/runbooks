@@ -181,7 +181,6 @@ function getFileIcon(filename: string): IconComponent {
       return File
   }
 }
-// Import the headless tree styles
 import '../../../css/headless-tree.css'
 
 import type { FileTreeNode } from './FileTree.types'

@@ -42,7 +42,6 @@ function GitAuthInteractive({
   inputsId,
   __registryType = 'GitAuth',
 }: GitAuthInternalProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -64,7 +63,6 @@ function GitAuthInteractive({
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Selected provider (GitHub | GitLab)

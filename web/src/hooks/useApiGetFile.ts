@@ -16,7 +16,6 @@ export interface GetFileReturn {
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseApiReturn<GetFileReturn> {
-  // Only fetch if we have a path and shouldFetch is true
   const shouldActuallyFetch = shouldFetch && Boolean(path);
   
   // Build the request body with the path, memoized to prevent infinite loops

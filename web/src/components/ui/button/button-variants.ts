@@ -1,10 +1,5 @@
 import { cva } from "class-variance-authority"
 
-// This cva function creates a typed variant system that can be used with VariantProps
-// The variants object defines all possible values for each prop (variant, size)
-// VariantProps<typeof buttonVariants> extracts these as TypeScript types for IDE autocomplete
-//
-// In practice, use your IDE autocomplete to see all possible values for variant and size.
 export const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer active:shadow-xs active:translate-y-0.5",
   {

@@ -15,6 +15,13 @@ const isMac = process.platform === "darwin"
 const DOCS_URL = "https://docs.gruntwork.io/runbooks"
 const ISSUES_URL = "https://github.com/gruntwork-io/runbooks/issues"
 
+/** Show a CLI error dialog, suppressing user-cancelled admin prompts. */
+function showCliError(err: unknown, title: string, message: string): void {
+  const detail = err instanceof Error ? err.message : String(err)
+  if (detail.includes("User canceled") || detail.includes("dismissed")) return
+  dialog.showErrorBox(title, `${message}\n\n${detail}`)
+}
+
 function buildCliMenuItems(): MenuItemConstructorOptions[] {
   return [
     {
@@ -38,13 +45,7 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
             detail: `You can now run 'runbooks' from any terminal.\nInstalled at: ${result.symlinkPath}`,
           })
         } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          // User cancelled the admin dialog — do nothing
-          if (message.includes("User canceled") || message.includes("dismissed")) return
-          dialog.showErrorBox(
-            "CLI Installation Failed",
-            `Could not install the 'runbooks' command:\n\n${message}`,
-          )
+          showCliError(err, "CLI Installation Failed", "Could not install the 'runbooks' command:")
         }
       },
     },
@@ -68,12 +69,7 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
             message: "The 'runbooks' command has been removed from your PATH.",
           })
         } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          if (message.includes("User canceled") || message.includes("dismissed")) return
-          dialog.showErrorBox(
-            "CLI Uninstall Failed",
-            `Could not uninstall the 'runbooks' command:\n\n${message}`,
-          )
+          showCliError(err, "CLI Uninstall Failed", "Could not uninstall the 'runbooks' command:")
         }
       },
     },

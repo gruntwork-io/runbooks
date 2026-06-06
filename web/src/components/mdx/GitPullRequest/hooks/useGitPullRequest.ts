@@ -182,11 +182,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
           if (!isMountedRef.current) return
           const parsed = StatusEventSchema.safeParse(data)
           if (parsed.success) {
-            if (parsed.data.status === 'success') {
-              setStatus('success')
-            } else {
-              setStatus('fail')
-            }
+            setStatus(parsed.data.status === 'success' ? 'success' : 'fail')
           }
         }),
         api.on('git:pr-result', (data: unknown) => {

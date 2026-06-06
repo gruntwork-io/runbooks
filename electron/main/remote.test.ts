@@ -185,7 +185,6 @@ describe("cleanupTempClones", () => {
     // Pre-emptively remove the dir to simulate a prior cleanup.
     nodeFs.rmSync(a, { recursive: true, force: true })
 
-    // Must not throw.
     expect(() => cleanupTempClones()).not.toThrow()
     expect(nodeFs.existsSync(a)).toBe(false)
   })

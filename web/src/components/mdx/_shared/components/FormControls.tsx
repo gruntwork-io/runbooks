@@ -38,6 +38,30 @@ const getInputClassName = (error?: string, additionalClasses = '', disabled = fa
   return `${baseClasses} ${errorClasses} ${disabledClasses} ${additionalClasses}`.trim()
 }
 
+/** Header row showing the entry count (and an "(inherited)" badge when disabled). */
+const EntryCountHeader: React.FC<{ count: number; disabled?: boolean }> = ({ count, disabled }) => (
+  <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
+    <span className="text-sm font-medium text-foreground">
+      {count} entr{count !== 1 ? 'ies' : 'y'}
+      {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
+    </span>
+  </div>
+)
+
+/** Ghost icon button for removing a list/map entry. */
+const RemoveEntryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon"
+    onClick={onClick}
+    className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
+    title="Remove entry"
+  >
+    <X className="w-4 h-4" />
+  </Button>
+)
+
 /**
  * Text input component for string variables
  * Renders a standard text input field with validation error styling
@@ -218,28 +242,12 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
       {/* List items */}
       {currentList.length > 0 && (
         <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
-          <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
-            <span className="text-sm font-medium text-foreground">
-              {currentList.length} entr{currentList.length !== 1 ? 'ies' : 'y'}
-              {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
-            </span>
-          </div>
+          <EntryCountHeader count={currentList.length} disabled={disabled} />
           <div className="divide-y divide-border">
             {currentList.map((item, index) => (
               <div key={index} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
                 <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}>{item}</span>
-                {!disabled && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeItem(index)}
-                    className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
-                    title="Remove entry"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                )}
+                {!disabled && <RemoveEntryButton onClick={() => removeItem(index)} />}
               </div>
             ))}
           </div>
@@ -390,12 +398,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
       {/* Map entries */}
       {entries.length > 0 ? (
         <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
-          <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
-            <span className="text-sm font-medium text-foreground">
-              {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}
-              {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
-            </span>
-          </div>
+          <EntryCountHeader count={entries.length} disabled={disabled} />
           <div className="divide-y divide-border">
             {entries.map(([key, val]) => (
               <div key={key} className={`px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
@@ -414,18 +417,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
                       )}
                     </div>
                   </div>
-                  {!disabled && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeEntry(key)}
-                      className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
-                      title="Remove entry"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  )}
+                  {!disabled && <RemoveEntryButton onClick={() => removeEntry(key)} />}
                 </div>
               </div>
             ))}
@@ -504,28 +496,12 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
       {/* Map entries */}
       {entries.length > 0 ? (
         <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
-          <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
-            <span className="text-sm font-medium text-foreground">
-              {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}
-              {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
-            </span>
-          </div>
+          <EntryCountHeader count={entries.length} disabled={disabled} />
           <div className="divide-y divide-border">
             {entries.map(([key, val]) => (
               <div key={key} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
                 <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}><strong>{key}:</strong> {String(val)}</span>
-                {!disabled && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeEntry(key)}
-                    className="ml-2 text-muted-foreground hover:text-destructive hover:bg-destructive-muted shadow-none hover:shadow-none active:shadow-none active:translate-y-0"
-                    title="Remove entry"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                )}
+                {!disabled && <RemoveEntryButton onClick={() => removeEntry(key)} />}
               </div>
             ))}
           </div>

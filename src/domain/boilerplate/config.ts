@@ -294,29 +294,24 @@ export function parseBoilerplateConfig(yamlContent: string) {
         sensitive: rv.sensitive ?? false,
       }
 
-      // Default value
       if (rv.default !== undefined) {
         variable.default = rv.default
       }
 
-      // Enum options
       if (varType === "enum" && rv.options) {
         variable.options = rv.options
       }
 
-      // x-schema
       const schema = rv["x-schema"]
       if (schema && Object.keys(schema).length > 0) {
         variable.schema = schema
       }
 
-      // x-schema-instance-label
       const schemaLabel = rv["x-schema-instance-label"]
       if (schemaLabel) {
         variable.schemaInstanceLabel = schemaLabel
       }
 
-      // x-section
       const section = rv["x-section"]
       if (section) {
         variable.sectionName = section

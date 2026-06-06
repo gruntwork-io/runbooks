@@ -24,7 +24,6 @@ export const normalizeInstanceBaseUrl = (input: string | undefined | null): stri
   }
 }
 
-// Get status-based styling for the container
 export const getStatusClasses = (authStatus: GitAuthStatus): string => {
   const statusMap: Record<GitAuthStatus, string> = {
     authenticated: 'bg-success-muted border-success/30',
@@ -35,7 +34,6 @@ export const getStatusClasses = (authStatus: GitAuthStatus): string => {
   return statusMap[authStatus]
 }
 
-// Get the appropriate icon component for the current status
 export const getStatusIcon = (authStatus: GitAuthStatus) => {
   const iconMap: Record<GitAuthStatus, typeof CheckCircle> = {
     authenticated: CheckCircle,
@@ -46,7 +44,6 @@ export const getStatusIcon = (authStatus: GitAuthStatus) => {
   return iconMap[authStatus]
 }
 
-// Get icon color classes for the current status
 export const getStatusIconClasses = (authStatus: GitAuthStatus): string => {
   const colorMap: Record<GitAuthStatus, string> = {
     authenticated: 'text-success',

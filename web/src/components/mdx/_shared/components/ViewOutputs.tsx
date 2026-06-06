@@ -17,14 +17,12 @@ export function ViewOutputs({
   const [copied, setCopied] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
-  // Update showOutputs when autoOpen changes
   useEffect(() => {
     if (autoOpen) {
       setShowOutputs(true)
     }
   }, [autoOpen])
 
-  // Get outputs as JSON string for copying
   const getOutputsJson = () => {
     return JSON.stringify(outputs || {}, null, 2)
   }
@@ -52,7 +50,6 @@ export function ViewOutputs({
   const hasOutputs = outputs && Object.keys(outputs).length > 0
   const outputCount = outputs ? Object.keys(outputs).length : 0
 
-  // Don't render if there are no outputs
   if (!hasOutputs) {
     return null
   }

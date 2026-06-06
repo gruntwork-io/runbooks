@@ -20,9 +20,7 @@ const REMOTE_SHORTHAND = /^(github\.com|gitlab\.com)\//
 
 function looksLikeRemoteUrl(input: string): boolean {
   const trimmed = input.trim()
-  if (REMOTE_PREFIXES.some((p) => trimmed.startsWith(p))) return true
-  if (REMOTE_SHORTHAND.test(trimmed)) return true
-  return false
+  return REMOTE_PREFIXES.some((p) => trimmed.startsWith(p)) || REMOTE_SHORTHAND.test(trimmed)
 }
 
 export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {

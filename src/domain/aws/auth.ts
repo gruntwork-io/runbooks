@@ -100,7 +100,6 @@ export const confirmEnvCredentials = () =>
       region: envCreds.region ?? STS_REGION,
     }
 
-    // Validate them via STS
     yield* awsClient.validateCredentials(creds, STS_REGION)
 
     return creds

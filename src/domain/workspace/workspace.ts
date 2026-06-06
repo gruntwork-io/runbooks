@@ -447,17 +447,11 @@ export const getWorkspaceChanges = (
   FileSystem | GitClient
 > =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem
     const git = yield* GitClient
 
     // Single-file mode
     if (singleFile) {
-      const change = yield* getSingleFileDiff(
-        worktreePath,
-        singleFile,
-        fs,
-        git,
-      )
+      const change = yield* getSingleFileDiff(worktreePath, singleFile)
       return {
         changes: [change],
         totalChanges: 1,
@@ -511,7 +505,7 @@ export const getWorkspaceChanges = (
       }
 
       // Populate diff content
-      yield* populateDiffContent(worktreePath, change, fs, git)
+      yield* populateDiffContent(worktreePath, change)
 
       // Enforce per-file size limit
       const totalDiffSize =
@@ -539,14 +533,14 @@ export const getWorkspaceChanges = (
 const getSingleFileDiff = (
   worktreePath: string,
   filePath: string,
-  fs: FileSystem extends infer T ? T extends { Type: infer S } ? S : never : never,
-  git: GitClient extends infer T ? T extends { Type: infer S } ? S : never : never,
 ): Effect.Effect<
   WorkspaceFileChange,
   FileReadError | FileNotFoundError | GitError,
   FileSystem | GitClient
 > =>
   Effect.gen(function* () {
+    const git = yield* GitClient
+
     // Determine change type from status
     const statusEntries = yield* git.status(worktreePath)
     let changeType = "modified"
@@ -572,7 +566,7 @@ const getSingleFileDiff = (
     }
 
     if (!change.isBinary) {
-      yield* populateDiffContent(worktreePath, change, fs, git)
+      yield* populateDiffContent(worktreePath, change)
     }
 
     return change
@@ -585,8 +579,6 @@ const getSingleFileDiff = (
 const populateDiffContent = (
   worktreePath: string,
   change: WorkspaceFileChange,
-  _fs: unknown,
-  _git: unknown,
 ): Effect.Effect<
   void,
   FileReadError | FileNotFoundError | GitError,

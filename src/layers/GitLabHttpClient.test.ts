@@ -281,12 +281,7 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
       return new Response("not found", { status: 404 })
     })
 
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const client = yield* GitLabClient
-        return yield* client.validateToken("glpat-abc", SELF_HOSTED)
-      }).pipe(Effect.provide(GitLabHttpClientLive)),
-    )
+    const result = await Effect.runPromise(validate("glpat-abc", SELF_HOSTED))
 
     expect(result.user.login).toBe("tanuki")
     expect(urls).toContain("https://gitlab.example.com/api/v4/user")
@@ -344,12 +339,7 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
       return json({ scopes: [] })
     })
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const client = yield* GitLabClient
-        return yield* client.validateToken("glpat-abc")
-      }).pipe(Effect.provide(GitLabHttpClientLive)),
-    )
+    await Effect.runPromise(validate("glpat-abc"))
 
     expect(urls).toContain("https://gitlab.com/api/v4/user")
   })

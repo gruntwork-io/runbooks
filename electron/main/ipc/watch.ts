@@ -7,10 +7,9 @@
  */
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, runbookConfig, setFileWatcher } from "./runtime.ts"
+import { runtime, runbookConfig, setFileWatcher, setExecutableRegistry } from "./runtime.ts"
 import { createWatcher } from "../../../src/watcher.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
-import { setExecutableRegistry } from "./runtime.ts"
 import { validateSessionPath } from "./path-guard.ts"
 
 export function registerWatchHandlers(): void {
