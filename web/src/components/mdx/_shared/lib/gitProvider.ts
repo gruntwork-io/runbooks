@@ -49,6 +49,29 @@ function hostOf(rawUrl: string): string | undefined {
 }
 
 /**
+ * The host of a repo's clone/remote URL (HTTPS or SSH form), or undefined if it
+ * can't be parsed. Unlike deriveProviderFromRepoUrl this keeps the actual host
+ * (incl. self-hosted), so callers can target the repo's own GitLab instance —
+ * e.g. the label lookup, which must hit a self-hosted API base, not gitlab.com.
+ *
+ * Mirrors the backend's gitHostFromRemoteUrl: keeps the port (`.host`, not
+ * `.hostname`, so a custom-port instance resolves to the right API base) and
+ * accepts any SSH username (not just `git@`). hostOf above intentionally drops
+ * the port and assumes git@, since it's only used to match the SaaS hosts.
+ */
+export function hostFromRepoUrl(repoUrl: string | undefined): string | undefined {
+  if (!repoUrl) return undefined
+  const ssh = repoUrl.match(/^[^/@]+@([^:/]+):/)
+  if (ssh) return ssh[1]
+  try {
+    const host = new URL(repoUrl.includes('://') ? repoUrl : `https://${repoUrl}`).host
+    return host || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Best-effort provider guess from a clone URL's host. Only the public SaaS
  * hosts (github.com / gitlab.com) are recognized; self-hosted/Enterprise hosts
  * return `undefined` (we can't tell GitHub Enterprise from GitLab self-managed

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveProviderFromAuth, deriveProviderFromRepoUrl } from './gitProvider'
+import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl } from './gitProvider'
 import type { BlockOutputs } from '@/contexts/RunbookContext'
 
 function outputs(id: string, values: Record<string, string>): Record<string, BlockOutputs> {
@@ -63,5 +63,32 @@ describe('deriveProviderFromRepoUrl', () => {
     expect(deriveProviderFromRepoUrl('https://gitlab.mycompany.com/g/p.git')).toBeUndefined()
     expect(deriveProviderFromRepoUrl('https://github.acme.internal/o/r.git')).toBeUndefined()
     expect(deriveProviderFromRepoUrl('git@git.example.org:o/r.git')).toBeUndefined()
+  })
+})
+
+describe('hostFromRepoUrl', () => {
+  it('returns undefined for empty input', () => {
+    expect(hostFromRepoUrl(undefined)).toBeUndefined()
+    expect(hostFromRepoUrl('')).toBeUndefined()
+  })
+
+  it('reads the host from an HTTPS clone URL', () => {
+    expect(hostFromRepoUrl('https://gitlab.example.com/group/sub/project.git')).toBe(
+      'gitlab.example.com',
+    )
+    expect(hostFromRepoUrl('gitlab.example.com/group/project')).toBe('gitlab.example.com')
+  })
+
+  it('preserves a non-standard port (self-hosted on a custom port)', () => {
+    expect(hostFromRepoUrl('https://gitlab.example.com:8443/group/project.git')).toBe(
+      'gitlab.example.com:8443',
+    )
+  })
+
+  it('reads the host from an SSH/SCP remote with any username', () => {
+    expect(hostFromRepoUrl('git@gitlab.example.com:group/project.git')).toBe('gitlab.example.com')
+    expect(hostFromRepoUrl('deploy@gitlab.example.com:group/project.git')).toBe(
+      'gitlab.example.com',
+    )
   })
 })

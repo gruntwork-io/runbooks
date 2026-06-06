@@ -5,9 +5,13 @@
  * validation and credential detection (env var, `glab` CLI, and glab's
  * config.yml). Mirrors github.ts:
  * detection handlers inject the resolved token into the session environment so
- * git operations against gitlab.com can resolve it server-side, while
- * `gitlab:validate` only validates (the renderer owns the PAT-paste session
- * write, matching the GitHub flow).
+ * git operations can resolve it server-side, while `gitlab:validate` only
+ * validates (the renderer owns the PAT-paste session write, matching the GitHub
+ * flow). The instance to target is selected by an optional `host` (a bare host
+ * from the GitAuth picker / an authored prop) or `instanceUrl` (a manually-typed
+ * instance URL that overrides `host`); both normalize to an origin and default
+ * to gitlab.com. `gitlab:enumerate-hosts` lists the hosts glab is logged into to
+ * drive the picker.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
@@ -21,8 +25,8 @@ import {
   detectCliCredentials,
   detectConfigCredentials,
   detectConfigHosts,
-  DEFAULT_GITLAB_HOST,
 } from "../../../src/domain/gitlab/auth.ts"
+import { normalizeGitLabBaseUrl } from "../../../src/domain/git/gitlab-host.ts"
 
 /** HTTP status from a failed validation, when the failure was a GitLab API error. */
 const errorStatus = (err: unknown): number | undefined =>
@@ -37,12 +41,14 @@ export function registerGitLabHandlers(): void {
 
   ipcMain.handle(
     "gitlab:validate",
-    async (_event, params: { token: string; host?: string }) => {
-      const host = params.host ?? DEFAULT_GITLAB_HOST
+    async (_event, params: { token: string; host?: string; instanceUrl?: string }) => {
       const tokenType = detectTokenType(params.token)
+      // A manually-entered instance URL overrides the picked/authored host;
+      // either a bare host or a full URL normalizes to the instance origin.
+      const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl ?? params.host)
       try {
         const { user, scopes } = await runtime.runPromise(
-          validateToken(params.token, host),
+          validateToken(params.token, baseUrl),
         )
         return { valid: true, user, scopes, tokenType }
       } catch (err) {
@@ -58,17 +64,28 @@ export function registerGitLabHandlers(): void {
 
   ipcMain.handle(
     "gitlab:env-credentials",
-    async (_event, params: { host?: string } = {}) => {
-      const host = params.host ?? DEFAULT_GITLAB_HOST
+    async (
+      _event,
+      params: {
+        envVar?: string
+        prefix?: string
+        githubAuthId?: string
+        host?: string
+        instanceUrl?: string
+      } = {},
+    ) => {
       const token = await runtime.runPromise(detectEnvCredentials())
       if (!token) {
         return { found: false as const }
       }
 
       const tokenType = detectTokenType(token)
+      // A manually-entered instance URL overrides the picked/authored host.
+      const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl ?? params.host)
+      const host = new URL(baseUrl).host
 
       try {
-        const { user, scopes } = await runtime.runPromise(validateToken(token, host))
+        const { user, scopes } = await runtime.runPromise(validateToken(token, baseUrl))
 
         // Inject the token + its host into the session environment (mirrors
         // github.ts) so git operations can resolve the right credential.
@@ -101,10 +118,15 @@ export function registerGitLabHandlers(): void {
 
   ipcMain.handle(
     "gitlab:cli-credentials",
-    async (_event, params: { host?: string } = {}) => {
-      // Resolve which host to detect: the caller's pick, else glab's default.
+    async (_event, params: { host?: string; instanceUrl?: string } = {}) => {
+      // Resolve which host to detect: a manually-entered instance URL wins over
+      // the picked host; otherwise fall back to glab's own default host.
       const { defaultHost } = await runtime.runPromise(detectConfigHosts())
-      const host = params.host ?? defaultHost
+      const requested = params.instanceUrl ?? params.host
+      const host = requested
+        ? new URL(normalizeGitLabBaseUrl(requested)).host
+        : defaultHost
+      const baseUrl = normalizeGitLabBaseUrl(host)
 
       // `glab auth token` refreshes OAuth tokens, but it returns only glab's
       // DEFAULT host's token and (in current glab versions) cannot target a host
@@ -125,7 +147,7 @@ export function registerGitLabHandlers(): void {
       const tokenType = detectTokenType(token)
 
       try {
-        const { user, scopes } = await runtime.runPromise(validateToken(token, host))
+        const { user, scopes } = await runtime.runPromise(validateToken(token, baseUrl))
 
         // Inject the token + its host into the session environment so git
         // operations (e.g. git:clone) can resolve it server-side.
@@ -152,18 +174,21 @@ export function registerGitLabHandlers(): void {
   // and must never block opening a merge request.
   ipcMain.handle(
     "gitlab:labels",
-    async (_event, params: { owner: string; repo: string }) => {
+    async (_event, params: { owner: string; repo: string; host?: string }) => {
       const program = Effect.gen(function* () {
         const token = yield* getSessionTokenForProvider(
           "gitlab",
           () => new Error("No GitLab token available in session"),
         )
-        // The host the auth block authenticated against (gitlab.com when unset),
-        // so labels are fetched from the same instance the token belongs to.
+        // Target the repo's own GitLab instance (passed by the renderer from the
+        // repo's remote); fall back to the host the auth block authenticated
+        // against. A bare host or a URL normalizes to the API origin.
         const session = yield* sessionManager.getSession()
-        const host = session.env.get("GITLAB_HOST")
+        const baseUrl = normalizeGitLabBaseUrl(
+          params.host ?? session.env.get("GITLAB_HOST"),
+        )
         const client = yield* GitLabClient
-        return yield* client.listLabels(token, params.owner, params.repo, host)
+        return yield* client.listLabels(token, params.owner, params.repo, baseUrl)
       })
 
       try {

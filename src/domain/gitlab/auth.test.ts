@@ -175,6 +175,18 @@ describe("parseGlabToken", () => {
     expect(parseGlabToken(yaml)).toBeUndefined()
   })
 
+  it("reads a self-hosted host's token when that host is passed", () => {
+    const yaml =
+      "hosts:\n" +
+      "  gitlab.com:\n" +
+      "    token: glpat-saas\n" +
+      "  gitlab.example.com:\n" +
+      "    token: !!null glpat-selfmanaged\n"
+    expect(parseGlabToken(yaml, "gitlab.example.com")).toBe("glpat-selfmanaged")
+    // gitlab.com is still the default.
+    expect(parseGlabToken(yaml)).toBe("glpat-saas")
+  })
+
   it("returns undefined for empty or malformed content", () => {
     expect(parseGlabToken("")).toBeUndefined()
     expect(parseGlabToken("not: [valid")).toBeUndefined()
@@ -202,6 +214,26 @@ describe("detectConfigCredentials", () => {
       detectConfigCredentials().pipe(Effect.provide(layer)),
     )
     expect(result).toBe("glpat-from_config")
+  })
+
+  it("reads a self-hosted host's token when that host is passed", async () => {
+    const home = "/home/tester"
+    const layer = Layer.merge(
+      makeTestFileSystem({
+        [`${home}/.config/glab-cli/config.yml`]:
+          "hosts:\n" +
+          "  gitlab.com:\n" +
+          "    token: glpat-saas\n" +
+          "  gitlab.example.com:\n" +
+          "    token: glpat-selfmanaged\n",
+      }),
+      makeTestEnvironment({ HOME: home }),
+    )
+
+    const result = await Effect.runPromise(
+      detectConfigCredentials("gitlab.example.com").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBe("glpat-selfmanaged")
   })
 
   it("honors a GLAB_CONFIG_DIR override", async () => {

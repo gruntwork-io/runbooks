@@ -34,6 +34,7 @@ function GitAuthInteractive({
   description,
   provider: initialProvider = 'github',
   hideProviderSelect = false,
+  instanceUrl,
   oauthClientId,
   oauthScopes,
   detectCredentials,
@@ -81,6 +82,7 @@ function GitAuthInteractive({
   const auth = useGitAuth({
     id,
     provider: providerConfig,
+    instanceUrl,
     oauthClientId: useDefaultOAuth ? undefined : oauthClientId,
     oauthScopes: effectiveOAuthScopes,
     detectCredentials,
@@ -304,6 +306,8 @@ function GitAuthInteractive({
                     setShowPatToken={auth.setShowPatToken}
                     onSubmit={auth.handlePatSubmit}
                     provider={providerConfig}
+                    instanceUrl={auth.gitlabInstanceUrl}
+                    setInstanceUrl={auth.setGitlabInstanceUrl}
                   />
                   {/* Providers without OAuth (GitLab) surface the auto-detect
                       FAQ here, since there is no OAuth tab to carry it. */}

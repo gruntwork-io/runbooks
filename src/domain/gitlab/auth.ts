@@ -27,11 +27,14 @@ const GLAB_CLI_TIMEOUT_MS = 5_000
 
 /**
  * Validate a GitLab token by calling the GitLab API (GET /user).
+ *
+ * `baseUrl` is the instance origin (e.g. `https://gitlab.example.com`) so a
+ * self-hosted token validates against its own instance; defaults to gitlab.com.
  */
-export const validateToken = (token: string, host?: string) =>
+export const validateToken = (token: string, baseUrl?: string) =>
   Effect.gen(function* () {
     const glClient = yield* GitLabClient
-    return yield* glClient.validateToken(token, host)
+    return yield* glClient.validateToken(token, baseUrl)
   })
 
 // ---------------------------------------------------------------------------
@@ -127,9 +130,11 @@ export const detectCliCredentials = () =>
 
 /**
  * The GitLab host used when a caller does not name one. The renderer resolves
- * an explicit host (an authored `host` prop or the user's pick from the host
- * picker) and threads it through; this is only the fallback for single-host
- * setups and backward compatibility.
+ * an explicit host (an authored `host` prop, the user's pick from the host
+ * picker, or a manually-entered instance URL) and threads it through; this is
+ * only the fallback for single-host setups and backward compatibility. glab's
+ * config.yml stores tokens per host (`hosts: { <host>: ... }`), so a self-hosted
+ * instance is read by passing its host instead.
  */
 export const DEFAULT_GITLAB_HOST = "gitlab.com"
 
@@ -196,7 +201,8 @@ interface GlabConfig {
 }
 
 /**
- * Extract a host's access token from glab `config.yml` contents.
+ * Extract a host's access token from glab `config.yml` contents. `host`
+ * defaults to gitlab.com; pass a self-hosted host to read its credentials.
  *
  * glab obfuscates stored secrets by tagging them as `!!null`
  * (e.g. `token: !!null glpat-...`), which makes a naive YAML load return null.

@@ -22,6 +22,7 @@ import {
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
+import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
@@ -234,7 +235,10 @@ export function registerGitHandlers(): void {
           cloneArgs.push(effectiveUrl, paths.absolutePath)
 
           log.debug("spawning git process...")
-          const proc = yield* spawner.spawn("git", cloneArgs, {})
+          // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
+          // not yet in known_hosts fails fast instead of hanging on the
+          // host-key verification prompt.
+          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
@@ -253,10 +257,25 @@ export function registerGitHandlers(): void {
           log.debug("exit code:", exitCode)
           if (exitCode !== 0) {
             const stderr = stderrLines.join("\n").trim()
+            // With strict host-key checking, cloning a host that isn't in
+            // known_hosts yet fails with "Host key verification failed." rather
+            // than hanging on the interactive prompt. git's bare message gives
+            // no remedy, so append the exact command to trust the host. The
+            // host is pulled from the SSH/SCP-form URL (git@host:owner/repo),
+            // for which new URL() yields no hostname.
+            let stderrOut =
+              stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`
+            if (/host key verification failed/i.test(stderr)) {
+              const sshHost =
+                params.url.match(/^(?:ssh:\/\/)?(?:[^@/]+@)?([^:/]+)/)?.[1] ?? "<host>"
+              stderrOut +=
+                `\n\nThe SSH host key for ${sshHost} isn't trusted yet. Add it to ` +
+                `known_hosts, then clone again:\n  ssh-keyscan ${sshHost} >> ~/.ssh/known_hosts`
+            }
             return yield* Effect.fail(
               new GitError({
                 command: "git clone",
-                stderr: stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`,
+                stderr: stderrOut,
                 exitCode,
               }),
             )
@@ -505,11 +524,8 @@ export function registerGitHandlers(): void {
         )
         console.log("[ipc git:merge-request] gitlab token resolved; starting git steps")
 
-        // The GitLab host the auth block authenticated against (gitlab.com when
-        // unset). The MR API call must hit the same instance as the token.
-        const session = yield* sessionManager.getSession()
-        const gitlabHost = session.env.get("GITLAB_HOST")
-
+        // The MR targets the repo's own GitLab instance, which createMergeRequest
+        // derives from the repo's remote URL — no need to thread a host here.
         const mrParams: CreatePullRequestParams = {
           owner: params.owner,
           repo: params.repo,
@@ -522,7 +538,7 @@ export function registerGitHandlers(): void {
           repoPath,
         }
 
-        return yield* createMergeRequest(token, mrParams, sendLog, gitlabHost)
+        return yield* createMergeRequest(token, mrParams, sendLog)
       })
 
       const exit = await runtime.runPromiseExit(program)

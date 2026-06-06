@@ -8,6 +8,8 @@ import { ProcessSpawner } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
 import { Environment } from "./services/Environment.ts"
 import { RemoteSourceError } from "./errors/index.ts"
+import { gitSpawnEnv } from "./domain/git/env.ts"
+import { isGitLabHost } from "./domain/git/gitlab-host.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
 // ---------------------------------------------------------------------------
@@ -51,12 +53,14 @@ const PLAIN_GITHUB_REPO_REGEX =
   /^https?:\/\/github\.com\/([^/]+)\/([^/.]+?)(?:\.git)?$/
 
 /**
- * Plain GitLab repo URL: https://gitlab.com/group/.../repo
- * Supports nested groups — the last path segment is the repo (project) and
- * everything before it is the owner.
+ * Plain GitLab repo URL: https://<host>/group/.../repo
+ * Captures the host so self-hosted instances are supported; the caller only
+ * accepts it when the host is recognizably GitLab (isGitLabHost). Supports
+ * nested groups — the last path segment is the repo (project) and everything
+ * before it is the owner.
  */
 const PLAIN_GITLAB_REPO_REGEX =
-  /^https?:\/\/gitlab\.com\/(.+?)(?:\.git)?$/
+  /^https?:\/\/([^/]+)\/(.+?)(?:\.git)?$/
 
 /**
  * Split a slash-delimited `owner/.../repo` path into its owner and repo parts.
@@ -188,19 +192,24 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
       }
     }
 
-    // 8) Plain GitLab repo URL (supports nested groups → last segment is the repo)
+    // 8) Plain GitLab repo URL (supports nested groups → last segment is the
+    //    repo). Accepts gitlab.com and self-hosted GitLab hosts recognizable by
+    //    name; other hosts (e.g. bitbucket.org) fall through to "unsupported".
     match = trimmed.match(PLAIN_GITLAB_REPO_REGEX)
     if (match) {
-      const { owner, repo } = splitOwnerRepo(match[1])
-      // A GitLab project always lives under at least one namespace, so a
-      // single-segment path (no owner) is not a valid repo URL.
-      if (owner) {
-        return {
-          host: "gitlab.com",
-          owner,
-          repo,
-          cloneURL: `https://gitlab.com/${owner}/${repo}.git`,
-          isBlobURL: false,
+      const [, host, ownerRepoPath] = match
+      if (isGitLabHost(host)) {
+        const { owner, repo } = splitOwnerRepo(ownerRepoPath)
+        // A GitLab project always lives under at least one namespace, so a
+        // single-segment path (no owner) is not a valid repo URL.
+        if (owner) {
+          return {
+            host,
+            owner,
+            repo,
+            cloneURL: `https://${host}/${owner}/${repo}.git`,
+            isBlobURL: false,
+          }
         }
       }
     }
@@ -244,8 +253,12 @@ export const resolveRef = (
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
 
-    // Fetch all remote refs
-    const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", cloneURL])
+    // Fetch all remote refs. gitSpawnEnv keeps ssh non-interactive so an
+    // ls-remote against an unknown SSH host fails fast instead of hanging on
+    // the host-key prompt.
+    const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", cloneURL], {
+      env: gitSpawnEnv(),
+    })
     const lines: string[] = []
     yield* Stream.runForEach(proc.output, (line) => {
       if (line.source === "stdout" && line.line.trim()) {
@@ -307,7 +320,8 @@ export function adjustBlobPath(parsed: ParsedRemoteSource): ParsedRemoteSource {
  * Returns an auth token for the given git host.
  *
  * GitHub: checks GITHUB_TOKEN -> GH_TOKEN -> `gh auth token`
- * GitLab: checks GITLAB_TOKEN -> `glab auth token`
+ * GitLab (gitlab.com or a self-hosted host recognizable by name):
+ *   checks GITLAB_TOKEN -> `glab auth token`
  */
 export const getTokenForHost = (
   host: string,
@@ -326,7 +340,9 @@ export const getTokenForHost = (
       )
     }
 
-    if (host === "gitlab.com") {
+    // GITLAB_TOKEN is keyed by provider, so it serves any GitLab host —
+    // gitlab.com or a self-hosted instance recognizable by name.
+    if (isGitLabHost(host)) {
       const glToken = yield* env.get("GITLAB_TOKEN")
       if (glToken) return glToken
 

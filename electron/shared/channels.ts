@@ -197,15 +197,18 @@ export interface IpcChannelMap {
     result: { hosts: string[]; defaultHost: string }
   }
   "gitlab:validate": {
-    // `host` selects the GitLab instance to validate against (default gitlab.com).
-    params: { token: string; host?: string }
+    // The GitLab instance to validate against (default gitlab.com). `host` is a
+    // bare host from the picker (or an authored `host` prop); `instanceUrl` is a
+    // manually-entered instance URL that overrides `host` when present.
+    params: { token: string; host?: string; instanceUrl?: string }
     result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number }
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
     // call either channel with one payload shape; the gitlab handler ignores
-    // envVar/githubAuthId. `host` selects the instance to validate against.
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string }
+    // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
+    // overrides `host`) selects the instance to validate against.
+    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string; instanceUrl?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -220,8 +223,8 @@ export interface IpcChannelMap {
   }
   "gitlab:cli-credentials": {
     // `host` selects which glab-configured instance to detect (default: glab's
-    // own default host).
-    params: { host?: string }
+    // own default host); `instanceUrl` (manual field) overrides it when present.
+    params: { host?: string; instanceUrl?: string }
     result: {
       found: boolean
       token?: string
@@ -233,7 +236,9 @@ export interface IpcChannelMap {
       host?: string
     }
   }
-  "gitlab:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
+  // `host` is the GitLab instance host the repo lives on (self-hosted or
+  // gitlab.com), derived by the renderer from the repo's remote URL.
+  "gitlab:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
 
   // Git Operations
   "git:clone": {

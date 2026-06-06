@@ -22,6 +22,8 @@ const DEFAULT_GITHUB_OAUTH_CLIENT_ID = "Ov23liDbtds8EmGws3np"
 interface UseGitAuthOptions {
   id: string
   provider: ProviderConfig
+  /** Self-hosted GitLab instance URL (GitLab only); seeds the editable field. */
+  instanceUrl?: string
   oauthClientId?: string
   oauthScopes?: string[]
   detectCredentials?: false | GitCredentialSource[]
@@ -34,6 +36,7 @@ const DEFAULT_GITLAB_HOST = 'gitlab.com'
 export function useGitAuth({
   id,
   provider,
+  instanceUrl,
   oauthClientId,
   oauthScopes = ['repo'],
   detectCredentials = ['env', 'cli'],
@@ -92,6 +95,17 @@ export function useGitAuth({
   // PAT form state
   const [patToken, setPatToken] = useState('')
   const [showPatToken, setShowPatToken] = useState(false)
+
+  // GitLab self-hosted instance URL, seeded from the prop and editable in the
+  // PAT form. Only meaningful for the GitLab provider; sent with the token so
+  // validation/detection targets the right instance (empty → gitlab.com).
+  const [gitlabInstanceUrl, setGitlabInstanceUrl] = useState(instanceUrl ?? '')
+
+  // The instance URL to send over IPC: only for GitLab, and only when non-empty
+  // (so GitHub and the gitlab.com default both send nothing).
+  const instanceUrlForIpc = provider.id === 'gitlab' && gitlabInstanceUrl.trim()
+    ? gitlabInstanceUrl.trim()
+    : undefined
 
   // OAuth state
   const [oauthUserCode, setOauthUserCode] = useState<string | null>(null)
@@ -180,7 +194,13 @@ export function useGitAuth({
   // Validate a token via the provider's API
   const validateToken = useCallback(async (token: string): Promise<{ valid: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string }> => {
     try {
-      const data = await window.api.invoke(provider.channels.validate, { token, host: effectiveHostRef.current })
+      // A manually-entered instance URL takes precedence over the picked host.
+      const data = await window.api.invoke(provider.channels.validate, {
+        token,
+        ...(instanceUrlForIpc
+          ? { instanceUrl: instanceUrlForIpc }
+          : { host: effectiveHostRef.current }),
+      })
       return {
         valid: data.valid,
         user: data.user as GitUserInfo | undefined,
@@ -194,7 +214,7 @@ export function useGitAuth({
         error: error instanceof Error ? error.message : 'Failed to validate token'
       }
     }
-  }, [provider])
+  }, [provider, instanceUrlForIpc])
 
   // Try to detect credentials from environment variables
   const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean }> => {
@@ -203,7 +223,9 @@ export function useGitAuth({
         envVar: '',
         prefix: options?.prefix || '',
         githubAuthId: id,
-        host: effectiveHostRef.current,
+        ...(instanceUrlForIpc
+          ? { instanceUrl: instanceUrlForIpc }
+          : { host: effectiveHostRef.current }),
       })
 
       if (!data.found) {
@@ -219,12 +241,17 @@ export function useGitAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [id, provider])
+  }, [id, provider, instanceUrlForIpc])
 
   // Try to detect credentials from the provider's CLI
   const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; error?: string; foundButInvalid?: boolean; host?: string }> => {
     try {
-      const data = await window.api.invoke(provider.channels.cliCredentials, { host: effectiveHostRef.current }) as unknown as GitCliCredentialsResponse
+      const data = await window.api.invoke(
+        provider.channels.cliCredentials,
+        instanceUrlForIpc
+          ? { instanceUrl: instanceUrlForIpc }
+          : { host: effectiveHostRef.current },
+      ) as unknown as GitCliCredentialsResponse
 
       if (!isCliAuthFound(data)) {
         // A token WAS found but did not validate (expired OAuth token, wrong
@@ -247,7 +274,7 @@ export function useGitAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
     }
-  }, [provider])
+  }, [provider, instanceUrlForIpc])
 
   // Try to detect credentials from block outputs
   const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitUserInfo; error?: string }> => {
@@ -711,6 +738,8 @@ export function useGitAuth({
     showPatToken,
     setShowPatToken,
     handlePatSubmit,
+    gitlabInstanceUrl,
+    setGitlabInstanceUrl,
 
     // OAuth
     effectiveClientId,

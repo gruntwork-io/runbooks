@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import type { GitAuthStatus } from "../types"
 import type { ProviderConfig } from "../providers"
+import { normalizeInstanceBaseUrl } from "../utils"
 
 interface PatFormProps {
   authStatus: GitAuthStatus
@@ -12,6 +13,9 @@ interface PatFormProps {
   setShowPatToken: (value: boolean) => void
   onSubmit: () => void
   provider: ProviderConfig
+  /** GitLab self-hosted instance URL (GitLab only). */
+  instanceUrl?: string
+  setInstanceUrl?: (value: string) => void
 }
 
 export function PatForm({
@@ -22,9 +26,20 @@ export function PatForm({
   setShowPatToken,
   onSubmit,
   provider,
+  instanceUrl = '',
+  setInstanceUrl,
 }: PatFormProps) {
   const isAuthenticating = authStatus === 'authenticating'
   const [showSetupGuide, setShowSetupGuide] = useState(false)
+
+  // GitLab can run self-hosted, so let the user point the token at their own
+  // instance. The token-creation link follows that instance; everything else
+  // (GitHub, or a blank field) keeps the provider's gitlab.com default.
+  const showInstanceField = provider.id === 'gitlab' && setInstanceUrl !== undefined
+  const instanceBase = provider.id === 'gitlab' ? normalizeInstanceBaseUrl(instanceUrl) : null
+  const tokenCreateUrl = instanceBase
+    ? `${instanceBase}/-/user_settings/personal_access_tokens`
+    : provider.pat.tokenCreateUrl
 
   return (
     <div className="space-y-4">
@@ -33,6 +48,29 @@ export function PatForm({
           Enter a {provider.label} Personal Access Token.
         </p>
       </div>
+
+      {/* GitLab instance URL (self-hosted support) */}
+      {showInstanceField && (
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            GitLab Instance URL
+          </label>
+          <input
+            type="text"
+            value={instanceUrl}
+            onChange={(e) => setInstanceUrl?.(e.target.value)}
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
+            placeholder="https://gitlab.com"
+            disabled={isAuthenticating}
+            spellCheck={false}
+            autoCapitalize="none"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Leave blank for gitlab.com. Set this to validate a token for a
+            self-hosted instance (e.g. https://gitlab.example.com).
+          </p>
+        </div>
+      )}
 
       {/* Token input */}
       <div>
@@ -97,13 +135,13 @@ export function PatForm({
                 <div>
                   <p className="font-medium text-foreground">1. Create a personal access token:</p>
                   <a
-                    href={provider.pat.tokenCreateUrl}
+                    href={tokenCreateUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-info hover:underline break-all"
                   >
                     <ExternalLink className="size-3 flex-shrink-0" />
-                    {provider.pat.tokenCreateUrl.replace(/^https?:\/\//, '')}
+                    {tokenCreateUrl.replace(/^https?:\/\//, '')}
                   </a>
                 </div>
 
@@ -129,13 +167,13 @@ export function PatForm({
                 <div>
                   <p className="font-medium text-foreground">1. Create a fine-grained token:</p>
                   <a
-                    href={provider.pat.tokenCreateUrl}
+                    href={tokenCreateUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-info hover:underline"
                   >
                     <ExternalLink className="size-3" />
-                    {provider.pat.tokenCreateUrl.replace(/^https?:\/\//, '')}
+                    {tokenCreateUrl.replace(/^https?:\/\//, '')}
                   </a>
                 </div>
 
