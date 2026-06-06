@@ -22,9 +22,11 @@ export type TemplateDependency =
   | { type: 'output'; blockId: BlockId; outputName: OutputName; fullPath: string }
 
 // OutputDependency is defined canonically alongside the boilerplate config types.
-// Re-export it here so existing importers keep a single source of truth.
-// (BlockId/OutputName are string aliases, so the shapes are identical.)
-export type { OutputDependency } from '@/types/boilerplateConfig'
+// Import it for local use below, and re-export so existing importers keep a
+// single source of truth. (BlockId/OutputName are string aliases, so the shapes
+// are identical.)
+import type { OutputDependency } from '@/types/boilerplateConfig'
+export type { OutputDependency }
 
 /**
  * Extract all template dependencies from a string using the new syntax.

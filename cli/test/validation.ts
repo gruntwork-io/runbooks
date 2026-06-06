@@ -532,7 +532,7 @@ function parseInlineYAML(content: string): BoilerplateConfig | null {
   return { variables: parsed.variables ?? [] }
 }
 
-function lowercaseFirst(s: string): string {
+export function lowercaseFirst(s: string): string {
   if (!s) return s
   return s[0].toLowerCase() + s.slice(1)
 }

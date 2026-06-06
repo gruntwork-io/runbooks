@@ -34,6 +34,7 @@ import {
   parseAuthDependencies,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
+  lowercaseFirst,
   type TemplateInlineBlock,
   type TemplateBlock,
   type AuthDependency,
@@ -1391,13 +1392,4 @@ export class TestExecutor {
       // Cleanup failures are non-fatal
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
-function lowercaseFirst(s: string): string {
-  if (!s) return s
-  return s[0].toLowerCase() + s.slice(1)
 }

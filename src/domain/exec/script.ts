@@ -1,7 +1,7 @@
 /**
  * Script preparation and environment capture.
  */
-import { Effect, Scope } from "effect"
+import { Effect, type Scope } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import type {
   FileWriteError,
@@ -431,11 +431,6 @@ export const parseEnvCapture = (
 // Block Output Parsing
 // ---------------------------------------------------------------------------
 
-/** Valid output key: matches IDENT_RE. */
-function isValidOutputKey(key: string): boolean {
-  return IDENT_RE.test(key)
-}
-
 /**
  * Read the RUNBOOK_OUTPUT file and parse key=value pairs.
  * Returns a map of outputs, or an empty record if the file is empty/missing.
@@ -471,7 +466,7 @@ export const parseBlockOutputs = (
       const key = line.slice(0, eqIdx).trim()
       const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
 
-      if (!isValidOutputKey(key)) {
+      if (!IDENT_RE.test(key)) {
         // Invalid output key, skip
         continue
       }

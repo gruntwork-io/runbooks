@@ -1,6 +1,3 @@
-// Export shared types
-export type { ExecutionStatus, ComponentType, BaseExecutionProps } from './types'
-
 // Export shared hooks
 export { useScriptExecution } from './hooks/useScriptExecution'
 

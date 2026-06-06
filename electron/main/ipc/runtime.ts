@@ -11,9 +11,6 @@ import { SessionManager } from "../../../src/domain/session/manager.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { FileManifestStore, getManifestStore } from "../../../src/domain/files/manifest.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
-import type { Stream } from "effect"
-import type { FileChangeEvent } from "../../../src/services/FileSystem.ts"
-import type { FileWatchError } from "../../../src/errors/index.ts"
 
 // ---------------------------------------------------------------------------
 // Effect runtime backed by the full application layer
@@ -86,15 +83,6 @@ export let runbookConfig: RunbookConfig = {
 
 export function setRunbookConfig(config: RunbookConfig): void {
   runbookConfig = config
-}
-
-/** Active file watcher stream -- non-null when watch mode is active. */
-export let fileWatcher: Stream.Stream<FileChangeEvent, FileWatchError> | null = null
-
-export function setFileWatcher(
-  watcher: Stream.Stream<FileChangeEvent, FileWatchError> | null,
-): void {
-  fileWatcher = watcher
 }
 
 /** Global file manifest store for template block tracking. */

@@ -1,5 +1,6 @@
 import { CheckCircle, XCircle, Loader2, KeyRound } from "lucide-react"
 import type { GitAuthStatus } from "./types"
+import { makeStatusStyles } from "../_shared/lib/statusStyles"
 
 /**
  * Normalize a user-entered GitLab instance URL (or bare host) into a clean
@@ -24,32 +25,26 @@ export const normalizeInstanceBaseUrl = (input: string | undefined | null): stri
   }
 }
 
-export const getStatusClasses = (authStatus: GitAuthStatus): string => {
-  const statusMap: Record<GitAuthStatus, string> = {
+// Status-based styling for the container, icon, and icon color. Maps are
+// GitAuth-specific (note info-tinted authenticating/pending); the shared
+// factory only removes the repeated lookup boilerplate.
+export const { getStatusClasses, getStatusIcon, getStatusIconClasses } = makeStatusStyles<GitAuthStatus>({
+  container: {
     authenticated: 'bg-success-muted border-success/30',
     failed: 'bg-destructive-muted border-destructive/30',
     authenticating: 'bg-info-muted border-info/40',
     pending: 'bg-info-muted/50 border-info/40',
-  }
-  return statusMap[authStatus]
-}
-
-export const getStatusIcon = (authStatus: GitAuthStatus) => {
-  const iconMap: Record<GitAuthStatus, typeof CheckCircle> = {
+  },
+  icon: {
     authenticated: CheckCircle,
     failed: XCircle,
     authenticating: Loader2,
     pending: KeyRound,
-  }
-  return iconMap[authStatus]
-}
-
-export const getStatusIconClasses = (authStatus: GitAuthStatus): string => {
-  const colorMap: Record<GitAuthStatus, string> = {
+  },
+  iconColor: {
     authenticated: 'text-success',
     failed: 'text-destructive',
     authenticating: 'text-info',
     pending: 'text-info',
-  }
-  return colorMap[authStatus]
-}
+  },
+})

@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
@@ -33,13 +34,6 @@ import type { WorkspaceFileChange } from '@/hooks/useGitFileChanges'
 import { ChangeProportionBar } from './ChangeProportionBar'
 
 type ChangeType = WorkspaceFileChange['changeType']
-
-/** Maximum number of files to render in the diff view at once */
-const MAX_DISPLAYED_FILES = 100
-/** When the number of changes exceeds this, all diffs start collapsed */
-const AUTO_COLLAPSE_THRESHOLD = 25
-/** How many additional files to show each time "Show more" is clicked */
-const SHOW_MORE_INCREMENT = 50
 
 /** Maps change types to their icon and color */
 const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {

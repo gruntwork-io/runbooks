@@ -7,7 +7,7 @@
  */
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, runbookConfig, setFileWatcher, setExecutableRegistry } from "./runtime.ts"
+import { runtime, runbookConfig, setExecutableRegistry } from "./runtime.ts"
 import { createWatcher } from "../../../src/watcher.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { validateSessionPath } from "./path-guard.ts"
@@ -27,12 +27,11 @@ export function registerWatchHandlers(): void {
         throw new Error("No runbook path provided and none configured")
       }
 
-      // Create the watcher stream and store it, then fork stream consumption
-      // into a background fiber so the handler can return immediately.
+      // Create the watcher stream, then fork stream consumption into a
+      // background fiber so the handler can return immediately.
       await runtime.runPromise(
         Effect.gen(function* () {
           const watcherStream = yield* createWatcher(runbookPath)
-          setFileWatcher(watcherStream)
 
           yield* Effect.forkDaemon(
             Stream.runForEach(watcherStream, (changeEvent) =>

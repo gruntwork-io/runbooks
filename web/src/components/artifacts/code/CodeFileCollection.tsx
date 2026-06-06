@@ -8,14 +8,7 @@ import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
-
-/** Maximum number of files to render in the code pane at once */
-const MAX_DISPLAYED_FILES = 100
-/** When the number of files exceeds this, all files start collapsed */
-const AUTO_COLLAPSE_THRESHOLD = 25
-/** How many additional files to show each time "Show more" is clicked */
-const SHOW_MORE_INCREMENT = 50
-
+import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
 
 interface CodeFileCollectionProps {
   data: FileTreeNode[];

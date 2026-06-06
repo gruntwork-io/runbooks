@@ -32,15 +32,19 @@ const INTERACTIVE_BLOCKS = [
   'DirPicker',
 ] as const
 
-// Blocks whose source file lives under a different directory than their
-// registry key. <GitHubAuth>/<GitLabAuth> alias GitAuth, and
-// <GitHubPullRequest>/<GitLabMergeRequest> alias GitPullRequest — their
-// instruction-mode wiring (useInstructionMode) lives in the generic block.
+// Blocks whose instruction-mode wiring (useInstructionMode) lives in a file
+// other than `<Block>/<Block>.tsx`, mapped to the source path (relative to
+// src/components/mdx/) that actually carries it:
+//  - <GitHubAuth>/<GitLabAuth> alias the generic GitAuth block.
+//  - <GitHubPullRequest>/<GitLabMergeRequest> alias the generic GitPullRequest block.
+//  - <Command>/<Check> are thin wrappers that delegate to the shared ScriptBlock.
 const ALIAS_SOURCE: Record<string, string> = {
-  GitHubAuth: 'GitAuth',
-  GitLabAuth: 'GitAuth',
-  GitHubPullRequest: 'GitPullRequest',
-  GitLabMergeRequest: 'GitPullRequest',
+  GitHubAuth: 'GitAuth/GitAuth.tsx',
+  GitLabAuth: 'GitAuth/GitAuth.tsx',
+  GitHubPullRequest: 'GitPullRequest/GitPullRequest.tsx',
+  GitLabMergeRequest: 'GitPullRequest/GitPullRequest.tsx',
+  Command: '_shared/components/ScriptBlock.tsx',
+  Check: '_shared/components/ScriptBlock.tsx',
 }
 
 // Blocks intentionally identical in both modes:
@@ -71,9 +75,9 @@ describe('instruction mode — MDX registry coverage', () => {
   })
 
   it.each(INTERACTIVE_BLOCKS)('%s wires up useInstructionMode', (block) => {
-    const dir = ALIAS_SOURCE[block] ?? block
+    const relativePath = ALIAS_SOURCE[block] ?? `${block}/${block}.tsx`
     const source = readFileSync(
-      resolve(process.cwd(), `src/components/mdx/${dir}/${dir}.tsx`),
+      resolve(process.cwd(), `src/components/mdx/${relativePath}`),
       'utf8',
     )
     expect(source).toContain('useInstructionMode')

@@ -14,6 +14,7 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { AwsAuthInstruction } from "./AwsAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
@@ -119,26 +120,13 @@ function AwsAuthInteractive({
 
   if (isDuplicate) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
-        <div className="flex items-center text-destructive">
-          <XCircle className="size-6 mr-4 flex-shrink-0" />
-          <div className="text-md">
-            {isNormalizedCollision ? (
-              <>
-                <strong>ID Collision:</strong><br />
-                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because 
-                hyphens are converted to underscores for template access.
-                Use different IDs to avoid this collision.
-              </>
-            ) : (
-              <>
-                <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-destructive-muted px-1 rounded">{"<AwsAuth>"}</code> component with id <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> already exists.
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+        componentName="AwsAuth"
+        className="runbook-block"
+      />
     )
   }
 

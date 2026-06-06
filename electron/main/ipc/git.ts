@@ -91,18 +91,10 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
 
   const failure = Cause.failureOption(exit.cause)
   if (failure._tag === "Some") {
-    const err = failure.value as GitError | PathTraversalError | { _tag: string }
-    if (err._tag === "GitError") {
-      const gitErr = err as GitError
-      // gitErr.command already includes the "git " prefix (see GitCliClient.runGit).
-      throw new Error(
-        gitErr.stderr || `${gitErr.command} failed (exit ${gitErr.exitCode})`,
-      )
-    }
-    if (err._tag === "PathTraversalError") {
-      throw new Error((err as PathTraversalError).message)
-    }
-    throw new Error(String(err))
+    // Reuse the canonical extractor so the renderer-facing message stays
+    // consistent with git:error events (handles GitError/PathTraversalError
+    // and, defensively, the API error tags).
+    throw new Error(errorMessage(failure.value))
   }
   throw new Error(Cause.pretty(exit.cause))
 }
