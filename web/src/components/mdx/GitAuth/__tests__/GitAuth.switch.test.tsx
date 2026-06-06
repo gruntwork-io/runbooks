@@ -50,6 +50,56 @@ describe('GitAuth — provider switch (real hook)', () => {
     expect(screen.queryByText(/redirected to authorize/i)).toBeNull()
   })
 
+  it('keeps the host switcher visible after auto-authenticating, so you can move to a self-managed host', async () => {
+    // Reproduces the reported issue: auto-detection lands on glab's default host
+    // (gitlab.com), and the user still needs to reach their private instance.
+    const invoke = vi.fn(async (channel: string, args?: { host?: string }) => {
+      if (channel === 'gitlab:enumerate-hosts') {
+        return { hosts: ['gitlab.com', 'gitlab.gruntwork.io'], defaultHost: 'gitlab.com' }
+      }
+      if (channel === 'gitlab:env-credentials') return { found: false }
+      if (channel === 'gitlab:cli-credentials') {
+        const host = args?.host
+        return {
+          found: true,
+          user: { login: host === 'gitlab.gruntwork.io' ? 'root' : 'odgrim' },
+          host,
+        }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return {}
+    })
+    window.api = {
+      invoke,
+      on: vi.fn(() => () => {}),
+      once: vi.fn(),
+    } as unknown as typeof window.api
+
+    render(
+      <TestWrapper>
+        <GitAuth id="git" provider="gitlab" />
+      </TestWrapper>,
+    )
+
+    // Auto-detects against glab's default host first.
+    await waitFor(() => {
+      expect(screen.getByText(/Authenticated to GitLab \(gitlab\.com\)/i)).toBeInTheDocument()
+    })
+
+    // The host switcher must still be on screen (it was previously hidden once
+    // authenticated), offering the private instance.
+    const select = screen.getByRole('combobox')
+    expect(screen.getByRole('option', { name: 'gitlab.gruntwork.io' })).toBeInTheDocument()
+
+    // Switching hosts re-detects against the chosen instance.
+    fireEvent.change(select, { target: { value: 'gitlab.gruntwork.io' } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Authenticated to GitLab \(gitlab\.gruntwork\.io\)/i)).toBeInTheDocument()
+    })
+    expect(invoke).toHaveBeenCalledWith('gitlab:cli-credentials', { host: 'gitlab.gruntwork.io' })
+  })
+
   it('GitLab→GitHub switch restores the GitHub OAuth flow', async () => {
     render(
       <TestWrapper>

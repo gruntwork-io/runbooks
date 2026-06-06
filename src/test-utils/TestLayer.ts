@@ -114,7 +114,7 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
     Effect.fail(new GitError({ command: "checkout -b", stderr: notConfigured("GitClient", "createBranch"), exitCode: 1 })),
   stageAll: (_repoPath) =>
     Effect.fail(new GitError({ command: "add", stderr: notConfigured("GitClient", "stageAll"), exitCode: 1 })),
-  commit: (_repoPath, _message, _allowEmpty) =>
+  commit: (_repoPath, _message, _options) =>
     Effect.fail(new GitError({ command: "commit", stderr: notConfigured("GitClient", "commit"), exitCode: 1 })),
   ...overrides,
 })

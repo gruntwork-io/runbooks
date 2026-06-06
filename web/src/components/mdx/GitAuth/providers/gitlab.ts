@@ -26,7 +26,10 @@ export const gitlabProviderConfig: ProviderConfig = {
     validate: 'gitlab:validate',
     envCredentials: 'gitlab:env-credentials',
     cliCredentials: 'gitlab:cli-credentials',
+    enumerateHosts: 'gitlab:enumerate-hosts',
   },
+  // GitLab users can be logged into gitlab.com and/or self-managed instances.
+  supportsHostSelection: true,
   env: {
     tokenVar: 'GITLAB_TOKEN',
     userVar: 'GITLAB_USER',

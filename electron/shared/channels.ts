@@ -138,8 +138,10 @@ export interface IpcChannelMap {
 
   // GitHub Authentication
   "github:validate": {
-    params: { token: string }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string }
+    // `host` is accepted for parity with gitlab:validate so the shared useGitAuth
+    // hook passes one payload shape; the GitHub handler ignores it.
+    params: { token: string; host?: string }
+    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number }
   }
   "github:oauth-start": {
     params: { clientId: string; scopes: string[] }
@@ -158,7 +160,7 @@ export interface IpcChannelMap {
     }
   }
   "github:env-credentials": {
-    params: { envVar?: string; prefix?: string; githubAuthId?: string }
+    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -167,10 +169,11 @@ export interface IpcChannelMap {
       scopes?: string[]
       tokenType?: string
       error?: string
+      status?: number
     }
   }
   "github:cli-credentials": {
-    params: Record<string, never>
+    params: { host?: string }
     result: {
       found: boolean
       token?: string
@@ -178,6 +181,7 @@ export interface IpcChannelMap {
       scopes?: string[]
       tokenType?: string
       error?: string
+      status?: number
     }
   }
   "github:orgs": { params: void; result: GitHubOrg[] }
@@ -185,19 +189,26 @@ export interface IpcChannelMap {
   "github:refs": { params: { owner: string; repo: string }; result: GitHubRef[] }
   "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
 
-  // GitLab Authentication.
-  // `instanceUrl` is the optional self-hosted GitLab origin
-  // (e.g. https://gitlab.example.com) the token is validated against; omitted /
-  // empty means gitlab.com.
+  // GitLab Authentication
+  // Enumerate the GitLab hosts the user is logged into via glab (for the host
+  // picker). `defaultHost` is glab's configured default (falls back to gitlab.com).
+  "gitlab:enumerate-hosts": {
+    params: Record<string, never>
+    result: { hosts: string[]; defaultHost: string }
+  }
   "gitlab:validate": {
-    params: { token: string; instanceUrl?: string }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string }
+    // The GitLab instance to validate against (default gitlab.com). `host` is a
+    // bare host from the picker (or an authored `host` prop); `instanceUrl` is a
+    // manually-entered instance URL that overrides `host` when present.
+    params: { token: string; host?: string; instanceUrl?: string }
+    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number }
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
     // call either channel with one payload shape; the gitlab handler ignores
-    // envVar/githubAuthId.
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; instanceUrl?: string }
+    // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
+    // overrides `host`) selects the instance to validate against.
+    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string; instanceUrl?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -206,10 +217,14 @@ export interface IpcChannelMap {
       scopes?: string[]
       tokenType?: string
       error?: string
+      status?: number
+      host?: string
     }
   }
   "gitlab:cli-credentials": {
-    params: { instanceUrl?: string }
+    // `host` selects which glab-configured instance to detect (default: glab's
+    // own default host); `instanceUrl` (manual field) overrides it when present.
+    params: { host?: string; instanceUrl?: string }
     result: {
       found: boolean
       token?: string
@@ -217,6 +232,8 @@ export interface IpcChannelMap {
       scopes?: string[]
       tokenType?: string
       error?: string
+      status?: number
+      host?: string
     }
   }
   // `host` is the GitLab instance host the repo lives on (self-hosted or

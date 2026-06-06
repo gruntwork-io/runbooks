@@ -57,7 +57,8 @@ function errorMessage(err: unknown): string {
     const tag = (err as { _tag: string })._tag
     if (tag === "GitError") {
       const g = err as GitError
-      return g.stderr || `git ${g.command} failed (exit ${g.exitCode})`
+      // g.command already includes the "git " prefix (see GitCliClient.runGit).
+      return g.stderr || `${g.command} failed (exit ${g.exitCode})`
     }
     if (tag === "PathTraversalError") {
       return (err as PathTraversalError).message
@@ -93,8 +94,9 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
     const err = failure.value as GitError | PathTraversalError | { _tag: string }
     if (err._tag === "GitError") {
       const gitErr = err as GitError
+      // gitErr.command already includes the "git " prefix (see GitCliClient.runGit).
       throw new Error(
-        gitErr.stderr || `git ${gitErr.command} failed (exit ${gitErr.exitCode})`,
+        gitErr.stderr || `${gitErr.command} failed (exit ${gitErr.exitCode})`,
       )
     }
     if (err._tag === "PathTraversalError") {
@@ -522,6 +524,8 @@ export function registerGitHandlers(): void {
         )
         console.log("[ipc git:merge-request] gitlab token resolved; starting git steps")
 
+        // The MR targets the repo's own GitLab instance, which createMergeRequest
+        // derives from the repo's remote URL — no need to thread a host here.
         const mrParams: CreatePullRequestParams = {
           owner: params.owner,
           repo: params.repo,

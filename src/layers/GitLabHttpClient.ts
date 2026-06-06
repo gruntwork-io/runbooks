@@ -3,11 +3,13 @@
  *
  * Mirrors GitHubHttpClient, but targets GitLab's REST API. The instance origin
  * is per-call (`baseUrl`, defaulting to gitlab.com) so a self-hosted GitLab is
- * supported — the auth block supplies its instance URL, and operations on a
- * cloned repo derive it from the repo's own remote. Personal, project, and
- * group access tokens authenticate via the `PRIVATE-TOKEN` header; OAuth tokens
- * (e.g. from `glab auth login`'s web flow) are rejected by it and require
- * `Authorization: Bearer`, so we fall back to Bearer on an auth failure.
+ * supported — the auth block supplies either a picked host or a manually-entered
+ * instance URL, and operations on a cloned repo derive it from the repo's own
+ * remote. A bare host or a full URL is accepted; the client normalizes it.
+ * Personal, project, and group access tokens authenticate via the
+ * `PRIVATE-TOKEN` header; OAuth tokens (e.g. from `glab auth login`'s web flow)
+ * are rejected by it and require `Authorization: Bearer`, so we fall back to
+ * Bearer on an auth failure.
  * Unlike GitHub, `GET /user` exposes no scope header, so token scopes are
  * introspected with a second, best-effort call (`/oauth/token/info` for OAuth
  * tokens, `/personal_access_tokens/self` for PATs).
@@ -22,7 +24,7 @@ import type {
   MergeRequestResult,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
-import { DEFAULT_GITLAB_BASE_URL, gitlabApiBase } from "../domain/git/gitlab-host.ts"
+import { gitlabApiBase, normalizeGitLabBaseUrl } from "../domain/git/gitlab-host.ts"
 
 type AuthScheme = "private" | "bearer"
 
@@ -160,9 +162,10 @@ async function validateUserToken(
 }
 
 const impl: GitLabClientShape = {
-  validateToken: (token: string, baseUrl: string = DEFAULT_GITLAB_BASE_URL) =>
+  validateToken: (token: string, baseUrl?: string) =>
     Effect.tryPromise({
-      try: (): Promise<GitLabTokenValidation> => validateUserToken(token, baseUrl),
+      try: (): Promise<GitLabTokenValidation> =>
+        validateUserToken(token, normalizeGitLabBaseUrl(baseUrl)),
       catch: (err) =>
         err instanceof GitLabApiError
           ? err
@@ -175,7 +178,7 @@ const impl: GitLabClientShape = {
   createMergeRequest: (token: string, params: CreateMRParams) =>
     Effect.tryPromise({
       try: async (): Promise<MergeRequestResult> => {
-        const apiBase = gitlabApiBase(params.baseUrl ?? DEFAULT_GITLAB_BASE_URL)
+        const apiBase = gitlabApiBase(normalizeGitLabBaseUrl(params.baseUrl))
         // `:id` is the URL-encoded full project path; encodeURIComponent turns
         // the slashes of a nested group path (group/subgroup/project) into %2F.
         const projectId = encodeURIComponent(`${params.owner}/${params.repo}`)
@@ -218,10 +221,10 @@ const impl: GitLabClientShape = {
           : new GitLabApiError({ status: 0, message: `${err}` }),
     }),
 
-  listLabels: (token: string, owner: string, repo: string, baseUrl: string = DEFAULT_GITLAB_BASE_URL) =>
+  listLabels: (token: string, owner: string, repo: string, baseUrl?: string) =>
     Effect.tryPromise({
       try: async (): Promise<string[]> => {
-        const apiBase = gitlabApiBase(baseUrl)
+        const apiBase = gitlabApiBase(normalizeGitLabBaseUrl(baseUrl))
         const projectId = encodeURIComponent(`${owner}/${repo}`)
         const labels = await paginateAll<{ name: string }>(
           `${apiBase}/projects/${projectId}/labels?include_ancestor_groups=true`,

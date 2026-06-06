@@ -21,10 +21,10 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   })
 
-const validate = (token: string) =>
+const validate = (token: string, host?: string) =>
   Effect.gen(function* () {
     const client = yield* GitLabClient
-    return yield* client.validateToken(token)
+    return yield* client.validateToken(token, host)
   }).pipe(Effect.provide(GitLabHttpClientLive))
 
 describe("GitLabHttpClient.validateToken", () => {
@@ -137,6 +137,24 @@ describe("GitLabHttpClient.validateToken", () => {
       expect(result.left.status).toBe(401)
       expect(result.left.message).toContain("401")
     }
+  })
+
+  it("targets a self-managed host's API when one is given", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      if (url.endsWith("/api/v4/user")) return json({ username: "root" })
+      if (url.endsWith("/personal_access_tokens/self")) return json({ scopes: ["api"] })
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(validate("glpat-self", "gitlab.gruntwork.io"))
+
+    expect(result.user.login).toBe("root")
+    // Every request must hit the self-managed instance, not gitlab.com.
+    expect(urls.length).toBeGreaterThan(0)
+    expect(urls.every((u) => u.startsWith("https://gitlab.gruntwork.io/"))).toBe(true)
+    expect(urls).toContain("https://gitlab.gruntwork.io/api/v4/user")
   })
 })
 
