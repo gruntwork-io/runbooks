@@ -42,7 +42,6 @@ interface BoilerplateInputsFormProps {
   showSubmitButton?: boolean
   isGenerating?: boolean
   isAutoRendering?: boolean
-  showSuccessIndicator?: boolean
   enableAutoRender?: boolean
   hasGeneratedSuccessfully?: boolean
   variant?: 'standard' | 'embedded'

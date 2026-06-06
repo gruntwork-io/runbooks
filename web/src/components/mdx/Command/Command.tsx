@@ -3,7 +3,7 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAwsAuthDependencyWarning, UnmetGitHubAuthDependencyWarning, BlockIdLabel, Instruction } from "@/components/mdx/_shared"
+import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAuthDependencyWarning, BlockIdLabel, Instruction } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
@@ -467,12 +467,20 @@ function Command({
           
           {/* Show unmet AWS auth dependency */}
           {hasAllInputDependencies && hasAllOutputDependencies && (
-            <UnmetAwsAuthDependencyWarning unmetAwsAuthDependency={unmetAwsAuthDependency} />
+            <UnmetAuthDependencyWarning
+              dependency={unmetAwsAuthDependency}
+              heading="Waiting for AWS authentication:"
+              hint="Authenticate with the referenced AwsAuth block first."
+            />
           )}
-          
+
           {/* Show unmet GitHub auth dependency */}
           {hasAllInputDependencies && hasAllOutputDependencies && (
-            <UnmetGitHubAuthDependencyWarning unmetGitHubAuthDependency={unmetGitHubAuthDependency} />
+            <UnmetAuthDependencyWarning
+              dependency={unmetGitHubAuthDependency}
+              heading="Waiting for git authentication:"
+              hint="Authenticate with the referenced authentication block first."
+            />
           )}
           
           {renderError && hasAllOutputDependencies && (

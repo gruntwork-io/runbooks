@@ -14,6 +14,9 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { FileNotFoundError, FileReadError } from "../../errors/index.ts"
 import { type FileData, MAX_FILE_CONTENT_SIZE } from "../../types.ts"
 
+/** VCS metadata directories to skip during tree walks. */
+export const VCS_DIRS = new Set([".git", ".svn", ".hg"])
+
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------

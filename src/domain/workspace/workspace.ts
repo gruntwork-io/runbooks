@@ -28,14 +28,7 @@ import {
   MAX_DIR_ENTRIES,
   MAX_FILE_CONTENT_SIZE,
 } from "../../types.ts"
-import { getLanguageFromExtension } from "./file.ts"
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** VCS metadata directories to skip during tree walks. */
-const VCS_DIRS = new Set([".git", ".svn", ".hg"])
+import { getLanguageFromExtension, VCS_DIRS } from "./file.ts"
 
 // ---------------------------------------------------------------------------
 // Image extensions -- rendered inline as base64 data URIs

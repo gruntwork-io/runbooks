@@ -6,8 +6,7 @@
   "dependencies": {
     "commander": "^14.0.0",
     "yaml": "^2.8.1",
-    "effect": "^3.21.0",
-    "@runbooks/core": "workspace:*"
+    "effect": "^3.21.0"
   },
   "devDependencies": {
     "typescript": "~5.8.3"

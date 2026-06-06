@@ -20,7 +20,6 @@ import type { TelemetryShape } from "./services/Telemetry.ts"
 // ---------------------------------------------------------------------------
 
 const MIXPANEL_TOKEN_FALLBACK = ""
-const TELEMETRY_DOCS_URL = "https://runbooks.gruntwork.io/security/telemetry/"
 const DISABLE_ENV_VAR = "RUNBOOKS_TELEMETRY_DISABLE"
 
 // ---------------------------------------------------------------------------
@@ -123,19 +122,6 @@ export function generateAnonymousId(): string {
   const hostname = os.hostname()
   const username = os.userInfo().username
   return crypto.createHash("sha256").update(`${hostname}:${username}`).digest("hex")
-}
-
-/** Print opt-out notice to stderr (shown once on first run). */
-export function printNotice(): void {
-  console.error(
-    [
-      "",
-      "Gruntwork Runbooks collects anonymous usage telemetry to improve the product.",
-      `To learn more or opt out, visit: ${TELEMETRY_DOCS_URL}`,
-      `To disable: set ${DISABLE_ENV_VAR}=1`,
-      "",
-    ].join("\n"),
-  )
 }
 
 /**

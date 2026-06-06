@@ -12,6 +12,7 @@ import crypto from "node:crypto"
 import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
+import { computeContentHash } from "../workspace/file.js"
 import {
   ExecutableNotFoundError,
 } from "../../errors/index.js"
@@ -104,11 +105,6 @@ export function computeComponentId(
     .update(componentType + props)
     .digest("hex")
   return `${componentType}_${hash.slice(0, 8)}`
-}
-
-/** Compute a SHA-256 hex digest of script content. */
-function computeContentHash(content: string): string {
-  return crypto.createHash("sha256").update(content).digest("hex")
 }
 
 // ---------------------------------------------------------------------------

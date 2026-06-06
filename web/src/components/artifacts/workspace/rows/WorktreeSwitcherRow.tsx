@@ -13,7 +13,7 @@ import { GitBranch, Tag, GitCommit, ChevronDown, CircleDot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { GitHubIcon } from '@/components/icons/GitHubIcon'
-import type { GitWorkTree } from '@/contexts/GitWorkTreeContext'
+import type { GitWorkTree } from '@/contexts/gitWorkTreeTypes'
 
 /** Renders the appropriate icon for a git ref type. */
 function RefIcon({ refType, className }: { refType?: string; className?: string }) {

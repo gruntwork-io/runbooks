@@ -15,8 +15,7 @@ export { CompletionCheckbox } from './components/CompletionCheckbox'
 export { useBlockCompletion } from './hooks/useBlockCompletion'
 export { InlineMarkdown } from './components/InlineMarkdown'
 export { UnmetDependenciesWarning } from './components/UnmetDependenciesWarning'
-export { UnmetAwsAuthDependencyWarning } from './components/UnmetAwsAuthDependencyWarning'
-export { UnmetGitHubAuthDependencyWarning } from './components/UnmetGitHubAuthDependencyWarning'
+export { UnmetAuthDependencyWarning } from './components/UnmetAuthDependencyWarning'
 export { BlockIdLabel } from './components/BlockIdLabel'
 
 // Export shared utilities

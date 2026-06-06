@@ -8,12 +8,11 @@
  * Features:
  * - Expand/collapse functionality for folders
  * - File/folder selection
- * - Automatic width calculation based on content
  * - Custom styling using headless-tree.css
  * - No external dependencies (pure React implementation)
  */
 
-import { useState, useMemo, useEffect, type SVGProps } from 'react'
+import { useState, type SVGProps } from 'react'
 import { 
   Folder, 
   FolderOpen, 
@@ -195,16 +194,10 @@ export interface FileTreeProps {
   items: FileTreeNode[];
   /** Callback function called when a file/folder is clicked */
   onItemClick?: (item: FileTreeNode) => void;
-  /** Callback function called when the tree width changes */
-  onWidthChange?: (width: number) => void;
   /** Additional CSS classes to apply to the tree container */
   className?: string;
   /** Indentation in pixels for each level of nesting (default: 20) */
   indent?: number;
-  /** Minimum width of the tree in pixels (default: 150) */
-  minWidth?: number;
-  /** Maximum width of the tree in pixels (default: 300) */
-  maxWidth?: number;
 }
 
 /**
@@ -221,81 +214,22 @@ export interface FileTreeProps {
  *   ]}
  * ];
  * 
- * <FileTree 
+ * <FileTree
  *   items={fileData}
  *   onItemClick={(item) => console.log('Clicked:', item.name)}
- *   onWidthChange={(width) => console.log('Width:', width)}
  * />
  * ```
  */
-export const FileTree = ({ 
-  items, 
-  onItemClick, 
-  onWidthChange,
-  className = "", 
+export const FileTree = ({
+  items,
+  onItemClick,
+  className = "",
   indent = 11, // Indent per level (8 base + 11 = 19px for level 1)
-  minWidth = 150,
-  maxWidth = 300
 }: FileTreeProps) => {
   /** Set of expanded folder IDs */
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   /** Currently selected item ID */
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
-  /** Current width of the tree in pixels (used by onWidthChange callback) */
-  const [, setTreeWidth] = useState(200);
-
-  /**
-   * Calculates the optimal width for the tree based on the longest item name.
-   * Recursively searches through all items (including nested children) to find
-   * the longest name and calculates width accordingly.
-   * 
-   * @returns The calculated optimal width in pixels, constrained between minWidth and maxWidth
-   */
-  const optimalWidth = useMemo(() => {
-    if (items.length === 0) return 200;
-
-    /**
-     * Recursively finds the longest item name in the tree structure.
-     * 
-     * @param items - Array of items to search through
-     * @returns The longest item name found
-     */
-    const findLongestName = (items: FileTreeNode[]): string => {
-      let longest = '';
-      items.forEach(item => {
-        if (item.name.length > longest.length) {
-          longest = item.name;
-        }
-        if (item.children) {
-          const childLongest = findLongestName(item.children);
-          if (childLongest.length > longest.length) {
-            longest = childLongest;
-          }
-        }
-      });
-      return longest;
-    };
-
-    const longestName = findLongestName(items);
-    
-    // Calculate width based on character count (roughly 8px per character + padding)
-    const baseWidth = 40; // Base padding
-    const charWidth = 8; // Approximate width per character
-    const calculatedWidth = baseWidth + (longestName.length * charWidth);
-    
-    // Constrain between min and max widths
-    return Math.max(minWidth, Math.min(maxWidth, calculatedWidth));
-  }, [items, minWidth, maxWidth]);
-
-  /**
-   * Updates the tree width when the optimal width changes and notifies parent component.
-   */
-  useEffect(() => {
-    setTreeWidth(optimalWidth);
-    if (onWidthChange) {
-      onWidthChange(optimalWidth);
-    }
-  }, [optimalWidth, onWidthChange]);
 
   /**
    * Toggles the expanded state of a folder item.
