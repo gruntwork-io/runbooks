@@ -38,7 +38,9 @@ const getSessionToken = () =>
 export function registerGitHubHandlers(): void {
   ipcMain.handle(
     "github:validate",
-    async (_event, params: { token: string }) => {
+    // `host` is part of the channel contract (GitHub is single-host, so it's
+    // accepted and ignored) — annotate it for parity with the channel type.
+    async (_event, params: { token: string; host?: string }) => {
       const tokenType = detectTokenType(params.token)
       try {
         const { user, scopes } = await runtime.runPromise(

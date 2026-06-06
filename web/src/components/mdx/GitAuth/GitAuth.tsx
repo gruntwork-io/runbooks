@@ -203,9 +203,10 @@ function GitAuthInteractive({
               default host first, so the switcher stays visible after
               authenticating whenever more than one host is available — that's
               how the user moves from gitlab.com to a self-managed instance. */}
-          {providerConfig.supportsHostSelection &&
+          {auth.hostSelectable &&
             ((auth.availableHosts?.length ?? 0) > 1 || auth.authStatus !== 'authenticated') && (
             <HostSelect
+              id={id}
               hosts={auth.availableHosts}
               value={auth.selectedHost}
               onChange={auth.changeHost}

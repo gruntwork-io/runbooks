@@ -15,6 +15,7 @@ import type {
   DiffEntry,
   StatusEntry,
   GitInfo,
+  CommitOptions,
 } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
@@ -24,15 +25,20 @@ import { gitSpawnEnv } from "../domain/git/env.ts"
 /**
  * Run a git command, collect all output, and return stdout lines.
  * Fails with GitError if the exit code is non-zero.
+ *
+ * `env` overrides the spawn environment; defaults to `gitSpawnEnv()`. Callers
+ * that need extra variables (e.g. a fallback committer identity) build on top of
+ * `gitSpawnEnv()` so PATH/HOME/SSH_AUTH_SOCK and the no-prompt guards survive.
  */
 function runGit(
   spawner: ProcessSpawner["Type"],
   args: string[],
   cwd: string,
   stdin?: string,
+  env?: Record<string, string | undefined>,
 ) {
   return Effect.gen(function* () {
-    const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: gitSpawnEnv() })
+    const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: env ?? gitSpawnEnv() })
     const chunks = yield* Stream.runCollect(proc.output)
     const lines = Chunk.toArray(chunks)
     const code = yield* proc.exitCode
@@ -57,6 +63,23 @@ function runGit(
     }
 
     return lines.filter((l) => l.source === "stdout").map((l) => l.line)
+  })
+}
+
+/**
+ * Whether the repo can resolve a committer identity from git config in *any*
+ * scope (local, global, or system). `git config <key>` exits non-zero when the
+ * key is unset, which `runGit` surfaces as a GitError — caught here as "not
+ * configured". Used to decide whether a fallback author identity is needed.
+ */
+function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return Effect.gen(function* () {
+    const isSet = (key: string) =>
+      runGit(spawner, ["config", key], repoPath).pipe(
+        Effect.map((lines) => lines.join("").trim().length > 0),
+        Effect.catchAll(() => Effect.succeed(false)),
+      )
+    return (yield* isSet("user.name")) && (yield* isSet("user.email"))
   })
 }
 
@@ -321,13 +344,32 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         yield* runGit(spawner, ["add", "-A", "--", ".", ...excludes], repoPath)
       }),
 
-    commit: (repoPath: string, message: string, allowEmpty?: boolean) =>
+    commit: (repoPath: string, message: string, options?: CommitOptions) =>
       Effect.gen(function* () {
         const args = ["commit", "-m", message]
-        if (allowEmpty) {
+        if (options?.allowEmpty) {
           args.push("--allow-empty")
         }
-        yield* runGit(spawner, args, repoPath)
+
+        // Respect the user's own git identity when one is configured. Only when
+        // the repo can resolve no identity at all (fresh machine / clean CI) do
+        // we fall back to the authenticated user's identity so the commit — and
+        // therefore MR/PR creation — doesn't die with "author identity unknown".
+        // Inject it via env (not `-c`) so the GitError command string stays
+        // "git commit …" and the values never leak into error output.
+        let env: Record<string, string | undefined> | undefined
+        if (options?.author && !(yield* hasConfiguredIdentity(spawner, repoPath))) {
+          const { name, email } = options.author
+          env = {
+            ...gitSpawnEnv(),
+            GIT_AUTHOR_NAME: name,
+            GIT_AUTHOR_EMAIL: email,
+            GIT_COMMITTER_NAME: name,
+            GIT_COMMITTER_EMAIL: email,
+          }
+        }
+
+        yield* runGit(spawner, args, repoPath, undefined, env)
       }),
   }
 }

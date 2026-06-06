@@ -33,6 +33,24 @@ interface UseGitAuthOptions {
 
 const DEFAULT_GITLAB_HOST = 'gitlab.com'
 
+/**
+ * Extract the bare host from a user-entered GitLab instance URL (bare host or
+ * full URL, scheme optional). Returns undefined for unparseable input so the
+ * caller can fall back to the picked/default host. Keeps the renderer's notion
+ * of "which instance" in sync with the URL the token is actually validated
+ * against on the backend (which normalizes the same way).
+ */
+function hostFromInstanceUrl(raw: string): string | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed) return undefined
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  try {
+    return new URL(withScheme).host || undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function useGitAuth({
   id,
   provider,
@@ -83,12 +101,6 @@ export function useGitAuth({
   // instead of snapping back to glab's default.
   const userPickedHostRef = useRef(false)
 
-  // The host threaded into provider IPC calls. Held in a ref so the credential
-  // callbacks don't need it as a dependency (which would churn the detect loop).
-  const effectiveHost = provider.supportsHostSelection ? (host ?? selectedHost) : undefined
-  const effectiveHostRef = useRef<string | undefined>(effectiveHost)
-  effectiveHostRef.current = effectiveHost
-
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
 
@@ -106,6 +118,17 @@ export function useGitAuth({
   const instanceUrlForIpc = provider.id === 'gitlab' && gitlabInstanceUrl.trim()
     ? gitlabInstanceUrl.trim()
     : undefined
+
+  // The host threaded into provider IPC calls. Held in a ref so the credential
+  // callbacks don't need it as a dependency (which would churn the detect loop).
+  // A manually-entered instance URL wins over the picked/authored host (matching
+  // the backend's `instanceUrl ?? host` rule), so the session GITLAB_HOST and the
+  // success banner agree with the instance the token was validated against.
+  const effectiveHost = provider.supportsHostSelection
+    ? ((instanceUrlForIpc ? hostFromInstanceUrl(instanceUrlForIpc) : undefined) ?? host ?? selectedHost)
+    : undefined
+  const effectiveHostRef = useRef<string | undefined>(effectiveHost)
+  effectiveHostRef.current = effectiveHost
 
   // OAuth state
   const [oauthUserCode, setOauthUserCode] = useState<string | null>(null)
@@ -700,10 +723,16 @@ export function useGitAuth({
 
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
+  //
+  // Only bump hostsReloadNonce — NOT detectionNonce. Re-enumeration flips
+  // hostsReady false→true, and that transition (with detectionAttemptedRef
+  // already cleared by beginRedetect) drives a single detection against the
+  // freshly-resolved host. Bumping detectionNonce too would fire detection
+  // immediately against the *pre-reload* host and then lock detectionAttemptedRef,
+  // so a changed glab default would never be re-detected.
   const reloadDetection = useCallback(() => {
     beginRedetect()
     setHostsReloadNonce((n) => n + 1)
-    setDetectionNonce((n) => n + 1)
   }, [beginRedetect])
 
   return {

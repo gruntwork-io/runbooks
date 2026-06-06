@@ -9,6 +9,7 @@ import {
   resolveGlabConfigPaths,
   parseGlabToken,
   enumerateGlabHosts,
+  isEnvTokenHostAllowed,
 } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestSpawner } from "../../test-utils/TestSpawner.ts"
@@ -375,5 +376,24 @@ describe("detectConfigHosts", () => {
       detectConfigHosts().pipe(Effect.provide(layer)),
     )
     expect(result).toEqual({ hosts: [], defaultHost: "gitlab.com" })
+  })
+})
+
+describe("isEnvTokenHostAllowed", () => {
+  it("always allows gitlab.com (even with no glab config)", () => {
+    expect(isEnvTokenHostAllowed("gitlab.com", [])).toBe(true)
+  })
+
+  it("allows a host the user has logged into via glab", () => {
+    expect(
+      isEnvTokenHostAllowed("gitlab.gruntwork.io", ["gitlab.com", "gitlab.gruntwork.io"]),
+    ).toBe(true)
+  })
+
+  it("rejects an arbitrary author-controlled host not in glab config", () => {
+    // The credential-exfiltration guard: <GitAuth host="attacker.example"/>
+    // must NOT cause the env GITLAB_TOKEN to be sent there.
+    expect(isEnvTokenHostAllowed("attacker.example", ["gitlab.com"])).toBe(false)
+    expect(isEnvTokenHostAllowed("attacker.example", [])).toBe(false)
   })
 })

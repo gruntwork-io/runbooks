@@ -13,7 +13,7 @@
  * to gitlab.com. `gitlab:enumerate-hosts` lists the hosts glab is logged into to
  * drive the picker.
  */
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, getSessionTokenForProvider } from "./runtime.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
@@ -25,12 +25,36 @@ import {
   detectCliCredentials,
   detectConfigCredentials,
   detectConfigHosts,
+  isEnvTokenHostAllowed,
 } from "../../../src/domain/gitlab/auth.ts"
 import { normalizeGitLabBaseUrl } from "../../../src/domain/git/gitlab-host.ts"
 
-/** HTTP status from a failed validation, when the failure was a GitLab API error. */
-const errorStatus = (err: unknown): number | undefined =>
-  err instanceof GitLabApiError ? err.status : undefined
+type ValidationResult<A> =
+  | { readonly ok: true; readonly value: A }
+  | { readonly ok: false; readonly message: string; readonly status: number | undefined }
+
+/**
+ * Run a token-validation effect and recover the typed GitLabApiError on failure.
+ *
+ * `runtime.runPromise` rejects with a FiberFailure *wrapper*, so a plain
+ * try/catch + `err instanceof GitLabApiError` never matches and the HTTP
+ * `status` is lost (the renderer needs it to distinguish 401/403 from other
+ * failures). `runPromiseExit` + `Cause.failureOption` recovers the real error —
+ * the same approach as git.ts's `runAndUnwrap`.
+ */
+const runValidation = async <A>(
+  program: Effect.Effect<A, GitLabApiError>,
+): Promise<ValidationResult<A>> => {
+  const exit = await runtime.runPromiseExit(program)
+  if (Exit.isSuccess(exit)) return { ok: true, value: exit.value }
+  const failure = Cause.failureOption(exit.cause)
+  const error = failure._tag === "Some" ? failure.value : undefined
+  return {
+    ok: false,
+    message: error?.message ?? Cause.pretty(exit.cause),
+    status: error instanceof GitLabApiError ? error.status : undefined,
+  }
+}
 
 export function registerGitLabHandlers(): void {
   // Enumerate the GitLab hosts the user is logged into via glab, so the GitAuth
@@ -46,18 +70,16 @@ export function registerGitLabHandlers(): void {
       // A manually-entered instance URL overrides the picked/authored host;
       // either a bare host or a full URL normalizes to the instance origin.
       const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl ?? params.host)
-      try {
-        const { user, scopes } = await runtime.runPromise(
-          validateToken(params.token, baseUrl),
-        )
+      const result = await runValidation(validateToken(params.token, baseUrl))
+      if (result.ok) {
+        const { user, scopes } = result.value
         return { valid: true, user, scopes, tokenType }
-      } catch (err) {
-        return {
-          valid: false,
-          tokenType,
-          error: err instanceof Error ? err.message : String(err),
-          status: errorStatus(err),
-        }
+      }
+      return {
+        valid: false,
+        tokenType,
+        error: result.message,
+        status: result.status,
       }
     },
   )
@@ -84,34 +106,44 @@ export function registerGitLabHandlers(): void {
       const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl ?? params.host)
       const host = new URL(baseUrl).host
 
-      try {
-        const { user, scopes } = await runtime.runPromise(validateToken(token, baseUrl))
+      // GITLAB_TOKEN is host-agnostic, and detection runs on mount, so an
+      // authored `host`/`instanceUrl` prop could otherwise make us POST the
+      // user's token to an arbitrary origin with no interaction. Only auto-send
+      // it to gitlab.com or a host the user has actually logged into via glab;
+      // any other host requires the explicit PAT flow.
+      const { hosts } = await runtime.runPromise(detectConfigHosts())
+      if (!isEnvTokenHostAllowed(host, hosts)) {
+        return { found: false as const }
+      }
 
-        // Inject the token + its host into the session environment (mirrors
-        // github.ts) so git operations can resolve the right credential.
-        await runtime.runPromise(
-          sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_HOST: host }),
-        )
-
-        return {
-          found: true as const,
-          valid: true as const,
-          token,
-          user,
-          scopes,
-          tokenType,
-          host,
-        }
-      } catch (err) {
+      const result = await runValidation(validateToken(token, baseUrl))
+      if (!result.ok) {
         return {
           found: true as const,
           valid: false as const,
           token,
           tokenType,
-          error: err instanceof Error ? err.message : String(err),
-          status: errorStatus(err),
+          error: result.message,
+          status: result.status,
           host,
         }
+      }
+
+      const { user, scopes } = result.value
+      // Inject the token + its host into the session environment (mirrors
+      // github.ts) so git operations can resolve the right credential.
+      await runtime.runPromise(
+        sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_HOST: host }),
+      )
+
+      return {
+        found: true as const,
+        valid: true as const,
+        token,
+        user,
+        scopes,
+        tokenType,
+        host,
       }
     },
   )
@@ -146,25 +178,25 @@ export function registerGitLabHandlers(): void {
 
       const tokenType = detectTokenType(token)
 
-      try {
-        const { user, scopes } = await runtime.runPromise(validateToken(token, baseUrl))
-
-        // Inject the token + its host into the session environment so git
-        // operations (e.g. git:clone) can resolve it server-side.
-        await runtime.runPromise(
-          sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_HOST: host }),
-        )
-
-        return { found: true as const, token, user, scopes, tokenType, host }
-      } catch (err) {
+      const result = await runValidation(validateToken(token, baseUrl))
+      if (!result.ok) {
         return {
           found: true as const,
           tokenType,
-          error: err instanceof Error ? err.message : String(err),
-          status: errorStatus(err),
+          error: result.message,
+          status: result.status,
           host,
         }
       }
+
+      const { user, scopes } = result.value
+      // Inject the token + its host into the session environment so git
+      // operations (e.g. git:clone) can resolve it server-side.
+      await runtime.runPromise(
+        sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_HOST: host }),
+      )
+
+      return { found: true as const, token, user, scopes, tokenType, host }
     },
   )
 

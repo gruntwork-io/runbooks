@@ -124,6 +124,38 @@ describe('useGitAuth — GitLab provider', () => {
     })
   })
 
+  it('pairs the PAT with the entered instance host (not the default) in session env and banner', async () => {
+    // Regression for the token<->host mismatch: when a self-managed instance URL
+    // is supplied, GITLAB_HOST in the session env and the success banner must
+    // match that instance — not the picker's gitlab.com default.
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:validate') {
+        return { valid: true, user: { login: 'tanuki' }, tokenType: 'pat' }
+      }
+      if (channel === 'session:set-env') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({
+        id: 'git',
+        provider: PROVIDERS.gitlab,
+        instanceUrl: 'https://gitlab.acme.com',
+        detectCredentials: false,
+      }),
+    )
+
+    act(() => result.current.setPatToken('glpat-abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('session:set-env', {
+      env: { GITLAB_TOKEN: 'glpat-abc', GITLAB_USER: 'tanuki', GITLAB_HOST: 'gitlab.acme.com' },
+    })
+    expect(result.current.selectedHost).toBe('gitlab.acme.com')
+  })
+
   it('a runtime instance-URL edit overrides the seeded prop on validate', async () => {
     const invoke = installApi(async (channel) => {
       if (channel === 'gitlab:validate') {

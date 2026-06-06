@@ -139,6 +139,18 @@ export const detectCliCredentials = () =>
 export const DEFAULT_GITLAB_HOST = "gitlab.com"
 
 /**
+ * Whether the host-agnostic env `GITLAB_TOKEN` may be auto-validated against
+ * `host` during on-mount detection. Restricted to gitlab.com and hosts the user
+ * has actually logged into via glab, so an authored `host`/`instanceUrl` prop
+ * can't silently exfiltrate the env token to an arbitrary origin with no user
+ * interaction. Any other host must go through the explicit PAT flow.
+ */
+export const isEnvTokenHostAllowed = (
+  host: string,
+  configHosts: readonly string[],
+): boolean => host === DEFAULT_GITLAB_HOST || configHosts.includes(host)
+
+/**
  * Resolve the candidate paths to glab's `config.yml`, in glab's own lookup
  * order. glab (gitlab-org/cli, `internal/config/config_file.go`) resolves its
  * config directory via the `adrg/xdg` library as:

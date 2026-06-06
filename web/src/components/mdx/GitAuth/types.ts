@@ -93,6 +93,8 @@ export interface GitValidateResponse {
   scopes?: string[]
   tokenType?: GitTokenType
   error?: string
+  /** HTTP status when validation failed (e.g. 401/403). */
+  status?: number
 }
 
 export interface GitEnvCredentialsResponse {
@@ -102,6 +104,10 @@ export interface GitEnvCredentialsResponse {
   scopes?: string[]
   tokenType?: GitTokenType
   error?: string
+  /** HTTP status when validation failed (e.g. 401/403). */
+  status?: number
+  /** The GitLab host this credential was detected/validated against. */
+  host?: string
 }
 
 export interface GitCliCredentialsResponse {

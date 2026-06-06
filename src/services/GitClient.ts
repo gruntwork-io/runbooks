@@ -44,6 +44,26 @@ export interface GitInfo {
   readonly commitSha?: string
 }
 
+/** A git author/committer identity (name + email). */
+export interface GitIdentity {
+  readonly name: string
+  readonly email: string
+}
+
+export interface CommitOptions {
+  readonly allowEmpty?: boolean
+  /**
+   * Fallback author identity, used ONLY when the repo can resolve no git
+   * identity of its own (no user.name/user.email in any config scope). This is
+   * what lets MR/PR creation succeed on a machine where the user never ran
+   * `git config` — the commit is attributed to the authenticated GitLab/GitHub
+   * user instead of failing with "author identity unknown". When the user HAS
+   * configured an identity (local or global), theirs is respected and this is
+   * ignored.
+   */
+  readonly author?: GitIdentity
+}
+
 export interface GitClientShape {
   readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<CloneResult, GitError>
   readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError>
@@ -58,7 +78,7 @@ export interface GitClientShape {
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError>
   readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError>
   readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError>
-  readonly commit: (repoPath: string, message: string, allowEmpty?: boolean) => Effect.Effect<void, GitError>
+  readonly commit: (repoPath: string, message: string, options?: CommitOptions) => Effect.Effect<void, GitError>
 }
 
 export class GitClient extends Context.Tag("GitClient")<GitClient, GitClientShape>() {}

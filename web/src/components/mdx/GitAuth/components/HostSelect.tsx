@@ -1,6 +1,8 @@
 import { RefreshCw } from "lucide-react"
 
 interface HostSelectProps {
+  /** Owning block id, used to derive a unique DOM id for the select. */
+  id: string
   /** All GitLab hosts the user is logged into via glab. */
   hosts: string[]
   /** The currently selected host. */
@@ -19,18 +21,21 @@ interface HostSelectProps {
  * surfaces a "Reload" control so the user can re-check after a `glab auth login`.
  * The parent hides this entirely for GitHub or when the author pinned a `host`.
  */
-export function HostSelect({ hosts = [], value, onChange, onReload, disabled }: HostSelectProps) {
+export function HostSelect({ id, hosts = [], value, onChange, onReload, disabled }: HostSelectProps) {
   const hasChoice = hosts.length > 1
+  // Unique per block so two GitLab GitAuth blocks on one page don't emit
+  // duplicate DOM ids (which break label association and are invalid HTML).
+  const selectId = `gitlab-host-${id}`
 
   return (
     <div className="mb-4 flex items-center gap-2 text-sm">
       {hasChoice && (
         <>
-          <label htmlFor="gitlab-host" className="text-muted-foreground">
+          <label htmlFor={selectId} className="text-muted-foreground">
             GitLab host:
           </label>
           <select
-            id="gitlab-host"
+            id={selectId}
             value={value}
             disabled={disabled}
             onChange={(e) => onChange(e.target.value)}

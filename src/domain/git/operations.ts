@@ -4,6 +4,7 @@
 import path from "path"
 import { Effect, Stream, Chunk } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
+import type { GitIdentity } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
@@ -110,14 +111,56 @@ const detectEmbeddedRepos = (repoPath: string) =>
   }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])))
 
 /**
+ * Last-resort committer email used when the authenticated account exposes no
+ * public email (GitLab users commonly hide it). Keeps the commit attributable to
+ * a Runbooks-authored action without fabricating a real-looking address.
+ */
+const FALLBACK_COMMIT_EMAIL = "runbooks-noreply@gruntwork.io"
+
+/** Build a commit identity from a validated provider user, with safe fallbacks. */
+const toCommitIdentity = (user: {
+  readonly login: string
+  readonly name?: string
+  readonly email?: string
+}): GitIdentity => ({
+  name: user.name?.trim() || user.login || "Runbooks",
+  email: user.email?.trim() || FALLBACK_COMMIT_EMAIL,
+})
+
+/**
+ * Best-effort lookup of the authenticated GitHub user's identity. Used only as a
+ * fallback for the commit step when the machine has no git identity configured;
+ * never blocks PR creation. Any failure (network, invalid token) resolves to
+ * undefined, and the commit proceeds with whatever identity git already has.
+ */
+const resolveGitHubAuthor = (token: string) =>
+  Effect.gen(function* () {
+    const gh = yield* GitHubClient
+    const validation = yield* gh.validateToken(token)
+    return toCommitIdentity(validation.user)
+  }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
+
+/** GitLab equivalent of {@link resolveGitHubAuthor}; validates against the instance. */
+const resolveGitLabAuthor = (token: string, baseUrl: string) =>
+  Effect.gen(function* () {
+    const gl = yield* GitLabClient
+    const validation = yield* gl.validateToken(token, baseUrl)
+    return toCommitIdentity(validation.user)
+  }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
+
+/**
  * Shared local-git half of opening a PR/MR: create + switch to the head branch,
  * stage all changes, commit, and push to origin. Provider-neutral — the push
  * authenticates with whatever host token the caller resolved (GitHub or GitLab;
  * the clone flow's oauth2 handling makes the push itself host-agnostic).
+ *
+ * `author` is the authenticated user's identity, applied to the commit only as a
+ * fallback when the machine has no git identity configured (see CommitOptions).
  */
 const runGitSteps = (
   token: string,
   params: CreatePullRequestParams,
+  author: GitIdentity | undefined,
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
@@ -145,7 +188,7 @@ const runGitSteps = (
     // Stage all changes and commit
     yield* report("Staging and committing changes…")
     yield* gitClient.stageAll(params.repoPath, embedded)
-    yield* gitClient.commit(params.repoPath, params.commitMessage)
+    yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
 
     // Push the branch to origin
     yield* report(`Pushing ${params.headBranch} to origin…`)
@@ -171,7 +214,10 @@ export const createPullRequest = (
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
-    yield* runGitSteps(token, params, onProgress)
+    // Resolve the authenticated user's identity up front so the commit can be
+    // attributed to them when the machine has no git identity configured.
+    const author = yield* resolveGitHubAuthor(token)
+    yield* runGitSteps(token, params, author, onProgress)
 
     const ghClient = yield* GitHubClient
     const report = (line: string) => Effect.sync(() => onProgress?.(line))
@@ -215,8 +261,6 @@ export const createMergeRequest = (
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
-    yield* runGitSteps(token, params, onProgress)
-
     const gitClient = yield* GitClient
     const glClient = yield* GitLabClient
     const report = (line: string) => Effect.sync(() => onProgress?.(line))
@@ -224,11 +268,17 @@ export const createMergeRequest = (
     // Target the MR at the repo's own GitLab instance (self-hosted or
     // gitlab.com), derived from its remote rather than assumed to be gitlab.com.
     // Best-effort: if the remote can't be read, the client falls back to
-    // gitlab.com.
+    // gitlab.com. Resolved before the git steps so the commit's fallback author
+    // is validated against the same instance the token belongs to.
     const remoteUrl = yield* gitClient
       .getRemoteUrl(params.repoPath)
       .pipe(Effect.orElseSucceed(() => ""))
     const baseUrl = gitlabBaseUrlFromRemoteUrl(remoteUrl)
+
+    // Resolve the authenticated user's identity so the commit can be attributed
+    // to them when the machine has no git identity configured.
+    const author = yield* resolveGitLabAuthor(token, baseUrl)
+    yield* runGitSteps(token, params, author, onProgress)
 
     // Create the MR via GitLab API (labels applied inline)
     yield* report("Opening merge request…")
