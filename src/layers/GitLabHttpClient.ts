@@ -31,6 +31,13 @@ type AuthScheme = "private" | "bearer"
 const toGitLabApiError = (err: unknown): GitLabApiError =>
   err instanceof GitLabApiError ? err : new GitLabApiError({ status: 0, message: `${err}` })
 
+async function assertOk(resp: Response): Promise<void> {
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    throw new GitLabApiError({ status: resp.status, message: body || resp.statusText })
+  }
+}
+
 function authHeaders(token: string, scheme: AuthScheme): Record<string, string> {
   return scheme === "private"
     ? { Accept: "application/json", "PRIVATE-TOKEN": token }
@@ -109,10 +116,7 @@ async function paginateAll<T>(
   while (true) {
     const sep = url.includes("?") ? "&" : "?"
     const resp = await gitlabFetch(`${url}${sep}per_page=${perPage}&page=${page}`, token)
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "")
-      throw new GitLabApiError({ status: resp.status, message: body || resp.statusText })
-    }
+    await assertOk(resp)
     const items = (await resp.json()) as T[]
     results.push(...items)
     const next = resp.headers.get("x-next-page")
@@ -139,10 +143,7 @@ async function validateUserToken(
     scheme = "bearer"
     resp = await fetch(`${apiBase}/user`, { headers: authHeaders(token, scheme) })
   }
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "")
-    throw new GitLabApiError({ status: resp.status, message: body || resp.statusText })
-  }
+  await assertOk(resp)
   const data = (await resp.json()) as {
     username: string
     name?: string
@@ -200,10 +201,7 @@ const impl: GitLabClientShape = {
             body: JSON.stringify(body),
           },
         )
-        if (!resp.ok) {
-          const text = await resp.text().catch(() => "")
-          throw new GitLabApiError({ status: resp.status, message: text || resp.statusText })
-        }
+        await assertOk(resp)
         // `iid` is the project-scoped, user-facing number (!42); `id` is the
         // global DB id — never surface that one.
         const data = (await resp.json()) as {

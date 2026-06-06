@@ -68,17 +68,6 @@ function setupExecEnvVars(
   return result
 }
 
-/**
- * Merge per-request env var overrides into a base env record.
- * Override values replace any existing keys in the base record.
- */
-function mergeEnvVars(
-  base: Record<string, string>,
-  overrides: Record<string, string>,
-): Record<string, string> {
-  return { ...base, ...overrides }
-}
-
 // ---------------------------------------------------------------------------
 // Exit Status
 // ---------------------------------------------------------------------------
@@ -180,7 +169,7 @@ export const executeScript = (
 
     // Apply per-request env var overrides
     if (request.envVarsOverride && Object.keys(request.envVarsOverride).length > 0) {
-      execEnv = mergeEnvVars(execEnv, request.envVarsOverride)
+      execEnv = { ...execEnv, ...request.envVarsOverride }
     }
 
     // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES, REPO_FILES)

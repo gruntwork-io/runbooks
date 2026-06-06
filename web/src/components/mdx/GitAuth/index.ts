@@ -15,17 +15,8 @@ export type {
   GitUserInfo,
   GitCredentials,
   GitCliCredentialsResponse,
-  // Backward-compatible GitHub* aliases
+  // Backward-compatible GitHub* alias
   GitHubAuthProps,
-  GitHubAuthMethod,
-  GitHubAuthStatus,
-  GitHubDetectionStatus,
-  GitHubCredentialSource,
-  GitHubDetectionSource,
-  GitHubTokenType,
-  GitHubUserInfo,
-  GitHubCredentials,
-  GitHubCliCredentialsResponse,
 } from './types'
 
-export { isCliAuthFound, hasRepoScope } from './types'
+export { isCliAuthFound } from './types'

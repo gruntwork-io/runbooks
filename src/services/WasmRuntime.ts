@@ -132,15 +132,6 @@ export interface WasmRuntimeShape {
   ) => Effect.Effect<void>
 
   /**
-   * Analyze a bundle and return the inputs/files/sources map. Used by the
-   * dispatcher to compute the dirty set when a single variable changes.
-   */
-  readonly inputsMap: (
-    bundleJSON: string,
-    varsJSON: string,
-  ) => Effect.Effect<InputsMapResult, WasmError>
-
-  /**
    * Render a single Go text/template string with a vars map. No bundle, no
    * dependency tree — pure string-in / string-out using the boilerplate Go
    * template engine plus its helper functions (sprig-style). Backs the

@@ -189,6 +189,13 @@ export type { File, FileTreeNode } from './FileTree.types'
  * Props for the FileTree component.
  * This component renders a hierarchical file tree with expand/collapse functionality.
  */
+/**
+ * Indentation (px) added per nesting level. Exported so sibling trees that
+ * deliberately reimplement their own renderer (e.g. the changed-files tree)
+ * stay visually aligned. 8px base + this = the level-1 inset.
+ */
+export const FILE_TREE_INDENT = 11
+
 export interface FileTreeProps {
   /** Array of file/folder items to display in the tree */
   items: FileTreeNode[];
@@ -196,7 +203,7 @@ export interface FileTreeProps {
   onItemClick?: (item: FileTreeNode) => void;
   /** Additional CSS classes to apply to the tree container */
   className?: string;
-  /** Indentation in pixels for each level of nesting (default: 20) */
+  /** Indentation in pixels for each level of nesting (default: FILE_TREE_INDENT) */
   indent?: number;
 }
 
@@ -224,7 +231,7 @@ export const FileTree = ({
   items,
   onItemClick,
   className = "",
-  indent = 11, // Indent per level (8 base + 11 = 19px for level 1)
+  indent = FILE_TREE_INDENT, // Indent per level (8 base + 11 = 19px for level 1)
 }: FileTreeProps) => {
   /** Set of expanded folder IDs */
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());

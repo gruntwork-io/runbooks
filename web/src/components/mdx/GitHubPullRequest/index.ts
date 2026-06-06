@@ -7,7 +7,6 @@ export type {
   GitHubPullRequestProps,
   PRBlockStatus,
   PRResult,
-  GitHubLabel,
   GitLabel,
   ChangeSummary,
 } from '@/components/mdx/GitPullRequest/types'

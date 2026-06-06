@@ -1,7 +1,6 @@
 import { CheckCircle, FolderOpen, Copy, Check } from "lucide-react"
-import { useState, useCallback } from "react"
-import { copyTextToClipboard } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { CloneResult } from "../types"
 
 interface CloneResultDisplayProps {
@@ -10,24 +9,8 @@ interface CloneResultDisplayProps {
 }
 
 export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayProps) {
-  const [copiedRelative, setCopiedRelative] = useState(false)
-  const [copiedAbsolute, setCopiedAbsolute] = useState(false)
-
-  const handleCopyRelative = useCallback(async () => {
-    const ok = await copyTextToClipboard(result.relativePath)
-    if (ok) {
-      setCopiedRelative(true)
-      setTimeout(() => setCopiedRelative(false), 2000)
-    }
-  }, [result.relativePath])
-
-  const handleCopyAbsolute = useCallback(async () => {
-    const ok = await copyTextToClipboard(result.absolutePath)
-    if (ok) {
-      setCopiedAbsolute(true)
-      setTimeout(() => setCopiedAbsolute(false), 2000)
-    }
-  }, [result.absolutePath])
+  const relative = useCopyToClipboard(2000)
+  const absolute = useCopyToClipboard(2000)
 
   return (
     <div className="space-y-3">
@@ -51,10 +34,10 @@ export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayP
               {result.relativePath}
             </code>
             <button
-              onClick={handleCopyRelative}
+              onClick={() => relative.copy(result.relativePath)}
               className="shrink-0 p-0.5 text-success hover:text-success cursor-pointer"
             >
-              {copiedRelative ? (
+              {relative.didCopy ? (
                 <Check className="size-3.5" />
               ) : (
                 <Copy className="size-3.5" />
@@ -67,10 +50,10 @@ export function CloneResultDisplay({ result, onCloneAgain }: CloneResultDisplayP
               {result.absolutePath}
             </code>
             <button
-              onClick={handleCopyAbsolute}
+              onClick={() => absolute.copy(result.absolutePath)}
               className="shrink-0 p-0.5 text-success hover:text-success cursor-pointer"
             >
-              {copiedAbsolute ? (
+              {absolute.didCopy ? (
                 <Check className="size-3.5" />
               ) : (
                 <Copy className="size-3.5" />

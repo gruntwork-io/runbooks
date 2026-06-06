@@ -6,7 +6,7 @@
  *   - wasm_exec.js                (Go's WASM runtime glue, sets globalThis.Go)
  *   - boilerplate-full.wasm.br    (brotli-compressed full build, ~3.7 MB)
  *
- * Init is lazy by default — the first call to renderFiles / inputsMap pays
+ * Init is lazy by default — the first call to renderFiles pays
  * the ~600-900ms cold start. Call `eagerLoadInBackground()` after the app
  * window shows to amortize that against idle time before the user types.
  *
@@ -24,7 +24,6 @@ import { WasmRuntime } from "../services/WasmRuntime.ts"
 import type {
   WasmRuntimeShape,
   WasmRenderFilesResult,
-  InputsMapResult,
 } from "../services/WasmRuntime.ts"
 import { WasmError } from "../errors/index.ts"
 
@@ -352,39 +351,6 @@ export const NodeWasmRuntimeLive = Layer.effect(
             })
           }
           return out
-        },
-        catch: (err) =>
-          err instanceof WasmError
-            ? err
-            : new WasmError({
-                message: err instanceof Error ? err.message : String(err),
-                kind: "load",
-                cause: err,
-              }),
-      }),
-
-    inputsMap: (bundleJSON, varsJSON) =>
-      Effect.tryPromise({
-        try: async () => {
-          const exports = await ensureLoading()
-          const out = await serialize(async () =>
-            exports.boilerplateInputsMap(bundleJSON, varsJSON),
-          )
-          if (isStructuralError(out)) {
-            throw new WasmError({
-              message: out.message,
-              kind: "structural",
-              cause: out,
-            })
-          }
-          if (out instanceof Error) {
-            throw new WasmError({
-              message: `boilerplateInputsMap returned Error: ${out.message}`,
-              kind: "internal",
-              cause: out,
-            })
-          }
-          return JSON.parse(out) as InputsMapResult
         },
         catch: (err) =>
           err instanceof WasmError

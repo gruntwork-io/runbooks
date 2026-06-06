@@ -1,5 +1,5 @@
-import { useApi } from './useApi';
-import type { UseApiReturn } from './useApi';
+import { useIpc } from './useIpc';
+import type { UseIpcReturn } from './useIpc';
 import { useMemo, useCallback, useEffect, startTransition } from 'react';
 import { useFileTreeUpdater } from '@/components/mdx/_shared/hooks/useFileTreeUpdater';
 import type { FileTreeNode } from '@/components/artifacts/code/FileTree';
@@ -20,7 +20,7 @@ interface BoilerplateRenderResult {
 }
 
 // Enhanced return type that includes auto-rendering functionality
-interface UseApiBoilerplateRenderResult extends UseApiReturn<BoilerplateRenderResult> {
+interface UseApiBoilerplateRenderResult extends UseIpcReturn<BoilerplateRenderResult> {
   isAutoRendering: boolean;
   autoRender: (templatePath: string, variables: Record<string, unknown>) => void;
 }
@@ -65,13 +65,10 @@ export function useApiBoilerplateRender(
   // process supersedes in-flight renders via fiber-interrupt (see
   // electron/main/ipc/boilerplate.ts activeRenders), so back-to-back invokes
   // never queue up. Adding a second debounce just stacked extra latency.
-  const apiResult = useApi<BoilerplateRenderResult>(
-    shouldFetch ? '/api/boilerplate/render' : '',
-    'POST',
+  const apiResult = useIpc<BoilerplateRenderResult>(
+    shouldFetch ? 'boilerplate:render' : '',
     requestBody || undefined,
-    0,
-    undefined,
-    true, // lazy
+    { lazy: true, debounceMs: 0 },
   );
 
   const { debouncedRequest } = apiResult;

@@ -10,6 +10,5 @@ export type {
   PRBlockStatus,
   PRResult,
   GitLabel,
-  GitHubLabel,
   ChangeSummary,
 } from './types'

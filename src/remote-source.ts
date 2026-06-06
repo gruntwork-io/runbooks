@@ -244,7 +244,6 @@ export function needsRefResolution(parsed: ParsedRemoteSource): boolean {
 export const resolveRef = (
   cloneURL: string,
   rawRefAndPath: string,
-  _isBlobURL: boolean,
 ): Effect.Effect<
   { ref: string; path: string | undefined },
   RemoteSourceError | SpawnError,

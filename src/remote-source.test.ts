@@ -258,11 +258,9 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef(
-        "https://github.com/o/r.git",
-        "release/v1.2/foo/bar.md",
-        false,
-      ).pipe(Effect.provide(spawner)),
+      resolveRef("https://github.com/o/r.git", "release/v1.2/foo/bar.md").pipe(
+        Effect.provide(spawner),
+      ),
     )
 
     expect(result.ref).toBe("release/v1.2")
@@ -280,7 +278,7 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md", false).pipe(
+      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md").pipe(
         Effect.provide(spawner),
       ),
     )
@@ -300,7 +298,7 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "main", false).pipe(
+      resolveRef("https://github.com/o/r.git", "main").pipe(
         Effect.provide(spawner),
       ),
     )
@@ -320,7 +318,7 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md", false).pipe(
+      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md").pipe(
         Effect.provide(spawner),
       ),
     )

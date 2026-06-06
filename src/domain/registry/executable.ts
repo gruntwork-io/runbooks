@@ -199,7 +199,6 @@ export function parseComponents(
 export class ExecutableRegistry {
   private entries = new Map<string, Executable>()
   private warnings: string[] = []
-  private runbookContent = ""
 
   // -----------------------------------------------------------------------
   // Factory
@@ -233,7 +232,6 @@ export class ExecutableRegistry {
 
       const content =
         contentOverride ?? (yield* fs.readFile(runbookPath))
-      this.runbookContent = content
       const runbookDir = path.dirname(runbookPath)
 
       for (const componentType of SCRIPT_COMPONENT_TYPES) {
@@ -382,16 +380,6 @@ export class ExecutableRegistry {
     return [...this.warnings]
   }
 
-  /**
-   * Check whether the runbook contains any component of the given type
-   * (including non-script types like Template, AwsAuth, etc.).
-   *
-   * Components inside fenced code blocks are ignored.
-   */
-  hasComponent(componentType: string): boolean {
-    const components = parseComponents(this.runbookContent, componentType)
-    return components.length > 0
-  }
 }
 
 // ---------------------------------------------------------------------------

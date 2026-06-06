@@ -237,6 +237,34 @@ export function enumerateGlabHosts(yamlContent: string): GlabHostsInfo {
 }
 
 /**
+ * Scan glab's candidate `config.yml` paths (in glab's directory-precedence
+ * order) and return the first truthy result produced by `pick`. `readFile`
+ * already falls back to "" for a missing/unreadable file, so no separate
+ * existence check is needed. Returns undefined when no path yields a result.
+ */
+const scanGlabConfigs = <T>(pick: (content: string) => T | undefined) =>
+  Effect.gen(function* () {
+    const env = yield* Environment
+    const fs = yield* FileSystem
+
+    const allEnv = yield* env.getAll()
+    const candidates = resolveGlabConfigPaths({
+      env: allEnv,
+      platform: process.platform,
+    })
+
+    for (const path of candidates) {
+      const content = yield* fs
+        .readFile(path)
+        .pipe(Effect.orElseSucceed(() => ""))
+      const picked = pick(content)
+      if (picked) return picked
+    }
+
+    return undefined
+  })
+
+/**
  * Detect a GitLab token from glab's CLI config file (`config.yml`).
  *
  * `glab auth login` does not export an environment variable; it writes the
@@ -248,28 +276,7 @@ export function enumerateGlabHosts(yamlContent: string): GlabHostsInfo {
  * file or token for that host is found.
  */
 export const detectConfigCredentials = (host: string = DEFAULT_GITLAB_HOST) =>
-  Effect.gen(function* () {
-    const env = yield* Environment
-    const fs = yield* FileSystem
-
-    const allEnv = yield* env.getAll()
-    const candidates = resolveGlabConfigPaths({
-      env: allEnv,
-      platform: process.platform,
-    })
-
-    for (const path of candidates) {
-      // readFile already falls back to "" for a missing/unreadable file, so no
-      // separate existence check is needed.
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
-      const token = parseGlabToken(content, host)
-      if (token) return token
-    }
-
-    return undefined
-  })
+  scanGlabConfigs((content) => parseGlabToken(content, host))
 
 /**
  * Enumerate the GitLab hosts the user is logged into via glab, reading the
@@ -278,23 +285,11 @@ export const detectConfigCredentials = (host: string = DEFAULT_GITLAB_HOST) =>
  * config is present. Powers the GitAuth host picker.
  */
 export const detectConfigHosts = () =>
-  Effect.gen(function* () {
-    const env = yield* Environment
-    const fs = yield* FileSystem
-
-    const allEnv = yield* env.getAll()
-    const candidates = resolveGlabConfigPaths({
-      env: allEnv,
-      platform: process.platform,
-    })
-
-    for (const path of candidates) {
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
-      const info = enumerateGlabHosts(content)
-      if (info.hosts.length > 0) return info
-    }
-
-    return { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST }
-  })
+  scanGlabConfigs((content) => {
+    const info = enumerateGlabHosts(content)
+    return info.hosts.length > 0 ? info : undefined
+  }).pipe(
+    Effect.map(
+      (info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST },
+    ),
+  )

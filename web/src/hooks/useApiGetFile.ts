@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { useApi } from './useApi';
-import type { UseApiReturn } from './useApi';
+import { useIpc } from './useIpc';
+import type { UseIpcReturn } from './useIpc';
 
 // API response wrapper for hooks that specifically request file data
 export interface GetFileReturn {
@@ -15,7 +15,7 @@ export interface GetFileReturn {
   remoteSource?: string;
 }
 
-export function useGetFile(path: string, shouldFetch: boolean = true): UseApiReturn<GetFileReturn> {
+export function useGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {
   const shouldActuallyFetch = shouldFetch && Boolean(path);
   
   // Build the request body with the path, memoized to prevent infinite loops
@@ -23,10 +23,9 @@ export function useGetFile(path: string, shouldFetch: boolean = true): UseApiRet
     return shouldActuallyFetch ? { path } : undefined;
   }, [path, shouldActuallyFetch]);
   
-  // Use empty endpoint when we shouldn't fetch (prevents API call)
-  return useApi<GetFileReturn>(
-    shouldActuallyFetch ? '/api/file' : '',
-    'POST',
+  // Use empty channel when we shouldn't fetch (prevents the IPC call)
+  return useIpc<GetFileReturn>(
+    shouldActuallyFetch ? 'file:read' : '',
     requestBody
   );
 }

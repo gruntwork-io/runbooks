@@ -9,7 +9,7 @@ import { useGeneratedFiles } from '@/hooks/useGeneratedFiles'
 import { useGitWorkTree } from '@/contexts/useGitWorkTree'
 import { useLogs } from '@/contexts/useLogs'
 import { extractInlineInputsId } from '../lib/extractInlineInputsId'
-import { extractTemplateDependenciesFromString, splitDependencies, type OutputDependency } from '@/lib/extractTemplateDependencies'
+import { extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
 import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
@@ -37,15 +37,10 @@ interface UseScriptExecutionProps {
   timeoutMs?: number
 }
 
-export type { BlockOutput } from '@/lib/templateUtils'
-
 /** Information about an unmet auth dependency (AWS or GitHub) */
 export interface UnmetAuthDependency {
   blockId: string
 }
-
-export type UnmetAwsAuthDependency = UnmetAuthDependency
-export type UnmetGitHubAuthDependency = UnmetAuthDependency
 
 /**
  * Pure function: checks whether an auth dependency is satisfied.
@@ -67,6 +62,30 @@ export function checkAuthDependency(
   return { blockId: authId }
 }
 
+/**
+ * Pure helper: collect the given env-var keys from an auth block's outputs.
+ * Returns undefined when no block is referenced, the block has no outputs, or
+ * none of the requested keys have a non-empty value.
+ */
+function buildAuthEnvVars(
+  blockId: string | undefined,
+  allOutputs: Record<string, { values: Record<string, string> }>,
+  keys: readonly string[],
+): Record<string, string> | undefined {
+  if (!blockId) return undefined
+  const blockOutputs = allOutputs[normalizeBlockId(blockId)]
+  if (!blockOutputs?.values) return undefined
+  const { values } = blockOutputs
+  const envVars: Record<string, string> = {}
+  for (const key of keys) {
+    const value = values[key]
+    if (value && value !== '') {
+      envVars[key] = value
+    }
+  }
+  return Object.keys(envVars).length > 0 ? envVars : undefined
+}
+
 interface UseScriptExecutionReturn {
   // Script content
   sourceCode: string
@@ -82,7 +101,6 @@ interface UseScriptExecutionReturn {
   fileError: AppError | null
   
   // Variables
-  inputValues: Record<string, unknown>
   /** All input dependency names found in the script (for "missing config" detection) */
   inputDependencies: string[]
   /** Input dependencies that don't have values yet */
@@ -91,7 +109,6 @@ interface UseScriptExecutionReturn {
   inlineInputsId: string | null
 
   // Output dependencies
-  outputDependencies: OutputDependency[]
   unmetOutputDependencies: BlockOutput[]
   hasAllOutputDependencies: boolean
 
@@ -99,11 +116,11 @@ interface UseScriptExecutionReturn {
   templateContext: TemplateContext
   
   // AWS Auth dependency
-  unmetAwsAuthDependency: UnmetAwsAuthDependency | null
+  unmetAwsAuthDependency: UnmetAuthDependency | null
   hasAwsAuthDependency: boolean
-  
+
   // GitHub Auth dependency
-  unmetGitHubAuthDependency: UnmetGitHubAuthDependency | null
+  unmetGitHubAuthDependency: UnmetAuthDependency | null
   hasGitHubAuthDependency: boolean
   
   // Rendering
@@ -308,53 +325,26 @@ export function useScriptExecution({
   
   // Get GitHub auth credentials from outputs if githubAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)
-  const githubAuthEnvVars = useMemo((): Record<string, string> | undefined => {
-    if (!githubAuthId) return undefined
-    
-    const normalizedId = normalizeBlockId(githubAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-    
-    if (!blockOutputs?.values) return undefined
-    
-    // Return GITHUB_TOKEN and GITHUB_USER as env vars
-    const envVars: Record<string, string> = {}
-    const token = blockOutputs.values.GITHUB_TOKEN
-    const user = blockOutputs.values.GITHUB_USER
-    
-    if (token && token !== '') {
-      envVars.GITHUB_TOKEN = token
-    }
-    if (user && user !== '') {
-      envVars.GITHUB_USER = user
-    }
-    
-    return Object.keys(envVars).length > 0 ? envVars : undefined
-  }, [githubAuthId, allOutputs])
+  const githubAuthEnvVars = useMemo(
+    () => buildAuthEnvVars(githubAuthId, allOutputs, ['GITHUB_TOKEN', 'GITHUB_USER']),
+    [githubAuthId, allOutputs]
+  )
 
   // Get git auth credentials from outputs if gitAuthId is specified. Unlike
   // githubAuthId (GitHub only), this is provider-agnostic: it passes through
   // whichever token/user vars the referenced GitAuth block emitted, so a GitLab
   // block's GITLAB_TOKEN/GITLAB_USER reach the spawned process under the right
   // names.
-  const gitAuthEnvVars = useMemo((): Record<string, string> | undefined => {
-    if (!gitAuthId) return undefined
-
-    const normalizedId = normalizeBlockId(gitAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-
-    if (!blockOutputs?.values) return undefined
-
-    const values = blockOutputs.values
-    const envVars: Record<string, string> = {}
-    for (const key of ['GITHUB_TOKEN', 'GITHUB_USER', 'GITLAB_TOKEN', 'GITLAB_USER'] as const) {
-      const value = values[key]
-      if (value && value !== '') {
-        envVars[key] = value
-      }
-    }
-
-    return Object.keys(envVars).length > 0 ? envVars : undefined
-  }, [gitAuthId, allOutputs])
+  const gitAuthEnvVars = useMemo(
+    () =>
+      buildAuthEnvVars(gitAuthId, allOutputs, [
+        'GITHUB_TOKEN',
+        'GITHUB_USER',
+        'GITLAB_TOKEN',
+        'GITLAB_USER',
+      ]),
+    [gitAuthId, allOutputs]
+  )
 
   // A block referencing either a GitHubAuth (githubAuthId) or a GitAuth
   // (gitAuthId) block is gated until that reference is satisfied. The combined
@@ -654,14 +644,12 @@ export function useScriptExecution({
     fileError: getFileError,
     
     // Variables
-    inputValues,
     inputDependencies: inputDeps,
     unmetInputDependencies,
     hasAllInputDependencies,
     inlineInputsId,
 
     // Output dependencies
-    outputDependencies: outputDeps,
     unmetOutputDependencies,
     hasAllOutputDependencies,
 

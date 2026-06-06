@@ -23,5 +23,4 @@ export const githubPRProviderConfig: PRProviderConfig = {
     cliTitle: 'Open a pull request:',
     build: 'gh',
   },
-  supportsPushMore: true,
 }

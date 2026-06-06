@@ -35,9 +35,7 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setError(createAppError(
         'Failed to load executable registry',
-        errorMessage,
-        undefined,
-        'REGISTRY_FETCH_FAILED'
+        errorMessage
       ))
     } finally {
       setLoading(false)

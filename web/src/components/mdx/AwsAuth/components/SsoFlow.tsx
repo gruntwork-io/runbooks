@@ -1,4 +1,5 @@
-import { Loader2, ExternalLink, AlertTriangle, XCircle, Check, Search, X } from "lucide-react"
+import { Loader2, ExternalLink, AlertTriangle, XCircle, Check } from "lucide-react"
+import { SearchInput } from "./SearchInput"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { DefaultRegionPicker } from "./DefaultRegionPicker"
@@ -132,26 +133,13 @@ export function SsoAccountSelector({
       
       <div className="space-y-2">
         {/* Search input */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            placeholder="Search accounts..."
-            className="w-full pl-9 pr-8 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring text-sm"
-            disabled={loadingRoles}
-          />
-          {searchValue && (
-            <button
-              onClick={() => setSearchValue('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
-        
+        <SearchInput
+          value={searchValue}
+          onChange={setSearchValue}
+          placeholder="Search accounts..."
+          disabled={loadingRoles}
+        />
+
         {/* Account list */}
         <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
           {filteredAccounts.map((account) => {
@@ -246,25 +234,12 @@ export function SsoRoleSelector({
       
       <div className="space-y-2">
         {/* Search input */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            placeholder="Search roles..."
-            className="w-full pl-9 pr-8 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring text-sm"
-          />
-          {searchValue && (
-            <button
-              onClick={() => setSearchValue('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
-        
+        <SearchInput
+          value={searchValue}
+          onChange={setSearchValue}
+          placeholder="Search roles..."
+        />
+
         {/* Role list */}
         <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
           {filteredRoles.map((role) => {

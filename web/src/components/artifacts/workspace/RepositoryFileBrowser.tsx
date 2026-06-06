@@ -8,6 +8,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles'
 import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX, WrapText } from 'lucide-react'
 import { cn, formatFileSize } from '@/lib/utils'
@@ -321,13 +322,7 @@ function TextFileViewer({ filePath, fileContent }: {
             whiteSpace: wrap ? 'pre-wrap' : 'pre',
             overflowX: 'auto',
           }}
-          lineNumberStyle={{
-            color: '#999',
-            fontSize: '11px',
-            paddingRight: '12px',
-            borderRight: '1px solid #eee',
-            marginRight: '8px',
-          }}
+          lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
         >
           {fileContent.content || ''}
         </SyntaxHighlighter>

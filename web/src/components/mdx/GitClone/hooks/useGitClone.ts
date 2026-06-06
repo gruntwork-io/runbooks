@@ -223,7 +223,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
-    sessionReady: true, // Always ready in IPC mode
     workingDir,
 
     // Actions

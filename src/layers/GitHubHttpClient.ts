@@ -37,15 +37,19 @@ async function githubFetch(
   return fetch(url, { ...options, headers })
 }
 
+async function assertOk(resp: Response): Promise<void> {
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    throw new GitHubApiError({ status: resp.status, message: body || resp.statusText })
+  }
+}
+
 async function githubJson<T>(
   url: string,
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
   const resp = await githubFetch(url, options)
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "")
-    throw new GitHubApiError({ status: resp.status, message: body || resp.statusText })
-  }
+  await assertOk(resp)
   return (await resp.json()) as T
 }
 
@@ -60,10 +64,7 @@ async function paginateAll<T>(
     const sep = baseUrl.includes("?") ? "&" : "?"
     const url = `${baseUrl}${sep}per_page=${perPage}&page=${page}`
     const resp = await githubFetch(url, { token })
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "")
-      throw new GitHubApiError({ status: resp.status, message: body || resp.statusText })
-    }
+    await assertOk(resp)
     const items = (await resp.json()) as T[]
     results.push(...items)
     if (items.length < perPage) break
@@ -83,13 +84,7 @@ async function validateInstallationToken(
     `${API_BASE}/installation/repositories?per_page=1`,
     { token },
   )
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "")
-    throw new GitHubApiError({
-      status: resp.status,
-      message: body || resp.statusText,
-    })
-  }
+  await assertOk(resp)
   const data = (await resp.json()) as {
     total_count: number
     repositories: Array<{ owner?: { login?: string } }>
@@ -107,13 +102,7 @@ async function validateUserToken(
   token: string,
 ): Promise<GitHubTokenValidation> {
   const resp = await githubFetch(`${API_BASE}/user`, { token })
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "")
-    throw new GitHubApiError({
-      status: resp.status,
-      message: body || resp.statusText,
-    })
-  }
+  await assertOk(resp)
   const data = (await resp.json()) as {
     login: string
     name?: string
@@ -170,10 +159,7 @@ const impl: GitHubClientShape = {
             scope: scopes.join(" "),
           }),
         })
-        if (!resp.ok) {
-          const body = await resp.text().catch(() => "")
-          throw new GitHubApiError({ status: resp.status, message: body || resp.statusText })
-        }
+        await assertOk(resp)
         const data = (await resp.json()) as {
           device_code: string
           user_code: string
@@ -205,10 +191,7 @@ const impl: GitHubClientShape = {
             grant_type: "urn:ietf:params:oauth:grant-type:device_code",
           }),
         })
-        if (!resp.ok) {
-          const body = await resp.text().catch(() => "")
-          throw new GitHubApiError({ status: resp.status, message: body || resp.statusText })
-        }
+        await assertOk(resp)
         const data = (await resp.json()) as {
           access_token?: string
           error?: string

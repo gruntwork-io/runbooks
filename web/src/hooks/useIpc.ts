@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createAppError, type AppError } from '@/types/error'
 import { useApi } from '@/contexts/ApiContext'
+import { markStage, getPerfPayload } from '@/lib/renderPerf'
 
 export interface UseIpcOptions {
   /** When true, skip the initial auto-fetch. Requests are only made via refetch. */
@@ -59,17 +60,50 @@ export function useIpc<T>(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const paramsKey = useMemo(() => JSON.stringify(params), [JSON.stringify(params)])
 
+  // Monotonic request counter. We only commit a response if it's still the
+  // latest request — this prevents a slow earlier call from overwriting a
+  // newer one (stale-closure race) and lets render handlers signal a
+  // superseded result the main process interrupted.
+  const requestSeqRef = useRef(0)
+
   const performInvoke = useCallback(async (invokeParams?: unknown) => {
+    if (!channel) {
+      setIsLoading(false)
+      return
+    }
+    const seq = ++requestSeqRef.current
+    // Attach the perf payload (when tracing is enabled) so the main process can
+    // correlate its timing logs with the renderer keystroke trace. It's an
+    // inert extra field for channels that don't read it.
+    const perf = getPerfPayload()
+    const finalParams =
+      perf && invokeParams && typeof invokeParams === 'object'
+        ? { ...invokeParams, perf }
+        : invokeParams
+    markStage(`useIpc:ipc-send ${channel}`, { ipcSeq: seq })
     try {
-      const result = await (api as any).invoke(channel, invokeParams)
+      const result = await (api as any).invoke(channel, finalParams)
+      markStage(`useIpc:ipc-response ${channel}`, { ipcSeq: seq })
+      // Superseded: the main process interrupted this call because a newer one
+      // arrived. Leave state alone — the newer call will drive it.
+      if (
+        result &&
+        typeof result === 'object' &&
+        (result as { superseded?: boolean }).superseded
+      ) {
+        return
+      }
+      if (seq !== requestSeqRef.current) return
       setData(result as T)
+      setError(null)
       setIsLoading(false)
     } catch (err: unknown) {
-      setIsLoading(false)
+      if (seq !== requestSeqRef.current) return
       const message = err instanceof Error
         ? cleanIpcErrorMessage(err.message)
         : 'An unexpected error occurred'
       setError(createAppError(message, message))
+      setIsLoading(false)
     }
   }, [api, channel])
 

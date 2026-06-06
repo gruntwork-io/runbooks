@@ -293,7 +293,6 @@ async function runTestSuite(
     }
   }
 
-  runner.close()
   cleanupWorkDir?.()
   suite.duration = Date.now() - start
   return suite

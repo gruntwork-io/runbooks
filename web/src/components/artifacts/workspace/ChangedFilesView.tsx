@@ -16,17 +16,16 @@ import {
   FileDiff,
   FilePlus,
   FileMinus,
-  Copy,
-  Check,
   UnfoldVertical,
   ArrowUpToLine,
   ArrowDownToLine,
-  AlertTriangle,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { ShowMoreBanner } from '@/lib/ShowMoreBanner'
+import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHeader'
+import { FILE_TREE_INDENT } from '@/components/artifacts/code/FileTree'
 import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
@@ -237,18 +236,13 @@ export const ChangedFilesView = ({
             ))}
             {/* Show more / truncation banner */}
             {hasMoreFiles && (
-              <div className="flex items-center gap-2 px-3 py-3 bg-warning-muted border border-warning/30 rounded-md">
-                <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
-                <span className="text-sm text-warning-foreground flex-1">
-                  Showing {displayedChanges.length} of {changes.length} changed files.
-                </span>
-                <button
-                  onClick={handleShowMore}
-                  className="px-3 py-1 text-sm bg-warning-muted hover:bg-warning-muted/80 text-warning-foreground rounded-md cursor-pointer transition-colors"
-                >
-                  Show {Math.min(SHOW_MORE_INCREMENT, changes.length - displayLimit)} more
-                </button>
-              </div>
+              <ShowMoreBanner
+                displayedCount={displayedChanges.length}
+                total={changes.length}
+                remaining={Math.min(SHOW_MORE_INCREMENT, changes.length - displayLimit)}
+                noun="changed files"
+                onShowMore={handleShowMore}
+              />
             )}
           </div>
         </div>
@@ -355,8 +349,9 @@ const ChangedFileTree = ({
     })
   }
 
-  // Indent per level (8 base + 11 = 19px for level 1)
-  const INDENT = 11
+  // Indent per level (8 base + 11 = 19px for level 1). Shared with <FileTree>
+  // so the two sibling trees stay visually aligned.
+  const INDENT = FILE_TREE_INDENT
 
   const renderNode = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path)
@@ -469,14 +464,11 @@ interface CollapsibleFileDiffProps {
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
   ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
-    const { didCopy, copy } = useCopyToClipboard()
     const [isLoadingDiff, setIsLoadingDiff] = useState(false)
 
     const Icon = getChangeTypeIcon(change.changeType)
     const iconColor = getIconColor(change.changeType)
 
-    const handleCopyPath = () => copy(change.path)
-    
     return (
       <div 
         ref={ref}
@@ -487,45 +479,24 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         )}
       >
         {/* File Header Bar */}
-        <div
-          onClick={onToggleCollapse}
-          className="w-full flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent text-left cursor-pointer border-b border-border"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          )}
-          <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
-          <span className="font-mono text-xs text-foreground truncate">
-            {change.path}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
-            className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
-            title="Copy file path"
-          >
-            {didCopy ? (
-              <Check className="w-3.5 h-3.5 text-success" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <div className="flex-1" />
-          <div className="flex items-center gap-2 text-xs flex-shrink-0">
-            {change.additions > 0 && (
-              <span className="text-success font-medium">+{change.additions}</span>
-            )}
-            {change.deletions > 0 && (
-              <span className="text-destructive font-medium">-{change.deletions}</span>
-            )}
-            <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
-          </div>
-        </div>
-        
+        <CollapsibleFileHeader
+          isCollapsed={isCollapsed}
+          onToggle={onToggleCollapse}
+          path={change.path}
+          icon={<Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />}
+          trailing={
+            <div className="flex items-center gap-2 text-xs flex-shrink-0">
+              {change.additions > 0 && (
+                <span className="text-success font-medium">+{change.additions}</span>
+              )}
+              {change.deletions > 0 && (
+                <span className="text-destructive font-medium">-{change.deletions}</span>
+              )}
+              <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
+            </div>
+          }
+        />
+
         {/* Diff Content */}
         {!isCollapsed && (
           change.isDirectory ? (

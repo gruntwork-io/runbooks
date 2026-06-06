@@ -4,8 +4,6 @@ import { useApi } from './ApiContext'
 import { GitWorkTreeContext } from './gitWorkTreeTypes'
 import type { GitWorkTree, GitWorkTreeContextType } from './gitWorkTreeTypes'
 
-export type { GitWorkTree, GitWorkTreeContextType }
-
 interface IpcGitWorkTreeProviderProps {
   children: ReactNode
 }

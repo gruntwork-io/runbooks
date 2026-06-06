@@ -6,7 +6,6 @@ import { TestWrapper } from '@/test/test-utils'
 // Mock useSession
 vi.mock('@/contexts/useSession', () => ({
   useSession: () => ({
-    getAuthHeader: () => ({ Authorization: 'Bearer test' }),
     isReady: true,
   }),
 }))

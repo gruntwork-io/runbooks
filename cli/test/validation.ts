@@ -76,7 +76,7 @@ const KNOWN_BLOCK_TYPES = new Set([
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_BLOCK_TYPES = ["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
+export const AUTH_BLOCK_TYPES = ["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
 const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", "GitHubPullRequest"] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {

@@ -112,7 +112,6 @@ function makeFakeWasm(options: FakeWasmOptions = {}): WasmRuntimeShape {
     prepareBundle: () => notImplemented("prepareBundle") as never,
     renderFilesWithHandle: () => notImplemented("renderFilesWithHandle") as never,
     releaseBundle: () => Effect.void,
-    inputsMap: () => notImplemented("inputsMap") as never,
     isReady: Effect.succeed(true),
   }
 }

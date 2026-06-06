@@ -2,13 +2,16 @@ import { useState, useRef, useMemo, useCallback, useEffect, forwardRef, memo } f
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
-import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
+import { FolderOpen, ChevronLeft, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
 import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
 import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
+import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles'
+import { ShowMoreBanner } from '@/lib/ShowMoreBanner'
+import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHeader'
 
 interface CodeFileCollectionProps {
   data: FileTreeNode[];
@@ -291,19 +294,13 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
               ))}
               {/* Show more / pagination banner */}
               {hasMoreFiles && (
-                <div className="flex items-center gap-2 px-3 py-3 bg-warning-muted border border-warning/30 rounded-md">
-                  <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
-                  <span className="text-sm text-warning-foreground flex-1">
-                    Showing {displayedFiles.length} of {fileItems.length} generated files.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleShowMore}
-                    className="px-3 py-1 text-sm bg-warning-muted hover:bg-warning-muted/80 text-warning-foreground rounded-md cursor-pointer transition-colors"
-                  >
-                    Show {Math.min(SHOW_MORE_INCREMENT, fileItems.length - displayLimit)} more
-                  </button>
-                </div>
+                <ShowMoreBanner
+                  displayedCount={displayedFiles.length}
+                  total={fileItems.length}
+                  remaining={Math.min(SHOW_MORE_INCREMENT, fileItems.length - displayLimit)}
+                  noun="generated files"
+                  onShowMore={handleShowMore}
+                />
               )}
             </div>
           </div>
@@ -326,8 +323,6 @@ interface CollapsibleCodeFileProps {
 
 const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
   ({ fileItem, isCollapsed, isFocused, onToggleCollapse }, ref) => {
-    const { didCopy, copy } = useCopyToClipboard();
-
     const filePath = fileItem.file?.path || fileItem.name;
     const code = fileItem.file?.content || '';
     const language = fileItem.file?.language || 'text';
@@ -336,8 +331,6 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
 
     const fileSize = fileItem.file?.size ?? 0;
     const fileSizeLabel = formatFileSize(fileSize);
-
-    const handleCopyPath = () => copy(filePath);
 
     return (
       <div
@@ -349,38 +342,17 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
         )}
       >
         {/* File Header Bar */}
-        <div
-          onClick={onToggleCollapse}
-          className="w-full flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent text-left cursor-pointer border-b border-border"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          )}
-          <FileCode className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <span className="font-mono text-xs text-foreground truncate">
-            {filePath}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
-            className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
-            title="Copy file path"
-          >
-            {didCopy ? (
-              <Check className="w-3.5 h-3.5 text-success" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <div className="flex-1" />
-          <span className="text-xs text-muted-foreground flex-shrink-0">
-            {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}
-          </span>
-        </div>
+        <CollapsibleFileHeader
+          isCollapsed={isCollapsed}
+          onToggle={onToggleCollapse}
+          path={filePath}
+          icon={<FileCode className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+          trailing={
+            <span className="text-xs text-muted-foreground flex-shrink-0">
+              {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}
+            </span>
+          }
+        />
 
         {/* File Content */}
         {!isCollapsed && (
@@ -401,13 +373,7 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
                 padding: '14px 0px',
                 overflowX: 'auto'
               }}
-              lineNumberStyle={{
-                color: '#999',
-                fontSize: '11px',
-                paddingRight: '12px',
-                borderRight: '1px solid #eee',
-                marginRight: '8px'
-              }}
+              lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
             >
               {code}
             </SyntaxHighlighter>

@@ -165,29 +165,6 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
   }, [boilerplateConfig, getFieldError, markAllFieldsTouched])
 
   /**
-   * Clears validation error for a specific field
-   * @param fieldName - Name of the field to clear error for
-   */
-  const clearFieldError = useCallback((fieldName: string) => {
-    setValidationErrors(prev => {
-      if (prev[fieldName]) {
-        const newErrors = { ...prev }
-        delete newErrors[fieldName]
-        return newErrors
-      }
-      return prev
-    })
-  }, [])
-
-  /**
-   * Clears all validation errors and resets touched state
-   */
-  const clearAllErrors = useCallback(() => {
-    setValidationErrors({})
-    setTouchedFields({})
-  }, [])
-
-  /**
    * Gets visible validation errors (only for touched fields)
    * Use this to display errors in the UI
    */
@@ -201,24 +178,11 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
     return visible
   }, [validationErrors, touchedFields])
 
-  /**
-   * Checks if there are any validation errors (even for untouched fields)
-   */
-  const hasErrors = useMemo(() => {
-    return Object.keys(validationErrors).length > 0
-  }, [validationErrors])
-
   return {
-    validationErrors,
     visibleErrors,
-    touchedFields,
-    hasErrors,
     validateForm,
     validateField,
     isFormValid,
     markFieldTouched,
-    markAllFieldsTouched,
-    clearFieldError,
-    clearAllErrors
   }
 }

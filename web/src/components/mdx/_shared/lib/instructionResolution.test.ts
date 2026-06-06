@@ -5,7 +5,6 @@ import {
   buildMergedContext,
   resolveCommandClientSide,
   normalizeCommandList,
-  hasUnresolvedTemplate,
 } from './instructionResolution'
 import type { TemplateContext } from '@/lib/templateUtils'
 
@@ -80,14 +79,14 @@ describe('resolveCommandClientSide + buildMergedContext', () => {
     })
     const resolved = resolveCommandClientSide('echo {{ .outputs.step.arn }}', merged)
     expect(resolved).toBe('echo arn:aws:s3')
-    expect(hasUnresolvedTemplate(resolved)).toBe(false)
+    expect(resolved).not.toContain('{{')
   })
 
   it('never leaves a raw {{ }} when an output value is still empty', () => {
     const fields = detectManualFields('echo {{ .outputs.step.arn }}')
     const merged = buildMergedContext(base, fields, {})
     const resolved = resolveCommandClientSide('echo {{ .outputs.step.arn }}', merged)
-    expect(hasUnresolvedTemplate(resolved)).toBe(false)
+    expect(resolved).not.toContain('{{')
     expect(resolved).toBe('echo <arn>')
   })
 

@@ -32,8 +32,7 @@ export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
   }, [api])
 
   // Provide SessionContext so useSession() keeps working.
-  // getAuthHeader returns an empty object because IPC is process-local.
-  const legacyValue = { isReady, resetSession, error, getAuthHeader: () => ({}) as Record<string, never> }
+  const sessionValue = { isReady, resetSession, error }
 
-  return <SessionContext.Provider value={legacyValue}>{children}</SessionContext.Provider>
+  return <SessionContext.Provider value={sessionValue}>{children}</SessionContext.Provider>
 }

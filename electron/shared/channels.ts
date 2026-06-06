@@ -518,12 +518,6 @@ export interface WorkspaceChange {
   deletions: number
 }
 
-export interface GitInfo {
-  branch: string
-  remoteUrl?: string
-  commitSha?: string
-}
-
 export interface FileData {
   content: string
   language?: string
