@@ -4,7 +4,7 @@ import { SessionManager, filterCapturedEnv } from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 
 function run<A>(effect: Effect.Effect<A, any, any>, env: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))))
+  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<A, any, never>)
 }
 
 describe("filterCapturedEnv", () => {

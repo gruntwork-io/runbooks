@@ -13,9 +13,10 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { GitClient } from "../../services/GitClient.ts"
 import type {
   FileNotFoundError,
-  FileReadError,
   GitError,
+  SpawnError,
 } from "../../errors/index.ts"
+import { FileReadError } from "../../errors/index.ts"
 import {
   type WorkspaceTreeNode,
   type WorkspaceTreeResponse,
@@ -28,7 +29,7 @@ import {
   MAX_DIR_ENTRIES,
   MAX_FILE_CONTENT_SIZE,
 } from "../../types.ts"
-import { getLanguageFromExtension, VCS_DIRS } from "./file.ts"
+import { getLanguageFromExtension, VCS_DIRS, BINARY_EXTENSIONS_BASE } from "./file.ts"
 
 // ---------------------------------------------------------------------------
 // Image extensions -- rendered inline as base64 data URIs
@@ -47,24 +48,7 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 // Binary extensions -- non-text, non-image files
 // ---------------------------------------------------------------------------
 
-const BINARY_EXTENSIONS = new Set([
-  // Archives
-  ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-  ".rar", ".jar", ".war", ".ear",
-  // Executables / object files
-  ".exe", ".dll", ".so", ".dylib",
-  ".bin", ".dat", ".o", ".a",
-  // Bytecode / compiled
-  ".wasm", ".class", ".pyc", ".pyo",
-  // Fonts
-  ".ico", ".ttf", ".woff", ".woff2", ".eot", ".otf",
-  // Office documents
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-  // Media -- audio
-  ".mp3", ".wav", ".flac", ".ogg", ".m4a",
-  // Media -- video
-  ".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv",
-])
+const BINARY_EXTENSIONS = new Set<string>(BINARY_EXTENSIONS_BASE)
 
 /**
  * Text-based image formats (e.g. SVG is XML) -- these should be treated as
@@ -137,13 +121,12 @@ export const getWorkspaceTree = (
       fileCount,
     )
 
-    // Attempt to retrieve git metadata (non-fatal)
-    const gitInfo = yield* Effect.either(getGitInfo(worktreePath))
+    const gitInfo = yield* getGitInfo(worktreePath).pipe(Effect.orElseSucceed(() => undefined))
 
     return {
       tree,
       totalFiles: fileCount.value,
-      gitInfo: gitInfo._tag === "Right" ? gitInfo.right : undefined,
+      gitInfo,
     }
   })
 
@@ -183,11 +166,9 @@ const buildWorkspaceTreeRecursive = (
       return entry.isDirectory ? relPath + "/" : relPath
     })
 
-    const ignoredSet = yield* Effect.either(
-      git.checkIgnored(rootPath, pathsToCheck),
+    const ignored = yield* git.checkIgnored(rootPath, pathsToCheck).pipe(
+      Effect.orElseSucceed(() => new Set<string>()),
     )
-    const ignored =
-      ignoredSet._tag === "Right" ? ignoredSet.right : new Set<string>()
 
     const result: WorkspaceTreeNode[] = []
 
@@ -257,12 +238,11 @@ const buildWorkspaceTreeRecursive = (
           )
         }
 
-        // Get file info for size
         const entryFullPath = path.join(rootPath, entryRelPath)
-        const fileStat = yield* Effect.either(fs.stat(entryFullPath))
-
-        const size =
-          fileStat._tag === "Right" ? fileStat.right.size : 0
+        const size = yield* fs.stat(entryFullPath).pipe(
+          Effect.map((s) => s.size),
+          Effect.orElseSucceed(() => 0),
+        )
         const ext = path.extname(name).toLowerCase()
 
         result.push({
@@ -436,7 +416,7 @@ export const getWorkspaceChanges = (
   singleFile?: string,
 ): Effect.Effect<
   WorkspaceChangesResponse,
-  FileReadError | FileNotFoundError | GitError,
+  FileReadError | FileNotFoundError | GitError | SpawnError,
   FileSystem | GitClient
 > =>
   Effect.gen(function* () {
@@ -528,7 +508,7 @@ const getSingleFileDiff = (
   filePath: string,
 ): Effect.Effect<
   WorkspaceFileChange,
-  FileReadError | FileNotFoundError | GitError,
+  FileReadError | FileNotFoundError | GitError | SpawnError,
   FileSystem | GitClient
 > =>
   Effect.gen(function* () {
@@ -574,7 +554,7 @@ const populateDiffContent = (
   change: WorkspaceFileChange,
 ): Effect.Effect<
   void,
-  FileReadError | FileNotFoundError | GitError,
+  FileReadError | FileNotFoundError | GitError | SpawnError,
   FileSystem | GitClient
 > =>
   Effect.gen(function* () {
@@ -668,7 +648,7 @@ const getGitInfo = (
   dirPath: string,
 ): Effect.Effect<
   WorkspaceTreeResponse["gitInfo"],
-  GitError,
+  GitError | SpawnError,
   GitClient
 > =>
   Effect.gen(function* () {

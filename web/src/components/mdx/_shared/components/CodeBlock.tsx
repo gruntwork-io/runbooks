@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, type ReactNode, type ReactElement } from 'react'
+import { useState, useRef, type ReactNode, type ReactElement } from 'react'
 import { Copy, Check } from "lucide-react"
-import { copyTextToClipboard } from "@/lib/utils"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
 interface CodeBlockProps {
   children?: ReactNode
@@ -11,19 +11,9 @@ interface CodeBlockProps {
  * This component is registered as the MDX override for `pre` elements.
  */
 export function CodeBlock({ children, ...props }: CodeBlockProps) {
-  const [copied, setCopied] = useState(false)
+  const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [isHovered, setIsHovered] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Cleanup timeout on unmount to prevent state updates after unmount
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current)
-      }
-    }
-  }, [])
 
   // Extract text content from the code block
   const getCodeText = (): string => {
@@ -41,19 +31,8 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    
     const text = getCodeText()
-    if (text) {
-      const ok = await copyTextToClipboard(text)
-      if (ok) {
-        setCopied(true)
-        // Clear any existing timeout before setting a new one
-        if (copyTimeoutRef.current) {
-          clearTimeout(copyTimeoutRef.current)
-        }
-        copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
-      }
-    }
+    if (text) await doCopy(text)
   }
 
   // Check if this is actually a code block (has a <code> child)

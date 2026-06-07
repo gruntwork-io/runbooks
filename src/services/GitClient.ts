@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect"
-import type { GitError } from "../errors/index.ts"
+import type { GitError, SpawnError } from "../errors/index.ts"
 
 export interface CloneOptions {
   readonly ref?: string
@@ -65,20 +65,20 @@ export interface CommitOptions {
 }
 
 export interface GitClientShape {
-  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<CloneResult, GitError>
-  readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError>
-  readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError>
-  readonly getCurrentBranch: (repoPath: string) => Effect.Effect<string, GitError>
-  readonly getRemoteUrl: (repoPath: string) => Effect.Effect<string, GitError>
-  readonly getInfo: (repoPath: string) => Effect.Effect<GitInfo, GitError>
-  readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError>
-  readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError>
-  readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError>
-  readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError>
-  readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError>
-  readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError>
-  readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError>
-  readonly commit: (repoPath: string, message: string, options?: CommitOptions) => Effect.Effect<void, GitError>
+  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<CloneResult, GitError | SpawnError>
+  readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError | SpawnError>
+  readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
+  readonly getCurrentBranch: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
+  readonly getRemoteUrl: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
+  readonly getInfo: (repoPath: string) => Effect.Effect<GitInfo, GitError | SpawnError>
+  readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
+  readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
+  readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
+  readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
+  readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>
+  readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
+  readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError | SpawnError>
+  readonly commit: (repoPath: string, message: string, options?: CommitOptions) => Effect.Effect<void, GitError | SpawnError>
 }
 
 export class GitClient extends Context.Tag("GitClient")<GitClient, GitClientShape>() {}

@@ -1166,9 +1166,7 @@ export class TestExecutor {
     result.outputs = { clone_path: destPath, file_count: String(fileCount) }
     if (ref) result.outputs["ref"] = ref
 
-    const outputMap = new Map<string, string>()
-    for (const [k, v] of Object.entries(result.outputs)) outputMap.set(k, v)
-    this.blockOutputs.set(block.id, outputMap)
+    this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
 
     this.activeWorkTreePath = destPath
     this.blockStates.set(block.id, "success")

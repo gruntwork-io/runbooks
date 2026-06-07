@@ -189,7 +189,7 @@ export const executeScript = (
 
     log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
-    const logStream = Stream.map(process.output, (outputLine): ExecEvent => ({
+    const logStream = Stream.map(process.output, (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
       _tag: "log",
       event: {
         line: outputLine.line,

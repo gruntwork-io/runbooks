@@ -83,6 +83,7 @@ export interface BoilerplateVariable {
 
 export interface Section {
   name: string
+  description?: string
   variables: string[]
 }
 
@@ -202,6 +203,8 @@ export interface ExecRequest {
   componentId?: string
   templateVarValues?: Record<string, unknown>
   envVarsOverride?: Record<string, string>
+  /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
+  usePty?: boolean
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
   timeoutMs?: number
 }

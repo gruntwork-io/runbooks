@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { AlertTriangle, XCircle, Copy, Check } from 'lucide-react'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { ReportedError } from '../../contexts/ErrorReportingContext.types'
 
 interface ErrorSummaryBannerProps {
@@ -14,7 +14,7 @@ interface ErrorSummaryBannerProps {
  * Prompts users to scroll down to see them inline in each component.
  */
 export function ErrorSummaryBanner({ errors, errorCount, warningCount, className = '' }: ErrorSummaryBannerProps) {
-  const [copied, setCopied] = useState(false)
+  const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const totalIssues = errorCount + warningCount
 
   if (totalIssues === 0) {
@@ -27,13 +27,9 @@ export function ErrorSummaryBanner({ errors, errorCount, warningCount, className
   const borderColor = hasErrors ? 'border-destructive/30' : 'border-warning/30'
   const textColor = hasErrors ? 'text-destructive' : 'text-warning-foreground'
 
-  const handleCopy = async () => {
-    const text = errors
-      .map(e => `[${e.componentType}] ${e.message}`)
-      .join('\n')
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const handleCopy = () => {
+    const text = errors.map(e => `[${e.componentType}] ${e.message}`).join('\n')
+    void doCopy(text)
   }
 
   return (

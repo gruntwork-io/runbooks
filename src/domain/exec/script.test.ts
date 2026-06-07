@@ -16,7 +16,7 @@ import {
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 
 function runFs<A>(effect: Effect.Effect<A, any, any>, files: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))))
+  return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<A, any, never>)
 }
 
 // ---------------------------------------------------------------------------

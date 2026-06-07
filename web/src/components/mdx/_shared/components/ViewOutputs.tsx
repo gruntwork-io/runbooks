@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { copyTextToClipboard } from "@/lib/utils"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
 interface ViewOutputsProps {
   outputs: Record<string, string> | null
@@ -14,7 +15,7 @@ export function ViewOutputs({
   autoOpen = false,
 }: ViewOutputsProps) {
   const [showOutputs, setShowOutputs] = useState(autoOpen)
-  const [copied, setCopied] = useState(false)
+  const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   useEffect(() => {
@@ -30,12 +31,7 @@ export function ViewOutputs({
   // Handle copy to clipboard (full JSON)
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation() // Prevent toggle
-    const jsonStr = getOutputsJson()
-    const ok = await copyTextToClipboard(jsonStr)
-    if (ok) {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
+    await doCopy(getOutputsJson())
   }
 
   // Handle copy individual value

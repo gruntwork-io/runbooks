@@ -11,7 +11,7 @@ afterEach(() => {
 })
 
 function mockFetch(impl: (url: string, init?: RequestInit) => Response) {
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
     Promise.resolve(impl(String(input), init))) as typeof fetch
 }
 
@@ -51,8 +51,8 @@ describe("GitLabHttpClient.validateToken", () => {
 
     const result = await Effect.runPromise(validate("glpat-abc"))
 
-    expect(userToken).toBe("glpat-abc")
-    expect(patSelfToken).toBe("glpat-abc")
+    expect(userToken!).toBe("glpat-abc")
+    expect(patSelfToken!).toBe("glpat-abc")
     expect(result.user).toEqual({
       login: "tanuki",
       name: "Tanuki Example",
@@ -86,7 +86,7 @@ describe("GitLabHttpClient.validateToken", () => {
 
     expect(result.user.login).toBe("odgrim")
     expect(result.scopes).toEqual(["read_user", "write_repository", "api"])
-    expect(infoAuth).toBe("Bearer oauth-token-xyz")
+    expect(infoAuth!).toBe("Bearer oauth-token-xyz")
     // /user is tried twice (PRIVATE-TOKEN, then Bearer), then introspection.
     expect(calls.filter((u) => u.endsWith("/api/v4/user"))).toHaveLength(2)
   })
@@ -192,10 +192,10 @@ describe("GitLabHttpClient.createMergeRequest", () => {
     const result = await Effect.runPromise(createMR("glpat-abc"))
 
     // group/subgroup/project -> group%2Fsubgroup%2Fproject
-    expect(requestedUrl).toBe(
+    expect(requestedUrl!).toBe(
       "https://gitlab.com/api/v4/projects/group%2Fsubgroup%2Fproject/merge_requests",
     )
-    expect(sentBody).toEqual({
+    expect(sentBody!).toEqual({
       source_branch: "runbook/123",
       target_branch: "main",
       title: "Add feature",
@@ -225,7 +225,7 @@ describe("GitLabHttpClient.createMergeRequest", () => {
       } as typeof baseParams),
     )
 
-    expect(sentBody).toEqual({ source_branch: "b", target_branch: "main", title: "t" })
+    expect(sentBody!).toEqual({ source_branch: "b", target_branch: "main", title: "t" })
   })
 
   it("fails with GitLabApiError carrying status 409 when an MR already exists", async () => {
@@ -259,8 +259,8 @@ describe("GitLabHttpClient.listLabels", () => {
 
     const labels = await Effect.runPromise(listLabels("glpat-abc", "group/sub", "proj"))
 
-    expect(requestedUrl).toContain("/api/v4/projects/group%2Fsub%2Fproj/labels")
-    expect(requestedUrl).toContain("include_ancestor_groups=true")
+    expect(requestedUrl!).toContain("/api/v4/projects/group%2Fsub%2Fproj/labels")
+    expect(requestedUrl!).toContain("include_ancestor_groups=true")
     expect(labels).toEqual(["bug", "enhancement"])
   })
 })
@@ -309,7 +309,7 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
       }).pipe(Effect.provide(GitLabHttpClientLive)),
     )
 
-    expect(requestedUrl).toBe("https://gitlab.example.com/api/v4/projects/g%2Fp/merge_requests")
+    expect(requestedUrl!).toBe("https://gitlab.example.com/api/v4/projects/g%2Fp/merge_requests")
     expect(result.url).toBe("https://gitlab.example.com/g/p/-/merge_requests/7")
   })
 
@@ -327,7 +327,7 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
       }).pipe(Effect.provide(GitLabHttpClientLive)),
     )
 
-    expect(requestedUrl).toContain("https://gitlab.example.com/api/v4/projects/g%2Fp/labels")
+    expect(requestedUrl!).toContain("https://gitlab.example.com/api/v4/projects/g%2Fp/labels")
     expect(labels).toEqual(["bug"])
   })
 

@@ -270,7 +270,7 @@ const impl: AwsClientShape = {
         )
       },
       catch: () => true,
-    }) as Effect.Effect<boolean, AwsAuthError>,
+    }) as unknown as Effect.Effect<boolean, AwsAuthError>,
 }
 
 function classifyProfile(name: string, block: Record<string, string>): ProfileInfo {

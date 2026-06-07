@@ -1,8 +1,7 @@
-import { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Copy, Check } from "lucide-react"
-import { copyTextToClipboard } from "@/lib/utils"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
 export interface CodeFileHeaderProps {
   filePath: string;
@@ -19,32 +18,11 @@ export const CodeFileHeader = ({
   showCopyPathButton = true,
   className = ""
 }: CodeFileHeaderProps) => {
-  const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedPath, setCopiedPath] = useState(false);
+  const { didCopy: copiedCode, copy: doCopyCode } = useCopyToClipboard(2000)
+  const { didCopy: copiedPath, copy: doCopyPath } = useCopyToClipboard(2000)
 
-  // Handle copy code with checkmark feedback
-  const handleCopyCode = async () => {
-    if (code) {
-      const ok = await copyTextToClipboard(code)
-      if (!ok) {
-        console.error('Failed to copy text')
-        return
-      }
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    }
-  };
-
-  // Handle copy path with checkmark feedback
-  const handleCopyPath = async () => {
-    const ok = await copyTextToClipboard(filePath)
-    if (!ok) {
-      console.error('Failed to copy text')
-      return
-    }
-    setCopiedPath(true);
-    setTimeout(() => setCopiedPath(false), 2000);
-  };
+  const handleCopyCode = () => { if (code) void doCopyCode(code) }
+  const handleCopyPath = () => void doCopyPath(filePath)
 
   return (
     <div className={`text-xs text-muted-foreground border border-border px-2 -mb-2 font-sans h-8 bg-muted flex items-center justify-between ${className}`}>

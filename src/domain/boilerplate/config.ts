@@ -255,7 +255,7 @@ function parseSkipFiles(raw: unknown): SkipFileRule[] {
  * This is a pure function wrapped in Effect so callers get typed errors via
  * `BoilerplateConfigError`.
  */
-export function parseBoilerplateConfig(yamlContent: string) {
+export function parseBoilerplateConfig(yamlContent: string): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
   return Effect.gen(function* () {
     let raw: RawConfig
     try {

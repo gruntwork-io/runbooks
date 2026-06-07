@@ -414,10 +414,7 @@ export class SessionManager {
       return this.session.activeWorkTreePath
     }
 
-    // Fall back to last registered
-    return this.session.registeredWorkTreePaths[
-      this.session.registeredWorkTreePaths.length - 1
-    ]
+    return this.session.registeredWorkTreePaths.at(-1)!
   }
 
   // -------------------------------------------------------------------------

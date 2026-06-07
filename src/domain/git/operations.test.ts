@@ -376,7 +376,7 @@ describe("createMergeRequest", () => {
     expect(result._tag).toBe("Left")
     if (result._tag === "Left") {
       expect(result.left).toBeInstanceOf(GitLabApiError)
-      expect(result.left.status).toBe(409)
+      expect((result.left as GitLabApiError).status).toBe(409)
       expect(result.left.message).toContain("already exists")
     }
   })

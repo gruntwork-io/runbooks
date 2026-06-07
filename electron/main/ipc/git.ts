@@ -7,7 +7,7 @@
  */
 import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
-import { Cause, Effect, Exit, Stream } from "effect"
+import { Cause, Effect, Exit, ManagedRuntime, Stream } from "effect"
 import { ipcMain, type IpcMainInvokeEvent } from "electron"
 import { runtime, sessionManager, getSessionToken, getSessionTokenForProvider } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
@@ -91,7 +91,7 @@ function errorMessage(err: unknown): string {
  * keeps the real message flowing through Electron's IPC serialization.
  */
 async function runAndUnwrap<A, E extends { _tag: string }>(
-  program: Effect.Effect<A, E, never>,
+  program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
 ): Promise<A> {
   const exit = await runtime.runPromiseExit(program)
   if (Exit.isSuccess(exit)) return exit.value

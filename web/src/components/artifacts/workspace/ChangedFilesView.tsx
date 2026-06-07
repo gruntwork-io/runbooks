@@ -6,7 +6,8 @@
  */
 
 import type React from 'react'
-import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from 'react'
+import { useState, useMemo, forwardRef } from 'react'
+import { useCollapsibleFileList } from '@/hooks/useCollapsibleFileList'
 import {
   ChevronDown,
   ChevronRight,
@@ -22,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
+import { SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
 import { ShowMoreBanner } from '@/lib/ShowMoreBanner'
 import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHeader'
 import { FILE_TREE_INDENT } from '@/components/artifacts/code/FileTree'
@@ -72,81 +73,27 @@ export const ChangedFilesView = ({
   className = "",
 }: ChangedFilesViewProps) => {
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
-  const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAYED_FILES)
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
-  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-
-  // Auto-collapse all diffs when there are many changes to avoid rendering
-  // expensive diff content for every file, which can freeze the browser.
-  const prevChangeLenRef = useRef(0)
-  useEffect(() => {
-    if (changes.length > AUTO_COLLAPSE_THRESHOLD && prevChangeLenRef.current !== changes.length) {
-      setCollapsedFiles(new Set(changes.map(c => c.path)))
-    }
-    prevChangeLenRef.current = changes.length
-  }, [changes])
-
-  // Reset display limit when changes list changes substantially
-  useEffect(() => {
-    setDisplayLimit(MAX_DISPLAYED_FILES)
-  }, [changes.length])
+  const {
+    collapsedFiles,
+    displayedItems: displayedChanges,
+    hasMoreItems: hasMoreFiles,
+    toggleCollapse: toggleFileCollapse,
+    showMore: handleShowMore,
+    expandAndJump,
+    setItemRef: setFileRef,
+  } = useCollapsibleFileList({
+    items: changes,
+    getKey: (c) => c.path,
+    changeKey: changes.length,
+  })
 
   const fileTree = useMemo(() => buildFileTree(changes), [changes])
 
-  // Slice changes to the display limit for the diff pane
-  const displayedChanges = useMemo(
-    () => changes.slice(0, displayLimit),
-    [changes, displayLimit]
-  )
-  const hasMoreFiles = changes.length > displayLimit
-
-  // Handle file selection from tree - jump to file
   const handleFileSelect = (filePath: string) => {
     setFocusedPath(filePath)
-    // Expand the file if it's collapsed
-    setCollapsedFiles(prev => {
-      const next = new Set(prev)
-      next.delete(filePath)
-      return next
-    })
-    // If the selected file is beyond the display limit, extend the limit
-    const fileIndex = changes.findIndex(c => c.path === filePath)
-    if (fileIndex >= displayLimit) {
-      setDisplayLimit(fileIndex + 1)
-    }
-    // Jump to the file (deferred to let React render the new limit)
-    requestAnimationFrame(() => {
-      const fileEl = fileRefs.current.get(filePath)
-      if (fileEl) {
-        fileEl.scrollIntoView({ behavior: 'auto', block: 'start' })
-      }
-    })
+    expandAndJump(filePath, changes.findIndex(c => c.path === filePath))
   }
-
-  const toggleFileCollapse = (filePath: string) => {
-    setCollapsedFiles(prev => {
-      const next = new Set(prev)
-      if (next.has(filePath)) {
-        next.delete(filePath)
-      } else {
-        next.add(filePath)
-      }
-      return next
-    })
-  }
-
-  const handleShowMore = () => {
-    setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT)
-  }
-
-  const setFileRef = useCallback((filePath: string, el: HTMLDivElement | null) => {
-    if (el) {
-      fileRefs.current.set(filePath, el)
-    } else {
-      fileRefs.current.delete(filePath)
-    }
-  }, [])
 
   // Loading state
   if (isLoading && changes.length === 0) {
@@ -239,7 +186,7 @@ export const ChangedFilesView = ({
               <ShowMoreBanner
                 displayedCount={displayedChanges.length}
                 total={changes.length}
-                remaining={Math.min(SHOW_MORE_INCREMENT, changes.length - displayLimit)}
+                remaining={Math.min(SHOW_MORE_INCREMENT, changes.length - displayedChanges.length)}
                 noun="changed files"
                 onShowMore={handleShowMore}
               />
