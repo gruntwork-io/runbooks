@@ -7,8 +7,8 @@
  */
 import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
-import { Cause, Effect, Exit, Stream } from "effect"
-import { ipcMain } from "electron"
+import { Cause, Effect, Exit, ManagedRuntime, Stream } from "effect"
+import { ipcMain, type IpcMainInvokeEvent } from "electron"
 import { runtime, sessionManager, getSessionToken, getSessionTokenForProvider } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
@@ -31,6 +31,13 @@ import { validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:git:clone")
+
+/**
+ * Build a `git:log` progress sink bound to an invoke event. Each handler that
+ * streams human-readable progress lines to the renderer uses one of these.
+ */
+const makeSendLog = (event: IpcMainInvokeEvent) => (line: string) =>
+  event.sender.send("git:log", { line, timestamp: new Date().toISOString() })
 
 /**
  * Resolve the GitHub token from the session env, failing with a typed
@@ -84,27 +91,96 @@ function errorMessage(err: unknown): string {
  * keeps the real message flowing through Electron's IPC serialization.
  */
 async function runAndUnwrap<A, E extends { _tag: string }>(
-  program: Effect.Effect<A, E, never>,
+  program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
 ): Promise<A> {
   const exit = await runtime.runPromiseExit(program)
   if (Exit.isSuccess(exit)) return exit.value
 
   const failure = Cause.failureOption(exit.cause)
   if (failure._tag === "Some") {
-    const err = failure.value as GitError | PathTraversalError | { _tag: string }
-    if (err._tag === "GitError") {
-      const gitErr = err as GitError
-      // gitErr.command already includes the "git " prefix (see GitCliClient.runGit).
-      throw new Error(
-        gitErr.stderr || `${gitErr.command} failed (exit ${gitErr.exitCode})`,
-      )
-    }
-    if (err._tag === "PathTraversalError") {
-      throw new Error((err as PathTraversalError).message)
-    }
-    throw new Error(String(err))
+    // Reuse the canonical extractor so the renderer-facing message stays
+    // consistent with git:error events (handles GitError/PathTraversalError
+    // and, defensively, the API error tags).
+    throw new Error(errorMessage(failure.value))
   }
   throw new Error(Cause.pretty(exit.cause))
+}
+
+/** Renderer payload shared by the git:pull-request and git:merge-request handlers. */
+interface GitPrParams {
+  worktreePath: string
+  owner: string
+  repo: string
+  title: string
+  body?: string
+  baseBranch: string
+  headBranch: string
+  commitMessage: string
+  labels?: string[]
+}
+
+/** Map the renderer PR/MR payload to the domain create-params shape. */
+function buildPrParams(params: GitPrParams, repoPath: string): CreatePullRequestParams {
+  return {
+    owner: params.owner,
+    repo: params.repo,
+    title: params.title,
+    body: params.body,
+    baseBranch: params.baseBranch,
+    headBranch: params.headBranch,
+    commitMessage: params.commitMessage,
+    labels: params.labels,
+    repoPath,
+  }
+}
+
+/**
+ * Shared response handling for git:pull-request and git:merge-request. On
+ * success, emit git:pr-result + git:outputs + git:status and return the PR/MR
+ * summary; on failure, emit a git:error (tagging the recoverable branch_exists
+ * code) + git:status. `extraBranchExists` injects the MR-only HTTP-409 check;
+ * the local-branch "already exists" case is handled generically for both.
+ */
+function respondToGitPrExit<A extends { url: string; number: number; branch: string }>(
+  event: IpcMainInvokeEvent,
+  exit: Exit.Exit<A, unknown>,
+  headBranch: string,
+  extraBranchExists?: (failureValue: unknown) => boolean,
+): { url: string; number: number } | { error: string } {
+  if (Exit.isSuccess(exit)) {
+    const pr = exit.value
+    event.sender.send("git:pr-result", {
+      prUrl: pr.url,
+      prNumber: pr.number,
+      branchName: pr.branch,
+    })
+    event.sender.send("git:outputs", {
+      outputs: {
+        pr_url: pr.url,
+        pr_number: String(pr.number),
+        pr_branch: pr.branch,
+      },
+    })
+    event.sender.send("git:status", { status: "success", exitCode: 0 })
+    return { url: pr.url, number: pr.number }
+  }
+
+  const failure = Cause.failureOption(exit.cause)
+  const failureValue = failure._tag === "Some" ? failure.value : undefined
+  const message =
+    failureValue !== undefined ? errorMessage(failureValue) : Cause.pretty(exit.cause)
+  const code =
+    extraBranchExists?.(failureValue) || /already exists/i.test(message)
+      ? "branch_exists"
+      : undefined
+
+  event.sender.send("git:error", {
+    message,
+    ...(code ? { code, branchName: headBranch } : {}),
+  })
+  event.sender.send("git:status", { status: "fail", exitCode: 1 })
+
+  return { error: message }
 }
 
 export function registerGitHandlers(): void {
@@ -323,11 +399,7 @@ export function registerGitHandlers(): void {
         provider?: "github" | "gitlab"
       },
     ) => {
-      const sendLog = (line: string) =>
-        event.sender.send("git:log", {
-          line,
-          timestamp: new Date().toISOString(),
-        })
+      const sendLog = makeSendLog(event)
 
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
@@ -374,225 +446,65 @@ export function registerGitHandlers(): void {
     },
   )
 
-  ipcMain.handle(
-    "git:pull-request",
-    async (
+  ipcMain.handle("git:pull-request", async (event, params: GitPrParams) => {
+    const sendLog = makeSendLog(event)
+
+    // Resolve the token server-side, map the renderer payload to the domain
+    // shape, and create the PR. We run via runPromiseExit (instead of
+    // runAndUnwrap) so that on failure we can emit a structured git:error
+    // event the renderer can act on (e.g. the branch_exists recovery flow).
+    const program = Effect.gen(function* () {
+      const repoPath = yield* validateSessionPath(params.worktreePath)
+      const token = yield* resolveGitToken()
+      // sendLog is threaded in as the progress sink so each line is emitted
+      // when its step actually runs, not all at once before the work starts.
+      return yield* createPullRequest(token, buildPrParams(params, repoPath), sendLog)
+    })
+
+    return respondToGitPrExit(event, await runtime.runPromiseExit(program), params.headBranch)
+  })
+
+  ipcMain.handle("git:merge-request", async (event, params: GitPrParams) => {
+    const sendLog = makeSendLog(event)
+
+    // Mirrors git:pull-request but resolves the GitLab token (not the
+    // github-pinned resolveGitToken) and opens an MR. Reuses the git:pr-result
+    // / git:outputs / git:error contract so the renderer handles both
+    // providers with one set of event listeners.
+    const program = Effect.gen(function* () {
+      const repoPath = yield* validateSessionPath(params.worktreePath)
+      const token = yield* getSessionTokenForProvider(
+        "gitlab",
+        () =>
+          new GitError({
+            command: "resolve gitlab token",
+            stderr:
+              "No GitLab token available in session. Authenticate with the GitLab Auth block before creating a merge request.",
+            exitCode: 1,
+          }),
+      )
+      // The MR targets the repo's own GitLab instance, which createMergeRequest
+      // derives from the repo's remote URL — no need to thread a host here.
+      return yield* createMergeRequest(token, buildPrParams(params, repoPath), sendLog)
+    })
+
+    // GitLab rejects the create with HTTP 409 when an MR already exists for the
+    // source branch; its message is unreliable, so match the status, not the
+    // text. (The local-branch "already exists" case is handled generically.)
+    const isExistingMr = (failureValue: unknown) =>
+      !!failureValue &&
+      typeof failureValue === "object" &&
+      "_tag" in failureValue &&
+      (failureValue as { _tag: string })._tag === "GitLabApiError" &&
+      (failureValue as GitLabApiError).status === 409
+
+    return respondToGitPrExit(
       event,
-      params: {
-        worktreePath: string
-        owner: string
-        repo: string
-        title: string
-        body?: string
-        baseBranch: string
-        headBranch: string
-        commitMessage: string
-        labels?: string[]
-      },
-    ) => {
-      const sendLog = (line: string) =>
-        event.sender.send("git:log", {
-          line,
-          timestamp: new Date().toISOString(),
-        })
-
-      // Resolve the token server-side, map the renderer payload to the domain
-      // shape, and create the PR. We run via runPromiseExit (instead of
-      // runAndUnwrap) so that on failure we can emit a structured git:error
-      // event the renderer can act on (e.g. the branch_exists recovery flow).
-      // [diagnostic] See git:merge-request note. Remove once the hang is found.
-      console.log("[ipc git:pull-request] received", {
-        worktreePath: params.worktreePath,
-        owner: params.owner,
-        repo: params.repo,
-        baseBranch: params.baseBranch,
-        headBranch: params.headBranch,
-      })
-
-      const program = Effect.gen(function* () {
-        const repoPath = yield* validateSessionPath(params.worktreePath)
-        console.log("[ipc git:pull-request] path validated:", repoPath)
-        const token = yield* resolveGitToken()
-        console.log("[ipc git:pull-request] github token resolved; starting git steps")
-
-        const prParams: CreatePullRequestParams = {
-          owner: params.owner,
-          repo: params.repo,
-          title: params.title,
-          body: params.body,
-          baseBranch: params.baseBranch,
-          headBranch: params.headBranch,
-          commitMessage: params.commitMessage,
-          labels: params.labels,
-          repoPath,
-        }
-
-        // sendLog is threaded in as the progress sink so each line is emitted
-        // when its step actually runs, not all at once before the work starts.
-        return yield* createPullRequest(token, prParams, sendLog)
-      })
-
-      const exit = await runtime.runPromiseExit(program)
-      console.log("[ipc git:pull-request] settled:", Exit.isSuccess(exit) ? "success" : "failure")
-
-      if (Exit.isSuccess(exit)) {
-        const pr = exit.value
-        event.sender.send("git:pr-result", {
-          prUrl: pr.url,
-          prNumber: pr.number,
-          branchName: pr.branch,
-        })
-        event.sender.send("git:outputs", {
-          outputs: {
-            pr_url: pr.url,
-            pr_number: String(pr.number),
-            pr_branch: pr.branch,
-          },
-        })
-        event.sender.send("git:status", { status: "success", exitCode: 0 })
-        return { url: pr.url, number: pr.number }
-      }
-
-      const failure = Cause.failureOption(exit.cause)
-      const message =
-        failure._tag === "Some"
-          ? errorMessage(failure.value)
-          : Cause.pretty(exit.cause)
-      // `git checkout -b` fails with "a branch named 'x' already exists" when
-      // the head branch is left over from a prior attempt; surface that as a
-      // recoverable code so the renderer can offer to delete & retry.
-      const code = /already exists/i.test(message) ? "branch_exists" : undefined
-
-      event.sender.send("git:error", {
-        message,
-        ...(code ? { code, branchName: params.headBranch } : {}),
-      })
-      event.sender.send("git:status", { status: "fail", exitCode: 1 })
-
-      return { error: message }
-    },
-  )
-
-  ipcMain.handle(
-    "git:merge-request",
-    async (
-      event,
-      params: {
-        worktreePath: string
-        owner: string
-        repo: string
-        title: string
-        body?: string
-        baseBranch: string
-        headBranch: string
-        commitMessage: string
-        labels?: string[]
-      },
-    ) => {
-      const sendLog = (line: string) =>
-        event.sender.send("git:log", {
-          line,
-          timestamp: new Date().toISOString(),
-        })
-
-      // Mirrors git:pull-request but resolves the GitLab token (not the
-      // github-pinned resolveGitToken) and opens an MR. Reuses the git:pr-result
-      // / git:outputs / git:error contract so the renderer handles both
-      // providers with one set of event listeners.
-      // [diagnostic] These handlers were silent in the main log, masking where
-      // a stuck "create" actually stalls. Remove once the hang is root-caused.
-      console.log("[ipc git:merge-request] received", {
-        worktreePath: params.worktreePath,
-        owner: params.owner,
-        repo: params.repo,
-        baseBranch: params.baseBranch,
-        headBranch: params.headBranch,
-      })
-
-      const program = Effect.gen(function* () {
-        const repoPath = yield* validateSessionPath(params.worktreePath)
-        console.log("[ipc git:merge-request] path validated:", repoPath)
-        const token = yield* getSessionTokenForProvider(
-          "gitlab",
-          () =>
-            new GitError({
-              command: "resolve gitlab token",
-              stderr:
-                "No GitLab token available in session. Authenticate with the GitLab Auth block before creating a merge request.",
-              exitCode: 1,
-            }),
-        )
-        console.log("[ipc git:merge-request] gitlab token resolved; starting git steps")
-
-        // The MR targets the repo's own GitLab instance, which createMergeRequest
-        // derives from the repo's remote URL — no need to thread a host here.
-        const mrParams: CreatePullRequestParams = {
-          owner: params.owner,
-          repo: params.repo,
-          title: params.title,
-          body: params.body,
-          baseBranch: params.baseBranch,
-          headBranch: params.headBranch,
-          commitMessage: params.commitMessage,
-          labels: params.labels,
-          repoPath,
-        }
-
-        return yield* createMergeRequest(token, mrParams, sendLog)
-      })
-
-      const exit = await runtime.runPromiseExit(program)
-      console.log("[ipc git:merge-request] settled:", Exit.isSuccess(exit) ? "success" : "failure")
-
-      if (Exit.isSuccess(exit)) {
-        const mr = exit.value
-        event.sender.send("git:pr-result", {
-          prUrl: mr.url,
-          prNumber: mr.number,
-          branchName: mr.branch,
-        })
-        event.sender.send("git:outputs", {
-          outputs: {
-            pr_url: mr.url,
-            pr_number: String(mr.number),
-            pr_branch: mr.branch,
-          },
-        })
-        event.sender.send("git:status", { status: "success", exitCode: 0 })
-        return { url: mr.url, number: mr.number }
-      }
-
-      const failure = Cause.failureOption(exit.cause)
-      const failureValue = failure._tag === "Some" ? failure.value : undefined
-      const message =
-        failureValue !== undefined
-          ? errorMessage(failureValue)
-          : Cause.pretty(exit.cause)
-
-      // Two recoverable "branch_exists" conditions, both fixed by deleting the
-      // leftover head branch and retrying: (1) `git checkout -b` failing because
-      // the local branch already exists (a GitError matching /already exists/),
-      // and (2) GitLab rejecting the create with HTTP 409 because an MR already
-      // exists for that source branch (read off the typed GitLabApiError — its
-      // message is unreliable, so match the status, not the text).
-      const isExistingMr =
-        !!failureValue &&
-        typeof failureValue === "object" &&
-        "_tag" in failureValue &&
-        (failureValue as { _tag: string })._tag === "GitLabApiError" &&
-        (failureValue as GitLabApiError).status === 409
-      const code =
-        isExistingMr || /already exists/i.test(message) ? "branch_exists" : undefined
-
-      event.sender.send("git:error", {
-        message,
-        ...(code ? { code, branchName: params.headBranch } : {}),
-      })
-      event.sender.send("git:status", { status: "fail", exitCode: 1 })
-
-      return { error: message }
-    },
-  )
+      await runtime.runPromiseExit(program),
+      params.headBranch,
+      isExistingMr,
+    )
+  })
 
   ipcMain.handle(
     "git:delete-branch",

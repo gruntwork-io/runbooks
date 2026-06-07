@@ -21,15 +21,12 @@ export type TemplateDependency =
   | { type: 'input'; name: InputName }
   | { type: 'output'; blockId: BlockId; outputName: OutputName; fullPath: string }
 
-/**
- * Output dependency in the format expected by computeUnmetOutputDependencies.
- * Matches the existing OutputDependency interface from extractOutputDependencies.ts.
- */
-export interface OutputDependency {
-  blockId: BlockId
-  outputName: OutputName
-  fullPath: string
-}
+// OutputDependency is defined canonically alongside the boilerplate config types.
+// Import it for local use below, and re-export so existing importers keep a
+// single source of truth. (BlockId/OutputName are string aliases, so the shapes
+// are identical.)
+import type { OutputDependency } from '@/types/boilerplateConfig'
+export type { OutputDependency }
 
 /**
  * Extract all template dependencies from a string using the new syntax.

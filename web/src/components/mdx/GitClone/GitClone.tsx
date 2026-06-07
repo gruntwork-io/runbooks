@@ -1,7 +1,7 @@
-import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle, Info, Copy, Check } from "lucide-react"
+import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle, Copy, Check } from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
 import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { copyTextToClipboard } from "@/lib/utils"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -69,7 +69,6 @@ function GitCloneInteractive({
   usePty,
   showFileTree = true,
 }: GitCloneProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -123,24 +122,19 @@ function GitCloneInteractive({
 
   // --- End template dependency resolution ---
 
-  // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitClone')
 
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Git worktree context for registering cloned repos with the workspace
   const { registerWorkTree } = useGitWorkTree()
 
-  // Track render
   useEffect(() => {
     trackBlockRender('GitClone')
   }, [id, trackBlockRender])
 
-  // Core hook
   const {
     cloneStatus,
     logs,
@@ -149,7 +143,6 @@ function GitCloneInteractive({
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
-    sessionReady,
     workingDir,
     clone,
     cancel,
@@ -160,7 +153,6 @@ function GitCloneInteractive({
     fetchRefs,
   } = useGitClone({ id, githubAuthId, gitAuthId })
 
-  // Get registered outputs for this block
   const outputValues = useOutputs(id)
   const registeredOutputs = useMemo(() => {
     if (!outputValues || outputValues.length === 0) return null
@@ -214,12 +206,12 @@ function GitCloneInteractive({
     return { relative, absolute }
   }, [workingDir, localPath, gitUrl])
 
-  // Check for GitHub token once session is ready and auth dependency is met
+  // Check for GitHub token once the auth dependency is met
   useEffect(() => {
-    if (sessionReady && gitHubAuthMet && !tokenChecked) {
+    if (gitHubAuthMet && !tokenChecked) {
       checkGitHubToken()
     }
-  }, [sessionReady, gitHubAuthMet, tokenChecked, checkGitHubToken])
+  }, [gitHubAuthMet, tokenChecked, checkGitHubToken])
 
   // Report configuration errors
   useEffect(() => {
@@ -275,10 +267,8 @@ function GitCloneInteractive({
     return null
   }, [resolvedUrl])
 
-  // Overwrite confirmation state
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
-  // Handle clone button
   const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
     setShowOverwriteConfirm(false)
@@ -288,18 +278,15 @@ function GitCloneInteractive({
     }
   }, [gitUrl, ref, repoPath, localPath, clone, usePty])
 
-  // Handle repo selected from GitHub browser
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
     setShowOverwriteConfirm(false)
   }, [])
 
-  // Handle ref selected from GitHub browser
   const handleRefSelected = useCallback((selectedRef: string) => {
     setRef(selectedRef)
   }, [])
 
-  // Handle clone again
   const handleCloneAgain = useCallback(() => {
     reset()
     setShowOverwriteConfirm(false)
@@ -424,21 +411,14 @@ function GitCloneInteractive({
                   <div>
                     <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
                       Ref <span className="font-normal text-muted-foreground">(optional)</span>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
-                            <Info className="size-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[280px]">
-                          The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
-                          {tokenChecked && hasGitHubToken && (
-                            <>
-                              <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
-                            </>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
+                      <InfoTooltip>
+                        The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
+                        {tokenChecked && hasGitHubToken && (
+                          <>
+                            <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
+                          </>
+                        )}
+                      </InfoTooltip>
                     </label>
                     <input
                       type="text"
@@ -454,16 +434,9 @@ function GitCloneInteractive({
                   <div>
                     <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
                       Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
-                            <Info className="size-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[280px]">
-                          Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
-                        </TooltipContent>
-                      </Tooltip>
+                      <InfoTooltip>
+                        Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                      </InfoTooltip>
                     </label>
                     <input
                       type="text"
@@ -479,16 +452,9 @@ function GitCloneInteractive({
                   <div>
                     <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
                       Local Path <span className="font-normal text-muted-foreground">(optional)</span>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
-                            <Info className="size-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[280px]">
-                          The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
-                        </TooltipContent>
-                      </Tooltip>
+                      <InfoTooltip>
+                        The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
+                      </InfoTooltip>
                     </label>
                     <input
                       type="text"

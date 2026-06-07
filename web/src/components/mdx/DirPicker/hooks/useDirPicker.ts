@@ -147,7 +147,6 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     manualPath,
     error,
     isWorkspaceReady,
-    rootPath,
     selectDir,
     setPath,
   }

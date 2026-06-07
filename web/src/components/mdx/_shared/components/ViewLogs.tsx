@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { copyTextToClipboard } from "@/lib/utils"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import {
   stripAnsi,
   parseLogsToStructured,
@@ -36,14 +36,13 @@ export function ViewLogs({
   logFilePath,
 }: ViewLogsProps) {
   const [showLogs, setShowLogs] = useState(autoOpen)
-  const [copied, setCopied] = useState(false)
-  const [pathCopied, setPathCopied] = useState(false)
+  const { didCopy: copied, copy: copyLogs } = useCopyToClipboard(2000)
+  const { didCopy: pathCopied, copy: copyPath } = useCopyToClipboard(2000)
   // Default to no-wrap: long log lines scroll horizontally rather than wrap.
   const [wrap, setWrap] = useState(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const userHasScrolledUp = useRef(false)
 
-  // Update showLogs when autoOpen changes
   useEffect(() => {
     if (autoOpen) {
       setShowLogs(true)
@@ -62,26 +61,15 @@ export function ViewLogs({
     return logs.map(log => stripAnsi(log.line)).join('\n')
   }
 
-  // Handle copy to clipboard
   const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent toggle
-    const plainText = getPlainTextLogs()
-    const ok = await copyTextToClipboard(plainText)
-    if (ok) {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
+    e.stopPropagation()
+    await copyLogs(getPlainTextLogs())
   }
 
-  // Handle copy of the on-disk log path (for inspecting the file directly)
   const handleCopyPath = async (e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent toggle
+    e.stopPropagation()
     if (!logFilePath) return
-    const ok = await copyTextToClipboard(logFilePath)
-    if (ok) {
-      setPathCopied(true)
-      setTimeout(() => setPathCopied(false), 2000)
-    }
+    await copyPath(logFilePath)
   }
 
   // Handle download raw logs

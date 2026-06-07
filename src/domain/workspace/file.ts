@@ -14,6 +14,34 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { FileNotFoundError, FileReadError } from "../../errors/index.ts"
 import { type FileData, MAX_FILE_CONTENT_SIZE } from "../../types.ts"
 
+/** VCS metadata directories to skip during tree walks. */
+export const VCS_DIRS = new Set([".git", ".svn", ".hg"])
+
+/**
+ * Common non-image binary extensions shared by both file-tree and workspace
+ * binary-detection logic. Each module composes its own Set from this base:
+ * - file-tree.ts spreads base + image extensions (including .bmp)
+ * - workspace.ts spreads base only (.bmp falls through to null-byte probe)
+ */
+export const BINARY_EXTENSIONS_BASE = [
+  // Archives
+  ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+  ".rar", ".jar", ".war", ".ear",
+  // Executables / object files
+  ".exe", ".dll", ".so", ".dylib",
+  ".bin", ".dat", ".o", ".a",
+  // Bytecode / compiled
+  ".wasm", ".class", ".pyc", ".pyo",
+  // Fonts
+  ".ico", ".ttf", ".woff", ".woff2", ".eot", ".otf",
+  // Office documents
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  // Media -- audio
+  ".mp3", ".wav", ".flac", ".ogg", ".m4a",
+  // Media -- video
+  ".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv",
+] as const
+
 // ---------------------------------------------------------------------------
 // Language detection
 // ---------------------------------------------------------------------------

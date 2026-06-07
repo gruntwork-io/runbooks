@@ -4,7 +4,7 @@
 
 export type GitProvider = 'github' | 'gitlab'
 
-export type GitAuthMethod = 'pat' | 'oauth' | 'env' | 'cli'
+export type GitAuthMethod = 'pat' | 'oauth'
 export type GitAuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed'
 export type GitDetectionStatus = 'pending' | 'done'
 
@@ -71,45 +71,7 @@ export interface GitAuthProps {
   inputsId?: string | string[]
 }
 
-// OAuth device flow types
-export interface OAuthDeviceCodeResponse {
-  deviceCode: string
-  userCode: string
-  verificationUri: string
-  expiresIn: number
-  interval: number
-}
-
-export interface OAuthPollResponse {
-  status: 'pending' | 'complete' | 'expired' | 'error'
-  accessToken?: string
-  error?: string
-}
-
 // API response types
-export interface GitValidateResponse {
-  valid: boolean
-  user?: GitUserInfo
-  scopes?: string[]
-  tokenType?: GitTokenType
-  error?: string
-  /** HTTP status when validation failed (e.g. 401/403). */
-  status?: number
-}
-
-export interface GitEnvCredentialsResponse {
-  found: boolean
-  valid?: boolean
-  user?: GitUserInfo
-  scopes?: string[]
-  tokenType?: GitTokenType
-  error?: string
-  /** HTTP status when validation failed (e.g. 401/403). */
-  status?: number
-  /** The GitLab host this credential was detected/validated against. */
-  host?: string
-}
-
 export interface GitCliCredentialsResponse {
   found?: boolean
   valid?: boolean
@@ -128,28 +90,14 @@ export interface GitCliCredentialsResponse {
 export const isCliAuthFound = (r: GitCliCredentialsResponse): boolean =>
   r.user != null && !r.error
 
-export const hasRepoScope = (r: GitCliCredentialsResponse): boolean =>
-  r.scopes?.includes('repo') ?? false
-
 // ---------------------------------------------------------------------------
-// Backward-compatible GitHub* aliases
+// Locked-provider wrapper props
 //
-// The legacy <GitHubAuth> wrapper and any external importers continue to use
-// these names. They are exact aliases of the neutral types above.
+// The <GitHubAuth>/<GitLabAuth> wrappers reuse GitAuthProps without the
+// provider controls.
 // ---------------------------------------------------------------------------
 
 /** Props for the legacy <GitHubAuth> block (no provider/hideProviderSelect). */
 export type GitHubAuthProps = Omit<GitAuthProps, 'provider' | 'hideProviderSelect'>
 /** Props for the <GitLabAuth> block (no provider/hideProviderSelect). */
 export type GitLabAuthProps = Omit<GitAuthProps, 'provider' | 'hideProviderSelect'>
-export type GitHubAuthMethod = GitAuthMethod
-export type GitHubAuthStatus = GitAuthStatus
-export type GitHubDetectionStatus = GitDetectionStatus
-export type GitHubTokenType = GitTokenType
-export type GitHubCredentialSource = GitCredentialSource
-export type GitHubDetectionSource = GitDetectionSource
-export type GitHubUserInfo = GitUserInfo
-export type GitHubCredentials = GitCredentials
-export type GitHubValidateResponse = GitValidateResponse
-export type GitHubEnvCredentialsResponse = GitEnvCredentialsResponse
-export type GitHubCliCredentialsResponse = GitCliCredentialsResponse

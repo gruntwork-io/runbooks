@@ -85,7 +85,7 @@ describe("confirmEnvCredentials", () => {
         AWS_SECRET_ACCESS_KEY: "SECRET",
       }),
       makeTestAwsClient({
-        validateCredentials: (creds, region) => {
+        validateCredentials: (_creds, region) => {
           validated = true
           expect(region).toBe("us-east-1")
           return Effect.succeed({

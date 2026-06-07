@@ -181,6 +181,9 @@ describe("getWorkspaceChanges", () => {
               originalContent: "old content",
               additions: 0,
               deletions: 2,
+              changeType: "modified",
+              isBinary: false,
+              diffTruncated: false,
             },
           ]),
       },
@@ -210,6 +213,9 @@ describe("getWorkspaceChanges", () => {
               originalContent: "old version",
               additions: 1,
               deletions: 1,
+              changeType: "modified",
+              isBinary: false,
+              diffTruncated: false,
             },
           ]),
       },
@@ -263,7 +269,7 @@ describe("getWorkspaceChanges", () => {
         status: () => Effect.succeed([{ path: "f.txt", status }]),
         diff: () =>
           Effect.succeed([
-            { path: "f.txt", originalContent: "old", additions: 1, deletions: 1 },
+            { path: "f.txt", originalContent: "old", additions: 1, deletions: 1, changeType: "modified", isBinary: false, diffTruncated: false },
           ]),
       },
     })
@@ -309,7 +315,7 @@ describe("getWorkspaceChanges", () => {
           ]),
         diff: () =>
           Effect.succeed([
-            { path: "file.mdx", originalContent: "old", additions: 1, deletions: 1 },
+            { path: "file.mdx", originalContent: "old", additions: 1, deletions: 1, changeType: "modified", isBinary: false, diffTruncated: false },
           ]),
       },
     })

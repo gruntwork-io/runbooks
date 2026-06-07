@@ -73,12 +73,10 @@ export interface ChangeSummary {
 
 // ---------------------------------------------------------------------------
 // Back-compat aliases (mirror GitAuth/types.ts). The locked wrappers omit the
-// provider controls; `GitHubLabel` is the historical name for `GitLabel`.
+// provider controls.
 // ---------------------------------------------------------------------------
 
 /** Props for the legacy <GitHubPullRequest> wrapper (provider locked to github). */
 export type GitHubPullRequestProps = Omit<GitPullRequestProps, 'provider' | 'hideProviderSelect'>
 /** Props for the <GitLabMergeRequest> wrapper (provider locked to gitlab). */
 export type GitLabMergeRequestProps = Omit<GitPullRequestProps, 'provider' | 'hideProviderSelect'>
-/** @deprecated Use {@link GitLabel}. */
-export type GitHubLabel = GitLabel

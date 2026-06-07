@@ -13,7 +13,7 @@
  * to gitlab.com. `gitlab:enumerate-hosts` lists the hosts glab is logged into to
  * drive the picker.
  */
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, ManagedRuntime } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, getSessionTokenForProvider } from "./runtime.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
@@ -43,7 +43,7 @@ type ValidationResult<A> =
  * the same approach as git.ts's `runAndUnwrap`.
  */
 const runValidation = async <A>(
-  program: Effect.Effect<A, GitLabApiError>,
+  program: Effect.Effect<A, GitLabApiError, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
 ): Promise<ValidationResult<A>> => {
   const exit = await runtime.runPromiseExit(program)
   if (Exit.isSuccess(exit)) return { ok: true, value: exit.value }

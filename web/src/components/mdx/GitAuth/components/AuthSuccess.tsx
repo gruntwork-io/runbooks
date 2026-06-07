@@ -17,7 +17,6 @@ interface AuthSuccessProps {
   onReAuthenticate?: () => void
 }
 
-// Helper to get user-friendly token type label
 function getTokenTypeLabel(tokenType: GitTokenType, unknownLabel: string): string {
   switch (tokenType) {
     case 'fine_grained_pat':

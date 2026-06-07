@@ -148,6 +148,12 @@ const resolveGitLabAuthor = (token: string, baseUrl: string) =>
     return toCommitIdentity(validation.user)
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
+/** Wrap an optional progress callback as an Effect-returning reporter. */
+const makeReport =
+  (onProgress?: (line: string) => void) =>
+  (line: string) =>
+    Effect.sync(() => onProgress?.(line))
+
 /**
  * Shared local-git half of opening a PR/MR: create + switch to the head branch,
  * stage all changes, commit, and push to origin. Provider-neutral — the push
@@ -165,9 +171,8 @@ const runGitSteps = (
 ) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
-    const report = (line: string) => Effect.sync(() => onProgress?.(line))
+    const report = makeReport(onProgress)
 
-    // Create and switch to the head branch
     yield* report(`Creating branch ${params.headBranch}…`)
     yield* gitClient.createBranch(params.repoPath, params.headBranch)
 
@@ -185,12 +190,10 @@ const runGitSteps = (
       )
     }
 
-    // Stage all changes and commit
     yield* report("Staging and committing changes…")
     yield* gitClient.stageAll(params.repoPath, embedded)
     yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
 
-    // Push the branch to origin
     yield* report(`Pushing ${params.headBranch} to origin…`)
     yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
       token,
@@ -220,9 +223,8 @@ export const createPullRequest = (
     yield* runGitSteps(token, params, author, onProgress)
 
     const ghClient = yield* GitHubClient
-    const report = (line: string) => Effect.sync(() => onProgress?.(line))
+    const report = makeReport(onProgress)
 
-    // Create the PR via GitHub API
     yield* report("Opening pull request…")
     const prParams: CreatePRParams = {
       owner: params.owner,
@@ -236,7 +238,6 @@ export const createPullRequest = (
 
     const pr = yield* ghClient.createPullRequest(token, prParams)
 
-    // Add labels if provided
     if (params.labels && params.labels.length > 0) {
       yield* ghClient.addLabels(
         token,
@@ -263,7 +264,7 @@ export const createMergeRequest = (
   Effect.gen(function* () {
     const gitClient = yield* GitClient
     const glClient = yield* GitLabClient
-    const report = (line: string) => Effect.sync(() => onProgress?.(line))
+    const report = makeReport(onProgress)
 
     // Target the MR at the repo's own GitLab instance (self-hosted or
     // gitlab.com), derived from its remote rather than assumed to be gitlab.com.
@@ -311,21 +312,9 @@ export const resolveClonePaths = (
   workingDir: string,
 ) =>
   Effect.sync(() => {
-    let dirName: string
+    // Use the explicit localPath, else derive the dir name from the repo URL.
+    const dirName = localPath ? localPath : (parseOwnerRepoFromURL(url)?.repo ?? "repo")
 
-    if (localPath) {
-      dirName = localPath
-    } else {
-      // Extract repo name from URL
-      const parsed = parseOwnerRepoFromURL(url)
-      if (!parsed) {
-        dirName = "repo"
-      } else {
-        dirName = parsed.repo
-      }
-    }
-
-    // Build absolute path
     const isAbsolute = path.isAbsolute(dirName)
     const absolutePath = isAbsolute ? path.resolve(dirName) : path.resolve(workingDir, dirName)
 

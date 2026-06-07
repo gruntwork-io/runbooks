@@ -221,29 +221,6 @@ describe("ExecutableRegistry", () => {
     }
   })
 
-  it("hasComponent detects non-script components", async () => {
-    const mdx = '<Command id="c" command="echo" />\n<AwsAuth id="aws" />'
-    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
-
-    const registry = await Effect.runPromise(
-      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
-    )
-
-    expect(registry.hasComponent("AwsAuth")).toBe(true)
-    expect(registry.hasComponent("Template")).toBe(false)
-  })
-
-  it("hasComponent ignores components inside fenced code blocks", async () => {
-    const mdx = "```\n<AwsAuth id=\"example\" />\n```"
-    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
-
-    const registry = await Effect.runPromise(
-      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
-    )
-
-    expect(registry.hasComponent("AwsAuth")).toBe(false)
-  })
-
   it("unescapes HTML entities in inline commands", async () => {
     const mdx = '<Command id="cmd1" command="echo &amp; hello" />'
     const layer = makeTestFileSystem({ "/runbook.mdx": mdx })

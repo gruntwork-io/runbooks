@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles';
 import { CodeFileHeader } from './CodeFileHeader';
 
 
@@ -37,21 +38,18 @@ const CodeFileImpl = ({
   showCopyPathButton = Boolean(filePath),
   className = ""
 }: CodeFileProps) => {
-  // Use filePath if provided, otherwise fall back to fileName
   const displayPath = filePath || fileName;
 
   return (
     <div data-testid={`code-file-${displayPath}`} className={className}>
-      {/* File Header */}
-      <CodeFileHeader 
+      <CodeFileHeader
         filePath={displayPath}
         code={code}
         showCopyCodeButton={showCopyCodeButton}
         showCopyPathButton={showCopyPathButton}
       />
 
-      {/* Syntax Highlighter */}
-      <SyntaxHighlighter 
+      <SyntaxHighlighter
         language={language}
         style={coy}
         showLineNumbers={showLineNumbers}
@@ -62,13 +60,7 @@ const CodeFileImpl = ({
           padding: '14px 0px',
           overflowX: 'auto'
         }}
-        lineNumberStyle={{
-          color: '#999',
-          fontSize: '11px',
-          paddingRight: '12px',
-          borderRight: '1px solid #eee',
-          marginRight: '8px'
-        }}
+        lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
       >
         {code}
       </SyntaxHighlighter>

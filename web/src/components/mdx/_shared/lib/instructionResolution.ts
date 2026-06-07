@@ -172,8 +172,3 @@ export function normalizeCommandList(
   if (command == null) return []
   return Array.isArray(command) ? command : [command]
 }
-
-/** True if the text still contains an unresolved Go-template reference. */
-export function hasUnresolvedTemplate(text: string): boolean {
-  return /\{\{/.test(text)
-}

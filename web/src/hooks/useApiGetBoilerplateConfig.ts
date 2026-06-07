@@ -1,14 +1,13 @@
-import { useApi } from './useApi';
-import type { UseApiReturn } from './useApi';
+import { useIpc } from './useIpc';
+import type { UseIpcReturn } from './useIpc';
 import { useMemo } from 'react';
 import type { BoilerplateConfig } from '@/types/boilerplateConfig';
 
-// API response wrapper for hooks that specifically request the runbook file data
 export function useApiGetBoilerplateConfig(
   templatePath?: string, 
   boilerplateContent?: string,
   shouldFetch: boolean = true
-): UseApiReturn<BoilerplateConfig> {
+): UseIpcReturn<BoilerplateConfig> {
 
   // Build the request body based on which input is provided
   const requestBody = useMemo(() => {   
@@ -27,12 +26,8 @@ export function useApiGetBoilerplateConfig(
     return null; // No valid input provided
   }, [templatePath, boilerplateContent, shouldFetch]);
 
-  const apiResult = useApi<BoilerplateConfig>(
-    shouldFetch ? '/api/boilerplate/variables' : '', // Empty endpoint when shouldFetch is false
-    'POST', 
+  return useIpc<BoilerplateConfig>(
+    shouldFetch ? 'boilerplate:variables' : '', // Empty channel when shouldFetch is false
     requestBody || undefined
   );
-
-  // Return validation error if present, otherwise return API result 
-  return apiResult;
 }

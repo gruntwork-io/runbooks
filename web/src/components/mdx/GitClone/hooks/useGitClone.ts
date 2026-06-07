@@ -97,7 +97,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     }
   }, [api, fetchWorkingDir])
 
-  // Fetch GitHub organizations
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
     try {
       const orgs = await api.invoke('github:orgs')
@@ -107,7 +106,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     }
   }, [api])
 
-  // Fetch GitHub repositories for an owner
   const fetchRepos = useCallback(async (owner: string, _query?: string): Promise<GitHubRepo[]> => {
     try {
       const repos = await api.invoke('github:repos', { org: owner })
@@ -117,7 +115,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     }
   }, [api])
 
-  // Fetch GitHub refs (branches + tags) for a repo
   const fetchRefs = useCallback(async (owner: string, repo: string, _query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
     try {
       const refs = await api.invoke('github:refs', { owner, repo })
@@ -210,7 +207,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     setCloneStatus('ready')
   }, [])
 
-  // Reset the block to ready state
   const reset = useCallback(() => {
     setCloneStatus('ready')
     setLogs([])
@@ -227,7 +223,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
-    sessionReady: true, // Always ready in IPC mode
     workingDir,
 
     // Actions

@@ -6,7 +6,7 @@
  *   - wasm_exec.js                (Go's WASM runtime glue, sets globalThis.Go)
  *   - boilerplate-full.wasm.br    (brotli-compressed full build, ~3.7 MB)
  *
- * Init is lazy by default — the first call to renderFiles / inputsMap pays
+ * Init is lazy by default — the first call to renderFiles pays
  * the ~600-900ms cold start. Call `eagerLoadInBackground()` after the app
  * window shows to amortize that against idle time before the user types.
  *
@@ -24,7 +24,6 @@ import { WasmRuntime } from "../services/WasmRuntime.ts"
 import type {
   WasmRuntimeShape,
   WasmRenderFilesResult,
-  InputsMapResult,
 } from "../services/WasmRuntime.ts"
 import { WasmError } from "../errors/index.ts"
 
@@ -43,7 +42,6 @@ interface BoilerplateExports {
     pathsJSON: string,
     varsJSON: string,
   ): string | Error
-  boilerplateInputsMap(bundleJSON: string, varsJSON: string): string | Error
   boilerplatePrepareBundle(bundleJSON: string): string | Error
   boilerplateRenderFilesWithHandle(
     handle: string,
@@ -54,10 +52,13 @@ interface BoilerplateExports {
   boilerplateRenderTemplate(templateStr: string, varsJSON: string): string | Error
 }
 
+// bun-types doesn't expose WebAssembly.Imports globally; define the shape here.
+type WasmImports = Record<string, Record<string, Function | WebAssembly.Global | WebAssembly.Memory | WebAssembly.Table | number>>
+
 /** The Go class set by wasm_exec.js as a side effect on import. */
 interface GoCtor {
   new (): {
-    importObject: WebAssembly.Imports
+    importObject: WasmImports
     run(instance: WebAssembly.Instance): Promise<void>
   }
 }
@@ -109,7 +110,6 @@ async function loadWasm(): Promise<BoilerplateExports> {
   const g = globalThis as Partial<BoilerplateExports>
   if (
     typeof g.boilerplateRenderFiles !== "function" ||
-    typeof g.boilerplateInputsMap !== "function" ||
     typeof g.boilerplatePrepareBundle !== "function" ||
     typeof g.boilerplateRenderFilesWithHandle !== "function" ||
     typeof g.boilerplateReleaseBundle !== "function" ||
@@ -124,7 +124,6 @@ async function loadWasm(): Promise<BoilerplateExports> {
 
   return {
     boilerplateRenderFiles: g.boilerplateRenderFiles.bind(globalThis),
-    boilerplateInputsMap: g.boilerplateInputsMap.bind(globalThis),
     boilerplatePrepareBundle: g.boilerplatePrepareBundle.bind(globalThis),
     boilerplateRenderFilesWithHandle: g.boilerplateRenderFilesWithHandle.bind(globalThis),
     boilerplateReleaseBundle: g.boilerplateReleaseBundle.bind(globalThis),
@@ -194,122 +193,84 @@ function isStructuralError(value: unknown): value is Error & { kind: string } {
   return (
     value instanceof Error &&
     typeof (value as { kind?: unknown }).kind === "string" &&
-    (value as { kind: string }).kind === "structural"
+    (value as unknown as { kind: string }).kind === "structural"
   )
+}
+
+/**
+ * Invoke a bridge function through the shared load + serialize path, mapping
+ * the three error shapes (structural, internal, load/init) to WasmError.
+ * `onResult` converts the raw string to the desired return type.
+ * `onInternalError` produces the WasmError for a non-structural Error return
+ * (each method has a different message format or semantics).
+ */
+function callBridge<T>(
+  invoke: (exports: BoilerplateExports) => string | Error,
+  onResult: (out: string) => T,
+  onInternalError: (out: Error) => WasmError,
+): Effect.Effect<T, WasmError> {
+  return Effect.tryPromise({
+    try: async () => {
+      const exports = await ensureLoading()
+      const out = await serialize(async () => invoke(exports))
+      if (isStructuralError(out)) {
+        throw new WasmError({ message: out.message, kind: "structural", cause: out })
+      }
+      if (out instanceof Error) {
+        throw onInternalError(out)
+      }
+      return onResult(out)
+    },
+    catch: (err) =>
+      err instanceof WasmError
+        ? err
+        : new WasmError({
+            message: err instanceof Error ? err.message : String(err),
+            kind: "load",
+            cause: err,
+          }),
+  })
 }
 
 export const NodeWasmRuntimeLive = Layer.effect(
   WasmRuntime,
   Effect.sync<WasmRuntimeShape>(() => ({
-    renderFiles: (bundleJSON, paths, varsJSON) =>
-      Effect.tryPromise({
-        try: async () => {
-          const exports = await ensureLoading()
-          const pathsJSON = JSON.stringify(paths)
-          const out = await serialize(async () =>
-            exports.boilerplateRenderFiles(bundleJSON, pathsJSON, varsJSON),
-          )
-          if (isStructuralError(out)) {
-            throw new WasmError({
-              message: out.message,
-              kind: "structural",
-              cause: out,
-            })
-          }
-          if (out instanceof Error) {
-            // Defensive — should not happen given the WASM contract, but if a
-            // future bridge change adds new top-level Error kinds we want a
-            // useful message instead of a JSON.parse crash.
-            throw new WasmError({
-              message: `boilerplateRenderFiles returned Error without structural kind: ${out.message}`,
-              kind: "internal",
-              cause: out,
-            })
-          }
-          return JSON.parse(out) as WasmRenderFilesResult
-        },
-        catch: (err) =>
-          err instanceof WasmError
-            ? err
-            : new WasmError({
-                message: err instanceof Error ? err.message : String(err),
-                kind: "load",
-                cause: err,
-              }),
-      }),
+    renderFiles: (bundleJSON, paths, varsJSON) => {
+      const pathsJSON = JSON.stringify(paths)
+      return callBridge(
+        (exp) => exp.boilerplateRenderFiles(bundleJSON, pathsJSON, varsJSON),
+        (out) => JSON.parse(out) as WasmRenderFilesResult,
+        (out) => new WasmError({
+          message: `boilerplateRenderFiles returned Error without structural kind: ${out.message}`,
+          kind: "internal",
+          cause: out,
+        }),
+      )
+    },
 
     prepareBundle: (bundleJSON) =>
-      Effect.tryPromise({
-        try: async () => {
-          const exports = await ensureLoading()
-          const out = await serialize(async () =>
-            exports.boilerplatePrepareBundle(bundleJSON),
-          )
-          if (isStructuralError(out)) {
-            throw new WasmError({
-              message: out.message,
-              kind: "structural",
-              cause: out,
-            })
-          }
-          if (out instanceof Error) {
-            throw new WasmError({
-              message: `boilerplatePrepareBundle returned Error without structural kind: ${out.message}`,
-              kind: "internal",
-              cause: out,
-            })
-          }
-          // The handle is an opaque string. Don't validate format —
-          // boilerplate explicitly documents it as undocumented.
-          return out
-        },
-        catch: (err) =>
-          err instanceof WasmError
-            ? err
-            : new WasmError({
-                message: err instanceof Error ? err.message : String(err),
-                kind: "load",
-                cause: err,
-              }),
-      }),
+      callBridge(
+        (exp) => exp.boilerplatePrepareBundle(bundleJSON),
+        (out) => out,
+        (out) => new WasmError({
+          message: `boilerplatePrepareBundle returned Error without structural kind: ${out.message}`,
+          kind: "internal",
+          cause: out,
+        }),
+      ),
 
-    renderFilesWithHandle: (handle, paths, varsJSON) =>
-      Effect.tryPromise({
-        try: async () => {
-          const exports = await ensureLoading()
-          const pathsJSON = JSON.stringify(paths)
-          const out = await serialize(async () =>
-            exports.boilerplateRenderFilesWithHandle(handle, pathsJSON, varsJSON),
-          )
-          if (isStructuralError(out)) {
-            // Structural here means the handle is unknown or released —
-            // the caller (dispatcher) will release and re-prepare, or
-            // fall back to non-handle renderFiles. Surface as WasmError
-            // so the dispatcher can switch on `kind`.
-            throw new WasmError({
-              message: out.message,
-              kind: "structural",
-              cause: out,
-            })
-          }
-          if (out instanceof Error) {
-            throw new WasmError({
-              message: `boilerplateRenderFilesWithHandle returned Error without structural kind: ${out.message}`,
-              kind: "internal",
-              cause: out,
-            })
-          }
-          return JSON.parse(out) as WasmRenderFilesResult
-        },
-        catch: (err) =>
-          err instanceof WasmError
-            ? err
-            : new WasmError({
-                message: err instanceof Error ? err.message : String(err),
-                kind: "load",
-                cause: err,
-              }),
-      }),
+    renderFilesWithHandle: (handle, paths, varsJSON) => {
+      const pathsJSON = JSON.stringify(paths)
+      return callBridge(
+        (exp) => exp.boilerplateRenderFilesWithHandle(handle, pathsJSON, varsJSON),
+        (out) => JSON.parse(out) as WasmRenderFilesResult,
+        (out) => new WasmError({
+          message: `boilerplateRenderFilesWithHandle returned Error without structural kind: ${out.message}`,
+          kind: "internal",
+          cause: out,
+        }),
+      )
+    },
 
     releaseBundle: (handle) =>
       Effect.tryPromise({
@@ -327,74 +288,14 @@ export const NodeWasmRuntimeLive = Layer.effect(
       }).pipe(Effect.ignore),
 
     renderTemplate: (templateStr, varsJSON) =>
-      Effect.tryPromise({
-        try: async () => {
-          const exports = await ensureLoading()
-          const out = await serialize(async () =>
-            exports.boilerplateRenderTemplate(templateStr, varsJSON),
-          )
-          if (isStructuralError(out)) {
-            throw new WasmError({
-              message: out.message,
-              kind: "structural",
-              cause: out,
-            })
-          }
-          if (out instanceof Error) {
-            // boilerplateRenderTemplate does not tag errors with "structural";
-            // any Error here is a template-level failure (missing key, parse
-            // error, etc.). Surface as "internal" so callers can choose to
-            // map to a placeholder.
-            throw new WasmError({
-              message: out.message,
-              kind: "internal",
-              cause: out,
-            })
-          }
-          return out
-        },
-        catch: (err) =>
-          err instanceof WasmError
-            ? err
-            : new WasmError({
-                message: err instanceof Error ? err.message : String(err),
-                kind: "load",
-                cause: err,
-              }),
-      }),
-
-    inputsMap: (bundleJSON, varsJSON) =>
-      Effect.tryPromise({
-        try: async () => {
-          const exports = await ensureLoading()
-          const out = await serialize(async () =>
-            exports.boilerplateInputsMap(bundleJSON, varsJSON),
-          )
-          if (isStructuralError(out)) {
-            throw new WasmError({
-              message: out.message,
-              kind: "structural",
-              cause: out,
-            })
-          }
-          if (out instanceof Error) {
-            throw new WasmError({
-              message: `boilerplateInputsMap returned Error: ${out.message}`,
-              kind: "internal",
-              cause: out,
-            })
-          }
-          return JSON.parse(out) as InputsMapResult
-        },
-        catch: (err) =>
-          err instanceof WasmError
-            ? err
-            : new WasmError({
-                message: err instanceof Error ? err.message : String(err),
-                kind: "load",
-                cause: err,
-              }),
-      }),
+      callBridge(
+        (exp) => exp.boilerplateRenderTemplate(templateStr, varsJSON),
+        (out) => out,
+        // boilerplateRenderTemplate does not tag errors with "structural";
+        // any Error here is a template-level failure (missing key, parse
+        // error, etc.). Bare out.message (no method-name prefix).
+        (out) => new WasmError({ message: out.message, kind: "internal", cause: out }),
+      ),
 
     isReady: Effect.sync(() => {
       // The runtime is "ready" only after the load promise has resolved. We

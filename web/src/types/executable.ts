@@ -10,8 +10,3 @@ export interface Executable {
 }
 
 export type ExecutableRegistry = Record<string, Executable>
-
-export interface ExecutableRegistryResponse {
-  executables: ExecutableRegistry
-  warnings: string[]
-}

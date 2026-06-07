@@ -12,6 +12,7 @@ import crypto from "node:crypto"
 import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
+import { computeContentHash } from "../workspace/file.js"
 import {
   ExecutableNotFoundError,
 } from "../../errors/index.js"
@@ -106,11 +107,6 @@ export function computeComponentId(
   return `${componentType}_${hash.slice(0, 8)}`
 }
 
-/** Compute a SHA-256 hex digest of script content. */
-function computeContentHash(content: string): string {
-  return crypto.createHash("sha256").update(content).digest("hex")
-}
-
 // ---------------------------------------------------------------------------
 // Template variable extraction
 // ---------------------------------------------------------------------------
@@ -203,7 +199,6 @@ export function parseComponents(
 export class ExecutableRegistry {
   private entries = new Map<string, Executable>()
   private warnings: string[] = []
-  private runbookContent = ""
 
   // -----------------------------------------------------------------------
   // Factory
@@ -237,7 +232,6 @@ export class ExecutableRegistry {
 
       const content =
         contentOverride ?? (yield* fs.readFile(runbookPath))
-      this.runbookContent = content
       const runbookDir = path.dirname(runbookPath)
 
       for (const componentType of SCRIPT_COMPONENT_TYPES) {
@@ -386,16 +380,6 @@ export class ExecutableRegistry {
     return [...this.warnings]
   }
 
-  /**
-   * Check whether the runbook contains any component of the given type
-   * (including non-script types like Template, AwsAuth, etc.).
-   *
-   * Components inside fenced code blocks are ignored.
-   */
-  hasComponent(componentType: string): boolean {
-    const components = parseComponents(this.runbookContent, componentType)
-    return components.length > 0
-  }
 }
 
 // ---------------------------------------------------------------------------

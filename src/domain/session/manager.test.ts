@@ -4,7 +4,7 @@ import { SessionManager, filterCapturedEnv } from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 
 function run<A>(effect: Effect.Effect<A, any, any>, env: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))))
+  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<A, any, never>)
 }
 
 describe("filterCapturedEnv", () => {
@@ -139,21 +139,11 @@ describe("SessionManager", () => {
     })
 
     it("prunes oldest token when at capacity", async () => {
-      await run(mgr.createSession("/work"), {})
-      const _firstToken = (await Effect.runPromise(mgr.validateToken(
-        // get the token from createSession - we need to join 19 more times
-        // Actually, let's create and then join until capacity
-        "" // dummy
-      )))
-
-      // createSession already made 1 token, join 19 more to reach capacity
-      const tokens: string[] = []
+      // createSession makes the first token; join 19 more to reach capacity (20).
       const { token: originalToken } = await run(mgr.createSession("/work"), {})
-      tokens.push(originalToken)
 
       for (let i = 0; i < 19; i++) {
-        const { token } = await run(mgr.joinSession())
-        tokens.push(token)
+        await run(mgr.joinSession())
       }
 
       expect(mgr.tokenCount()).toBe(20)

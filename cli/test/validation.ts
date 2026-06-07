@@ -76,7 +76,7 @@ const KNOWN_BLOCK_TYPES = new Set([
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_BLOCK_TYPES = ["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
+export const AUTH_BLOCK_TYPES = ["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
 const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", "GitHubPullRequest"] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
@@ -160,15 +160,6 @@ export class InputValidator {
   getConfigError(componentType: string, componentId: string): string {
     for (const err of this.configErrors) {
       if (err.componentType === componentType && err.componentId === componentId) {
-        return err.message
-      }
-    }
-    return ""
-  }
-
-  getConfigErrorById(componentId: string): string {
-    for (const err of this.configErrors) {
-      if (err.componentId === componentId) {
         return err.message
       }
     }
@@ -541,7 +532,7 @@ function parseInlineYAML(content: string): BoilerplateConfig | null {
   return { variables: parsed.variables ?? [] }
 }
 
-function lowercaseFirst(s: string): string {
+export function lowercaseFirst(s: string): string {
   if (!s) return s
   return s[0].toLowerCase() + s.slice(1)
 }

@@ -48,11 +48,6 @@ export interface PRProviderConfig {
     /** Which command builder to use. */
     build: 'gh' | 'glab'
   }
-  /**
-   * Whether the post-create "push more changes" button is shown. Both providers
-   * support it now that git:push is provider-aware.
-   */
-  supportsPushMore: boolean
 }
 
 export const PR_PROVIDERS: Record<GitProvider, PRProviderConfig> = {

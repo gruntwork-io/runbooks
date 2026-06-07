@@ -138,7 +138,6 @@ export function Admonition({
     }
   }
 
-  // Hide the admonition when not visible or when closed
   if (!isVisible) return null
 
   const config = admonitionConfig[type]

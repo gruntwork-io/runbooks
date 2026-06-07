@@ -171,7 +171,6 @@ function generateTimestamp(config: FuzzConfig): string {
 
 function formatDate(d: Date, fmt: string): string {
   // Support Go-style reference date format: 2006-01-02T15:04:05Z07:00
-  // Map to actual date components
   return fmt
     .replace("2006", String(d.getFullYear()))
     .replace("01", String(d.getMonth() + 1).padStart(2, "0"))

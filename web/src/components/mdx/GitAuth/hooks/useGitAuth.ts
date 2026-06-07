@@ -752,7 +752,6 @@ export function useGitAuth({
     detectionWarning,
     sessionEnvWarning,
     waitingForBlockId,
-    detectionAttemptedRef,
 
     // Host selection (GitLab)
     hostSelectable,

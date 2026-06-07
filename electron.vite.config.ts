@@ -53,10 +53,6 @@ export default defineConfig({
             "mdx-vendor": ["@mdx-js/mdx", "@mdx-js/react", "react-markdown", "remark-gfm"],
             "ui-vendor": [
               "@radix-ui/react-alert-dialog",
-              "@radix-ui/react-checkbox",
-              "@radix-ui/react-collapsible",
-              "@radix-ui/react-label",
-              "@radix-ui/react-tabs",
               "@radix-ui/react-tooltip",
             ],
             "syntax-highlighter": ["react-syntax-highlighter"],

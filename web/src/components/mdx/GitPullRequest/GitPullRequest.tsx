@@ -63,16 +63,9 @@ function GitPullRequestInteractive({
     return null
   }, [id, __registryType])
 
-  // Check for duplicate component IDs
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, __registryType)
-
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
-
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
-
-  // Git worktree context
   const { activeWorkTree } = useGitWorkTree()
 
   // Runbook context for metadata; template context for resolving expressions
@@ -133,12 +126,10 @@ function GitPullRequestInteractive({
 
   const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
-  // Track render
   useEffect(() => {
     trackBlockRender(__registryType)
   }, [id, trackBlockRender, __registryType])
 
-  // Core hook
   const {
     status,
     logs,
@@ -279,7 +270,6 @@ function GitPullRequestInteractive({
     }
   }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError, __registryType])
 
-  // Handle create PR/MR
   const handleCreatePR = useCallback(() => {
     if (!activeWorkTree) return
     createPullRequest({
@@ -296,13 +286,11 @@ function GitPullRequestInteractive({
     })
   }, [activeWorkTree, prTitle, prDescription, selectedLabels, branchName, commitMessage, defaultCommitMessage, createPullRequest])
 
-  // Handle push
   const handlePush = useCallback(() => {
     if (!activeWorkTree || !prResult) return
     pushChanges(activeWorkTree.localPath, prResult.branchName)
   }, [activeWorkTree, prResult, pushChanges])
 
-  // Handle create another
   const handleCreateAnother = useCallback(() => {
     reset()
     setPRTitle(resolvedTitle)
@@ -316,7 +304,6 @@ function GitPullRequestInteractive({
     setUserEditedCommitMessage(false)
   }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels, defaultCommitMessage])
 
-  // Delete conflicting branch handler
   const [deletingBranch, setDeletingBranch] = useState(false)
   const handleDeleteBranch = useCallback(async () => {
     if (!activeWorkTree || !conflictBranchName) return

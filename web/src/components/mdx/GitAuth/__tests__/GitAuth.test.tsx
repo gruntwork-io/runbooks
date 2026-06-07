@@ -16,7 +16,6 @@ vi.mock("../hooks/useGitAuth", () => ({
       authMethod: "pat",
       setAuthMethod: vi.fn(),
       detectionStatus: "done",
-      detectionAttemptedRef: { current: false },
       userInfo: null,
       errorMessage: null,
       patToken: "",

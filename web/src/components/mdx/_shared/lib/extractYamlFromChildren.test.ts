@@ -44,42 +44,15 @@ variables:
     
     // Call the component to get the React element tree
     const componentResult = MDXComponent({ id: "test" });
-    console.log('Component result:', componentResult);
     
     // Extract the children from the component result
     // The children are the content inside the <NoName> wrapper
     const capturedChildren = componentResult.props.children;
-    
-    console.log('Captured children from real MDX compilation:');
-    console.log(JSON.stringify(capturedChildren, null, 2));
-    console.log('---');
-    
-    // Extract YAML using the function
+
     const extractedYaml = extractYamlFromChildren(capturedChildren);
-    
-    console.log('Extracted YAML:');
-    console.log(extractedYaml);
-    console.log('---');
-    
-    // Show line by line for debugging
-    const lines = extractedYaml.content.split('\n');
-    console.log('Line by line:');
-    lines.forEach((line: string, index: number) => {
-      console.log(`${index + 1}: "${line}"`);
-    });
-    console.log('---');
-    
-    // Try to parse the YAML with the YAML library
-    let parsedYaml;
-    try {
-      parsedYaml = YAML.parse(extractedYaml.content);
-      console.log('Successfully parsed YAML:');
-      console.log(JSON.stringify(parsedYaml, null, 2));
-    } catch (error) {
-      console.error('YAML parsing failed:');
-      console.error(error);
-      throw error;
-    }
+
+    // Parse the extracted YAML to verify it is well-formed.
+    const parsedYaml = YAML.parse(extractedYaml.content);
     
     // Verify the parsed structure
     expect(parsedYaml).toBeDefined();

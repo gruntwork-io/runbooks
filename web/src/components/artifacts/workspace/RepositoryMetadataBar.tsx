@@ -12,7 +12,7 @@ import { WorktreeSwitcherRow } from './rows/WorktreeSwitcherRow'
 import { WorktreeStaticRow } from './rows/WorktreeStaticRow'
 import { LocalPathRow } from './rows/LocalPathRow'
 import type { GitRepoInfo } from '@/types/workspace'
-import type { GitWorkTree } from '@/contexts/GitWorkTreeContext'
+import type { GitWorkTree } from '@/contexts/gitWorkTreeTypes'
 
 interface RepositoryMetadataBarProps {
   /** Git repository information for the active worktree */

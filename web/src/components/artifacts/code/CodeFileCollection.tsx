@@ -1,21 +1,18 @@
-import { useState, useRef, useMemo, useCallback, useEffect, forwardRef, memo } from 'react'
+import { useState, useRef, useMemo, forwardRef, memo } from 'react'
+import { useCollapsibleFileList } from '@/hooks/useCollapsibleFileList'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
-import { FolderOpen, ChevronLeft, ChevronDown, ChevronRight, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
+import { FolderOpen, ChevronLeft, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
 import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
-
-/** Maximum number of files to render in the code pane at once */
-const MAX_DISPLAYED_FILES = 100
-/** When the number of files exceeds this, all files start collapsed */
-const AUTO_COLLAPSE_THRESHOLD = 25
-/** How many additional files to show each time "Show more" is clicked */
-const SHOW_MORE_INCREMENT = 50
-
+import { SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
+import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles'
+import { ShowMoreBanner } from '@/lib/ShowMoreBanner'
+import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHeader'
 
 interface CodeFileCollectionProps {
   data: FileTreeNode[];
@@ -32,10 +29,7 @@ interface CodeFileCollectionProps {
 
 export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false, truncationInfo }: CodeFileCollectionProps) => {
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel();
-  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
-  const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAYED_FILES);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isPathVisible, setIsPathVisible] = useState(false);
   const { didCopy: didCopyPath, copy: copyPath } = useCopyToClipboard();
@@ -59,87 +53,34 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     return files;
   }, [data]);
 
-  // Derive a stable identity key from the file list so we detect when a
-  // *different* set of files arrives, even if the count stays the same.
+  // Stable identity key: detect when a *different* set of files arrives,
+  // even if the count stays the same. Passed as changeKey to the hook.
   const fileIdsKey = useMemo(
     () => fileItems.map(f => f.id).join('\0'),
     [fileItems]
   );
 
-  // Auto-collapse all files when there are many to avoid rendering
-  // expensive syntax-highlighted content for every file at once.
-  const prevFileIdsKeyRef = useRef('');
-  useEffect(() => {
-    if (fileIdsKey === prevFileIdsKeyRef.current) return;
-    if (fileItems.length > AUTO_COLLAPSE_THRESHOLD) {
-      setCollapsedFiles(new Set(fileItems.map(f => f.id)));
-    }
-    prevFileIdsKeyRef.current = fileIdsKey;
-  }, [fileIdsKey, fileItems]);
+  const {
+    collapsedFiles,
+    displayedItems: displayedFiles,
+    hasMoreItems: hasMoreFiles,
+    toggleCollapse: toggleFileCollapse,
+    showMore: handleShowMore,
+    expandAndJump,
+    setItemRef: setFileRef,
+  } = useCollapsibleFileList({
+    items: fileItems,
+    getKey: (f) => f.id,
+    changeKey: fileIdsKey,
+  });
 
-  // Reset display limit when file list changes
-  useEffect(() => {
-    setDisplayLimit(MAX_DISPLAYED_FILES);
-  }, [fileIdsKey]);
-
-  // Slice files to the display limit
-  const displayedFiles = useMemo(
-    () => fileItems.slice(0, displayLimit),
-    [fileItems, displayLimit]
-  );
-  const hasMoreFiles = fileItems.length > displayLimit;
-
-  // Handle file tree item clicks - jump to file
+  // CFC tree-click guard: only act on file nodes (not folders).
   const handleFileTreeClick = (item: FileTreeNode) => {
     if (item.type === 'file' && item.file) {
       setFocusedFileId(item.id);
-      // Expand the file if collapsed
-      setCollapsedFiles(prev => {
-        const next = new Set(prev);
-        next.delete(item.id);
-        return next;
-      });
-      // If the file is beyond the display limit, extend it
-      const fileIndex = fileItems.findIndex(f => f.id === item.id);
-      if (fileIndex >= displayLimit) {
-        setDisplayLimit(fileIndex + 1);
-      }
-      // Jump to the file (deferred to let React render the new limit)
-      requestAnimationFrame(() => {
-        const fileEl = fileRefs.current.get(item.id);
-        if (fileEl) {
-          fileEl.scrollIntoView({ behavior: 'auto', block: 'start' });
-        }
-      });
+      expandAndJump(item.id, fileItems.findIndex(f => f.id === item.id));
     }
   };
-
-  // Toggle file collapse
-  const toggleFileCollapse = (fileId: string) => {
-    setCollapsedFiles(prev => {
-      const next = new Set(prev);
-      if (next.has(fileId)) {
-        next.delete(fileId);
-      } else {
-        next.add(fileId);
-      }
-      return next;
-    });
-  };
-
-  // Show more files
-  const handleShowMore = () => {
-    setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT);
-  };
-
-  // Register file ref
-  const setFileRef = useCallback((fileId: string, el: HTMLDivElement | null) => {
-    if (el) {
-      fileRefs.current.set(fileId, el);
-    } else {
-      fileRefs.current.delete(fileId);
-    }
-  }, []);
 
   const generatedFilesAbsolutePath = absoluteOutputPath;
   const generatedFilesRelativePath = useMemo(() => {
@@ -301,19 +242,13 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
               ))}
               {/* Show more / pagination banner */}
               {hasMoreFiles && (
-                <div className="flex items-center gap-2 px-3 py-3 bg-warning-muted border border-warning/30 rounded-md">
-                  <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
-                  <span className="text-sm text-warning-foreground flex-1">
-                    Showing {displayedFiles.length} of {fileItems.length} generated files.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleShowMore}
-                    className="px-3 py-1 text-sm bg-warning-muted hover:bg-warning-muted/80 text-warning-foreground rounded-md cursor-pointer transition-colors"
-                  >
-                    Show {Math.min(SHOW_MORE_INCREMENT, fileItems.length - displayLimit)} more
-                  </button>
-                </div>
+                <ShowMoreBanner
+                  displayedCount={displayedFiles.length}
+                  total={fileItems.length}
+                  remaining={Math.min(SHOW_MORE_INCREMENT, fileItems.length - displayedFiles.length)}
+                  noun="generated files"
+                  onShowMore={handleShowMore}
+                />
               )}
             </div>
           </div>
@@ -336,8 +271,6 @@ interface CollapsibleCodeFileProps {
 
 const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFileProps>(
   ({ fileItem, isCollapsed, isFocused, onToggleCollapse }, ref) => {
-    const { didCopy, copy } = useCopyToClipboard();
-
     const filePath = fileItem.file?.path || fileItem.name;
     const code = fileItem.file?.content || '';
     const language = fileItem.file?.language || 'text';
@@ -346,8 +279,6 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
 
     const fileSize = fileItem.file?.size ?? 0;
     const fileSizeLabel = formatFileSize(fileSize);
-
-    const handleCopyPath = () => copy(filePath);
 
     return (
       <div
@@ -359,38 +290,17 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
         )}
       >
         {/* File Header Bar */}
-        <div
-          onClick={onToggleCollapse}
-          className="w-full flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent text-left cursor-pointer border-b border-border"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          )}
-          <FileCode className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <span className="font-mono text-xs text-foreground truncate">
-            {filePath}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
-            className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
-            title="Copy file path"
-          >
-            {didCopy ? (
-              <Check className="w-3.5 h-3.5 text-success" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <div className="flex-1" />
-          <span className="text-xs text-muted-foreground flex-shrink-0">
-            {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}
-          </span>
-        </div>
+        <CollapsibleFileHeader
+          isCollapsed={isCollapsed}
+          onToggle={onToggleCollapse}
+          path={filePath}
+          icon={<FileCode className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+          trailing={
+            <span className="text-xs text-muted-foreground flex-shrink-0">
+              {isTruncated ? fileSizeLabel : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}
+            </span>
+          }
+        />
 
         {/* File Content */}
         {!isCollapsed && (
@@ -411,13 +321,7 @@ const CollapsibleCodeFileImpl = forwardRef<HTMLDivElement, CollapsibleCodeFilePr
                 padding: '14px 0px',
                 overflowX: 'auto'
               }}
-              lineNumberStyle={{
-                color: '#999',
-                fontSize: '11px',
-                paddingRight: '12px',
-                borderRight: '1px solid #eee',
-                marginRight: '8px'
-              }}
+              lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
             >
               {code}
             </SyntaxHighlighter>

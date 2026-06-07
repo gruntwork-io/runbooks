@@ -35,9 +35,7 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setError(createAppError(
         'Failed to load executable registry',
-        errorMessage,
-        undefined,
-        'REGISTRY_FETCH_FAILED'
+        errorMessage
       ))
     } finally {
       setLoading(false)
@@ -80,15 +78,7 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
 
   const getExecutableByComponentId = (componentId: string): Executable | null => {
     if (!registry) return null
-
-    for (const executableId in registry) {
-      const executable = registry[executableId]
-      if (executable && executable.componentId === componentId) {
-        return executable
-      }
-    }
-
-    return null
+    return Object.values(registry).find(e => e?.componentId === componentId) ?? null
   }
 
   // Don't block rendering while loading or on error — the registry is populated

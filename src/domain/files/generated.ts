@@ -40,7 +40,6 @@ export function resolveToAbsolutePath(workingDir: string, rawPath: string) {
       })
     }
 
-    // Already absolute — return as-is
     if (path.isAbsolute(rawPath)) {
       return rawPath
     }
@@ -72,14 +71,10 @@ export function countFilesInDirectory(absolutePath: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    let count = 0
-    const entries = yield* Stream.runCollect(fs.walk(absolutePath))
-    for (const entry of entries) {
-      if (entry.isFile) {
-        count++
-      }
-    }
-    return count
+    return yield* fs.walk(absolutePath).pipe(
+      Stream.filter((entry) => entry.isFile),
+      Stream.runCount,
+    )
   })
 }
 
@@ -99,7 +94,6 @@ export function checkGeneratedFiles(workingDir: string, outputPath: string) {
 
     const absoluteOutputPath = yield* resolveToAbsolutePath(workingDir, outputPath)
 
-    // Check if directory exists
     const exists = yield* fs.exists(absoluteOutputPath)
     if (!exists) {
       return {
@@ -110,7 +104,6 @@ export function checkGeneratedFiles(workingDir: string, outputPath: string) {
       } satisfies GeneratedFilesCheckResponse
     }
 
-    // Verify it is a directory
     const stat = yield* Effect.catchAll(
       fs.stat(absoluteOutputPath),
       () =>
@@ -153,7 +146,6 @@ export function deleteGeneratedFiles(workingDir: string, outputPath: string) {
 
     const absoluteOutputPath = yield* resolveToAbsolutePath(workingDir, outputPath)
 
-    // Check if directory exists
     const exists = yield* fs.exists(absoluteOutputPath)
     if (!exists) {
       return {
@@ -166,7 +158,6 @@ export function deleteGeneratedFiles(workingDir: string, outputPath: string) {
     // Count files before deletion for the response
     const fileCount = yield* countFilesInDirectory(absoluteOutputPath)
 
-    // Delete all contents of the directory
     const entries = yield* fs.readdir(absoluteOutputPath)
     for (const entryName of entries) {
       const entryPath = path.join(absoluteOutputPath, entryName)

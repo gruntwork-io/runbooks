@@ -192,11 +192,7 @@ export async function resolveRemoteRunbook(
       // Resolve ambiguous ref/path for browser-style URLs
       if (needsRefResolution(parsed) && parsed.path) {
         log.info("Resolving ref from:", parsed.path)
-        const resolved = yield* resolveRef(
-          authedCloneURL,
-          parsed.path,
-          parsed.isBlobURL,
-        )
+        const resolved = yield* resolveRef(authedCloneURL, parsed.path)
         parsed = { ...parsed, ref: resolved.ref, path: resolved.path }
         log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
       }

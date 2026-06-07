@@ -28,12 +28,19 @@ import type {
   StepResult,
 } from "./config.ts"
 import { resolveTestInputs } from "./fuzz.ts"
-import { runAssertion, type AssertionContext } from "./assertions.ts"
+import {
+  runAssertion,
+  countFiles,
+  envListToRecord,
+  type AssertionContext,
+} from "./assertions.ts"
 import {
   InputValidator,
   parseAuthDependencies,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
+  lowercaseFirst,
+  AUTH_BLOCK_TYPES,
   type TemplateInlineBlock,
   type TemplateBlock,
   type AuthDependency,
@@ -46,10 +53,27 @@ import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 
 type BlockState = "success" | "skipped"
 
-const AUTH_BLOCK_TYPES = new Set(["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"])
+const AUTH_BLOCK_SET = new Set<string>(AUTH_BLOCK_TYPES)
 
 function isAuthBlock(blockType: string): boolean {
-  return AUTH_BLOCK_TYPES.has(blockType)
+  return AUTH_BLOCK_SET.has(blockType)
+}
+
+/** Build a StepResult with its mutable fields freshly initialized per call. */
+function makeStepResult(
+  block: string,
+  expectedStatus: ExpectedStatus,
+): StepResult {
+  return {
+    block,
+    expectedStatus,
+    actualStatus: "",
+    exitCode: 0,
+    passed: true,
+    outputs: {},
+    duration: 0,
+    assertionResults: [],
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -183,10 +207,6 @@ export class TestExecutor {
     this.sessionEnv = Object.entries(process.env)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}=${v}`)
-  }
-
-  close(): void {
-    // No-op for now; reserved for future cleanup
   }
 
   // -----------------------------------------------------------------------
@@ -383,16 +403,10 @@ export class TestExecutor {
       step = step ?? { block: block.id, expect: "success" }
     }
 
-    const result: StepResult = {
-      block: `${lowercaseFirst(block.type)}:${block.id}`,
-      expectedStatus: step?.expect ?? "success",
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(
+      `${lowercaseFirst(block.type)}:${block.id}`,
+      step?.expect ?? "success",
+    )
 
     // 1. Check for config errors
     const configError = this.getConfigErrorForBlock(block, registryWarnings)
@@ -495,16 +509,10 @@ export class TestExecutor {
     step: TestStep,
     start: number,
   ): StepResult {
-    const result: StepResult = {
-      block: `${lowercaseFirst(block.type)}:${block.id}`,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(
+      `${lowercaseFirst(block.type)}:${block.id}`,
+      step.expect,
+    )
 
     if (this.options.verbose) {
       console.log(`\n=== ${block.type}: ${block.id} ===`)
@@ -604,16 +612,10 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runCheckOrCommand(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result: StepResult = {
-      block: `${lowercaseFirst(block.type)}:${block.id}`,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(
+      `${lowercaseFirst(block.type)}:${block.id}`,
+      step.expect,
+    )
 
     // Find the executable by component ID
     let foundExec: Executable | undefined
@@ -687,11 +689,7 @@ export class TestExecutor {
       fs.writeFileSync(scriptPath, scriptToWrite, { mode: 0o700 })
 
       // Build environment
-      const env: Record<string, string> = {}
-      for (const entry of this.sessionEnv) {
-        const idx = entry.indexOf("=")
-        if (idx >= 0) env[entry.slice(0, idx)] = entry.slice(idx + 1)
-      }
+      const env = envListToRecord(this.sessionEnv)
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
@@ -770,7 +768,7 @@ export class TestExecutor {
         this.blockOutputs.set(block.id, map)
       }
 
-      result.passed = this.matchesExpectedStatus(step.expect, status, exitCode)
+      result.passed = this.matchesExpectedStatus(step.expect, status)
       result.duration = Date.now() - start
       return result
 
@@ -786,16 +784,7 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runTemplateInline(step: TestStep, block: TemplateInlineBlock, start: number): StepResult {
-    const result: StepResult = {
-      block: step.block,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(step.block, step.expect)
 
     // Render the template
     let rendered: string
@@ -836,7 +825,7 @@ export class TestExecutor {
       }
     }
 
-    result.passed = this.matchesExpectedStatus(step.expect, "success", 0)
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.actualStatus = "success"
     result.logs = rendered
     result.duration = Date.now() - start
@@ -859,16 +848,7 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runTemplate(step: TestStep, block: TemplateBlock, start: number): StepResult {
-    const result: StepResult = {
-      block: step.block,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(step.block, step.expect)
 
     const runbookDir = path.dirname(this.runbookPath)
     const templatePath = path.join(runbookDir, block.templatePath)
@@ -909,7 +889,7 @@ export class TestExecutor {
       return result
     }
 
-    result.passed = this.matchesExpectedStatus(step.expect, "success", 0)
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.actualStatus = "success"
     result.duration = Date.now() - start
 
@@ -952,16 +932,7 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runGitHubAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result: StepResult = {
-      block: `gitHubAuth:${block.id}`,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(`gitHubAuth:${block.id}`, step.expect)
 
     const prefix = step.env_prefix ?? ""
     let token = ""
@@ -975,7 +946,7 @@ export class TestExecutor {
     if (!token) {
       this.blockStates.set(block.id, "skipped")
       result.actualStatus = "skipped"
-      result.passed = this.matchesExpectedStatus(step.expect, "skipped", 0)
+      result.passed = this.matchesExpectedStatus(step.expect, "skipped")
       result.duration = Date.now() - start
       if (this.options.verbose) console.log("--- No GitHub credentials found ---")
       return result
@@ -990,7 +961,7 @@ export class TestExecutor {
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
-    result.passed = this.matchesExpectedStatus(step.expect, "success", 0)
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
     if (this.options.verbose) console.log("--- GitHub credentials found, injected ---")
     return result
@@ -1001,16 +972,7 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runAwsAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result: StepResult = {
-      block: `awsAuth:${block.id}`,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(`awsAuth:${block.id}`, step.expect)
 
     const prefix = step.env_prefix ?? ""
     const blockCreds: Record<string, string> = {}
@@ -1069,7 +1031,7 @@ export class TestExecutor {
     if (!found) {
       this.blockStates.set(block.id, "skipped")
       result.actualStatus = "skipped"
-      result.passed = this.matchesExpectedStatus(step.expect, "skipped", 0)
+      result.passed = this.matchesExpectedStatus(step.expect, "skipped")
       result.duration = Date.now() - start
       if (this.options.verbose) console.log("--- No AWS credentials found ---")
       return result
@@ -1095,7 +1057,7 @@ export class TestExecutor {
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
-    result.passed = this.matchesExpectedStatus(step.expect, "success", 0)
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
     if (this.options.verbose) console.log("--- AWS credentials found, injected ---")
     return result
@@ -1106,16 +1068,7 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runGitClone(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result: StepResult = {
-      block: `gitClone:${block.id}`,
-      expectedStatus: step.expect,
-      actualStatus: "",
-      exitCode: 0,
-      passed: true,
-      outputs: {},
-      duration: 0,
-      assertionResults: [],
-    }
+    const result = makeStepResult(`gitClone:${block.id}`, step.expect)
 
     const cloneURL = extractProp(block.props, "prefilledUrl")
     const ref = extractProp(block.props, "prefilledRef")
@@ -1125,7 +1078,7 @@ export class TestExecutor {
     if (!cloneURL) {
       this.blockStates.set(block.id, "skipped")
       result.actualStatus = "skipped"
-      result.passed = this.matchesExpectedStatus(step.expect, "skipped", 0)
+      result.passed = this.matchesExpectedStatus(step.expect, "skipped")
       result.duration = Date.now() - start
       if (this.options.verbose) console.log("--- No prefilledUrl specified ---")
       return result
@@ -1208,19 +1161,17 @@ export class TestExecutor {
     }
 
     // Count files
-    const fileCount = this.countFilesRecursive(destPath)
+    const fileCount = countFiles(destPath)
 
     result.outputs = { clone_path: destPath, file_count: String(fileCount) }
     if (ref) result.outputs["ref"] = ref
 
-    const outputMap = new Map<string, string>()
-    for (const [k, v] of Object.entries(result.outputs)) outputMap.set(k, v)
-    this.blockOutputs.set(block.id, outputMap)
+    this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
 
     this.activeWorkTreePath = destPath
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
-    result.passed = this.matchesExpectedStatus(step.expect, "success", 0)
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
 
     if (this.options.verbose) {
@@ -1255,7 +1206,7 @@ export class TestExecutor {
     return { inputs, outputs }
   }
 
-  private matchesExpectedStatus(expected: ExpectedStatus, actual: string, _exitCode: number): boolean {
+  private matchesExpectedStatus(expected: ExpectedStatus, actual: string): boolean {
     switch (expected) {
       case "success": return actual === "success"
       case "fail": return actual === "fail"
@@ -1357,19 +1308,6 @@ export class TestExecutor {
     }
   }
 
-  private countFilesRecursive(dir: string): number {
-    if (!fs.existsSync(dir)) return 0
-    let count = 0
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        count += this.countFilesRecursive(path.join(dir, entry.name))
-      } else {
-        count++
-      }
-    }
-    return count
-  }
-
   private runCleanup(action: { command?: string; path?: string }): void {
     let script: string
     if (action.command) {
@@ -1391,13 +1329,4 @@ export class TestExecutor {
       // Cleanup failures are non-fatal
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
-function lowercaseFirst(s: string): string {
-  if (!s) return s
-  return s[0].toLowerCase() + s.slice(1)
 }

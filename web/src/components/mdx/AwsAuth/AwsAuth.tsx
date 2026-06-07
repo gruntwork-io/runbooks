@@ -14,6 +14,7 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { AwsAuthInstruction } from "./AwsAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
@@ -37,7 +38,6 @@ function AwsAuthInteractive({
   detectCredentials = ['env'],  // Default: auto-detect from env vars
   inputsId,
 }: AwsAuthProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -64,14 +64,12 @@ function AwsAuthInteractive({
   
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
-  
-  // Telemetry context
+
   const { trackBlockRender } = useTelemetry()
 
   // Theme — swap the AWS wordmark for its light variant on dark surfaces
   const { resolvedTheme } = useTheme()
 
-  // All auth state and handlers from custom hook
   const auth = useAwsAuth({
     id,
     ssoStartUrl,
@@ -116,38 +114,22 @@ function AwsAuthInteractive({
     }
   }, [id, isDuplicate, hasMultipleBlockSources, reportError, clearError])
 
-  // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
     return <ErrorDisplay error={validationError} />
   }
 
-  // Early return for duplicate ID
   if (isDuplicate) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
-        <div className="flex items-center text-destructive">
-          <XCircle className="size-6 mr-4 flex-shrink-0" />
-          <div className="text-md">
-            {isNormalizedCollision ? (
-              <>
-                <strong>ID Collision:</strong><br />
-                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because 
-                hyphens are converted to underscores for template access.
-                Use different IDs to avoid this collision.
-              </>
-            ) : (
-              <>
-                <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-destructive-muted px-1 rounded">{"<AwsAuth>"}</code> component with id <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> already exists.
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+        componentName="AwsAuth"
+        className="runbook-block"
+      />
     )
   }
 
-  // Early return for multiple block sources in detectCredentials
   if (hasMultipleBlockSources) {
     return (
       <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">

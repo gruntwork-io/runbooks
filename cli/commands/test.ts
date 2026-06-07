@@ -52,17 +52,14 @@ export function registerTestCommand(program: Command): void {
 // ---------------------------------------------------------------------------
 
 async function runTestCommand(paths: string[], opts: TestOptions): Promise<void> {
-  // Discover runbooks
   const runbooks = discoverRunbooks(paths)
   if (runbooks.length === 0) {
     console.error(`No runbooks found matching ${paths.join(", ")}`)
     process.exit(1)
   }
 
-  // Run test suites
   const suites = await runTestSuites(runbooks, opts)
 
-  // Report results
   reportResults(suites, opts)
 
   // Exit with failure code if any tests failed
@@ -177,21 +174,12 @@ async function runTestSuites(
 
   const suites: RunbookTestSuite[] = []
 
-  // Run parallel suites
-  if (parallel.length > 0) {
-    let maxWorkers = opts.maxParallel || 4
-    if (maxWorkers > parallel.length) maxWorkers = parallel.length
-
-    // For simplicity, run sequentially for now.
-    // True parallelism would require worker_threads or child_process forking.
-    // TODO: Add parallel execution with worker pool
-    for (const runbook of parallel) {
-      suites.push(await runTestSuite(runbook, opts))
-    }
-  }
-
-  // Run sequential suites
-  for (const runbook of sequential) {
+  // Parallelizable runbooks currently run sequentially as well — true
+  // parallelism would require a worker pool (worker_threads / child_process).
+  // Until then both groups share one loop, parallelizable first to preserve
+  // report ordering.
+  // TODO: Add parallel execution with worker pool for the `parallel` group.
+  for (const runbook of [...parallel, ...sequential]) {
     suites.push(await runTestSuite(runbook, opts))
   }
 
@@ -305,7 +293,6 @@ async function runTestSuite(
     }
   }
 
-  runner.close()
   cleanupWorkDir?.()
   suite.duration = Date.now() - start
   return suite

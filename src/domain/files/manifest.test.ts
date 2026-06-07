@@ -12,7 +12,7 @@ import {
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { Layer, Stream } from "effect"
-import type { ManifestDiffResult } from "../../types.ts"
+import type { ManifestDiffResult, TemplateManifest } from "../../types.ts"
 
 describe("hashFileContent", () => {
   it("returns consistent SHA-256 hex for known input", () => {
@@ -40,22 +40,22 @@ describe("FileManifestStore", () => {
 
   it("set then get round-trips correctly", () => {
     const store = new FileManifestStore()
-    const manifest = [{ path: "file.txt", contentHash: "abc123" }]
+    const manifest: TemplateManifest = { templateId: "tpl1", outputDir: "/out", files: [{ path: "file.txt", contentHash: "abc123" }] }
     store.set("tpl1", manifest)
     expect(store.get("tpl1")).toEqual(manifest)
   })
 
   it("delete removes entry", () => {
     const store = new FileManifestStore()
-    store.set("tpl1", [])
+    store.set("tpl1", { templateId: "tpl1", outputDir: "/out", files: [] })
     store.delete("tpl1")
     expect(store.get("tpl1")).toBeUndefined()
   })
 
   it("clear removes all entries", () => {
     const store = new FileManifestStore()
-    store.set("tpl1", [])
-    store.set("tpl2", [])
+    store.set("tpl1", { templateId: "tpl1", outputDir: "/out", files: [] })
+    store.set("tpl2", { templateId: "tpl2", outputDir: "/out", files: [] })
     store.clear()
     expect(store.get("tpl1")).toBeUndefined()
     expect(store.get("tpl2")).toBeUndefined()
@@ -63,8 +63,8 @@ describe("FileManifestStore", () => {
 
   it("stores multiple templates independently", () => {
     const store = new FileManifestStore()
-    const m1 = [{ path: "a.txt", contentHash: "h1" }]
-    const m2 = [{ path: "b.txt", contentHash: "h2" }]
+    const m1: TemplateManifest = { templateId: "tpl1", outputDir: "/out", files: [{ path: "a.txt", contentHash: "h1" }] }
+    const m2: TemplateManifest = { templateId: "tpl2", outputDir: "/out", files: [{ path: "b.txt", contentHash: "h2" }] }
     store.set("tpl1", m1)
     store.set("tpl2", m2)
     expect(store.get("tpl1")).toEqual(m1)

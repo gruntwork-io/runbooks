@@ -22,10 +22,6 @@ function resolveAgainstRunbook(p: string): string {
 }
 
 /**
- * Validate that an absolute path is a registered worktree path or is
- * contained within the session working directory.
- */
-/**
  * Validate that a path is within the session working directory, a registered
  * worktree, or the runbook directory. Relative paths are resolved against the
  * runbook directory. Returns the resolved absolute path.

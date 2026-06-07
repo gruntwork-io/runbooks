@@ -7,14 +7,18 @@ function wrapper({ children }: { children: ReactNode }) {
   return <ComponentIdRegistryProvider>{children}</ComponentIdRegistryProvider>
 }
 
+// Wait for the setTimeout(0) registration in the hook to fire.
+async function flushRegistration() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10))
+  })
+}
+
 describe("ComponentIdRegistry", () => {
   it("registers without showing duplicate for a unique ID", async () => {
     const { result } = renderHook(() => useComponentIdRegistry("my-block", "Command"), { wrapper })
 
-    // Wait for the setTimeout(0) in the hook to fire
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10))
-    })
+    await flushRegistration()
 
     expect(result.current.isDuplicate).toBe(false)
     expect(result.current.isNormalizedCollision).toBe(false)
@@ -31,9 +35,7 @@ describe("ComponentIdRegistry", () => {
 
     const { result } = renderHook(() => useBoth(), { wrapper })
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10))
-    })
+    await flushRegistration()
 
     // At least one should detect the duplicate
     const aDup = result.current.a.isDuplicate
@@ -50,9 +52,7 @@ describe("ComponentIdRegistry", () => {
 
     const { result } = renderHook(() => useBoth(), { wrapper })
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10))
-    })
+    await flushRegistration()
 
     const aDup = result.current.a.isDuplicate
     const bDup = result.current.b.isDuplicate
@@ -78,9 +78,7 @@ describe("ComponentIdRegistry", () => {
 
     const { result } = renderHook(() => useBoth(), { wrapper })
 
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10))
-    })
+    await flushRegistration()
 
     expect(result.current.a.isDuplicate).toBe(false)
     expect(result.current.b.isDuplicate).toBe(false)

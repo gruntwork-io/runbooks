@@ -6,7 +6,8 @@
  */
 
 import type React from 'react'
-import { useState, useMemo, useCallback, useRef, useEffect, forwardRef } from 'react'
+import { useState, useMemo, forwardRef } from 'react'
+import { useCollapsibleFileList } from '@/hooks/useCollapsibleFileList'
 import {
   ChevronDown,
   ChevronRight,
@@ -16,16 +17,16 @@ import {
   FileDiff,
   FilePlus,
   FileMinus,
-  Copy,
-  Check,
   UnfoldVertical,
   ArrowUpToLine,
   ArrowDownToLine,
-  AlertTriangle,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
+import { ShowMoreBanner } from '@/lib/ShowMoreBanner'
+import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHeader'
+import { FILE_TREE_INDENT } from '@/components/artifacts/code/FileTree'
 import { Loader2, Download } from 'lucide-react'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
@@ -33,13 +34,6 @@ import type { WorkspaceFileChange } from '@/hooks/useGitFileChanges'
 import { ChangeProportionBar } from './ChangeProportionBar'
 
 type ChangeType = WorkspaceFileChange['changeType']
-
-/** Maximum number of files to render in the diff view at once */
-const MAX_DISPLAYED_FILES = 100
-/** When the number of changes exceeds this, all diffs start collapsed */
-const AUTO_COLLAPSE_THRESHOLD = 25
-/** How many additional files to show each time "Show more" is clicked */
-const SHOW_MORE_INCREMENT = 50
 
 /** Maps change types to their icon and color */
 const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
@@ -79,85 +73,27 @@ export const ChangedFilesView = ({
   className = "",
 }: ChangedFilesViewProps) => {
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
-  const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAYED_FILES)
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
-  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const {
+    collapsedFiles,
+    displayedItems: displayedChanges,
+    hasMoreItems: hasMoreFiles,
+    toggleCollapse: toggleFileCollapse,
+    showMore: handleShowMore,
+    expandAndJump,
+    setItemRef: setFileRef,
+  } = useCollapsibleFileList({
+    items: changes,
+    getKey: (c) => c.path,
+    changeKey: changes.length,
+  })
 
-  // Auto-collapse all diffs when there are many changes to avoid rendering
-  // expensive diff content for every file, which can freeze the browser.
-  const prevChangeLenRef = useRef(0)
-  useEffect(() => {
-    if (changes.length > AUTO_COLLAPSE_THRESHOLD && prevChangeLenRef.current !== changes.length) {
-      setCollapsedFiles(new Set(changes.map(c => c.path)))
-    }
-    prevChangeLenRef.current = changes.length
-  }, [changes])
-
-  // Reset display limit when changes list changes substantially
-  useEffect(() => {
-    setDisplayLimit(MAX_DISPLAYED_FILES)
-  }, [changes.length])
-
-  // Build file tree from changes
   const fileTree = useMemo(() => buildFileTree(changes), [changes])
 
-  // Slice changes to the display limit for the diff pane
-  const displayedChanges = useMemo(
-    () => changes.slice(0, displayLimit),
-    [changes, displayLimit]
-  )
-  const hasMoreFiles = changes.length > displayLimit
-
-  // Handle file selection from tree - jump to file
   const handleFileSelect = (filePath: string) => {
     setFocusedPath(filePath)
-    // Expand the file if it's collapsed
-    setCollapsedFiles(prev => {
-      const next = new Set(prev)
-      next.delete(filePath)
-      return next
-    })
-    // If the selected file is beyond the display limit, extend the limit
-    const fileIndex = changes.findIndex(c => c.path === filePath)
-    if (fileIndex >= displayLimit) {
-      setDisplayLimit(fileIndex + 1)
-    }
-    // Jump to the file (deferred to let React render the new limit)
-    requestAnimationFrame(() => {
-      const fileEl = fileRefs.current.get(filePath)
-      if (fileEl) {
-        fileEl.scrollIntoView({ behavior: 'auto', block: 'start' })
-      }
-    })
+    expandAndJump(filePath, changes.findIndex(c => c.path === filePath))
   }
-
-  // Toggle file collapse
-  const toggleFileCollapse = (filePath: string) => {
-    setCollapsedFiles(prev => {
-      const next = new Set(prev)
-      if (next.has(filePath)) {
-        next.delete(filePath)
-      } else {
-        next.add(filePath)
-      }
-      return next
-    })
-  }
-
-  // Show more files
-  const handleShowMore = () => {
-    setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT)
-  }
-
-  // Register file ref
-  const setFileRef = useCallback((filePath: string, el: HTMLDivElement | null) => {
-    if (el) {
-      fileRefs.current.set(filePath, el)
-    } else {
-      fileRefs.current.delete(filePath)
-    }
-  }, [])
 
   // Loading state
   if (isLoading && changes.length === 0) {
@@ -247,18 +183,13 @@ export const ChangedFilesView = ({
             ))}
             {/* Show more / truncation banner */}
             {hasMoreFiles && (
-              <div className="flex items-center gap-2 px-3 py-3 bg-warning-muted border border-warning/30 rounded-md">
-                <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
-                <span className="text-sm text-warning-foreground flex-1">
-                  Showing {displayedChanges.length} of {changes.length} changed files.
-                </span>
-                <button
-                  onClick={handleShowMore}
-                  className="px-3 py-1 text-sm bg-warning-muted hover:bg-warning-muted/80 text-warning-foreground rounded-md cursor-pointer transition-colors"
-                >
-                  Show {Math.min(SHOW_MORE_INCREMENT, changes.length - displayLimit)} more
-                </button>
-              </div>
+              <ShowMoreBanner
+                displayedCount={displayedChanges.length}
+                total={changes.length}
+                remaining={Math.min(SHOW_MORE_INCREMENT, changes.length - displayedChanges.length)}
+                noun="changed files"
+                onShowMore={handleShowMore}
+              />
             )}
           </div>
         </div>
@@ -365,8 +296,9 @@ const ChangedFileTree = ({
     })
   }
 
-  // Indent per level (8 base + 11 = 19px for level 1)
-  const INDENT = 11
+  // Indent per level (8 base + 11 = 19px for level 1). Shared with <FileTree>
+  // so the two sibling trees stay visually aligned.
+  const INDENT = FILE_TREE_INDENT
 
   const renderNode = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path)
@@ -479,14 +411,11 @@ interface CollapsibleFileDiffProps {
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
   ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
-    const { didCopy, copy } = useCopyToClipboard()
     const [isLoadingDiff, setIsLoadingDiff] = useState(false)
 
     const Icon = getChangeTypeIcon(change.changeType)
     const iconColor = getIconColor(change.changeType)
 
-    const handleCopyPath = () => copy(change.path)
-    
     return (
       <div 
         ref={ref}
@@ -497,45 +426,24 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         )}
       >
         {/* File Header Bar */}
-        <div
-          onClick={onToggleCollapse}
-          className="w-full flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent text-left cursor-pointer border-b border-border"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggleCollapse() }}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          )}
-          <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
-          <span className="font-mono text-xs text-foreground truncate">
-            {change.path}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleCopyPath() }}
-            className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
-            title="Copy file path"
-          >
-            {didCopy ? (
-              <Check className="w-3.5 h-3.5 text-success" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <div className="flex-1" />
-          <div className="flex items-center gap-2 text-xs flex-shrink-0">
-            {change.additions > 0 && (
-              <span className="text-success font-medium">+{change.additions}</span>
-            )}
-            {change.deletions > 0 && (
-              <span className="text-destructive font-medium">-{change.deletions}</span>
-            )}
-            <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
-          </div>
-        </div>
-        
+        <CollapsibleFileHeader
+          isCollapsed={isCollapsed}
+          onToggle={onToggleCollapse}
+          path={change.path}
+          icon={<Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />}
+          trailing={
+            <div className="flex items-center gap-2 text-xs flex-shrink-0">
+              {change.additions > 0 && (
+                <span className="text-success font-medium">+{change.additions}</span>
+              )}
+              {change.deletions > 0 && (
+                <span className="text-destructive font-medium">-{change.deletions}</span>
+              )}
+              <ChangeProportionBar additions={change.additions} deletions={change.deletions} />
+            </div>
+          }
+        />
+
         {/* Diff Content */}
         {!isCollapsed && (
           change.isDirectory ? (

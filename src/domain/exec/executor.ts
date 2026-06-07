@@ -68,17 +68,6 @@ function setupExecEnvVars(
   return result
 }
 
-/**
- * Merge per-request env var overrides into a base env record.
- * Override values replace any existing keys in the base record.
- */
-function mergeEnvVars(
-  base: Record<string, string>,
-  overrides: Record<string, string>,
-): Record<string, string> {
-  return { ...base, ...overrides }
-}
-
 // ---------------------------------------------------------------------------
 // Exit Status
 // ---------------------------------------------------------------------------
@@ -161,7 +150,6 @@ export const executeScript = (
     const logFilePath = `${logsDir}/exec.log`
     yield* fs.writeFile(logFilePath, "")
 
-    // Resolve the effective execution timeout: per-request override, falling back to the default.
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
 
     log.debug("step 4: preparing script")
@@ -181,17 +169,15 @@ export const executeScript = (
 
     // Apply per-request env var overrides
     if (request.envVarsOverride && Object.keys(request.envVarsOverride).length > 0) {
-      execEnv = mergeEnvVars(execEnv, request.envVarsOverride)
+      execEnv = { ...execEnv, ...request.envVarsOverride }
     }
 
     // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES, REPO_FILES)
     execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath)
 
-    // Build command arguments: [...interpreterArgs, scriptPath]
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
     log.debug("step 5: spawning process:", scriptSetup.interpreter, cmdArgs[cmdArgs.length - 1])
-    // Spawn the process
     const process = yield* spawner.spawn(scriptSetup.interpreter, cmdArgs, {
       cwd: sessionContext.workDir || undefined,
       env: execEnv,
@@ -203,7 +189,7 @@ export const executeScript = (
 
     log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
-    const logStream = Stream.map(process.output, (outputLine): ExecEvent => ({
+    const logStream = Stream.map(process.output, (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
       _tag: "log",
       event: {
         line: outputLine.line,
@@ -217,7 +203,6 @@ export const executeScript = (
     // Stream.concat is unreliable within forkDaemon + Effect.scoped —
     // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
-      // Wait for the process to exit
       const exitResult = yield* process.exitCode.pipe(
         Effect.timeoutFail({
           duration: effectiveTimeoutMs,

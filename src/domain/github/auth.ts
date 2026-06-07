@@ -1,11 +1,11 @@
 /**
  * GitHub authentication logic.
  */
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { GitHubTokenType } from "../../services/GitHubClient.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
+import { detectCliToken } from "../git/cli-token.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -107,52 +107,7 @@ export const detectEnvCredentials = () =>
  * not installed, not authenticated, or the command fails/times out.
  */
 export const detectCliCredentials = () =>
-  Effect.gen(function* () {
-    const spawner = yield* ProcessSpawner
-
-    const result = yield* Effect.either(
-      Effect.gen(function* () {
-        const proc = yield* spawner.spawn("gh", ["auth", "token"])
-
-        // Collect stdout lines with a timeout, ensuring the process is
-        // killed when we're done (success, failure, or timeout).
-        const lines: string[] = []
-        const exitCode = yield* Effect.ensuring(
-          Effect.gen(function* () {
-            yield* proc.output.pipe(
-              Stream.filter((line) => line.source === "stdout"),
-              Stream.take(1),
-              Stream.runForEach((line) =>
-                Effect.sync(() => {
-                  lines.push(line.line.trim())
-                }),
-              ),
-              Effect.timeout(GH_CLI_TIMEOUT_MS),
-            )
-
-            return yield* proc.exitCode.pipe(
-              Effect.timeout(GH_CLI_TIMEOUT_MS),
-            )
-          }),
-          proc.kill.pipe(Effect.ignore),
-        )
-
-        if (exitCode !== 0 || lines.length === 0) {
-          return undefined
-        }
-
-        const token = lines[0]
-        return token.length > 0 ? token : undefined
-      }),
-    )
-
-    // If the command failed for any reason, return undefined
-    if (result._tag === "Left") {
-      return undefined
-    }
-
-    return result.right
-  })
+  detectCliToken("gh", ["auth", "token"], GH_CLI_TIMEOUT_MS)
 
 // ---------------------------------------------------------------------------
 // GitHub API Queries

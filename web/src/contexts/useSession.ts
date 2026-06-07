@@ -3,19 +3,13 @@ import { SessionContext, type SessionContextType } from './SessionContext.types'
 
 /**
  * Hook to access the session context for persistent environment management.
- * 
+ *
+ * The session is established lazily in the Electron main process; consumers
+ * gate work on `isReady` and can force a reset via `resetSession`.
+ *
  * @example
- * const { isReady, getAuthHeader } = useSession()
- * 
- * // Use in API calls
- * const response = await fetch('/api/exec', {
- *   method: 'POST',
- *   headers: {
- *     'Content-Type': 'application/json',
- *     ...getAuthHeader(),
- *   },
- *   body: JSON.stringify({ ... }),
- * })
+ * const { isReady } = useSession()
+ * if (!isReady) return null
  */
 export function useSession(): SessionContextType {
   const context = useContext(SessionContext)

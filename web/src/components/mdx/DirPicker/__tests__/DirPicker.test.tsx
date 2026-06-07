@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import DirPicker from '../DirPicker'
 import { TestWrapper } from '@/test/test-utils'
 
 // Mock useSession
 vi.mock('@/contexts/useSession', () => ({
   useSession: () => ({
-    getAuthHeader: () => ({ Authorization: 'Bearer test' }),
     isReady: true,
   }),
 }))
@@ -98,22 +96,19 @@ describe('DirPicker', () => {
     expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
   })
 
-  it('allows manual path input editing', async () => {
-    const user = userEvent.setup()
-
+  it('allows manual path input editing', () => {
     render(
       <TestWrapper>
         <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} gitCloneId="clone-repo" />
       </TestWrapper>
     )
 
-    // When gitCloneId output is not available, we're in waiting state
-    // So the input is not rendered yet
+    // When gitCloneId output is not available, we're in waiting state, so the
+    // path input is not rendered yet.
     expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
 
     // Note: Full integration testing of the cascading dropdowns requires
     // injecting block outputs into the context, which is better tested in
     // an integration test with the full runbook setup.
-    void user // prevent unused variable lint warning
   })
 })

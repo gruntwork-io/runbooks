@@ -28,7 +28,6 @@ maybe("TestExecutor — fixture smoke", () => {
   })
 
   afterEach(() => {
-    executor?.close()
     fs.rmSync(tmpWorkDir, { recursive: true, force: true })
   })
 
@@ -73,6 +72,5 @@ describe("TestExecutor — config-error surfacing", () => {
     // init() should succeed; the validator records the error internally so
     // runTest can surface it. We assert init does not throw.
     await executor.init()
-    executor.close()
   })
 })

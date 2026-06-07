@@ -5,6 +5,12 @@
  * See plans/electron-rewrite-ipc.md for the full API specification.
  */
 
+// Import from the canonical src/types.ts so channels.ts and the backend
+// handlers share the same contract. Re-exported so consumers can import
+// these types from channels.ts directly.
+import type { ExecRequest, Section } from '../../src/types.ts'
+export type { ExecRequest, Section }
+
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
 // ---------------------------------------------------------------------------
@@ -366,16 +372,6 @@ export interface SessionMetadata {
   env: Record<string, string>
 }
 
-export interface ExecRequest {
-  executableId?: string
-  componentId?: string
-  templateVarValues?: Record<string, unknown>
-  envVarsOverride?: Record<string, string>
-  usePty?: boolean
-  /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
-  timeoutMs?: number
-}
-
 export interface BoilerplateConfig {
   variables: BoilerplateVariable[]
   sections: Section[]
@@ -386,12 +382,6 @@ export interface BoilerplateVariable {
   type: string
   description?: string
   default?: unknown
-}
-
-export interface Section {
-  name: string
-  description?: string
-  variables: string[]
 }
 
 export interface RenderRequest {
@@ -516,12 +506,6 @@ export interface WorkspaceChange {
   status: string
   additions: number
   deletions: number
-}
-
-export interface GitInfo {
-  branch: string
-  remoteUrl?: string
-  commitSha?: string
 }
 
 export interface FileData {

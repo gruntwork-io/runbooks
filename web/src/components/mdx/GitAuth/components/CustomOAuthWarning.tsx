@@ -8,8 +8,7 @@ interface CustomOAuthWarningProps {
 }
 
 export function CustomOAuthWarning({ clientId, onUseDefault, onContinue }: CustomOAuthWarningProps) {
-  // Truncate client ID for display
-  const displayClientId = clientId.length > 20 
+  const displayClientId = clientId.length > 20
     ? `${clientId.slice(0, 12)}...${clientId.slice(-4)}`
     : clientId
 

@@ -18,13 +18,7 @@ import {
   MAX_FILE_CONTENT_SIZE,
   HEAVY_DIR_THRESHOLD,
 } from "../../types.ts"
-import { getLanguageFromExtension } from "./file.ts"
-
-// ---------------------------------------------------------------------------
-// VCS directories to skip
-// ---------------------------------------------------------------------------
-
-const VCS_DIRS = new Set([".git", ".svn", ".hg"])
+import { getLanguageFromExtension, VCS_DIRS, BINARY_EXTENSIONS_BASE } from "./file.ts"
 
 // ---------------------------------------------------------------------------
 // Binary extension detection
@@ -32,15 +26,8 @@ const VCS_DIRS = new Set([".git", ".svn", ".hg"])
 
 /** Extensions that indicate a binary (non-text) file. */
 const BINARY_EXTENSIONS = new Set([
-  ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-  ".rar", ".jar", ".war", ".ear",
-  ".exe", ".dll", ".so", ".dylib",
-  ".bin", ".dat", ".o", ".a",
-  ".wasm", ".class", ".pyc", ".pyo",
-  ".ico", ".ttf", ".woff", ".woff2", ".eot", ".otf",
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-  ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv",
-  ".wav", ".flac", ".ogg", ".m4a",
+  ...BINARY_EXTENSIONS_BASE,
+  // Images — file-tree treats all image formats as binary (incl. .bmp)
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
 ])
 

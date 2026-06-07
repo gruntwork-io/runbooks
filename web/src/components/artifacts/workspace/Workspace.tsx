@@ -129,10 +129,7 @@ export const Workspace = ({
   }, [changes])
 
   // Git info for metadata bar
-  const gitInfo = useMemo(() => {
-    if (!activeWorkTree) return null
-    return activeWorkTree.gitInfo
-  }, [activeWorkTree])
+  const gitInfo = activeWorkTree?.gitInfo ?? null
 
   // Empty state: nothing to show
   if (hasNothing) {

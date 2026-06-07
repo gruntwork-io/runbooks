@@ -173,24 +173,9 @@ export const useFormState = (
     updateFields({ [fieldName]: value })
   }, [updateFields])
 
-  /**
-   * Resets the form to default values from the boilerplate configuration
-   */
-  const resetForm = useCallback(() => {
-    if (!boilerplateConfig) return
-    
-    const resetData: Record<string, unknown> = {}
-    boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
-      resetData[variable.name] = variable.default
-    })
-    
-    setFormData(resetData)
-  }, [boilerplateConfig])
-
   return {
     formData,
     updateField,
     updateFields,
-    resetForm
   }
 }

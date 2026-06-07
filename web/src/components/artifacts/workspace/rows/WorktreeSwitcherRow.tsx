@@ -9,26 +9,12 @@
  */
 
 import { useState } from 'react'
-import { GitBranch, Tag, GitCommit, ChevronDown, CircleDot } from 'lucide-react'
+import { ChevronDown, CircleDot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { GitHubIcon } from '@/components/icons/GitHubIcon'
-import type { GitWorkTree } from '@/contexts/GitWorkTreeContext'
-
-/** Renders the appropriate icon for a git ref type. */
-function RefIcon({ refType, className }: { refType?: string; className?: string }) {
-  switch (refType) {
-    case 'tag': return <Tag className={className} />
-    case 'commit': return <GitCommit className={className} />
-    default: return <GitBranch className={className} />
-  }
-}
-
-/** Formats a ref for display — truncates commit SHAs. */
-function formatRef(ref: string, refType?: string): string {
-  if (refType === 'commit') return ref.slice(0, 7)
-  return ref
-}
+import type { GitWorkTree } from '@/contexts/gitWorkTreeTypes'
+import { RefIcon, formatRef } from './gitRefDisplay'
 
 interface WorktreeSwitcherRowProps {
   /** All registered worktrees */

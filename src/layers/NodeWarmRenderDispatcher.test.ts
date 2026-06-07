@@ -73,7 +73,6 @@ function fakeWasmLayer(spy: WasmSpy) {
         spy.releasedHandles.push(handle)
       }),
     renderTemplate: () => Effect.die("renderTemplate not implemented"),
-    inputsMap: () => Effect.die("inputsMap not implemented"),
   }
   return Layer.succeed(WasmRuntime, impl)
 }

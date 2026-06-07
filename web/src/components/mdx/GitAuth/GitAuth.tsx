@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react"
-import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
+import { AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -12,6 +12,7 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GitAuthInstruction } from "./GitAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
 import { PROVIDERS } from "./providers"
@@ -42,7 +43,6 @@ function GitAuthInteractive({
   inputsId,
   __registryType = 'GitAuth',
 }: GitAuthInternalProps) {
-  // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -64,7 +64,6 @@ function GitAuthInteractive({
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Selected provider (GitHub | GitLab)
@@ -132,26 +131,13 @@ function GitAuthInteractive({
   // Early return for duplicate ID
   if (isDuplicate) {
     return (
-      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
-        <div className="flex items-center text-destructive">
-          <XCircle className="size-6 mr-4 flex-shrink-0" />
-          <div className="text-md">
-            {isNormalizedCollision ? (
-              <>
-                <strong>ID Collision:</strong><br />
-                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because
-                hyphens are converted to underscores for template access.
-                Use different IDs to avoid this collision.
-              </>
-            ) : (
-              <>
-                <strong>Duplicate Component ID:</strong><br />
-                Another <code className="bg-destructive-muted px-1 rounded">{`<${__registryType}>`}</code> component with id <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> already exists.
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+        componentName={__registryType}
+        className="runbook-block"
+      />
     )
   }
 

@@ -24,5 +24,4 @@ export const gitlabPRProviderConfig: PRProviderConfig = {
     cliTitle: 'Open a merge request:',
     build: 'glab',
   },
-  supportsPushMore: true,
 }

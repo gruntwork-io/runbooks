@@ -8,7 +8,7 @@ import { extractTemplateDependencies, extractTemplateDependenciesFromString, spl
 import { extractTemplateFiles } from './lib/extractTemplateFiles'
 import type { File, FileTreeNode } from '@/components/artifacts/code/FileTree'
 import type { AppError } from '@/types/error'
-import { useApi } from '@/hooks/useApi'
+import { useIpc } from '@/hooks/useIpc'
 import { useFileTreeUpdater } from '../_shared/hooks/useFileTreeUpdater'
 import { computeChangeKey } from '@/lib/changeDetection'
 import { CodeFile } from '@/components/artifacts/code/CodeFile'
@@ -79,10 +79,8 @@ function TemplateInline({
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
 
-  // Error reporting context
   const { reportError, clearError } = useErrorReporting()
 
-  // Telemetry context
   const { trackBlockRender } = useTelemetry()
 
   // Track block render on mount
@@ -113,8 +111,8 @@ function TemplateInline({
   const lastRenderedKeyRef = useRef<string | null>(null);
 
   // API hook — lazy mode skips auto-fetch on mount; we use debouncedRequest explicitly
-  const { data, error, isLoading, debouncedRequest } = useApi<RenderInlineResult>(
-    '/api/boilerplate/render-inline', 'POST', undefined, 300, undefined, true
+  const { data, error, isLoading, debouncedRequest } = useIpc<RenderInlineResult>(
+    'boilerplate:render-inline', undefined, { lazy: true, debounceMs: 300 }
   );
 
   // File tree updater — handles Generated tab vs worktree updates

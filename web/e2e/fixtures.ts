@@ -127,9 +127,9 @@ export const test = base.extend<RunbookAppFixture>({
       }
     }
 
-    if (app) {
-      await app.close();
-    }
+    // TypeScript 5.8 CFA loses track of the assignment inside the `launch`
+    // closure and narrows `app` to `never`; cast to restore the declared type.
+    await (app as ElectronApplication | null)?.close();
   },
 });
 

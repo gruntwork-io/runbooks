@@ -1,6 +1,7 @@
 import { Loader2, ExternalLink, XCircle, Copy, Check, HelpCircle, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { GitAuthStatus } from "../types"
 import type { ProviderConfig } from "../providers"
 import { AutoAuthInfo } from "./AutoAuthInfo"
@@ -24,17 +25,13 @@ export function OAuthFlow({
   onCancelOAuth,
   provider,
 }: OAuthFlowProps) {
-  const [copied, setCopied] = useState(false)
+  const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [showPermissionsInfo, setShowPermissionsInfo] = useState(false)
   const isAuthenticating = authStatus === 'authenticating'
   const isWaitingForAuth = isAuthenticating && userCode && verificationUri
 
-  const copyUserCode = async () => {
-    if (userCode) {
-      await navigator.clipboard.writeText(userCode)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
+  const copyUserCode = () => {
+    if (userCode) void doCopy(userCode)
   }
 
   if (!effectiveClientId) {

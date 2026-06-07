@@ -14,6 +14,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
 import { GitClient } from "../services/GitClient.ts"
+import { GitError } from "../errors/index.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "./ChildProcessSpawner.ts"
 
@@ -221,12 +222,13 @@ describe("GitCliClientLive.commit (real repo)", () => {
 
     expect(result._tag).toBe("Left")
     if (result._tag === "Left") {
-      expect(result.left.exitCode).not.toBe(0)
-      expect(result.left.stderr.toLowerCase()).toContain("nothing to commit")
+      const gitErr = result.left as GitError
+      expect(gitErr.exitCode).not.toBe(0)
+      expect(gitErr.stderr.toLowerCase()).toContain("nothing to commit")
       // command carries the "git " prefix exactly once, and the injected
       // identity is passed via env — never leaked into the command string.
-      expect(result.left.command.startsWith("git commit")).toBe(true)
-      expect(result.left.command).not.toContain("authed@example.com")
+      expect(gitErr.command.startsWith("git commit")).toBe(true)
+      expect(gitErr.command).not.toContain("authed@example.com")
     }
   })
 
@@ -278,7 +280,7 @@ describe("GitCliClientLive.commit (real repo)", () => {
 
     expect(result._tag).toBe("Left")
     if (result._tag === "Left") {
-      expect(result.left.stderr.toLowerCase()).toContain("author identity unknown")
+      expect((result.left as GitError).stderr.toLowerCase()).toContain("author identity unknown")
     }
   })
 })

@@ -28,9 +28,9 @@ export function runAssertion(
 ): AssertionResult {
   switch (assertion.type) {
     case "file_exists": return assertFileExists(assertion.path!, ctx)
-    case "file_not_exists": return assertFileNotExists(assertion.path!, ctx)
+    case "file_not_exists": return assertNotExists("file", assertion.path!, ctx)
     case "dir_exists": return assertDirExists(assertion.path!, ctx)
-    case "dir_not_exists": return assertDirNotExists(assertion.path!, ctx)
+    case "dir_not_exists": return assertNotExists("dir", assertion.path!, ctx)
     case "file_contains": return assertFileContains(assertion.path!, assertion.contains!, ctx)
     case "file_not_contains": return assertFileNotContains(assertion.path!, assertion.contains!, ctx)
     case "file_matches": return assertFileMatches(assertion.path!, assertion.pattern!, ctx)
@@ -74,16 +74,23 @@ function assertFileExists(filePath: string, ctx: AssertionContext): AssertionRes
   }
 }
 
-function assertFileNotExists(filePath: string, ctx: AssertionContext): AssertionResult {
-  const fullPath = resolvePath(filePath, ctx)
+function assertNotExists(
+  kind: "file" | "dir",
+  targetPath: string,
+  ctx: AssertionContext,
+): AssertionResult {
+  const type = kind === "file" ? "file_not_exists" : "dir_not_exists"
+  const noun = kind === "file" ? "File" : "Directory"
+  const lowerNoun = kind === "file" ? "file" : "directory"
+  const fullPath = resolvePath(targetPath, ctx)
   try {
     fs.statSync(fullPath)
-    return { type: "file_not_exists", passed: false, message: `File exists but should not: ${filePath}` }
+    return { type, passed: false, message: `${noun} exists but should not: ${targetPath}` }
   } catch (e: unknown) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-      return { type: "file_not_exists", passed: true }
+      return { type, passed: true }
     }
-    return { type: "file_not_exists", passed: false, message: `Error checking file: ${e}` }
+    return { type, passed: false, message: `Error checking ${lowerNoun}: ${e}` }
   }
 }
 
@@ -100,19 +107,6 @@ function assertDirExists(dirPath: string, ctx: AssertionContext): AssertionResul
       return { type: "dir_exists", passed: false, message: `Directory does not exist: ${dirPath}` }
     }
     return { type: "dir_exists", passed: false, message: `Error checking directory: ${e}` }
-  }
-}
-
-function assertDirNotExists(dirPath: string, ctx: AssertionContext): AssertionResult {
-  const fullPath = resolvePath(dirPath, ctx)
-  try {
-    fs.statSync(fullPath)
-    return { type: "dir_not_exists", passed: false, message: `Directory exists but should not: ${dirPath}` }
-  } catch (e: unknown) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-      return { type: "dir_not_exists", passed: true }
-    }
-    return { type: "dir_not_exists", passed: false, message: `Error checking directory: ${e}` }
   }
 }
 
@@ -254,7 +248,7 @@ function assertFilesGenerated(minCount: number, ctx: AssertionContext): Assertio
   return { type: "files_generated", passed: false, message: `Expected at least ${minCount} files generated, got ${count}` }
 }
 
-function countFiles(dir: string): number {
+export function countFiles(dir: string): number {
   if (!fs.existsSync(dir)) return 0
   let count = 0
   const entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -292,7 +286,7 @@ function assertScript(command: string, ctx: AssertionContext): AssertionResult {
   }
 }
 
-function envListToRecord(envList: string[]): Record<string, string> {
+export function envListToRecord(envList: string[]): Record<string, string> {
   const result: Record<string, string> = {}
   for (const entry of envList) {
     const idx = entry.indexOf("=")

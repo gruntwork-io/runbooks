@@ -5,14 +5,14 @@
  * GITLAB_TOKEN environment variable. GitLab has no OAuth device flow here (no
  * registered Gruntwork GitLab app), so authentication is PAT / CLI / env only.
  */
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
+import { detectCliToken } from "../git/cli-token.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,52 +77,7 @@ export const detectEnvCredentials = () =>
  * not installed, not authenticated, or the command fails/times out.
  */
 export const detectCliCredentials = () =>
-  Effect.gen(function* () {
-    const spawner = yield* ProcessSpawner
-
-    const result = yield* Effect.either(
-      Effect.gen(function* () {
-        const proc = yield* spawner.spawn("glab", ["auth", "token"])
-
-        // Collect stdout lines with a timeout, ensuring the process is
-        // killed when we're done (success, failure, or timeout).
-        const lines: string[] = []
-        const exitCode = yield* Effect.ensuring(
-          Effect.gen(function* () {
-            yield* proc.output.pipe(
-              Stream.filter((line) => line.source === "stdout"),
-              Stream.take(1),
-              Stream.runForEach((line) =>
-                Effect.sync(() => {
-                  lines.push(line.line.trim())
-                }),
-              ),
-              Effect.timeout(GLAB_CLI_TIMEOUT_MS),
-            )
-
-            return yield* proc.exitCode.pipe(
-              Effect.timeout(GLAB_CLI_TIMEOUT_MS),
-            )
-          }),
-          proc.kill.pipe(Effect.ignore),
-        )
-
-        if (exitCode !== 0 || lines.length === 0) {
-          return undefined
-        }
-
-        const token = lines[0]
-        return token.length > 0 ? token : undefined
-      }),
-    )
-
-    // If the command failed for any reason, return undefined
-    if (result._tag === "Left") {
-      return undefined
-    }
-
-    return result.right
-  })
+  detectCliToken("glab", ["auth", "token"], GLAB_CLI_TIMEOUT_MS)
 
 // ---------------------------------------------------------------------------
 // glab CLI config file (config.yml)
@@ -282,6 +237,34 @@ export function enumerateGlabHosts(yamlContent: string): GlabHostsInfo {
 }
 
 /**
+ * Scan glab's candidate `config.yml` paths (in glab's directory-precedence
+ * order) and return the first truthy result produced by `pick`. `readFile`
+ * already falls back to "" for a missing/unreadable file, so no separate
+ * existence check is needed. Returns undefined when no path yields a result.
+ */
+const scanGlabConfigs = <T>(pick: (content: string) => T | undefined) =>
+  Effect.gen(function* () {
+    const env = yield* Environment
+    const fs = yield* FileSystem
+
+    const allEnv = yield* env.getAll()
+    const candidates = resolveGlabConfigPaths({
+      env: allEnv,
+      platform: process.platform,
+    })
+
+    for (const path of candidates) {
+      const content = yield* fs
+        .readFile(path)
+        .pipe(Effect.orElseSucceed(() => ""))
+      const picked = pick(content)
+      if (picked) return picked
+    }
+
+    return undefined
+  })
+
+/**
  * Detect a GitLab token from glab's CLI config file (`config.yml`).
  *
  * `glab auth login` does not export an environment variable; it writes the
@@ -293,28 +276,7 @@ export function enumerateGlabHosts(yamlContent: string): GlabHostsInfo {
  * file or token for that host is found.
  */
 export const detectConfigCredentials = (host: string = DEFAULT_GITLAB_HOST) =>
-  Effect.gen(function* () {
-    const env = yield* Environment
-    const fs = yield* FileSystem
-
-    const allEnv = yield* env.getAll()
-    const candidates = resolveGlabConfigPaths({
-      env: allEnv,
-      platform: process.platform,
-    })
-
-    for (const path of candidates) {
-      // readFile already falls back to "" for a missing/unreadable file, so no
-      // separate existence check is needed.
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
-      const token = parseGlabToken(content, host)
-      if (token) return token
-    }
-
-    return undefined
-  })
+  scanGlabConfigs((content) => parseGlabToken(content, host))
 
 /**
  * Enumerate the GitLab hosts the user is logged into via glab, reading the
@@ -323,23 +285,11 @@ export const detectConfigCredentials = (host: string = DEFAULT_GITLAB_HOST) =>
  * config is present. Powers the GitAuth host picker.
  */
 export const detectConfigHosts = () =>
-  Effect.gen(function* () {
-    const env = yield* Environment
-    const fs = yield* FileSystem
-
-    const allEnv = yield* env.getAll()
-    const candidates = resolveGlabConfigPaths({
-      env: allEnv,
-      platform: process.platform,
-    })
-
-    for (const path of candidates) {
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
-      const info = enumerateGlabHosts(content)
-      if (info.hosts.length > 0) return info
-    }
-
-    return { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST }
-  })
+  scanGlabConfigs((content) => {
+    const info = enumerateGlabHosts(content)
+    return info.hosts.length > 0 ? info : undefined
+  }).pipe(
+    Effect.map(
+      (info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST },
+    ),
+  )
