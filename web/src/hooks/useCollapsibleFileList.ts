@@ -29,6 +29,10 @@ export function useCollapsibleFileList<T>({
   useEffect(() => {
     if (items.length > AUTO_COLLAPSE_THRESHOLD) {
       setCollapsedFiles(new Set(items.map(getKey)))
+    } else {
+      // Smaller list: start fully expanded. Clearing here also drops stale
+      // collapsed keys carried over from a previous (larger) changeKey.
+      setCollapsedFiles(new Set())
     }
     setDisplayLimit(MAX_DISPLAYED_FILES)
   }, [changeKey])

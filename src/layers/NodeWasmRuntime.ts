@@ -42,7 +42,6 @@ interface BoilerplateExports {
     pathsJSON: string,
     varsJSON: string,
   ): string | Error
-  boilerplateInputsMap(bundleJSON: string, varsJSON: string): string | Error
   boilerplatePrepareBundle(bundleJSON: string): string | Error
   boilerplateRenderFilesWithHandle(
     handle: string,
@@ -111,7 +110,6 @@ async function loadWasm(): Promise<BoilerplateExports> {
   const g = globalThis as Partial<BoilerplateExports>
   if (
     typeof g.boilerplateRenderFiles !== "function" ||
-    typeof g.boilerplateInputsMap !== "function" ||
     typeof g.boilerplatePrepareBundle !== "function" ||
     typeof g.boilerplateRenderFilesWithHandle !== "function" ||
     typeof g.boilerplateReleaseBundle !== "function" ||
@@ -126,7 +124,6 @@ async function loadWasm(): Promise<BoilerplateExports> {
 
   return {
     boilerplateRenderFiles: g.boilerplateRenderFiles.bind(globalThis),
-    boilerplateInputsMap: g.boilerplateInputsMap.bind(globalThis),
     boilerplatePrepareBundle: g.boilerplatePrepareBundle.bind(globalThis),
     boilerplateRenderFilesWithHandle: g.boilerplateRenderFilesWithHandle.bind(globalThis),
     boilerplateReleaseBundle: g.boilerplateReleaseBundle.bind(globalThis),

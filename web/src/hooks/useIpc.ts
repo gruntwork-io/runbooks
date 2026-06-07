@@ -68,6 +68,11 @@ export function useIpc<T>(
 
   const performInvoke = useCallback(async (invokeParams?: unknown) => {
     if (!channel) {
+      // No channel: invalidate any in-flight request and clear stale state so a
+      // cleared/disabled hook never commits or keeps showing the prior result.
+      requestSeqRef.current += 1
+      setData(null)
+      setError(null)
       setIsLoading(false)
       return
     }
@@ -134,7 +139,18 @@ export function useIpc<T>(
   }, [performInvoke])
 
   useEffect(() => {
-    if (!channel || lazy || disabled) {
+    if (!channel || disabled) {
+      // Cleared or disabled: drop any in-flight response and stale data so the
+      // previous file/config doesn't linger when nothing is selected.
+      requestSeqRef.current += 1
+      setData(null)
+      setError(null)
+      setIsLoading(false)
+      return
+    }
+
+    // Lazy: keep any existing data; the consumer drives fetches via refetch.
+    if (lazy) {
       setIsLoading(false)
       return
     }
