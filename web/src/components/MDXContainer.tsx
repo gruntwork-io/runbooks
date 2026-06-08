@@ -25,6 +25,7 @@ import { DirPicker } from '@/components/mdx/DirPicker'
 import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
 import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
 import { InstructionModeBanner } from '@/components/mdx/_shared/components/InstructionModeBanner'
+import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCheckbox'
 
 /**
  * This component renders a markdown/MDX document.
@@ -224,6 +225,62 @@ function rehypeTransformAssetPaths() {
   }
 }
 
+// Custom rehype plugin that gives every GitHub-flavored-markdown task-list
+// checkbox a stable identity so the TaskListCheckbox override can persist its
+// toggled state. GFM renders `- [ ]` / `- [x]` as a disabled
+// `<input type="checkbox">` with no inherent identity; here we derive a key from
+// the item's label text (with an ordinal suffix to disambiguate duplicate or
+// empty labels) and attach it as `data-task-key`. Deriving from text — rather
+// than a bare render index — keeps a checkbox's saved state aligned with its
+// step even if other items are added or reordered.
+function rehypeTaskListIds() {
+  return (tree: RehypeNode) => {
+    const slugCounts = new Map<string, number>()
+
+    const getText = (node: RehypeNode): string => {
+      if (node.type === 'text') return (node.value as string) || ''
+      if (node.children) return node.children.map(getText).join('')
+      return ''
+    }
+
+    const slugify = (text: string): string =>
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64)
+
+    // Walk the tree, tracking each node's parent so we can read a checkbox's
+    // sibling label text (the checkbox is the first child of its paragraph).
+    const visit = (node: RehypeNode, parent: RehypeNode | undefined) => {
+      if (
+        node.type === 'element' &&
+        node.tagName === 'input' &&
+        node.properties?.type === 'checkbox'
+      ) {
+        const labelText = parent
+          ? parent.children
+              ?.filter((child) => child !== node)
+              .map(getText)
+              .join('')
+              .trim() ?? ''
+          : ''
+        const slug = slugify(labelText) || 'task'
+        const ordinal = slugCounts.get(slug) ?? 0
+        slugCounts.set(slug, ordinal + 1)
+        node.properties = node.properties || {}
+        node.properties['data-task-key'] = ordinal === 0 ? slug : `${slug}-${ordinal}`
+      }
+
+      if (node.children) {
+        node.children.forEach((child) => visit(child, node))
+      }
+    }
+
+    visit(tree, undefined)
+  }
+}
+
 // Strips YAML front matter from MDX content.
 // Front matter is YAML metadata between --- delimiters at the start of the file.
 // Example:
@@ -276,6 +333,7 @@ export const MDX_COMPONENTS = {
   Admonition,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
   pre: CodeBlock, // Code blocks with copy-on-hover button
+  input: TaskListCheckbox, // Make GFM task-list checkboxes interactive + persistent
 } as const
 
 // Compiles MDX content into a custom React component that can render the MDX content.
@@ -289,7 +347,7 @@ const compileMDX = async (content: string): Promise<React.ComponentType> => {
     development: false, // Keep development false to avoid jsxDEV issues
     baseUrl: import.meta.url,
     remarkPlugins: [remarkGfm], // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
-    rehypePlugins: [rehypeTransformAssetPaths],
+    rehypePlugins: [rehypeTransformAssetPaths, rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })
 
