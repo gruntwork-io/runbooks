@@ -80,14 +80,11 @@ jobs:
 
       - name: Ensure Electron binary is installed
         run: |
-          set -x
           # electron's install.js downloads the platform zip into @electron/get's
-          # cache reliably, but in this CI environment its async extraction step does
-          # not finish before the process exits — it leaves node_modules/electron/dist
-          # half-written (only locales/), without the electron binary or chrome-sandbox.
-          # So: run install.js to populate the download cache, then extract the cached
-          # zip ourselves with unzip (synchronous, complete) so the dist is whole for
-          # the chrome-sandbox chown below.
+          # cache reliably, but in CI its async extraction doesn't finish before the
+          # process exits, leaving node_modules/electron/dist half-written (no electron
+          # binary or chrome-sandbox). Run install.js to populate the download cache,
+          # then extract the cached zip ourselves with unzip (synchronous, complete).
           rm -rf node_modules/electron/dist node_modules/electron/path.txt
           node node_modules/electron/install.js || true
           zip="$(ls -1 "$HOME"/.cache/electron/*/electron-*-linux-x64.zip | head -n1)"
@@ -95,7 +92,7 @@ jobs:
           mkdir -p node_modules/electron/dist
           unzip -q "$zip" -d node_modules/electron/dist
           printf 'electron' > node_modules/electron/path.txt
-          ls -la node_modules/electron/dist
+          # Guard: fail here (not in the chown step) if extraction ever regresses.
           test -f node_modules/electron/dist/chrome-sandbox
 
       - name: Fix Electron chrome-sandbox permissions
