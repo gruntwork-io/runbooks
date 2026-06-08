@@ -1,6 +1,20 @@
 import React from 'react'
-import { X, Eye, EyeOff } from 'lucide-react'
+import { X, Eye, EyeOff, Check, ChevronsUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 
@@ -249,6 +263,124 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
                 <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}>{item}</span>
                 {!disabled && <RemoveEntryButton onClick={() => removeItem(index)} />}
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Multi-select input for `list` variables that declare an enumerated option set (via the boilerplate.yml
+ * `x-options` extension, surfaced as `variable.options`). Renders a searchable popover of checkable options and
+ * keeps the selection in the canonical option order. The value is a plain `string[]` — identical on the wire to a
+ * freeform list — so Boilerplate renders it unchanged. Membership is enforced only by the UI (the picker never
+ * offers a value outside the option set); there is no Go-side constraint.
+ */
+export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => {
+  const options = variable.options ?? []
+  const selected = Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+  const selectedSet = new Set(selected)
+  const [open, setOpen] = React.useState(false)
+  const [search, setSearch] = React.useState('')
+  const listRef = React.useRef<HTMLDivElement>(null)
+
+  // Scroll to the top whenever the search changes or the popover opens (matches DefaultRegionPicker).
+  React.useEffect(() => {
+    if (open && listRef.current) {
+      listRef.current.scrollTo({ top: 0 })
+    }
+  }, [open, search])
+
+  const toggle = (option: string) => {
+    if (selectedSet.has(option)) {
+      onChange(selected.filter((o) => o !== option))
+    } else {
+      // Keep the selection in the canonical option order rather than click order.
+      onChange(options.filter((o) => selectedSet.has(o) || o === option))
+    }
+  }
+
+  const removeItem = (option: string) => onChange(selected.filter((o) => o !== option))
+
+  return (
+    <div className="space-y-2">
+      {!disabled && (
+        <Popover
+          open={open}
+          onOpenChange={(isOpen) => {
+            setOpen(isOpen)
+            if (!isOpen) {
+              setSearch('')
+              onBlur?.()
+            }
+          }}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              id={`${id}-${variable.name}`}
+              className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
+            >
+              {selected.length > 0 ? `${selected.length} selected` : 'Select options...'}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
+            <Command>
+              <CommandInput placeholder="Search options..." value={search} onValueChange={setSearch} />
+              <CommandList ref={listRef} className="max-h-[300px]">
+                <CommandEmpty>No match found.</CommandEmpty>
+                <CommandGroup>
+                  {options.map((option) => (
+                    <CommandItem
+                      key={option}
+                      value={option}
+                      onSelect={() => toggle(option)}
+                      className="flex items-center gap-2"
+                    >
+                      <Check
+                        className={cn(
+                          'h-4 w-4 shrink-0',
+                          selectedSet.has(option) ? 'opacity-100' : 'opacity-0',
+                        )}
+                      />
+                      <span className="font-mono text-xs text-foreground">{option}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Selected entries, always visible so the choice is readable without opening the picker. */}
+      {selected.length > 0 && (
+        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+          <EntryCountHeader count={selected.length} disabled={disabled} />
+          <div className="flex flex-wrap gap-1.5 p-2">
+            {selected.map((option) => (
+              <span
+                key={option}
+                className={`inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 font-mono text-xs ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}
+              >
+                {option}
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={() => removeItem(option)}
+                    className="text-muted-foreground hover:text-destructive cursor-pointer"
+                    title={`Remove ${option}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </span>
             ))}
           </div>
         </div>
@@ -607,6 +739,10 @@ export const FormControl: React.FC<BaseFormControlProps> = (props) => {
     case BoilerplateVariableType.Enum:
       return <EnumSelect {...props} />
     case BoilerplateVariableType.List:
+      // A list with an enumerated option set (x-options) renders as a multi-select picker.
+      if (variable.options && variable.options.length > 0) {
+        return <MultiSelectInput {...props} />
+      }
       // Use tuple input if schema is defined (numeric keys = fixed-length typed array)
       return variable.schema && Object.keys(variable.schema).length > 0
         ? <TupleInput {...props} />

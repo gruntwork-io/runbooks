@@ -84,6 +84,30 @@ variables:
     expect(result.variables[0].options).toEqual(["dev", "staging", "prod"])
   })
 
+  it("surfaces x-options on a list as options (multi-select)", async () => {
+    const result = await parse(`
+variables:
+  - name: opt_in_regions
+    type: list
+    default: []
+    x-options:
+      - us-east-1
+      - us-west-2
+      - eu-west-1
+`)
+    expect(result.variables[0].type).toBe("list")
+    expect(result.variables[0].options).toEqual(["us-east-1", "us-west-2", "eu-west-1"])
+  })
+
+  it("ignores x-options on a plain list when absent", async () => {
+    const result = await parse(`
+variables:
+  - name: catalog_repos
+    type: list
+`)
+    expect(result.variables[0].options).toBeUndefined()
+  })
+
   it("detects sensitive flag", async () => {
     const result = await parse(`
 variables:

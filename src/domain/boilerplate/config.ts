@@ -46,6 +46,9 @@ interface RawVariable {
   "x-schema"?: Record<string, string>
   "x-schema-instance-label"?: string
   "x-section"?: string
+  // Enumerates the allowed values for a `list` variable so the form renders a multi-select picker. Boilerplate
+  // forbids `options` on a non-enum type, so this rides the x-extension seam instead and the Go tool ignores it.
+  "x-options"?: string[]
 }
 
 interface RawSkipFile {
@@ -300,6 +303,13 @@ export function parseBoilerplateConfig(yamlContent: string): Effect.Effect<Boile
 
       if (varType === "enum" && rv.options) {
         variable.options = rv.options
+      }
+
+      // A `list` carrying x-options is the multi-select signal: the enumerated values constrain the picker. The
+      // membership guarantee is UI-only — Boilerplate still treats the value as a plain list (no Go-side validation).
+      const xOptions = rv["x-options"]
+      if (varType === "list" && Array.isArray(xOptions) && xOptions.length > 0) {
+        variable.options = xOptions
       }
 
       const schema = rv["x-schema"]
