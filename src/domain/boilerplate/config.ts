@@ -307,9 +307,13 @@ export function parseBoilerplateConfig(yamlContent: string): Effect.Effect<Boile
 
       // A `list` carrying x-options is the multi-select signal: the enumerated values constrain the picker. The
       // membership guarantee is UI-only — Boilerplate still treats the value as a plain list (no Go-side validation).
+      // YAML.parse is untyped, so filter to strings rather than trusting the declared `string[]` shape.
       const xOptions = rv["x-options"]
-      if (varType === "list" && Array.isArray(xOptions) && xOptions.length > 0) {
-        variable.options = xOptions
+      if (varType === "list" && Array.isArray(xOptions)) {
+        const stringOptions = xOptions.filter((o): o is string => typeof o === "string")
+        if (stringOptions.length > 0) {
+          variable.options = stringOptions
+        }
       }
 
       const schema = rv["x-schema"]

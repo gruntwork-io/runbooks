@@ -374,8 +374,9 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, val
                   <button
                     type="button"
                     onClick={() => removeItem(option)}
-                    className="text-muted-foreground hover:text-destructive cursor-pointer"
+                    className="text-muted-foreground hover:text-destructive cursor-pointer rounded-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     title={`Remove ${option}`}
+                    aria-label={`Remove ${option}`}
                   >
                     <X className="w-3 h-3" />
                   </button>

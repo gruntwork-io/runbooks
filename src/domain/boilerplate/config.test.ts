@@ -108,6 +108,32 @@ variables:
     expect(result.variables[0].options).toBeUndefined()
   })
 
+  it("drops non-string x-options entries from untyped YAML", async () => {
+    const result = await parse(`
+variables:
+  - name: opt_in_regions
+    type: list
+    x-options:
+      - us-east-1
+      - 123
+      - true
+      - eu-west-1
+`)
+    expect(result.variables[0].options).toEqual(["us-east-1", "eu-west-1"])
+  })
+
+  it("leaves options unset when no x-options entry is a string", async () => {
+    const result = await parse(`
+variables:
+  - name: opt_in_regions
+    type: list
+    x-options:
+      - 123
+      - true
+`)
+    expect(result.variables[0].options).toBeUndefined()
+  })
+
   it("detects sensitive flag", async () => {
     const result = await parse(`
 variables:
