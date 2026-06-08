@@ -36,8 +36,10 @@ export interface IpcChannelMap {
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
 
   // Execution
-  "exec:run": { params: ExecRequest; result: { status: { status: string; exitCode: number } | null } }
-  "exec:cancel": { params: void; result: { ok: true } }
+  "exec:run": { params: ExecRequest; result: { status: { status: string; exitCode: number } | null; cancelled?: boolean } }
+  // `executionId` targets a specific run; when omitted, the most-recent active
+  // execution is cancelled (back-compat).
+  "exec:cancel": { params: { executionId?: string }; result: { ok: true } }
 
   // Boilerplate
   "boilerplate:variables": {

@@ -207,6 +207,13 @@ export interface ExecRequest {
   usePty?: boolean
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
   timeoutMs?: number
+  /**
+   * Renderer-generated unique id for this execution. The renderer holds onto it
+   * so a later `exec:cancel` can target *this specific* run (rather than whatever
+   * happens to be active), and the main process registers the run's
+   * AbortController under it. Omitted by callers that don't support cancellation.
+   */
+  executionId?: string
 }
 
 export interface ExecLogEvent {

@@ -59,26 +59,50 @@ function shellEscapeDeep(obj: Record<string, unknown>): Record<string, unknown> 
 // Active execution tracking for cancellation support
 // ---------------------------------------------------------------------------
 
-let activeAbortController: AbortController | null = null
+// Active executions keyed by the renderer-supplied executionId, so a later
+// exec:cancel can interrupt a *specific* run. Aborting a controller interrupts
+// the Effect fiber (the signal is passed to runPromise below), which closes the
+// execution scope and runs the child-process kill finalizer in executor.ts.
+const activeExecutions = new Map<string, AbortController>()
+// Fallback target for exec:cancel calls that don't name an executionId.
+let mostRecentExecutionId: string | null = null
+// Counter for synthesizing an id when a caller doesn't supply one.
+let execSeq = 0
+
+function abortExecution(id: string): boolean {
+  const controller = activeExecutions.get(id)
+  if (!controller) return false
+  controller.abort()
+  activeExecutions.delete(id)
+  if (mostRecentExecutionId === id) mostRecentExecutionId = null
+  return true
+}
 
 export function registerExecHandlers(): void {
   ipcMain.handle(
     "exec:run",
     async (event, params: ExecRequest) => {
       log.debug("handler called for:", params.executableId || params.componentId)
-      // Cancel any existing execution
-      if (activeAbortController) {
-        activeAbortController.abort()
-        activeAbortController = null
-      }
+      // Only one execution runs at a time: cancel (interrupt + kill) any others.
+      for (const controller of activeExecutions.values()) controller.abort()
+      activeExecutions.clear()
 
+      const executionId = params.executionId ?? `main-${++execSeq}`
       const abortController = new AbortController()
-      activeAbortController = abortController
+      activeExecutions.set(executionId, abortController)
+      mostRecentExecutionId = executionId
 
       try {
         // Run execution directly (no forkDaemon). The IPC handler awaits
         // the result, which is exactly the same as forkDaemon + Fiber.await
         // but without the scope/fiber lifecycle issues that caused hangs.
+        //
+        // The abort signal is passed to runPromise: when exec:cancel aborts it,
+        // Effect interrupts this fiber, which closes the scope and runs the
+        // process.kill finalizer (executor.ts) — that's what actually stops the
+        // running child (and its process group). The signal.aborted checks below
+        // are a belt-and-suspenders guard against a stray send in the small
+        // window before interruption takes effect at the next yield point.
         return await runtime.runPromise(
           Effect.scoped(
             Effect.gen(function* () {
@@ -189,6 +213,7 @@ export function registerExecHandlers(): void {
               return { status: finalStatus }
             }),
           ),
+          { signal: abortController.signal },
         )
       } catch (err) {
         log.debug("caught error:", err)
@@ -197,18 +222,16 @@ export function registerExecHandlers(): void {
         }
         throw err
       } finally {
-        if (activeAbortController === abortController) {
-          activeAbortController = null
-        }
+        activeExecutions.delete(executionId)
+        if (mostRecentExecutionId === executionId) mostRecentExecutionId = null
       }
     },
   )
 
-  ipcMain.handle("exec:cancel", async () => {
-    if (activeAbortController) {
-      activeAbortController.abort()
-      activeAbortController = null
-    }
+  ipcMain.handle("exec:cancel", async (_event, params?: { executionId?: string }) => {
+    // Target a specific run when named; otherwise fall back to the most recent.
+    const id = params?.executionId ?? mostRecentExecutionId
+    if (id) abortExecution(id)
     return { ok: true as const }
   })
 }
