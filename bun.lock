@@ -73,6 +73,7 @@
     },
   },
   "trustedDependencies": [
+    "electron",
     "@swc/core",
   ],
   "packages": {

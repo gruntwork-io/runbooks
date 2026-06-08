@@ -219,6 +219,7 @@
     }
   },
   "trustedDependencies": [
-    "@swc/core"
+    "@swc/core",
+    "electron"
   ]
 }
