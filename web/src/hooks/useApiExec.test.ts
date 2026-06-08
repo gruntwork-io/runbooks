@@ -23,12 +23,17 @@ type EventCallback = (...args: unknown[]) => void
  */
 function createMockWindowApi() {
   const listeners = new Map<string, Set<EventCallback>>()
-  let invokeResolve: (() => void) | null = null
+  let invokeResolve: ((value?: unknown) => void) | null = null
   let invokeReject: ((err: Error) => void) | null = null
 
   const api = {
-    invoke: vi.fn((_channel: string, ..._args: unknown[]) => {
-      return new Promise<void>((resolve, reject) => {
+    invoke: vi.fn((channel: string, ..._args: unknown[]) => {
+      // Fire-and-forget channels (e.g. exec:cancel) resolve immediately so they
+      // don't clobber the pending exec:run resolver the tests drive by hand.
+      if (channel !== 'exec:run') {
+        return Promise.resolve({ ok: true })
+      }
+      return new Promise<unknown>((resolve, reject) => {
         invokeResolve = resolve
         invokeReject = reject
       })
@@ -54,9 +59,9 @@ function createMockWindowApi() {
         for (const cb of cbs) cb(data)
       }
     },
-    /** Resolve the pending invoke('exec:run') call */
-    resolveInvoke() {
-      invokeResolve?.()
+    /** Resolve the pending invoke('exec:run') call, optionally with a result */
+    resolveInvoke(value?: unknown) {
+      invokeResolve?.(value)
     },
     /** Reject the pending invoke('exec:run') call */
     rejectInvoke(err: Error) {
@@ -100,13 +105,14 @@ describe('useApiExec state machine', () => {
     // Should transition to running immediately
     expect(result.current.state.status).toBe('running')
 
-    // Verify invoke was called with correct payload
+    // Verify invoke was called with correct payload (plus a generated executionId)
     expect(mock.api.invoke).toHaveBeenCalledWith('exec:run', {
       executableId: 'test-executable',
       templateVarValues: { region: 'us-west-2' },
       envVarsOverride: undefined,
       usePty: undefined,
       timeoutMs: undefined,
+      executionId: expect.any(String),
     })
 
     // Simulate IPC events from main process
@@ -178,6 +184,46 @@ describe('useApiExec state machine', () => {
     expect(result.current.state.status).toBe('pending')
     const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
     expect(lastLog.line).toContain('cancelled')
+  })
+
+  it('cancel sends exec:cancel targeting the running execution id', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('long-running-script')
+    })
+    expect(result.current.state.status).toBe('running')
+
+    act(() => {
+      result.current.cancel()
+    })
+
+    // Cancel must name an executionId so the backend interrupts *this* run,
+    // rather than blindly cancelling whatever is currently active.
+    expect(mock.api.invoke).toHaveBeenCalledWith('exec:cancel', {
+      executionId: expect.any(String),
+    })
+    expect(result.current.state.status).toBe('pending')
+  })
+
+  it('reconciles final status from the invoke result when the status event is dropped', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('long-running-script')
+    })
+    expect(result.current.state.status).toBe('running')
+
+    // No exec:status event is emitted (it was dropped: detached listeners, a
+    // newer run claimed activeExecId, or the main process suppressed sends). The
+    // invoke still resolves with the authoritative result, which must move the UI
+    // off "running" — this is the fix for a finished block stuck on "running".
+    await act(async () => {
+      mock.resolveInvoke({ status: { status: 'success', exitCode: 0 } })
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    expect(result.current.state.exitCode).toBe(0)
   })
 
   it('reset: clears all state back to initial', async () => {

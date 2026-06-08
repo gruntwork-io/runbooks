@@ -105,13 +105,19 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
   const cleanupRef = useRef<(() => void) | null>(null)
   const executionGenRef = useRef(0)
+  // The id of the currently-running execution, or null when nothing is running.
+  // Tracked independently of `cleanupRef` (the IPC listeners) so that Stop can
+  // still cancel a run whose listeners have already been detached — and so the
+  // decision to cancel doesn't depend on listener lifecycle timing.
+  const runningExecIdRef = useRef<string | null>(null)
 
   const cancel = useCallback(() => {
-    const hadActiveExecution = cleanupRef.current !== null
+    const execId = runningExecIdRef.current
 
-    // Signal the backend to cancel the active execution (kill child process)
-    if (hadActiveExecution) {
-      window.api.invoke('exec:cancel').catch(() => {})
+    // Signal the backend to interrupt + kill *this* run's child process group.
+    if (execId !== null) {
+      window.api.invoke('exec:cancel', { executionId: execId }).catch(() => {})
+      runningExecIdRef.current = null
     }
 
     // Clean up IPC event subscriptions
@@ -121,7 +127,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     }
 
     // Only add cancellation log and update state if there was actually an active execution
-    if (hadActiveExecution) {
+    if (execId !== null) {
       setState((prev) => ({
         ...prev,
         status: 'pending',
@@ -160,6 +166,10 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     // Claim global ownership so that listeners from previously-run blocks
     // (which are still subscribed) will silently discard our events.
     const execId = ++activeExecId
+    // Stable string id for this run, sent to the backend so a later exec:cancel
+    // can target this specific execution. Held in a ref for cancel() to read.
+    const executionId = String(execId)
+    runningExecIdRef.current = executionId
 
     // Reset state for new execution
     setState({
@@ -233,8 +243,26 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     cleanupRef.current = cleanup
 
     try {
-      await window.api.invoke('exec:run', payload)
-      // The invoke resolved — the main process has sent all events.
+      const result = await window.api.invoke('exec:run', { ...payload, executionId })
+      // The invoke resolved — this run is finished and no longer cancellable.
+      if (generation === executionGenRef.current) {
+        runningExecIdRef.current = null
+
+        // Reconcile the final status from the invoke's return value. The streamed
+        // `exec:status` event can be silently dropped — listeners get detached, a
+        // newer run claims activeExecId, or the main process suppressed sends after
+        // an abort — which would otherwise leave a *finished* block stuck showing
+        // "running". The invoke result is the source of truth, so apply it whenever
+        // the UI is still in a non-terminal state.
+        if (result?.status) {
+          const finalStatus = result.status
+          setState((prev) =>
+            prev.status === 'running' || prev.status === 'pending'
+              ? { ...prev, status: finalStatus.status as ExecState['status'], exitCode: finalStatus.exitCode }
+              : prev,
+          )
+        }
+      }
       // Schedule listener cleanup on the next macrotask so any IPC events
       // still queued in the renderer's event loop are dispatched first.
       setTimeout(() => {
@@ -246,6 +274,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     } catch (error) {
       // Only update state if this execution is still current
       if (generation === executionGenRef.current) {
+        runningExecIdRef.current = null
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         setState((prev) => ({
           ...prev,

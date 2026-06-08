@@ -18,6 +18,12 @@ const impl: ProcessSpawnerShape = {
           cwd: options?.cwd,
           env: options?.env as NodeJS.ProcessEnv | undefined,
           stdio: [needsStdin ? "pipe" : "ignore", "pipe", "pipe"],
+          // Run the child as its own process-group leader (POSIX: pid === pgid).
+          // Scripts here spawn a tree — bash → terragrunt → tofu → providers —
+          // and `kill` below signals the whole group via the negative pid. Without
+          // this, terminating only the direct child would orphan the grandchildren
+          // (terraform/tofu would keep running and hold state locks).
+          detached: true,
         })
 
         // Write stdin if provided, then close
@@ -104,8 +110,34 @@ const impl: ProcessSpawnerShape = {
           catch: () => new SpawnError({ command, cause: new Error("Process failed") }),
         }) as unknown as Effect.Effect<number>
 
+        // Kill the entire process group, not just the direct child. `detached`
+        // above makes `proc` a group leader, so a negative pid signals every
+        // descendant that hasn't started its own group (bash, terragrunt, tofu,
+        // providers all stay in this group).
+        const killGroup = (signal: NodeJS.Signals): void => {
+          const pid = proc.pid
+          if (pid === undefined) return
+          try {
+            process.kill(-pid, signal)
+          } catch {
+            // Group already gone, or the platform lacks group signals (Windows):
+            // fall back to the direct child. A second failure means it's dead.
+            try {
+              proc.kill(signal)
+            } catch {
+              /* already exited — nothing to do */
+            }
+          }
+        }
+
         const kill: Effect.Effect<void> = Effect.sync(() => {
-          proc.kill()
+          // Ask politely first so the tree can clean up (e.g. tofu releases its
+          // state lock), then force-kill whatever is still alive a few seconds
+          // later. The escalation timer is best-effort and unref'd so it can
+          // never, on its own, keep the parent process alive.
+          killGroup("SIGTERM")
+          const escalate = setTimeout(() => killGroup("SIGKILL"), 5000)
+          escalate.unref?.()
         })
 
         return { output, exitCode, kill }
