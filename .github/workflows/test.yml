@@ -79,7 +79,17 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Ensure Electron binary is installed
-        run: node node_modules/electron/install.js
+        run: |
+          # `bun install --frozen-lockfile` can leave node_modules/electron/dist
+          # absent or only partially populated in CI (notably missing chrome-sandbox).
+          # When a partial dist is present, electron's install.js no-ops because its
+          # isInstalled() check only looks for dist/version, path.txt, and the main
+          # binary. Clear any stale dist and unset any inherited skip flag so install.js
+          # performs a clean, complete download — otherwise the chown step below fails
+          # with "cannot access node_modules/electron/dist/chrome-sandbox".
+          rm -rf node_modules/electron/dist node_modules/electron/path.txt
+          unset ELECTRON_SKIP_BINARY_DOWNLOAD
+          node node_modules/electron/install.js
 
       - name: Fix Electron chrome-sandbox permissions
         run: |
