@@ -105,6 +105,8 @@ export function ViewLogs({
       {/* Toggle button with Copy/Download actions */}
       <div className="flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors">
         <button
+          type="button"
+          aria-expanded={showLogs}
           onClick={() => { setShowLogs(!showLogs) }}
           className="flex items-center gap-2 text-left cursor-pointer flex-1"
         >
