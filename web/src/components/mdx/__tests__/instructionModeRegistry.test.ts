@@ -53,7 +53,8 @@ const ALIAS_SOURCE: Record<string, string> = {
 const PASSTHROUGH_BLOCKS = ['Inputs', 'Admonition'] as const
 
 // Non-block element overrides (not runbook blocks).
-const ELEMENT_OVERRIDES = ['a', 'pre'] as const
+// - `input` makes GFM task-list checkboxes interactive (no instruction-mode behavior).
+const ELEMENT_OVERRIDES = ['a', 'pre', 'input'] as const
 
 describe('instruction mode — MDX registry coverage', () => {
   it('every registry entry is classified (a new block forces a decision)', () => {
