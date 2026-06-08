@@ -80,16 +80,22 @@ jobs:
 
       - name: Ensure Electron binary is installed
         run: |
-          # `bun install --frozen-lockfile` can leave node_modules/electron/dist
-          # absent or only partially populated in CI (notably missing chrome-sandbox).
-          # When a partial dist is present, electron's install.js no-ops because its
-          # isInstalled() check only looks for dist/version, path.txt, and the main
-          # binary. Clear any stale dist and unset any inherited skip flag so install.js
-          # performs a clean, complete download — otherwise the chown step below fails
-          # with "cannot access node_modules/electron/dist/chrome-sandbox".
+          set -x
+          # electron's install.js silently no-ops (exit 0, no download) when
+          # ELECTRON_SKIP_BINARY_DOWNLOAD is set or a dist already looks installed.
+          # Surface any electron-related env so we can see what's suppressing it.
+          echo "ELECTRON_SKIP_BINARY_DOWNLOAD=[${ELECTRON_SKIP_BINARY_DOWNLOAD-UNSET}]"
+          env | grep -iE 'electron|npm_config' || true
+          # Force a clean, complete (re)download regardless of a partial dist or any
+          # inherited skip flag: drop any stale dist, strip the skip var from
+          # electron's own process env (env -u, not just shell unset), and bypass any
+          # cached/corrupt zip (force_no_cache). DEBUG surfaces @electron/get activity.
           rm -rf node_modules/electron/dist node_modules/electron/path.txt
-          unset ELECTRON_SKIP_BINARY_DOWNLOAD
-          node node_modules/electron/install.js
+          env -u ELECTRON_SKIP_BINARY_DOWNLOAD force_no_cache=true DEBUG='@electron/get:*' \
+            node node_modules/electron/install.js
+          ls -la node_modules/electron/dist
+          # Fail loudly here (with the diagnostics above) rather than in the chown step.
+          test -f node_modules/electron/dist/chrome-sandbox
 
       - name: Fix Electron chrome-sandbox permissions
         run: |
