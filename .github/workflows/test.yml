@@ -81,20 +81,21 @@ jobs:
       - name: Ensure Electron binary is installed
         run: |
           set -x
-          # electron's install.js silently no-ops (exit 0, no download) when
-          # ELECTRON_SKIP_BINARY_DOWNLOAD is set or a dist already looks installed.
-          # Surface any electron-related env so we can see what's suppressing it.
-          echo "ELECTRON_SKIP_BINARY_DOWNLOAD=[${ELECTRON_SKIP_BINARY_DOWNLOAD-UNSET}]"
-          env | grep -iE 'electron|npm_config' || true
-          # Force a clean, complete (re)download regardless of a partial dist or any
-          # inherited skip flag: drop any stale dist, strip the skip var from
-          # electron's own process env (env -u, not just shell unset), and bypass any
-          # cached/corrupt zip (force_no_cache). DEBUG surfaces @electron/get activity.
+          # electron's install.js downloads the platform zip into @electron/get's
+          # cache reliably, but in this CI environment its async extraction step does
+          # not finish before the process exits — it leaves node_modules/electron/dist
+          # half-written (only locales/), without the electron binary or chrome-sandbox.
+          # So: run install.js to populate the download cache, then extract the cached
+          # zip ourselves with unzip (synchronous, complete) so the dist is whole for
+          # the chrome-sandbox chown below.
           rm -rf node_modules/electron/dist node_modules/electron/path.txt
-          env -u ELECTRON_SKIP_BINARY_DOWNLOAD force_no_cache=true DEBUG='@electron/get:*' \
-            node node_modules/electron/install.js
+          node node_modules/electron/install.js || true
+          zip="$(ls -1 "$HOME"/.cache/electron/*/electron-*-linux-x64.zip | head -n1)"
+          rm -rf node_modules/electron/dist
+          mkdir -p node_modules/electron/dist
+          unzip -q "$zip" -d node_modules/electron/dist
+          printf 'electron' > node_modules/electron/path.txt
           ls -la node_modules/electron/dist
-          # Fail loudly here (with the diagnostics above) rather than in the chown step.
           test -f node_modules/electron/dist/chrome-sandbox
 
       - name: Fix Electron chrome-sandbox permissions
