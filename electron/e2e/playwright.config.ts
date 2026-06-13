@@ -3,6 +3,9 @@ import { defineConfig } from "@playwright/test"
 export default defineConfig({
   testDir: ".",
   timeout: 90_000,
+  // Electron e2e tests launch the real app, which holds a single-instance
+  // lock — parallel workers make later launches quit immediately.
+  workers: 1,
   reporter: [["list"]],
   use: {
     trace: "retain-on-failure",

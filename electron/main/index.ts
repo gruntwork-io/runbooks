@@ -8,6 +8,7 @@ if (process.env.ELECTRON_RENDERER_URL) {
 import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
 import * as path from "path"
 import * as fs from "fs"
+import * as tls from "node:tls"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
 import { openRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
@@ -22,13 +23,122 @@ import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm, isWasmConfigured } from "../../src/layers/NodeWasmRuntime.ts"
+import { Effect } from "effect"
+import { coldReadSystemPems, installSystemTrust, refreshSystemPems } from "../../src/domain/tls/system-ca.ts"
+import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
+import type { CaSources } from "../../src/domain/tls/system-ca.ts"
 
 const log = makeLogger("main")
+
+// Test seam: redirect userData so e2e runs never touch the real profile
+// (recent-hosts persistence assertions need an isolated, restart-stable dir).
+if (process.env.RUNBOOKS_TEST_USER_DATA_DIR) {
+  app.setPath("userData", process.env.RUNBOOKS_TEST_USER_DATA_DIR)
+}
 
 // Pre-populate process.env from the user's login shell so that PATH and
 // other profile-driven vars are visible to scripts we spawn. Must run
 // before SessionManager captures process.env on first runbook load.
 populateShellEnv()
+
+// Register ambient token values for log/IPC redaction (§8): the exact-match
+// scrub is the only safe way to catch GitLab's unprefixed 64-hex OAuth tokens.
+for (const tokenVar of VCS_TOKEN_ENV_VARS) {
+  registerSecret(process.env[tokenVar])
+}
+
+// ---------------------------------------------------------------------------
+// System-trust TLS (vcs-auth-v2-design.md §3.0/§3.1): make every Node TLS
+// client in the main process (VCS HttpClient layers, OAuth device flow, AWS
+// SDK, Mixpanel) honor the OS trust store in ADDITION to Node's bundled
+// Mozilla roots, so a custom enterprise root CA installed in the OS store
+// stops failing token validation as "Invalid credentials detected". Strictly
+// additive — verification is never disabled.
+// ---------------------------------------------------------------------------
+
+// Snapshot the bundled defaults BEFORE the first setDefaultCACertificates:
+// afterwards getCACertificates("default") returns the previously-installed
+// union, so re-reading "default" later would compound extras into the base.
+const bundledCaDefaults = tls.getCACertificates("default") // Mozilla roots + NODE_EXTRA_CA_CERTS
+// "system" reads are cached for process lifetime and trust install is
+// per-thread — see the CAVEATS in system-ca.ts (§3.1).
+let lastKnownSystemPems: string[] = [...tls.getCACertificates("system")]
+
+// Extra PEMs beyond the OS store (glab per-host ca_cert contents — the §3.1
+// harvest, wired in during host enumeration). Mutated in place so re-installs
+// always include them.
+const harvestedCaPems: string[] = []
+
+// Dev/test-only extraPems seam (§9): RUNBOOKS_TEST_EXTRA_CA points at a PEM
+// file read FRESH on every install/refresh, so an e2e can inject a CA
+// mid-session and assert the TLS card's Retry recovers without relaunch. The
+// OS-store-mutated leg is physically untestable in CI (no keychain mutation)
+// and is covered by the manual QA gate.
+function testSeamPems(): string[] {
+  const seamPath = process.env.RUNBOOKS_TEST_EXTRA_CA
+  if (!seamPath) return []
+  try {
+    const pem = fs.readFileSync(seamPath, "utf8")
+    return pem.includes("-----BEGIN CERTIFICATE-----") ? [pem] : []
+  } catch {
+    return []
+  }
+}
+
+const extraPemsForInstall = (): string[] => [...harvestedCaPems, ...testSeamPems()]
+
+const caSources = (systemPems: string[]): CaSources => ({
+  bundledDefaults: () => [...bundledCaDefaults],
+  systemPems: () => Effect.succeed(systemPems),
+  setCAs: (certs) => tls.setDefaultCACertificates(certs),
+})
+
+// The count log line doubles as the e2e trust canary (§9 asserts system > 0
+// on the macOS runner) — keep its format stable.
+function installAndLog(systemPems: string[], note?: string): void {
+  const counts = Effect.runSync(installSystemTrust(extraPemsForInstall(), caSources(systemPems)))
+  log.info(
+    `installSystemTrust: defaults=${counts.defaults} system=${counts.system} extra=${counts.extra}${note ? ` (${note})` : ""}`,
+  )
+}
+
+// The launch-time install.
+installAndLog(lastKnownSystemPems)
+
+/**
+ * Mid-session trust refresh (§3.1). Node caches getCACertificates("system")
+ * for process lifetime, so a CA installed after launch is only observable via
+ * a COLD out-of-process read (process.execPath with ELECTRON_RUN_AS_NODE=1).
+ * On any child failure the launch-time set is used instead — never worse than
+ * launch. Returns coldReadOk so callers can degrade the TLS-card copy to
+ * "…then restart Runbooks" when the child itself failed.
+ *
+ * Runs on: every TLS-classified validation failure (once, before any error
+ * surfaces), the TLS card's Retry, HostSelect Reload, and GitHub Check again.
+ */
+export async function refreshSystemTrust(): Promise<{ coldReadOk: boolean }> {
+  const { pems, coldReadOk } = await runtime.runPromise(
+    refreshSystemPems(coldReadSystemPems(), lastKnownSystemPems),
+  )
+  if (coldReadOk) {
+    lastKnownSystemPems = [...pems]
+  }
+  installAndLog(pems, `refresh, coldReadOk=${coldReadOk}`)
+  return { coldReadOk }
+}
+
+/**
+ * Register extra trust PEMs harvested from glab per-host `ca_cert` config
+ * (§3.1) and re-install the union. Strictly additive; idempotent. Called from
+ * the gitlab:enumerate-hosts handler on every host enumeration.
+ */
+export function registerExtraCaPems(pems: string[]): void {
+  const unchanged =
+    pems.length === harvestedCaPems.length && pems.every((pem, i) => pem === harvestedCaPems[i])
+  if (unchanged) return
+  harvestedCaPems.splice(0, harvestedCaPems.length, ...pems)
+  installAndLog(lastKnownSystemPems, "glab ca_cert harvest")
+}
 
 // Point the boilerplate renderer at the bundled CLI + WASM artifacts the
 // `just fetch-boilerplate` recipe drops under resources/. In packaged

@@ -28,6 +28,32 @@ export type GitCredentialSource =
 // Detection source for UI badges
 export type GitDetectionSource = 'env' | 'cli' | 'block' | null
 
+// ---------------------------------------------------------------------------
+// Tri-state validation outcomes (vcs-auth-v2-design.md §2.0)
+// ---------------------------------------------------------------------------
+
+/** Tri-state outcome reported by the detection/validation channels. */
+export type GitAuthOutcome = 'valid' | 'invalid' | 'unreachable' | 'absent'
+
+/** Transport-failure classification — selects the TLS/server-cert/network card. */
+export type GitErrorKind = 'tls' | 'server-cert' | 'network'
+
+/**
+ * Everything the error card needs when a host is unreachable. An unreachable
+ * outcome stops the credential chain WITHOUT consuming sources — it must never
+ * render as "Invalid credentials detected".
+ */
+export interface GitUnreachableInfo {
+  errorKind: GitErrorKind
+  /** The host that could not be reached (github.com, gitlab.com, or a self-hosted instance). */
+  host: string
+  /**
+   * For errorKind 'tls': false when the cold out-of-process trust-refresh
+   * child failed, degrading the card copy to "…then restart Runbooks".
+   */
+  coldReadOk?: boolean
+}
+
 export interface GitUserInfo {
   login: string
   name?: string
@@ -84,6 +110,55 @@ export interface GitCliCredentialsResponse {
   status?: number
   /** The GitLab host this credential was detected/validated against. */
   host?: string
+  /** Tri-state outcome (§2.0). */
+  outcome?: GitAuthOutcome
+  /** Set when outcome is 'unreachable'. */
+  errorKind?: GitErrorKind
+  /** For errorKind 'tls': whether the cold trust-refresh child succeeded. */
+  coldReadOk?: boolean
+  /** The env var the token came from (drives exact chip copy). */
+  envVar?: string
+  /** Exact warning-chip copy from main, rendered verbatim (§7 contracts). */
+  warning?: string
+  /** Manual-UI hint line (e.g. keyring-blocked copy) — informational, never a chip. */
+  hint?: string
+  /** §2.1 both-set-and-differ visibility hint. */
+  divergenceHint?: string
+  /** Which source produced the credential (cli-channel results may be 'config'). */
+  source?: 'env' | 'cli' | 'config'
+  /** 'cli' marks §2.4 probe-validated degraded auth. */
+  validatedVia?: 'direct' | 'cli'
+  /** §8: validation succeeded but main's session-env write failed (success-card warning). */
+  sessionEnvWarning?: string
+}
+
+/** vcs:cli-status result (install/version state of gh/glab + git TLS backend). */
+export interface VcsCliStatusResult {
+  gh: { installed: boolean; version?: string; meetsFloor: boolean }
+  glab: { installed: boolean; version?: string; meetsFloor: boolean }
+  git?: { sslBackend?: string }
+}
+
+/** One entry of the §4 merged GitLab host union (gitlab:enumerate-hosts). */
+export interface GitLabHostEntry {
+  host: string
+  /** Provenance badges: where this host is known from. */
+  sources: Array<'glab' | 'env' | 'session' | 'recent'>
+  /** Offline-only check: credential FOUND (not yet validated). */
+  hasCredential: boolean
+}
+
+/** Sentinel option value for the "Other instance…" dropdown row (§4 item 3). */
+export const OTHER_INSTANCE_SENTINEL = '__other__'
+
+/** Provenance metadata for the success card's source/transport lines (§5). */
+export interface GitSuccessMeta {
+  /** Which source produced the credential. */
+  source?: 'env' | 'cli' | 'config'
+  /** The env var the token came from (source line: "Detected from GITHUB_TOKEN"). */
+  envVar?: string
+  /** 'cli' marks §2.4 probe-validated degraded auth (transport line). */
+  validatedVia?: 'direct' | 'cli'
 }
 
 // Helper functions for CLI credentials response

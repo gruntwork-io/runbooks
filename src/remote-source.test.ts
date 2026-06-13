@@ -5,11 +5,8 @@ import {
   needsRefResolution,
   adjustBlobPath,
   resolveRef,
-  getTokenForHost,
 } from "./remote-source.ts"
 import { makeTestSpawner } from "./test-utils/TestSpawner.ts"
-import { makeTestEnvironment } from "./test-utils/TestEnvironment.ts"
-import { Layer } from "effect"
 
 function parse(url: string) {
   return Effect.runSync(parseRemoteSource(url))
@@ -325,137 +322,5 @@ describe("resolveRef", () => {
 
     expect(result.ref).toBe("v1.0.0")
     expect(result.path).toBe("README.md")
-  })
-})
-
-// ---------------------------------------------------------------------------
-// getTokenForHost — env precedence, then CLI fallback, then undefined.
-// ---------------------------------------------------------------------------
-
-describe("getTokenForHost(github.com)", () => {
-  const nullSpawner = makeTestSpawner([]) // never matched
-
-  it("returns GITHUB_TOKEN when set", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({ GITHUB_TOKEN: "A" }),
-      nullSpawner,
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("github.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("A")
-  })
-
-  it("returns GH_TOKEN when only that is set", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({ GH_TOKEN: "B" }),
-      nullSpawner,
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("github.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("B")
-  })
-
-  it("prefers GITHUB_TOKEN when both are set", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({ GITHUB_TOKEN: "A", GH_TOKEN: "B" }),
-      nullSpawner,
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("github.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("A")
-  })
-
-  it("falls back to `gh auth token` when no env var is set", async () => {
-    const spawner = makeTestSpawner([
-      {
-        command: "gh",
-        args: ["auth", "token"],
-        outputLines: ["ghp_FROM_CLI"],
-        exitCode: 0,
-      },
-    ])
-    const layer = Layer.mergeAll(makeTestEnvironment({}), spawner)
-    const result = await Effect.runPromise(
-      getTokenForHost("github.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("ghp_FROM_CLI")
-  })
-
-  it("returns undefined when neither env var nor `gh` is available", async () => {
-    // TestSpawner with no matching command surfaces a SpawnError; getTokenForHost
-    // catches it and resolves to undefined.
-    const layer = Layer.mergeAll(makeTestEnvironment({}), nullSpawner)
-    const result = await Effect.runPromise(
-      getTokenForHost("github.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBeUndefined()
-  })
-})
-
-describe("getTokenForHost(gitlab.com)", () => {
-  it("returns GITLAB_TOKEN when set", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({ GITLAB_TOKEN: "gl_X" }),
-      makeTestSpawner([]),
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("gl_X")
-  })
-
-  it("falls back to `glab auth token`", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({}),
-      makeTestSpawner([
-        {
-          command: "glab",
-          args: ["auth", "token"],
-          outputLines: ["glpat_FROM_CLI"],
-          exitCode: 0,
-        },
-      ]),
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("glpat_FROM_CLI")
-  })
-
-  it("returns undefined when nothing is configured", async () => {
-    const layer = Layer.mergeAll(makeTestEnvironment({}), makeTestSpawner([]))
-    const result = await Effect.runPromise(
-      getTokenForHost("gitlab.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBeUndefined()
-  })
-})
-
-describe("getTokenForHost(self-hosted GitLab)", () => {
-  it("resolves GITLAB_TOKEN for a self-hosted gitlab host", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({ GITLAB_TOKEN: "gl_self" }),
-      makeTestSpawner([]),
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("gitlab.example.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBe("gl_self")
-  })
-})
-
-describe("getTokenForHost(unknown host)", () => {
-  it("returns undefined for hosts with no special case", async () => {
-    const layer = Layer.mergeAll(
-      makeTestEnvironment({ GITHUB_TOKEN: "A", GITLAB_TOKEN: "B" }),
-      makeTestSpawner([]),
-    )
-    const result = await Effect.runPromise(
-      getTokenForHost("example.com").pipe(Effect.provide(layer)),
-    )
-    expect(result).toBeUndefined()
   })
 })

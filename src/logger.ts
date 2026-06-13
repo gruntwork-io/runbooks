@@ -19,6 +19,8 @@
  * package and keeps the per-call cost down to a boolean check.
  */
 
+import { redactSecrets } from "./domain/vcs/redact.ts"
+
 interface CompiledPattern {
   readonly negate: boolean
   readonly match: (tag: string) => boolean
@@ -76,15 +78,29 @@ export interface Logger {
   readonly error: (...args: unknown[]) => void
 }
 
+/**
+ * Redaction pass (vcs-auth-v2-design.md §8): every string argument is scrubbed
+ * of registered token values and token-shaped substrings before it reaches the
+ * console. Error objects are stringified through the same scrubber so a token
+ * embedded in a message (e.g. an authenticated clone URL) never hits a log.
+ */
+function sanitizeArgs(args: unknown[]): unknown[] {
+  return args.map((arg) => {
+    if (typeof arg === "string") return redactSecrets(arg)
+    if (arg instanceof Error) return redactSecrets(arg.stack ?? arg.message)
+    return arg
+  })
+}
+
 export function makeLogger(tag: string): Logger {
   const prefix = `[${tag}]`
   const debug = isDebugEnabled(tag)
-    ? (...args: unknown[]) => console.debug(prefix, ...args)
+    ? (...args: unknown[]) => console.debug(prefix, ...sanitizeArgs(args))
     : noop
   return {
     debug,
-    info: (...args: unknown[]) => console.log(prefix, ...args),
-    warn: (...args: unknown[]) => console.warn(prefix, ...args),
-    error: (...args: unknown[]) => console.error(prefix, ...args),
+    info: (...args: unknown[]) => console.log(prefix, ...sanitizeArgs(args)),
+    warn: (...args: unknown[]) => console.warn(prefix, ...sanitizeArgs(args)),
+    error: (...args: unknown[]) => console.error(prefix, ...sanitizeArgs(args)),
   }
 }

@@ -41,7 +41,8 @@ export function AutoAuthInfo({ provider }: AutoAuthInfoProps) {
             <code className="bg-accent px-1 rounded text-xs">{provider.env.tokenVar}</code> to your {provider.label} access token.
           </p>
           <p className="text-muted-foreground">
-            After setting up either option, reload the runbook and Runbooks will detect your credentials automatically.
+            After setting up either option, click "Check again" (or Reload for GitLab) and
+            Runbooks will detect your credentials automatically — no need to reload the runbook.
           </p>
         </div>
       )}

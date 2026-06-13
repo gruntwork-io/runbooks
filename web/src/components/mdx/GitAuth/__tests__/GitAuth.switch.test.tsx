@@ -55,7 +55,7 @@ describe('GitAuth — provider switch (real hook)', () => {
     // (gitlab.com), and the user still needs to reach their private instance.
     const invoke = vi.fn(async (channel: string, args?: { host?: string }) => {
       if (channel === 'gitlab:enumerate-hosts') {
-        return { hosts: ['gitlab.com', 'gitlab.gruntwork.io'], defaultHost: 'gitlab.com' }
+        return { hosts: [{ host: 'gitlab.com', sources: ['glab'], hasCredential: true }, { host: 'gitlab.gruntwork.io', sources: ['glab'], hasCredential: true }], defaultHost: 'gitlab.com' }
       }
       if (channel === 'gitlab:env-credentials') return { found: false }
       if (channel === 'gitlab:cli-credentials') {

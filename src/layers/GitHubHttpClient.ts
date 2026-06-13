@@ -6,7 +6,6 @@ import { GitHubClient } from "../services/GitHubClient.ts"
 import type {
   GitHubClientShape,
   GitHubTokenValidation,
-  GitHubTokenType,
   DeviceFlowStart,
   OAuthPollResult,
   GitHubOrg,
@@ -16,12 +15,16 @@ import type {
   PullRequestResult,
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
+import { classifyTlsError } from "../domain/tls/system-ca.ts"
 
 const API_BASE = "https://api.github.com"
 const OAUTH_BASE = "https://github.com"
 
+// status 0 = no HTTP response; `kind` carries the transport classification.
 const toGitHubApiError = (err: unknown): GitHubApiError =>
-  err instanceof GitHubApiError ? err : new GitHubApiError({ status: 0, message: `${err}` })
+  err instanceof GitHubApiError
+    ? err
+    : new GitHubApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
 
 async function githubFetch(
   url: string,
@@ -136,14 +139,6 @@ const impl: GitHubClientShape = {
           : validateUserToken(token),
       catch: toGitHubApiError,
     }),
-
-  detectTokenType: (token: string): GitHubTokenType => {
-    if (token.startsWith("ghp_")) return "classic_pat"
-    if (token.startsWith("github_pat_")) return "fine_grained_pat"
-    if (token.startsWith("gho_")) return "oauth"
-    if (token.startsWith("ghs_") || token.startsWith("ghu_")) return "github_app"
-    return "unknown"
-  },
 
   startOAuthDeviceFlow: (clientId: string, scopes: string[]) =>
     Effect.tryPromise({

@@ -26,6 +26,7 @@ import { PatForm } from "./components/PatForm"
 import { OAuthFlow } from "./components/OAuthFlow"
 import { AutoAuthInfo } from "./components/AutoAuthInfo"
 import { CustomOAuthWarning } from "./components/CustomOAuthWarning"
+import { TlsErrorCard } from "./components/TlsErrorCard"
 
 type GitAuthInternalProps = GitAuthProps & { __registryType?: BlockComponentType }
 
@@ -108,6 +109,16 @@ function GitAuthInteractive({
   useEffect(() => {
     trackBlockRender(__registryType)
   }, [trackBlockRender, __registryType])
+
+  // When the OAuth tab is disabled (§2.0 unreachable), make sure the PAT form
+  // is the one showing rather than a dead OAuth pane.
+  const oauthDisabled = auth.oauthUnavailableReason !== null
+  const setAuthMethod = auth.setAuthMethod
+  useEffect(() => {
+    if (oauthDisabled && auth.authMethod === 'oauth') {
+      setAuthMethod('pat')
+    }
+  }, [oauthDisabled, auth.authMethod, setAuthMethod])
 
   // Report configuration errors only
   useEffect(() => {
@@ -195,8 +206,9 @@ function GitAuthInteractive({
               id={id}
               hosts={auth.availableHosts}
               value={auth.selectedHost}
-              onChange={auth.changeHost}
+              onChange={auth.handleHostSelect}
               onReload={auth.reloadDetection}
+              downgradedHosts={auth.downgradedHosts}
               disabled={auth.detectionStatus === 'pending'}
             />
           )}
@@ -224,6 +236,13 @@ function GitAuthInteractive({
               scopeWarning={auth.scopeWarning}
               sessionEnvWarning={auth.sessionEnvWarning}
               host={auth.selectedHost}
+              successMeta={auth.successMeta}
+              divergenceHint={auth.divergenceHint}
+              sessionStale={auth.sessionStale}
+              gitSslBackend={auth.cliStatus?.git?.sslBackend}
+              onApplySchannel={() => {
+                void window.api.invoke('vcs:apply-git-schannel').catch(() => {})
+              }}
               onReAuthenticate={auth.resetAuth}
             />
           )}
@@ -250,9 +269,40 @@ function GitAuthInteractive({
             </div>
           )}
 
+          {/* Unreachable host (§2.0/§7): a TLS/server-cert/network failure is
+              NEVER an invalid-credentials warning. The card renders above the
+              still-available manual UI. */}
+          {auth.unreachableInfo && auth.authStatus !== 'authenticated' && (
+            <TlsErrorCard
+              info={auth.unreachableInfo}
+              provider={providerConfig}
+              onRetry={auth.retryUnreachable}
+              retrying={auth.detectionStatus === 'pending'}
+            />
+          )}
+
           {/* Authentication form (only show when not authenticated and detection is done) */}
           {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
+              {/* CLI-status-driven hint (§5/§7) + the "Check again" control */}
+              {auth.manualHint && (
+                <div
+                  data-testid="vcs-cli-hint"
+                  className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
+                >
+                  <span>{auth.manualHint}</span>
+                  {provider === 'github' && (
+                    <button
+                      type="button"
+                      onClick={auth.retryUnreachable}
+                      className="text-info hover:underline cursor-pointer text-sm font-medium"
+                    >
+                      Check again
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Custom OAuth Warning */}
               {showCustomOAuthWarning && (
                 <CustomOAuthWarning
@@ -267,10 +317,12 @@ function GitAuthInteractive({
                 authMethod={auth.authMethod}
                 setAuthMethod={auth.setAuthMethod}
                 provider={providerConfig}
+                oauthDisabled={oauthDisabled}
+                oauthDisabledReason={auth.oauthUnavailableReason ?? undefined}
               />
 
               {/* OAuth Flow (GitHub only) */}
-              {providerConfig.supportsOAuth && auth.authMethod === 'oauth' && !showCustomOAuthWarning && (
+              {providerConfig.supportsOAuth && auth.authMethod === 'oauth' && !showCustomOAuthWarning && !oauthDisabled && (
                 <OAuthFlow
                   authStatus={auth.authStatus}
                   effectiveClientId={auth.effectiveClientId}

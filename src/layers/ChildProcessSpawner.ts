@@ -11,8 +11,13 @@ import { SpawnError } from "../errors/index.ts"
 
 const impl: ProcessSpawnerShape = {
   spawn: (command: string, args: string[], options?: SpawnOptions) =>
-    Effect.try({
-      try: (): SpawnedProcess => {
+    // Effect.async, not Effect.try: Node reports a missing binary (ENOENT)
+    // asynchronously via the child's "error" event — cpSpawn itself returns
+    // normally. The effect resolves only on the "spawn"/"error" race, so a
+    // missing binary FAILS the spawn effect (as every test spawner already
+    // simulates) instead of masquerading as a successful spawn that exited 1.
+    Effect.async<SpawnedProcess, SpawnError>((resume) => {
+      try {
         const needsStdin = Boolean(options?.stdin)
         const proc = cpSpawn(command, args, {
           cwd: options?.cwd,
@@ -26,8 +31,11 @@ const impl: ProcessSpawnerShape = {
           detached: true,
         })
 
-        // Write stdin if provided, then close
+        // Write stdin if provided, then close. The no-op error handler keeps a
+        // failed spawn (or an early-exiting child) from surfacing the buffered
+        // write as an uncaught stream error.
         if (needsStdin && proc.stdin) {
+          proc.stdin.on("error", () => {})
           proc.stdin.write(options!.stdin)
           proc.stdin.end()
         }
@@ -75,7 +83,9 @@ const impl: ProcessSpawnerShape = {
         // Single exit promise — eagerly registered to never miss the event.
         // The process "close" event fires after all stdio streams have ended, so
         // by the time it runs every readline "line" event has already been
-        // delivered into collectedLines.
+        // delivered into collectedLines. The "error" branch only matters for a
+        // post-spawn error (e.g. a failed kill): a PRE-spawn error fails the
+        // whole effect below and nobody ever consumes this promise.
         const exitPromise = new Promise<number>((resolve) => {
           const finish = (code: number) => {
             streamClosed = true
@@ -140,9 +150,14 @@ const impl: ProcessSpawnerShape = {
           escalate.unref?.()
         })
 
-        return { output, exitCode, kill }
-      },
-      catch: (err) => new SpawnError({ command, cause: err }),
+        const spawned: SpawnedProcess = { output, exitCode, kill }
+        // Whichever fires first wins; Effect.async ignores later resumes, so a
+        // post-spawn "error" event is handled by exitPromise above instead.
+        proc.once("spawn", () => resume(Effect.succeed(spawned)))
+        proc.once("error", (err) => resume(Effect.fail(new SpawnError({ command, cause: err }))))
+      } catch (err) {
+        resume(Effect.fail(new SpawnError({ command, cause: err })))
+      }
     }),
 }
 
