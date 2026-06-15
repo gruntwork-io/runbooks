@@ -1,8 +1,8 @@
 /**
- * Live implementation of the VcsCredentials service (vcs-auth-v2-design.md §6).
+ * Live implementation of the VcsCredentials service.
  *
  * Owns: the per-(binary,host) 5-minute CLI read cache + its invalidation
- * rules (§2.3), the CLI version-probe cache, the §2.4 validation probe (both
+ * rules, the CLI version-probe cache, the validation probe (both
  * token shapes), and the transport-degraded host set. Per-host glab spawn
  * serialization and child-env hygiene live in the domain modules this layer
  * composes.
@@ -55,7 +55,7 @@ import {
   normalizeGitLabHost,
 } from "../domain/git/gitlab-host.ts"
 
-// §2.2/§7 exact copies — contracts.
+// exact copies — contracts.
 const GH_KEYRING_HINT = "gh stores this token in the OS keyring; install gh or paste a token."
 const GLAB_KEYRING_BLOCKED_HINT =
   "glab stores this token in the OS keyring but could not read it — unlock your keyring or paste a token."
@@ -67,7 +67,7 @@ const glabOAuthStaleWarning = (host: string) =>
   `GitLab CLI token for ${host} has expired. Run 'glab auth login --hostname ${host}' to refresh.`
 const glabInvalidWarning = (host: string) => `glab token for ${host} is invalid or expired`
 
-/** §2.3: shortened from golang's process-lifetime cache — glab OAuth tokens rot in 2h. */
+/** shortened from golang's process-lifetime cache — glab OAuth tokens rot in 2h. */
 const CLI_READ_TTL_MS = 5 * 60_000
 const PROBE_TIMEOUT_MS = 10_000
 
@@ -92,7 +92,7 @@ interface DirectValidation {
 }
 
 /**
- * Map a direct validation onto the §2.0 tri-state result: ok → valid,
+ * Map a direct validation onto the tri-state result: ok → valid,
  * transport kind → unreachable, else invalid (never "expired" — a 401 cannot
  * distinguish expired from wrong-host).
  */
@@ -124,8 +124,8 @@ const toDetection = (
   // A transport failure (no HTTP response — status 0) whose OpenSSL code
   // classifyTlsError did not recognize is STILL unreachable, never "invalid":
   // a 401/403 always carries an HTTP status, so status 0 cannot be a credential
-  // outcome. Default it to the generic cert-chain card ("tls") so the §3.1
-  // refresh + §2.4 probe ladder still runs. Without this backstop an
+  // outcome. Default it to the generic cert-chain card ("tls") so the
+  // refresh + probe ladder still runs. Without this backstop an
   // unenumerated cert code (e.g. a future/rare X509_V_ERR_*) resurrects the
   // "Invalid credentials detected" misdiagnosis the tri-state exists to kill.
   if (validation.status === 0) {
@@ -147,7 +147,7 @@ const toDetection = (
   }
 }
 
-/** Unprefixed 64-hex = glab OAuth-shaped (§2.4). */
+/** Unprefixed 64-hex = glab OAuth-shaped. */
 const isGitLabOAuthShaped = (token: string): boolean => /^[0-9a-f]{64}$/i.test(token)
 
 export const VcsCredentialsLive = Layer.effect(
@@ -179,14 +179,14 @@ export const VcsCredentialsLive = Layer.effect(
         const hit = cliReadCache.get(key)
         if (hit && hit.expiresAt > Date.now()) return hit.value as T
         const value = yield* compute
-        // Only SUCCESSFUL reads are cached (§2.3); failures must stay fresh.
+        // Only SUCCESSFUL reads are cached; failures must stay fresh.
         if (cacheable(value)) {
           cliReadCache.set(key, { value, expiresAt: Date.now() + CLI_READ_TTL_MS })
         }
         return value
       })
 
-    /** §2.3 invalidation: any auth failure flushes the relevant entry. */
+    /** invalidation: any auth failure flushes the relevant entry. */
     const flushOnAuthFailure = (key: string) => Effect.sync(() => cliReadCache.delete(key))
 
     const ghReadCached = cachedRead(
@@ -237,7 +237,7 @@ export const VcsCredentialsLive = Layer.effect(
         ),
       )
 
-    // --- Detection legs (§2.1/§2.2) -----------------------------------------
+    // --- Detection legs -----------------------------------------
 
     const detectGitHubEnv = (prefix?: string): Effect.Effect<DetectionResult> =>
       Effect.gen(function* () {
@@ -258,7 +258,7 @@ export const VcsCredentialsLive = Layer.effect(
         let token = yield* ghReadCached
         let source: "cli" | "config" = "cli"
         if (!token) {
-          // §2.1 #3b: hosts.yml is the gh-BINARY-ABSENT-ONLY fallback.
+          // hosts.yml is the gh-BINARY-ABSENT-ONLY fallback.
           const status = yield* cliStatus()
           if (!status.gh.installed) {
             const fallback = yield* run(detectHostsYmlCredentials())
@@ -274,7 +274,7 @@ export const VcsCredentialsLive = Layer.effect(
         const validation = yield* validateGitHubDirect(token)
         if (!validation.ok) yield* flushOnAuthFailure("gh:github.com")
         // Supplement scopes via `gh auth status` for cli-sourced tokens
-        // (§2.1) — advisory; skipped for the binary-absent fallback.
+        // — advisory; skipped for the binary-absent fallback.
         let scopes = validation.scopes
         if (validation.ok && (!scopes || scopes.length === 0) && source === "cli") {
           scopes = (yield* run(detectGhCliScopes())) ?? scopes
@@ -289,7 +289,7 @@ export const VcsCredentialsLive = Layer.effect(
         const host = normalizeGitLabHost(instance)
         const cred = yield* run(detectGitLabEnvCredentials())
         if (!cred) return absent()
-        // §2.2/§8 binding rule: the env token is bound to exactly ONE host and
+        // binding rule: the env token is bound to exactly ONE host and
         // is never transmitted to any other.
         const allEnv = yield* environment.getAll()
         if (!mayAutoSendEnvToken(host, allEnv)) return absent()
@@ -309,7 +309,7 @@ export const VcsCredentialsLive = Layer.effect(
             token = read.token
             break
           case "keyring-blocked":
-            // Contract (c): distinct copy, never "install glab" (§7).
+            // Contract (c): distinct copy, never "install glab".
             return absent({ hint: GLAB_KEYRING_BLOCKED_HINT })
           case "oauth-stale":
             return {
@@ -319,7 +319,7 @@ export const VcsCredentialsLive = Layer.effect(
               error: glabOAuthStaleWarning(host),
             }
           case "not-installed": {
-            // §2.2 source #3: config.yml is the glab-BINARY-ABSENT-ONLY fallback.
+            // config.yml is the glab-BINARY-ABSENT-ONLY fallback.
             token = yield* run(detectConfigCredentials(host))
             source = "config"
             if (!token) {
@@ -337,14 +337,14 @@ export const VcsCredentialsLive = Layer.effect(
         if (validation.ok || validation.kind) {
           return toDetection(validation, { token, source }, [])
         }
-        // §2.2 #3: an OAuth credential that still validates invalid after the
+        // an OAuth credential that still validates invalid after the
         // staleness path gets the expired-token remediation.
         const meta = yield* run(detectHostMeta(host))
         const warning = meta?.isOAuth2 ? glabOAuthStaleWarning(host) : glabInvalidWarning(host)
         return toDetection(validation, { token, source }, [warning])
       })
 
-    // --- Full chains (§2): invalid continues, unreachable stops -------------
+    // --- Full chains: invalid continues, unreachable stops -------------
 
     const chain = (
       legs: Array<Effect.Effect<DetectionResult>>,
@@ -381,7 +381,7 @@ export const VcsCredentialsLive = Layer.effect(
         return toDetection(validation, { token }, [])
       })
 
-    // --- §2.3 read-only host→token (golang semantics, no network) ----------
+    // --- read-only host→token (golang semantics, no network) ----------
 
     const tokenForHost = (rawHost: string): Effect.Effect<string | undefined> =>
       Effect.gen(function* () {
@@ -424,7 +424,7 @@ export const VcsCredentialsLive = Layer.effect(
         return undefined
       })
 
-    // --- §2.4 validation-only CLI probe -------------------------------------
+    // --- validation-only CLI probe -------------------------------------
 
     const runCli = (
       command: string,
@@ -505,7 +505,7 @@ export const VcsCredentialsLive = Layer.effect(
         // -i exposes headers, so X-OAuth-Scopes still yields scopes. The
         // --hostname pin mirrors the detection path: without it, GH_HOST
         // (which the hygiene overrides also strip) would aim the probe — and
-        // the candidate token — at a GHES origin instead of github.com (§8).
+        // the candidate token — at a GHES origin instead of github.com.
         const result = yield* runCli("gh", ["api", "user", "-i", "--hostname", "github.com"], childEnv)
         if (result.exitCode !== 0) {
           return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }))
@@ -623,7 +623,7 @@ export const VcsCredentialsLive = Layer.effect(
         Effect.sync(() => {
           degradedHosts.set(host, code)
           // Structured support signal + field canary for Node system-store
-          // reader regressions (§2.4).
+          // reader regressions.
           console.warn(`transport degraded for ${host}: ${code}`)
         }),
       isTransportDegraded: (host) => Effect.sync(() => degradedHosts.has(host)),

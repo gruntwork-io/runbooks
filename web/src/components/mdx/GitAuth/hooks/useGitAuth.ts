@@ -84,14 +84,14 @@ export function useGitAuth({
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const [unreachableInfo, setUnreachableInfo] = useState<GitUnreachableInfo | null>(null)
-  // Manual-UI hint copy from main (e.g. the glab keyring contracts, §7) —
+  // Manual-UI hint copy from main (e.g. the glab keyring contracts) —
   // informational, distinct from any warning chip.
   const [detectionHint, setDetectionHint] = useState<string | null>(null)
-  // §2.1 both-set-and-differ env hint, shown on the success card.
+  // both-set-and-differ env hint, shown on the success card.
   const [divergenceHint, setDivergenceHint] = useState<string | null>(null)
   const [cliStatus, setCliStatus] = useState<VcsCliStatusResult | null>(null)
   const [successMeta, setSuccessMeta] = useState<GitSuccessMeta | null>(null)
-  // §4 item 9: set when another block's auth replaced this provider's single
+  // set when another block's auth replaced this provider's single
   // session credential with a different host (vcs:session-changed).
   const [sessionStale, setSessionStale] = useState(false)
   const authenticatedHostRef = useRef<string | undefined>(undefined)
@@ -110,7 +110,7 @@ export function useGitAuth({
   )
   const [selectedHost, setSelectedHost] = useState<string>(host ?? DEFAULT_GITLAB_HOST)
   // Hosts whose key icon was downgraded after a failed validation this
-  // session (§4: the dropdown must never contradict the warning chip).
+  // session (the dropdown must never contradict the warning chip).
   const [downgradedHosts, setDowngradedHosts] = useState<ReadonlySet<string>>(new Set())
   const [hostsReady, setHostsReady] = useState<boolean>(!hostSelectable)
   // Bumped to force the detection effect to re-run (host change / manual reload).
@@ -174,7 +174,7 @@ export function useGitAuth({
   }, [provider])
 
   // Helper to check for credentials from block outputs. A referenced GitAuth
-  // block (marked __AUTHENTICATED) is metadata-only as of §8 — its credential
+  // block (marked __AUTHENTICATED) is metadata-only — its credential
   // lives in the session env and is resolved MAIN-SIDE via the validate
   // channels' useSessionToken mode.
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; token?: string; isGitAuthBlock?: boolean; error?: string } => {
@@ -201,7 +201,7 @@ export function useGitAuth({
     return { found: true, token, isGitAuthBlock }
   }, [blockOutputs, provider])
 
-  // Register credentials as BLOCK OUTPUTS only (§8: main writes the session
+  // Register credentials as BLOCK OUTPUTS only (main writes the session
   // env during validation). Used by the PAT path and the non-GitAuth
   // {block:'id'} path, where the renderer legitimately holds the token.
   // GIT_PROVIDER lets a downstream PR/MR block derive its channel;
@@ -216,7 +216,7 @@ export function useGitAuth({
   }, [id, provider, registerOutputs])
 
   // Metadata-only output registration for the env/cli/oauth/session-chained
-  // paths — no raw token ever enters block outputs for these (§8).
+  // paths — no raw token ever enters block outputs for these.
   const registerMetadataOutputs = useCallback((user?: GitUserInfo): void => {
     registerOutputs(id, {
       ...(user ? { [provider.env.userVar]: user.login } : {}),
@@ -273,7 +273,7 @@ export function useGitAuth({
   }, [registerMetadataOutputs])
 
   // Validate a token via the provider's API. `registerSession` makes MAIN
-  // write the session env on success (§8 — the PAT and block paths);
+  // write the session env on success (the PAT and block paths);
   // `useSessionToken` validates the provider's session credential instead of
   // sending one (the GitAuth-block chaining mode — no token crosses IPC).
   const validateToken = useCallback(async (
@@ -335,7 +335,7 @@ export function useGitAuth({
 
       if (!data.valid) {
         // Token was found but is invalid. `warning` carries main's exact chip
-        // copy ("<VAR> is not valid for <host>" — never "expired", §2.0).
+        // copy ("<VAR> is not valid for <host>" — never "expired").
         return { success: false, error: data.error, foundButInvalid: true, warning: data.warning, envVar: data.envVar }
       }
 
@@ -404,7 +404,7 @@ export function useGitAuth({
     }
   }, [provider, instanceUrlForIpc])
 
-  // Try to detect credentials from block outputs (§8 block-chaining):
+  // Try to detect credentials from block outputs (block-chaining):
   // a referenced GitAuth block resolves against the SESSION env in main
   // (useSessionToken mode — no token crosses IPC); any other block's
   // renderer-held output value flows as today, with main writing the session.
@@ -421,7 +421,7 @@ export function useGitAuth({
       : await validateToken(result.token, { registerSession: true })
 
     if (!validation.valid || !validation.user) {
-      // Transport failure (§2.0): the block's token was not consumed/judged.
+      // Transport failure: the block's token was not consumed/judged.
       if (validation.errorKind) {
         return {
           success: false,
@@ -461,12 +461,12 @@ export function useGitAuth({
       try {
         const data = await window.api.invoke(channel, {})
         if (cancelled) return
-        // §4: the enumerate result is the annotated merged union (objects);
+        // the enumerate result is the annotated merged union (objects);
         // membership checks compare against hosts.map(h => h.host).
         const hosts = (data.hosts ?? []) as GitLabHostEntry[]
         const hostNames = hosts.map((h) => h.host)
         setAvailableHosts(hosts)
-        // Honor the §4 default (persisted pick > env > glab > gitlab.com) on
+        // Honor the default (persisted pick > env > glab > gitlab.com) on
         // first load; preserve a user's explicit pick (if still present)
         // across a config reload.
         setSelectedHost((prev) =>
@@ -513,7 +513,7 @@ export function useGitAuth({
       const cancelled = () => detectionRunRef.current !== runId
       const warnings: string[] = []
 
-      // §2.0 'unreachable': stop the chain WITHOUT consuming later sources —
+      // 'unreachable': stop the chain WITHOUT consuming later sources —
       // every one of them would hit the same wall. Detection still ends
       // 'done' so the manual UI renders beneath the error card. Warnings
       // accumulated from earlier (genuinely invalid) sources are preserved.
@@ -552,7 +552,7 @@ export function useGitAuth({
             return
           }
           if (result.foundButInvalid) {
-            // §2.0 env-chip copy: "<VAR> is not valid for <host>" — never
+            // env-chip copy: "<VAR> is not valid for <host>" — never
             // "expired" (a 401 can't distinguish expired from wrong-host).
             // Main supplies the exact copy; the construction is the fallback.
             warnings.push(result.warning ?? `${result.envVar ?? provider.env.tokenVar} is not valid for ${unreachableHost()}`)
@@ -593,8 +593,8 @@ export function useGitAuth({
             return
           }
           if (result.hint) {
-            // Informational manual-UI hint (e.g. the glab keyring contracts,
-            // §7) — distinct from a warning chip by design. Downgrades the
+            // Informational manual-UI hint (e.g. the glab keyring contracts)
+            // — distinct from a warning chip by design. Downgrades the
             // host's key icon (the credential exists but is unreadable).
             setDetectionHint(result.hint)
             const downgraded = unreachableHost(result.host)
@@ -612,7 +612,7 @@ export function useGitAuth({
           if (result.foundButInvalid) {
             const where = result.host ? ` for ${result.host}` : ''
             warnings.push(result.warning ?? `${provider.cli.label} token${where} is invalid or expired`)
-            // §4: downgrade the picked host's key icon for the rest of the
+            // downgrade the picked host's key icon for the rest of the
             // session so the dropdown never contradicts the warning chip.
             const downgraded = unreachableHost(result.host)
             setDowngradedHosts((prev) => new Set(prev).add(downgraded))
@@ -654,7 +654,7 @@ export function useGitAuth({
   }, [detectCredentials, id, provider, sessionReady, hostsReady, detectionNonce, shouldWarnMissingScope, markUnreachable, unreachableHost, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, finishAuthenticated])
 
   // Probe CLI install state (vcs:cli-status) once detection settles — drives
-  // the §5/§7 hint copy and the Windows schannel suggestion. Runs on SUCCESS
+  // the hint copy and the Windows schannel suggestion. Runs on SUCCESS
   // too: the schannel suggestion lives on the success card, and zero-click
   // detection is its primary path (main caches the probe, so this is cheap).
   // Advisory: failures leave the hint generic.
@@ -715,12 +715,12 @@ export function useGitAuth({
     setErrorMessage(null)
     setUnreachableInfo(null)
 
-    // §8: registerSession makes MAIN write the session env; the PAT transits
+    // registerSession makes MAIN write the session env; the PAT transits
     // renderer→main once.
     const validation = await validateToken(patToken, { registerSession: true })
 
     if (!validation.valid || !validation.user) {
-      // Transport failure (§2.0): never report the token as invalid — render
+      // Transport failure: never report the token as invalid — render
       // the TLS/server-cert/network card instead of an auth failure.
       if (validation.errorKind) {
         markUnreachable(validation.errorKind, undefined, validation.coldReadOk)
@@ -779,7 +779,7 @@ export function useGitAuth({
           }
           oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
         } else if (data.status === 'complete') {
-          // Success! The completion is METADATA-ONLY (§8): main already wrote
+          // Success! The completion is METADATA-ONLY: main already wrote
           // the session env; the token never reaches the renderer.
           const user = data.user as unknown as GitUserInfo
           registerMetadataOutputs(user)
@@ -873,19 +873,12 @@ export function useGitAuth({
     }
   }, [])
 
-  // Reset to allow re-authentication
-  const resetAuth = useCallback(() => {
-    // Clear any pending polling before resetting
-    if (oauthPollTimeoutRef.current) {
-      clearTimeout(oauthPollTimeoutRef.current)
-      oauthPollTimeoutRef.current = null
-    }
+  // Clear the credential-detection display state (status, user, source badges,
+  // scopes, warnings, hints, success meta). Shared by resetAuth and the
+  // redetect entry points so a new detection field only has to be cleared once.
+  const clearDetectionState = useCallback(() => {
     setAuthStatus('pending')
-    setErrorMessage(null)
     setUserInfo(null)
-    setPatToken('')
-    setOauthUserCode(null)
-    setOauthVerificationUri(null)
     setDetectionSource(null)
     setDetectedScopes(null)
     setDetectedTokenType(null)
@@ -897,8 +890,22 @@ export function useGitAuth({
     setSuccessMeta(null)
     setSessionStale(false)
     setSessionEnvWarning(null)
-    oauthPollingCancelledRef.current = false
   }, [])
+
+  // Reset to allow re-authentication
+  const resetAuth = useCallback(() => {
+    // Clear any pending polling before resetting
+    if (oauthPollTimeoutRef.current) {
+      clearTimeout(oauthPollTimeoutRef.current)
+      oauthPollTimeoutRef.current = null
+    }
+    clearDetectionState()
+    setErrorMessage(null)
+    setPatToken('')
+    setOauthUserCode(null)
+    setOauthVerificationUri(null)
+    oauthPollingCancelledRef.current = false
+  }, [clearDetectionState])
 
   // Reset detection so it re-runs for a freshly-selected provider. Setting
   // detectionStatus back to 'pending' (when detection is enabled) shows the
@@ -916,24 +923,12 @@ export function useGitAuth({
   const beginRedetect = useCallback(() => {
     detectionRunRef.current += 1 // invalidate any in-flight detection loop
     detectionAttemptedRef.current = false
-    setAuthStatus('pending')
-    setUserInfo(null)
-    setDetectionSource(null)
-    setDetectedScopes(null)
-    setDetectedTokenType(null)
-    setScopeWarning(null)
-    setDetectionWarning(null)
-    setUnreachableInfo(null)
-    setDetectionHint(null)
-    setDivergenceHint(null)
-    setSuccessMeta(null)
-    setSessionStale(false)
-    setSessionEnvWarning(null)
+    clearDetectionState()
     setWaitingForBlockId(null)
     setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
-  }, [detectCredentials])
+  }, [detectCredentials, clearDetectionState])
 
-  // Flush main's per-(binary,host) CLI read cache (§2.3 invalidation) so an
+  // Flush main's per-(binary,host) CLI read cache (invalidation) so an
   // explicit re-detection observes a terminal `gh auth switch`/`glab auth
   // login` immediately instead of after the 5-minute TTL. Fire-and-forget.
   const invalidateMainCache = useCallback(() => {
@@ -945,7 +940,7 @@ export function useGitAuth({
     if (nextHost === selectedHost) return
     userPickedHostRef.current = true
     invalidateMainCache()
-    // Persist the explicit pick (any source) so it survives restart (§4).
+    // Persist the explicit pick (any source) so it survives restart.
     void window.api.invoke('gitlab:host-picked', { host: nextHost }).catch(() => {})
     setSelectedHost(nextHost)
     beginRedetect()
@@ -953,7 +948,7 @@ export function useGitAuth({
   }, [selectedHost, beginRedetect, invalidateMainCache])
 
   // HostSelect onChange wrapper: the "Other instance…" row uses a sentinel
-  // value intercepted BEFORE changeHost (§4 item 3) — it reveals the
+  // value intercepted BEFORE changeHost — it reveals the
   // instance-URL field (the PAT form carries it), does NOT alter
   // selectedHost, and does NOT run detection; the controlled select snaps
   // back to its prior value on the next render.
@@ -975,7 +970,7 @@ export function useGitAuth({
   // immediately against the *pre-reload* host and then lock detectionAttemptedRef,
   // so a changed glab default would never be re-detected.
   const reloadDetection = useCallback(() => {
-    // §4 item 5: Reload re-enumerates, flushes the CLI token cache, clears
+    // Reload re-enumerates, flushes the CLI token cache, clears
     // the transport-degraded flags (both via vcs:invalidate-cache), resets
     // the key-icon downgrades, and re-runs trust install + detection.
     invalidateMainCache()
@@ -984,7 +979,7 @@ export function useGitAuth({
     setHostsReloadNonce((n) => n + 1)
   }, [beginRedetect, invalidateMainCache])
 
-  // The unreachable card's Retry (§7) and the "Check again" control (§5):
+  // The unreachable card's Retry and the "Check again" control:
   // clears the card, flushes main's CLI cache, and re-runs detection. The
   // backend re-runs the cold-read trust refresh automatically on the next
   // TLS-classified failure, so a CA installed mid-session is picked up without
@@ -997,7 +992,7 @@ export function useGitAuth({
   }, [beginRedetect, invalidateMainCache])
 
   // Track which host this block authenticated against, and watch for another
-  // block replacing the provider's single session credential (§4 item 9).
+  // block replacing the provider's single session credential.
   useEffect(() => {
     if (authStatus === 'authenticated') {
       authenticatedHostRef.current =
@@ -1019,7 +1014,7 @@ export function useGitAuth({
     return unsubscribe
   }, [provider])
 
-  // §5 item 7 (recommended): re-run detection automatically on window focus
+  // re-run detection automatically on window focus
   // while sitting IDLE in the manual UI — makes the terminal-`gh auth login`
   // flow genuinely zero-click. Debounced. Armed ONLY in 'pending': the OAuth
   // device flow guarantees a focus round-trip ('authenticating' — a redetect
@@ -1047,22 +1042,18 @@ export function useGitAuth({
       ? `${unreachableInfo.host} is unreachable — fix connectivity first`
       : null
 
-  // Manual-UI hint line (§5/§7): a main-supplied contract copy (keyring
+  // Manual-UI hint line: a main-supplied contract copy (keyring
   // cases) wins; otherwise the vcs:cli-status-driven default. Suppressed when
   // a warning chip already explains the situation.
   const manualHint = (() => {
     if (detectionHint) return detectionHint
     if (detectionWarning || unreachableInfo) return null
-    const providerCliStatus = provider.id === 'github' ? cliStatus?.gh : cliStatus?.glab
+    const providerCliStatus = cliStatus?.[provider.cli.binary]
     if (!providerCliStatus) return null
-    if (provider.id === 'github') {
-      return providerCliStatus.installed
-        ? "No existing credentials found. Sign in below, set GITHUB_TOKEN, or run 'gh auth login'."
-        : "No existing credentials found. Sign in below, set GITHUB_TOKEN, or install the GitHub CLI (gh)."
-    }
+    const lead = `No existing credentials found. Sign in below, set ${provider.env.tokenVar}, or`
     return providerCliStatus.installed
-      ? "No existing credentials found. Sign in below, set GITLAB_TOKEN, or run 'glab auth login'."
-      : "No existing credentials found. Sign in below, set GITLAB_TOKEN, or install the GitLab CLI (glab)."
+      ? `${lead} run '${provider.cli.loginCmd}'.`
+      : `${lead} install the ${provider.label} CLI (${provider.cli.binary}).`
   })()
 
   return {
@@ -1083,12 +1074,12 @@ export function useGitAuth({
     sessionEnvWarning,
     waitingForBlockId,
 
-    // Tri-state unreachable outcome (§2.0)
+    // Tri-state unreachable outcome
     unreachableInfo,
     retryUnreachable,
     oauthUnavailableReason,
 
-    // Manual-UI hint + diagnostics (§5)
+    // Manual-UI hint + diagnostics
     manualHint,
     divergenceHint,
     cliStatus,

@@ -1,5 +1,5 @@
 /**
- * System-trust TLS domain module (vcs-auth-v2-design.md §3.1).
+ * System-trust TLS domain module.
  *
  * `installSystemTrust` unions the launch-time bundled-defaults snapshot with
  * OS-installed roots plus any extra PEMs (glab per-host `ca_cert` contents,
@@ -85,7 +85,7 @@ export const installSystemTrust = (
 
 const COLD_READ_TIMEOUT_MS = 10_000
 
-// The cold-read child receives no token env at all (§8).
+// The cold-read child receives no token env at all.
 const coldReadChildEnv = (): Record<string, string | undefined> => {
   const env: Record<string, string | undefined> = { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
   for (const name of VCS_TOKEN_ENV_VARS) {
@@ -146,7 +146,7 @@ export const coldReadSystemPems = (
  * Compose a cold read with the launch-time fallback: on any child failure
  * (spawn error, timeout, unparseable stdout) the launch set is used — never
  * worse than launch. `coldReadOk` lets callers degrade the TLS-card copy to
- * "…then restart Runbooks" when the child itself failed (§3.1 fallback).
+ * "…then restart Runbooks" when the child itself failed (fallback).
  */
 export const refreshSystemPems = <R>(
   coldRead: Effect.Effect<string[], Error, R>,
@@ -171,7 +171,7 @@ const TLS_TRUST_CODES = new Set([
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
   "DEPTH_ZERO_SELF_SIGNED_CERT",
   "CERT_UNTRUSTED",
-  // Chromium code, should net.fetch ever be adopted (§3.2 escape route).
+  // Chromium code, should net.fetch ever be adopted (escape route).
   "ERR_CERT_AUTHORITY_INVALID",
 ])
 
@@ -217,7 +217,7 @@ const collectErrorCodes = (err: unknown, seen: Set<unknown>): string[] => {
 }
 
 /**
- * Classify a transport-level failure into the tri-state error kinds (§3.1).
+ * Classify a transport-level failure into the tri-state error kinds.
  *
  * Unwraps the cause chain FIRST: undici's global fetch rejects with
  * TypeError("fetch failed") carrying the OpenSSL code on error.cause,

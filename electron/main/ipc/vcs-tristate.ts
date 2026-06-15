@@ -1,8 +1,8 @@
 /**
- * Shared tri-state orchestration for the GitAuth IPC handlers
- * (vcs-auth-v2-design.md §2.0/§6): on a TLS-classified failure, run the cold
+ * Shared tri-state orchestration for the GitAuth IPC handlers.
+ * On a TLS-classified failure, run the cold
  * out-of-process trust refresh ONCE and retry; if the wall persists and a CLI
- * is eligible, run the §2.4 validation-only probe; degrade to the error card
+ * is eligible, run the validation-only probe; degrade to the error card
  * otherwise. server-cert and network failures get NO refresh and NO probe —
  * they cannot help. This lives Electron-side because the refresh needs the
  * cold-read child wired in electron/main/index.ts; the VcsCredentials service
@@ -23,7 +23,7 @@ import { getMainWindow } from "../window.ts"
 
 /**
  * Record a successful session-env credential write and push the
- * vcs:session-changed event (§4 item 9): the session holds one credential per
+ * vcs:session-changed event: the session holds one credential per
  * provider, so every write may invalidate another block's success card.
  */
 export function recordSessionAuth(provider: GitProvider, host: string, source?: string): void {
@@ -36,7 +36,7 @@ export interface OrchestratedDetection extends DetectionResult {
 }
 
 /**
- * The §8 session-credential write: append the env vars, then record the auth
+ * The session-credential write: append the env vars, then record the auth
  * and broadcast vcs:session-changed. A failed write must never void a
  * credential the API just validated — it returns the success-card warning
  * copy (`sessionEnvWarning`) instead of failing; undefined on success.
@@ -62,8 +62,8 @@ export const withVcs = <A>(
 ): Promise<A> => runtime.runPromise(Effect.flatMap(VcsCredentials, use))
 
 /**
- * Run a detection/validation step with the §2.0 TLS recovery ladder:
- * cold trust refresh → retry → §2.4 CLI probe → error card.
+ * Run a detection/validation step with the TLS recovery ladder:
+ * cold trust refresh → retry → CLI probe → error card.
  * `probeSource` overrides the result's source for probe gating (the PAT path
  * passes "manual" — env-sourced/manual OAuth-shaped GitLab tokens are never
  * probed via token injection).
@@ -77,12 +77,12 @@ export async function withTlsOrchestration(opts: {
   let result = await opts.detect()
   if (result.outcome !== "unreachable" || result.errorKind !== "tls") return result
 
-  // (a) automatic cold refresh, once, before any error surfaces (§3.1).
+  // (a) automatic cold refresh, once, before any error surfaces.
   const { coldReadOk } = await refreshSystemTrust()
   result = await opts.detect()
   if (result.outcome !== "unreachable" || result.errorKind !== "tls") return result
 
-  // (b) §2.4 CLI validation fallback — validation-only, never a transport.
+  // (b) CLI validation fallback — validation-only, never a transport.
   const probeSource = opts.probeSource ?? result.source
   if (result.token && probeSource) {
     const token = result.token
@@ -102,7 +102,7 @@ export async function withTlsOrchestration(opts: {
       }
     }
     // Any probe failure class degrades to the card — a broken probe never
-    // masks the working remediation path (§2.4).
+    // masks the working remediation path.
   }
 
   return { ...result, coldReadOk }
@@ -110,7 +110,7 @@ export async function withTlsOrchestration(opts: {
 
 /**
  * Map an orchestrated DetectionResult onto the per-channel IPC result shape
- * (found/valid plus the tri-state metadata). METADATA-ONLY (§8): the raw
+ * (found/valid plus the tri-state metadata). METADATA-ONLY: the raw
  * token never crosses — it is registered for redaction instead, and every
  * outbound error string passes through redactSecrets.
  */

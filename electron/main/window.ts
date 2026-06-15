@@ -76,7 +76,7 @@ export function createMainWindow(): BrowserWindow {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       // Decorate only the app's own file:// frames — this handler sees every
       // response on the default session, including any future main-process
-      // traffic riding it (vcs-auth-v2-design.md §3.2).
+      // traffic riding it.
       const isAppFrame =
         (details.resourceType === "mainFrame" || details.resourceType === "subFrame") &&
         details.url.startsWith("file://")

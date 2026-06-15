@@ -8,7 +8,7 @@ import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
 
 /**
- * Child-environment shaping for CLI spawns (vcs-auth-v2-design.md §2):
+ * Child-environment shaping for CLI spawns:
  * `unset` strips ambient token vars so the CLI reports its own stored
  * credential (a distinct source, not an echo of the env source — and an env
  * token is never leaked to the wrong host); `set` adds the prompt/update/

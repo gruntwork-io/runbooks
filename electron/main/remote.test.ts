@@ -103,7 +103,7 @@ describe("authHintForHost (golang parity)", () => {
   })
 
   it("includes --hostname and the GITLAB_HOST binding for self-hosted GitLab instances", () => {
-    // §2.2: GITLAB_TOKEN alone is only released to GITLAB_HOST's instance, so
+    // GITLAB_TOKEN alone is only released to GITLAB_HOST's instance, so
     // the env remedy for a non-default host must name both halves.
     expect(authHintForHost("gitlab.corp.example")).toEqual({
       envRemedy: "GITLAB_TOKEN and GITLAB_HOST=gitlab.corp.example",
@@ -113,7 +113,7 @@ describe("authHintForHost (golang parity)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// classifyCloneError — golang parity (TestClassifyCloneError); the §7
+// classifyCloneError — golang parity (TestClassifyCloneError); the
 // remote-open strings are contracts.
 // ---------------------------------------------------------------------------
 

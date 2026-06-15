@@ -78,7 +78,7 @@ export function isAuthError(stderr: string): boolean {
  * hosts we don't special-case. Hostname matching is case-insensitive.
  *
  * For a self-hosted GitLab host the env remedy names BOTH halves: per the
- * §2.2 binding, GITLAB_TOKEN alone is only ever released to GITLAB_HOST's
+ * binding, GITLAB_TOKEN alone is only ever released to GITLAB_HOST's
  * instance (default gitlab.com), so "set GITLAB_TOKEN" without the binding
  * would advise a no-op.
  */
@@ -213,7 +213,7 @@ export async function resolveRemoteRunbook(
       log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path })
 
       // Get auth token early — needed for both resolveRef (git ls-remote)
-      // and the clone itself. Session env first (§2.3: a token established by
+      // and the clone itself. Session env first (a token established by
       // a GitAuth block is reused), then the unified VcsCredentials resolver.
       log.info("Getting auth token...")
       const provider =
@@ -222,7 +222,7 @@ export async function resolveRemoteRunbook(
           : isGitLabHost(parsed.host)
             ? ("gitlab" as const)
             : undefined
-      // Host-bound (§2.2): the session token is released only to the host the
+      // Host-bound: the session token is released only to the host the
       // auth block bound it to — `parsed.host` is attacker-controlled input,
       // and the provider name-heuristic alone must never gate a credential.
       const sessionToken = provider
@@ -258,7 +258,7 @@ export async function resolveRemoteRunbook(
       log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
 
       // Clone with sparse checkout if a subpath is specified. Failures get
-      // the golang-parity classification (§7 remote-open strings).
+      // the golang-parity classification (remote-open strings).
       const git = yield* GitClient
       yield* git
         .cloneSimple(parsed.cloneURL, dest, {

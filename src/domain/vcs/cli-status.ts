@@ -1,8 +1,8 @@
 /**
- * VCS CLI diagnostics (vcs-auth-v2-design.md §6, the `vcs:cli-status`
+ * VCS CLI diagnostics (the `vcs:cli-status`
  * channel): which provider CLIs are installed, their versions, whether they
- * meet the version floors the §2.4 validation probe requires, and — on
- * Windows — which TLS backend git is configured with (§3.2).
+ * meet the version floors the validation probe requires, and — on
+ * Windows — which TLS backend git is configured with.
  *
  * Pure probe helpers; result caching lives with the caller
  * (VcsCredentialsLive).
@@ -13,13 +13,13 @@ import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 export interface CliStatus {
   readonly installed: boolean
   readonly version?: string
-  /** Whether the installed version meets the §2.4 probe floor. */
+  /** Whether the installed version meets the probe floor. */
   readonly meetsFloor: boolean
 }
 
-/** gh ≥ 2.26.0 — keyring token storage introduction (§2.4). */
+/** gh ≥ 2.26.0 — keyring token storage introduction. */
 export const GH_VERSION_FLOOR = "2.26.0"
-/** glab ≥ 1.75.0 — support-policy floor, not a verified behavior cliff (§11). */
+/** glab ≥ 1.75.0 — support-policy floor, not a verified behavior cliff. */
 export const GLAB_VERSION_FLOOR = "1.75.0"
 
 /** `gh version 2.40.1 (2023-12-13)` */
@@ -81,8 +81,8 @@ const probeCliStatus = (
     return {
       installed: true,
       version,
-      // An unparseable version is treated as below-floor: the §2.4 probe then
-      // simply degrades to the remediation card (never breakage, §11).
+      // An unparseable version is treated as below-floor: the probe then
+      // simply degrades to the remediation card (never breakage).
       meetsFloor: version !== undefined && compareVersions(version, floor) >= 0,
     }
   })
@@ -92,14 +92,14 @@ export const probeGlabStatus = () => probeCliStatus("glab", GLAB_VERSION_PATTERN
 
 /**
  * Sentinel sslBackend value for "git is present but the key is unset": git is
- * running on its compiled-in default, which is NOT schannel, so the §3.2
+ * running on its compiled-in default, which is NOT schannel, so the
  * suggestion still applies. The renderer only ever tests `!== "schannel"`, but
  * the value crosses the vcs:cli-status channel — this const is its one owner.
  */
 export const GIT_SSL_BACKEND_DEFAULT = "default"
 
 /**
- * Read git's configured HTTPS backend (Windows §3.2): the Git-for-Windows
+ * Read git's configured HTTPS backend (Windows): the Git-for-Windows
  * default is OpenSSL with its own CA bundle, which ignores the Windows
  * certificate store; only the opt-in `schannel` backend consults it. Cheap
  * read-only subprocess — we NEVER write git config without explicit consent.

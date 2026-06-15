@@ -14,15 +14,15 @@ interface AuthSuccessProps {
   sessionEnvWarning?: string | null
   /** The host authenticated against (GitLab); shown so multi-host users see which instance. */
   host?: string
-  /** Provenance for the §5 source line + §2.4 transport line. */
+  /** Provenance for the source line + transport line. */
   successMeta?: GitSuccessMeta | null
-  /** §2.1 both-set-and-differ env hint, rendered verbatim. */
+  /** both-set-and-differ env hint, rendered verbatim. */
   divergenceHint?: string | null
-  /** §4 item 9: another block replaced this provider's session credential. */
+  /** another block replaced this provider's session credential. */
   sessionStale?: boolean
-  /** Windows git TLS backend (vcs:cli-status; win32 only) — drives the §3.2 schannel suggestion. */
+  /** Windows git TLS backend (vcs:cli-status; win32 only) — drives the schannel suggestion. */
   gitSslBackend?: string
-  /** Explicit, consented one-click `git config --global http.sslBackend schannel` (§3.2). */
+  /** Explicit, consented one-click `git config --global http.sslBackend schannel`. */
   onApplySchannel?: () => void
   onReAuthenticate?: () => void
 }
@@ -75,7 +75,7 @@ export function AuthSuccess({
   // Avatars are hot-linked, so a CSP-blocked host (a self-hosted GitLab
   // instance, or a Gravatar host not in img-src) makes the <img> fire `error`
   // rather than render. The img-src allowlist is deliberately NOT widened per
-  // instance (no new security surface, §3.2) — fall back to an
+  // instance (no new security surface) — fall back to an
   // initials avatar so the card still looks intentional.
   const [avatarFailed, setAvatarFailed] = useState(false)
   const scopeDescriptions = provider.success.scopeDescriptions
@@ -143,7 +143,7 @@ export function AuthSuccess({
     )
   }
 
-  // §5 source line: name the exact env var / CLI / config-file source.
+  // source line: name the exact env var / CLI / config-file source.
   const sourceLine =
     detectionSource === 'env'
       ? `Detected from ${successMeta?.envVar ?? 'environment'}`
@@ -155,15 +155,15 @@ export function AuthSuccess({
           ? 'From Command'
           : null
 
-  // §2.4 transparency: probe-validated auth means the direct transport is
+  // transparency: probe-validated auth means the direct transport is
   // still TLS-blocked for this host.
-  const cliShort = provider.id === 'gitlab' ? 'glab' : 'gh'
+  const cliShort = provider.cli.binary
   const transportLine =
     successMeta?.validatedVia === 'cli'
       ? `validated via ${cliShort} CLI — Runbooks' direct connection to ${host ?? provider.label} is not trusted yet`
       : null
 
-  // §3.2: Git for Windows defaults to OpenSSL, which ignores the Windows
+  // Git for Windows defaults to OpenSSL, which ignores the Windows
   // certificate store — suggest (never silently apply) the schannel switch
   // for non-public GitLab hosts.
   const showSchannelSuggestion =
@@ -184,7 +184,7 @@ export function AuthSuccess({
         )}
       </div>
 
-      {/* §4 item 9: the session holds ONE credential per provider — when a
+      {/* the session holds ONE credential per provider — when a
           later block authenticated a different host, this card must not imply
           its credential is still active. */}
       {sessionStale && (

@@ -148,7 +148,7 @@ export interface IpcChannelMap {
   "github:validate": {
     // `host` is accepted for parity with gitlab:validate so the shared useGitAuth
     // hook passes one payload shape; the GitHub handler ignores it.
-    // §8 custody: `useSessionToken` validates the provider's SESSION credential
+    // custody: `useSessionToken` validates the provider's SESSION credential
     // (the {block:'GitAuth-id'} chaining mode — no token crosses IPC);
     // `registerSession` makes MAIN write the session env on success (the PAT
     // path); the renderer never writes session credentials.
@@ -162,7 +162,7 @@ export interface IpcChannelMap {
     result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; error?: string }
   }
   "github:oauth-poll": {
-    // §8: the completion result is METADATA-ONLY — no access token crosses
+    // the completion result is METADATA-ONLY — no access token crosses
     // IPC; main writes the session env before reporting completion.
     params: { clientId?: string; deviceCode: string }
     result: {
@@ -173,11 +173,11 @@ export interface IpcChannelMap {
       tokenType?: string
       slowDown?: boolean
       error?: string
-      /** §8: the session-env write failed AFTER the token validated. */
+      /** The session-env write failed AFTER the token validated. */
       sessionEnvWarning?: string
     }
   }
-  // §8: detection results are METADATA-ONLY (outcome/source/user/scopes/
+  // detection results are METADATA-ONLY (outcome/source/user/scopes/
   // tokenType — never the raw token).
   "github:env-credentials": {
     params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string }
@@ -208,11 +208,11 @@ export interface IpcChannelMap {
   "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
 
   // GitLab Authentication
-  // Enumerate the known GitLab hosts for the picker (vcs-auth-v2-design.md §4):
+  // Enumerate the known GitLab hosts for the picker:
   // the merged, deduped union of glab-config hosts, env hosts, the session
   // host, and persisted recents — annotated with provenance and an
   // OFFLINE-ONLY credential check (no network, no per-host subprocess).
-  // `defaultHost` follows the §4 precedence (persisted pick when it still has
+  // `defaultHost` follows the precedence (persisted pick when it still has
   // a credential > env > glab's top-level host > gitlab.com).
   "gitlab:enumerate-hosts": {
     params: Record<string, never>
@@ -226,14 +226,14 @@ export interface IpcChannelMap {
       defaultHost: string
     }
   }
-  // Persist an explicit dropdown pick (any source) so it survives restart
-  // (§4 item 4). Renderer-initiated on every HostSelect change.
+  // Persist an explicit dropdown pick (any source) so it survives restart.
+  // Renderer-initiated on every HostSelect change.
   "gitlab:host-picked": { params: { host: string }; result: { ok: true } }
   "gitlab:validate": {
     // The GitLab instance to validate against (default gitlab.com). `host` is a
     // bare host from the picker (or an authored `host` prop); `instanceUrl` is a
     // manually-entered instance URL that overrides `host` when present.
-    // registerSession/useSessionToken per github:validate (§8 custody).
+    // registerSession/useSessionToken per github:validate (custody).
     params: { token?: string; host?: string; instanceUrl?: string; registerSession?: boolean; useSessionToken?: boolean }
     result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number } & VcsDetectionMeta
   }
@@ -326,19 +326,19 @@ export interface IpcChannelMap {
     result: { ok: true }
   }
 
-  // VCS CLI diagnostics (vcs-auth-v2-design.md §6): which provider CLIs are
-  // installed, their versions / §2.4 probe floors, and (Windows) git's TLS
+  // VCS CLI diagnostics: which provider CLIs are
+  // installed, their versions / probe floors, and (Windows) git's TLS
   // backend. Drives the manual-UI hint copy and the schannel suggestion.
   "vcs:cli-status": {
     params: void
     result: { gh: VcsCliStatus; glab: VcsCliStatus; git?: { sslBackend?: string } }
   }
-  // Flush the per-(binary,host) CLI read cache (§2.3 invalidation): called by
+  // Flush the per-(binary,host) CLI read cache (invalidation): called by
   // the renderer on every explicit re-detection — HostSelect Reload, the
   // GitHub "Check again" control, and an explicit host pick — so a terminal
   // `gh auth switch`/re-login is picked up on demand rather than after TTL.
   "vcs:invalidate-cache": { params: void; result: { ok: true } }
-  // The §3.2 Windows mitigation: `git config --global http.sslBackend
+  // The Windows mitigation: `git config --global http.sslBackend
   // schannel`, applied ONLY on an explicit button press (the one consented
   // write Runbooks ever offers — git config, never credentials).
   "vcs:apply-git-schannel": { params: void; result: { ok: boolean; error?: string } }
@@ -391,8 +391,8 @@ export interface IpcEventMap {
   "menu:close-runbook": void
   "menu:preferences": void
   "registry:updated": void
-  // Pushed by main on every VCS session-env write (vcs-auth-v2-design.md §4
-  // item 9): the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
+  // Pushed by main on every VCS session-env write:
+  // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
   // second GitLab block authenticating a different host silently replaces the
   // first block's credential — its AuthSuccess card renders a stale-session
   // warning off this event instead of implying its credential is still active.
@@ -481,7 +481,7 @@ export interface AwsCredentials {
 }
 
 /**
- * Tri-state validation outcome (vcs-auth-v2-design.md §2.0). The split between
+ * Tri-state validation outcome. The split between
  * `invalid` (a real 401/403 — warn and continue the credential chain) and
  * `unreachable` (transport failure — stop the chain WITHOUT consuming sources)
  * is what keeps a TLS or network failure from ever rendering as "Invalid
@@ -497,26 +497,26 @@ export interface VcsDetectionMeta {
   outcome?: VcsAuthOutcome
   /** Which source produced the credential (cli-channel results may be "config" — hosts.yml/config.yml fallbacks). */
   source?: "env" | "cli" | "config"
-  /** "cli" marks §2.4 probe-validated degraded auth (success-card transparency line). */
+  /** "cli" marks probe-validated degraded auth (success-card transparency line). */
   validatedVia?: "direct" | "cli"
   /** Set when outcome is "unreachable": selects the TLS / server-cert / network card. */
   errorKind?: VcsErrorKind
   /**
    * For errorKind "tls": whether the cold out-of-process trust refresh child
    * succeeded before the retry. False degrades the TLS-card copy to
-   * "…then restart Runbooks" (§3.1 fallback).
+   * "…then restart Runbooks" (fallback).
    */
   coldReadOk?: boolean
   /** The env var a token came from (GITHUB_TOKEN, MYAPP_GH_TOKEN, OAUTH_TOKEN, …) — drives exact chip copy. */
   envVar?: string
-  /** Exact warning-chip copy, rendered VERBATIM by the renderer (§7 contracts). */
+  /** Exact warning-chip copy, rendered VERBATIM by the renderer (contracts). */
   warning?: string
   /** Manual-UI hint line (e.g. the keyring-blocked copy) — informational, never a warning chip. */
   hint?: string
-  /** §2.1 both-set-and-differ visibility hint, rendered on the success card / manual UI. */
+  /** Both-set-and-differ visibility hint, rendered on the success card / manual UI. */
   divergenceHint?: string
   /**
-   * §8: the credential validated but MAIN's session-env write failed (e.g. no
+   * The credential validated but MAIN's session-env write failed (e.g. no
    * active session) — auth still succeeded; the success card shows this
    * warning instead of the whole IPC call rejecting.
    */
@@ -527,7 +527,7 @@ export interface VcsDetectionMeta {
 export interface VcsCliStatus {
   installed: boolean
   version?: string
-  /** Whether the installed version meets the §2.4 validation-probe floor (gh ≥ 2.26.0, glab ≥ 1.75.0). */
+  /** Whether the installed version meets the validation-probe floor (gh ≥ 2.26.0, glab ≥ 1.75.0). */
   meetsFloor: boolean
 }
 

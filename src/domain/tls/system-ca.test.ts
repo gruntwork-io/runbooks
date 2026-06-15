@@ -108,7 +108,7 @@ describe("classifyTlsError", () => {
     "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
     "DEPTH_ZERO_SELF_SIGNED_CERT",
     "CERT_UNTRUSTED",
-    // Chromium code, future-proofing for net.fetch (§3.2 escape route).
+    // Chromium code, future-proofing for net.fetch (escape route).
     "ERR_CERT_AUTHORITY_INVALID",
   ])("classifies undici-wrapped %s as 'tls'", (code) => {
     expect(classifyTlsError(undiciWrapped(code))).toBe("tls")

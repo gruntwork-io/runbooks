@@ -6,7 +6,7 @@ interface AuthTabsProps {
   authMethod: GitAuthMethod
   setAuthMethod: (method: GitAuthMethod) => void
   provider: ProviderConfig
-  /** Disable the OAuth tab when the host is unreachable (§2.0) — the device
+  /** Disable the OAuth tab when the host is unreachable — the device
    *  flow would hit the same TLS/network wall. */
   oauthDisabled?: boolean
   oauthDisabledReason?: string

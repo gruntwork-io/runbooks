@@ -12,7 +12,7 @@ export interface SpawnExpectation {
 }
 
 // ---------------------------------------------------------------------------
-// Recording spawner — richer fake for the §9 child-hygiene and exit-contract
+// Recording spawner — richer fake for the child-hygiene and exit-contract
 // tests: records each spawn's argv + received env, supports mixed
 // stdout/stderr lines, spawn-ENOENT simulation, per-spawn delay (for
 // serialization assertions), and tracks the max number of concurrently

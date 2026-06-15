@@ -55,7 +55,7 @@ describe("GitLabHttpClient.validateToken", () => {
 
     const result = await Effect.runPromise(validate("glpat-abc"))
 
-    // Bearer-first (§3.3): one round trip, no PRIVATE-TOKEN attempt.
+    // Bearer-first: one round trip, no PRIVATE-TOKEN attempt.
     expect(userAuth!).toBe("Bearer glpat-abc")
     expect(userPrivateToken).toBeNull()
     expect(userCalls).toBe(1)

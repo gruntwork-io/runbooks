@@ -1,14 +1,14 @@
 /**
- * VcsCredentials — the single credential resolver (vcs-auth-v2-design.md §2/§6).
+ * VcsCredentials — the single credential resolver.
  *
  * One service unifies what used to be two resolvers (the GitAuth IPC
  * detection flows in src/domain/{github,gitlab}/auth.ts and the weaker
  * remote-source getTokenForHost): per-source detection legs with direct
- * validation, the §2.3 read-only host→token resolution, the §2.4
+ * validation, the read-only host→token resolution, the
  * validation-only CLI fallback probe, CLI diagnostics, and the caches.
  *
  * Tri-state ORCHESTRATION (cold trust-refresh-and-retry on tls, probe
- * routing, session writes) deliberately lives in the IPC handlers (§6) — the
+ * routing, session writes) deliberately lives in the IPC handlers — the
  * refresh needs the Electron-side cold-read child, and this service must stay
  * Bun-test-safe.
  */
@@ -29,8 +29,7 @@ export interface VcsUserInfo {
 export type VcsCredentialSource = "env" | "cli" | "config" | "manual"
 
 /**
- * Tri-state detection result (§2.0). `token` stays main-side — see §8 for
- * what crosses IPC.
+ * Tri-state detection result. `token` stays main-side.
  */
 export interface DetectionResult {
   readonly outcome: "valid" | "invalid" | "unreachable" | "absent"
@@ -46,15 +45,15 @@ export interface DetectionResult {
   readonly error?: string
   /** The env var the token came from (env source). */
   readonly envVar?: string
-  /** §2.1 both-set-and-differ visibility hint (env source). */
+  /** both-set-and-differ visibility hint (env source). */
   readonly divergenceHint?: string
-  /** Manual-UI hint copy (the §7 keyring contracts). */
+  /** Manual-UI hint copy (the keyring contracts). */
   readonly hint?: string
-  /** How the accepted token was validated — "cli" marks §2.4 degraded auth. */
+  /** How the accepted token was validated — "cli" marks degraded auth. */
   readonly validatedVia?: "direct" | "cli"
 }
 
-/** Successful §2.4 probe result. */
+/** Successful probe result. */
 export interface CliValidation {
   readonly user: VcsUserInfo
   readonly scopes?: string[]
@@ -66,7 +65,7 @@ export interface VcsCliStatusInfo {
   readonly git?: { readonly sslBackend?: string }
 }
 
-/** Step 5 widens this to the annotated §4 union (provenance + hasCredential). */
+/** Step 5 widens this to the annotated union (provenance + hasCredential). */
 export interface MergedGitLabHosts {
   readonly hosts: string[]
   readonly defaultHost: string
@@ -84,7 +83,7 @@ export interface VcsCredentialsShape {
   readonly detectGitLabEnv: (instance: string) => Effect.Effect<DetectionResult>
   readonly detectGitLabCli: (instance: string) => Effect.Effect<DetectionResult>
 
-  // --- §2 full chains: first-success-wins; `invalid` warns and continues;
+  // --- full chains: first-success-wins; `invalid` warns and continues;
   //     `unreachable` stops without consuming later sources -----------------
   readonly resolveGitHub: (prefix?: string) => Effect.Effect<DetectionResult>
   readonly resolveGitLab: (instance: string) => Effect.Effect<DetectionResult>
@@ -98,7 +97,7 @@ export interface VcsCredentialsShape {
   ) => Effect.Effect<DetectionResult>
 
   /**
-   * §2.3 unified host→token resolution (replaces remote-source
+   * unified host→token resolution (replaces remote-source
    * getTokenForHost). READ-ONLY: source reads with no network validation
    * (golang semantics — an absent result is silent fall-through and an empty
    * final result is NOT an error; the repo may be public). Session-env
@@ -109,7 +108,7 @@ export interface VcsCredentialsShape {
   readonly enumerateGitLabHosts: () => Effect.Effect<MergedGitLabHosts>
 
   /**
-   * §2.4 validation-only CLI fallback probe — narrow and deterministic:
+   * validation-only CLI fallback probe — narrow and deterministic:
    * gh api user -i / glab api user (candidate token via CHILD ENV, never
    * argv) for PAT-shaped tokens; glab auth status (no token injection) for
    * glab-sourced OAuth-shaped tokens. Every failure class is a typed
@@ -125,14 +124,14 @@ export interface VcsCredentialsShape {
   readonly cliStatus: () => Effect.Effect<VcsCliStatusInfo>
 
   /** Flush the per-(binary,host) CLI read cache + the cliStatus probe cache
-   *  (§2.3 invalidation: auth failures and renderer-initiated re-detection). */
+   *  (invalidation: auth failures and renderer-initiated re-detection). */
   readonly invalidateCache: () => Effect.Effect<void>
 
-  // --- §2.4 transport-degraded host bookkeeping ----------------------------
+  // --- transport-degraded host bookkeeping ----------------------------
   /** Records the degraded host + emits the structured field-canary log line. */
   readonly markTransportDegraded: (host: string, code: string) => Effect.Effect<void>
   readonly isTransportDegraded: (host: string) => Effect.Effect<boolean>
-  /** Cleared by HostSelect Reload (§4 item 5). */
+  /** Cleared by HostSelect Reload. */
   readonly clearTransportDegraded: () => Effect.Effect<void>
 }
 

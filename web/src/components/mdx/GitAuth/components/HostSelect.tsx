@@ -5,7 +5,7 @@ import { OTHER_INSTANCE_SENTINEL } from "../types"
 interface HostSelectProps {
   /** Owning block id, used to derive a unique DOM id for the select. */
   id: string
-  /** The §4 merged host union (glab config + env + session + recents). */
+  /** The merged host union (glab config + env + session + recents). */
   hosts: GitLabHostEntry[]
   /** The currently selected host. */
   value: string
@@ -27,8 +27,8 @@ const SOURCE_LABELS: Record<GitLabHostEntry["sources"][number], string> = {
 }
 
 /**
- * GitLab host picker (vcs-auth-v2-design.md §4). Renders whenever there is at
- * least ONE known host (§4 item 2 — the dropdown is what makes the "Other
+ * GitLab host picker. Renders whenever there is at
+ * least ONE known host (the dropdown is what makes the "Other
  * instance…" row reachable). Entries carry provenance badges and a key icon
  * for the offline has-credential check; a failed validation downgrades the
  * icon for the rest of the session so the dropdown never contradicts the
@@ -73,11 +73,11 @@ export function HostSelect({
               </option>
             ))}
             {/* A never-configured instance is one click away instead of
-                buried in the PAT tab (§4 item 3). */}
+                buried in the PAT tab. */}
             <option value={OTHER_INSTANCE_SENTINEL}>Other instance…</option>
           </select>
 
-          {/* Provenance badges for the selected host (§4). */}
+          {/* Provenance badges for the selected host. */}
           {selected && selected.sources.length > 0 && (
             <span className="flex items-center gap-1" data-testid={`host-sources-${id}`}>
               {selected.sources.map((source) => (
@@ -112,7 +112,7 @@ export function HostSelect({
             </span>
           )}
 
-          {/* §4: hosts without a credential get a subtle paste-a-token hint —
+          {/* Hosts without a credential get a subtle paste-a-token hint —
               also rendered in the single-host layout, next to Reload. */}
           {selected && !selected.hasCredential && (
             <span className="text-xs text-muted-foreground" data-testid={`host-no-credential-${id}`}>

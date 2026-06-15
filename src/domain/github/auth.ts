@@ -26,7 +26,7 @@ const GH_CLI_TIMEOUT_MS = 5_000
 const GH_STATUS_TIMEOUT_MS = 10_000
 
 /**
- * Child-env hygiene for every gh spawn (§2.1): strip the ambient token vars so
+ * Child-env hygiene for every gh spawn: strip the ambient token vars so
  * the CLI reports ITS OWN stored credential (a distinct source #3, not an echo
  * of env sources #1/#2), and kill prompts/update checks/color so a spawn can
  * never hang.
@@ -39,7 +39,7 @@ export const GH_ENV_OVERRIDES: CliEnvOverrides = {
 }
 
 /**
- * Allowlist for the `{env:{prefix}}` detectCredentials variant (§2.1),
+ * Allowlist for the `{env:{prefix}}` detectCredentials variant,
  * enforced in MAIN (the renderer-supplied prefix is untrusted input).
  */
 export const ENV_PREFIX_PATTERN = /^[A-Z][A-Z0-9_]*_$/
@@ -111,7 +111,7 @@ export interface GitHubEnvCredential {
   /** The variable the token came from (e.g. GITHUB_TOKEN, MYAPP_GH_TOKEN). */
   readonly envVar: string
   /**
-   * §2.1 both-set-and-differ visibility: set to the LOSING variable when both
+   * both-set-and-differ visibility: set to the LOSING variable when both
    * GITHUB_TOKEN and GH_TOKEN are set with different values, so the UI can
    * surface "GH_TOKEN is also set and differs; Runbooks used GITHUB_TOKEN —
    * gh would use GH_TOKEN." (we keep the golang-tested GITHUB_TOKEN > GH_TOKEN
@@ -124,7 +124,7 @@ export interface GitHubEnvCredential {
  * Detect a GitHub token from environment variables: GITHUB_TOKEN first, then
  * GH_TOKEN (golang-parity order, beta-v0.9.0 api/remote_token_test.go).
  *
- * With a `prefix` (the `{env:{prefix}}` variant, §2.1), looks up
+ * With a `prefix` (the `{env:{prefix}}` variant), looks up
  * `<PREFIX>GITHUB_TOKEN` then `<PREFIX>GH_TOKEN` instead. The prefix MUST
  * already be allowlist-validated (ENV_PREFIX_PATTERN) by the caller in main;
  * an invalid prefix is treated as absent here as defense in depth.
@@ -165,7 +165,7 @@ export const detectEnvCredentials = (prefix?: string) =>
   })
 
 /**
- * `gh auth token --hostname github.com` (§2.1 #3): the pin neutralizes
+ * `gh auth token --hostname github.com`: the pin neutralizes
  * GH_HOST and multi-host gh configs; hygiene env via GH_ENV_OVERRIDES. Covers
  * keyring storage (gh ≥ 2.26.0). Undefined when gh is missing,
  * unauthenticated, or times out.
@@ -203,7 +203,7 @@ export function parseGhCliScopes(statusOutput: string): string[] | undefined {
 
 /**
  * Supplement scopes for a CLI-sourced token via
- * `gh auth status --hostname github.com` (§2.1): fine-grained PATs have no
+ * `gh auth status --hostname github.com`: fine-grained PATs have no
  * X-OAuth-Scopes header, but gh knows its own token's scopes. Output goes to
  * either stream depending on gh version, so both are parsed (golang used
  * CombinedOutput). Failures are ignored — scopes are advisory enrichment.
@@ -240,7 +240,7 @@ export const cliScopes = () =>
   })
 
 // ---------------------------------------------------------------------------
-// gh hosts.yml (binary-absent-only fallback, §2.1 #3b)
+// gh hosts.yml (binary-absent-only fallback)
 // ---------------------------------------------------------------------------
 
 /**
@@ -290,7 +290,7 @@ export function parseGhHostsToken(yamlContent: string): GhHostsYmlResult {
 }
 
 /**
- * Direct hosts.yml parse — the gh-BINARY-ABSENT-ONLY fallback (§2.1 #3b).
+ * Direct hosts.yml parse — the gh-BINARY-ABSENT-ONLY fallback.
  * Callers must gate on "gh is not installed": when the binary is present,
  * `gh auth token` is authoritative (keyring, token rotation).
  */

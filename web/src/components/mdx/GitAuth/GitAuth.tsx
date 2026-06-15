@@ -110,7 +110,7 @@ function GitAuthInteractive({
     trackBlockRender(__registryType)
   }, [trackBlockRender, __registryType])
 
-  // When the OAuth tab is disabled (§2.0 unreachable), make sure the PAT form
+  // When the OAuth tab is disabled (unreachable), make sure the PAT form
   // is the one showing rather than a dead OAuth pane.
   const oauthDisabled = auth.oauthUnavailableReason !== null
   const setAuthMethod = auth.setAuthMethod
@@ -269,7 +269,7 @@ function GitAuthInteractive({
             </div>
           )}
 
-          {/* Unreachable host (§2.0/§7): a TLS/server-cert/network failure is
+          {/* Unreachable host: a TLS/server-cert/network failure is
               NEVER an invalid-credentials warning. The card renders above the
               still-available manual UI. */}
           {auth.unreachableInfo && auth.authStatus !== 'authenticated' && (
@@ -283,7 +283,7 @@ function GitAuthInteractive({
           {/* Authentication form (only show when not authenticated and detection is done) */}
           {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
-              {/* CLI-status-driven hint (§5/§7) + the "Check again" control */}
+              {/* CLI-status-driven hint + the "Check again" control */}
               {auth.manualHint && (
                 <div
                   data-testid="vcs-cli-hint"

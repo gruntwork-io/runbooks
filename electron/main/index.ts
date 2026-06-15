@@ -41,14 +41,14 @@ if (process.env.RUNBOOKS_TEST_USER_DATA_DIR) {
 // before SessionManager captures process.env on first runbook load.
 populateShellEnv()
 
-// Register ambient token values for log/IPC redaction (§8): the exact-match
+// Register ambient token values for log/IPC redaction: the exact-match
 // scrub is the only safe way to catch GitLab's unprefixed 64-hex OAuth tokens.
 for (const tokenVar of VCS_TOKEN_ENV_VARS) {
   registerSecret(process.env[tokenVar])
 }
 
 // ---------------------------------------------------------------------------
-// System-trust TLS (vcs-auth-v2-design.md §3.0/§3.1): make every Node TLS
+// System-trust TLS: make every Node TLS
 // client in the main process (VCS HttpClient layers, OAuth device flow, AWS
 // SDK, Mixpanel) honor the OS trust store in ADDITION to Node's bundled
 // Mozilla roots, so a custom enterprise root CA installed in the OS store
@@ -61,15 +61,15 @@ for (const tokenVar of VCS_TOKEN_ENV_VARS) {
 // union, so re-reading "default" later would compound extras into the base.
 const bundledCaDefaults = tls.getCACertificates("default") // Mozilla roots + NODE_EXTRA_CA_CERTS
 // "system" reads are cached for process lifetime and trust install is
-// per-thread — see the CAVEATS in system-ca.ts (§3.1).
+// per-thread — see the CAVEATS in system-ca.ts.
 let lastKnownSystemPems: string[] = [...tls.getCACertificates("system")]
 
-// Extra PEMs beyond the OS store (glab per-host ca_cert contents — the §3.1
+// Extra PEMs beyond the OS store (glab per-host ca_cert contents — the
 // harvest, wired in during host enumeration). Mutated in place so re-installs
 // always include them.
 const harvestedCaPems: string[] = []
 
-// Dev/test-only extraPems seam (§9): RUNBOOKS_TEST_EXTRA_CA points at a PEM
+// Dev/test-only extraPems seam: RUNBOOKS_TEST_EXTRA_CA points at a PEM
 // file read FRESH on every install/refresh, so an e2e can inject a CA
 // mid-session and assert the TLS card's Retry recovers without relaunch. The
 // OS-store-mutated leg is physically untestable in CI (no keychain mutation)
@@ -93,7 +93,7 @@ const caSources = (systemPems: string[]): CaSources => ({
   setCAs: (certs) => tls.setDefaultCACertificates(certs),
 })
 
-// The count log line doubles as the e2e trust canary (§9 asserts system > 0
+// The count log line doubles as the e2e trust canary (asserts system > 0
 // on the macOS runner) — keep its format stable.
 function installAndLog(systemPems: string[], note?: string): void {
   const counts = Effect.runSync(installSystemTrust(extraPemsForInstall(), caSources(systemPems)))
@@ -106,7 +106,7 @@ function installAndLog(systemPems: string[], note?: string): void {
 installAndLog(lastKnownSystemPems)
 
 /**
- * Mid-session trust refresh (§3.1). Node caches getCACertificates("system")
+ * Mid-session trust refresh. Node caches getCACertificates("system")
  * for process lifetime, so a CA installed after launch is only observable via
  * a COLD out-of-process read (process.execPath with ELECTRON_RUN_AS_NODE=1).
  * On any child failure the launch-time set is used instead — never worse than
@@ -129,7 +129,7 @@ export async function refreshSystemTrust(): Promise<{ coldReadOk: boolean }> {
 
 /**
  * Register extra trust PEMs harvested from glab per-host `ca_cert` config
- * (§3.1) and re-install the union. Strictly additive; idempotent. Called from
+ * and re-install the union. Strictly additive; idempotent. Called from
  * the gitlab:enumerate-hosts handler on every host enumeration.
  */
 export function registerExtraCaPems(pems: string[]): void {

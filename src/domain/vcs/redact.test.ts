@@ -5,7 +5,7 @@ afterEach(() => {
   clearRegisteredSecrets()
 })
 
-describe("redactSecrets — shape regexes (§8)", () => {
+describe("redactSecrets — shape regexes", () => {
   it.each([
     ["ghp_" + "a".repeat(36), "classic PAT"],
     ["gho_" + "b".repeat(36), "oauth token"],
@@ -35,7 +35,7 @@ describe("redactSecrets — shape regexes (§8)", () => {
   })
 })
 
-describe("redactSecrets — exact-match registry (§8)", () => {
+describe("redactSecrets — exact-match registry", () => {
   it("redacts GitLab's unprefixed 64-hex OAuth tokens once registered — the only safe way", () => {
     const oauthToken = "9".repeat(32) + "a".repeat(32) // 64 hex chars, no prefix
     // Unregistered: the shape regexes cannot catch it.

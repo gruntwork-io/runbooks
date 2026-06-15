@@ -17,9 +17,9 @@ import { GitLabHttpClientLive } from "../../src/layers/GitLabHttpClient.ts"
 import { GitLabClient } from "../../src/services/GitLabClient.ts"
 import { GitLabApiError } from "../../src/errors/index.ts"
 
-// Integration coverage for the system-trust TLS mechanism
-// (vcs-auth-v2-design.md §3.1/§9): a custom root CA that Node's bundled
-// Mozilla list does not contain breaks the global fetch (undici), and the
+// Integration coverage for the system-trust TLS mechanism: a custom root CA
+// that Node's bundled Mozilla list does not contain breaks the global fetch
+// (undici), and the
 // additive installSystemTrust union recovers it — asserted through the real
 // GitLabHttpClient layer, against a real node:https server. The committed
 // fixture CA stands in for "a CA installed in the OS trust store", since CI
@@ -79,7 +79,7 @@ beforeAll(async () => {
         return
       }
       // /api/v4/personal_access_tokens/self lands here: a pre-15.5 GitLab
-      // 404s the `self` endpoint — must be silently "no scope info" (§3.3).
+      // 404s the `self` endpoint — must be silently "no scope info".
       res.statusCode = 404
       res.end()
     },
@@ -142,7 +142,7 @@ describe("custom-CA recovery through installSystemTrust", () => {
     // silently no scope info, never an error.
     expect(result.scopes).toBeUndefined()
 
-    // Bearer-first (§3.3), asserted on the wire via recorded headers.
+    // Bearer-first, asserted on the wire via recorded headers.
     const userRequest = requests.find((r) => r.path.startsWith("/api/v4/user"))
     expect(userRequest).toBeDefined()
     expect(userRequest!.authorization).toBe("Bearer glpat-fixture")
@@ -150,7 +150,7 @@ describe("custom-CA recovery through installSystemTrust", () => {
   })
 })
 
-describe("system-reader contract pins (§3.1 — the refresh design depends on these)", () => {
+describe("system-reader contract pins (the refresh design depends on these)", () => {
   it("getCACertificates('system') is cached for process lifetime (same frozen array)", () => {
     // Documents the per-process cache the cold-read refresh design depends
     // on. If Node ever changes these semantics, this fails loudly and the

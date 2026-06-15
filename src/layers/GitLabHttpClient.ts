@@ -6,7 +6,7 @@
  * supported — the auth block supplies either a picked host or a manually-entered
  * instance URL, and operations on a cloned repo derive it from the repo's own
  * remote. A bare host or a full URL is accepted; the client normalizes it.
- * Auth is Bearer-FIRST (vcs-auth-v2-design.md §3.3): `Authorization: Bearer`
+ * Auth is Bearer-FIRST: `Authorization: Bearer`
  * works for both `glpat-` PATs and glab's unprefixed OAuth tokens (which
  * `PRIVATE-TOKEN` rejects), so the common case is one round trip; we retry
  * once with `PRIVATE-TOKEN` on a 401 for old self-hosted instances.
@@ -97,7 +97,7 @@ async function fetchScopes(
 }
 
 /**
- * Authenticated GitLab API request, Bearer-FIRST (§3.3): Bearer authenticates
+ * Authenticated GitLab API request, Bearer-FIRST: Bearer authenticates
  * both `glpat-` PATs and glab's unprefixed OAuth tokens (which PRIVATE-TOKEN
  * rejects), halving the common-case round trips. We retry once with
  * PRIVATE-TOKEN on a 401 only, for old self-hosted instances. Any
@@ -152,7 +152,7 @@ async function validateUserToken(
   baseUrl: string,
 ): Promise<GitLabTokenValidation> {
   const apiBase = gitlabApiBase(baseUrl)
-  // Bearer-first (§3.3): Bearer accepts both glpat- PATs and glab's
+  // Bearer-first: Bearer accepts both glpat- PATs and glab's
   // unprefixed OAuth tokens (which PRIVATE-TOKEN rejects with 401), so the
   // common case is one round trip. Retry with PRIVATE-TOKEN only on 401 (old
   // self-hosted instances) — a 403 means the token authenticated but lacks

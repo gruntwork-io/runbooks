@@ -1,12 +1,12 @@
 /**
- * VCS auth E2E flights (vcs-auth-v2-design.md §9).
+ * VCS auth E2E flights.
  *
  * These launch the real Electron app against a local https GitLab stub built
  * from the committed TLS fixtures (test/fixtures/tls/), with stub gh/glab
  * shims (test/fixtures/vcs-cli/) prepended to PATH. TERM_PROGRAM is set so
  * populateShellEnv never replaces the test-controlled PATH.
  *
- * Scope honesty (per §9):
+ * Scope honesty:
  * - The TLS-card Retry flight exercises the RUNBOOKS_TEST_EXTRA_CA extraPems
  *   seam and the refresh plumbing; the OS-store-mutated-mid-session leg is
  *   physically untestable in CI and is covered by the manual QA gate
@@ -17,8 +17,8 @@
  *   fetch that Playwright cannot intercept).
  * - After restart, a manually-added host is asserted as a `recent` dropdown
  *   entry; it is deliberately NOT preselected because it has no offline
- *   credential — the §4 defaultHost rule (hasCredential gate) wins over the
- *   §9 sketch here.
+ *   credential — the defaultHost rule (hasCredential gate) wins over the
+ *   sketch here.
  */
 import { test, expect, _electron as electron } from "@playwright/test"
 import type { ElectronApplication, Page } from "@playwright/test"
@@ -118,7 +118,7 @@ function writeGlabConfig(dir: string, yaml: string): void {
 const stubPath = (): string => `${STUB_DIR}:${process.env.PATH ?? "/usr/bin:/bin"}`
 
 // ---------------------------------------------------------------------------
-// §9: in-Electron trust canary
+// in-Electron trust canary
 // ---------------------------------------------------------------------------
 
 test("trust canary: the in-Electron system-store read matches the host's", async () => {
@@ -126,7 +126,7 @@ test("trust canary: the in-Electron system-store read matches the host's", async
   // so the canary asserts the invariant directly in the MAIN process: the
   // shipped Electron binary's system-store reader returns what THIS HOST's
   // Node reader returns (CI runners have OS-store certs, so there it is the
-  // §9 `system > 0` check; a clean dev keychain legitimately reads 0), and
+  // `system > 0` check; a clean dev keychain legitimately reads 0), and
   // the installed default list is the union. Catches Electron/BoringSSL and
   // Node system-reader regressions before the field canary does.
   const tlsHost = await import("node:tls")
@@ -157,7 +157,7 @@ test("trust canary: the in-Electron system-store read matches the host's", async
 })
 
 // ---------------------------------------------------------------------------
-// §9: GitLab two-host dropdown + ca_cert harvest zero-click flight
+// GitLab two-host dropdown + ca_cert harvest zero-click flight
 // (hard requirements 1, 2, and 4 in one flight)
 // ---------------------------------------------------------------------------
 
@@ -186,15 +186,15 @@ test("gitlab: two-host dropdown, ca_cert harvest, zero-click self-hosted success
   })
   try {
     // Zero-click: detection lands on glab's default host (the self-hosted
-    // stub), the §3.1 ca_cert harvest makes its CA trusted, the per-host CLI
+    // stub), the ca_cert harvest makes its CA trusted, the per-host CLI
     // read supplies the token, and direct validation succeeds.
     await expect(window.getByText(`✓ Authenticated to GitLab (${stub.host})`)).toBeVisible({
       timeout: 45_000,
     })
-    // §5 source line names the CLI.
+    // source line names the CLI.
     await expect(window.getByText("Detected from glab CLI")).toBeVisible()
 
-    // §4: the select renders with provenance and credential indicators, plus
+    // the select renders with provenance and credential indicators, plus
     // the "Other instance…" row.
     const select = window.locator(`#gitlab-host-gl-auth`)
     await expect(select).toBeVisible()
@@ -211,7 +211,7 @@ test("gitlab: two-host dropdown, ca_cert harvest, zero-click self-hosted success
 })
 
 // ---------------------------------------------------------------------------
-// §9: TLS card (never "Invalid credentials detected") + Retry via the
+// TLS card (never "Invalid credentials detected") + Retry via the
 // extraPems seam + cold-read refresh plumbing
 // ---------------------------------------------------------------------------
 
@@ -232,18 +232,18 @@ test("gitlab: untrusted CA renders the TLS card, Retry + injected CA recovers wi
     GLAB_CONFIG_DIR: configDir,
     GLAB_STUB_TOKEN: token,
     RUNBOOKS_TEST_EXTRA_CA: seamPath, // does not exist yet
-    // The §2.4 probe must FAIL here so the card (not degraded auth) shows:
+    // The probe must FAIL here so the card (not degraded auth) shows:
     // the stub's `glab api user` 401s unless GLAB_STUB_API_BODY is set.
   })
   try {
     const card = window.getByTestId("vcs-unreachable-card")
     await expect(card).toBeVisible({ timeout: 45_000 })
     await expect(card).toHaveAttribute("data-error-kind", "tls")
-    // §7 copy — the cert-chain diagnostic, and never the misdiagnosis.
+    // the cert-chain diagnostic, and never the misdiagnosis.
     await expect(card).toContainText("Invalid certificate chain")
     await expect(card).toContainText("Check the local CA root")
     await expect(window.getByText("Invalid credentials detected")).toHaveCount(0)
-    // The automatic pre-card refresh ran the cold-read child (§3.1).
+    // The automatic pre-card refresh ran the cold-read child.
     expect(logs()).toContain("(refresh, coldReadOk=")
 
     // Mid-session CA install via the test seam, then Retry — no relaunch.
@@ -259,11 +259,11 @@ test("gitlab: untrusted CA renders the TLS card, Retry + injected CA recovers wi
 })
 
 // ---------------------------------------------------------------------------
-// §9: probe-path integration — detect → tls-fail → §2.4 probe → degraded
+// probe-path integration — detect → tls-fail → probe → degraded
 // success, without network
 // ---------------------------------------------------------------------------
 
-test("gitlab: §2.4 probe converts a TLS wall into degraded auth with the transparency line", async () => {
+test("gitlab: probe converts a TLS wall into degraded auth with the transparency line", async () => {
   const stub = await startGitLabStub()
   const configDir = makeTempDir("rb-glab-probe-")
   const token = "glpat-e2e-probe-token"
@@ -284,7 +284,7 @@ test("gitlab: §2.4 probe converts a TLS wall into degraded auth with the transp
     await expect(window.getByText(`✓ Authenticated to GitLab (${stub.host})`)).toBeVisible({
       timeout: 45_000,
     })
-    // §2.4 transparency line + the structured field canary.
+    // transparency line + the structured field canary.
     await expect(window.getByTestId("transport-degraded-line")).toBeVisible()
     await expect(window.getByTestId("transport-degraded-line")).toContainText("validated via glab CLI")
     expect(logs()).toContain(`transport degraded for ${stub.host}`)
@@ -295,7 +295,7 @@ test("gitlab: §2.4 probe converts a TLS wall into degraded auth with the transp
 })
 
 // ---------------------------------------------------------------------------
-// §9: GitHub manual UI, OAuth tab presence, hint copy, Check again
+// GitHub manual UI, OAuth tab presence, hint copy, Check again
 // ---------------------------------------------------------------------------
 
 test("github: logged-out gh → manual UI with hint; Check again re-detects without reload", async () => {
@@ -308,7 +308,7 @@ test("github: logged-out gh → manual UI with hint; Check again re-detects with
     GH_CONFIG_DIR: makeTempDir("rb-gh-empty-"),
   })
   try {
-    // Nothing found → manual UI with the §7 hint line + Check again control,
+    // Nothing found → manual UI with the hint line + Check again control,
     // and the OAuth tab is a first-class tab even though gh is installed.
     await expect(
       window.getByText("No existing credentials found. Sign in below, set GITHUB_TOKEN, or run 'gh auth login'."),
@@ -319,7 +319,7 @@ test("github: logged-out gh → manual UI with hint; Check again re-detects with
     // Terminal login happens (the stub flips to a token gh now returns).
     // Check again re-runs detection in place — no runbook reload. The stub
     // token 401s against api.github.com, which is exactly the point: the
-    // chain re-ran and produced the found-but-invalid chip (§2.1 copy).
+    // chain re-ran and produced the found-but-invalid chip.
     fs.writeFileSync(stateFile, "ghp_e2e_invalid_token_0000000000000000\n")
     await window.getByRole("button", { name: "Check again" }).click()
     await expect(window.getByText("GitHub CLI token is invalid or expired")).toBeVisible({
@@ -348,7 +348,7 @@ test("github: gh absent → install hint, OAuth tab still present", async () => 
 })
 
 // ---------------------------------------------------------------------------
-// §9: "Other instance…" sentinel → PAT success → recents + persistence
+// "Other instance…" sentinel → PAT success → recents + persistence
 // ---------------------------------------------------------------------------
 
 test("gitlab: Other instance… sentinel, PAT success, recent persisted across restart", async () => {
@@ -359,7 +359,7 @@ test("gitlab: Other instance… sentinel, PAT success, recent persisted across r
   const seamPath = path.join(seamDir, "ca.pem")
   fs.writeFileSync(seamPath, CA_PEM) // trusted from launch (PAT validation target)
   // gitlab.com-only config, no credential: single-host case still renders the
-  // select with the Other instance… row (§4 item 2).
+  // select with the Other instance… row.
   writeGlabConfig(configDir, ["host: gitlab.com", "hosts:", "    gitlab.com:", "        user: someone", ""].join("\n"))
 
   const env = {
@@ -400,7 +400,7 @@ test("gitlab: Other instance… sentinel, PAT success, recent persisted across r
   }
 
   // Restart: the manual host appears as a `recent` union entry. (It is NOT
-  // preselected: it has no offline credential, and the §4 defaultHost rule —
+  // preselected: it has no offline credential, and the defaultHost rule —
   // a credential-less stale pick must not steal auto-detect — wins.)
   const second = await launchApp(GITLAB_RUNBOOK, env)
   try {

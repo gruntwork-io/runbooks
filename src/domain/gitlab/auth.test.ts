@@ -63,7 +63,7 @@ describe("detectEnvCredentials", () => {
     ).toBe("GITLAB_ACCESS_TOKEN")
   })
 
-  it("honors OAUTH_TOKEN — a real, glab-honored legacy credential (§2.2 #1)", async () => {
+  it("honors OAUTH_TOKEN — a real, glab-honored legacy credential", async () => {
     const layer = makeTestEnvironment({ OAUTH_TOKEN: "b".repeat(64) })
     const result = await Effect.runPromise(
       detectEnvCredentials().pipe(Effect.provide(layer)),
@@ -88,7 +88,7 @@ describe("detectEnvCredentials", () => {
   })
 })
 
-describe("envTokenHost — the §2.2 binding rule", () => {
+describe("envTokenHost — the binding rule", () => {
   it("binds to gitlab.com by default", () => {
     expect(envTokenHost({})).toBe("gitlab.com")
   })
@@ -105,7 +105,7 @@ describe("envTokenHost — the §2.2 binding rule", () => {
   })
 
   it("the env token is NEVER sendable to a host other than envHost", () => {
-    // The single security property of record (§8): glab-config hosts, recents,
+    // The single security property of record: glab-config hosts, recents,
     // session hosts, and authored hosts are all excluded — only envHost.
     const env = { GITLAB_HOST: "git.corp.example" }
     expect(mayAutoSendEnvToken("git.corp.example", env)).toBe(true)
@@ -119,7 +119,7 @@ describe("envTokenHost — the §2.2 binding rule", () => {
 
   it("an unparseable host var yields NO binding — never a silent gitlab.com rebind", () => {
     // A typo'd corporate host must not transmit the corporate token to
-    // gitlab.com (the cross-origin disclosure §2.2 forbids).
+    // gitlab.com (the cross-origin disclosure forbids).
     const env = { GITLAB_HOST: "git.corp.example:badport" }
     expect(envTokenHost(env)).toBeUndefined()
     expect(mayAutoSendEnvToken("gitlab.com", env)).toBe(false)
@@ -135,7 +135,7 @@ describe("envTokenHost — the §2.2 binding rule", () => {
   })
 })
 
-describe("detectCliCredentialsForHost — the three §2.2 exit contracts", () => {
+describe("detectCliCredentialsForHost — the three exit contracts", () => {
   const HOST = "gitlab.example.com"
 
   it("contract (a): exit 0 + token on stdout, with per-host argv and child-env hygiene", async () => {
@@ -159,7 +159,7 @@ describe("detectCliCredentialsForHost — the three §2.2 exit contracts", () =>
     expect(calls).toHaveLength(1)
     expect(calls[0].command).toBe("glab")
     expect(calls[0].args).toEqual(["config", "get", "token", "--host", HOST])
-    // Hygiene (§2.2): ambient tokens stripped — they override per-host reads
+    // Hygiene: ambient tokens stripped — they override per-host reads
     // INSIDE glab — incl. OAUTH_TOKEN; kill switches set. NO_PROMPT is
     // stripped too (ambient included): it is deprecated in glab, and setting
     // it makes glab print a warning on STDOUT ahead of every parsed payload.
@@ -207,7 +207,7 @@ describe("detectCliCredentialsForHost — the three §2.2 exit contracts", () =>
     expect(result).toEqual({ kind: "not-installed" })
   })
 
-  it("any other failure mode degrades to absent — never breakage (§11)", async () => {
+  it("any other failure mode degrades to absent — never breakage", async () => {
     const { layer } = makeRecordingSpawner(() => ({
       lines: [{ line: "some unexpected error", source: "stderr" }],
       exitCode: 2,
@@ -521,7 +521,7 @@ describe("detectConfigHosts", () => {
   })
 })
 
-// The credential-exfiltration guard moved to the §2.2 binding rule:
+// The credential-exfiltration guard moved to the binding rule:
 // <GitAuth host="attacker.example"/> must NOT cause the env GITLAB_TOKEN to
 // be sent there — and (tightened vs the old gate) neither must a glab-config
 // host that is not the env token's bound host. See "envTokenHost" above.
@@ -598,7 +598,7 @@ describe("parseGlabExpiry", () => {
   })
 })
 
-describe("readGlabTokenForHost — OAuth staleness (§2.2, fake clock)", () => {
+describe("readGlabTokenForHost — OAuth staleness (fake clock)", () => {
   const HOST = "stale.example.com"
   const configWith = (expiry: string) => `hosts:
     ${HOST}:
@@ -678,7 +678,7 @@ describe("readGlabTokenForHost — OAuth staleness (§2.2, fake clock)", () => {
   })
 })
 
-describe("detectHostMeta / collectGlabCaCertPems (§3.1 harvest)", () => {
+describe("detectHostMeta / collectGlabCaCertPems (harvest)", () => {
   const PEM = "-----BEGIN CERTIFICATE-----\nFAKECORPCA\n-----END CERTIFICATE-----\n"
   const config = `hosts:
     gitlab.com:

@@ -57,7 +57,7 @@ const respondWith = (
   return handler ? handler(args) : "ENOENT"
 }
 
-describe("VcsCredentialsLive — chain precedence (§2 tables)", () => {
+describe("VcsCredentialsLive — chain precedence", () => {
   it("resolveGitHub: env wins over CLI (first-success-wins)", async () => {
     const harness = makeHarness({
       env: { GITHUB_TOKEN: "ghp_env" },
@@ -97,7 +97,7 @@ describe("VcsCredentialsLive — chain precedence (§2 tables)", () => {
     const result = await harness.use((vcs) => vcs.resolveGitHub())
     expect(result.outcome).toBe("valid")
     expect(result.source).toBe("cli")
-    // §2.0 chip copy carried along — never "expired".
+    // chip copy carried along — never "expired".
     expect(result.warnings).toEqual(["GITHUB_TOKEN is not valid for github.com"])
   })
 
@@ -171,7 +171,7 @@ describe("VcsCredentialsLive — chain precedence (§2 tables)", () => {
   })
 })
 
-describe("VcsCredentialsLive — §2.2 env binding in the GitLab leg", () => {
+describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
   it("never transmits the env token to a host other than envHost", async () => {
     let validatedAgainst: string | undefined
     const harness = makeHarness({
@@ -195,7 +195,7 @@ describe("VcsCredentialsLive — §2.2 env binding in the GitLab leg", () => {
   })
 })
 
-describe("VcsCredentialsLive — §2.4 probe gating", () => {
+describe("VcsCredentialsLive — probe gating", () => {
   const OAUTH_TOKEN = "a".repeat(64)
 
   it("probes a glpat-shaped GitLab token via `glab api user` with token in CHILD ENV, never argv", async () => {
@@ -286,7 +286,7 @@ describe("VcsCredentialsLive — §2.4 probe gating", () => {
     }
     const apiCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "api")
     // --hostname pins the probe to github.com so GH_HOST can never retarget
-    // the candidate token at a GHES origin (§8).
+    // the candidate token at a GHES origin.
     expect(apiCall!.args).toEqual(["api", "user", "-i", "--hostname", "github.com"])
     // gh validates exactly the candidate: GH_TOKEN set, GITHUB_TOKEN stripped.
     expect(apiCall!.env!.GH_TOKEN).toBe("ghp_candidate")
@@ -306,7 +306,7 @@ describe("VcsCredentialsLive — §2.4 probe gating", () => {
       expect(notInstalled.left.kind).toBe("not-installed")
     }
 
-    // Below the version floor (§2.4: gh ≥ 2.26.0).
+    // Below the version floor (gh ≥ 2.26.0).
     const oldGh = makeHarness({
       respond: respondWith({
         "gh version": () => ({ lines: [{ line: "gh version 2.20.0 (2022-01-01)", source: "stdout" }], exitCode: 0 }),
@@ -332,7 +332,7 @@ describe("VcsCredentialsLive — §2.4 probe gating", () => {
   })
 })
 
-describe("VcsCredentialsLive — CLI read cache (§2.3)", () => {
+describe("VcsCredentialsLive — CLI read cache", () => {
   it("caches a successful gh read for 5 minutes and re-reads after TTL", async () => {
     setSystemTime(new Date("2030-01-01T00:00:00Z"))
     const harness = makeHarness({
@@ -394,7 +394,7 @@ describe("VcsCredentialsLive — CLI read cache (§2.3)", () => {
   })
 })
 
-describe("VcsCredentialsLive — tokenForHost classification (§2.3, golang parity)", () => {
+describe("VcsCredentialsLive — tokenForHost classification (golang parity)", () => {
   const harnessFor = (env: Record<string, string>, files: Record<string, string> = {}) =>
     makeHarness({
       env,
@@ -466,7 +466,7 @@ describe("VcsCredentialsLive — tokenForHost classification (§2.3, golang pari
   })
 })
 
-describe("VcsCredentialsLive — transport-degraded host set (§2.4)", () => {
+describe("VcsCredentialsLive — transport-degraded host set", () => {
   it("marks, reports, and clears degraded hosts", async () => {
     const harness = makeHarness()
     await harness.use((vcs) => vcs.markTransportDegraded("git.corp.example", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"))

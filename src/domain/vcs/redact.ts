@@ -1,5 +1,5 @@
 /**
- * Secret redaction (vcs-auth-v2-design.md §8): one `redactSecrets(s)` applied
+ * Secret redaction: one `redactSecrets(s)` applied
  * to all logged CLI stdout/stderr, every error message crossing IPC, and
  * makeLogger output.
  *
@@ -13,7 +13,7 @@
 
 /**
  * Every ambient token env var across providers — the single statement of the
- * list. The §8 redaction registration and the §2 child-env strip tables (e.g.
+ * list. The redaction registration and the child-env strip tables (e.g.
  * the cold-read child) both read it; gitlab/auth.ts keeps its own
  * glab-precedence-ordered subset.
  */

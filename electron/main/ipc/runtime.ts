@@ -30,8 +30,8 @@ export const sessionManager = new SessionManager()
 export type GitProvider = "github" | "gitlab"
 
 /**
- * Main-only provenance metadata for the current session credential
- * (vcs-auth-v2-design.md §4 item 9 / §6): which host and source the
+ * Main-only provenance metadata for the current session credential:
+ * which host and source the
  * provider's session token came from. Drives the stale-session warning (a
  * second GitLab block replacing the single GITLAB_TOKEN/GITLAB_HOST pair)
  * and support diagnostics. Never holds tokens.
@@ -81,7 +81,7 @@ export const getSessionToken = <E>(onMissing: () => E) =>
  * Host-bound variant of getSessionTokenForProvider for callers whose target
  * host comes from UNTRUSTED input (a remote runbook URL): the session
  * credential is released only for the host the auth block established it for
- * (§2.2 binding — github.com, or the GITLAB_HOST written alongside the token).
+ * (binding — github.com, or the GITLAB_HOST written alongside the token).
  */
 export const getSessionTokenForHost = <E>(
   provider: GitProvider,

@@ -52,8 +52,8 @@ export class AwsSsoError extends Data.TaggedError("AwsSsoError")<{
 }> {}
 
 /**
- * Transport-failure classification for VCS API errors (vcs-auth-v2-design.md
- * §3.1), set by classifyTlsError (src/domain/tls/system-ca.ts). Present only
+ * Transport-failure classification for VCS API errors, set by
+ * classifyTlsError (src/domain/tls/system-ca.ts). Present only
  * when the failure happened below HTTP (no response was received):
  *  - "tls": trust-store-fixable verification failure (custom/unknown CA)
  *  - "server-cert": the server's own certificate is bad (expired, or issued
@@ -86,7 +86,7 @@ export class GitError extends Data.TaggedError("GitError")<{
 }> {}
 
 /**
- * Failure of a provider-CLI interaction (the §2.4 validation probe and other
+ * Failure of a provider-CLI interaction (the validation probe and other
  * gh/glab subprocess work). `stderr` must be sanitized (redacted) before it
  * crosses IPC or hits a log.
  */

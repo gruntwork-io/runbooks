@@ -128,7 +128,7 @@ describe('useGitAuth — GitLab provider', () => {
   it('pairs the PAT with the entered instance host (not the default) in the banner and validate call', async () => {
     // Regression for the token<->host mismatch: when a self-managed instance URL
     // is supplied, the validate call (whose handler writes GITLAB_HOST into the
-    // session env main-side, §8) and the success banner must match that
+    // session env main-side) and the success banner must match that
     // instance — not the picker's gitlab.com default.
     const invoke = installApi(async (channel) => {
       if (channel === 'gitlab:validate') {
@@ -440,7 +440,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
   })
 })
 
-describe('useGitAuth — tri-state unreachable (vcs-auth-v2 §2.0)', () => {
+describe('useGitAuth — tri-state unreachable', () => {
   it("an 'unreachable' env outcome stops the chain without consuming later sources", async () => {
     const invoke = installApi(async (channel) => {
       if (channel === 'gitlab:env-credentials') {
@@ -577,7 +577,7 @@ describe('useGitAuth — tri-state unreachable (vcs-auth-v2 §2.0)', () => {
   })
 })
 
-describe('useGitAuth — §2/§7 copy contracts (vcs-auth-v2 Step 3)', () => {
+describe('useGitAuth — copy contracts', () => {
   it('renders the main-supplied warning copy VERBATIM for an invalid env token', async () => {
     installApi(async (channel) => {
       if (channel === 'gitlab:env-credentials') {
@@ -597,7 +597,7 @@ describe('useGitAuth — §2/§7 copy contracts (vcs-auth-v2 Step 3)', () => {
     const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
-    // Exact §2.0 chip copy — never "expired" (a 401 can't prove that).
+    // Exact chip copy — never "expired" (a 401 can't prove that).
     expect(result.current.detectionWarning).toBe('OAUTH_TOKEN is not valid for gitlab.com')
   })
 
@@ -664,7 +664,7 @@ describe('useGitAuth — §2/§7 copy contracts (vcs-auth-v2 Step 3)', () => {
   })
 })
 
-describe('useGitAuth — host union UX (vcs-auth-v2 §4/§5)', () => {
+describe('useGitAuth — host union UX', () => {
   const HOSTS = {
     hosts: [
       { host: 'gitlab.com', sources: ['glab'], hasCredential: true },
@@ -711,7 +711,7 @@ describe('useGitAuth — host union UX (vcs-auth-v2 §4/§5)', () => {
     expect(result.current.selectedHost).toBe('git.corp.example')
   })
 
-  it('flags the session as stale when another block authenticates a different host (§4 item 9)', async () => {
+  it('flags the session as stale when another block authenticates a different host', async () => {
     let sessionChangedHandler: ((payload: unknown) => void) | undefined
     const invoke = vi.fn(async (channel: string) => {
       if (channel === 'gitlab:enumerate-hosts') return HOSTS
@@ -768,7 +768,7 @@ describe('useGitAuth — host union UX (vcs-auth-v2 §4/§5)', () => {
   })
 })
 
-describe('useGitAuth — §8 custody (vcs-auth-v2 Step 6)', () => {
+describe('useGitAuth — custody', () => {
   it('chains a referenced GitAuth block via useSessionToken — no token crosses IPC', async () => {
     // The referenced GitAuth block authenticated earlier: metadata-only
     // outputs (no GITHUB_TOKEN), just the __AUTHENTICATED marker.

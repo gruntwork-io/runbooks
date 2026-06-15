@@ -79,7 +79,7 @@ export interface Logger {
 }
 
 /**
- * Redaction pass (vcs-auth-v2-design.md §8): every string argument is scrubbed
+ * Redaction pass: every string argument is scrubbed
  * of registered token values and token-shaped substrings before it reaches the
  * console. Error objects are stringified through the same scrubber so a token
  * embedded in a message (e.g. an authenticated clone URL) never hits a log.

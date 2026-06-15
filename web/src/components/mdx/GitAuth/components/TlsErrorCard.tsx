@@ -10,7 +10,7 @@ interface TlsErrorCardProps {
 }
 
 /**
- * The unreachable-host error cards (vcs-auth-v2-design.md §7): TLS (the cert
+ * The unreachable-host error cards: TLS (the cert
  * chain doesn't verify — local CA root and/or the server's certificate),
  * server-cert (the server's own certificate is bad), and network. Strictly
  * distinct from each other and from any token warning — an unreachable host

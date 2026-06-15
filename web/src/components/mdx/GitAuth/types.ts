@@ -29,7 +29,7 @@ export type GitCredentialSource =
 export type GitDetectionSource = 'env' | 'cli' | 'block' | null
 
 // ---------------------------------------------------------------------------
-// Tri-state validation outcomes (vcs-auth-v2-design.md §2.0)
+// Tri-state validation outcomes
 // ---------------------------------------------------------------------------
 
 /** Tri-state outcome reported by the detection/validation channels. */
@@ -110,7 +110,7 @@ export interface GitCliCredentialsResponse {
   status?: number
   /** The GitLab host this credential was detected/validated against. */
   host?: string
-  /** Tri-state outcome (§2.0). */
+  /** Tri-state outcome. */
   outcome?: GitAuthOutcome
   /** Set when outcome is 'unreachable'. */
   errorKind?: GitErrorKind
@@ -118,17 +118,17 @@ export interface GitCliCredentialsResponse {
   coldReadOk?: boolean
   /** The env var the token came from (drives exact chip copy). */
   envVar?: string
-  /** Exact warning-chip copy from main, rendered verbatim (§7 contracts). */
+  /** Exact warning-chip copy from main, rendered verbatim. */
   warning?: string
   /** Manual-UI hint line (e.g. keyring-blocked copy) — informational, never a chip. */
   hint?: string
-  /** §2.1 both-set-and-differ visibility hint. */
+  /** Both-set-and-differ visibility hint. */
   divergenceHint?: string
   /** Which source produced the credential (cli-channel results may be 'config'). */
   source?: 'env' | 'cli' | 'config'
-  /** 'cli' marks §2.4 probe-validated degraded auth. */
+  /** 'cli' marks probe-validated degraded auth. */
   validatedVia?: 'direct' | 'cli'
-  /** §8: validation succeeded but main's session-env write failed (success-card warning). */
+  /** Validation succeeded but main's session-env write failed (success-card warning). */
   sessionEnvWarning?: string
 }
 
@@ -139,7 +139,7 @@ export interface VcsCliStatusResult {
   git?: { sslBackend?: string }
 }
 
-/** One entry of the §4 merged GitLab host union (gitlab:enumerate-hosts). */
+/** One entry of the merged GitLab host union (gitlab:enumerate-hosts). */
 export interface GitLabHostEntry {
   host: string
   /** Provenance badges: where this host is known from. */
@@ -148,16 +148,16 @@ export interface GitLabHostEntry {
   hasCredential: boolean
 }
 
-/** Sentinel option value for the "Other instance…" dropdown row (§4 item 3). */
+/** Sentinel option value for the "Other instance…" dropdown row. */
 export const OTHER_INSTANCE_SENTINEL = '__other__'
 
-/** Provenance metadata for the success card's source/transport lines (§5). */
+/** Provenance metadata for the success card's source/transport lines. */
 export interface GitSuccessMeta {
   /** Which source produced the credential. */
   source?: 'env' | 'cli' | 'config'
   /** The env var the token came from (source line: "Detected from GITHUB_TOKEN"). */
   envVar?: string
-  /** 'cli' marks §2.4 probe-validated degraded auth (transport line). */
+  /** 'cli' marks probe-validated degraded auth (transport line). */
   validatedVia?: 'direct' | 'cli'
 }
 

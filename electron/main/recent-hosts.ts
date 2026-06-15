@@ -1,9 +1,9 @@
 /**
- * Persisted GitLab host picks (vcs-auth-v2-design.md §4 item 4):
+ * Persisted GitLab host picks:
  * `app.getPath("userData")/vcs-auth.json` holding
  *   { recentGitLabHosts: string[]; lastSelectedGitLabHost?: string }
  *
- * HOSTNAMES ONLY — never tokens (§8). `recentGitLabHosts` is
+ * HOSTNAMES ONLY — never tokens. `recentGitLabHosts` is
  * most-recent-first, max 5, evicted from the tail; appended when a
  * manually-typed instanceUrl validates successfully. `lastSelectedGitLabHost`
  * is written on every successful GitLab auth and every explicit dropdown pick

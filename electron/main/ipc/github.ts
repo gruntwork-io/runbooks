@@ -2,8 +2,8 @@
  * IPC handlers for GitHub authentication and API operations.
  *
  * Detection and validation route through the unified VcsCredentials service
- * (vcs-auth-v2-design.md §2/§6) with the shared tri-state orchestration
- * (vcs-tristate.ts: cold trust-refresh-and-retry + §2.4 probe on tls; nothing
+ * with the shared tri-state orchestration
+ * (vcs-tristate.ts: cold trust-refresh-and-retry + probe on tls; nothing
  * on server-cert/network). The OAuth device flow and the API query handlers
  * keep their existing shapes.
  */
@@ -137,7 +137,7 @@ export function registerGitHubHandlers(): void {
           GITHUB_USER: user.login,
         })
 
-        // §8: the completion result is METADATA-ONLY — the session env above
+        // the completion result is METADATA-ONLY — the session env above
         // is the single source of truth; the token never crosses IPC.
         return {
           status: "complete" as const,
@@ -165,7 +165,7 @@ export function registerGitHubHandlers(): void {
   ipcMain.handle(
     "github:env-credentials",
     async (_event, params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string } = {}) => {
-      // The {env:{prefix}} variant (§2.1): the renderer-supplied prefix is
+      // The {env:{prefix}} variant: the renderer-supplied prefix is
       // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
       const prefix = params.prefix || undefined
       if (prefix !== undefined && !ENV_PREFIX_PATTERN.test(prefix)) {

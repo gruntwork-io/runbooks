@@ -5,7 +5,7 @@
  * token environment variables. GitLab has no OAuth device flow here (no
  * registered Gruntwork GitLab app), so authentication is PAT / CLI / env only.
  *
- * CLI reads are PER HOST: `glab config get token --host <H>` (§2.2 #2) —
+ * CLI reads are PER HOST: `glab config get token --host <H>` —
  * glab has no `auth token` subcommand.
  */
 import { Effect, Stream } from "effect"
@@ -30,12 +30,12 @@ const GLAB_CLI_TIMEOUT_MS = 5_000
 /** Timeout for `glab auth status` (network call, used for OAuth refresh). */
 const GLAB_STATUS_TIMEOUT_MS = 10_000
 
-/** Refresh an OAuth token that expires within this window (§2.2). */
+/** Refresh an OAuth token that expires within this window. */
 const OAUTH_STALENESS_MARGIN_MS = 60_000
 
 /**
- * glab's documented token env vars, in glab's own precedence order (§2.2 #1 —
- * OAUTH_TOKEN is a real, glab-honored legacy credential).
+ * glab's documented token env vars, in glab's own precedence order
+ * (OAUTH_TOKEN is a real, glab-honored legacy credential).
  */
 export const GITLAB_TOKEN_ENV_VARS = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"] as const
 
@@ -52,7 +52,7 @@ export const hasEnvToken = (env: Record<string, string | undefined>): boolean =>
   GITLAB_TOKEN_ENV_VARS.some((envVar) => isSetEnvVar(env[envVar]))
 
 /**
- * Child-env hygiene for every glab spawn (§2.2): strip the ambient token vars
+ * Child-env hygiene for every glab spawn: strip the ambient token vars
  * (they override per-host reads INSIDE glab, so leaving them would echo the
  * env source — and could leak an env token to the wrong host); kill update
  * checks, telemetry, prompts, and color. `NO_PROMPT` is stripped, never set:
@@ -77,7 +77,7 @@ export const GLAB_ENV_OVERRIDES: CliEnvOverrides = {
 // glab rewrites config.yml with no file locking, and the OAuth staleness path
 // deliberately triggers such a rewrite (`glab auth status`). Serializing OUR
 // spawns per host guarantees we never race glab's rewrite against our own
-// re-read. (A user-run glab in a terminal can still race it — accepted, §11.)
+// re-read. (A user-run glab in a terminal can still race it — accepted.)
 const glabHostSemaphores = new Map<string, Effect.Semaphore>()
 
 const glabSemaphoreFor = (host: string): Effect.Semaphore => {
@@ -130,8 +130,8 @@ export interface GitLabEnvCredential {
 
 /**
  * Detect a GitLab token from environment variables, in glab's own documented
- * precedence: GITLAB_TOKEN, then GITLAB_ACCESS_TOKEN, then OAUTH_TOKEN (§2.2
- * #1 — OAUTH_TOKEN is a real, glab-honored legacy credential). Returns
+ * precedence: GITLAB_TOKEN, then GITLAB_ACCESS_TOKEN, then OAUTH_TOKEN
+ * (OAUTH_TOKEN is a real, glab-honored legacy credential). Returns
  * undefined when none is set.
  */
 export const detectEnvCredentials = () =>
@@ -149,7 +149,7 @@ export const detectEnvCredentials = () =>
   })
 
 // ---------------------------------------------------------------------------
-// Per-host glab CLI read (§2.2 source #2) — the three exit contracts
+// Per-host glab CLI read (source #2) — the three exit contracts
 // ---------------------------------------------------------------------------
 
 export type GlabCliRead =
@@ -157,7 +157,7 @@ export type GlabCliRead =
   | { readonly kind: "token"; readonly token: string }
   /** Contract (b): exit 0 + empty stdout — host not configured, never an error.
    *  Also any unknown failure mode (timeout, unexpected exit): degrades to
-   *  absent + manual paste, never breakage (§11). */
+   *  absent + manual paste, never breakage. */
   | { readonly kind: "absent" }
   /** Contract (c): exit 1 + stderr `not found in keyring` — glab IS installed
    *  but the OS keyring is locked/unreadable. Distinct copy, never "install glab". */
@@ -165,7 +165,7 @@ export type GlabCliRead =
   /** Spawn ENOENT — the glab binary is missing. Gates the config.yml fallback
    *  (source #3 is BINARY-ABSENT-ONLY). */
   | { readonly kind: "not-installed" }
-  /** OAuth token was stale and the glab-delegated refresh failed (§2.2). */
+  /** OAuth token was stale and the glab-delegated refresh failed. */
   | { readonly kind: "oauth-stale" }
 
 interface GlabRunResult {
@@ -174,7 +174,7 @@ interface GlabRunResult {
   readonly stderr: string[]
 }
 
-/** Spawn glab with hygiene env (plus optional extra vars — e.g. the §2.4
+/** Spawn glab with hygiene env (plus optional extra vars — e.g. the
  *  probe's candidate-token injection), collecting both streams. Fails on
  *  spawn error. */
 const runGlab = (
@@ -219,7 +219,7 @@ export const isSpawnEnoent = (err: unknown): boolean => {
 }
 
 /**
- * Per-host glab token read: `glab config get token --host <H>` (§2.2 #2),
+ * Per-host glab token read: `glab config get token --host <H>`,
  * 5s timeout, hygiene env, serialized through the per-host semaphore. Maps
  * the three pinned exit contracts; every unknown failure mode degrades to
  * absent (manual paste path), never breakage. No network; parallel-safe
@@ -258,9 +258,9 @@ const readTokenRun = (
 
 /**
  * Outcome of a `glab auth status --hostname H` run, disambiguated by stderr
- * text per §2.2: `No token found (checked config file, keyring, and
+ * text: `No token found (checked config file, keyring, and
  * environment variables)` = not-logged-in vs `API call failed: …` =
- * instance/transport problem — never conflated in error copy (§7).
+ * instance/transport problem — never conflated in error copy.
  */
 export type GlabAuthStatus = "ok" | "not-logged-in" | "api-failed" | "error"
 
@@ -274,9 +274,9 @@ const classifyGlabAuthStatus = (result: GlabRunResult): GlabAuthStatus => {
 
 /**
  * Run `glab auth status --hostname <H>` (10s timeout, all output on stderr —
- * a network call). Used both as the §2.2 OAuth-refresh SIDE EFFECT (glab
+ * a network call). Used both as the OAuth-refresh SIDE EFFECT (glab
  * refreshes a stale OAuth token and rewrites its config on this call) and as
- * the §2.4 probe for glab-sourced OAuth-shaped tokens (no token env
+ * the probe for glab-sourced OAuth-shaped tokens (no token env
  * injection, so the PRIVATE-TOKEN header mismatch never arises).
  */
 const authStatusRun = (host: string) =>
@@ -294,15 +294,9 @@ export const glabAuthStatusForHost = (
 ): Effect.Effect<GlabAuthStatus, never, ProcessSpawner | Environment> =>
   glabSemaphoreFor(host).withPermits(1)(authStatusRun(host))
 
-/** The §2.2 OAuth refresh delegation — true when glab plausibly refreshed. */
-export const refreshOAuthViaGlab = (
-  host: string,
-): Effect.Effect<boolean, never, ProcessSpawner | Environment> =>
-  glabAuthStatusForHost(host).pipe(Effect.map((status) => status === "ok"))
-
 /**
  * Run an arbitrary glab command for a host under the per-host semaphore with
- * the §2.2 hygiene env (plus optional extra vars). Exposed for the §2.4
+ * the hygiene env (plus optional extra vars). Exposed for the
  * validation probe (`glab api user --hostname H` with the candidate token in
  * child env — never argv).
  */
@@ -318,12 +312,12 @@ export const runGlabForHost = (
 > => glabSemaphoreFor(host).withPermits(1)(runGlab(args, timeoutMs, setEnv))
 
 /**
- * The full §2.2 source-#2 read: when the host's stored credential is a stale
+ * The full source-#2 read: when the host's stored credential is a stale
  * OAuth token (expiring within 60s), run the glab-delegated refresh first,
  * then (re-)read the token. Both spawns hold the per-host semaphore so we
  * never race glab's config rewrite against our re-read. When the refresh
  * fails (or glab is missing), a stale token degrades to `oauth-stale` — the
- * caller surfaces the exact §2.2 expired-token remediation.
+ * caller surfaces the exact expired-token remediation.
  */
 export const readGlabTokenForHost = (
   host: string,
@@ -349,7 +343,7 @@ export const readGlabTokenForHost = (
           return { kind: "oauth-stale" } as const
         }
         const read = yield* readTokenRun(host)
-        // A post-refresh non-token read still means the §2.2 remediation copy.
+        // A post-refresh non-token read still means the remediation copy.
         return read.kind === "token" || read.kind === "not-installed"
           ? read
           : ({ kind: "oauth-stale" } as const)
@@ -372,7 +366,7 @@ export const readGlabTokenForHost = (
 export const DEFAULT_GITLAB_HOST = "gitlab.com"
 
 /**
- * §2.2 binding: the env token is bound to exactly ONE host —
+ * binding: the env token is bound to exactly ONE host —
  * `normalize(GITLAB_HOST ?? GITLAB_URI ?? GL_HOST ?? "gitlab.com")` (glab's
  * own env precedence) — and the env source runs only for that host; it is
  * never transmitted anywhere else. Undefined (no binding at all) when a host
@@ -505,7 +499,7 @@ export function parseGlabToken(
 }
 
 // ---------------------------------------------------------------------------
-// glab per-host metadata (OAuth staleness + ca_cert harvest, §2.2/§3.1)
+// glab per-host metadata (OAuth staleness + ca_cert harvest)
 // ---------------------------------------------------------------------------
 
 export interface GlabHostMeta {
@@ -513,7 +507,7 @@ export interface GlabHostMeta {
   readonly isOAuth2: boolean
   /** Parsed oauth2_expiry_date, when present and parseable. */
   readonly oauth2ExpiryDate?: Date
-  /** Per-host ca_cert PEM path (harvested into installSystemTrust, §3.1). */
+  /** Per-host ca_cert PEM path (harvested into installSystemTrust). */
   readonly caCert?: string
   /** True when the host stores its token in the OS keyring (use_keyring). */
   readonly useKeyring: boolean
@@ -548,7 +542,7 @@ export function parseGlabExpiry(value: unknown): Date | undefined {
  * Read a host's auth metadata from glab config.yml contents: `is_oauth2`,
  * `oauth2_expiry_date`, `ca_cert`, `use_keyring` (host-level, falling back to
  * the top-level `use_keyring`). These are observed glab behavior, not stable
- * APIs (§11) — every read is tolerant. `skip_tls_verify` is deliberately
+ * APIs — every read is tolerant. `skip_tls_verify` is deliberately
  * NEVER read: we never disable verification. Exported for testing.
  */
 export function readGlabHostMeta(yamlContent: string, host: string): GlabHostMeta {
@@ -665,7 +659,7 @@ export const detectHostMeta = (host: string) =>
   })
 
 /**
- * §3.1 ca_cert harvest: collect the PEM CONTENTS of every per-host `ca_cert`
+ * ca_cert harvest: collect the PEM CONTENTS of every per-host `ca_cert`
  * path in glab's config (first config with hosts, matching detectConfigHosts).
  * Unreadable files are skipped — the harvest is strictly best-effort and
  * strictly additive (fed into installSystemTrust as extraPems). Environments

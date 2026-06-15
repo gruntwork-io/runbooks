@@ -75,7 +75,7 @@ describe("detectEnvCredentials", () => {
     )
     expect(result?.token).toBe("ghp_primary")
     expect(result?.envVar).toBe("GITHUB_TOKEN")
-    // §2.1 both-set-and-differ: otherwise-silent shadowing becomes visible.
+    // both-set-and-differ: otherwise-silent shadowing becomes visible.
     expect(result?.shadowedVar).toBe("GH_TOKEN")
   })
 
@@ -99,7 +99,7 @@ describe("detectEnvCredentials", () => {
   })
 })
 
-describe("detectEnvCredentials — {env:{prefix}} variant (§2.1)", () => {
+describe("detectEnvCredentials — {env:{prefix}} variant", () => {
   it("looks up <PREFIX>GITHUB_TOKEN then <PREFIX>GH_TOKEN", async () => {
     const layer = makeTestEnvironment({
       MYAPP_GH_TOKEN: "gho_prefixed",
@@ -167,7 +167,7 @@ describe("detectCliCredentials", () => {
 
     expect(result).toBe("ghp_cli_token")
     expect(calls).toHaveLength(1)
-    // §2.1: the --hostname pin is deterministic for multi-host gh configs and
+    // the --hostname pin is deterministic for multi-host gh configs and
     // neutralizes GH_HOST.
     expect(calls[0].args).toEqual(["auth", "token", "--hostname", "github.com"])
     // Child-env hygiene: ambient tokens stripped (the CLI is a distinct
@@ -265,7 +265,7 @@ describe("parseGhCliScopes (golang parity matrix)", () => {
   }
 })
 
-describe("gh hosts.yml fallback (§2.1 #3b)", () => {
+describe("gh hosts.yml fallback", () => {
   it("resolves EXACTLY ONE path in gh's order: GH_CONFIG_DIR > XDG_CONFIG_HOME/gh > ~/.config/gh", () => {
     // gh uses a single config directory — no fall-through: a set
     // GH_CONFIG_DIR with no hosts.yml means "no gh config", never a peek at

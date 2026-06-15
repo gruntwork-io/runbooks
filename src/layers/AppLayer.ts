@@ -17,7 +17,7 @@ import { GitCliClientLive } from "./GitCliClient.ts"
 import { VcsCredentialsLive } from "./VcsCredentialsLive.ts"
 
 /**
- * The unified VCS credential resolver (vcs-auth-v2-design.md §2/§6) needs the
+ * The unified VCS credential resolver needs the
  * spawn/env/fs primitives for source reads plus both HTTP clients for direct
  * validation.
  */

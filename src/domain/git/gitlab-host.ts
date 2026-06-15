@@ -30,7 +30,7 @@ export function normalizeGitLabBaseUrl(input?: string | null): string {
 /**
  * Like normalizeGitLabBaseUrl, but returns undefined for empty or unparseable
  * input instead of the gitlab.com fallback. Security-sensitive callers (the
- * §2.2 env-token host binding) must use THIS one: silently rebinding a
+ * env-token host binding) must use THIS one: silently rebinding a
  * corporate host's token to gitlab.com on a typo would transmit the token
  * cross-origin.
  */

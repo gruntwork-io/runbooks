@@ -33,7 +33,7 @@ function registerVcsStatusHandler(): void {
     )
     return { ok: true as const }
   })
-  // The ONLY consented write Runbooks ever offers (§3.2/§8): explicit button
+  // The ONLY consented write Runbooks ever offers: explicit button
   // press in the renderer → `git config --global http.sslBackend schannel`.
   // git config, never credentials; never silent.
   ipcMain.handle("vcs:apply-git-schannel", async () => {
