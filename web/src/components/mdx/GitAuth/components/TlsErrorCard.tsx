@@ -1,34 +1,29 @@
 import { Globe, RefreshCw, ShieldAlert, ShieldX } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { GitUnreachableInfo } from "../types"
-import type { ProviderConfig } from "../providers"
 
 interface TlsErrorCardProps {
   info: GitUnreachableInfo
-  provider: ProviderConfig
   /** Re-runs the cold-read trust refresh + detection without an app restart. */
   onRetry: () => void
   retrying?: boolean
 }
 
 /**
- * The unreachable-host error cards (vcs-auth-v2-design.md §7): TLS (custom CA
- * not trusted by Node), server-cert (the server's own certificate is bad), and
- * network. Strictly distinct from each other and from any token warning — an
- * unreachable host must never render as "Invalid credentials detected". The
- * card renders ABOVE the still-available manual UI.
- *
- * Remediation is layered for the TLS case and never offers to skip
- * verification.
+ * The unreachable-host error cards (vcs-auth-v2-design.md §7): TLS (the cert
+ * chain doesn't verify — local CA root and/or the server's certificate),
+ * server-cert (the server's own certificate is bad), and network. Strictly
+ * distinct from each other and from any token warning — an unreachable host
+ * must never render as "Invalid credentials detected". The card renders ABOVE
+ * the still-available manual UI, and never offers to skip verification.
  */
-export function TlsErrorCard({ info, provider, onRetry, retrying = false }: TlsErrorCardProps) {
+export function TlsErrorCard({ info, onRetry, retrying = false }: TlsErrorCardProps) {
   const { errorKind, host, coldReadOk } = info
-  const isGitLab = provider.id === "gitlab"
 
   const Icon = errorKind === "tls" ? ShieldAlert : errorKind === "server-cert" ? ShieldX : Globe
   const heading =
     errorKind === "tls"
-      ? "Secure connection failed"
+      ? "Invalid certificate chain"
       : errorKind === "server-cert"
         ? "Server certificate problem"
         : "Host unreachable"
@@ -46,22 +41,13 @@ export function TlsErrorCard({ info, provider, onRetry, retrying = false }: TlsE
 
           {errorKind === "tls" && (
             <div className="text-muted-foreground">
-              Could not establish a secure connection to <code>{host}</code>: its certificate is
-              not trusted by this system. If your organization uses a custom certificate
-              authority, install it in the OS trust store (macOS: Keychain Access → System
-              keychain, set <strong>'Always Trust'</strong> for SSL — hostname-scoped or per-app
-              trust is not enough, and is the likely cause if gh/glab already work on this
-              machine; Windows: Trusted Root Certification Authorities), then{" "}
-              {coldReadOk === false ? <>restart Runbooks.</> : <>click <strong>Retry</strong>.</>}
-              {isGitLab && (
-                <div className="mt-2">
-                  Alternatively, point glab at the CA and reload:{" "}
-                  <code>glab config set ca_cert /path/to/ca.pem --host {host}</code>
+              Check the local CA root and <code>{host}</code>'s server certificate.
+              {coldReadOk === false && (
+                <div className="mt-2 text-xs">
+                  Automatic trust refresh is unavailable — restart Runbooks after fixing the
+                  certificate.
                 </div>
               )}
-              <div className="mt-2 text-xs">
-                Advanced: launch Runbooks with <code>NODE_EXTRA_CA_CERTS=/path/to/ca.pem</code>.
-              </div>
             </div>
           )}
 

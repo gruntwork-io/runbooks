@@ -164,15 +164,26 @@ export const refreshSystemPems = <R>(
 /** Trust-store fixable (→ refresh + probe + CA-install card). */
 const TLS_TRUST_CODES = new Set([
   "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  // Issuer of a looked-up cert not found / root not flagged trusted — same
+  // class as _LOCALLY above; both mean "this chain doesn't reach a trusted root".
+  "UNABLE_TO_GET_ISSUER_CERT",
   "SELF_SIGNED_CERT_IN_CHAIN",
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
   "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "CERT_UNTRUSTED",
   // Chromium code, should net.fetch ever be adopted (§3.2 escape route).
   "ERR_CERT_AUTHORITY_INVALID",
 ])
 
 /** NOT fixable by trust changes (→ admin card, no refresh/probe). */
-const SERVER_CERT_CODES = new Set(["CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID"])
+const SERVER_CERT_CODES = new Set([
+  "CERT_HAS_EXPIRED",
+  // Validity-window problems on the server's own cert — clock skew or a cert
+  // issued/rotated ahead of time; installing a CA cannot fix either.
+  "CERT_NOT_YET_VALID",
+  "CERT_REVOKED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+])
 
 const NETWORK_CODES = new Set([
   "ENOTFOUND",

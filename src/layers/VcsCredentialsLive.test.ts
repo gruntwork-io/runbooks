@@ -129,6 +129,35 @@ describe("VcsCredentialsLive — chain precedence (§2 tables)", () => {
     expect(result.errorKind).toBe("server-cert")
   })
 
+  it("detectGitHubEnv: an UNCLASSIFIED transport failure (status 0, no kind) is unreachable+tls, never invalid", async () => {
+    // e.g. a cert-verification code classifyTlsError does not enumerate
+    // (CERT_REVOKED on an old build, a future X509_V_ERR_*): the API error
+    // carries status 0 and no `kind`. The status-0 backstop must still route it
+    // away from the "Invalid credentials detected" misdiagnosis.
+    const harness = makeHarness({
+      env: { GITHUB_TOKEN: "ghp_env" },
+      github: {
+        validateToken: () => Effect.fail(new GitHubApiError({ status: 0, message: "fetch failed" })),
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitHubEnv())
+    expect(result.outcome).toBe("unreachable")
+    expect(result.errorKind).toBe("tls")
+    expect(result.warnings).toEqual([]) // never a token warning for a transport failure
+  })
+
+  it("detectGitHubEnv: a real 401 (HTTP status, no kind) is still invalid — status 0 is the discriminant", async () => {
+    const harness = makeHarness({
+      env: { GITHUB_TOKEN: "ghp_env" },
+      github: {
+        validateToken: () => Effect.fail(new GitHubApiError({ status: 401, message: "Bad credentials" })),
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitHubEnv())
+    expect(result.outcome).toBe("invalid")
+    expect(result.errorKind).toBeUndefined()
+  })
+
   it("resolveGitHub: nothing found is absent — NOT an error (the repo may be public)", async () => {
     const harness = makeHarness({
       respond: respondWith({

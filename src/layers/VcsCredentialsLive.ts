@@ -121,6 +121,23 @@ const toDetection = (
       warnings: [],
     }
   }
+  // A transport failure (no HTTP response — status 0) whose OpenSSL code
+  // classifyTlsError did not recognize is STILL unreachable, never "invalid":
+  // a 401/403 always carries an HTTP status, so status 0 cannot be a credential
+  // outcome. Default it to the generic cert-chain card ("tls") so the §3.1
+  // refresh + §2.4 probe ladder still runs. Without this backstop an
+  // unenumerated cert code (e.g. a future/rare X509_V_ERR_*) resurrects the
+  // "Invalid credentials detected" misdiagnosis the tri-state exists to kill.
+  if (validation.status === 0) {
+    return {
+      outcome: "unreachable",
+      ...base,
+      errorKind: "tls",
+      status: 0,
+      error: validation.message,
+      warnings: [],
+    }
+  }
   return {
     outcome: "invalid",
     ...base,

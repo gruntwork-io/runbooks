@@ -103,16 +103,18 @@ describe("classifyTlsError", () => {
 
   it.each([
     "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "UNABLE_TO_GET_ISSUER_CERT",
     "SELF_SIGNED_CERT_IN_CHAIN",
     "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
     "DEPTH_ZERO_SELF_SIGNED_CERT",
+    "CERT_UNTRUSTED",
     // Chromium code, future-proofing for net.fetch (§3.2 escape route).
     "ERR_CERT_AUTHORITY_INVALID",
   ])("classifies undici-wrapped %s as 'tls'", (code) => {
     expect(classifyTlsError(undiciWrapped(code))).toBe("tls")
   })
 
-  it.each(["CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID"])(
+  it.each(["CERT_HAS_EXPIRED", "CERT_NOT_YET_VALID", "CERT_REVOKED", "ERR_TLS_CERT_ALTNAME_INVALID"])(
     "classifies undici-wrapped %s as 'server-cert' (not trust-fixable)",
     (code) => {
       expect(classifyTlsError(undiciWrapped(code))).toBe("server-cert")
@@ -159,6 +161,10 @@ describe("classifyTlsError", () => {
     expect(classifyTlsError(undefined)).toBeUndefined()
     expect(classifyTlsError("string error")).toBeUndefined()
     expect(classifyTlsError(Object.assign(new Error("x"), { code: 42 }))).toBeUndefined()
+    // An unenumerated cert-verification code stays unclassified HERE — the
+    // status-0 backstop in VcsCredentialsLive.toDetection (not the classifier)
+    // is what keeps it from surfacing as "invalid credentials".
+    expect(classifyTlsError(undiciWrapped("CERT_CHAIN_TOO_LONG"))).toBeUndefined()
   })
 
   it("survives cyclic cause chains", () => {

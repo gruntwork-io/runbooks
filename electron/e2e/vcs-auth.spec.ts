@@ -239,9 +239,9 @@ test("gitlab: untrusted CA renders the TLS card, Retry + injected CA recovers wi
     const card = window.getByTestId("vcs-unreachable-card")
     await expect(card).toBeVisible({ timeout: 45_000 })
     await expect(card).toHaveAttribute("data-error-kind", "tls")
-    // §7 copy, verbatim head — and never the misdiagnosis.
-    await expect(card).toContainText("Could not establish a secure connection to")
-    await expect(card).toContainText("Always Trust")
+    // §7 copy — the cert-chain diagnostic, and never the misdiagnosis.
+    await expect(card).toContainText("Invalid certificate chain")
+    await expect(card).toContainText("Check the local CA root")
     await expect(window.getByText("Invalid credentials detected")).toHaveCount(0)
     // The automatic pre-card refresh ran the cold-read child (§3.1).
     expect(logs()).toContain("(refresh, coldReadOk=")

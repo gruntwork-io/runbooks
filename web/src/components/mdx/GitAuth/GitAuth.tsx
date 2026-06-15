@@ -275,7 +275,6 @@ function GitAuthInteractive({
           {auth.unreachableInfo && auth.authStatus !== 'authenticated' && (
             <TlsErrorCard
               info={auth.unreachableInfo}
-              provider={providerConfig}
               onRetry={auth.retryUnreachable}
               retrying={auth.detectionStatus === 'pending'}
             />
