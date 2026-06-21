@@ -173,6 +173,15 @@ export function useGitAuth({
     return !scopes.some((scope) => acceptable.includes(scope))
   }, [provider])
 
+  // Raise the missing-scope warning chip when the token's known scopes lack an
+  // acceptable one; a no-op when scopes are unknown/empty. Centralizes the chip
+  // copy so every detection/auth path renders it identically.
+  const warnIfMissingScope = useCallback((scopes: string[] | undefined): void => {
+    if (shouldWarnMissingScope(scopes)) {
+      setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
+    }
+  }, [provider, shouldWarnMissingScope])
+
   // Helper to check for credentials from block outputs. A referenced GitAuth
   // block (marked __AUTHENTICATED) is metadata-only — its credential
   // lives in the session env and is resolved MAIN-SIDE via the validate
@@ -375,18 +384,12 @@ export function useGitAuth({
 
       if (!isCliAuthFound(data)) {
         // A token WAS found but did not validate (expired OAuth token, wrong
-        // host, etc.). The backend signals this with `found: true` and/or an
-        // HTTP status; rely on those rather than fragile error-string matching
-        // (a GitLab 401 body reads "401 Unauthorized", not "invalid"/"expired").
-        const error = data.error?.toLowerCase()
-        const foundButInvalid =
-          data.found === true ||
-          data.status === 401 ||
-          data.status === 403 ||
-          error?.includes('invalid') ||
-          error?.includes('expired') ||
-          error?.includes('unauthorized') ||
-          error?.includes('forbidden')
+        // host, etc.). Main classifies this authoritatively as outcome
+        // 'invalid' (found + !valid); trust that signal rather than re-deriving
+        // it from HTTP status codes or error-string matching (a GitLab 401 body
+        // reads "401 Unauthorized", not "invalid"/"expired"). Mirrors the env
+        // path, which keys off the same outcome.
+        const foundButInvalid = data.outcome === 'invalid'
         return { success: false, error: data.error, foundButInvalid, warning: data.warning, hint: data.hint, host: data.host }
       }
 
@@ -432,8 +435,9 @@ export function useGitAuth({
       return { success: false, error: validation.error || 'Block token is invalid' }
     }
 
-    // Register outputs: the session-chained path stays metadata-only.
-    if (useSessionToken || !result.token) {
+    // Register outputs: the session-chained path stays metadata-only
+    // (useSessionToken implies an absent token).
+    if (!result.token) {
       registerMetadataOutputs(validation.user)
     } else {
       registerCredentials(result.token, validation.user)
@@ -544,9 +548,7 @@ export function useGitAuth({
             }
             if (result.scopes && result.scopes.length > 0) {
               setDetectedScopes(result.scopes)
-              if (shouldWarnMissingScope(result.scopes)) {
-                setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
-              }
+              warnIfMissingScope(result.scopes)
             }
             finishAuthenticated('env', result.user, result.sessionEnvWarning)
             return
@@ -573,9 +575,7 @@ export function useGitAuth({
             }
             if (result.scopes && result.scopes.length > 0) {
               setDetectedScopes(result.scopes)
-              if (shouldWarnMissingScope(result.scopes)) {
-                setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
-              }
+              warnIfMissingScope(result.scopes)
             }
             finishAuthenticated('env', result.user, result.sessionEnvWarning)
             return
@@ -603,9 +603,7 @@ export function useGitAuth({
           if (result.success && result.user) {
             setSuccessMeta({ source: result.source ?? 'cli', validatedVia: result.validatedVia })
             setDetectedScopes(result.scopes ?? null)
-            if (shouldWarnMissingScope(result.scopes)) {
-              setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
-            }
+            warnIfMissingScope(result.scopes)
             finishAuthenticated('cli', result.user, result.sessionEnvWarning)
             return
           }
@@ -651,7 +649,7 @@ export function useGitAuth({
     }
 
     runDetection()
-  }, [detectCredentials, id, provider, sessionReady, hostsReady, detectionNonce, shouldWarnMissingScope, markUnreachable, unreachableHost, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, finishAuthenticated])
+  }, [detectCredentials, id, provider, sessionReady, hostsReady, detectionNonce, warnIfMissingScope, markUnreachable, unreachableHost, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, getBlockCredentials, finishAuthenticated])
 
   // Probe CLI install state (vcs:cli-status) once detection settles — drives
   // the hint copy and the Windows schannel suggestion. Runs on SUCCESS
@@ -735,7 +733,6 @@ export function useGitAuth({
     registerCredentials(patToken, validation.user)
     setAuthStatus('authenticated')
     setUserInfo(validation.user)
-    setUnreachableInfo(null)
     setSuccessMeta(validation.validatedVia ? { validatedVia: validation.validatedVia } : null)
     setSessionEnvWarning(validation.sessionEnvWarning ?? null)
 
@@ -748,11 +745,9 @@ export function useGitAuth({
     // X-OAuth-Scopes header; fine-grained PATs and GitLab tokens do not).
     if (validation.scopes && validation.scopes.length > 0) {
       setDetectedScopes(validation.scopes)
-      if (shouldWarnMissingScope(validation.scopes)) {
-        setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
-      }
+      warnIfMissingScope(validation.scopes)
     }
-  }, [patToken, provider, shouldWarnMissingScope, validateToken, registerCredentials, markUnreachable])
+  }, [patToken, provider, warnIfMissingScope, validateToken, registerCredentials, markUnreachable])
 
   // Poll for OAuth completion
   const pollOAuthCompletion = useCallback(async (deviceCode: string, interval: number = 5) => {
@@ -791,9 +786,7 @@ export function useGitAuth({
           }
           if (data.scopes && data.scopes.length > 0) {
             setDetectedScopes(data.scopes)
-            if (shouldWarnMissingScope(data.scopes)) {
-              setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
-            }
+            warnIfMissingScope(data.scopes)
           }
           if (data.tokenType) {
             setDetectedTokenType(data.tokenType as GitTokenType)
@@ -817,7 +810,7 @@ export function useGitAuth({
     }
 
     poll()
-  }, [effectiveClientId, provider, registerMetadataOutputs, shouldWarnMissingScope])
+  }, [effectiveClientId, provider, registerMetadataOutputs, warnIfMissingScope])
 
   // Start OAuth device flow
   const startOAuth = useCallback(async () => {

@@ -371,13 +371,15 @@ describe('useGitAuth — GitLab provider', () => {
 
   it('flags a found-but-invalid CLI token even when the error is a bare 401', async () => {
     // Regression for the silent-failure bug: an expired OAuth token validates as
-    // "401 Unauthorized" (no "invalid"/"expired" keyword), so detection must rely
-    // on `found`/`status` to surface it instead of looking like "no credentials".
+    // "401 Unauthorized" (no "invalid"/"expired" keyword). Main classifies it
+    // authoritatively as outcome 'invalid', so detection surfaces it from that
+    // typed signal instead of looking like "no credentials" — never from
+    // error-string matching.
     installApi(async (channel) => {
       if (channel === 'gitlab:enumerate-hosts') return { hosts: [{ host: 'gitlab.com', sources: ['glab'], hasCredential: true }], defaultHost: 'gitlab.com' }
       if (channel === 'gitlab:env-credentials') return { found: false }
       if (channel === 'gitlab:cli-credentials') {
-        return { found: true, error: '401 Unauthorized', status: 401, host: 'gitlab.com' }
+        return { found: true, valid: false, outcome: 'invalid', error: '401 Unauthorized', status: 401, host: 'gitlab.com' }
       }
       return {}
     })

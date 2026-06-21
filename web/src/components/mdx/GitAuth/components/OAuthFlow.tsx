@@ -8,8 +8,6 @@ import { AutoAuthInfo } from "./AutoAuthInfo"
 
 interface OAuthFlowProps {
   authStatus: GitAuthStatus
-  /** The AUTHOR-supplied custom client ID; undefined = main's default app. */
-  effectiveClientId?: string
   userCode: string | null
   verificationUri: string | null
   onStartOAuth: () => void

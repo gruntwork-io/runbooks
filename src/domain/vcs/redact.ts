@@ -57,9 +57,7 @@ const SHAPE_PATTERNS = [
 export function redactSecrets(input: string): string {
   let output = input
   for (const secret of knownSecrets) {
-    if (output.includes(secret)) {
-      output = output.split(secret).join("[REDACTED]")
-    }
+    output = output.replaceAll(secret, "[REDACTED]")
   }
   output = output.replace(URL_CREDENTIAL_PATTERN, "[REDACTED]@")
   for (const pattern of SHAPE_PATTERNS) {

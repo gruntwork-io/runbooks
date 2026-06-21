@@ -324,7 +324,6 @@ function GitAuthInteractive({
               {providerConfig.supportsOAuth && auth.authMethod === 'oauth' && !showCustomOAuthWarning && !oauthDisabled && (
                 <OAuthFlow
                   authStatus={auth.authStatus}
-                  effectiveClientId={auth.effectiveClientId}
                   userCode={auth.oauthUserCode}
                   verificationUri={auth.oauthVerificationUri}
                   onStartOAuth={auth.startOAuth}
