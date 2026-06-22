@@ -2,7 +2,7 @@
 title: <Template>
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, FileTree } from '@astrojs/starlight/components';
 
 The `<Template>` block generates files from a [Gruntwork Boilerplate](/authoring/boilerplate/) template directory. It renders a form for any variables defined in the template, and saves generated files to the workspace.
 
@@ -53,11 +53,14 @@ The `path` prop should point to a directory containing a `boilerplate.yml` file 
 
 Expected directory structure:
 
-```
-templates/vpc/
-├── boilerplate.yml    # Variable definitions (required)
-├── arbitrary_template_files.txt            # Template file
-```
+<FileTree>
+
+- templates/
+  - vpc/
+    - boilerplate.yml Variable definitions (required)
+    - arbitrary_template_files.txt Template file
+
+</FileTree>
 
 The `boilerplate.yml` file defines the variables that will be collected from the user. Template files use [Boilerplate's Go template syntax](/authoring/boilerplate/#template-syntax) for variable substitution.
 

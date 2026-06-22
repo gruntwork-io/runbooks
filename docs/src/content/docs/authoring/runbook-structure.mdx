@@ -2,6 +2,8 @@
 title: Runbook Structure
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 # Runbook Structure
 
 This page explains the file format and folder organization for a runbook.
@@ -77,23 +79,25 @@ Verify everything worked.
 
 Blocks often reference scripts and templates stored in folders. While you can store these anywhere, here's the conventional folder structure:
 
-```
-my-runbook/
-├── runbook.mdx              # Main runbook file
-├── assets/                  # Images and other assets
-│   └── diagram.png
-├── checks/                  # Shell scripts for <Check> blocks
-│   ├── prereq1.sh
-│   └── prereq2.sh
-├── scripts/                 # Shell scripts for <Command> blocks
-│   ├── deploy.sh
-│   └── cleanup.sh
-└── templates/               # Boilerplate templates for <Template> blocks
-    └── my-template/
-        ├── boilerplate.yml
-        ├── main.tf
-        └── variables.tf
-```
+<FileTree>
+
+- my-runbook/
+  - runbook.mdx Main runbook file
+  - assets/ Images and other assets
+    - diagram.png
+  - checks/ Shell scripts for `<Check>` blocks
+    - prereq1.sh
+    - prereq2.sh
+  - scripts/ Shell scripts for `<Command>` blocks
+    - deploy.sh
+    - cleanup.sh
+  - templates/ Boilerplate templates for `<Template>` blocks
+    - my-template/
+      - boilerplate.yml
+      - main.tf
+      - variables.tf
+
+</FileTree>
 
 ### Folder Purposes
 
