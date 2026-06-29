@@ -4,6 +4,8 @@ sidebar:
   order: 1
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 ## Meet Runbooks!
 
 Gruntwork Runbooks are interactive markdown documents that enable subject matter experts to capture their knowledge and expertise in a way that is easy for others to understand and use.
@@ -58,19 +60,21 @@ For a full walkthrough of what's happening here, see the [UI tour](/intro/ui_tou
 
 A typical Runbook directory looks like the file tree below. In this example, the file names are somewhat arbitrary, but the folder structure is conventional.
 
-```
-├── runbook.mdx
-├── assets/
-│    └── architecture.jpg
-├── checks/
-│   └── preflight_checks.sh
-├── scripts/
-│   └── install_mise.sh
-└── templates/
-    └── consume_lambda_module/
-        ├── boilerplate.yml
-        └── terragrunt.hcl
-```
+<FileTree>
+
+- runbook.mdx
+- assets/
+  - architecture.jpg
+- checks/
+  - preflight_checks.sh
+- scripts/
+  - install_mise.sh
+- templates/
+  - consume_lambda_module/
+    - boilerplate.yml
+    - terragrunt.hcl
+
+</FileTree>
 
 You can learn more about how to write a Runbook in the [Authoring Runbooks](/authoring/overview) section, but for now, the basic idea is that a `runbook.mdx` file contains a mix of markdown and interactive [blocks](/authoring/blocks/). Those blocks optionally reference files in the `assets/`, `checks/`, `scripts/`, and `templates/` directories.
 

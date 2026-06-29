@@ -2,20 +2,23 @@
 title: <DirPicker>
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 The `<DirPicker>` block provides a cascading set of dropdowns for selecting a path. 
 
 For example, if the user git cloned a repository with the following directory structure:
 
-```
-.
-├── dev
-│   ├── region-1
-│   └── region-2
-└── prod
-    ├── region-1
-    ├── region-2
-    └── region-3
-```
+<FileTree>
+
+- dev/
+  - region-1/
+  - region-2/
+- prod/
+  - region-1/
+  - region-2/
+  - region-3/
+
+</FileTree>
 
 The DirPicker block could be configured with the following props:
 
