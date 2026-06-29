@@ -2,6 +2,8 @@
 title: Boilerplate Templates
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 # Gruntwork Boilerplate
 
 [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) is a tool for generating files and folders from templates. Runbooks uses Boilerplate under the hood for all template rendering—this includes the `<Template>`, `<TemplateInline>`, `<Inputs>`, `<Command>`, and `<Check>` blocks.
@@ -29,11 +31,13 @@ Boilerplate is differentiated by being purpose-built for DevOps and infrastructu
 
 Say you want to generate a README for new projects. Create a template folder:
 
-```
-my-template/
-├── boilerplate.yml
-└── README.md
-```
+<FileTree>
+
+- my-template/
+  - boilerplate.yml
+  - README.md
+
+</FileTree>
 
 **`boilerplate.yml`** — defines the variables:
 
@@ -366,21 +370,25 @@ Boilerplate includes helper functions for common transformations:
 
 Boilerplate supports template syntax in file names. This lets you generate files with dynamic names based on variables:
 
-```
-templates/
-├── boilerplate.yml
-├── {{ .ProjectName }}.tf
-└── {{ .Environment }}/
-    └── config.yaml
-```
+<FileTree>
+
+- templates/
+  - boilerplate.yml
+  - `{{ .ProjectName }}.tf`
+  - `{{ .Environment }}/`
+    - config.yaml
+
+</FileTree>
 
 With `ProjectName: "vpc"` and `Environment: "prod"`, this generates:
 
-```
-vpc.tf
-prod/
-└── config.yaml
-```
+<FileTree>
+
+- vpc.tf
+- prod/
+  - config.yaml
+
+</FileTree>
 
 ## Runbooks Extensions
 
@@ -499,13 +507,16 @@ boilerplate \
 
 Here's a complete example showing a template directory structure:
 
-```
-templates/lambda/
-├── boilerplate.yml
-├── main.tf
-├── variables.tf
-└── outputs.tf
-```
+<FileTree>
+
+- templates/
+  - lambda/
+    - boilerplate.yml
+    - main.tf
+    - variables.tf
+    - outputs.tf
+
+</FileTree>
 
 **`boilerplate.yml`:**
 

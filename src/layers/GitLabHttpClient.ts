@@ -6,13 +6,13 @@
  * supported — the auth block supplies either a picked host or a manually-entered
  * instance URL, and operations on a cloned repo derive it from the repo's own
  * remote. A bare host or a full URL is accepted; the client normalizes it.
- * Personal, project, and group access tokens authenticate via the
- * `PRIVATE-TOKEN` header; OAuth tokens (e.g. from `glab auth login`'s web flow)
- * are rejected by it and require `Authorization: Bearer`, so we fall back to
- * Bearer on an auth failure.
+ * Auth is Bearer-FIRST: `Authorization: Bearer`
+ * works for both `glpat-` PATs and glab's unprefixed OAuth tokens (which
+ * `PRIVATE-TOKEN` rejects), so the common case is one round trip; we retry
+ * once with `PRIVATE-TOKEN` on a 401 for old self-hosted instances.
  * Unlike GitHub, `GET /user` exposes no scope header, so token scopes are
- * introspected with a second, best-effort call (`/oauth/token/info` for OAuth
- * tokens, `/personal_access_tokens/self` for PATs).
+ * introspected with a second, best-effort call keyed on token shape
+ * (`glpat-` → `/personal_access_tokens/self`, otherwise `/oauth/token/info`).
  */
 import { Effect, Layer } from "effect"
 import { GitLabClient } from "../services/GitLabClient.ts"
@@ -25,11 +25,15 @@ import type {
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
 import { gitlabApiBase, normalizeGitLabBaseUrl } from "../domain/git/gitlab-host.ts"
+import { classifyTlsError } from "../domain/tls/system-ca.ts"
 
 type AuthScheme = "private" | "bearer"
 
+// status 0 = no HTTP response; `kind` carries the transport classification.
 const toGitLabApiError = (err: unknown): GitLabApiError =>
-  err instanceof GitLabApiError ? err : new GitLabApiError({ status: 0, message: `${err}` })
+  err instanceof GitLabApiError
+    ? err
+    : new GitLabApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
 
 async function assertOk(resp: Response): Promise<void> {
   if (!resp.ok) {
@@ -52,38 +56,53 @@ function toStringArray(value: unknown): string[] | undefined {
 
 /**
  * Best-effort token scope lookup. GitLab's `GET /user` exposes no scopes, so we
- * introspect separately using the scheme that just authenticated the token:
- * OAuth tokens (Bearer) via `/oauth/token/info` (`scope`), and personal access
- * tokens (PRIVATE-TOKEN) via `/api/v4/personal_access_tokens/self` (`scopes`).
- * Returns undefined when scopes can't be determined (e.g. a project/group token,
- * a non-200 response, or a network error) — scope display is enrichment and must
- * never block validation.
+ * introspect separately: PATs via `/api/v4/personal_access_tokens/self`
+ * (`scopes` — the `self` keyword landed in GitLab 15.5; older instances 404,
+ * which is silently "no scope info"), OAuth tokens via `/oauth/token/info`
+ * (`scope`, Bearer). Which shape we hold is decided by the scheme that just
+ * VALIDATED the token, not the `glpat-` prefix alone: PRIVATE-TOKEN only ever
+ * validates PATs, and self-managed instances can configure a custom PAT
+ * prefix, so a non-glpat Bearer-validated token may be either shape — we try
+ * the likelier endpoint first and fall back to the other. Returns undefined
+ * when scopes can't be determined (e.g. a project/group token, a non-200
+ * response, or a network error) — scope display is enrichment and must never
+ * block validation.
  */
 async function fetchScopes(
   token: string,
   scheme: AuthScheme,
   baseUrl: string,
 ): Promise<string[] | undefined> {
-  const [url, field] =
-    scheme === "bearer"
-      ? ([`${baseUrl}/oauth/token/info`, "scope"] as const)
-      : ([`${gitlabApiBase(baseUrl)}/personal_access_tokens/self`, "scopes"] as const)
-  try {
-    const resp = await fetch(url, { headers: authHeaders(token, scheme) })
-    if (!resp.ok) return undefined
-    const data = (await resp.json()) as Record<string, unknown>
-    return toStringArray(data[field])
-  } catch {
-    return undefined
+  const patProbe = [`${gitlabApiBase(baseUrl)}/personal_access_tokens/self`, "scopes", authHeaders(token, scheme)] as const
+  const oauthProbe = [`${baseUrl}/oauth/token/info`, "scope", authHeaders(token, "bearer")] as const
+  // A known PAT (PRIVATE-TOKEN-validated, or the stock glpat- prefix) can
+  // only introspect via the PAT endpoint — /oauth/token/info would 401. A
+  // non-glpat Bearer-validated token is EITHER glab's OAuth token or a
+  // custom-prefix PAT: try OAuth first, then fall back to the PAT endpoint
+  // so custom-prefix PATs keep their scopes (and the missing-scope warning).
+  const probes =
+    scheme === "private" || token.startsWith("glpat-") ? [patProbe] : [oauthProbe, patProbe]
+  for (const [url, field, headers] of probes) {
+    try {
+      const resp = await fetch(url, { headers })
+      if (!resp.ok) continue
+      const data = (await resp.json()) as Record<string, unknown>
+      const scopes = toStringArray(data[field])
+      if (scopes) return scopes
+    } catch {
+      /* best-effort */
+    }
   }
+  return undefined
 }
 
 /**
- * Authenticated GitLab API request with the same scheme-fallback as token
- * validation: PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are
- * rejected by it (401) and require Authorization: Bearer. We try PRIVATE-TOKEN
- * first and retry once with Bearer on a 401 only. Any caller-supplied headers
- * (e.g. Content-Type for a POST body) are merged after the auth headers.
+ * Authenticated GitLab API request, Bearer-FIRST: Bearer authenticates
+ * both `glpat-` PATs and glab's unprefixed OAuth tokens (which PRIVATE-TOKEN
+ * rejects), halving the common-case round trips. We retry once with
+ * PRIVATE-TOKEN on a 401 only, for old self-hosted instances. Any
+ * caller-supplied headers (e.g. Content-Type for a POST body) are merged
+ * after the auth headers.
  */
 async function gitlabFetch(
   url: string,
@@ -91,10 +110,10 @@ async function gitlabFetch(
   init: RequestInit = {},
 ): Promise<Response> {
   const extra = init.headers as Record<string, string> | undefined
-  let scheme: AuthScheme = "private"
+  let scheme: AuthScheme = "bearer"
   let resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
   if (resp.status === 401) {
-    scheme = "bearer"
+    scheme = "private"
     resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
   }
   return resp
@@ -133,14 +152,16 @@ async function validateUserToken(
   baseUrl: string,
 ): Promise<GitLabTokenValidation> {
   const apiBase = gitlabApiBase(baseUrl)
-  // PATs authenticate via PRIVATE-TOKEN, but OAuth tokens are rejected by it
-  // (401) and require Authorization: Bearer (which also accepts PATs). Retry
-  // with Bearer only on 401 — a 403 means the token authenticated but lacks the
-  // scope to read /user, which Bearer (same token, same scopes) can't fix.
-  let scheme: AuthScheme = "private"
+  // Bearer-first: Bearer accepts both glpat- PATs and glab's
+  // unprefixed OAuth tokens (which PRIVATE-TOKEN rejects with 401), so the
+  // common case is one round trip. Retry with PRIVATE-TOKEN only on 401 (old
+  // self-hosted instances) — a 403 means the token authenticated but lacks
+  // the scope to read /user, which a scheme change (same token, same scopes)
+  // can't fix.
+  let scheme: AuthScheme = "bearer"
   let resp = await fetch(`${apiBase}/user`, { headers: authHeaders(token, scheme) })
   if (resp.status === 401) {
-    scheme = "bearer"
+    scheme = "private"
     resp = await fetch(`${apiBase}/user`, { headers: authHeaders(token, scheme) })
   }
   await assertOk(resp)

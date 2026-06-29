@@ -55,7 +55,7 @@ export const gitlabProviderConfig: ProviderConfig = {
     showFineGrainedNote: false,
     unknownTokenLabel: 'Access Token',
   },
-  cli: { label: 'glab CLI', loginCmd: 'glab auth login' },
+  cli: { label: 'glab CLI', loginCmd: 'glab auth login', binary: 'glab' },
   defaultOAuthScopes: [],
   defaultInstructionScopes: ['read_repository', 'write_repository'],
 }

@@ -1,14 +1,16 @@
 /**
  * IPC handlers for GitHub authentication and API operations.
  *
- * Bridges Electron ipcMain to the GitHub auth domain module, providing token
- * validation, OAuth device flow, credential detection, and repository queries.
+ * Detection and validation route through the unified VcsCredentials service
+ * with the shared tri-state orchestration
+ * (vcs-tristate.ts: cold trust-refresh-and-retry + probe on tls; nothing
+ * on server-cert/network). The OAuth device flow and the API query handlers
+ * keep their existing shapes.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import {
   runtime,
-  sessionManager,
   getSessionToken as resolveSessionToken,
 } from "./runtime.ts"
 import {
@@ -16,14 +18,21 @@ import {
   detectTokenType,
   startOAuthDeviceFlow,
   pollOAuthToken,
-  detectEnvCredentials,
-  detectCliCredentials,
   listOrgs,
   listRepos,
   listRefs,
   listLabels,
   DEFAULT_GITHUB_OAUTH_CLIENT_ID,
+  ENV_PREFIX_PATTERN,
 } from "../../../src/domain/github/auth.ts"
+import {
+  withTlsOrchestration,
+  withVcs,
+  toDetectionIpcResult,
+  toValidationIpcResult,
+  appendSessionEnvAndRecord,
+} from "./vcs-tristate.ts"
+import { registerSecret } from "../../../src/domain/vcs/redact.ts"
 
 /**
  * Resolve the GitHub token from the session env, failing with a plain Error
@@ -40,20 +49,51 @@ export function registerGitHubHandlers(): void {
     "github:validate",
     // `host` is part of the channel contract (GitHub is single-host, so it's
     // accepted and ignored) — annotate it for parity with the channel type.
-    async (_event, params: { token: string; host?: string }) => {
-      const tokenType = detectTokenType(params.token)
-      try {
-        const { user, scopes } = await runtime.runPromise(
-          validateToken(params.token),
-        )
-        return { valid: true, user, scopes, tokenType }
-      } catch (err) {
+    async (
+      _event,
+      params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean },
+    ) => {
+      const token = params.useSessionToken
+        ? await runtime.runPromise(
+            resolveSessionToken(() => new Error("none")).pipe(Effect.orElseSucceed(() => undefined)),
+          )
+        : params.token
+      if (!token) {
         return {
           valid: false,
-          tokenType,
-          error: err instanceof Error ? err.message : String(err),
+          outcome: "invalid" as const,
+          error: params.useSessionToken
+            ? "No GitHub session credential available"
+            : "No token provided",
         }
       }
+      registerSecret(token)
+      const tokenType = detectTokenType(token)
+      const result = await withTlsOrchestration({
+        provider: "github",
+        host: "github.com",
+        detect: () => withVcs((vcs) => vcs.validateDirect("github", "github.com", token)),
+        probeSource: "manual",
+      })
+      if (result.outcome === "valid") {
+        let sessionEnvWarning: string | undefined
+        if (params.registerSession && !params.useSessionToken && result.user) {
+          sessionEnvWarning = await appendSessionEnvAndRecord("github", "github.com", "manual", {
+            GITHUB_TOKEN: token,
+            GITHUB_USER: result.user.login,
+          })
+        }
+        return {
+          valid: true,
+          user: result.user,
+          scopes: result.scopes,
+          tokenType,
+          outcome: "valid" as const,
+          ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),
+          ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
+        }
+      }
+      return { ...toValidationIpcResult(result), valid: false, tokenType }
     },
   )
 
@@ -86,24 +126,25 @@ export function registerGitHubHandlers(): void {
           return { status: "failed" as const, error: "No access token returned" }
         }
 
+        registerSecret(result.token)
         const tokenType = detectTokenType(result.token)
         const { user, scopes } = await runtime.runPromise(
           validateToken(result.token),
         )
 
-        await runtime.runPromise(
-          sessionManager.appendToEnv({
-            GITHUB_TOKEN: result.token,
-            GITHUB_USER: user.login,
-          }),
-        )
+        const sessionEnvWarning = await appendSessionEnvAndRecord("github", "github.com", "oauth", {
+          GITHUB_TOKEN: result.token,
+          GITHUB_USER: user.login,
+        })
 
+        // the completion result is METADATA-ONLY — the session env above
+        // is the single source of truth; the token never crosses IPC.
         return {
           status: "complete" as const,
-          accessToken: result.token,
           user,
           scopes,
           tokenType,
+          ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -121,66 +162,61 @@ export function registerGitHubHandlers(): void {
     },
   )
 
-  ipcMain.handle("github:env-credentials", async () => {
-    const token = await runtime.runPromise(detectEnvCredentials())
-    if (!token) {
-      return { found: false as const }
-    }
+  ipcMain.handle(
+    "github:env-credentials",
+    async (_event, params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string } = {}) => {
+      // The {env:{prefix}} variant: the renderer-supplied prefix is
+      // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
+      const prefix = params.prefix || undefined
+      if (prefix !== undefined && !ENV_PREFIX_PATTERN.test(prefix)) {
+        return {
+          found: false as const,
+          outcome: "absent" as const,
+          error: `Invalid env prefix "${prefix}": must match ${ENV_PREFIX_PATTERN}`,
+        }
+      }
 
-    const tokenType = detectTokenType(token)
+      const result = await withTlsOrchestration({
+        provider: "github",
+        host: "github.com",
+        detect: () => withVcs((vcs) => vcs.detectGitHubEnv(prefix)),
+      })
 
-    try {
-      const { user, scopes } = await runtime.runPromise(validateToken(token))
-
-      // Inject the token into the session environment
-      await runtime.runPromise(
-        sessionManager.appendToEnv({ GITHUB_TOKEN: token }),
-      )
+      let sessionEnvWarning: string | undefined
+      if (result.outcome === "valid" && result.token) {
+        sessionEnvWarning = await appendSessionEnvAndRecord("github", "github.com", result.source, {
+          GITHUB_TOKEN: result.token,
+          ...(result.user ? { GITHUB_USER: result.user.login } : {}),
+        })
+      }
 
       return {
-        found: true as const,
-        valid: true as const,
-        token,
-        user,
-        scopes,
-        tokenType,
+        ...toDetectionIpcResult(result),
+        ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
+        ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
       }
-    } catch (err) {
-      return {
-        found: true as const,
-        valid: false as const,
-        token,
-        tokenType,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    }
-  })
+    },
+  )
 
   ipcMain.handle("github:cli-credentials", async () => {
-    const token = await runtime.runPromise(detectCliCredentials())
-    if (!token) {
-      return { found: false as const }
+    const result = await withTlsOrchestration({
+      provider: "github",
+      host: "github.com",
+      detect: () => withVcs((vcs) => vcs.detectGitHubCli()),
+    })
+
+    let sessionEnvWarning: string | undefined
+    if (result.outcome === "valid" && result.token) {
+      sessionEnvWarning = await appendSessionEnvAndRecord("github", "github.com", result.source, {
+        GITHUB_TOKEN: result.token,
+        ...(result.user ? { GITHUB_USER: result.user.login } : {}),
+      })
     }
 
-    const tokenType = detectTokenType(token)
-
-    try {
-      const { user, scopes } = await runtime.runPromise(validateToken(token))
-
-      // Inject the token into the session environment so git/GitHub operations
-      // (e.g. git:pull-request) can resolve it server-side, matching the
-      // env-credentials and oauth paths.
-      await runtime.runPromise(
-        sessionManager.appendToEnv({ GITHUB_TOKEN: token }),
-      )
-
-      return { found: true as const, token, user, scopes, tokenType }
-    } catch (err) {
-      return {
-        found: true as const,
-        tokenType,
-        error: err instanceof Error ? err.message : String(err),
-      }
+    return {
+      ...toDetectionIpcResult(result),
+      ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
+      ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
     }
   })
 

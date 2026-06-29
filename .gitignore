@@ -1,5 +1,6 @@
-# Ignore the binary
-runbooks
+# Ignore the binary (root only — an unanchored pattern would also swallow
+# test/fixtures/runbooks/, hiding the e2e runbook fixtures from git)
+/runbooks
 
 # Editor directories and files
 .vscode/*

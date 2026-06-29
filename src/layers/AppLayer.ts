@@ -14,6 +14,23 @@ import { NodeBundleProducerLive } from "./NodeBundleProducer.ts"
 import { NodeWarmRenderDispatcherLive } from "./NodeWarmRenderDispatcher.ts"
 import { MixpanelTelemetryLive } from "./MixpanelTelemetry.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
+import { VcsCredentialsLive } from "./VcsCredentialsLive.ts"
+
+/**
+ * The unified VCS credential resolver needs the
+ * spawn/env/fs primitives for source reads plus both HTTP clients for direct
+ * validation.
+ */
+const VcsCredentialsWithDeps = Layer.provide(
+  VcsCredentialsLive,
+  Layer.mergeAll(
+    NodeFileSystemLive,
+    ChildProcessSpawnerLive,
+    ProcessEnvironmentLive,
+    GitHubHttpClientLive,
+    GitLabHttpClientLive,
+  ),
+)
 
 /**
  * Base services that have no inter-service dependencies.
@@ -26,6 +43,7 @@ const BaseLive = Layer.mergeAll(
   GitHubHttpClientLive,
   GitLabHttpClientLive,
   MixpanelTelemetryLive,
+  VcsCredentialsWithDeps,
 )
 
 /**

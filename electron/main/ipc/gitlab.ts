@@ -1,86 +1,224 @@
 /**
  * IPC handlers for GitLab authentication operations.
  *
- * Bridges Electron ipcMain to the GitLab auth domain module, providing token
- * validation and credential detection (env var, `glab` CLI, and glab's
- * config.yml). Mirrors github.ts:
- * detection handlers inject the resolved token into the session environment so
- * git operations can resolve it server-side, while `gitlab:validate` only
- * validates (the renderer owns the PAT-paste session write, matching the GitHub
- * flow). The instance to target is selected by an optional `host` (a bare host
- * from the GitAuth picker / an authored prop) or `instanceUrl` (a manually-typed
+ * Detection and validation route through the unified VcsCredentials service
+ * with the shared tri-state orchestration
+ * (vcs-tristate.ts: cold trust-refresh-and-retry + probe on tls; nothing
+ * on server-cert/network). Detection handlers inject the resolved token into
+ * the session environment so git operations can resolve it server-side. The
+ * instance to target is selected by an optional `host` (a bare host from the
+ * GitAuth picker / an authored prop) or `instanceUrl` (a manually-typed
  * instance URL that overrides `host`); both normalize to an origin and default
- * to gitlab.com. `gitlab:enumerate-hosts` lists the hosts glab is logged into to
- * drive the picker.
+ * to gitlab.com. `gitlab:enumerate-hosts` lists the hosts glab is logged into
+ * to drive the picker and triggers the ca_cert harvest.
  */
-import { Cause, Effect, Exit, ManagedRuntime } from "effect"
+import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, getSessionTokenForProvider } from "./runtime.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
-import { GitLabApiError } from "../../../src/errors/index.ts"
+import { Environment } from "../../../src/services/Environment.ts"
 import {
-  validateToken,
   detectTokenType,
-  detectEnvCredentials,
-  detectCliCredentials,
+  collectGlabCaCertPems,
   detectConfigCredentials,
-  detectConfigHosts,
-  isEnvTokenHostAllowed,
+  detectHostMeta,
+  envTokenHost,
+  configuredEnvHost,
+  hasEnvToken,
 } from "../../../src/domain/gitlab/auth.ts"
-import { normalizeGitLabBaseUrl } from "../../../src/domain/git/gitlab-host.ts"
+import {
+  normalizeGitLabBaseUrl,
+  normalizeGitLabHost,
+  tryNormalizeGitLabHost,
+} from "../../../src/domain/git/gitlab-host.ts"
+import { registerExtraCaPems } from "../index.ts"
+import {
+  withTlsOrchestration,
+  withVcs,
+  toDetectionIpcResult,
+  toValidationIpcResult,
+  appendSessionEnvAndRecord,
+} from "./vcs-tristate.ts"
+import { registerSecret } from "../../../src/domain/vcs/redact.ts"
+import { readVcsAuthStore, addRecentGitLabHost, setLastSelectedGitLabHost } from "../recent-hosts.ts"
 
-type ValidationResult<A> =
-  | { readonly ok: true; readonly value: A }
-  | { readonly ok: false; readonly message: string; readonly status: number | undefined }
+type HostSource = "glab" | "env" | "session" | "recent"
 
 /**
- * Run a token-validation effect and recover the typed GitLabApiError on failure.
- *
- * `runtime.runPromise` rejects with a FiberFailure *wrapper*, so a plain
- * try/catch + `err instanceof GitLabApiError` never matches and the HTTP
- * `status` is lost (the renderer needs it to distinguish 401/403 from other
- * failures). `runPromiseExit` + `Cause.failureOption` recovers the real error —
- * the same approach as git.ts's `runAndUnwrap`.
+ * Resolve a GitLab instance string (a bare host or a scheme-qualified URL) to
+ * the API ORIGIN (scheme preserved — plain-http instances exist) that feeds
+ * validation, plus the bare HOST that keys probe/session/recents/copy. Both
+ * default to gitlab.com.
  */
-const runValidation = async <A>(
-  program: Effect.Effect<A, GitLabApiError, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
-): Promise<ValidationResult<A>> => {
-  const exit = await runtime.runPromiseExit(program)
-  if (Exit.isSuccess(exit)) return { ok: true, value: exit.value }
-  const failure = Cause.failureOption(exit.cause)
-  const error = failure._tag === "Some" ? failure.value : undefined
-  return {
-    ok: false,
-    message: error?.message ?? Cause.pretty(exit.cause),
-    status: error instanceof GitLabApiError ? error.status : undefined,
+function resolveGitLabInstance(input?: string | null): { baseUrl: string; host: string } {
+  const baseUrl = normalizeGitLabBaseUrl(input)
+  return { baseUrl, host: new URL(baseUrl).host }
+}
+
+/**
+ * Build the merged host union: glab config hosts, env hosts, the session
+ * host, and persisted recents — in that order, deduped by normalized host,
+ * each annotated with provenance and an OFFLINE-ONLY hasCredential check
+ * (env-token presence counted only for the bound host; config.yml token
+ * or use_keyring marker — no network, no per-host subprocess fan-out).
+ */
+async function buildMergedHosts(): Promise<{
+  hosts: Array<{ host: string; sources: HostSource[]; hasCredential: boolean }>
+  defaultHost: string
+}> {
+  // These three sources are independent — resolve them concurrently.
+  const [{ hosts: glabHosts, defaultHost: glabDefault }, allEnv, sessionHost] =
+    await Promise.all([
+      withVcs((vcs) => vcs.enumerateGitLabHosts()),
+      runtime.runPromise(Effect.flatMap(Environment, (environment) => environment.getAll())),
+      runtime.runPromise(
+        sessionManager.getSession().pipe(
+          Effect.map((session) => session.env.get("GITLAB_HOST")),
+          Effect.orElseSucceed(() => undefined),
+        ),
+      ),
+    ])
+  // An unparseable env host yields NO entry — never a silent gitlab.com rebind.
+  const envHost = tryNormalizeGitLabHost(configuredEnvHost(allEnv))
+  const store = readVcsAuthStore()
+
+  const union = new Map<string, Set<HostSource>>()
+  const add = (host: string, source: HostSource) => {
+    const key = normalizeGitLabHost(host)
+    const entry = union.get(key) ?? new Set<HostSource>()
+    entry.add(source)
+    union.set(key, entry)
   }
+  for (const host of glabHosts) add(host, "glab")
+  if (envHost) add(envHost, "env")
+  if (sessionHost) add(sessionHost, "session")
+  for (const host of store.recentGitLabHosts) add(host, "recent")
+
+  const envTokenPresent = hasEnvToken(allEnv)
+  const boundHost = envTokenHost(allEnv)
+
+  const hasCredentialFor = async (host: string): Promise<boolean> => {
+    if (envTokenPresent && host === boundHost) return true
+    if (await runtime.runPromise(detectConfigCredentials(host))) return true
+    return (await runtime.runPromise(detectHostMeta(host)))?.useKeyring === true
+  }
+
+  const hosts = await Promise.all(
+    [...union].map(async ([host, sources]) => ({
+      host,
+      sources: [...sources],
+      hasCredential: await hasCredentialFor(host),
+    })),
+  )
+
+  // defaultHost precedence (the authored `host` prop pins instance
+  // renderer-side and never reaches this handler): persisted pick — honored
+  // only while still in the union AND credentialed, so a credential-less
+  // stale pick can't steal auto-detect from a working gitlab.com token —
+  // then env, then glab's own default, then gitlab.com.
+  const last = store.lastSelectedGitLabHost
+  const lastEntry = last ? hosts.find((h) => h.host === normalizeGitLabHost(last)) : undefined
+  const defaultHost = normalizeGitLabHost(
+    (lastEntry?.hasCredential ? lastEntry.host : undefined) ?? envHost ?? glabDefault,
+  )
+  // The renderer applies defaultHost to a controlled <select> over `hosts`
+  // verbatim — a default outside the union would render a blank dropdown
+  // while detection targets it. It IS the detection target, so list it.
+  if (!hosts.some((h) => h.host === defaultHost)) {
+    hosts.push({
+      host: defaultHost,
+      sources: [],
+      hasCredential: await hasCredentialFor(defaultHost),
+    })
+  }
+  return { hosts, defaultHost }
 }
 
 export function registerGitLabHandlers(): void {
   // Enumerate the GitLab hosts the user is logged into via glab, so the GitAuth
   // block can offer a host picker (gitlab.com vs a self-hosted instance).
   ipcMain.handle("gitlab:enumerate-hosts", async () => {
-    return runtime.runPromise(detectConfigHosts())
+    // ca_cert harvest piggybacks on enumeration: per-host PEMs from glab
+    // config are added (additively) to the process trust. Best-effort.
+    try {
+      const pems = await runtime.runPromise(collectGlabCaCertPems())
+      registerExtraCaPems(pems)
+    } catch {
+      /* harvest must never block enumeration */
+    }
+    return buildMergedHosts()
+  })
+
+  // Persist an explicit dropdown pick (any source) so it survives restart.
+  // Hostnames only — never tokens.
+  ipcMain.handle("gitlab:host-picked", (_event, params: { host: string }) => {
+    setLastSelectedGitLabHost(normalizeGitLabHost(params.host))
+    return { ok: true as const }
   })
 
   ipcMain.handle(
     "gitlab:validate",
-    async (_event, params: { token: string; host?: string; instanceUrl?: string }) => {
-      const tokenType = detectTokenType(params.token)
-      // A manually-entered instance URL overrides the picked/authored host;
-      // either a bare host or a full URL normalizes to the instance origin.
-      const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl ?? params.host)
-      const result = await runValidation(validateToken(params.token, baseUrl))
-      if (result.ok) {
-        const { user, scopes } = result.value
-        return { valid: true, user, scopes, tokenType }
+    async (
+      _event,
+      params: {
+        token?: string
+        host?: string
+        instanceUrl?: string
+        registerSession?: boolean
+        useSessionToken?: boolean
+      },
+    ) => {
+      const token = params.useSessionToken
+        ? await runtime.runPromise(
+            getSessionTokenForProvider("gitlab", () => new Error("none")).pipe(
+              Effect.orElseSucceed(() => undefined),
+            ),
+          )
+        : params.token
+      if (!token) {
+        return {
+          valid: false,
+          outcome: "invalid" as const,
+          error: params.useSessionToken
+            ? "No GitLab session credential available"
+            : "No token provided",
+        }
       }
-      return {
-        valid: false,
-        tokenType,
-        error: result.message,
-        status: result.status,
+      registerSecret(token)
+      const tokenType = detectTokenType(token)
+      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      const result = await withTlsOrchestration({
+        provider: "gitlab",
+        host,
+        detect: () => withVcs((vcs) => vcs.validateDirect("gitlab", baseUrl, token)),
+        probeSource: "manual",
+      })
+      if (result.outcome === "valid") {
+        let sessionEnvWarning: string | undefined
+        if (params.registerSession && !params.useSessionToken && result.user) {
+          sessionEnvWarning = await appendSessionEnvAndRecord("gitlab", host, "manual", {
+            GITLAB_TOKEN: token,
+            GITLAB_USER: result.user.login,
+            GITLAB_HOST: host,
+          })
+        }
+        // every successful GitLab auth persists the pick; a
+        // manually-typed instance URL additionally enters the recents.
+        setLastSelectedGitLabHost(host)
+        if (params.instanceUrl) {
+          addRecentGitLabHost(host)
+        }
+        return {
+          valid: true,
+          user: result.user,
+          scopes: result.scopes,
+          tokenType,
+          outcome: "valid" as const,
+          ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),
+          ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
+        }
       }
+      return { ...toValidationIpcResult(result, host), valid: false, tokenType }
     },
   )
 
@@ -96,54 +234,29 @@ export function registerGitLabHandlers(): void {
         instanceUrl?: string
       } = {},
     ) => {
-      const token = await runtime.runPromise(detectEnvCredentials())
-      if (!token) {
-        return { found: false as const }
+      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
+
+      // env-token host binding is enforced inside detectGitLabEnv.
+      const result = await withTlsOrchestration({
+        provider: "gitlab",
+        host,
+        detect: () => withVcs((vcs) => vcs.detectGitLabEnv(baseUrl)),
+      })
+
+      let sessionEnvWarning: string | undefined
+      if (result.outcome === "valid" && result.token) {
+        sessionEnvWarning = await appendSessionEnvAndRecord("gitlab", host, result.source, {
+          GITLAB_TOKEN: result.token,
+          GITLAB_HOST: host,
+          ...(result.user ? { GITLAB_USER: result.user.login } : {}),
+        })
+        setLastSelectedGitLabHost(host)
       }
-
-      const tokenType = detectTokenType(token)
-      // A manually-entered instance URL overrides the picked/authored host.
-      const baseUrl = normalizeGitLabBaseUrl(params.instanceUrl ?? params.host)
-      const host = new URL(baseUrl).host
-
-      // GITLAB_TOKEN is host-agnostic, and detection runs on mount, so an
-      // authored `host`/`instanceUrl` prop could otherwise make us POST the
-      // user's token to an arbitrary origin with no interaction. Only auto-send
-      // it to gitlab.com or a host the user has actually logged into via glab;
-      // any other host requires the explicit PAT flow.
-      const { hosts } = await runtime.runPromise(detectConfigHosts())
-      if (!isEnvTokenHostAllowed(host, hosts)) {
-        return { found: false as const }
-      }
-
-      const result = await runValidation(validateToken(token, baseUrl))
-      if (!result.ok) {
-        return {
-          found: true as const,
-          valid: false as const,
-          token,
-          tokenType,
-          error: result.message,
-          status: result.status,
-          host,
-        }
-      }
-
-      const { user, scopes } = result.value
-      // Inject the token + its host into the session environment (mirrors
-      // github.ts) so git operations can resolve the right credential.
-      await runtime.runPromise(
-        sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_HOST: host }),
-      )
 
       return {
-        found: true as const,
-        valid: true as const,
-        token,
-        user,
-        scopes,
-        tokenType,
-        host,
+        ...toDetectionIpcResult(result, host),
+        ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
+        ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
       }
     },
   )
@@ -151,52 +264,34 @@ export function registerGitLabHandlers(): void {
   ipcMain.handle(
     "gitlab:cli-credentials",
     async (_event, params: { host?: string; instanceUrl?: string } = {}) => {
-      // Resolve which host to detect: a manually-entered instance URL wins over
-      // the picked host; otherwise fall back to glab's own default host.
-      const { defaultHost } = await runtime.runPromise(detectConfigHosts())
+      // No requested host → fall back to glab's own default. Always an origin
+      // (contract).
       const requested = params.instanceUrl ?? params.host
-      const host = requested
-        ? new URL(normalizeGitLabBaseUrl(requested)).host
-        : defaultHost
-      const baseUrl = normalizeGitLabBaseUrl(host)
-
-      // `glab auth token` refreshes OAuth tokens, but it returns only glab's
-      // DEFAULT host's token and (in current glab versions) cannot target a host
-      // when several are configured. So only trust it for the default host;
-      // every other host reads glab's config.yml directly, where `glab auth
-      // login` stores the per-host token. config.yml is also the fallback when
-      // the `glab` binary is not on PATH.
-      const cliToken =
-        host === defaultHost
-          ? await runtime.runPromise(detectCliCredentials())
-          : undefined
-      const token =
-        cliToken ?? (await runtime.runPromise(detectConfigCredentials(host)))
-      if (!token) {
-        return { found: false as const }
-      }
-
-      const tokenType = detectTokenType(token)
-
-      const result = await runValidation(validateToken(token, baseUrl))
-      if (!result.ok) {
-        return {
-          found: true as const,
-          tokenType,
-          error: result.message,
-          status: result.status,
-          host,
-        }
-      }
-
-      const { user, scopes } = result.value
-      // Inject the token + its host into the session environment so git
-      // operations (e.g. git:clone) can resolve it server-side.
-      await runtime.runPromise(
-        sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_HOST: host }),
+      const { baseUrl: instance, host } = resolveGitLabInstance(
+        requested || (await withVcs((vcs) => vcs.enumerateGitLabHosts())).defaultHost,
       )
 
-      return { found: true as const, token, user, scopes, tokenType, host }
+      const result = await withTlsOrchestration({
+        provider: "gitlab",
+        host,
+        detect: () => withVcs((vcs) => vcs.detectGitLabCli(instance)),
+      })
+
+      let sessionEnvWarning: string | undefined
+      if (result.outcome === "valid" && result.token) {
+        sessionEnvWarning = await appendSessionEnvAndRecord("gitlab", host, result.source, {
+          GITLAB_TOKEN: result.token,
+          GITLAB_HOST: host,
+          ...(result.user ? { GITLAB_USER: result.user.login } : {}),
+        })
+        setLastSelectedGitLabHost(host)
+      }
+
+      return {
+        ...toDetectionIpcResult(result, host),
+        ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
+        ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
+      }
     },
   )
 

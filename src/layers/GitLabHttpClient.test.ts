@@ -28,13 +28,17 @@ const validate = (token: string, host?: string) =>
   }).pipe(Effect.provide(GitLabHttpClientLive))
 
 describe("GitLabHttpClient.validateToken", () => {
-  it("maps username->login and reads PAT scopes from /personal_access_tokens/self", async () => {
-    let userToken: string | null = null
-    let patSelfToken: string | null = null
+  it("validates Bearer-FIRST in a single round trip and reads PAT scopes from /personal_access_tokens/self", async () => {
+    let userAuth: string | null = null
+    let userPrivateToken: string | null = null
+    let patSelfAuth: string | null = null
+    let userCalls = 0
     mockFetch((url, init) => {
       const headers = new Headers(init?.headers)
       if (url.endsWith("/api/v4/user")) {
-        userToken = headers.get("PRIVATE-TOKEN")
+        userCalls++
+        userAuth = headers.get("Authorization")
+        userPrivateToken = headers.get("PRIVATE-TOKEN")
         return json({
           username: "tanuki",
           name: "Tanuki Example",
@@ -43,7 +47,7 @@ describe("GitLabHttpClient.validateToken", () => {
         })
       }
       if (url.endsWith("/api/v4/personal_access_tokens/self")) {
-        patSelfToken = headers.get("PRIVATE-TOKEN")
+        patSelfAuth = headers.get("Authorization")
         return json({ scopes: ["api", "write_repository"] })
       }
       return new Response("not found", { status: 404 })
@@ -51,8 +55,12 @@ describe("GitLabHttpClient.validateToken", () => {
 
     const result = await Effect.runPromise(validate("glpat-abc"))
 
-    expect(userToken!).toBe("glpat-abc")
-    expect(patSelfToken!).toBe("glpat-abc")
+    // Bearer-first: one round trip, no PRIVATE-TOKEN attempt.
+    expect(userAuth!).toBe("Bearer glpat-abc")
+    expect(userPrivateToken).toBeNull()
+    expect(userCalls).toBe(1)
+    // PAT introspection authenticates with the scheme that validated (Bearer).
+    expect(patSelfAuth!).toBe("Bearer glpat-abc")
     expect(result.user).toEqual({
       login: "tanuki",
       name: "Tanuki Example",
@@ -62,8 +70,8 @@ describe("GitLabHttpClient.validateToken", () => {
     expect(result.scopes).toEqual(["api", "write_repository"])
   })
 
-  it("falls back to Bearer for OAuth tokens and reads scopes from /oauth/token/info", async () => {
-    // PRIVATE-TOKEN rejects OAuth tokens (401); Bearer accepts them.
+  it("validates OAuth-shaped tokens on the first round trip (Bearer) and reads scopes from /oauth/token/info", async () => {
+    // PRIVATE-TOKEN rejects OAuth tokens; Bearer-first means they never see a 401.
     const calls: string[] = []
     let infoAuth: string | null = null
     mockFetch((url, init) => {
@@ -87,17 +95,72 @@ describe("GitLabHttpClient.validateToken", () => {
     expect(result.user.login).toBe("odgrim")
     expect(result.scopes).toEqual(["read_user", "write_repository", "api"])
     expect(infoAuth!).toBe("Bearer oauth-token-xyz")
-    // /user is tried twice (PRIVATE-TOKEN, then Bearer), then introspection.
-    expect(calls.filter((u) => u.endsWith("/api/v4/user"))).toHaveLength(2)
+    // Bearer-first: /user succeeds on the single Bearer attempt.
+    expect(calls.filter((u) => u.endsWith("/api/v4/user"))).toHaveLength(1)
   })
 
-  it("does not retry with Bearer on 403 (insufficient scope, not a wrong scheme)", async () => {
-    // A 403 means the token authenticated but lacks scope to read /user; retrying
-    // with Bearer (same token/scopes) can't help, so it must fail fast.
-    let bearerAttempted = false
+  it("falls back to /personal_access_tokens/self for a custom-prefix PAT (admin-configured, non-glpat)", async () => {
+    // Self-managed instances can set a custom PAT prefix: the token validates
+    // via Bearer but is NOT an OAuth token, so /oauth/token/info 401s — scope
+    // introspection must fall back to the PAT endpoint, keeping the
+    // write_repository warning armed for read-only tokens.
+    const calls: string[] = []
     mockFetch((url, init) => {
       const headers = new Headers(init?.headers)
-      if (headers.get("Authorization")?.startsWith("Bearer")) bearerAttempted = true
+      calls.push(url)
+      if (url.endsWith("/api/v4/user")) {
+        return json({ username: "corp-user" })
+      }
+      if (url.endsWith("/oauth/token/info")) {
+        return new Response("401 Unauthorized", { status: 401 })
+      }
+      if (url.endsWith("/api/v4/personal_access_tokens/self")) {
+        expect(headers.get("Authorization")).toBe("Bearer corp-prefix-abc123")
+        return json({ scopes: ["read_api"] })
+      }
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(validate("corp-prefix-abc123"))
+
+    expect(result.user.login).toBe("corp-user")
+    expect(result.scopes).toEqual(["read_api"])
+    expect(calls.some((u) => u.endsWith("/api/v4/personal_access_tokens/self"))).toBe(true)
+  })
+
+  it("retries once with PRIVATE-TOKEN on 401 for old self-hosted instances", async () => {
+    let userCalls = 0
+    let patSelfPrivateToken: string | null = null
+    mockFetch((url, init) => {
+      const headers = new Headers(init?.headers)
+      if (url.endsWith("/api/v4/user")) {
+        userCalls++
+        // This old instance only understands PRIVATE-TOKEN.
+        if (headers.get("PRIVATE-TOKEN") === "glpat-old") return json({ username: "legacy" })
+        return new Response("401 Unauthorized", { status: 401 })
+      }
+      if (url.endsWith("/api/v4/personal_access_tokens/self")) {
+        patSelfPrivateToken = headers.get("PRIVATE-TOKEN")
+        return json({ scopes: ["api"] })
+      }
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(validate("glpat-old"))
+
+    expect(result.user.login).toBe("legacy")
+    expect(userCalls).toBe(2) // Bearer, then the PRIVATE-TOKEN retry
+    // Introspection authenticates with the scheme that validated (private).
+    expect(patSelfPrivateToken!).toBe("glpat-old")
+  })
+
+  it("does not retry with PRIVATE-TOKEN on 403 (insufficient scope, not a wrong scheme)", async () => {
+    // A 403 means the token authenticated but lacks scope to read /user; retrying
+    // with another scheme (same token/scopes) can't help, so it must fail fast.
+    let privateAttempted = false
+    mockFetch((url, init) => {
+      const headers = new Headers(init?.headers)
+      if (headers.get("PRIVATE-TOKEN") !== null) privateAttempted = true
       if (url.endsWith("/api/v4/user")) {
         return new Response("403 Forbidden", { status: 403 })
       }
@@ -111,7 +174,25 @@ describe("GitLabHttpClient.validateToken", () => {
       expect(result.left).toBeInstanceOf(GitLabApiError)
       expect(result.left.status).toBe(403)
     }
-    expect(bearerAttempted).toBe(false)
+    expect(privateAttempted).toBe(false)
+  })
+
+  it("classifies a transport trust failure as kind 'tls' with status 0 — never an auth failure", async () => {
+    // The undici global-fetch rejection shape: TypeError("fetch failed") with
+    // the OpenSSL code on .cause.
+    const cause = Object.assign(new Error("unable to verify the first certificate"), {
+      code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    })
+    globalThis.fetch = (() => Promise.reject(new TypeError("fetch failed", { cause }))) as unknown as typeof fetch
+
+    const result = await Effect.runPromise(Effect.either(validate("glpat-abc")))
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(GitLabApiError)
+      expect(result.left.status).toBe(0)
+      expect(result.left.kind).toBe("tls")
+    }
   })
 
   it("still validates when scope introspection is unavailable", async () => {

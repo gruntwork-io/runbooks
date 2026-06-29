@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Stub gh shim (vcs-auth-v2-design.md §9): prepended to PATH in tests so the
+# app's gh interactions are deterministic. Scripted via env vars:
+#
+#   GH_STUB_TOKEN        token printed by `auth token` (exit 0). Empty/unset →
+#                        exit 1 + "no oauth token found" on stderr.
+#   GH_STUB_STATE_FILE   when set and the file exists, its first line OVERRIDES
+#                        GH_STUB_TOKEN — lets a test flip the stub from
+#                        logged-out to logged-in mid-session (Check again).
+#   GH_STUB_SCOPES       scopes list for `auth status` (default "'repo'").
+#   GH_STUB_API_BODY     JSON body for `api user` (exit 0 when set).
+#   GH_STUB_LOG          when set, every invocation's argv is appended here
+#                        (argv-pinning assertions).
+set -u
+
+if [ -n "${GH_STUB_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$GH_STUB_LOG"
+fi
+
+token="${GH_STUB_TOKEN:-}"
+if [ -n "${GH_STUB_STATE_FILE:-}" ] && [ -f "$GH_STUB_STATE_FILE" ]; then
+  token="$(head -n1 "$GH_STUB_STATE_FILE")"
+fi
+
+case "${1:-} ${2:-}" in
+  "version ")
+    echo "gh version 2.40.1 (2023-12-13)"
+    exit 0
+    ;;
+  "auth token")
+    if [ -n "$token" ]; then
+      echo "$token"
+      exit 0
+    fi
+    echo "no oauth token found" >&2
+    exit 1
+    ;;
+  "auth status")
+    if [ -n "$token" ]; then
+      {
+        echo "github.com"
+        echo "  ✓ Logged in to github.com account stub-user (keyring)"
+        echo "  - Token scopes: ${GH_STUB_SCOPES:-'repo'}"
+      } >&2
+      exit 0
+    fi
+    echo "You are not logged into any GitHub hosts." >&2
+    exit 1
+    ;;
+  "api user")
+    if [ -n "${GH_STUB_API_BODY:-}" ]; then
+      echo "HTTP/2.0 200 OK"
+      echo "X-Oauth-Scopes: ${GH_STUB_SCOPES:-repo}"
+      echo ""
+      echo "$GH_STUB_API_BODY"
+      exit 0
+    fi
+    echo "gh: Bad credentials (HTTP 401)" >&2
+    exit 1
+    ;;
+  *)
+    echo "gh stub: unhandled command: $*" >&2
+    exit 1
+    ;;
+esac

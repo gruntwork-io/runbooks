@@ -69,8 +69,9 @@ export interface ProviderConfig {
     /** Label shown for an unrecognized token type. */
     unknownTokenLabel: string
   }
-  /** CLI auto-detection copy. */
-  cli: { label: string; loginCmd: string }
+  /** CLI auto-detection copy. `binary` is the CLI's executable name, which
+   *  doubles as the vcs:cli-status result key (gh / glab). */
+  cli: { label: string; loginCmd: string; binary: 'gh' | 'glab' }
   defaultOAuthScopes: string[]
   defaultInstructionScopes: string[]
 }

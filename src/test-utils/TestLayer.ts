@@ -56,7 +56,6 @@ const makeStubAwsClient = (overrides: Partial<AwsClientShape> = {}): AwsClientSh
 const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHubClientShape => ({
   validateToken: (_token) =>
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "validateToken") })),
-  detectTokenType: (_token) => "unknown" as const,
   startOAuthDeviceFlow: (_clientId, _scopes) =>
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "startOAuthDeviceFlow") })),
   pollOAuthToken: (_clientId, _deviceCode) =>

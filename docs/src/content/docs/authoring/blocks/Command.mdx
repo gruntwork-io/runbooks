@@ -2,7 +2,7 @@
 title: <Command>
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, FileTree } from '@astrojs/starlight/components';
 
 The `<Command>` block executes shell commands or scripts with variable substitution. It's used for performing operations like deployments, resource creation, and system configuration.
 
@@ -412,13 +412,15 @@ echo '{"env": "production"}' > "$GENERATED_FILES/config/settings.json"
 
 This creates:
 
-```
-generated/
-├── opentofu/
-│   └── outputs.json
-└── config/
-    └── settings.json
-```
+<FileTree>
+
+- generated/
+  - opentofu/
+    - outputs.json
+  - config/
+    - settings.json
+
+</FileTree>
 
 #### How It Works
 

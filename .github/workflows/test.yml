@@ -51,6 +51,9 @@ jobs:
       - name: Run web unit tests
         run: just test-web
 
+      - name: Run TLS integration tests (Node runner)
+        run: just test-integration
+
   test-build:
     name: Build Verification
     runs-on: ubuntu-latest

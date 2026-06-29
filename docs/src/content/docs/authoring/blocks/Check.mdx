@@ -2,6 +2,8 @@
 title: <Check>
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 The `<Check>` block validates a user's system state by running shell commands or scripts. It's used to ensure that users have the right tools installed and their environment is properly configured before proceeding.
 
 ## Basic Usage
@@ -416,14 +418,16 @@ aws configure list > "$GENERATED_FILES/diagnostics/aws-config.txt"
 
 This creates:
 
-```
-generated/
-├── diagnostics/
-│   ├── caller-identity.json
-│   └── aws-config.txt
-└── config/
-    └── ...
-```
+<FileTree>
+
+- generated/
+  - diagnostics/
+    - caller-identity.json
+    - aws-config.txt
+  - config/
+    - ...
+
+</FileTree>
 
 #### How It Works
 

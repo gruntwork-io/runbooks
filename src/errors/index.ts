@@ -51,16 +51,31 @@ export class AwsSsoError extends Data.TaggedError("AwsSsoError")<{
   readonly cause?: unknown
 }> {}
 
+/**
+ * Transport-failure classification for VCS API errors, set by
+ * classifyTlsError (src/domain/tls/system-ca.ts). Present only
+ * when the failure happened below HTTP (no response was received):
+ *  - "tls": trust-store-fixable verification failure (custom/unknown CA)
+ *  - "server-cert": the server's own certificate is bad (expired, or issued
+ *    for a different hostname) — installing a CA cannot fix it
+ *  - "network": DNS / connect / timeout
+ * An HTTP 401/403 is an auth outcome and never carries a kind — this split is
+ * what keeps a transport failure from ever rendering as invalid credentials.
+ */
+export type VcsTransportErrorKind = "tls" | "server-cert" | "network"
+
 // GitHub
 export class GitHubApiError extends Data.TaggedError("GitHubApiError")<{
   readonly status: number
   readonly message: string
+  readonly kind?: VcsTransportErrorKind
 }> {}
 
 // GitLab
 export class GitLabApiError extends Data.TaggedError("GitLabApiError")<{
   readonly status: number
   readonly message: string
+  readonly kind?: VcsTransportErrorKind
 }> {}
 
 // Git
@@ -68,6 +83,16 @@ export class GitError extends Data.TaggedError("GitError")<{
   readonly command: string
   readonly stderr: string
   readonly exitCode: number
+}> {}
+
+/**
+ * Failure of a provider-CLI interaction (the validation probe and other
+ * gh/glab subprocess work). `stderr` must be sanitized (redacted) before it
+ * crosses IPC or hits a log.
+ */
+export class VcsCliError extends Data.TaggedError("VcsCliError")<{
+  readonly kind: "not-installed" | "not-authenticated" | "keyring-blocked" | "spawn" | "timeout" | "api"
+  readonly stderr: string
 }> {}
 
 // Boilerplate

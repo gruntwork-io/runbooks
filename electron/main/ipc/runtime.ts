@@ -7,6 +7,7 @@
  */
 import { Effect, ManagedRuntime } from "effect"
 import { AppLive } from "../../../src/layers/AppLayer.ts"
+import { DEFAULT_GITLAB_HOST } from "../../../src/domain/gitlab/auth.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { FileManifestStore, getManifestStore } from "../../../src/domain/files/manifest.ts"
@@ -27,6 +28,15 @@ export const sessionManager = new SessionManager()
 
 /** Which git platform a token belongs to. The auth block establishes this. */
 export type GitProvider = "github" | "gitlab"
+
+/**
+ * Main-only provenance metadata for the current session credential:
+ * which host and source the
+ * provider's session token came from. Drives the stale-session warning (a
+ * second GitLab block replacing the single GITLAB_TOKEN/GITLAB_HOST pair)
+ * and support diagnostics. Never holds tokens.
+ */
+export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: string }>()
 
 /**
  * Resolve an auth token for a git PROVIDER from the current session's
@@ -66,6 +76,29 @@ export const getSessionTokenForProvider = <E>(provider: GitProvider, onMissing: 
  */
 export const getSessionToken = <E>(onMissing: () => E) =>
   getSessionTokenForProvider("github", onMissing)
+
+/**
+ * Host-bound variant of getSessionTokenForProvider for callers whose target
+ * host comes from UNTRUSTED input (a remote runbook URL): the session
+ * credential is released only for the host the auth block established it for
+ * (binding — github.com, or the GITLAB_HOST written alongside the token).
+ */
+export const getSessionTokenForHost = <E>(
+  provider: GitProvider,
+  host: string,
+  onMissing: () => E,
+) =>
+  Effect.gen(function* () {
+    const session = yield* sessionManager.getSession()
+    const boundHost =
+      provider === "gitlab"
+        ? (session.env.get("GITLAB_HOST") ?? DEFAULT_GITLAB_HOST).toLowerCase()
+        : "github.com"
+    if (host.trim().toLowerCase() !== boundHost) {
+      return yield* Effect.fail(onMissing())
+    }
+    return yield* getSessionTokenForProvider(provider, onMissing)
+  })
 
 /** Executable registry -- populated when a runbook is loaded. */
 export let executableRegistry: ExecutableRegistry | null = null

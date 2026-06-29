@@ -3,10 +3,9 @@
  *
  * Handles OpenTofu-style git:: URLs, GitHub/GitLab shorthand, and browser URLs.
  */
-import { Effect, Stream, pipe } from "effect"
+import { Effect, Stream } from "effect"
 import { ProcessSpawner } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
-import { Environment } from "./services/Environment.ts"
 import { RemoteSourceError } from "./errors/index.ts"
 import { gitSpawnEnv } from "./domain/git/env.ts"
 import { isGitLabHost } from "./domain/git/gitlab-host.ts"
@@ -310,68 +309,3 @@ export function adjustBlobPath(parsed: ParsedRemoteSource): ParsedRemoteSource {
   const adjustedPath = lastSlash > 0 ? parsed.path.substring(0, lastSlash) : undefined
   return { ...parsed, path: adjustedPath, isBlobURL: false }
 }
-
-// ---------------------------------------------------------------------------
-// getTokenForHost
-// ---------------------------------------------------------------------------
-
-/**
- * Returns an auth token for the given git host.
- *
- * GitHub: checks GITHUB_TOKEN -> GH_TOKEN -> `gh auth token`
- * GitLab (gitlab.com or a self-hosted host recognizable by name):
- *   checks GITLAB_TOKEN -> `glab auth token`
- */
-export const getTokenForHost = (
-  host: string,
-): Effect.Effect<string | undefined, never, Environment | ProcessSpawner> =>
-  Effect.gen(function* () {
-    const env = yield* Environment
-    const spawner = yield* ProcessSpawner
-
-    if (host === "github.com") {
-      const ghToken = (yield* env.get("GITHUB_TOKEN")) ?? (yield* env.get("GH_TOKEN"))
-      if (ghToken) return ghToken
-
-      return yield* pipe(
-        tryCliToken(spawner, "gh", ["auth", "token"]),
-        Effect.orElseSucceed(() => undefined),
-      )
-    }
-
-    // GITLAB_TOKEN is keyed by provider, so it serves any GitLab host —
-    // gitlab.com or a self-hosted instance recognizable by name.
-    if (isGitLabHost(host)) {
-      const glToken = yield* env.get("GITLAB_TOKEN")
-      if (glToken) return glToken
-
-      return yield* pipe(
-        tryCliToken(spawner, "glab", ["auth", "token"]),
-        Effect.orElseSucceed(() => undefined),
-      )
-    }
-
-    return undefined
-  })
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const tryCliToken = (
-  spawner: ProcessSpawner["Type"],
-  command: string,
-  args: string[],
-): Effect.Effect<string | undefined> =>
-  Effect.gen(function* () {
-    const proc = yield* Effect.orElseSucceed(spawner.spawn(command, args), () => undefined)
-    if (!proc) return undefined
-
-    let token = ""
-    yield* Stream.runForEach(proc.output, (line) => {
-      if (line.source === "stdout") token += line.line.trim()
-      return Effect.void
-    })
-    const code = yield* proc.exitCode
-    return code === 0 && token ? token : undefined
-  }).pipe(Effect.orElseSucceed(() => undefined))
