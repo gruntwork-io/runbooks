@@ -115,9 +115,25 @@ jobs:
           just fetch-boilerplate darwin arm64
           mise x node -- npx electron-builder --mac --arm64 --publish never
 
+          # Preserve the arm64 auto-update manifest: the x64 pass below rewrites
+          # latest-mac.yml from scratch with only its own artifacts (electron-
+          # builder only merges manifests when publishing, and we use
+          # `--publish never`), so without this the arm64 entries are lost.
+          cp out/latest-mac.yml out/latest-mac-arm64.yml
+
           # x64 pass (boilerplate arch amd64). Cross-built on the arm64 runner.
           just fetch-boilerplate darwin amd64
           mise x node -- npx electron-builder --mac --x64 --publish never
+
+          # Merge the arm64 entries back into the now-x64-only latest-mac.yml so
+          # the published manifest lists both arches. electron-updater picks the
+          # arch by scanning files[] for an "arm64" url; an arch-incomplete
+          # manifest serves arm64 Macs the x64 build (which then runs under
+          # Rosetta). arm64 first so the legacy top-level path/sha512 match a
+          # single both-arch build.
+          mise x node -- node .github/scripts/release/merge-mac-latest.mjs \
+            out/latest-mac.yml out/latest-mac-arm64.yml out/latest-mac.yml
+          rm -f out/latest-mac-arm64.yml
 
       # Fail the build loudly if any artifact is corrupt, instead of shipping a
       # bad file with a matching checksum (the original failure mode).
