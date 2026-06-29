@@ -334,7 +334,10 @@ test("github: logged-out gh → manual UI with hint; Check again re-detects with
 
 test("github: gh absent → install hint, OAuth tab still present", async () => {
   const { app, window } = await launchApp(GITHUB_RUNBOOK, {
-    PATH: "/usr/bin:/bin", // no gh anywhere
+    // An EMPTY dir — not "/usr/bin:/bin" — so gh/glab are guaranteed absent.
+    // CI runners (GitHub Actions ubuntu) ship gh in /usr/bin, which would make
+    // cli-status report it installed and flip the hint to "run 'gh auth login'".
+    PATH: makeTempDir("rb-no-cli-"),
     GH_CONFIG_DIR: makeTempDir("rb-gh-empty-"), // a real ~/.config/gh must not leak in
   })
   try {
