@@ -8,7 +8,6 @@ import { AutoAuthInfo } from "./AutoAuthInfo"
 
 interface OAuthFlowProps {
   authStatus: GitAuthStatus
-  effectiveClientId: string
   userCode: string | null
   verificationUri: string | null
   onStartOAuth: () => void
@@ -18,7 +17,6 @@ interface OAuthFlowProps {
 
 export function OAuthFlow({
   authStatus,
-  effectiveClientId,
   userCode,
   verificationUri,
   onStartOAuth,
@@ -32,17 +30,6 @@ export function OAuthFlow({
 
   const copyUserCode = () => {
     if (userCode) void doCopy(userCode)
-  }
-
-  if (!effectiveClientId) {
-    return (
-      <div className="text-destructive text-sm flex items-start gap-2">
-        <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-        <div>
-          No OAuth client ID configured. Add <code className="bg-destructive-muted px-1 rounded">oauthClientId</code> prop or configure a default client ID.
-        </div>
-      </div>
-    )
   }
 
   return (

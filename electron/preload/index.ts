@@ -12,6 +12,8 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "github:validate", "github:oauth-start", "github:oauth-poll", "github:env-credentials",
   "github:cli-credentials", "github:orgs", "github:repos", "github:refs", "github:labels",
   "gitlab:validate", "gitlab:env-credentials", "gitlab:cli-credentials", "gitlab:labels", "gitlab:enumerate-hosts",
+  "gitlab:host-picked",
+  "vcs:cli-status", "vcs:invalidate-cache", "vcs:apply-git-schannel",
   "git:clone", "git:push", "git:pull-request", "git:merge-request", "git:delete-branch",
   "workspace:tree", "workspace:dirs", "workspace:file", "workspace:changes",
   "workspace:register", "workspace:set-active",
@@ -34,6 +36,7 @@ const ALLOWED_EVENT_CHANNELS: Set<string> = new Set<EventChannel>([
   "menu:close-runbook",
   "menu:preferences",
   "registry:updated",
+  "vcs:session-changed",
 ])
 
 export interface TypedApi {

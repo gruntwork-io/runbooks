@@ -74,6 +74,16 @@ export function createMainWindow(): BrowserWindow {
   // MDX runtime compiler requires dynamic code evaluation.
   if (!process.env.ELECTRON_RENDERER_URL) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      // Decorate only the app's own file:// frames — this handler sees every
+      // response on the default session, including any future main-process
+      // traffic riding it.
+      const isAppFrame =
+        (details.resourceType === "mainFrame" || details.resourceType === "subFrame") &&
+        details.url.startsWith("file://")
+      if (!isAppFrame) {
+        callback({ responseHeaders: details.responseHeaders })
+        return
+      }
       callback({
         responseHeaders: {
           ...details.responseHeaders,

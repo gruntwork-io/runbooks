@@ -71,7 +71,7 @@ export const githubProviderConfig: ProviderConfig = {
     showFineGrainedNote: true,
     unknownTokenLabel: 'Token',
   },
-  cli: { label: 'GitHub CLI', loginCmd: 'gh auth login' },
+  cli: { label: 'GitHub CLI', loginCmd: 'gh auth login', binary: 'gh' },
   defaultOAuthScopes: ['repo'],
   defaultInstructionScopes: ['repo'],
 }

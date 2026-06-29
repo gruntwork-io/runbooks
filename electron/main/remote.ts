@@ -8,16 +8,17 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Effect } from "effect"
-import { runtime } from "./ipc/runtime.ts"
+import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
 import {
   parseRemoteSource,
   needsRefResolution,
   resolveRef,
   adjustBlobPath,
-  getTokenForHost,
 } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
 import { GitClient } from "../../src/services/GitClient.ts"
+import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
+import { RemoteSourceError } from "../../src/errors/index.ts"
 import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import { makeLogger } from "./logger.ts"
@@ -47,7 +48,10 @@ export function isRemoteURL(input: string): boolean {
 
 /**
  * Returns true if a git stderr string looks like an authentication failure.
- * Used by classifyCloneError to surface a host-specific token hint.
+ * Golang-parity semantics (beta-v0.9.0 cmd/remote_open.go isAuthError —
+ * note that an HTTP 404 / "repository not found" IS an auth signal: private
+ * repos present as 404 to unauthenticated clients), plus a few extra
+ * patterns git emits on this side.
  */
 export function isAuthError(stderr: string): boolean {
   if (!stderr) return false
@@ -56,6 +60,9 @@ export function isAuthError(stderr: string): boolean {
     lower.includes("authentication failed") ||
     lower.includes("could not read username") ||
     lower.includes("could not read password") ||
+    lower.includes("http 404") ||
+    lower.includes("repository not found") ||
+    lower.includes("fatal: could not read") ||
     lower.includes("403") ||
     lower.includes("401") ||
     lower.includes("invalid credentials") ||
@@ -66,20 +73,34 @@ export function isAuthError(stderr: string): boolean {
 }
 
 /**
- * Returns a host-specific hint for which env var to set for authentication.
- * Falls back to a generic message for hosts we don't special-case.
+ * Host-specific auth hints — golang parity (beta-v0.9.0 api.AuthHintForHost):
+ * the env-var remedy and the CLI login command for a host, or undefined for
+ * hosts we don't special-case. Hostname matching is case-insensitive.
+ *
+ * For a self-hosted GitLab host the env remedy names BOTH halves: per the
+ * binding, GITLAB_TOKEN alone is only ever released to GITLAB_HOST's
+ * instance (default gitlab.com), so "set GITLAB_TOKEN" without the binding
+ * would advise a no-op.
  */
-export function authHintForHost(host: string): string {
-  if (host === "github.com") {
-    return "GitHub authentication failed. Your token may be expired or missing the `repo` scope. Try setting GITHUB_TOKEN, or run `gh auth login`."
+export function authHintForHost(
+  host: string,
+): { envRemedy: string; cliCmd: string } | undefined {
+  const lower = host.toLowerCase()
+  if (lower === "github.com") {
+    return { envRemedy: "GITHUB_TOKEN", cliCmd: "gh auth login" }
   }
-  if (isGitLabHost(host)) {
-    return `GitLab authentication failed for ${host}. Set GITLAB_TOKEN, or run \`glab auth login${host === "gitlab.com" ? "" : ` --hostname ${host}`}\`.`
+  if (isGitLabHost(lower)) {
+    return lower === "gitlab.com"
+      ? { envRemedy: "GITLAB_TOKEN", cliCmd: "glab auth login" }
+      : {
+          envRemedy: `GITLAB_TOKEN and GITLAB_HOST=${lower}`,
+          cliCmd: `glab auth login --hostname ${lower}`,
+        }
   }
-  return `Authentication failed for ${host}. Set the appropriate access-token environment variable for that host.`
+  return undefined
 }
 
-export type CloneErrorKind = "auth" | "not-found" | "network" | "unknown"
+export type CloneErrorKind = "auth" | "network" | "unknown"
 
 export interface ClassifiedCloneError {
   readonly kind: CloneErrorKind
@@ -87,28 +108,40 @@ export interface ClassifiedCloneError {
 }
 
 /**
- * Classify a git clone failure into a coarse kind with a user-facing hint.
- * Inputs are the host (so the hint can name the right env var) and the raw
- * git stderr.
+ * Classify a git clone failure into a user-facing message. The auth-case
+ * strings are golang contracts (beta-v0.9.0 cmd/remote_open.go
+ * classifyCloneError, pinned by the ported tests):
+ *   no token:   authentication required for <host>/<owner>/<repo>: set <VAR>, or run '<cmd>'
+ *   with token: authentication failed for <repo> (token may be invalid or
+ *               expired): verify <VAR>, or re-run '<cmd>'
  */
-export function classifyCloneError(
-  host: string,
-  stderr: string,
-): ClassifiedCloneError {
+export function classifyCloneError(opts: {
+  host: string
+  owner: string
+  repo: string
+  stderr: string
+  hadToken: boolean
+}): ClassifiedCloneError {
+  const { host, owner, repo, stderr, hadToken } = opts
   if (isAuthError(stderr)) {
-    return { kind: "auth", hint: authHintForHost(host) }
-  }
-  const lower = (stderr ?? "").toLowerCase()
-  if (
-    lower.includes("repository not found") ||
-    lower.includes("not found") ||
-    lower.includes("does not exist")
-  ) {
+    const repoPath = `${host}/${owner}/${repo}`
+    const hints = authHintForHost(host)
+    if (!hadToken) {
+      return {
+        kind: "auth",
+        hint: hints
+          ? `authentication required for ${repoPath}: set ${hints.envRemedy}, or run '${hints.cliCmd}'`
+          : `authentication required for ${repoPath}: provide an access token for ${host}`,
+      }
+    }
     return {
-      kind: "not-found",
-      hint: `Could not find the repository on ${host}. Check the URL and your access permissions.`,
+      kind: "auth",
+      hint: hints
+        ? `authentication failed for ${repoPath} (token may be invalid or expired): verify ${hints.envRemedy}, or re-run '${hints.cliCmd}'`
+        : `authentication failed for ${repoPath} (token may be invalid or expired)`,
     }
   }
+  const lower = (stderr ?? "").toLowerCase()
   if (
     lower.includes("could not resolve host") ||
     lower.includes("connection refused") ||
@@ -123,8 +156,7 @@ export function classifyCloneError(
   }
   return {
     kind: "unknown",
-    hint:
-      "Clone failed. See the error output for details. If this looks like an auth issue, set the appropriate access-token env var for your git host.",
+    hint: `failed to download runbook: ${stderr || "unknown error"}`,
   }
 }
 
@@ -181,9 +213,25 @@ export async function resolveRemoteRunbook(
       log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path })
 
       // Get auth token early — needed for both resolveRef (git ls-remote)
-      // and the clone itself.
+      // and the clone itself. Session env first (a token established by
+      // a GitAuth block is reused), then the unified VcsCredentials resolver.
       log.info("Getting auth token...")
-      const token = yield* getTokenForHost(parsed.host)
+      const provider =
+        parsed.host.toLowerCase() === "github.com"
+          ? ("github" as const)
+          : isGitLabHost(parsed.host)
+            ? ("gitlab" as const)
+            : undefined
+      // Host-bound: the session token is released only to the host the
+      // auth block bound it to — `parsed.host` is attacker-controlled input,
+      // and the provider name-heuristic alone must never gate a credential.
+      const sessionToken = provider
+        ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
+            Effect.orElseSucceed(() => undefined),
+          )
+        : undefined
+      const vcs = yield* VcsCredentials
+      const token = sessionToken ?? (yield* vcs.tokenForHost(parsed.host))
       log.info("Token:", token ? "found" : "none")
       const authedCloneURL = token
         ? injectTokenIntoUrl(parsed.cloneURL, token)
@@ -209,13 +257,31 @@ export async function resolveRemoteRunbook(
       const dest = path.join(tempDir, "repo")
       log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
 
-      // Clone with sparse checkout if a subpath is specified
+      // Clone with sparse checkout if a subpath is specified. Failures get
+      // the golang-parity classification (remote-open strings).
       const git = yield* GitClient
-      yield* git.cloneSimple(parsed.cloneURL, dest, {
-        ref: parsed.ref,
-        token: token ?? undefined,
-        sparse: parsed.path,
-      })
+      yield* git
+        .cloneSimple(parsed.cloneURL, dest, {
+          ref: parsed.ref,
+          token: token ?? undefined,
+          sparse: parsed.path,
+        })
+        .pipe(
+          Effect.catchAll((err) => {
+            const stderr =
+              typeof (err as { stderr?: unknown }).stderr === "string"
+                ? (err as { stderr: string }).stderr
+                : String(err)
+            const classified = classifyCloneError({
+              host: parsed.host,
+              owner: parsed.owner,
+              repo: parsed.repo,
+              stderr,
+              hadToken: token !== undefined,
+            })
+            return Effect.fail(new RemoteSourceError({ url: rawUrl, message: classified.hint }))
+          }),
+        )
       log.info("Clone complete")
 
       // Resolve the runbook file within the clone

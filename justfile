@@ -232,15 +232,21 @@ clean:
 test: test-unit test-e2e test-runbooks test-docs
 
 # Run backend unit tests (Bun test runner)
+# test/** is excluded: test/integration/ is the Node-environment Vitest suite
+# (Bun 1.3.x has no tls.setDefaultCACertificates) — see `just test-integration`.
 test-backend:
-    mise x bun -- bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**'
+    mise x bun -- bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**' --path-ignore-patterns='test/**'
 
 # Run web unit tests (Vitest — jsdom)
 test-web:
     cd web && mise x bun -- bun install --frozen-lockfile && mise x bun -- bun run vitest run
 
+# Run TLS integration tests (Vitest — Node environment; needs APIs Bun lacks)
+test-integration:
+    mise x node -- npx vitest run --config vitest.integration.config.ts
+
 # Run all unit tests
-test-unit: test-backend test-web
+test-unit: test-backend test-web test-integration
 
 # Run Playwright E2E tests (requires build)
 test-e2e: build fetch-boilerplate

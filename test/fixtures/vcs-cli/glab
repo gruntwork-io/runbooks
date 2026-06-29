@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Stub glab shim (vcs-auth-v2-design.md §9): pins the three §2.2 exit
+# contracts, stderr routing, and env hygiene. Scripted via env vars:
+#
+#   GLAB_STUB_TOKEN           token for `config get token --host H` (contract a).
+#   GLAB_STUB_EMPTY=1         exit 0 + empty stdout (contract b: not configured).
+#   GLAB_STUB_KEYRING=1       exit 1 + "not found in keyring" stderr (contract c).
+#   GLAB_STUB_AUTH_STATUS     ok | no-token | api-failed (for `auth status`).
+#   GLAB_STUB_API_BODY        JSON body for `api user` (exit 0 when set).
+#   GLAB_STUB_STATE_FILE      first line overrides GLAB_STUB_TOKEN when present.
+#   GLAB_STUB_LOG             append argv of every invocation (argv pinning).
+#
+# Pins GLAB_CHECK_UPDATE semantics: the stub FAILS if it ever runs without
+# the §2.2 hygiene kill switches, so a regression in the child env is caught
+# by every spawn.
+set -u
+
+if [ -n "${GLAB_STUB_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$GLAB_STUB_LOG"
+fi
+
+# Pin the §2.2 hygiene env on every credential/API spawn (the version probe
+# deliberately runs without it — it never touches credentials or the network).
+# NO_PROMPT must be STRIPPED, never set: it is deprecated in glab, and real
+# glab (e.g. 1.101.0) prints a warning ON STDOUT when it is set, ahead of the
+# token/JSON payload — re-adding it corrupts every stdout parse.
+if [ "${1:-}" != "version" ]; then
+  if [ "${GLAB_CHECK_UPDATE:-}" != "false" ] || [ "${GLAB_NO_PROMPT:-}" != "true" ]; then
+    echo "glab stub: §2.2 hygiene env missing (GLAB_CHECK_UPDATE/GLAB_NO_PROMPT)" >&2
+    exit 9
+  fi
+  if [ -n "${NO_PROMPT:-}" ]; then
+    echo "glab stub: NO_PROMPT must be stripped (deprecated; warns on stdout, §2.2)" >&2
+    exit 9
+  fi
+fi
+
+token="${GLAB_STUB_TOKEN:-}"
+if [ -n "${GLAB_STUB_STATE_FILE:-}" ] && [ -f "$GLAB_STUB_STATE_FILE" ]; then
+  token="$(head -n1 "$GLAB_STUB_STATE_FILE")"
+fi
+
+case "${1:-} ${2:-}" in
+  "version ")
+    echo "glab 1.101.0"
+    exit 0
+    ;;
+  "config get")
+    if [ "${GLAB_STUB_KEYRING:-}" = "1" ]; then
+      echo "failed to get token: secret not found in keyring" >&2
+      exit 1
+    fi
+    if [ "${GLAB_STUB_EMPTY:-}" = "1" ] || [ -z "$token" ]; then
+      exit 0
+    fi
+    echo "$token"
+    exit 0
+    ;;
+  "auth status")
+    # glab puts ALL auth-status output on stderr (§2.2).
+    case "${GLAB_STUB_AUTH_STATUS:-ok}" in
+      ok)
+        echo "✓ Logged in to stub host as stub-user (oauth2)" >&2
+        exit 0
+        ;;
+      no-token)
+        echo "No token found (checked config file, keyring, and environment variables)" >&2
+        exit 1
+        ;;
+      api-failed)
+        echo "API call failed: dial tcp: lookup failed" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  "api user")
+    if [ -n "${GLAB_STUB_API_BODY:-}" ]; then
+      echo "$GLAB_STUB_API_BODY"
+      exit 0
+    fi
+    echo "glab: 401 Unauthorized" >&2
+    exit 1
+    ;;
+  *)
+    echo "glab stub: unhandled command: $*" >&2
+    exit 1
+    ;;
+esac

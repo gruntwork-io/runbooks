@@ -24,24 +24,52 @@ export const DEFAULT_GITLAB_BASE_URL = "https://gitlab.com"
  * only the origin is kept.
  */
 export function normalizeGitLabBaseUrl(input?: string | null): string {
+  return tryNormalizeGitLabBaseUrl(input) ?? DEFAULT_GITLAB_BASE_URL
+}
+
+/**
+ * Like normalizeGitLabBaseUrl, but returns undefined for empty or unparseable
+ * input instead of the gitlab.com fallback. Security-sensitive callers (the
+ * env-token host binding) must use THIS one: silently rebinding a
+ * corporate host's token to gitlab.com on a typo would transmit the token
+ * cross-origin.
+ */
+export function tryNormalizeGitLabBaseUrl(input?: string | null): string | undefined {
   const raw = (input ?? "").trim()
-  if (!raw) return DEFAULT_GITLAB_BASE_URL
+  if (!raw) return undefined
   // Reject a non-http(s) scheme rather than gluing https:// in front of it
   // (which would turn `ftp://host` into the bogus `https://ftp`).
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-  if (hasScheme && !/^https?:\/\//i.test(raw)) return DEFAULT_GITLAB_BASE_URL
+  if (hasScheme && !/^https?:\/\//i.test(raw)) return undefined
   const withScheme = hasScheme ? raw : `https://${raw}`
   try {
     const u = new URL(withScheme)
     if (u.protocol !== "http:" && u.protocol !== "https:") {
-      return DEFAULT_GITLAB_BASE_URL
+      return undefined
     }
     // Keep protocol + host (including any port); drop path/query/hash so callers
     // can append `/api/v4` etc.
     return `${u.protocol}//${u.host}`
   } catch {
-    return DEFAULT_GITLAB_BASE_URL
+    return undefined
   }
+}
+
+/** Host-only variant of tryNormalizeGitLabBaseUrl (includes any port). */
+export function tryNormalizeGitLabHost(input?: string | null): string | undefined {
+  const base = tryNormalizeGitLabBaseUrl(input)
+  return base ? new URL(base).host : undefined
+}
+
+/**
+ * Normalize a host/URL-ish instance string to a bare host (including any
+ * port), falling back to the gitlab.com host. An instance parameter may be a
+ * bare host OR a scheme-qualified origin — callers that must preserve a
+ * manually-entered `http://` scheme keep working from normalizeGitLabBaseUrl;
+ * glab-config reads, dedup keys, and user-facing copy key on the bare host.
+ */
+export function normalizeGitLabHost(input?: string | null): string {
+  return new URL(normalizeGitLabBaseUrl(input)).host
 }
 
 /** Build the `/api/v4` REST base from a GitLab origin. */

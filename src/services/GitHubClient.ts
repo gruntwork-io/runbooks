@@ -63,7 +63,6 @@ export type GitHubTokenType = "classic_pat" | "fine_grained_pat" | "oauth" | "gi
 
 export interface GitHubClientShape {
   readonly validateToken: (token: string) => Effect.Effect<GitHubTokenValidation, GitHubApiError>
-  readonly detectTokenType: (token: string) => GitHubTokenType
   readonly startOAuthDeviceFlow: (clientId: string, scopes: string[]) => Effect.Effect<DeviceFlowStart, GitHubApiError>
   readonly pollOAuthToken: (clientId: string, deviceCode: string) => Effect.Effect<OAuthPollResult, GitHubApiError>
   readonly listOrgs: (token: string) => Effect.Effect<GitHubOrg[], GitHubApiError>
