@@ -21,6 +21,8 @@ const baseExecution = {
   hasAwsAuthDependency: true,
   unmetGitHubAuthDependency: null,
   hasGitHubAuthDependency: true,
+  unmetGoogleAuthDependency: null,
+  hasGoogleAuthDependency: true,
   isRendering: false,
   renderError: null,
   status: 'pending' as string,

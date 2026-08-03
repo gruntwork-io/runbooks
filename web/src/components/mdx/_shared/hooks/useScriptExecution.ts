@@ -29,6 +29,8 @@ interface UseScriptExecutionProps {
   githubAuthId?: string
   /** Reference to a GitAuth block by ID (GitHub or GitLab). Whichever token/user vars the referenced block emitted (GITHUB_* or GITLAB_*) are passed as environment variables for this execution only. */
   gitAuthId?: string
+  /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credential path and project/region/zone vars are passed as environment variables for this execution only. */
+  googleAuthId?: string
   children?: ReactNode
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
@@ -63,11 +65,31 @@ export function checkAuthDependency(
 }
 
 /**
+ * The env vars a `googleAuthId` reference injects for one execution. Exported so
+ * the block-routing contract is asserted in one place: `GOOGLE_APPLICATION_CREDENTIALS`
+ * is the credential itself, the rest pin the project/account/region/zone that
+ * gcloud, the client libraries, and the OpenTofu `google` provider each read
+ * under a different name.
+ */
+export const GOOGLE_AUTH_ENV_KEYS = [
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GOOGLE_CLOUD_PROJECT',
+  'CLOUDSDK_CORE_PROJECT',
+  'GOOGLE_PROJECT',
+  'CLOUDSDK_CORE_ACCOUNT',
+  'GOOGLE_CLOUD_REGION',
+  'CLOUDSDK_COMPUTE_REGION',
+  'GOOGLE_REGION',
+  'CLOUDSDK_COMPUTE_ZONE',
+  'GOOGLE_ZONE',
+] as const
+
+/**
  * Pure helper: collect the given env-var keys from an auth block's outputs.
  * Returns undefined when no block is referenced, the block has no outputs, or
  * none of the requested keys have a non-empty value.
  */
-function buildAuthEnvVars(
+export function buildAuthEnvVars(
   blockId: string | undefined,
   allOutputs: Record<string, { values: Record<string, string> }>,
   keys: readonly string[],
@@ -122,7 +144,11 @@ interface UseScriptExecutionReturn {
   // GitHub Auth dependency
   unmetGitHubAuthDependency: UnmetAuthDependency | null
   hasGitHubAuthDependency: boolean
-  
+
+  // Google Cloud Auth dependency
+  unmetGoogleAuthDependency: UnmetAuthDependency | null
+  hasGoogleAuthDependency: boolean
+
   // Rendering
   isRendering: boolean
   renderError: AppError | null
@@ -155,6 +181,7 @@ export function useScriptExecution({
   awsAuthId,
   githubAuthId,
   gitAuthId,
+  googleAuthId,
   children,
   componentType,
   usePty,
@@ -356,7 +383,22 @@ export function useScriptExecution({
     [githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs]
   )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
-  
+
+  // Get Google Cloud credentials from outputs if googleAuthId is specified.
+  // Unlike AWS (which deliberately re-emits an empty AWS_SESSION_TOKEN to clear
+  // a stale one), Google has no var that must be cleared, so the generic
+  // buildAuthEnvVars — which drops empties — is the right helper here.
+  const googleAuthEnvVars = useMemo(
+    () => buildAuthEnvVars(googleAuthId, allOutputs, GOOGLE_AUTH_ENV_KEYS),
+    [googleAuthId, allOutputs]
+  )
+
+  const unmetGoogleAuthDependency = useMemo(
+    () => checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs),
+    [googleAuthId, googleAuthEnvVars, allOutputs]
+  )
+  const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
+
   // Check which output dependencies are not yet satisfied
   const unmetOutputDependencies = useMemo(
     () => computeUnmetOutputDependencies(outputDeps, allOutputs),
@@ -584,11 +626,12 @@ export function useScriptExecution({
       outputs: ctx.outputs,
     }
     
-    // Merge AWS, GitHub, and generic Git auth env vars
+    // Merge AWS, GitHub, generic Git, and Google Cloud auth env vars
     const authEnvVars = {
       ...awsAuthEnvVars,
       ...githubAuthEnvVars,
       ...gitAuthEnvVars,
+      ...googleAuthEnvVars,
     }
     const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
     
@@ -612,7 +655,7 @@ export function useScriptExecution({
       // Live reload mode: Send component ID directly
       executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, gitAuthEnvVars, usePty, timeoutMs])
+  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, gitAuthEnvVars, googleAuthEnvVars, usePty, timeoutMs])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
@@ -663,7 +706,11 @@ export function useScriptExecution({
     // GitHub Auth dependency
     unmetGitHubAuthDependency,
     hasGitHubAuthDependency,
-    
+
+    // Google Cloud Auth dependency
+    unmetGoogleAuthDependency,
+    hasGoogleAuthDependency,
+
     // Rendering
     isRendering,
     renderError,

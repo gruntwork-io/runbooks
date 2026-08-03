@@ -46,7 +46,12 @@
     "WORKTREE",
     "glab",
     "logomark",
-    "sandboxed"
+    "sandboxed",
+    "CLOUDSDK",
+    "PKCE",
+    "resourcemanager",
+    "cloudresourcemanager",
+    "gsutil"
   ],
   "ignorePaths": [
     "node_modules",

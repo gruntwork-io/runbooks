@@ -1,0 +1,426 @@
+# Google Cloud Authentication Demo
+
+This runbook demonstrates every configuration option for the `<GoogleAuth>` block. Each section explains what the configuration does and when you'd use it.
+
+The `<GoogleAuth>` block provides three manual authentication methods (a service account key, Google Sign-In, and your local `gcloud` configurations) and several automatic credential detection options. By default, it checks for existing credentials in your environment and in your Application Default Credentials, and prompts you to confirm before using them.
+
+Unlike `<AwsAuth>`, credential material never travels back to the UI. When authentication succeeds, the main process writes the credential to a private `0600` file and exports `GOOGLE_APPLICATION_CREDENTIALS` pointing at it. Every block after that -- and every Google client library, `gcloud` invocation, and OpenTofu `google` provider -- picks it up from there.
+
+---
+
+## 1. Basic Usage
+
+The simplest form of GoogleAuth. With no `detectCredentials` prop, it defaults to `['env', 'adc']`: first standard Google environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CREDENTIALS`, `GOOGLE_OAUTH_ACCESS_TOKEN`, `CLOUDSDK_AUTH_ACCESS_TOKEN`), then the well-known `application_default_credentials.json` written by `gcloud auth application-default login`. If either is found, you'll see a confirmation prompt showing the project and principal before anything is registered to the session.
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  title="Authenticate to Google Cloud"
+  project="gruntwork-runbooks-demo"
+  defaultRegion="us-central1"
+  defaultZone="us-central1-a"
+/>
+```
+
+<GoogleAuth
+  id="google-auth"
+  title="Authenticate to Google Cloud"
+  description="Choose your preferred authentication method. Your credentials will be used for subsequent Google Cloud operations in this runbook."
+  project="gruntwork-runbooks-demo"
+  defaultRegion="us-central1"
+  defaultZone="us-central1-a"
+/>
+
+<Command
+  id="verify-identity"
+  path="scripts/verify-auth.sh"
+  title="Verify Google Cloud Identity"
+  description="Mints an access token from the session credential and calls the OAuth 2.0 tokeninfo endpoint -- the `gcloud auth list` / STS `GetCallerIdentity` analogue."
+  googleAuthId="google-auth"
+  successMessage="Successfully authenticated to Google Cloud!"
+  failMessage="Failed to authenticate. Please check your credentials above."
+/>
+
+<Check
+  id="check-google-auth"
+  path="checks/verify-google-auth.sh"
+  title="Check Google Cloud Authentication"
+  description="A pass/warn/fail check over the injected session environment. Exits 2 (warning) when a credential is present but the network or `gcloud` is unavailable."
+  googleAuthId="google-auth"
+  successMessage="Google Cloud credentials are valid!"
+  warnMessage="A credential is configured, but it could not be verified against Google's APIs."
+  failMessage="No usable Google Cloud credentials in the session environment."
+/>
+
+---
+
+## 2. Credential Detection Options
+
+The `detectCredentials` prop controls how and whether GoogleAuth looks for existing credentials. It accepts `false` (to disable detection entirely) or an array of credential sources to try.
+
+Detection is always **read-only**. Nothing is written to the session and no outputs are registered until you press **Use These Credentials**.
+
+### 2a. Explicit Environment Detection
+
+This checks only the environment variables, skipping the ADC file. Use this when you want to make it clear in the runbook source that env detection is intentional.
+
+The env source looks for a credential in this order: `GOOGLE_APPLICATION_CREDENTIALS` (a path to a JSON key or ADC file), `GOOGLE_CREDENTIALS` (inline JSON), `GOOGLE_OAUTH_ACCESS_TOKEN`, `CLOUDSDK_AUTH_ACCESS_TOKEN`. The project comes from `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_PROJECT`, or `GCLOUD_PROJECT`.
+
+```mdx
+<GoogleAuth
+  id="explicit-env"
+  detectCredentials={['env']}
+  defaultRegion="us-central1"
+/>
+```
+
+<GoogleAuth
+  id="explicit-env"
+  title="Google Cloud Access (explicit env detection)"
+  description="Detects credentials from GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CREDENTIALS, or an ambient access token. You'll be prompted to confirm."
+  detectCredentials={['env']}
+  defaultRegion="us-central1"
+/>
+
+### 2b. Prefixed Environment Variables
+
+Use a custom prefix when your environment has credentials under non-standard names. This is common in CI/CD pipelines or when multiple sets of credentials coexist in the same environment.
+
+For example, the configuration below checks for: `PROD_GOOGLE_APPLICATION_CREDENTIALS`, `PROD_GOOGLE_CREDENTIALS`, `PROD_GOOGLE_OAUTH_ACCESS_TOKEN`, and `PROD_CLOUDSDK_CORE_PROJECT`.
+
+Prefixes must be uppercase alphanumeric with underscores and must end with a trailing underscore (e.g., `PROD_`, `MY_APP_`). The prefix is validated in the main process before any variable name is built.
+
+```mdx
+<GoogleAuth
+  id="prefixed-env"
+  detectCredentials={[{ env: { prefix: 'PROD_' } }]}
+  defaultRegion="us-east1"
+/>
+```
+
+<GoogleAuth
+  id="prefixed-env"
+  title="Production Credentials (prefixed env)"
+  description="Detects credentials from PROD_GOOGLE_APPLICATION_CREDENTIALS, PROD_GOOGLE_CREDENTIALS, etc."
+  detectCredentials={[{ env: { prefix: 'PROD_' } }]}
+  defaultRegion="us-east1"
+/>
+
+### 2c. Application Default Credentials
+
+The `'adc'` source reads the well-known `application_default_credentials.json` under your gcloud config root -- `~/.config/gcloud/` on macOS and Linux, `%APPDATA%\gcloud\` on Windows, or `$CLOUDSDK_CONFIG` when it is set. That file is what `gcloud auth application-default login` writes.
+
+The file is read directly; the `gcloud` binary is never invoked. It may hold either an `authorized_user` document (the usual result of a login) or a service account key -- GoogleAuth branches on the JSON's `type` field, not on the filename.
+
+```mdx
+<GoogleAuth
+  id="adc-source"
+  detectCredentials={['adc']}
+/>
+```
+
+<GoogleAuth
+  id="adc-source"
+  title="Application Default Credentials"
+  description="Reads application_default_credentials.json from your gcloud config root. Run `gcloud auth application-default login` first if this finds nothing."
+  detectCredentials={['adc']}
+/>
+
+### 2d. Active gcloud Configuration
+
+The `'gcloud'` source reads your **active** gcloud configuration (`config_default` and friends under `configurations/` in the gcloud config root) for `core.project`, `core.account`, `compute.region`, and `compute.zone`, and backs it with the same ADC file.
+
+This is the closest analogue to an AWS named profile, with one important difference: a gcloud configuration is not self-sufficient. A configuration that names a project but has no Application Default Credentials behind it is shown as **Configuration found, but no Application Default Credentials** and cannot be selected. Run `gcloud auth application-default login` to make it usable.
+
+```mdx
+<GoogleAuth
+  id="gcloud-source"
+  detectCredentials={['gcloud']}
+  gcloudConfiguration="default"
+/>
+```
+
+<GoogleAuth
+  id="gcloud-source"
+  title="Active gcloud Configuration"
+  description="Uses the project and account from your active gcloud configuration. The gcloud CLI is never invoked -- the configuration files are read directly."
+  detectCredentials={['gcloud']}
+  gcloudConfiguration="default"
+/>
+
+### 2e. Manual Only (No Auto-Detection)
+
+Set `detectCredentials={false}` to disable credential detection entirely. The user must always authenticate manually via the Service Account Key, Google Sign-In, or gcloud Config tabs.
+
+Use this when you want to ensure users consciously choose their authentication method every time, or when auto-detection would be confusing (e.g., if the environment always has credentials for the wrong project).
+
+```mdx
+<GoogleAuth
+  id="manual-only"
+  detectCredentials={false}
+  defaultRegion="us-central1"
+/>
+```
+
+<GoogleAuth
+  id="manual-only"
+  title="Manual Authentication Only"
+  description="No auto-detection. You must authenticate manually via one of the tabs below."
+  detectCredentials={false}
+  defaultRegion="us-central1"
+/>
+
+### 2f. From a Command Block
+
+Use `{ block: 'block-id' }` to consume credentials generated by a previous Command block. The Command script should write `GOOGLE_APPLICATION_CREDENTIALS` (a path), `GOOGLE_CREDENTIALS` (inline JSON), or `GOOGLE_OAUTH_ACCESS_TOKEN` / `CLOUDSDK_AUTH_ACCESS_TOKEN` to `$RUNBOOK_OUTPUT`, plus optionally `CLOUDSDK_CORE_PROJECT`.
+
+This is the service account impersonation analogue of `sts assume-role`: a short-lived access token minted for another service account via the IAM Credentials API.
+
+````mdx
+<Command
+  id="impersonate-service-account"
+  path="scripts/impersonate-sa.sh"
+  title="Impersonate a Service Account"
+  googleAuthId="google-auth"
+>
+  <Inputs id="impersonate-inputs">
+    ```yaml
+    variables:
+      - name: TargetServiceAccount
+        type: string
+        description: "The service account to impersonate"
+        default: "runbooks-demo@gruntwork-runbooks-demo.iam.gserviceaccount.com"
+      - name: Lifetime
+        type: int
+        description: "Token lifetime in seconds (max 3600)"
+        default: 3600
+    ```
+  </Inputs>
+</Command>
+
+<GoogleAuth
+  id="block-sourced"
+  detectCredentials={[{ block: 'impersonate-service-account' }]}
+/>
+````
+
+<Command
+  id="impersonate-service-account"
+  path="scripts/impersonate-sa.sh"
+  title="Impersonate a Service Account"
+  description="Mints a short-lived access token for another service account and writes it to `$RUNBOOK_OUTPUT`. Configure the target service account below."
+  googleAuthId="google-auth"
+>
+  <Inputs id="impersonate-inputs">
+    ```yaml
+    variables:
+      - name: TargetServiceAccount
+        type: string
+        description: >
+          The service account to impersonate. Your current principal needs
+          roles/iam.serviceAccountTokenCreator on it. To grant it, run:
+          gcloud iam service-accounts add-iam-policy-binding TARGET_SA
+          --member="user:you@example.com" --role="roles/iam.serviceAccountTokenCreator"
+        default: "runbooks-demo@gruntwork-runbooks-demo.iam.gserviceaccount.com"
+      - name: Lifetime
+        type: int
+        description: "Lifetime of the minted access token, in seconds. The IAM Credentials API caps this at 3600."
+        default: 3600
+    ```
+  </Inputs>
+</Command>
+
+<GoogleAuth
+  id="block-sourced"
+  title="Impersonated Access (from block)"
+  description="Uses the access token minted by the impersonation script above. You'll be prompted to confirm once the script completes."
+  detectCredentials={[{ block: 'impersonate-service-account' }]}
+/>
+
+<Command
+  id="verify-block-sourced"
+  path="scripts/verify-auth.sh"
+  title="Verify Impersonated Access"
+  description="Confirms that the impersonated token is working"
+  googleAuthId="block-sourced"
+  successMessage="Successfully verified the impersonated service account!"
+  failMessage="Failed to verify the impersonated credentials."
+/>
+
+### 2g. Priority Ordering: Block Before Environment
+
+When `detectCredentials` contains multiple sources, they're tried **in order**. The first source that succeeds wins.
+
+**Important:** Block sources respect strict priority ordering. If a block source is listed before an environment source but the block hasn't executed yet, GoogleAuth **waits for the block** rather than skipping ahead to the environment source. This ensures the author's intended priority is respected.
+
+In the example below:
+1. GoogleAuth first waits for the `impersonate-service-account` Command block to execute
+2. If the block produces a valid credential, it is used (with a confirmation prompt)
+3. Only if the block fails (produces no credential, or an invalid one) does GoogleAuth fall back to checking environment variables
+
+```mdx
+<GoogleAuth
+  id="block-then-env"
+  detectCredentials={[{ block: 'impersonate-service-account' }, 'env']}
+/>
+```
+
+<GoogleAuth
+  id="block-then-env"
+  title="Prefer Block, Fall Back to Env"
+  description="Waits for the impersonation script to produce a token. If the script fails or outputs no credential, falls back to standard environment variables."
+  detectCredentials={[{ block: 'impersonate-service-account' }, 'env']}
+/>
+
+### 2h. Priority Ordering: Environment Before Block
+
+If environment sources are listed before a block source, they're checked first (since env vars are available immediately). The block is only tried if the env sources don't produce valid credentials.
+
+Use this when you want to use existing credentials if available, but have a Command block as a backup that can generate fresh ones.
+
+```mdx
+<GoogleAuth
+  id="env-then-block"
+  detectCredentials={['env', { block: 'impersonate-service-account' }]}
+/>
+```
+
+<GoogleAuth
+  id="env-then-block"
+  title="Prefer Env, Fall Back to Block"
+  description="Checks environment variables first. If none are found, waits for the impersonation script to produce a token."
+  detectCredentials={['env', { block: 'impersonate-service-account' }]}
+/>
+
+### 2i. Multiple Sources in Order
+
+You can chain any number of sources to check different locations in priority order. The first one with valid credentials wins.
+
+In this example, GoogleAuth first checks for `PROD_GOOGLE_APPLICATION_CREDENTIALS` and friends. If those aren't set, it falls back to the standard variables, then to the ADC file, then to the active gcloud configuration.
+
+```mdx
+<GoogleAuth
+  id="multi-source"
+  detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env', 'adc', 'gcloud']}
+  defaultRegion="us-east1"
+/>
+```
+
+<GoogleAuth
+  id="multi-source"
+  title="Multi-Source Fallback"
+  description="Checks PROD_* env vars, then standard env vars, then ADC, then the active gcloud configuration."
+  detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env', 'adc', 'gcloud']}
+  defaultRegion="us-east1"
+/>
+
+---
+
+## 3. Multiple GCP Projects
+
+A single runbook can include multiple GoogleAuth blocks to authenticate against different projects (or with different principals). Use the `googleAuthId` prop on Command and Check blocks to specify which credentials to use.
+
+Without `googleAuthId`, blocks use the most recently authenticated credentials (the session environment). With `googleAuthId`, they use the specific GoogleAuth block's credentials regardless of order -- each block publishes its own credential file path in its outputs, and those are injected as per-execution environment variables that override the session.
+
+```mdx
+<GoogleAuth id="primary-project" project="my-prod-project" />
+<GoogleAuth id="secondary-project" project="my-dev-project" />
+
+{/* Each Command targets a specific GoogleAuth block */}
+<Command command="gcloud storage buckets list" googleAuthId="primary-project" />
+<Command command="gcloud storage buckets list" googleAuthId="secondary-project" />
+```
+
+### Secondary Project
+
+<GoogleAuth
+  id="google-auth-secondary"
+  title="Secondary Google Cloud Project"
+  description="Authenticate to a second GCP project (e.g., production, shared services)"
+  defaultRegion="us-east1"
+  detectCredentials={['env']}
+/>
+
+### Compare Across Projects
+
+<Command
+  id="list-buckets-primary"
+  path="scripts/list-resources.sh"
+  title="List Resources (Primary Project)"
+  description="Lists Cloud Storage buckets in the primary project"
+  googleAuthId="google-auth"
+  successMessage="Primary project resources listed!"
+  failMessage="Failed to list resources in the primary project."
+/>
+
+<Command
+  id="list-buckets-secondary"
+  path="scripts/list-resources.sh"
+  title="List Resources (Secondary Project)"
+  description="Lists Cloud Storage buckets in the secondary project"
+  googleAuthId="google-auth-secondary"
+  successMessage="Secondary project resources listed!"
+  failMessage="Failed to list resources in the secondary project."
+/>
+
+---
+
+## 4. How Credentials Work
+
+### Authentication Methods
+
+| Tab | What it does |
+|-----|--------------|
+| **Service Account Key** | Paste (or load from a file) a service account JSON key. The key is authorized with a real JWT grant before it is accepted. |
+| **Google Sign-In** | An OAuth 2.0 loopback flow with PKCE -- the same flow `gcloud auth application-default login` performs. It opens your browser, and the resulting refresh token is written to a private credentials file. Builds without a registered OAuth client show this tab disabled. |
+| **gcloud Config** | Pick one of your local gcloud configurations. Nothing is copied: `GOOGLE_APPLICATION_CREDENTIALS` is pointed at your existing `application_default_credentials.json`. |
+
+### Environment Variables Set
+
+When you authenticate (manually or by confirming auto-detected credentials), these session environment variables are set:
+
+- `GOOGLE_APPLICATION_CREDENTIALS` -- path to the credentials file
+- `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT` -- the selected project
+- `CLOUDSDK_CORE_ACCOUNT` -- the principal email
+
+And, when the corresponding prop or gcloud configuration supplies a value:
+
+- `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION`
+- `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE`
+- `CLOUDSDK_ACTIVE_CONFIG_NAME` (gcloud tab only)
+
+Three names for one project id looks redundant, but each is read by a different consumer: Google's client libraries read `GOOGLE_CLOUD_PROJECT`, the `gcloud` CLI reads `CLOUDSDK_CORE_PROJECT`, and the OpenTofu/Terraform `google` provider prefers `GOOGLE_PROJECT`.
+
+Inline key material is **never** written to the session. `GOOGLE_CREDENTIALS` and its variants accept a whole service account key as a string, and that is exactly the leak this block avoids -- only the path to a `0600` file is exported.
+
+### Session vs `googleAuthId`
+
+By default, credentials are set as **session environment variables**. Every subsequent Command and Check block sees them. The most recently authenticated GoogleAuth block's credentials are the "active" ones.
+
+When you specify `googleAuthId` on a Command or Check, that block uses the specified GoogleAuth block's credentials **directly**, overriding the session environment for that execution only.
+
+### Security
+
+- **Confirmation required**: Auto-detected credentials are never registered to the session until you confirm. This prevents accidental operations against the wrong GCP project.
+- **Credentials never return to the UI**: no key material, refresh token, or access token is ever sent back from the main process. The UI sees the credential file's *path* and metadata only.
+- **Files are private and temporary**: materialized credential files are written mode `0600` inside a per-user temp directory and are wiped and removed when the app quits or you re-authenticate.
+- **Credentials stay local**: All authentication happens between your machine and Google. Credentials are never transmitted to external servers.
+- **Validation before use**: Every credential is exchanged for a real access token, and the token is checked against Google's tokeninfo endpoint, before it is registered.
+- **Long-lived by design**: the block exports a credentials *file*, not a bearer token, so client libraries refresh it themselves and the credential does not go stale mid-runbook.
+
+### `detectCredentials` Quick Reference
+
+| Configuration | Behavior |
+|--------------|----------|
+| *(omitted)* | Same as `['env', 'adc']` |
+| `{['env']}` | Check `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CREDENTIALS`, access token vars |
+| `{[{ env: { prefix: 'PROD_' } }]}` | Check `PROD_GOOGLE_APPLICATION_CREDENTIALS`, etc. |
+| `{['adc']}` | Check the well-known `application_default_credentials.json` |
+| `{['gcloud']}` | Use the active gcloud configuration's project, account, and ADC |
+| `{[{ block: 'cmd-id' }]}` | Use a credential from a Command block's output |
+| `{false}` | No auto-detection; manual auth only |
+| `{[{ block: 'cmd-id' }, 'env']}` | Wait for block first; fall back to env if block fails |
+| `{['env', { block: 'cmd-id' }]}` | Check env first; wait for block only if env has no credential |
+| `{[{ env: { prefix: 'PROD_' } }, 'env', 'adc', 'gcloud']}` | Try every source, in that order |
+
+Only **one** `{ block: ... }` source is allowed per GoogleAuth block. More than one is a configuration error and the block renders a red card instead of the auth UI.

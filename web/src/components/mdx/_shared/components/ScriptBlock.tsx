@@ -66,6 +66,8 @@ export interface ScriptBlockProps {
   githubAuthId?: string
   /** Reference to a GitAuth block by ID (GitHub or GitLab). The block's credentials (GITHUB_TOKEN/GITHUB_USER or GITLAB_TOKEN/GITLAB_USER) will be passed as environment variables. */
   gitAuthId?: string
+  /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
+  googleAuthId?: string
   successMessage?: string
   /** Warning message (Check only — Command never reaches the warn state). */
   warnMessage?: string
@@ -96,6 +98,7 @@ export function ScriptBlock({
   awsAuthId,
   githubAuthId,
   gitAuthId,
+  googleAuthId,
   successMessage = "Success",
   warnMessage = "Warning",
   failMessage = "Failed",
@@ -140,6 +143,8 @@ export function ScriptBlock({
     hasAwsAuthDependency,
     unmetGitHubAuthDependency,
     hasGitHubAuthDependency,
+    unmetGoogleAuthDependency,
+    hasGoogleAuthDependency,
     isRendering,
     renderError,
     templateContext,
@@ -159,6 +164,7 @@ export function ScriptBlock({
     awsAuthId,
     githubAuthId,
     gitAuthId,
+    googleAuthId,
     children,
     componentType: variant.componentType,
     usePty,
@@ -339,7 +345,8 @@ export function ScriptBlock({
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies ||
     !hasAwsAuthDependency ||
-    !hasGitHubAuthDependency;
+    !hasGitHubAuthDependency ||
+    !hasGoogleAuthDependency;
 
   // Main render
   return (
@@ -482,6 +489,15 @@ export function ScriptBlock({
               dependency={unmetGitHubAuthDependency}
               heading="Waiting for git authentication:"
               hint="Authenticate with the referenced authentication block first."
+            />
+          )}
+
+          {/* Show unmet Google Cloud auth dependency */}
+          {hasAllInputDependencies && hasAllOutputDependencies && (
+            <UnmetAuthDependencyWarning
+              dependency={unmetGoogleAuthDependency}
+              heading="Waiting for Google Cloud authentication:"
+              hint="Authenticate with the referenced GoogleAuth block first."
             />
           )}
 

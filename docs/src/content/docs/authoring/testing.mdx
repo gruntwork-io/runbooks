@@ -168,6 +168,7 @@ Each step references a block by its ID. How a block gets its ID depends on the b
 | `<Template>` | Explicit `id` prop | `<Template id="generate-config" ...>` → `generate-config` |
 | `<TemplateInline>` | Explicit `id` prop | `<TemplateInline id="settings-preview" ...>` → `settings-preview` |
 | `<AwsAuth>` | Explicit `id` prop | `<AwsAuth id="aws-auth" ...>` → `aws-auth` |
+| `<GoogleAuth>` | Explicit `id` prop | `<GoogleAuth id="google-auth" ...>` → `google-auth` |
 | `<GitHubAuth>` | Explicit `id` prop | `<GitHubAuth id="github-auth" ...>` → `github-auth` |
 | `<GitClone>` | Explicit `id` prop | `<GitClone id="clone-repo" ...>` → `clone-repo` |
 
@@ -458,6 +459,71 @@ In CI, set the environment variables before running tests. Example for GitHub Ac
     RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
     RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
     RUNBOOKS_TEST_AWS_REGION: ${{ env.AWS_REGION }}
+```
+
+## Testing GoogleAuth Blocks
+
+For runbooks with `<GoogleAuth>` blocks, the test framework checks for Google Cloud credentials in environment variables and injects them into the session for dependent blocks to use. Like AwsAuth, this never reaches the network — the credential is taken at face value, so the test asserts wiring rather than validity.
+
+By default, the test framework checks these credential variables, in this order:
+
+- `GOOGLE_APPLICATION_CREDENTIALS` (path to a credentials JSON — a service account key *or* an `authorized_user` document)
+- `GOOGLE_CREDENTIALS` (inline credentials JSON)
+- `GOOGLE_OAUTH_ACCESS_TOKEN`
+- `CLOUDSDK_AUTH_ACCESS_TOKEN`
+
+If none is set, it falls back to gcloud's well-known `application_default_credentials.json` — the block's `'adc'` detection source. If that is missing too, the step is **skipped** and every step that references the block with `googleAuthId` skips with it.
+
+It also reads (but never treats as a credential — a bare project authenticates nothing):
+
+- Project: `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_PROJECT`, `GCLOUD_PROJECT`
+- Region: `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_CLOUD_REGION`
+- Zone: `CLOUDSDK_COMPUTE_ZONE`
+
+When none of those is set, the block's own `project`, `defaultRegion`, and `defaultZone` props are used.
+
+On success the executor writes the same variables the app's session environment writes, so scripts see every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`.
+
+### Using a Test Prefix
+
+As with AwsAuth, use `env_prefix` on the test step to keep test credentials away from your local ones:
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: happy-path
+    steps:
+      - block: google-auth
+        env_prefix: RUNBOOKS_TEST_
+        expect: success
+```
+
+This tells the test executor to check for:
+
+- `RUNBOOKS_TEST_GOOGLE_APPLICATION_CREDENTIALS`
+- `RUNBOOKS_TEST_GOOGLE_CREDENTIALS`
+- `RUNBOOKS_TEST_GOOGLE_OAUTH_ACCESS_TOKEN`
+- `RUNBOOKS_TEST_CLOUDSDK_AUTH_ACCESS_TOKEN`
+- `RUNBOOKS_TEST_CLOUDSDK_CORE_PROJECT` (and the other project/region/zone names above, prefixed)
+
+If no prefixed credential is found, the executor falls back to the unprefixed variables.
+
+### CI Example
+
+```yaml
+# .github/workflows/test.yml
+- name: Authenticate to Google Cloud
+  uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: projects/123/locations/global/workloadIdentityPools/ci/providers/github
+    service_account: runbooks-ci@my-project.iam.gserviceaccount.com
+
+- name: Run runbook tests
+  run: runbooks-cli test ./runbooks/...
+  env:
+    RUNBOOKS_TEST_GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+    RUNBOOKS_TEST_CLOUDSDK_CORE_PROJECT: my-project
+    RUNBOOKS_TEST_CLOUDSDK_COMPUTE_REGION: us-central1
 ```
 
 ## Testing GitHubAuth Blocks

@@ -59,6 +59,57 @@ function isAuthBlock(blockType: string): boolean {
   return AUTH_BLOCK_SET.has(blockType)
 }
 
+// ---------------------------------------------------------------------------
+// Google Cloud credential environment variables
+// ---------------------------------------------------------------------------
+//
+// These mirror src/domain/google/auth.ts, which is what <GoogleAuth> uses to
+// detect ambient credentials in the app. Keep the two in sync.
+
+/**
+ * Credential-bearing vars in detection precedence order: a path to a
+ * credentials JSON, an inline credentials JSON, then a bare OAuth access token.
+ * A path may hold EITHER a service-account key or an authorized_user document —
+ * headless test mode never opens it, so the distinction does not matter here.
+ */
+const GOOGLE_CREDENTIAL_ENV_VARS = [
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_CREDENTIALS",
+  "GOOGLE_OAUTH_ACCESS_TOKEN",
+  "CLOUDSDK_AUTH_ACCESS_TOKEN",
+] as const
+
+/** Project vars read during detection, in precedence order. */
+const GOOGLE_PROJECT_ENV_VARS = [
+  "CLOUDSDK_CORE_PROJECT",
+  "GOOGLE_CLOUD_PROJECT",
+  "GOOGLE_PROJECT",
+  "GCLOUD_PROJECT",
+] as const
+
+/** Compute-region vars read during detection, in precedence order. */
+const GOOGLE_REGION_ENV_VARS = ["CLOUDSDK_COMPUTE_REGION", "GOOGLE_CLOUD_REGION"] as const
+
+/** Compute-zone vars read during detection. */
+const GOOGLE_ZONE_ENV_VARS = ["CLOUDSDK_COMPUTE_ZONE"] as const
+
+/**
+ * Vars written on success. Each family is written in full — client libraries,
+ * the gcloud CLI, and the OpenTofu `google` provider each read a different
+ * name, and the app's session env writes all of them for exactly that reason.
+ */
+const GOOGLE_PROJECT_WRITE_VARS = [
+  "GOOGLE_CLOUD_PROJECT",
+  "CLOUDSDK_CORE_PROJECT",
+  "GOOGLE_PROJECT",
+] as const
+const GOOGLE_REGION_WRITE_VARS = [
+  "GOOGLE_CLOUD_REGION",
+  "CLOUDSDK_COMPUTE_REGION",
+  "GOOGLE_REGION",
+] as const
+const GOOGLE_ZONE_WRITE_VARS = ["CLOUDSDK_COMPUTE_ZONE", "GOOGLE_ZONE"] as const
+
 /** Build a StepResult with its mutable fields freshly initialized per call. */
 function makeStepResult(
   block: string,
@@ -238,6 +289,20 @@ export class TestExecutor {
   private getenv(key: string): string {
     if (this.testEnv[key] !== undefined) return this.testEnv[key]
     return process.env[key] ?? ""
+  }
+
+  /** True when `key` is present in the environment, even when it is set to "". */
+  private hasEnv(key: string): boolean {
+    return this.testEnv[key] !== undefined || process.env[key] !== undefined
+  }
+
+  /** First non-empty value among `${prefix}${name}`, in the order listed. */
+  private firstEnv(prefix: string, names: readonly string[]): string {
+    for (const name of names) {
+      const value = this.getenv(`${prefix}${name}`)
+      if (value) return value
+    }
+    return ""
   }
 
   // -----------------------------------------------------------------------
@@ -582,6 +647,9 @@ export class TestExecutor {
 
       case "AwsAuth":
         return this.runAwsAuth(block, step, start)
+
+      case "GoogleAuth":
+        return this.runGoogleAuth(block, step, start)
 
       case "GitClone":
         return this.runGitClone(block, step, start)
@@ -1060,6 +1128,139 @@ export class TestExecutor {
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
     if (this.options.verbose) console.log("--- AWS credentials found, injected ---")
+    return result
+  }
+
+  // -----------------------------------------------------------------------
+  // GoogleAuth block
+  // -----------------------------------------------------------------------
+
+  /**
+   * Absolute path of gcloud's well-known `application_default_credentials.json`,
+   * or null when the environment says there is no gcloud config root.
+   *
+   * `CLOUDSDK_CONFIG`, when SET, is authoritative: set-but-empty means "no
+   * gcloud config", never "fall back to ~/.config/gcloud". That is what lets a
+   * runbook test blank `CLOUDSDK_CONFIG` and get a deterministic skip on a
+   * developer machine that happens to have ADC set up. The Windows base is
+   * `%APPDATA%\gcloud`, NOT `%LOCALAPPDATA%`.
+   */
+  private resolveAdcFile(): string | null {
+    const configured = this.getenv("CLOUDSDK_CONFIG")
+    if (configured) {
+      return path.join(configured, "application_default_credentials.json")
+    }
+    if (this.hasEnv("CLOUDSDK_CONFIG")) return null
+
+    const root =
+      process.platform === "win32"
+        ? path.join(
+            this.getenv("APPDATA") || path.join(os.homedir(), "AppData", "Roaming"),
+            "gcloud",
+          )
+        : path.join(os.homedir(), ".config", "gcloud")
+    return path.join(root, "application_default_credentials.json")
+  }
+
+  /**
+   * First credential-bearing env var set under `prefix`, in detection
+   * precedence. Returns the CANONICAL (unprefixed) name to write plus its
+   * value, so `RUNBOOKS_TEST_GOOGLE_CREDENTIALS` lands as `GOOGLE_CREDENTIALS`.
+   */
+  private findGoogleCredential(prefix: string): { name: string; value: string } | null {
+    for (const name of GOOGLE_CREDENTIAL_ENV_VARS) {
+      const value = this.getenv(`${prefix}${name}`)
+      if (value) return { name, value }
+    }
+    return null
+  }
+
+  /**
+   * GoogleAuth in headless test mode: resolve a credential the way the block's
+   * own detection does and inject the env vars main writes on a successful
+   * interactive auth. Like runAwsAuth this never reaches the network, so the
+   * credential is taken at face value — the test asserts wiring, not validity.
+   */
+  private runGoogleAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`googleAuth:${block.id}`, step.expect)
+
+    const prefix = step.env_prefix ?? ""
+    const blockCreds: Record<string, string> = {}
+
+    // Prefixed lookup first, then the unprefixed fallback, so a runbook
+    // authored for prefixed CI credentials still runs against a developer's
+    // ambient ones.
+    let credential = this.findGoogleCredential(prefix)
+    if (!credential && prefix) credential = this.findGoogleCredential("")
+
+    // Last resort: gcloud's well-known ADC file — the block's `'adc'` source.
+    if (!credential) {
+      const adcFile = this.resolveAdcFile()
+      if (adcFile && fs.existsSync(adcFile)) {
+        credential = { name: "GOOGLE_APPLICATION_CREDENTIALS", value: adcFile }
+      }
+    }
+
+    if (!credential) {
+      this.blockStates.set(block.id, "skipped")
+      result.actualStatus = "skipped"
+      result.passed = this.matchesExpectedStatus(step.expect, "skipped")
+      result.duration = Date.now() - start
+      if (this.options.verbose) console.log("--- No Google Cloud credentials found ---")
+      return result
+    }
+
+    blockCreds[credential.name] = credential.value
+
+    // A bare access token is exported under both canonical names: gcloud reads
+    // CLOUDSDK_AUTH_ACCESS_TOKEN, client libraries read GOOGLE_OAUTH_ACCESS_TOKEN.
+    if (
+      credential.name === "GOOGLE_OAUTH_ACCESS_TOKEN" ||
+      credential.name === "CLOUDSDK_AUTH_ACCESS_TOKEN"
+    ) {
+      blockCreds["GOOGLE_OAUTH_ACCESS_TOKEN"] = credential.value
+      blockCreds["CLOUDSDK_AUTH_ACCESS_TOKEN"] = credential.value
+    }
+
+    // Project, region, and zone: environment first (prefixed, then unprefixed),
+    // falling back to the props that pin them in the interactive block. None of
+    // them is a credential, so none can make an unauthenticated block succeed.
+    const project =
+      this.firstEnv(prefix, GOOGLE_PROJECT_ENV_VARS) ||
+      (prefix ? this.firstEnv("", GOOGLE_PROJECT_ENV_VARS) : "") ||
+      extractProp(block.props, "project")
+    const region =
+      this.firstEnv(prefix, GOOGLE_REGION_ENV_VARS) ||
+      (prefix ? this.firstEnv("", GOOGLE_REGION_ENV_VARS) : "") ||
+      extractProp(block.props, "defaultRegion")
+    const zone =
+      this.firstEnv(prefix, GOOGLE_ZONE_ENV_VARS) ||
+      (prefix ? this.firstEnv("", GOOGLE_ZONE_ENV_VARS) : "") ||
+      extractProp(block.props, "defaultZone")
+
+    if (project) for (const name of GOOGLE_PROJECT_WRITE_VARS) blockCreds[name] = project
+    if (region) for (const name of GOOGLE_REGION_WRITE_VARS) blockCreds[name] = region
+    if (zone) for (const name of GOOGLE_ZONE_WRITE_VARS) blockCreds[name] = zone
+
+    this.authBlockCredentials.set(block.id, blockCreds)
+
+    // Clear EVERY credential-bearing var, not just the one being written, so an
+    // ambient GOOGLE_APPLICATION_CREDENTIALS cannot shadow a token the prefix
+    // selected.
+    const stale = new Set<string>([...GOOGLE_CREDENTIAL_ENV_VARS, ...Object.keys(blockCreds)])
+    this.sessionEnv = this.sessionEnv.filter((entry) => {
+      const eq = entry.indexOf("=")
+      return eq === -1 || !stale.has(entry.slice(0, eq))
+    })
+    for (const [k, v] of Object.entries(blockCreds)) {
+      this.sessionEnv.push(`${k}=${v}`)
+    }
+
+    this.blockStates.set(block.id, "success")
+    result.actualStatus = "success"
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
+    result.duration = Date.now() - start
+    if (this.options.verbose) console.log("--- Google Cloud credentials found, injected ---")
     return result
   }
 

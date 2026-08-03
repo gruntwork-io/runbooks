@@ -51,6 +51,21 @@ export class AwsSsoError extends Data.TaggedError("AwsSsoError")<{
   readonly cause?: unknown
 }> {}
 
+// Google Cloud
+export class GoogleAuthError extends Data.TaggedError("GoogleAuthError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
+export class GoogleConfigError extends Data.TaggedError("GoogleConfigError")<{
+  readonly message: string
+}> {}
+
+export class GoogleOAuthError extends Data.TaggedError("GoogleOAuthError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 /**
  * Transport-failure classification for VCS API errors, set by
  * classifyTlsError (src/domain/tls/system-ca.ts). Present only

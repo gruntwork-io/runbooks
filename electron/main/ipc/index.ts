@@ -14,6 +14,7 @@ import { registerRunbookHandlers } from "./runbook.ts"
 import { registerExecHandlers } from "./exec.ts"
 import { registerBoilerplateHandlers } from "./boilerplate.ts"
 import { registerAwsHandlers } from "./aws.ts"
+import { registerGoogleHandlers } from "./google.ts"
 import { registerGitHubHandlers } from "./github.ts"
 import { registerGitLabHandlers } from "./gitlab.ts"
 import { registerGitHandlers } from "./git.ts"
@@ -62,6 +63,7 @@ export function registerAllIpcHandlers(): void {
   registerExecHandlers()
   registerBoilerplateHandlers()
   registerAwsHandlers()
+  registerGoogleHandlers()
   registerGitHubHandlers()
   registerGitLabHandlers()
   registerGitHandlers()
