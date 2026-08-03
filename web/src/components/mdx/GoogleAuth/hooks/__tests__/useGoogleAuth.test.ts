@@ -359,6 +359,57 @@ describe('useGoogleAuth — detection', () => {
     expect(result.current.waitingForBlockId).toBeNull()
   })
 
+  it('enforces required scopes on { block } credentials via validate-credentials', async () => {
+    const DIRECTORY = 'https://www.googleapis.com/auth/admin.directory.rolemanagement'
+    const CLOUD_PLATFORM = 'https://www.googleapis.com/auth/cloud-platform'
+    const requiredScopes = [CLOUD_PLATFORM, DIRECTORY]
+
+    runbookState.blockOutputs = {
+      bootstrap: {
+        values: {
+          GOOGLE_OAUTH_ACCESS_TOKEN: 'ya29.user-token',
+          CLOUDSDK_CORE_PROJECT: 'proj-b',
+        },
+      },
+    }
+
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:validate-credentials') {
+        expect(args?.scopes).toEqual(requiredScopes)
+        expect(args?.registerSession).toBe(false)
+        return {
+          valid: false,
+          insufficientScopes: true,
+          missingScopes: [DIRECTORY],
+          grantedScopes: [CLOUD_PLATFORM],
+          projectId: 'proj-b',
+          account: { principal: 'admin@example.com', accountType: 'user', scopes: [CLOUD_PLATFORM] },
+          credentialType: 'access_token',
+        }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      scopes: requiredScopes,
+      detectCredentials: [{ block: 'bootstrap' }],
+    })
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+    expect(result.current.detectedCredentials?.source).toBe('block')
+    expect(result.current.detectedCredentials?.missingScopes).toEqual([DIRECTORY])
+    expect(invoke).toHaveBeenCalledWith(
+      'google:validate-credentials',
+      expect.objectContaining({
+        blockId: 'gcp',
+        accessToken: 'ya29.user-token',
+        scopes: requiredScopes,
+        registerSession: false,
+      }),
+    )
+  })
+
   it('retrying detection re-runs the walk and flags "found nothing"', async () => {
     const invoke = installApi(() => ({ found: false }))
 

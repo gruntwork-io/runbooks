@@ -635,6 +635,7 @@ export function registerGoogleHandlers(): void {
         region?: string
         zone?: string
         registerSession?: boolean
+        scopes?: string[]
       },
     ) => {
       try {
@@ -658,6 +659,18 @@ export function registerGoogleHandlers(): void {
           )
         } else {
           return { valid: false, error: "No Google Cloud credentials provided" }
+        }
+
+        const scopeFailure = scopeCheckFailure(identity, params.scopes)
+        if (scopeFailure) {
+          return {
+            valid: false,
+            account: toAccountInfo(identity),
+            ...(identity.projectId ? { projectId: identity.projectId } : {}),
+            ...(identity.projectName ? { projectName: identity.projectName } : {}),
+            credentialType: identity.credentialType,
+            ...scopeFailure,
+          }
         }
 
         const base = {

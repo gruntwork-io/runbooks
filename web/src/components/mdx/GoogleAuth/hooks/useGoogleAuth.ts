@@ -642,7 +642,23 @@ export function useGoogleAuth({
         blockId: id,
         ...result.creds,
         registerSession: false,
+        ...(scopes && scopes.length > 0 ? { scopes } : {}),
       })
+
+      if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+        return {
+          success: true,
+          detected: {
+            projectId: data.projectId ?? result.creds.projectId ?? '',
+            ...(data.projectName ? { projectName: data.projectName } : {}),
+            principal: data.account?.principal ?? '',
+            credentialType: data.credentialType ?? result.credentialType ?? 'service_account',
+            source: 'block',
+            missingScopes: data.missingScopes,
+            ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+          },
+        }
+      }
 
       if (!data.valid) {
         return { success: false, error: data.error || 'Block credentials are invalid' }
@@ -664,7 +680,7 @@ export function useGoogleAuth({
         error: error instanceof Error ? error.message : 'Failed to validate block credentials',
       }
     }
-  }, [api, id, getBlockCredentials])
+  }, [api, id, scopes, getBlockCredentials])
 
   /**
    * Walk the author's credential sources in order, stopping at the first
@@ -895,9 +911,20 @@ export function useGoogleAuth({
               ...(effectiveRegion ? { region: effectiveRegion } : {}),
               ...(effectiveZone ? { zone: effectiveZone } : {}),
               registerSession: true,
+              ...(scopes && scopes.length > 0 ? { scopes } : {}),
             })
 
             if (!data.valid) {
+              if (data.insufficientScopes && data.missingScopes?.length) {
+                setDetectedCredentials({
+                  ...detectedCredentials,
+                  missingScopes: data.missingScopes,
+                  ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+                })
+                setAuthStatus('pending')
+                setErrorMessage(null)
+                return
+              }
               setAuthStatus('failed')
               setErrorMessage(data.error || 'Failed to register the detected credentials')
               return

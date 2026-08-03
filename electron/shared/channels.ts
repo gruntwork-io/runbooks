@@ -169,6 +169,8 @@ export interface IpcChannelMap {
       zone?: string
       /** true => materialise + write session env. false/absent => read-only validation. */
       registerSession?: boolean
+      /** Author `scopes` prop — required of user credentials when set (SA exempt). */
+      scopes?: string[]
     }
     result: {
       valid: boolean
@@ -182,6 +184,10 @@ export interface IpcChannelMap {
       projects?: GoogleProjectIpc[]
       error?: string
       sessionEnvWarning?: string
+      /** Present when the credential validated but lacks author-required scopes. */
+      insufficientScopes?: boolean
+      missingScopes?: string[]
+      grantedScopes?: string[]
     }
   }
   // Capability probe, so the Google Sign-In tab can render disabled on FIRST
