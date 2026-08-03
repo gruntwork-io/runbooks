@@ -18,6 +18,7 @@ Blocks are special React components that you can use in your `runbook.mdx` files
 - [GitHubAuth](/authoring/blocks/githubauth)
 - [GitHubPullRequest](/authoring/blocks/githubpullrequest)
 - [GitLabAuth](/authoring/blocks/gitlabauth)
+- [GitLabMergeRequest](/authoring/blocks/gitlabmergerequest)
 - [Inputs](/authoring/blocks/inputs)
 - [Template](/authoring/blocks/template)
 - [TemplateInline](/authoring/blocks/templateinline)
