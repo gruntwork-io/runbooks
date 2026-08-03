@@ -16,6 +16,8 @@ export interface GitPullRequestProps {
   prefilledPullRequestLabels?: string[]
   /** Pre-populated branch name (supports template expressions) */
   prefilledBranchName?: string
+  /** Pre-populated commit message (supports template expressions) */
+  prefilledCommitMessage?: string
   /** Reference to one or more Inputs by ID for template expressions in props */
   inputsId?: string | string[]
   /**

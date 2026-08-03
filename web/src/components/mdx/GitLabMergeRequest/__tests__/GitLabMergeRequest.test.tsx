@@ -1,12 +1,22 @@
 import { describe, it, expect, vi } from "vitest"
 import { useEffect } from "react"
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({
-    activeWorkTree: null,
+    activeWorkTree: {
+      id: "wt-1",
+      localPath: "/tmp/repo",
+      gitInfo: {
+        repoOwner: "acme",
+        repoName: "infra",
+        repoUrl: "https://gitlab.com/acme/infra.git",
+        ref: "main",
+      },
+    },
     workTrees: [],
     registerWorkTree: vi.fn(),
     unregisterWorkTree: vi.fn(),
@@ -40,6 +50,23 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
     expect(screen.getAllByText(/Create Merge Request/).length).toBeGreaterThanOrEqual(1)
   })
 
+  it("prefills the commit message from prefilledCommitMessage", async () => {
+    const user = userEvent.setup()
+    render(
+      <TestWrapper>
+        <Seed id="auth" values={{ GIT_PROVIDER: "gitlab", GITLAB_TOKEN: "tok", __AUTHENTICATED: "true" }} />
+        <GitLabMergeRequest
+          id="mr"
+          gitAuthId="auth"
+          prefilledCommitMessage="Upgrade Pipelines from v3 to v4 [skip ci]"
+        />
+      </TestWrapper>,
+    )
+
+    await user.click(screen.getByText("Customize commit"))
+    expect(screen.getByDisplayValue("Upgrade Pipelines from v3 to v4 [skip ci]")).toBeInTheDocument()
+  })
+
   it("shows a blocking wrong-provider error when linked to a GitHub auth block", async () => {
     render(
       <TestWrapper>
@@ -55,3 +82,4 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
     expect(block.textContent).toContain("can only be used with a GitLab auth block")
   })
 })
+

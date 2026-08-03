@@ -35,7 +35,7 @@ Pair with `<GitHubAuth>` and `<GitClone>` to create a complete workflow:
 
 ### Pre-filled Values
 
-You can pre-populate the PR title, description, labels, and branch name. Users can still edit these values before creating the PR.
+You can pre-populate the PR title, description, labels, branch name, and commit message. Users can still edit these values before creating the PR.
 
 ```mdx
 <GitHubPullRequest
@@ -45,12 +45,17 @@ You can pre-populate the PR title, description, labels, and branch name. Users c
   prefilledPullRequestDescription="## Changes\n- Added VPC module\n- Configured NAT gateway"
   prefilledPullRequestLabels={["enhancement", "terraform"]}
   prefilledBranchName="feature/add-vpc"
+  prefilledCommitMessage="Add VPC module configuration"
 />
 ```
 
+<Aside type="note">
+[`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest/) and `<GitPullRequest>` accept the same prefilled props, including `prefilledCommitMessage`.
+</Aside>
+
 ### Template Expressions
 
-The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, and `prefilledBranchName` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line PR descriptions:
+The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBranchName`, and `prefilledCommitMessage` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line PR descriptions:
 
 ```mdx
 <GitHubPullRequest
@@ -76,6 +81,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
 | `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
+| `prefilledCommitMessage` | `string` | No | Pre-fills the commit message field. Supports template expressions. |
 
 ### Block Outputs
 
@@ -147,5 +153,7 @@ The block fetches available labels from the repository and presents them in a se
   title="Open Pull Request"
   prefilledPullRequestTitle="Update infrastructure configuration"
   prefilledPullRequestLabels={["infrastructure"]}
+  prefilledCommitMessage="Update infrastructure configuration"
 />
 ```
+
