@@ -144,6 +144,170 @@ export interface IpcChannelMap {
     result: { enabled: boolean; warning?: string }
   }
 
+  // Google Cloud Authentication
+  //
+  // custody: mirrors github:* — the renderer may SEND a secret the user pasted
+  // (`keyJson`), but no google:* result ever returns credential material.
+  // `registerSession: true` makes MAIN materialise the credential file and write
+  // the session env; the renderer never calls session:set-env for Google.
+  "google:validate-credentials": {
+    params: {
+      /**
+       * Which GoogleAuth block is calling. MAIN files the credential (and the
+       * file it materialises) under this id, so two blocks in one runbook never
+       * share, overwrite, or delete each other's credential.
+       */
+      blockId?: string
+      /** Pasted service-account JSON, or an ADC-shaped document. Renderer -> main only. */
+      keyJson?: string
+      /** Absolute path to an existing credentials JSON on disk. */
+      keyPath?: string
+      /** A bare OAuth access token (the { block: id } source may supply one). */
+      accessToken?: string
+      projectId?: string
+      region?: string
+      zone?: string
+      /** true => materialise + write session env. false/absent => read-only validation. */
+      registerSession?: boolean
+    }
+    result: {
+      valid: boolean
+      account?: GoogleAccountInfo
+      projectId?: string
+      projectName?: string
+      credentialType?: GoogleCredentialTypeIpc
+      /** Absolute path of the materialised credentials file (registerSession only). */
+      credentialsPath?: string
+      /** Populated on registerSession with every project the credential can see. */
+      projects?: GoogleProjectIpc[]
+      error?: string
+      sessionEnvWarning?: string
+    }
+  }
+  // Capability probe, so the Google Sign-In tab can render disabled on FIRST
+  // paint rather than after a click that was always going to fail. The client
+  // id itself never crosses IPC.
+  "google:oauth-available": {
+    params: Record<string, never>
+    result: { available: boolean }
+  }
+  "google:oauth-start": {
+    // clientId/clientSecret/scopes are optional — MAIN owns the defaults
+    // (DEFAULT_GOOGLE_OAUTH_CLIENT_ID / DEFAULT_GOOGLE_SCOPES). An author
+    // clientId must come with its clientSecret: without one the minted
+    // authorized_user document cannot be refreshed.
+    params: { clientId?: string; clientSecret?: string; scopes?: string[]; loginHint?: string }
+    result: { flowId?: string; authUrl?: string; redirectUri?: string; expiresInSeconds?: number; error?: string }
+  }
+  "google:oauth-poll": {
+    // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
+    // registered the secrets for redaction, materialised the ADC file and
+    // written the session env. No token crosses IPC.
+    params: { flowId: string; blockId?: string }
+    result: {
+      status: "pending" | "complete" | "expired" | "failed"
+      account?: GoogleAccountInfo
+      projectId?: string
+      credentialsPath?: string
+      projects?: GoogleProjectIpc[]
+      scopes?: string[]
+      error?: string
+      sessionEnvWarning?: string
+    }
+  }
+  // A loopback listener is a real OS resource — cancel must reach main.
+  "google:oauth-cancel": { params: { flowId: string }; result: { ok: true } }
+  "google:gcloud-configurations": {
+    params: Record<string, never>
+    result: {
+      configurations: GcloudConfigurationIpc[]
+      activeConfiguration?: string
+      configRoot?: string
+      /** Present when application_default_credentials.json exists. Metadata only. */
+      adc?: AdcInfoIpc
+      error?: string
+    }
+  }
+  "google:gcloud-auth": {
+    params: { blockId?: string; configuration: string; projectId?: string; region?: string; zone?: string }
+    result: {
+      valid: boolean
+      account?: GoogleAccountInfo
+      projectId?: string
+      /** The EXISTING ADC path — nothing is copied for this tab. */
+      credentialsPath?: string
+      projects?: GoogleProjectIpc[]
+      error?: string
+      sessionEnvWarning?: string
+    }
+  }
+  // READ-ONLY detection: metadata only, no session write. The detect/confirm
+  // split (src/domain/aws/auth.ts:55-104) is deliberate — do not collapse it.
+  "google:env-credentials": {
+    params: { prefix?: string; defaultProject?: string; source?: "env" | "adc" | "gcloud" }
+    result: {
+      found: boolean
+      valid?: boolean
+      account?: GoogleAccountInfo
+      projectId?: string
+      projectName?: string
+      credentialType?: GoogleCredentialTypeIpc
+      source?: "env" | "adc" | "gcloud"
+      /** Which env var supplied it, e.g. "GOOGLE_APPLICATION_CREDENTIALS". */
+      envVar?: string
+      /** Credential file path when the source was a file. Not a secret. */
+      path?: string
+      configuration?: string
+      quotaProjectId?: string
+      warning?: string
+      error?: string
+    }
+  }
+  // Same detection, but MAIN writes the session env. Returns metadata only —
+  // unlike aws:env-credentials-confirm, which returns the raw keys.
+  "google:env-credentials-confirm": {
+    params: {
+      blockId?: string
+      prefix?: string
+      /** Which detection source is being confirmed. */
+      source?: "env" | "adc" | "gcloud"
+      configuration?: string
+      projectId?: string
+      region?: string
+      zone?: string
+    }
+    result: {
+      valid: boolean
+      account?: GoogleAccountInfo
+      projectId?: string
+      credentialsPath?: string
+      credentialType?: GoogleCredentialTypeIpc
+      error?: string
+      sessionEnvWarning?: string
+    }
+  }
+  // The project picker. The credential is resolved MAIN-side (pending flow,
+  // then the CALLING BLOCK's own credential, then the session env) — never
+  // passed in. `blockId` is what keeps a second GoogleAuth block from listing
+  // the first block's projects.
+  "google:projects": {
+    params: { blockId?: string; flowId?: string; query?: string; pageSize?: number }
+    result: { projects: GoogleProjectIpc[]; error?: string }
+  }
+  // Project selection happens after auth; MAIN owns the session-env write.
+  "google:set-project": {
+    params: { blockId?: string; projectId: string; region?: string; zone?: string }
+    result: { ok: boolean; projectName?: string; error?: string; sessionEnvWarning?: string }
+  }
+  // <- aws:check-region, and it fails OPEN like one: `enabled: false` only for
+  // a project the credential definitively cannot read. An inconclusive answer
+  // (Resource Manager API disabled, network blip) reports enabled with no
+  // warning rather than a red herring on the success card.
+  "google:check-project": {
+    params: { blockId?: string; projectId: string }
+    result: { enabled: boolean; warning?: string }
+  }
+
   // GitHub Authentication
   "github:validate": {
     // `host` is accepted for parity with gitlab:validate so the shared useGitAuth
@@ -478,6 +642,45 @@ export interface AwsCredentials {
   secretAccessKey: string
   sessionToken?: string
   region: string
+}
+
+export type GoogleCredentialTypeIpc =
+  | "service_account"
+  | "authorized_user"
+  | "external_account"
+  | "impersonated_service_account"
+  | "access_token"
+  | "gce_metadata"
+
+export interface GoogleAccountInfo {
+  /** Service-account or user email. The `arn` analogue. */
+  principal: string
+  accountType: "service_account" | "user"
+  scopes?: string[]
+}
+
+export interface GoogleProjectIpc {
+  projectId: string
+  displayName: string
+  projectNumber?: string
+  state?: string
+}
+
+export interface GcloudConfigurationIpc {
+  name: string
+  isActive: boolean
+  account?: string
+  project?: string
+  region?: string
+  zone?: string
+  authType: "adc-user" | "adc-service-account" | "adc-external" | "config-only" | "unsupported"
+}
+
+export interface AdcInfoIpc {
+  path: string
+  type: GoogleCredentialTypeIpc
+  clientEmail?: string
+  quotaProjectId?: string
 }
 
 /**

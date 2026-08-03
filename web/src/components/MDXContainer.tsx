@@ -14,6 +14,7 @@ import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
+import { GoogleAuth } from '@/components/mdx/GoogleAuth'
 import { GitAuth } from '@/components/mdx/GitAuth'
 import { GitHubAuth } from '@/components/mdx/GitHubAuth'
 import { GitLabAuth } from '@/components/mdx/GitLabAuth'
@@ -321,6 +322,7 @@ export const MDX_COMPONENTS = {
   Command,
   // Authentication components
   AwsAuth,
+  GoogleAuth,
   GitAuth,
   GitHubAuth,
   GitLabAuth,

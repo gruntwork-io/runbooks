@@ -86,8 +86,9 @@ New blocks require: frontend component, IPC handler (if needed), docs, automated
 Reference implementations:
 - Simple: `Command/` (frontend) + `src/domain/exec/` (backend) + `electron/main/ipc/exec.ts`
 - Complex: `AwsAuth/` (frontend) + `src/domain/aws/` (backend) + `electron/main/ipc/aws.ts`
+- Complex: `GoogleAuth/` (frontend) + `src/domain/google/` (backend) + `electron/main/ipc/google.ts`
 
-Auth blocks (`AwsAuth`, `GitHubAuth`) must maintain consistency — changes to one should evaluate the same change for the other.
+Auth blocks (`AwsAuth`, `GoogleAuth`, `GitAuth`, `GitHubAuth`, `GitLabAuth`) must maintain consistency — a change to one must be evaluated for **all** of the others, not just its nearest neighbour.
 
 ## Don't Do This
 

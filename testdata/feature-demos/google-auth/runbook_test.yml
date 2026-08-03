@@ -1,0 +1,110 @@
+# Test configuration for google-auth.
+#
+# CI has no Google Cloud credentials, so the only test that runs everywhere is
+# the skip path. It blanks every variable the GoogleAuth test executor reads --
+# including CLOUDSDK_CONFIG, which suppresses the well-known
+# application_default_credentials.json fallback so the test also skips on a
+# developer machine that has run `gcloud auth application-default login`.
+#
+# To exercise the happy path locally, export credentials under the
+# RUNBOOKS_TEST_ prefix and uncomment the `test-prefix-auth` test below:
+#
+#   export RUNBOOKS_TEST_GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+#   export RUNBOOKS_TEST_CLOUDSDK_CORE_PROJECT=my-project
+#   just build && resources/bin/runbooks-test test testdata/feature-demos/google-auth -v
+#
+# Or point it at your existing Application Default Credentials:
+#
+#   gcloud auth application-default login
+#   export GOOGLE_CLOUD_PROJECT=my-project
+#   just build && resources/bin/runbooks-test test testdata/feature-demos/google-auth -v
+
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 5m
+  parallelizable: true
+
+tests:
+  # Test 1: Skip when no credentials - validates the graceful skip path.
+  # This is the only test that runs in CI.
+  - name: skip-without-credentials
+    description: With no Google Cloud credentials in the env, google-auth skips
+      and the googleAuthId-dependent steps skip too.
+
+    env:
+      # Credential sources (standard names)
+      GOOGLE_APPLICATION_CREDENTIALS: ""
+      GOOGLE_CREDENTIALS: ""
+      GOOGLE_OAUTH_ACCESS_TOKEN: ""
+      CLOUDSDK_AUTH_ACCESS_TOKEN: ""
+      # Project sources (standard names)
+      CLOUDSDK_CORE_PROJECT: ""
+      GOOGLE_CLOUD_PROJECT: ""
+      GOOGLE_PROJECT: ""
+      GCLOUD_PROJECT: ""
+      # Credential sources (RUNBOOKS_TEST_ prefix)
+      RUNBOOKS_TEST_GOOGLE_APPLICATION_CREDENTIALS: ""
+      RUNBOOKS_TEST_GOOGLE_CREDENTIALS: ""
+      RUNBOOKS_TEST_GOOGLE_OAUTH_ACCESS_TOKEN: ""
+      RUNBOOKS_TEST_CLOUDSDK_AUTH_ACCESS_TOKEN: ""
+      # Project sources (RUNBOOKS_TEST_ prefix)
+      RUNBOOKS_TEST_CLOUDSDK_CORE_PROJECT: ""
+      RUNBOOKS_TEST_GOOGLE_CLOUD_PROJECT: ""
+      RUNBOOKS_TEST_GOOGLE_PROJECT: ""
+      RUNBOOKS_TEST_GCLOUD_PROJECT: ""
+      # A set-but-empty CLOUDSDK_CONFIG means "no gcloud config root", which
+      # suppresses the application_default_credentials.json fallback.
+      CLOUDSDK_CONFIG: ""
+
+    steps:
+      - block: google-auth
+        expect: skip
+
+      - block: verify-identity
+        expect: skip
+
+      - block: check-google-auth
+        expect: skip
+
+  # Test 2: Basic auth with env_prefix - validates the env_prefix feature.
+  # Requires real Google Cloud credentials; not run in CI.
+  # - name: test-prefix-auth
+  #   description: Test that GoogleAuth reads credentials from RUNBOOKS_TEST_* env vars
+  #   steps:
+  #     # env_prefix tells the test executor to look for
+  #     # RUNBOOKS_TEST_GOOGLE_APPLICATION_CREDENTIALS, etc.
+  #     - block: google-auth
+  #       env_prefix: RUNBOOKS_TEST_
+  #       expect: success
+  #
+  #     # After GoogleAuth succeeds, the credential is injected into the session
+  #     # and these googleAuthId-dependent steps can use it.
+  #     - block: verify-identity
+  #       expect: success
+  #
+  #     - block: check-google-auth
+  #       expect: success
+
+  # Test 3: Multiple auth blocks with googleAuthId targeting.
+  # Requires real Google Cloud credentials; not run in CI.
+  # Note: with a single project both auth blocks resolve to the same
+  # credentials. This still validates that googleAuthId routing works.
+  # - name: test-google-auth-id-targeting
+  #   description: Test that googleAuthId routes commands to specific auth contexts
+  #   steps:
+  #     - block: google-auth
+  #       env_prefix: RUNBOOKS_TEST_
+  #       expect: success
+  #
+  #     - block: google-auth-secondary
+  #       expect: success
+  #
+  #     # googleAuthId="google-auth" - uses the PRIMARY auth context
+  #     - block: list-buckets-primary
+  #       expect: success
+  #
+  #     # googleAuthId="google-auth-secondary" - uses the SECONDARY auth context
+  #     - block: list-buckets-secondary
+  #       expect: success

@@ -22,6 +22,8 @@ const defaultScriptExecution = {
   hasAwsAuthDependency: true,
   unmetGitHubAuthDependency: null,
   hasGitHubAuthDependency: true,
+  unmetGoogleAuthDependency: null,
+  hasGoogleAuthDependency: true,
   isRendering: false,
   renderError: null,
   status: "pending" as string,
@@ -84,6 +86,11 @@ describe("Check", () => {
   it("forwards timeoutMs to the execution hook", () => {
     renderCheck({ timeoutMs: 1234 })
     expect(lastScriptExecutionProps?.timeoutMs).toBe(1234)
+  })
+
+  it("forwards googleAuthId to the execution hook", () => {
+    renderCheck({ googleAuthId: "gcp-auth" })
+    expect(lastScriptExecutionProps?.googleAuthId).toBe("gcp-auth")
   })
 
   it("renders title and description", () => {

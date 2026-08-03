@@ -39,6 +39,7 @@
     "@aws-sdk/client-sso-oidc": "^3.1024.0",
     "@aws-sdk/client-account": "^3.1024.0",
     "@aws-sdk/credential-providers": "^3.1024.0",
+    "google-auth-library": "^11.0.0",
     "mixpanel": "^0.20.0",
     "electron-updater": "^6.8.0",
     "@headless-tree/core": "^1.4.0",

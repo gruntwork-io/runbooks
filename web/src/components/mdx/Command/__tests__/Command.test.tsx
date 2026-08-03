@@ -25,6 +25,8 @@ const defaultScriptExecution = {
   hasAwsAuthDependency: true,
   unmetGitHubAuthDependency: null as { blockId: string } | null,
   hasGitHubAuthDependency: true,
+  unmetGoogleAuthDependency: null as { blockId: string } | null,
+  hasGoogleAuthDependency: true,
   isRendering: false,
   renderError: null as { message: string; details?: string } | null,
   status: "pending" as string,
@@ -271,6 +273,19 @@ describe("Command", () => {
     }
     renderCommand({ githubAuthId: "gh-auth" })
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
+  })
+
+  it("disables Run and warns when the Google Cloud auth dependency is unmet", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      hasGoogleAuthDependency: false,
+      unmetGoogleAuthDependency: { blockId: "gcp-auth" },
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand({ googleAuthId: "gcp-auth" })
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
+    expect(screen.getByText(/Waiting for Google Cloud authentication/)).toBeInTheDocument()
   })
 
   // --- Script metadata ---

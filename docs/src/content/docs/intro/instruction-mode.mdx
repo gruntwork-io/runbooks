@@ -46,6 +46,7 @@ automatically.
 |---|---|---|
 | **Command / Check** | Run button; the app executes the script | "Run this:" with the resolved command in a copy block. File-backed scripts keep the source viewer. |
 | **AwsAuth** | SSO / profile / key UI; captures credentials | "Log into AWS in the `<account>` account" (with the configured SSO details). No capture. |
+| **GoogleAuth** | Service account key / Google sign-in / gcloud config UI; captures credentials | "Log into Google Cloud in the `<project>` project", noting the region, gcloud configuration, scopes, and the `gcloud auth application-default login` command. No capture. |
 | **GitHubAuth** | OAuth / PAT entry; holds a token | "Log into GitHub" noting the scopes the block needs. No capture. |
 | **Inputs** | Form you fill | Still a form — it's how you supply values that get substituted into the displayed commands. |
 | **Template** | Generate button; renders boilerplate to disk | The variable form plus a copy-pasteable `boilerplate` invocation. No files written. |

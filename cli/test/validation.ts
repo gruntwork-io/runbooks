@@ -68,7 +68,7 @@ interface BoilerplateConfig {
 
 const KNOWN_BLOCK_TYPES = new Set([
   "Check", "Command", "Inputs", "Template", "TemplateInline",
-  "AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth", "GitClone",
+  "AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth", "GitClone",
   "GitHubPullRequest", "DirPicker", "Admonition",
 ])
 
@@ -76,7 +76,7 @@ const KNOWN_BLOCK_TYPES = new Set([
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-export const AUTH_BLOCK_TYPES = ["AwsAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
+export const AUTH_BLOCK_TYPES = ["AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
 const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", "GitHubPullRequest"] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
@@ -126,6 +126,7 @@ export class InputValidator {
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
     components.push(...this.parseAuthBlocks(content, "AwsAuth"))
+    components.push(...this.parseAuthBlocks(content, "GoogleAuth"))
     components.push(...this.parseAuthBlocks(content, "GitAuth"))
     components.push(...this.parseAuthBlocks(content, "GitHubAuth"))
     components.push(...this.parseAuthBlocks(content, "GitLabAuth"))

@@ -1,0 +1,520 @@
+---
+title: <GoogleAuth>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GoogleAuth>` block provides a streamlined interface for authenticating to Google Cloud. It is the Google Cloud counterpart of [AwsAuth](/authoring/blocks/awsauth/) and supports three authentication methods: a service account key, an interactive Google sign-in, and an existing local gcloud configuration. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+
+By default, GoogleAuth automatically detects credentials from environment variables and from your Application Default Credentials file. When credentials are detected, the user is prompted to confirm before proceeding, preventing accidental operations against the wrong Google Cloud project.
+
+## Basic Usage
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  title="Authenticate to Google Cloud"
+  description="Choose your preferred authentication method"
+  defaultRegion="us-central1"
+/>
+```
+
+By default, GoogleAuth checks for existing credentials in environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CREDENTIALS`, and friends) and then in the well-known Application Default Credentials file. If found, it validates them and prompts the user to confirm before using them.
+
+## Authentication Methods
+
+The GoogleAuth block provides three ways to authenticate:
+
+| Tab | Description |
+|-----|-------------|
+| **Service Account Key** | Paste (or load from disk) a service account JSON key |
+| **Google Sign-In** | Interactive browser sign-in that produces user credentials, the same thing `gcloud auth application-default login` produces. Requires an author-supplied OAuth client — see [Google Sign-In](#google-sign-in) |
+| **gcloud Config** | Reuse a configuration and Application Default Credentials that already exist on the machine |
+
+All three tabs also offer an optional **Default Region** picker, which seeds the region environment variables for subsequent commands.
+
+<Aside type="note">
+Runbooks never shells out to the `gcloud` binary. Service account keys are validated by minting a real access token, sign-in uses a loopback OAuth redirect, and the gcloud tab reads gcloud's own configuration files directly. You do not need the Google Cloud CLI installed for any of the three tabs — though the gcloud tab is only useful if you have used it before to create credentials.
+</Aside>
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `id` | `string` | required | Unique identifier for this component |
+| `title` | `string` | `"Google Cloud Authentication"` | Display title shown in the UI (supports template expressions) |
+| `description` | `string` | — | Description of the authentication purpose (supports template expressions) |
+| `project` | `string` | — | Pin a Google Cloud project. When set, project selection is skipped and this project is used (supports template expressions) |
+| `defaultRegion` | `string` | — | Default compute region for subsequent commands. Sets `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, and `GOOGLE_REGION` |
+| `defaultZone` | `string` | — | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |
+| `gcloudConfiguration` | `string` | — | Pre-select a named gcloud configuration in the gcloud Config tab (supports template expressions) |
+| `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by the Google Sign-In tab |
+| `oauthClientId` | `string` | — | Client ID of a Google Cloud "Desktop app" OAuth client. **Required to enable the Google Sign-In tab** — this build ships no default client. Must be paired with `oauthClientSecret` |
+| `oauthClientSecret` | `string` | — | Client secret issued alongside the Desktop OAuth client. Required whenever `oauthClientId` is set. Per RFC 8252 this value is not confidential; Google simply issues one with every Desktop client |
+| `detectCredentials` | `false \| GoogleCredentialSource[]` | `['env', 'adc']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
+| `inputsId` | `string \| string[]` | — | Reference one or more [Inputs](/authoring/blocks/inputs/) blocks for template expressions in props |
+
+<Aside type="caution">
+`detectCredentials` takes a JSX expression, not a string. Write `detectCredentials={false}`, not `detectCredentials="false"` — the latter is the truthy string `"false"` and does not disable detection.
+</Aside>
+
+## Environment Variables
+
+When authentication succeeds, the following environment variables are set in the session environment for subsequent Command and Check blocks:
+
+| Variable | Value |
+|----------|-------|
+| `GOOGLE_APPLICATION_CREDENTIALS` | Absolute path to the credentials file backing this session |
+| `GOOGLE_CLOUD_PROJECT` | The selected project ID |
+| `CLOUDSDK_CORE_PROJECT` | The selected project ID (read by the `gcloud` CLI) |
+| `GOOGLE_PROJECT` | The selected project ID (read by the OpenTofu/Terraform `google` provider) |
+| `CLOUDSDK_CORE_ACCOUNT` | The authenticated principal — a service account or user email address |
+
+These are set only when the corresponding value is known:
+
+| Variable | Source |
+|----------|--------|
+| `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | `defaultRegion`, the Default Region picker, or the gcloud configuration's `compute/region` |
+| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or the gcloud configuration's `compute/zone` |
+| `CLOUDSDK_ACTIVE_CONFIG_NAME` | gcloud Config tab only — the name of the configuration you authenticated with |
+
+Because `GOOGLE_APPLICATION_CREDENTIALS` is set, Google client libraries, the `gcloud` CLI, and the OpenTofu/Terraform `google` provider all pick the credential up with no extra wiring.
+
+<Aside type="note">
+Runbooks never writes key material into an environment variable. `GOOGLE_APPLICATION_CREDENTIALS` always points at a file: either a credentials file that already existed on your machine, or a `0600` file written to a private temporary directory that is deleted when the app quits. The one exception is a credential that was *only* ever an access token (see [Access token credentials](#access-token-credentials)).
+</Aside>
+
+## Block Outputs
+
+The block also publishes its result as block outputs, so a specific GoogleAuth block can be referenced by ID:
+
+| Output | Value |
+|--------|-------|
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the credentials file for this block |
+| `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT` | The selected project ID |
+| `CLOUDSDK_CORE_ACCOUNT` | The authenticated principal |
+| `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | The selected region, if any |
+| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | The selected zone, if any |
+| `GOOGLE_AUTH_TYPE` | How the credential was obtained: `service_account`, `authorized_user`, `external_account`, `impersonated_service_account`, or `access_token` |
+| `__AUTHENTICATED` | Always `true` once the block has authenticated |
+
+## Using with Commands and Checks
+
+The [environment variables above](#environment-variables) are automatically available to all subsequent Command and Check blocks, so blocks use the most recently authenticated GoogleAuth block without any extra configuration. Any subsequent Google Cloud authentication updates those variables and becomes the new default.
+
+To bind a block to one *specific* GoogleAuth block, use the `googleAuthId` prop. The referenced block's outputs are injected into that execution only, and the **Run** button stays disabled until that block has authenticated:
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  title="Authenticate to Google Cloud"
+  project="my-project-123456"
+  defaultRegion="us-central1"
+/>
+
+<Check
+  id="verify-identity"
+  title="Verify Google Cloud Identity"
+  command="gcloud auth list --filter=status:ACTIVE --format='value(account)'"
+  googleAuthId="google-auth"
+  successMessage="Successfully authenticated!"
+/>
+
+<Command
+  id="list-buckets"
+  title="List Storage Buckets"
+  command="gcloud storage ls"
+  googleAuthId="google-auth"
+  successMessage="Buckets listed!"
+/>
+```
+
+<Aside type="tip">
+While `googleAuthId` makes the dependency explicit — and gates the Run button on it — the credentials are also set as session environment variables, so subsequent blocks have Google Cloud access even without it.
+</Aside>
+
+## Multiple Projects
+
+You can include multiple GoogleAuth blocks in a single runbook to authenticate against different projects, or with different principals:
+
+```mdx
+<GoogleAuth
+  id="source-project"
+  title="Source Project (Development)"
+  project="acme-dev-123456"
+  defaultRegion="us-central1"
+/>
+
+<Command
+  id="export-data"
+  title="Export Data from Source"
+  command="gcloud storage cp gs://acme-dev-data/export.json /tmp/export.json"
+  googleAuthId="source-project"
+/>
+
+<GoogleAuth
+  id="target-project"
+  title="Target Project (Production)"
+  project="acme-prod-987654"
+  defaultRegion="europe-west1"
+/>
+
+<Command
+  id="import-data"
+  title="Import Data to Target"
+  command="gcloud storage cp /tmp/export.json gs://acme-prod-data/import.json"
+  googleAuthId="target-project"
+/>
+```
+
+<Aside type="caution">
+With multiple GoogleAuth blocks the session environment variables reflect the **most recently** authenticated block. Use `googleAuthId` on every command so each one runs against the project you intended. Each block keeps its own credentials file, so the two never collide.
+</Aside>
+
+## Service Account Key
+
+The **Service Account Key** tab accepts the full JSON key file that Google Cloud produces for a service account, two ways:
+
+- **Paste it** into the field, which is masked with a reveal toggle.
+- **Choose key file…**, which opens a native file picker. Only the *path* is recorded — the key is read and validated in the app's main process, never loaded into the interface. This is the safer option, and the only one that works for keys stored outside your workspace (`~/Downloads`, the usual place a console-issued key lands).
+
+The two are alternatives: choosing a file clears a pasted key, and typing into the field clears a chosen file.
+
+Two optional fields refine the result:
+
+- **Project ID** — overrides the project. Leave it blank to use the key's own `project_id`.
+- **Default Region** — sets the region environment variables.
+
+The key is validated by exchanging it for a real access token, so an expired, revoked, disabled, or malformed key fails immediately with the reason shown inline. On success, `GOOGLE_APPLICATION_CREDENTIALS` points at the key: a file you chose is used where it already lives, and a pasted key is written to a private `0600` file that is deleted when Runbooks quits.
+
+<Aside type="caution">
+A service account key is long-lived key material. Prefer **Google Sign-In** or the **gcloud Config** tab for interactive use, and reserve key files for automation contexts where nothing else is available.
+</Aside>
+
+## Google Sign-In
+
+<Aside type="caution">
+**This tab currently requires an author-supplied OAuth client.** Runbooks does not yet ship a registered Google Cloud "Desktop app" client, so in a stock build the **Google Sign-In** tab renders disabled and labeled *(unavailable)*. Set both `oauthClientId` and `oauthClientSecret` (see [Using your own OAuth client](#using-your-own-oauth-client)) to enable it, or use the **Service Account Key** / **gcloud Config** tabs, which work out of the box.
+</Aside>
+
+The **Google Sign-In** tab performs the same loopback OAuth flow as `gcloud auth application-default login`:
+
+1. Runbooks opens a listener bound to `127.0.0.1` on an ephemeral port and opens your browser at Google's consent screen (PKCE, S256).
+2. You approve the requested scopes in the browser.
+3. Google redirects back to the loopback listener, Runbooks exchanges the code for a refresh token, writes a user-credentials file, and closes the listener.
+
+The requested scopes default to:
+
+- `https://www.googleapis.com/auth/cloud-platform`
+- `https://www.googleapis.com/auth/userinfo.email`
+- `openid`
+
+Override them with the `scopes` prop. The tab's **What permissions does this grant?** disclosure always lists exactly what will be requested.
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  title="Sign in to Google Cloud"
+  scopes={[
+    'https://www.googleapis.com/auth/cloud-platform.read-only',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid',
+  ]}
+/>
+```
+
+Because the flow returns a refresh token — not a bare access token — the credential does not expire mid-runbook. The refresh token is written to a `0600` file and never crosses into the UI.
+
+### Using your own OAuth client
+
+Sign-in requires a registered Google Cloud **Desktop app** OAuth client, and today that means one of your own. Set **both** `oauthClientId` and `oauthClientSecret` to use your organization's client and consent screen:
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  oauthClientId="123456789012-abcdefghijklmnop.apps.googleusercontent.com"
+  oauthClientSecret="GOCSPX-example-not-a-real-secret"
+/>
+```
+
+Both props are required together. `oauthClientId` on its own is refused with an explicit error rather than started: Google issues a client secret with every Desktop client, and without it the resulting user-credentials file cannot be refreshed — every later `gcloud`, client-library, and OpenTofu call would fail at the first token refresh, long after the block reported success.
+
+<Aside type="caution">
+If no OAuth client is configured — neither by the build nor by these props — the **Google Sign-In** tab is shown but disabled and labeled *(unavailable)* from the moment the block renders, with the message *"OAuth login is not configured for this build."* Use the **Service Account Key** or **gcloud Config** tab, or supply `oauthClientId` and `oauthClientSecret`.
+</Aside>
+
+## gcloud Config
+
+The **gcloud Config** tab lists the configurations found in your gcloud configuration directory:
+
+| Platform | Location |
+|----------|----------|
+| macOS / Linux | `~/.config/gcloud` |
+| Windows | `%APPDATA%\gcloud` |
+| Any | `$CLOUDSDK_CONFIG`, when set |
+
+Each row shows the configuration's account, project, and a badge describing what it can authenticate with:
+
+| Badge | Meaning |
+|-------|---------|
+| **User ADC** | Application Default Credentials from `gcloud auth application-default login` |
+| **Service Account ADC** | Application Default Credentials backed by a service account key |
+| **Federated ADC** | Workforce-pool sign-in or an impersonated service account. Workload identity federation that sources its subject token from a file, a URL, or an executable (`credential_source`) is listed but rejected on use — see [Federated credential limits](#federated-credential-limits) |
+| **No ADC** | A configuration exists, but there are no Application Default Credentials to use — not selectable |
+| **Unsupported** | Nothing usable could be read from this configuration |
+
+A gcloud configuration is not self-sufficient the way an AWS profile is: it records *which* account and project to use, but the credential itself lives in `application_default_credentials.json`. Rows marked **No ADC** are therefore listed but not selectable, with a hint to run:
+
+```bash
+gcloud auth application-default login
+```
+
+Authenticating from this tab copies nothing: `GOOGLE_APPLICATION_CREDENTIALS` points at your existing credentials file, and `CLOUDSDK_ACTIVE_CONFIG_NAME` records the configuration name.
+
+Pin a configuration with the `gcloudConfiguration` prop:
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  title="Use your local gcloud setup"
+  gcloudConfiguration="production"
+/>
+```
+
+<Aside type="note">
+Only `application_default_credentials.json` is read. The `gcloud` CLI keeps its own login state in a `credentials.db` SQLite database that Runbooks deliberately never opens — so being logged in with `gcloud auth login` alone is not enough. Run `gcloud auth application-default login` as well.
+</Aside>
+
+## Project Selection
+
+Google Cloud's project is the analogue of an AWS account: it decides what your commands operate on.
+
+- If the `project` prop is set, that project is pinned and no picker is shown.
+- Otherwise, on the Service Account Key tab the key's own `project_id` is used when present.
+- Otherwise, if the credential can see exactly one project, it is selected automatically.
+- Otherwise, a searchable project picker is shown before the block reports success.
+
+Once authenticated, the success card offers **Change project** to switch to another project the same credential can see, and **Re-authenticate** to start over.
+
+<Aside type="note">
+Listing projects requires the `resourcemanager.projects.list` permission on some resource the credential can see. A service account without it authenticates fine but shows an empty picker — set the `project` prop (or type the project ID on the Service Account Key tab) in that case.
+</Aside>
+
+## Credential Detection
+
+By default GoogleAuth checks for credentials that already exist on the machine, then asks the user to confirm them. Detection is **read-only**: nothing is written to the session, and no outputs are published, until the user clicks **Use These Credentials**.
+
+The confirmation card shows the project, the principal, the credential type, the quota project when known, and exactly where the credential came from (the environment variable name, the credentials file path, or the gcloud configuration name).
+
+<Aside type="note">
+Unlike GitAuth, which authenticates silently, GoogleAuth always requires explicit confirmation. Google Cloud operations create real resources and cost real money; confirmation ensures the user knows which project they are about to operate in.
+</Aside>
+
+### Credential Sources
+
+`detectCredentials` accepts an array of sources, tried in the order written until one succeeds:
+
+| Source | Reads |
+|--------|-------|
+| `'env'` | Environment variables (see below) |
+| `{ env: { prefix: 'PREFIX_' } }` | The same variables with a prefix, e.g. `PREFIX_GOOGLE_APPLICATION_CREDENTIALS` |
+| `'adc'` | The well-known `application_default_credentials.json` under the gcloud configuration directory |
+| `'gcloud'` | The **active** gcloud configuration — its account, project, and compute defaults, backed by that same credentials file |
+| `{ block: 'block-id' }` | Credentials published by an earlier Command block. Only one block source is allowed per GoogleAuth block |
+
+The `'env'` source reads, in precedence order:
+
+| Purpose | Variables |
+|---------|-----------|
+| Credential | `GOOGLE_APPLICATION_CREDENTIALS` (a path), then `GOOGLE_CREDENTIALS` (inline JSON), then `GOOGLE_OAUTH_ACCESS_TOKEN`, then `CLOUDSDK_AUTH_ACCESS_TOKEN` |
+| Project | `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_PROJECT`, `GCLOUD_PROJECT` |
+| Region | `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_CLOUD_REGION` |
+| Zone | `CLOUDSDK_COMPUTE_ZONE` |
+
+A project ID on its own is not a credential: detection only reports a find when one of the credential variables is set. A credentials file may hold either a service account key or user credentials — the file's `type` field decides, never its name.
+
+### Default Behavior
+
+With no configuration, GoogleAuth checks environment variables and then Application Default Credentials:
+
+```mdx
+{/* Default - same as detectCredentials={['env', 'adc']} */}
+<GoogleAuth id="google-auth" />
+```
+
+### Disable Auto-Detection
+
+Force manual authentication only:
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  detectCredentials={false}
+/>
+```
+
+### Include the Active gcloud Configuration
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  detectCredentials={['env', 'gcloud', 'adc']}
+/>
+```
+
+### Custom Detection with a Prefix
+
+Check the standard variables with a custom prefix. The example below looks for `PROD_GOOGLE_APPLICATION_CREDENTIALS`, `PROD_GOOGLE_CREDENTIALS`, `PROD_CLOUDSDK_CORE_PROJECT`, and so on:
+
+```mdx
+<GoogleAuth
+  id="prod-auth"
+  detectCredentials={[{ env: { prefix: 'PROD_' } }]}
+/>
+```
+
+Prefixes must follow these rules:
+
+- Uppercase letters, numbers, and underscores only
+- Must start with a letter
+- Must end with a trailing underscore (e.g. `PROD_`, `MY_APP_`)
+
+An invalid prefix is rejected and reported inline; it never falls back to the unprefixed variables.
+
+### Test Prefix
+
+To use a different prefix for automated tests, configure `env_prefix` on the test step in `runbook_test.yml` rather than in the MDX:
+
+```yaml
+# runbook_test.yml
+steps:
+  - block: google-auth
+    env_prefix: CI_  # Checks CI_GOOGLE_APPLICATION_CREDENTIALS, CI_GOOGLE_CLOUD_PROJECT, etc.
+    expect: success
+```
+
+This keeps test configuration separate from runtime behavior. See [Testing Runbooks](/authoring/testing/) for details.
+
+### From Command Output
+
+Use credentials produced by a previous Command block — for example a script that impersonates a service account or exchanges a workload identity token:
+
+```mdx
+<Command
+  id="impersonate-sa"
+  path="scripts/impersonate-sa.sh"
+  title="Impersonate Deployment Service Account"
+/>
+
+<GoogleAuth
+  id="impersonated-auth"
+  title="Deployment Service Account"
+  detectCredentials={[{ block: 'impersonate-sa' }]}
+/>
+
+<Command
+  id="deploy"
+  command="gcloud run deploy api --source ."
+  googleAuthId="impersonated-auth"
+/>
+```
+
+The script writes credentials to the runbook output file:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+gcloud iam service-accounts keys create /tmp/deploy-key.json \
+  --iam-account "deployer@my-project-123456.iam.gserviceaccount.com"
+
+echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/deploy-key.json" >> "$RUNBOOK_OUTPUT"
+echo "GOOGLE_CLOUD_PROJECT=my-project-123456" >> "$RUNBOOK_OUTPUT"
+```
+
+Accepted output keys are `GOOGLE_APPLICATION_CREDENTIALS` (a path), `GOOGLE_CREDENTIALS` (inline JSON), or `GOOGLE_OAUTH_ACCESS_TOKEN` / `CLOUDSDK_AUTH_ACCESS_TOKEN`. The project falls back to `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_PROJECT`, and finally the `project` prop.
+
+If the referenced block has not run yet, GoogleAuth shows *Waiting for "impersonate-sa" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order.
+
+<Aside type="caution">
+Only one `{ block: 'id' }` entry is allowed per GoogleAuth block. More than one is a configuration error: the block renders an error card instead of the authentication UI.
+</Aside>
+
+### Access Token Credentials
+
+If the only credential found is an access token (`GOOGLE_OAUTH_ACCESS_TOKEN` or `CLOUDSDK_AUTH_ACCESS_TOKEN`), confirming it re-exports that same value under both canonical names and writes no `GOOGLE_APPLICATION_CREDENTIALS`. Runbooks never mints a bearer token of its own — access tokens expire after about an hour, which would break a long runbook halfway through.
+
+### When Users Reject Detected Credentials
+
+Detected credentials are **never registered as this block's credentials until the user confirms them**. When a user clicks **Use Different Credentials**:
+
+1. The manual authentication tabs are shown
+2. The user must authenticate manually before the block reports success, publishes outputs, or satisfies a `googleAuthId` dependency
+
+A **← Try auto-detection again** link re-runs detection at any time; if nothing is found, a brief *No credentials found* hint appears.
+
+If a credential is found but does not validate, the block says so — *"Invalid credentials detected: Application Default Credentials are invalid or expired"* — and falls through to manual authentication.
+
+## Instruction Mode
+
+In [instruction mode](/intro/instruction-mode/), GoogleAuth captures nothing. It renders a single instruction — *"Log into Google Cloud"*, or *"Log into Google Cloud in the `my-project-123456` project"* when `project` is set — with the configured project, region, gcloud configuration, and scopes listed as notes, plus the equivalent command to run by hand:
+
+```bash
+gcloud auth application-default login
+```
+
+No detection runs, no browser opens, and no credentials are read or written.
+
+## Security
+
+### Credential Handling
+
+- **Credentials stay local.** All authentication happens between your machine and Google. Nothing is transmitted to Gruntwork.
+- **Key material never reaches the UI.** Service account keys, refresh tokens, and access tokens are handled entirely in the app's main process. Every result the interface receives is metadata: a principal, a project, a credential type, and a file path.
+- **Credentials are files, not environment values.** `GOOGLE_APPLICATION_CREDENTIALS` points at either a file you already had, or a `0600` file in a private temporary directory. Those temporary files are deleted when Runbooks quits, and re-authenticating a block replaces that block's previous file. Files are tracked per block, so one GoogleAuth block never releases a file another block is still publishing.
+- **Validation before use.** Every credential is exchanged for a real access token before it is registered, so an expired or revoked credential fails immediately rather than at the first command.
+- **Federated credentials are checked before they are used.** A service account key and a user credential are inert data, but an `external_account` or `impersonated_service_account` document names the endpoints Google's auth library must call and the local file it must read. Runbooks rejects any such document that points anywhere other than `*.googleapis.com` over HTTPS, and rejects `credential_source` entirely — so a credentials file from an untrusted source cannot turn the block into an outbound request or a file read on someone else's behalf. Workforce pool sign-in (`gcloud auth application-default login`) and impersonation chains are unaffected; only file-, URL-, and executable-sourced workload identity federation is not accepted.
+- **Errors are redacted.** Error messages that could echo key material are scrubbed before they are displayed.
+
+### Confirmation, and What It Does Not Do
+
+The confirmation gate controls what *this block* registers and publishes: no session variables are written and no outputs are produced until the user confirms.
+
+<Aside type="caution">
+It does not remove Google Cloud variables that your shell already exported. If you launch Runbooks from a terminal where `GOOGLE_APPLICATION_CREDENTIALS` is set, scripts inherit that value like any other environment variable, whether or not you confirm anything. To guarantee a command runs with the credentials a specific block produced, reference it with `googleAuthId`.
+</Aside>
+
+### Federated Credential Limits
+
+`external_account`, `external_account_authorized_user` and `impersonated_service_account` documents differ from a service account key in kind, not just in shape: they are instructions. The document names the URL the auth library must call, the headers it must send, and — through `credential_source` — the local file it must read or the program it must run. The library performs no validation of its own, so Runbooks validates them before they are used:
+
+- Every absolute URL anywhere in the document must be `https:` and must resolve to a host under `googleapis.com` (`accounts.google.com` is also permitted, since every issued service account key carries it as `auth_uri`).
+- `universe_domain` must be `googleapis.com`, at every level of a `source_credentials` chain.
+- `credential_source` is rejected outright.
+
+The practical effect: **workload identity federation that sources its subject token from a file, a URL, or an executable will not authenticate here.** That is a CI and VM pattern, and accepting it would let a pasted document read an arbitrary local file and ship it to a host of its choosing. Workforce-pool sign-in (`gcloud auth application-default login` against a workforce pool) carries a refresh token and no `credential_source`, so it works normally, as does an impersonation chain over a real key.
+
+If a federated configuration you rely on is refused, authenticate with a service account key or `gcloud auth application-default login` instead.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---------|---------------|
+| **Google Sign-In** tab is greyed out and labeled *(unavailable)* | No OAuth client is configured for this build — the current default. Supply **both** `oauthClientId` and `oauthClientSecret`, or use the Service Account Key or gcloud Config tab |
+| *"oauthClientId was supplied without oauthClientSecret"* | A custom Desktop client needs both. Google issues a secret with every Desktop client; without it the credential cannot be refreshed |
+| *No gcloud configurations found* | There is no gcloud configuration directory at the reported path. Run `gcloud init`, or set `CLOUDSDK_CONFIG` to the directory you use |
+| A configuration shows **No ADC** and cannot be selected | The configuration has no Application Default Credentials. Run `gcloud auth application-default login` |
+| *Not a service account key (expected type: service_account)* | The pasted JSON is user credentials or an OAuth client file, not a service account key. Use the file that Google Cloud produced from **IAM & Admin → Service Accounts → Keys** |
+| *…which Runbooks does not accept* / *…is not a Google API endpoint* | The credentials document is a workload identity federation config that fetches its subject token from a file, a URL, or a command, or that points at a host outside `*.googleapis.com`. Runbooks does not run those instructions. Use a service account key, **Sign in with Google**, or `gcloud auth application-default login` |
+| *Invalid credentials detected: … are invalid or expired* | The detected credential no longer authenticates. Refresh it (`gcloud auth application-default login`) or authenticate manually |
+| The project picker is empty | The credential cannot list projects. Grant `resourcemanager.projects.list`, or set the `project` prop / type the project ID directly |
+| *Project … is not accessible with these credentials* | Advisory warning: the credential authenticated, but Google definitively refused (404/permission denied) on that project. Check the project ID and the principal's IAM roles. An inconclusive answer — a disabled Cloud Resource Manager API, a network blip — deliberately produces **no** warning, because it says nothing about whether your commands will work |
+| *Authenticated, but no Google Cloud project is set* | The credential is valid but nothing named a project: no `project` prop, no `core/project` in the gcloud configuration, and no project the principal can enumerate. Commands that need one will fail with *"The project property must be set"*. Set the `project` prop, run `gcloud config set project`, or use **Change project** |
+| *Authenticated, but the credential could not be saved to the session* | The credential is valid but the session write failed. Re-run the block; blocks that consume it may not see the credentials until you do |
+| A Command's **Run** button stays disabled | It has a `googleAuthId` pointing at a GoogleAuth block that has not authenticated yet — or at an ID that does not exist. Check the spelling |
+| Commands use the wrong project | The session variables reflect the most recent GoogleAuth block. Add `googleAuthId` to every command that must use a specific one |
+| `gcloud` commands ignore the selected project | Some scripts pass `--project` explicitly. Runbooks sets `CLOUDSDK_CORE_PROJECT`, which only applies when the flag is absent |
+
+## Detailed Example
+
+See the [google-auth feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/google-auth) for a complete walkthrough of the GoogleAuth block.

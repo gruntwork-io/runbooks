@@ -19,6 +19,7 @@ import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
+import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
@@ -456,6 +457,9 @@ app.on("window-all-closed", () => {
 app.on("will-quit", (event) => {
   // Clean up any temp clone directories
   cleanupTempClones()
+
+  // Shred the credential files materialised for Google Cloud auth
+  cleanupGoogleCredentialFiles()
 
   // Dispose the Effect managed runtime to clean up background fibers,
   // file watchers, etc. Use a timeout to avoid blocking shutdown if a

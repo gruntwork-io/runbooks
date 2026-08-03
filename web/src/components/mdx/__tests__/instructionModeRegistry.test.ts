@@ -20,6 +20,7 @@ const INTERACTIVE_BLOCKS = [
   'Command',
   'Check',
   'AwsAuth',
+  'GoogleAuth',
   'GitAuth',
   'GitHubAuth',
   'GitLabAuth',

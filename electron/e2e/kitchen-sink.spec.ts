@@ -234,6 +234,7 @@ test.describe("Commands", () => {
   test("auth-gated commands are visible", async () => {
     await expect(page.locator('[data-testid="aws-cmd"]')).toBeVisible()
     await expect(page.locator('[data-testid="gh-cmd"]')).toBeVisible()
+    await expect(page.locator('[data-testid="gcp-cmd"]')).toBeVisible()
   })
 })
 
@@ -370,6 +371,21 @@ test.describe("Auth Blocks", () => {
     const errorBanner = block.locator(".bg-red-50")
     await expect(errorBanner).toHaveCount(0)
   })
+
+  test("GoogleAuth block renders", async () => {
+    const block = page.locator('[data-testid="google-auth-test"]')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    await expect(page.getByText("Google Cloud Authentication (Optional)")).toBeVisible()
+  })
+
+  test("GoogleAuth block has no errors", async () => {
+    // detectCredentials={false} in the runbook, so the block renders its manual
+    // auth tabs immediately with no IPC round-trip on mount.
+    const block = page.locator('[data-testid="google-auth-test"]')
+    const errorBanner = block.locator(".bg-red-50")
+    await expect(errorBanner).toHaveCount(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -457,6 +473,7 @@ test.describe("All Blocks Present", () => {
     "merged-inputs-cmd",
     "aws-cmd",
     "gh-cmd",
+    "gcp-cmd",
     "expr-test",
     // Checks
     "check-pass",
@@ -477,6 +494,7 @@ test.describe("All Blocks Present", () => {
     // Auth
     "aws-auth-test",
     "gh-auth-test",
+    "google-auth-test",
     // Git
     "clone-test",
     "pr-test",

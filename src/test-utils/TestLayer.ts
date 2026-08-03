@@ -11,6 +11,8 @@ import { GitLabClient } from "../services/GitLabClient.ts"
 import type { GitLabClientShape } from "../services/GitLabClient.ts"
 import { GitClient } from "../services/GitClient.ts"
 import type { GitClientShape } from "../services/GitClient.ts"
+import { GoogleClient } from "../services/GoogleClient.ts"
+import type { GoogleClientShape } from "../services/GoogleClient.ts"
 import { BoilerplateRenderer } from "../services/BoilerplateRenderer.ts"
 import type { BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
 import { Telemetry } from "../services/Telemetry.ts"
@@ -22,6 +24,9 @@ import {
   GitHubApiError,
   GitLabApiError,
   GitError,
+  GoogleAuthError,
+  GoogleConfigError,
+  GoogleOAuthError,
 } from "../errors/index.ts"
 
 // ---------------------------------------------------------------------------
@@ -118,6 +123,36 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
   ...overrides,
 })
 
+const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): GoogleClientShape => ({
+  validateServiceAccountKey: (_keyJson, _projectIdOverride) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "validateServiceAccountKey") })),
+  validateAccessToken: (_accessToken, _projectIdOverride) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "validateAccessToken") })),
+  validateAdcDocument: (_adcJson, _projectIdOverride) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "validateAdcDocument") })),
+  readCredentialFile: (_filePath) =>
+    Effect.fail(new GoogleConfigError({ message: notConfigured("GoogleClient", "readCredentialFile") })),
+  readCredentialFileContents: (_filePath) =>
+    Effect.fail(new GoogleConfigError({ message: notConfigured("GoogleClient", "readCredentialFileContents") })),
+  listGcloudConfigurations: () =>
+    Effect.fail(new GoogleConfigError({ message: notConfigured("GoogleClient", "listGcloudConfigurations") })),
+  readApplicationDefaultCredentials: () =>
+    Effect.fail(
+      new GoogleConfigError({ message: notConfigured("GoogleClient", "readApplicationDefaultCredentials") }),
+    ),
+  startOAuthFlow: (_params) =>
+    Effect.fail(new GoogleOAuthError({ message: notConfigured("GoogleClient", "startOAuthFlow") })),
+  pollOAuthFlow: (_flowId) =>
+    Effect.fail(new GoogleOAuthError({ message: notConfigured("GoogleClient", "pollOAuthFlow") })),
+  // No error channel: cancelling a flow that was never started is a no-op.
+  cancelOAuthFlow: (_flowId) => Effect.void,
+  listProjects: (_creds, _query, _pageSize) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "listProjects") })),
+  checkProject: (_projectId, _creds) =>
+    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "checkProject") })),
+  ...overrides,
+})
+
 const makeStubBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}): BoilerplateRendererShape => ({
   renderFile: (templateContent, _variables) => Effect.succeed(templateContent),
   renderTemplate: (_templateDir, _outputDir, _variables) => Effect.void,
@@ -148,6 +183,9 @@ export const makeTestGitLabClient = (overrides: Partial<GitLabClientShape> = {})
 export const makeTestGitClient = (overrides: Partial<GitClientShape> = {}) =>
   Layer.succeed(GitClient, makeStubGitClient(overrides))
 
+export const makeTestGoogleClient = (overrides: Partial<GoogleClientShape> = {}) =>
+  Layer.succeed(GoogleClient, makeStubGoogleClient(overrides))
+
 export const makeTestBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}) =>
   Layer.succeed(BoilerplateRenderer, makeStubBoilerplate(overrides))
 
@@ -166,6 +204,7 @@ export interface TestLayerOptions {
   readonly github?: Partial<GitHubClientShape>
   readonly gitlab?: Partial<GitLabClientShape>
   readonly git?: Partial<GitClientShape>
+  readonly google?: Partial<GoogleClientShape>
   readonly boilerplate?: Partial<BoilerplateRendererShape>
   readonly telemetry?: Partial<TelemetryShape>
 }
@@ -179,6 +218,7 @@ export const makeTestLayer = (options: TestLayerOptions = {}) =>
     makeTestGitHubClient(options.github),
     makeTestGitLabClient(options.gitlab),
     makeTestGitClient(options.git),
+    makeTestGoogleClient(options.google),
     makeTestBoilerplate(options.boilerplate),
     makeTestTelemetry(options.telemetry),
   )

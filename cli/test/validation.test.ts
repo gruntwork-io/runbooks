@@ -115,6 +115,31 @@ describe("parseAuthDependencies", () => {
     expect(d!.authBlockType).toBe("AwsAuth")
   })
 
+  it("links a block to its GoogleAuth dependency via googleAuthId", () => {
+    const p = writeRunbook(`
+<GoogleAuth id="gcp1" />
+<Command id="cmd1" googleAuthId="gcp1">gcloud projects list</Command>
+`)
+    const deps = parseAuthDependencies(p)
+    const d = deps.get("cmd1")
+    expect(d).toBeDefined()
+    expect(d!.authBlockId).toBe("gcp1")
+    expect(d!.authBlockType).toBe("GoogleAuth")
+  })
+
+  it("keeps googleAuthId and awsAuthId dependencies distinct", () => {
+    const p = writeRunbook(`
+<AwsAuth id="aws1" />
+<GoogleAuth id="gcp1" />
+<Command id="aws-cmd" awsAuthId="aws1">echo aws</Command>
+<Check id="gcp-check" googleAuthId="gcp1">echo gcp</Check>
+`)
+    const deps = parseAuthDependencies(p)
+    expect(deps.get("aws-cmd")?.authBlockType).toBe("AwsAuth")
+    expect(deps.get("gcp-check")?.authBlockType).toBe("GoogleAuth")
+    expect(deps.get("gcp-check")?.authBlockId).toBe("gcp1")
+  })
+
   it("links a block to its GitHubAuth dependency via githubAuthId", () => {
     const p = writeRunbook(`
 <GitHubAuth id="gh1" />
@@ -153,6 +178,34 @@ describe("InputValidator", () => {
     expect(v.hasConfigErrors()).toBe(true)
     const err = v.getConfigErrors().find((e) => e.componentType === "MysteryBlock")
     expect(err?.message).toContain("Unknown block type")
+  })
+
+  it("recognizes GoogleAuth as a known block type", () => {
+    const p = writeRunbook(`<GoogleAuth id="gcp1" project="my-project" />`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.hasConfigErrors()).toBe(false)
+  })
+
+  it("parses GoogleAuth blocks into the component list", () => {
+    const p = writeRunbook(`
+<GoogleAuth id="gcp1" />
+<Command id="cmd1" googleAuthId="gcp1">echo hi</Command>
+`)
+    const v = new InputValidator(p)
+    v.init()
+    const comp = v.getComponents().find((c) => c.type === "GoogleAuth")
+    expect(comp).toBeDefined()
+    expect(comp!.id).toBe("gcp1")
+  })
+
+  it("flags a GoogleAuth block with no id", () => {
+    const p = writeRunbook(`<GoogleAuth project="my-project" />`)
+    const v = new InputValidator(p)
+    v.init()
+    const err = v.getConfigErrors().find((e) => e.componentType === "GoogleAuth")
+    expect(err?.componentId).toBe("(missing)")
+    expect(err?.message).toContain("The 'id' prop is required")
   })
 
   it("ignores unknown blocks inside fenced code", () => {
