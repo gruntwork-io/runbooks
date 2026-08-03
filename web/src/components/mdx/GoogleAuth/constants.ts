@@ -70,3 +70,14 @@ export const DEFAULT_GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
   'openid',
 ] as const
+
+
+/**
+ * Hand-run equivalent of Google Sign-In with the author's scopes. Duplicated
+ * from `src/domain/google/scopes.ts` so instruction mode and the insufficient-
+ * scopes card can render without importing from `src/domain/`.
+ */
+export function formatGcloudAdcLoginCommand(scopes: readonly string[]): string {
+  if (scopes.length === 0) return 'gcloud auth application-default login'
+  return `gcloud auth application-default login --scopes=${scopes.join(',')}`
+}

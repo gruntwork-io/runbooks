@@ -63,6 +63,9 @@ interface EnvDetectionPayload {
   path?: string
   configuration?: string
   quotaProjectId?: string
+  insufficientScopes?: boolean
+  missingScopes?: string[]
+  grantedScopes?: string[]
 }
 
 /** Result of one detection attempt against a single source. */
@@ -186,6 +189,8 @@ export interface UseGoogleAuthReturn {
   handleRejectDetected: () => void
   handleRetryDetection: () => void
   handleManualAuth: () => void
+  /** Decline insufficient-scopes detection and start Google Sign-In with required scopes. */
+  handleSignInWithRequiredScopes: () => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -583,10 +588,24 @@ export function useGoogleAuth({
         ...(options?.prefix ? { prefix: options.prefix } : {}),
         ...(project ? { defaultProject: project } : {}),
         source,
+        ...(scopes && scopes.length > 0 ? { scopes } : {}),
       })
 
       if (!data.found) {
         return { success: false, ...(data.error ? { error: data.error } : {}) }
+      }
+
+      // Valid identity but missing author-required scopes — stop walking sources
+      // and show recovery rather than silently trying the next credential.
+      if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+        return {
+          success: true,
+          detected: {
+            ...toDetectedCredentials(data, source, options?.prefix),
+            missingScopes: data.missingScopes,
+            ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+          },
+        }
       }
 
       if (!data.valid) {
@@ -604,7 +623,7 @@ export function useGoogleAuth({
         error: error instanceof Error ? error.message : 'Failed to check Google Cloud credentials',
       }
     }
-  }, [api, project, toDetectedCredentials])
+  }, [api, project, scopes, toDetectedCredentials])
 
   /**
    * READ-ONLY validation of credentials found in another block's outputs.
@@ -623,7 +642,23 @@ export function useGoogleAuth({
         blockId: id,
         ...result.creds,
         registerSession: false,
+        ...(scopes && scopes.length > 0 ? { scopes } : {}),
       })
+
+      if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+        return {
+          success: true,
+          detected: {
+            projectId: data.projectId ?? result.creds.projectId ?? '',
+            ...(data.projectName ? { projectName: data.projectName } : {}),
+            principal: data.account?.principal ?? '',
+            credentialType: data.credentialType ?? result.credentialType ?? 'service_account',
+            source: 'block',
+            missingScopes: data.missingScopes,
+            ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+          },
+        }
+      }
 
       if (!data.valid) {
         return { success: false, error: data.error || 'Block credentials are invalid' }
@@ -645,7 +680,7 @@ export function useGoogleAuth({
         error: error instanceof Error ? error.message : 'Failed to validate block credentials',
       }
     }
-  }, [api, id, getBlockCredentials])
+  }, [api, id, scopes, getBlockCredentials])
 
   /**
    * Walk the author's credential sources in order, stopping at the first
@@ -823,9 +858,20 @@ export function useGoogleAuth({
           ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
           ...(effectiveRegion ? { region: effectiveRegion } : {}),
           ...(effectiveZone ? { zone: effectiveZone } : {}),
+          ...(scopes && scopes.length > 0 ? { scopes } : {}),
         })
 
         if (!data.valid) {
+          if (data.insufficientScopes && data.missingScopes?.length) {
+            setDetectedCredentials({
+              ...detectedCredentials,
+              missingScopes: data.missingScopes,
+              ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+            })
+            setAuthStatus('pending')
+            setErrorMessage(null)
+            return
+          }
           setAuthStatus('failed')
           setErrorMessage(data.error || 'Failed to register the detected credentials')
           return
@@ -865,9 +911,20 @@ export function useGoogleAuth({
               ...(effectiveRegion ? { region: effectiveRegion } : {}),
               ...(effectiveZone ? { zone: effectiveZone } : {}),
               registerSession: true,
+              ...(scopes && scopes.length > 0 ? { scopes } : {}),
             })
 
             if (!data.valid) {
+              if (data.insufficientScopes && data.missingScopes?.length) {
+                setDetectedCredentials({
+                  ...detectedCredentials,
+                  missingScopes: data.missingScopes,
+                  ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+                })
+                setAuthStatus('pending')
+                setErrorMessage(null)
+                return
+              }
               setAuthStatus('failed')
               setErrorMessage(data.error || 'Failed to register the detected credentials')
               return
@@ -905,6 +962,7 @@ export function useGoogleAuth({
     detectCredentials,
     detectionWarning,
     project,
+    scopes,
     effectiveRegion,
     effectiveZone,
     getBlockCredentials,
@@ -1292,6 +1350,22 @@ export function useGoogleAuth({
     setErrorMessage(null)
   }, [stopOAuthPolling])
 
+  /**
+   * Decline an insufficient-scopes detection and start Google Sign-In with the
+   * author's required scopes. When Sign-In is unavailable the insufficient-
+   * scopes card shows the gcloud --scopes command instead; this handler is a
+   * no-op for that path beyond clearing the detection card.
+   */
+  const handleSignInWithRequiredScopes = useCallback(async () => {
+    handleRejectDetected()
+    if (oauthUnavailable && !oauthClientId) {
+      return
+    }
+    setAuthMethod('oauth')
+    await handleOAuthLogin()
+  }, [handleRejectDetected, oauthUnavailable, oauthClientId, handleOAuthLogin])
+
+
   // Cleanup on unmount: stop polling and release MAIN's loopback listener.
   useEffect(() => {
     return () => {
@@ -1401,6 +1475,7 @@ export function useGoogleAuth({
         ...(requestedProject ? { projectId: requestedProject } : {}),
         ...(region ? { region } : {}),
         ...(zone ? { zone } : {}),
+        ...(scopes && scopes.length > 0 ? { scopes } : {}),
       })
 
       if (!data.valid) {
@@ -1478,6 +1553,7 @@ export function useGoogleAuth({
     id,
     selectedConfig,
     project,
+    scopes,
     effectiveRegion,
     effectiveZone,
     completeAuthentication,
@@ -1592,5 +1668,6 @@ export function useGoogleAuth({
     handleRejectDetected,
     handleRetryDetection,
     handleManualAuth,
+    handleSignInWithRequiredScopes,
   }
 }

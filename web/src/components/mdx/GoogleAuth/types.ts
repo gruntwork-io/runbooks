@@ -69,6 +69,13 @@ export interface DetectedGoogleCredentials {
   path?: string
   /** The named gcloud configuration (source 'gcloud'). */
   configuration?: string
+  /**
+   * Required scopes this credential is missing. When present the block shows
+   * the insufficient-scopes recovery card instead of "Use These Credentials".
+   */
+  missingScopes?: string[]
+  /** Scopes tokeninfo reported on the detected credential, when known. */
+  grantedScopes?: string[]
 }
 
 // =============================================================================
@@ -128,8 +135,9 @@ export interface GoogleAuthProps {
    */
   project?: string
   /**
-   * OAuth scopes for the user-login tab.
-   * Default: cloud-platform + userinfo.email + openid.
+   * OAuth scopes for Google Sign-In, and — when set — required of any
+   * auto-detected or gcloud user ADC this block will accept. Default (Sign-In
+   * only, not enforced on ambient ADC): cloud-platform + userinfo.email + openid.
    */
   scopes?: string[]
   /** Custom OAuth client id for the installed-app flow. Main owns the default. */

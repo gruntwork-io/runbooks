@@ -48,7 +48,7 @@ Runbooks never shells out to the `gcloud` binary. Service account keys are valid
 | `defaultRegion` | `string` | — | Default compute region for subsequent commands. Sets `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, and `GOOGLE_REGION` |
 | `defaultZone` | `string` | — | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |
 | `gcloudConfiguration` | `string` | — | Pre-select a named gcloud configuration in the gcloud Config tab (supports template expressions) |
-| `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by the Google Sign-In tab |
+| `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by Google Sign-In. When set, also **required** of any auto-detected or gcloud user ADC this block will accept (service-account keys are exempt) |
 | `oauthClientId` | `string` | — | Client ID of a Google Cloud "Desktop app" OAuth client. **Required to enable the Google Sign-In tab** — this build ships no default client. Must be paired with `oauthClientSecret` |
 | `oauthClientSecret` | `string` | — | Client secret issued alongside the Desktop OAuth client. Required whenever `oauthClientId` is set. Per RFC 8252 this value is not confidential; Google simply issues one with every Desktop client |
 | `detectCredentials` | `false \| GoogleCredentialSource[]` | `['env', 'adc']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
@@ -211,12 +211,15 @@ The requested scopes default to:
 
 Override them with the `scopes` prop. The tab's **What permissions does this grant?** disclosure always lists exactly what will be requested.
 
+When `scopes` is set, it is also a **requirement** for ambient credentials: auto-detected env/ADC credentials and the gcloud Config tab refuse a user credential whose tokeninfo grant is missing any listed scope. The block shows the missing scopes and offers **Sign in with required scopes** (or a copyable `gcloud auth application-default login --scopes=…` command when Sign-In is unavailable). Defaults are Sign-In request scopes only — they are **not** enforced on ambient ADC unless you set the prop.
+
 ```mdx
 <GoogleAuth
   id="google-auth"
   title="Sign in to Google Cloud"
   scopes={[
-    'https://www.googleapis.com/auth/cloud-platform.read-only',
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/admin.directory.rolemanagement',
     'https://www.googleapis.com/auth/userinfo.email',
     'openid',
   ]}
@@ -457,10 +460,10 @@ If a credential is found but does not validate, the block says so — *"Invalid 
 
 ## Instruction Mode
 
-In [instruction mode](/intro/instruction-mode/), GoogleAuth captures nothing. It renders a single instruction — *"Log into Google Cloud"*, or *"Log into Google Cloud in the `my-project-123456` project"* when `project` is set — with the configured project, region, gcloud configuration, and scopes listed as notes, plus the equivalent command to run by hand:
+In [instruction mode](/intro/instruction-mode/), GoogleAuth captures nothing. It renders a single instruction — *"Log into Google Cloud"*, or *"Log into Google Cloud in the `my-project-123456` project"* when `project` is set — with the configured project, region, gcloud configuration, and scopes listed as notes, plus the equivalent command to run by hand. When the author sets `scopes`, that command includes `--scopes=…`:
 
 ```bash
-gcloud auth application-default login
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email,openid
 ```
 
 No detection runs, no browser opens, and no credentials are read or written.
@@ -507,6 +510,8 @@ If a federated configuration you rely on is refused, authenticate with a service
 | *Not a service account key (expected type: service_account)* | The pasted JSON is user credentials or an OAuth client file, not a service account key. Use the file that Google Cloud produced from **IAM & Admin → Service Accounts → Keys** |
 | *…which Runbooks does not accept* / *…is not a Google API endpoint* | The credentials document is a workload identity federation config that fetches its subject token from a file, a URL, or a command, or that points at a host outside `*.googleapis.com`. Runbooks does not run those instructions. Use a service account key, **Sign in with Google**, or `gcloud auth application-default login` |
 | *Invalid credentials detected: … are invalid or expired* | The detected credential no longer authenticates. Refresh it (`gcloud auth application-default login`) or authenticate manually |
+| *Credentials missing required scopes* | The block's `scopes` prop lists scopes the detected user ADC does not grant (for example Admin SDK scopes). Use **Sign in with required scopes**, or run the shown `gcloud auth application-default login --scopes=…` command and try auto-detection again |
+| gcloud Config / confirm fails with *missing required OAuth scopes* | Same check as detection: the selected ADC is too narrow for this block. Re-authenticate with the required scopes via Sign-In or `gcloud auth application-default login --scopes=…` |
 | The project picker is empty | The credential cannot list projects. Grant `resourcemanager.projects.list`, or set the `project` prop / type the project ID directly |
 | *Project … is not accessible with these credentials* | Advisory warning: the credential authenticated, but Google definitively refused (404/permission denied) on that project. Check the project ID and the principal's IAM roles. An inconclusive answer — a disabled Cloud Resource Manager API, a network blip — deliberately produces **no** warning, because it says nothing about whether your commands will work |
 | *Authenticated, but no Google Cloud project is set* | The credential is valid but nothing named a project: no `project` prop, no `core/project` in the gcloud configuration, and no project the principal can enumerate. Commands that need one will fail with *"The project property must be set"*. Set the `project` prop, run `gcloud config set project`, or use **Change project** |

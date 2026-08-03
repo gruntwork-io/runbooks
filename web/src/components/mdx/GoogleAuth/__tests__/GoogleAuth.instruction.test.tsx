@@ -62,9 +62,15 @@ describe('GoogleAuth — instruction mode', () => {
     expect(screen.getByText('us-central1')).toBeInTheDocument()
     expect(screen.getByText('prod')).toBeInTheDocument()
     expect(screen.getByText('Use the platform-admin account.')).toBeInTheDocument()
-    // Author-supplied scopes replace the defaults in the hint.
+    // Author-supplied scopes replace the defaults in the hint and appear on the
+    // by-hand gcloud command.
     expect(screen.getByText('https://www.googleapis.com/auth/cloud-platform')).toBeInTheDocument()
     expect(screen.queryByText(DEFAULT_SCOPES)).toBeNull()
+    expect(
+      screen.getByText(
+        'gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform',
+      ),
+    ).toBeInTheDocument()
     expect(useGoogleAuthSpy).not.toHaveBeenCalled()
   })
 })

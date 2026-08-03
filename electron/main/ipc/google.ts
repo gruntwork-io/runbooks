@@ -41,6 +41,10 @@ import {
   DEFAULT_GOOGLE_SCOPES,
   ENV_PREFIX_PATTERN,
 } from "../../../src/domain/google/auth.ts"
+import {
+  evaluateRequiredGoogleScopes,
+  insufficientScopesErrorMessage,
+} from "../../../src/domain/google/scopes.ts"
 import type {
   AdcInfo,
   GcloudConfiguration,
@@ -581,6 +585,35 @@ function invalidPrefixError(prefix: string | undefined): string | undefined {
   return undefined
 }
 
+
+/** Refuse user ADC that lacks the author's explicitly required scopes. */
+function scopeCheckFailure(
+  identity: GoogleIdentity,
+  required: string[] | undefined,
+):
+  | {
+      insufficientScopes: true
+      missingScopes: string[]
+      grantedScopes: string[]
+      error: string
+    }
+  | undefined {
+  if (!required?.length) return undefined
+  const evaluation = evaluateRequiredGoogleScopes({
+    required,
+    granted: identity.scopes,
+    accountType: identity.accountType,
+    credentialType: identity.credentialType,
+  })
+  if (evaluation.ok) return undefined
+  return {
+    insufficientScopes: true,
+    missingScopes: [...evaluation.missing],
+    grantedScopes: [...evaluation.granted],
+    error: insufficientScopesErrorMessage(evaluation.missing, required),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -602,6 +635,7 @@ export function registerGoogleHandlers(): void {
         region?: string
         zone?: string
         registerSession?: boolean
+        scopes?: string[]
       },
     ) => {
       try {
@@ -625,6 +659,18 @@ export function registerGoogleHandlers(): void {
           )
         } else {
           return { valid: false, error: "No Google Cloud credentials provided" }
+        }
+
+        const scopeFailure = scopeCheckFailure(identity, params.scopes)
+        if (scopeFailure) {
+          return {
+            valid: false,
+            account: toAccountInfo(identity),
+            ...(identity.projectId ? { projectId: identity.projectId } : {}),
+            ...(identity.projectName ? { projectName: identity.projectName } : {}),
+            credentialType: identity.credentialType,
+            ...scopeFailure,
+          }
         }
 
         const base = {
@@ -824,6 +870,7 @@ export function registerGoogleHandlers(): void {
         projectId?: string
         region?: string
         zone?: string
+        scopes?: string[]
       },
     ) => {
       try {
@@ -847,6 +894,15 @@ export function registerGoogleHandlers(): void {
         const zone = params.zone ?? configuration.zone
         const documentJson = await runtime.runPromise(readCredentialFileContents(adc.path))
         const identity = await validateCredentialDocument(documentJson, projectId)
+
+        const scopeFailure = scopeCheckFailure(identity, params.scopes)
+        if (scopeFailure) {
+          return {
+            valid: false,
+            account: toAccountInfo(identity),
+            ...scopeFailure,
+          }
+        }
 
         // Nothing is materialised for this tab: GOOGLE_APPLICATION_CREDENTIALS
         // points at the user's own application_default_credentials.json.
@@ -897,6 +953,8 @@ export function registerGoogleHandlers(): void {
          * configuration; absent, the active configuration is used.
          */
         configuration?: string
+        /** Author `scopes` prop — required of user ADC when set. */
+        scopes?: string[]
       } = {},
     ) => {
       const prefix = params.prefix || undefined
@@ -926,6 +984,17 @@ export function registerGoogleHandlers(): void {
         try {
           const identity = await validateResolvedCredential(resolved)
           const projectId = resolved.projectId ?? identity.projectId
+          const scopeFailure = scopeCheckFailure(identity, params.scopes)
+          if (scopeFailure) {
+            return {
+              ...metadata,
+              valid: false,
+              account: toAccountInfo(identity),
+              ...(projectId ? { projectId } : {}),
+              ...(identity.projectName ? { projectName: identity.projectName } : {}),
+              ...scopeFailure,
+            }
+          }
           return {
             ...metadata,
             valid: true,
@@ -964,6 +1033,7 @@ export function registerGoogleHandlers(): void {
         projectId?: string
         region?: string
         zone?: string
+        scopes?: string[]
       } = {},
     ) => {
       const prefix = params.prefix || undefined
@@ -983,6 +1053,15 @@ export function registerGoogleHandlers(): void {
         }
 
         const identity = await validateResolvedCredential(resolved)
+        const scopeFailure = scopeCheckFailure(identity, params.scopes)
+        if (scopeFailure) {
+          return {
+            valid: false,
+            account: toAccountInfo(identity),
+            credentialType: identity.credentialType,
+            ...scopeFailure,
+          }
+        }
         const projectId = params.projectId ?? resolved.projectId
         const region = params.region ?? resolved.region
         const zone = params.zone ?? resolved.zone

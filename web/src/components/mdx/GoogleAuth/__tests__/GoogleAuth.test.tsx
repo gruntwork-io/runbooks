@@ -506,3 +506,112 @@ describe('GoogleAuth — credential detection', () => {
     expect(await screen.findByText('No credentials found')).toBeInTheDocument()
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// Required scopes on detected ADC
+// ---------------------------------------------------------------------------
+
+describe('GoogleAuth — required scopes', () => {
+  const DIRECTORY = 'https://www.googleapis.com/auth/admin.directory.rolemanagement'
+  const CLOUD_PLATFORM = 'https://www.googleapis.com/auth/cloud-platform'
+  const requiredScopes = [CLOUD_PLATFORM, DIRECTORY]
+
+  const insufficient = {
+    found: true,
+    valid: false,
+    insufficientScopes: true,
+    missingScopes: [DIRECTORY],
+    grantedScopes: [CLOUD_PLATFORM],
+    projectId: 'proj-a',
+    projectName: 'Project A',
+    account: { principal: 'admin@example.com', accountType: 'user', scopes: [CLOUD_PLATFORM] },
+    credentialType: 'authorized_user',
+    envVar: 'GOOGLE_APPLICATION_CREDENTIALS',
+  }
+
+  it('shows the insufficient-scopes recovery card instead of Use These Credentials', async () => {
+    installApi((channel, args) => {
+      if (channel === 'google:env-credentials') {
+        expect(args?.scopes).toEqual(requiredScopes)
+        return insufficient
+      }
+      return {}
+    })
+
+    renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={['env']} scopes={requiredScopes} />,
+    )
+
+    expect(await screen.findByText('Credentials missing required scopes')).toBeInTheDocument()
+    expect(screen.getByText(DIRECTORY)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Use These Credentials' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Sign in with required scopes' })).toBeInTheDocument()
+  })
+
+  it('starts Google Sign-In with the required scopes from the recovery card', async () => {
+    installApi((channel) => {
+      if (channel === 'google:env-credentials') return insufficient
+      if (channel === 'google:oauth-start') {
+        return {
+          flowId: 'flow-scopes',
+          authUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=scopes',
+        }
+      }
+      if (channel === 'google:oauth-poll') return { status: 'pending' }
+      return {}
+    })
+
+    renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={['env']} scopes={requiredScopes} />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with required scopes' }))
+
+    await waitFor(() => expect(callsTo('google:oauth-start')).toHaveLength(1))
+    expect(invoke).toHaveBeenCalledWith('google:oauth-start', { scopes: requiredScopes })
+    expect(await screen.findByText(/Waiting for browser sign-in/i)).toBeInTheDocument()
+  })
+
+  it('shows the gcloud --scopes command when Sign-In is unavailable', async () => {
+    installApi((channel) => {
+      if (channel === 'google:oauth-available') return { available: false }
+      if (channel === 'google:env-credentials') return insufficient
+      return {}
+    })
+
+    renderBlock(
+      <GoogleAuth id="gcp" detectCredentials={['env']} scopes={requiredScopes} />,
+    )
+
+    expect(await screen.findByText('Credentials missing required scopes')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sign in with required scopes' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Try auto-detection again' })).toBeInTheDocument()
+  })
+
+  it('does not enforce default scopes when the author omits the prop', async () => {
+    installApi((channel, args) => {
+      if (channel === 'google:env-credentials') {
+        expect(args?.scopes).toBeUndefined()
+        return {
+          found: true,
+          valid: true,
+          projectId: 'proj-a',
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          credentialType: 'authorized_user',
+        }
+      }
+      return {}
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={['env']} />)
+
+    expect(await screen.findByText('Google Cloud Credentials Detected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Use These Credentials' })).toBeInTheDocument()
+  })
+})
