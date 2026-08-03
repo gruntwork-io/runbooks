@@ -46,6 +46,7 @@ function GitPullRequestInteractive({
   prefilledPullRequestDescription = '',
   prefilledPullRequestLabels = [],
   prefilledBranchName = '',
+  prefilledCommitMessage = '',
   inputsId,
   githubAuthId,
   gitAuthId,
@@ -88,12 +89,13 @@ function GitPullRequestInteractive({
   const descriptionText = description ?? `Open a ${cfg.noun.lower} with your changes`
 
   // Extract and check template dependencies from props that support template expressions
-  // Blocking dependencies (functional props): prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName
+  // Blocking dependencies (functional props): prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName, prefilledCommitMessage
   const blockingDeps = useMemo(() => [
     ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ''),
     ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ''),
     ...extractTemplateDependenciesFromString(prefilledBranchName ?? ''),
-  ], [prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName])
+    ...extractTemplateDependenciesFromString(prefilledCommitMessage ?? ''),
+  ], [prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName, prefilledCommitMessage])
 
   // Non-blocking dependencies (display props): title, description
   const nonBlockingDeps = useMemo(() => [
@@ -175,6 +177,10 @@ function GitPullRequestInteractive({
     prefilledBranchName ? resolveAndUnescape(prefilledBranchName, templateCtx) : '',
     [prefilledBranchName, templateCtx]
   )
+  const resolvedCommitMessage = useMemo(() =>
+    prefilledCommitMessage ? resolveAndUnescape(prefilledCommitMessage, templateCtx) : '',
+    [prefilledCommitMessage, templateCtx]
+  )
 
   // Resolve display props (title and description support template expressions too)
   const resolvedDisplayTitle = useMemo(() =>
@@ -186,10 +192,9 @@ function GitPullRequestInteractive({
     [descriptionText, templateCtx]
   )
 
-  // Default commit message includes the runbook name when available
-  const defaultCommitMessage = runbookName
-    ? `Changes from runbook "${runbookName}"`
-    : "Changes from runbook"
+  // Prefer an author-provided commit message; otherwise include the runbook name.
+  const defaultCommitMessage = resolvedCommitMessage
+    || (runbookName ? `Changes from runbook "${runbookName}"` : "Changes from runbook")
 
   // Form state
   const [prTitle, setPRTitle] = useState(resolvedTitle)

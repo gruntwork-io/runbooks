@@ -1,0 +1,53 @@
+---
+title: <GitLabMergeRequest>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GitLabMergeRequest>` block creates a GitLab merge request from changes made during a runbook. It is a GitLab-locked alias of [`<GitPullRequest>`](/authoring/blocks/githubpullrequest/) — equivalent to `<GitPullRequest provider="gitlab" />` — and accepts the same props, including `prefilledCommitMessage`.
+
+### Basic Usage
+
+```mdx
+<GitLabAuth
+  id="gl-auth"
+  title="Connect to GitLab"
+/>
+
+<GitClone
+  id="clone-repo"
+  gitAuthId="gl-auth"
+  title="Clone Repository"
+  prefilledUrl="https://gitlab.com/acme-corp/infrastructure"
+/>
+
+<GitLabMergeRequest
+  id="create-mr"
+  gitAuthId="gl-auth"
+  title="Create Merge Request"
+  prefilledBranchName="upgrade-pipelines-v4"
+  prefilledCommitMessage="Upgrade Gruntwork Pipelines from v3 to v4 [skip ci]"
+  prefilledPullRequestTitle="[skip ci] Upgrade Gruntwork Pipelines from v3 to v4"
+  prefilledPullRequestDescription="Upgrades Pipelines configuration from v3 to v4."
+/>
+```
+
+### Pre-filled Values
+
+You can pre-populate the MR title, description, labels, branch name, and commit message. Users can still edit these values before creating the MR.
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. |
+| `title` | `string` | No | Display title. Defaults to `Create Merge Request`. |
+| `description` | `string` | No | Description text below the title. |
+| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block. |
+| `prefilledPullRequestTitle` | `string` | No | Pre-fills the MR title field. Supports template expressions. |
+| `prefilledPullRequestDescription` | `string` | No | Pre-fills the MR description field. Supports template expressions. |
+| `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. |
+| `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. |
+| `prefilledCommitMessage` | `string` | No | Pre-fills the commit message used when committing changes before opening the MR. Supports template expressions. |
+
+<Aside type="note">
+The prop names use `PullRequest` for historical reasons (shared with the GitHub block), but they apply to merge requests the same way — including `prefilledCommitMessage`.
+</Aside>
