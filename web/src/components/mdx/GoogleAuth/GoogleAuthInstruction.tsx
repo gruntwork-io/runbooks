@@ -3,7 +3,7 @@ import { LogIn } from 'lucide-react'
 import { Instruction } from '@/components/mdx/_shared'
 import { useTemplateContext } from '@/contexts/useRunbook'
 import { resolveTemplateReferences } from '@/lib/templateUtils'
-import { DEFAULT_GOOGLE_SCOPES } from './constants'
+import { DEFAULT_GOOGLE_SCOPES, formatGcloudAdcLoginCommand } from './constants'
 import type { GoogleAuthProps } from './types'
 
 /**
@@ -51,8 +51,14 @@ export function GoogleAuthInstruction({
   if (resolvedProject) hints.push({ label: 'Project', value: resolvedProject })
   if (defaultRegion) hints.push({ label: 'Region', value: defaultRegion })
   if (resolvedConfiguration) hints.push({ label: 'Config', value: resolvedConfiguration })
-  hints.push({ label: 'Scopes', value: (scopes ?? DEFAULT_GOOGLE_SCOPES).join(', ') })
-  hints.push({ label: 'Command', value: 'gcloud auth application-default login' })
+  const effectiveScopes = scopes ?? [...DEFAULT_GOOGLE_SCOPES]
+  hints.push({ label: 'Scopes', value: effectiveScopes.join(', ') })
+  // Only append --scopes when the author set them; defaults are Sign-In request
+  // scopes, not a hard ADC requirement in the by-hand recovery path.
+  hints.push({
+    label: 'Command',
+    value: formatGcloudAdcLoginCommand(scopes && scopes.length > 0 ? scopes : []),
+  })
 
   return (
     <Instruction

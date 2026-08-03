@@ -24,6 +24,7 @@ import { OAuthFlow } from "./components/OAuthFlow"
 import { GcloudConfigSelector } from "./components/GcloudConfigSelector"
 import { ProjectSelector } from "./components/ProjectSelector"
 import { DetectedCredentialsPrompt } from "./components/DetectedCredentialsPrompt"
+import { InsufficientScopesPrompt } from "./components/InsufficientScopesPrompt"
 
 function GoogleAuthInteractive({
   id,
@@ -206,16 +207,28 @@ function GoogleAuthInteractive({
             </div>
           )}
 
-          {/* Detected credentials confirmation prompt. Detection is read-only —
-              confirming is what makes the credential this block's. */}
+          {/* Detected credentials: confirm when scopes are sufficient, or show
+              recovery when the author required scopes the credential lacks. */}
           {auth.detectionStatus === 'detected' && auth.detectedCredentials && (
-            <DetectedCredentialsPrompt
-              credentials={auth.detectedCredentials}
-              warning={auth.detectionWarning}
-              confirming={auth.authStatus === 'authenticating'}
-              onConfirm={auth.handleConfirmDetected}
-              onReject={auth.handleRejectDetected}
-            />
+            (auth.detectedCredentials.missingScopes?.length ?? 0) > 0 && scopes && scopes.length > 0 ? (
+              <InsufficientScopesPrompt
+                credentials={auth.detectedCredentials}
+                requiredScopes={scopes}
+                oauthUnavailable={auth.oauthUnavailable}
+                recovering={auth.authStatus === 'authenticating'}
+                onSignIn={() => { void auth.handleSignInWithRequiredScopes() }}
+                onReject={auth.handleRejectDetected}
+                onRetryDetection={auth.handleRetryDetection}
+              />
+            ) : (
+              <DetectedCredentialsPrompt
+                credentials={auth.detectedCredentials}
+                warning={auth.detectionWarning}
+                confirming={auth.authStatus === 'authenticating'}
+                onConfirm={auth.handleConfirmDetected}
+                onReject={auth.handleRejectDetected}
+              />
+            )
           )}
 
           {/* Success state */}

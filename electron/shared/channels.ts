@@ -229,7 +229,15 @@ export interface IpcChannelMap {
     }
   }
   "google:gcloud-auth": {
-    params: { blockId?: string; configuration: string; projectId?: string; region?: string; zone?: string }
+    params: {
+      blockId?: string
+      configuration: string
+      projectId?: string
+      region?: string
+      zone?: string
+      /** Author `scopes` prop — required of user ADC when set. */
+      scopes?: string[]
+    }
     result: {
       valid: boolean
       account?: GoogleAccountInfo
@@ -239,12 +247,24 @@ export interface IpcChannelMap {
       projects?: GoogleProjectIpc[]
       error?: string
       sessionEnvWarning?: string
+      /** Present when the credential validated but lacks author-required scopes. */
+      insufficientScopes?: boolean
+      missingScopes?: string[]
+      grantedScopes?: string[]
     }
   }
   // READ-ONLY detection: metadata only, no session write. The detect/confirm
   // split (src/domain/aws/auth.ts:55-104) is deliberate — do not collapse it.
   "google:env-credentials": {
-    params: { prefix?: string; defaultProject?: string; source?: "env" | "adc" | "gcloud" }
+    params: {
+      prefix?: string
+      defaultProject?: string
+      source?: "env" | "adc" | "gcloud"
+      /** Pins the gcloud configuration the 'gcloud' source reads. */
+      configuration?: string
+      /** Author `scopes` prop — required of user ADC when set. */
+      scopes?: string[]
+    }
     result: {
       found: boolean
       valid?: boolean
@@ -261,6 +281,10 @@ export interface IpcChannelMap {
       quotaProjectId?: string
       warning?: string
       error?: string
+      /** Present when the credential validated but lacks author-required scopes. */
+      insufficientScopes?: boolean
+      missingScopes?: string[]
+      grantedScopes?: string[]
     }
   }
   // Same detection, but MAIN writes the session env. Returns metadata only —
@@ -275,6 +299,8 @@ export interface IpcChannelMap {
       projectId?: string
       region?: string
       zone?: string
+      /** Author `scopes` prop — required of user ADC when set. */
+      scopes?: string[]
     }
     result: {
       valid: boolean
@@ -284,6 +310,9 @@ export interface IpcChannelMap {
       credentialType?: GoogleCredentialTypeIpc
       error?: string
       sessionEnvWarning?: string
+      insufficientScopes?: boolean
+      missingScopes?: string[]
+      grantedScopes?: string[]
     }
   }
   // The project picker. The credential is resolved MAIN-side (pending flow,
