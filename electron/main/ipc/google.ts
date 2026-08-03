@@ -116,13 +116,36 @@ function registerCredentialSecrets(json: string): void {
 const toErrorMessage = (err: unknown): string =>
   redactSecrets(err instanceof Error ? err.message : String(err))
 
-/** The `type` field of a credentials document, when it has a readable one. */
-function readCredentialTypeSafe(json: string): GoogleCredentialTypeIpc | undefined {
+/** The raw `type` field of a credentials document, when it has a readable one. */
+function readRawCredentialType(json: string): string | undefined {
   try {
-    const parsed = JSON.parse(json) as { type?: string }
-    return parsed.type as GoogleCredentialTypeIpc | undefined
+    const parsed = JSON.parse(json) as { type?: unknown }
+    return typeof parsed.type === "string" ? parsed.type : undefined
   } catch {
     return undefined
+  }
+}
+
+/**
+ * Narrow a credentials document's `type` onto the IPC union.
+ * Mirrors `credentialTypeFromDocumentType` in gcloud-config: workforce/workload
+ * pools write `external_account_authorized_user`, which authenticates like an
+ * external account.
+ */
+function readCredentialTypeSafe(json: string): GoogleCredentialTypeIpc | undefined {
+  const type = readRawCredentialType(json)
+  switch (type) {
+    case "service_account":
+    case "authorized_user":
+    case "external_account":
+    case "impersonated_service_account":
+    case "access_token":
+    case "gce_metadata":
+      return type
+    case "external_account_authorized_user":
+      return "external_account"
+    default:
+      return undefined
   }
 }
 
@@ -249,7 +272,10 @@ async function validateCredentialDocument(
   projectIdOverride?: string,
 ): Promise<GoogleIdentity> {
   registerCredentialSecrets(json)
-  const type = readCredentialTypeSafe(json)
+  // Route on the raw document type — `external_account_authorized_user` is a
+  // real Google ADC shape that maps to `external_account` for IPC metadata, but
+  // must still take the ADC validation path here.
+  const type = readRawCredentialType(json)
   const isAdcDocument =
     type === "authorized_user" ||
     type === "external_account" ||
