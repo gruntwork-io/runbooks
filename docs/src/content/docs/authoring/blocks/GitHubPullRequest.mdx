@@ -50,7 +50,7 @@ You can pre-populate the PR title, description, labels, and branch name. Users c
 
 ### Template Expressions
 
-The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, and `prefilledBranchName` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line PR descriptions:
+The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBranchName`, and `prefilledCommitMessage` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line PR descriptions:
 
 ```mdx
 <GitHubPullRequest
@@ -76,6 +76,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
 | `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
+| `prefilledCommitMessage` | `string` | No | Pre-fills the commit message field. Supports template expressions. |
 
 ### Block Outputs
 
