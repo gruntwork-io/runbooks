@@ -73,6 +73,7 @@ const renderGoogleAuth = (options: Parameters<typeof useGoogleAuth>[0]) =>
 function outputs(over: Partial<Record<string, string>> = {}): Record<string, string> {
   return {
     GOOGLE_APPLICATION_CREDENTIALS: '',
+    CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '',
     GOOGLE_CLOUD_PROJECT: '',
     CLOUDSDK_CORE_PROJECT: '',
     GOOGLE_PROJECT: '',
@@ -253,6 +254,7 @@ describe('useGoogleAuth — detection', () => {
       'gcp',
       outputs({
         GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-1/adc.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-1/adc.json',
         GOOGLE_CLOUD_PROJECT: 'proj-a',
         CLOUDSDK_CORE_PROJECT: 'proj-a',
         GOOGLE_PROJECT: 'proj-a',
@@ -477,6 +479,7 @@ describe('useGoogleAuth — service account tab', () => {
       'gcp',
       outputs({
         GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-2/adc.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-2/adc.json',
         GOOGLE_CLOUD_PROJECT: 'proj-x',
         CLOUDSDK_CORE_PROJECT: 'proj-x',
         GOOGLE_PROJECT: 'proj-x',
@@ -572,6 +575,7 @@ describe('useGoogleAuth — service account tab', () => {
       'gcp',
       outputs({
         GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-3/adc.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-3/adc.json',
         GOOGLE_CLOUD_PROJECT: 'proj-two',
         CLOUDSDK_CORE_PROJECT: 'proj-two',
         GOOGLE_PROJECT: 'proj-two',
@@ -718,6 +722,7 @@ describe('useGoogleAuth — OAuth tab', () => {
       'gcp',
       outputs({
         GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-4/adc.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-4/adc.json',
         GOOGLE_CLOUD_PROJECT: 'proj-solo',
         CLOUDSDK_CORE_PROJECT: 'proj-solo',
         GOOGLE_PROJECT: 'proj-solo',
@@ -1087,6 +1092,7 @@ describe('useGoogleAuth — gcloud tab', () => {
       'gcp',
       outputs({
         GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
         GOOGLE_CLOUD_PROJECT: 'proj-p',
         CLOUDSDK_CORE_PROJECT: 'proj-p',
         GOOGLE_PROJECT: 'proj-p',
@@ -1199,6 +1205,7 @@ describe('useGoogleAuth — gcloud tab', () => {
       'gcp',
       outputs({
         GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
         GOOGLE_CLOUD_PROJECT: 'proj-solo',
         CLOUDSDK_CORE_PROJECT: 'proj-solo',
         GOOGLE_PROJECT: 'proj-solo',
@@ -1243,6 +1250,7 @@ describe('useGoogleAuth — gcloud tab', () => {
     expect(result.current.warningMessage).toMatch(/no Google Cloud project is set/)
     expect(registerOutputs).toHaveBeenCalledWith('gcp', outputs({
       GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
       CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
       GOOGLE_AUTH_TYPE: 'authorized_user',
     }))

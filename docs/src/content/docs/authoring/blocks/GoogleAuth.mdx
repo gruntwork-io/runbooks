@@ -66,6 +66,7 @@ When authentication succeeds, the following environment variables are set in the
 | Variable | Value |
 |----------|-------|
 | `GOOGLE_APPLICATION_CREDENTIALS` | Absolute path to the credentials file backing this session |
+| `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` | The same path, in the property the `gcloud` CLI itself reads — see [Bridging to the gcloud CLI](#bridging-to-the-gcloud-cli) |
 | `GOOGLE_CLOUD_PROJECT` | The selected project ID |
 | `CLOUDSDK_CORE_PROJECT` | The selected project ID (read by the `gcloud` CLI) |
 | `GOOGLE_PROJECT` | The selected project ID (read by the OpenTofu/Terraform `google` provider) |
@@ -79,10 +80,26 @@ These are set only when the corresponding value is known:
 | `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or the gcloud configuration's `compute/zone` |
 | `CLOUDSDK_ACTIVE_CONFIG_NAME` | gcloud Config tab only — the name of the configuration you authenticated with |
 
-Because `GOOGLE_APPLICATION_CREDENTIALS` is set, Google client libraries, the `gcloud` CLI, and the OpenTofu/Terraform `google` provider all pick the credential up with no extra wiring.
+Because `GOOGLE_APPLICATION_CREDENTIALS` is set, Google client libraries and the OpenTofu/Terraform `google` provider both pick the credential up with no extra wiring. The `gcloud` CLI needs one more variable — `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` — which GoogleAuth sets automatically; see below.
 
 <Aside type="note">
 Runbooks never writes key material into an environment variable. `GOOGLE_APPLICATION_CREDENTIALS` always points at a file: either a credentials file that already existed on your machine, or a `0600` file written to a private temporary directory that is deleted when the app quits. The one exception is a credential that was *only* ever an access token (see [Access token credentials](#access-token-credentials)).
+</Aside>
+
+### Bridging to the gcloud CLI
+
+Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`) and the `gcloud` CLI's own login state (`gcloud auth login`, stored in a local `credentials.db`) are two separate credential stores. Whenever the CLI has *any* account already configured — which is true on most engineer laptops and shared runners — it prefers that account over ADC and ignores `GOOGLE_APPLICATION_CREDENTIALS` entirely. A bare `gcloud` command run from a `<Command>` block would otherwise silently use that stale, possibly-expired CLI login instead of the credential you just authenticated, and fail non-interactively with an opaque error such as:
+
+```
+ERROR: (gcloud.organizations.list) UNAUTHENTICATED: Request had invalid authentication
+credentials. Expected OAuth 2 access token, login cookie or other valid authentication
+credential.
+```
+
+GoogleAuth closes this gap for you: whenever it materializes or points at a credentials file, it also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` to that same path, which routes the CLI through its normal refreshable-credential code path instead of its own login state. Re-authenticating (including switching credential types) keeps this in sync automatically — you never need to set it yourself.
+
+<Aside type="caution">
+This bridging only works when the credential has a file — the [access token case](#access-token-credentials) does not, since there is nothing on disk to point the CLI at. In that one case, bare `gcloud` commands still resolve against whatever CLI login is already configured on the machine. Do not work around this by exporting a static bearer token as `CLOUDSDK_AUTH_ACCESS_TOKEN` yourself: some older Google APIs (for example Cloud Resource Manager v1's `Organizations.SearchOrganizations`, which backs `gcloud organizations list`) reject a bearer presented that way with `ACCESS_TOKEN_TYPE_UNSUPPORTED`, freshly-minted or not.
 </Aside>
 
 ## Block Outputs
@@ -92,6 +109,7 @@ The block also publishes its result as block outputs, so a specific GoogleAuth b
 | Output | Value |
 |--------|-------|
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to the credentials file for this block |
+| `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` | The same path, in the property the `gcloud` CLI reads — blank for an [access-token-only](#access-token-credentials) credential |
 | `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT` | The selected project ID |
 | `CLOUDSDK_CORE_ACCOUNT` | The authenticated principal |
 | `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | The selected region, if any |
@@ -479,6 +497,8 @@ Only one `{ block: 'id' }` entry is allowed per GoogleAuth block. More than one 
 
 If the only credential found is an access token (`GOOGLE_OAUTH_ACCESS_TOKEN` or `CLOUDSDK_AUTH_ACCESS_TOKEN`), confirming it re-exports that same value under both canonical names and writes no `GOOGLE_APPLICATION_CREDENTIALS`. Runbooks never mints a bearer token of its own — access tokens expire after about an hour, which would break a long runbook halfway through.
 
+Because there is no credentials file, this is the one case GoogleAuth cannot [bridge to the `gcloud` CLI](#bridging-to-the-gcloud-cli): `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` is left unset, and a bare `gcloud` command still resolves against whatever CLI login is already configured on the machine rather than this token. Client libraries, Terraform/OpenTofu, and any script that reads `GOOGLE_OAUTH_ACCESS_TOKEN` directly are unaffected.
+
 ### When Users Reject Detected Credentials
 
 Detected credentials are **never registered as this block's credentials until the user confirms them**. When a user clicks **Use Different Credentials**:
@@ -517,6 +537,8 @@ The confirmation gate controls what *this block* registers and publishes: no ses
 
 <Aside type="caution">
 It does not remove Google Cloud variables that your shell already exported. If you launch Runbooks from a terminal where `GOOGLE_APPLICATION_CREDENTIALS` is set, scripts inherit that value like any other environment variable, whether or not you confirm anything. To guarantee a command runs with the credentials a specific block produced, reference it with `googleAuthId`.
+
+Within a single Runbooks session, GoogleAuth keeps `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` in sync every time it authenticates — including switching from a file-backed credential to an access token, or back — so re-authenticating never leaves a stale value from an earlier credential *this block itself* set. It is not exempt from the caveat above, though: a value already present in the shell Runbooks was launched from rides into the session like any other variable, and stays there until some GoogleAuth block in this runbook authenticates and overwrites — or clears — it.
 </Aside>
 
 ### Federated Credential Limits
@@ -553,6 +575,7 @@ If a federated configuration you rely on is refused, authenticate with a service
 | A Command's **Run** button stays disabled | It has a `googleAuthId` pointing at a GoogleAuth block that has not authenticated yet — or at an ID that does not exist. Check the spelling |
 | Commands use the wrong project | The session variables reflect the most recent GoogleAuth block. Add `googleAuthId` to every command that must use a specific one |
 | `gcloud` commands ignore the selected project | Some scripts pass `--project` explicitly. Runbooks sets `CLOUDSDK_CORE_PROJECT`, which only applies when the flag is absent |
+| Bare `gcloud` commands fail with *"UNAUTHENTICATED"* or use the wrong account | The machine has a pre-existing `gcloud auth login` session that the CLI prefers over ADC. GoogleAuth sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` automatically to prevent this — see [Bridging to the gcloud CLI](#bridging-to-the-gcloud-cli). This can still happen for an [access-token-only](#access-token-credentials) credential, which has no file to bridge with |
 
 ## Detailed Example
 

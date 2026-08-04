@@ -216,6 +216,17 @@ function buildGoogleSessionEnv(input: SessionEnvInput): Record<string, string> {
 
   if (input.credentialsPath) {
     env.GOOGLE_APPLICATION_CREDENTIALS = input.credentialsPath
+    // Bridges to the `gcloud` CLI's OWN credential store, which is separate
+    // from ADC and — whenever any `gcloud auth login` account is already
+    // configured on the machine — takes precedence over it. Without this, a
+    // bare `gcloud` invocation silently ignores this block's credential and
+    // uses whatever CLI login already exists, failing non-interactively the
+    // moment that login is stale. Routing through this property keeps gcloud
+    // on its normal refreshable-credential code path; a static bearer token
+    // would look like the same fix but some legacy v1 APIs (e.g. Cloud
+    // Resource Manager's Organizations.SearchOrganizations) reject one
+    // outright with ACCESS_TOKEN_TYPE_UNSUPPORTED.
+    env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE = input.credentialsPath
   } else if (input.accessToken) {
     // The single documented exception to D6: an access token the user's
     // environment already supplied, re-exported under its canonical names.
@@ -258,6 +269,29 @@ async function appendGoogleSessionEnv(env: Record<string, string>): Promise<stri
     return undefined
   } catch (err) {
     return `Authenticated, but the credential could not be saved to the session (${toErrorMessage(err)}). Blocks that consume it may not see it.`
+  }
+}
+
+/**
+ * Delete session-env keys a just-established credential no longer carries.
+ * `appendGoogleSessionEnv` can only ever SET a key; a credential transition
+ * that drops one entirely (a file-backed credential replaced by a bare access
+ * token, which has no file for `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` to
+ * point at) needs a real delete, or the previous value — possibly a path
+ * `materializeForIdentity` has since released — keeps routing gcloud to a
+ * credential this authentication doesn't own. Same failure semantics as its
+ * sibling — surfaced as `sessionEnvWarning` copy, never a failed
+ * authentication — because a swallowed failure here is worse than a swallowed
+ * append: it leaves a WRONG credential silently active for `gcloud` instead of
+ * merely a missing one.
+ */
+async function clearGoogleSessionEnv(keys: string[]): Promise<string | undefined> {
+  if (keys.length === 0) return undefined
+  try {
+    await runtime.runPromise(sessionManager.removeFromEnv(keys))
+    return undefined
+  } catch (err) {
+    return `Authenticated, but a stale gcloud CLI credential override could not be cleared from the session (${toErrorMessage(err)}). Bare gcloud commands may keep using a previous credential until this block re-authenticates.`
   }
 }
 
@@ -348,6 +382,18 @@ async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise
     }),
   )
 
+  // A bare access token has no file to bridge with. Without this, the SAME
+  // block re-authenticating from a file-backed credential to an access token
+  // (or a later block in the same session doing so) would leave gcloud
+  // routed through the previous credential's file via a now-stale override.
+  // Skipped once the append above already warned: that means the session
+  // write failed wholesale, so a second attempt against the same broken
+  // session would only duplicate the warning for one root cause.
+  const clearWarning =
+    !credentialsPath && !sessionEnvWarning
+      ? await clearGoogleSessionEnv(["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"])
+      : undefined
+
   setActiveCredential(input.blockId, {
     ref,
     credentialsPath,
@@ -363,7 +409,7 @@ async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise
     ref,
     ...(credentialsPath ? { credentialsPath } : {}),
     ...(projectId ? { projectId } : {}),
-    ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
+    ...(sessionEnvWarning ?? clearWarning ? { sessionEnvWarning: sessionEnvWarning ?? clearWarning } : {}),
   }
 }
 

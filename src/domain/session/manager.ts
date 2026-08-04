@@ -362,6 +362,28 @@ export class SessionManager {
     })
   }
 
+  /**
+   * Remove specific keys from the session env without touching anything else.
+   * `appendToEnv` can only ever set a key to SOME value — it cannot express
+   * "this credential no longer carries this var." A bridging var like
+   * `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` needs a real delete: a blank
+   * value is not "absent" to every downstream CLI, and leaving the previous
+   * value standing after a credential that no longer has one authenticates
+   * is exactly the stale-env bug this exists to prevent.
+   */
+  removeFromEnv(keys: string[]) {
+    return Effect.gen(this, function* () {
+      if (this.session === null) {
+        return yield* new SessionError({ message: "no active session" })
+      }
+
+      for (const key of keys) {
+        this.session.env.delete(key)
+      }
+      this.session.lastActivity = new Date()
+    })
+  }
+
   // -------------------------------------------------------------------------
   // Metadata
   // -------------------------------------------------------------------------

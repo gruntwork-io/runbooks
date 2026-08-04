@@ -389,6 +389,10 @@ export function useGoogleAuth({
   const registerBlockOutputs = useCallback((result: AuthCompletion) => {
     registerOutputs(id, {
       GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? '',
+      // Bridges the gcloud CLI's own credential store to this same file — see
+      // MAIN's buildGoogleSessionEnv. Blank for a bare access-token credential,
+      // which has no file to bridge with.
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: result.credentialsPath ?? '',
       GOOGLE_CLOUD_PROJECT: result.projectId,
       CLOUDSDK_CORE_PROJECT: result.projectId,
       GOOGLE_PROJECT: result.projectId,

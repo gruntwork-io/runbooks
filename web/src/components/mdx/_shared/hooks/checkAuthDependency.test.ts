@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkAuthDependency, buildAuthEnvVars, GOOGLE_AUTH_ENV_KEYS } from './useScriptExecution'
+import { checkAuthDependency, buildAuthEnvVars, buildGoogleAuthEnvVars, GOOGLE_AUTH_ENV_KEYS } from './useScriptExecution'
 
 describe('checkAuthDependency', () => {
   const emptyOutputs: Record<string, { values: Record<string, string> }> = {}
@@ -120,5 +120,51 @@ describe('buildAuthEnvVars — googleAuthId routing', () => {
         googleBlockOutputs,
       ),
     ).toBeNull()
+  })
+})
+
+describe('buildGoogleAuthEnvVars — CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE bridging', () => {
+  const fileBackedOutputs = {
+    target_project: {
+      values: {
+        GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-BBB/adc.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-BBB/adc.json',
+        CLOUDSDK_CORE_PROJECT: 'target-proj',
+        __AUTHENTICATED: 'true',
+      },
+    },
+  }
+
+  const accessTokenOnlyOutputs = {
+    target_project: {
+      values: {
+        // A bare access-token credential materializes no file: both
+        // GOOGLE_APPLICATION_CREDENTIALS and the override are blank.
+        GOOGLE_APPLICATION_CREDENTIALS: '',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '',
+        CLOUDSDK_CORE_PROJECT: 'target-proj',
+        __AUTHENTICATED: 'true',
+      },
+    },
+  }
+
+  it('returns undefined for a block that has not authenticated', () => {
+    expect(buildGoogleAuthEnvVars('target-project', {})).toBeUndefined()
+  })
+
+  it('carries the override alongside the credential path', () => {
+    expect(buildGoogleAuthEnvVars('target-project', fileBackedOutputs)).toEqual({
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-BBB/adc.json',
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-BBB/adc.json',
+      CLOUDSDK_CORE_PROJECT: 'target-proj',
+    })
+  })
+
+  it('re-emits the override BLANK for an access-token-only credential, rather than dropping it', () => {
+    // This is the whole point: buildAuthEnvVars alone would drop an empty
+    // value, letting a stale override from a DIFFERENT GoogleAuth block
+    // leak through to this execution's env.
+    const envVars = buildGoogleAuthEnvVars('target-project', accessTokenOnlyOutputs)
+    expect(envVars).toHaveProperty('CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE', '')
   })
 })

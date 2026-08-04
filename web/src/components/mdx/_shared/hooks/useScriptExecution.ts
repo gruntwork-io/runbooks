@@ -73,6 +73,7 @@ export function checkAuthDependency(
  */
 export const GOOGLE_AUTH_ENV_KEYS = [
   'GOOGLE_APPLICATION_CREDENTIALS',
+  'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE',
   'GOOGLE_CLOUD_PROJECT',
   'CLOUDSDK_CORE_PROJECT',
   'GOOGLE_PROJECT',
@@ -106,6 +107,27 @@ export function buildAuthEnvVars(
     }
   }
   return Object.keys(envVars).length > 0 ? envVars : undefined
+}
+
+/**
+ * Google's analogue of AWS's AWS_SESSION_TOKEN handling: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+ * bridges GOOGLE_APPLICATION_CREDENTIALS to the gcloud CLI's own credential store, and must be
+ * re-emitted even blank rather than dropped by the generic buildAuthEnvVars. A bare access-token
+ * credential has no file to bridge with, so its own outputs carry this key blank — but omitting it
+ * here would fall through to whatever value a DIFFERENT GoogleAuth block left in the shared session
+ * env, silently routing a bare `gcloud` call through a credential this block never authenticated.
+ */
+export function buildGoogleAuthEnvVars(
+  blockId: string | undefined,
+  allOutputs: Record<string, { values: Record<string, string> }>,
+): Record<string, string> | undefined {
+  if (!blockId) return undefined
+  const blockOutputs = allOutputs[normalizeBlockId(blockId)]
+  if (!blockOutputs?.values) return undefined
+  const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_KEYS) ?? {}
+  envVars.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE =
+    blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE || ''
+  return envVars
 }
 
 interface UseScriptExecutionReturn {
@@ -385,11 +407,8 @@ export function useScriptExecution({
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
 
   // Get Google Cloud credentials from outputs if googleAuthId is specified.
-  // Unlike AWS (which deliberately re-emits an empty AWS_SESSION_TOKEN to clear
-  // a stale one), Google has no var that must be cleared, so the generic
-  // buildAuthEnvVars — which drops empties — is the right helper here.
   const googleAuthEnvVars = useMemo(
-    () => buildAuthEnvVars(googleAuthId, allOutputs, GOOGLE_AUTH_ENV_KEYS),
+    () => buildGoogleAuthEnvVars(googleAuthId, allOutputs),
     [googleAuthId, allOutputs]
   )
 

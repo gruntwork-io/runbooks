@@ -348,6 +348,34 @@ describe("SessionManager", () => {
     })
   })
 
+  describe("removeFromEnv", () => {
+    it("deletes the given keys, leaving others untouched", async () => {
+      const { token } = await run(
+        mgr.createSession("/work"),
+        { A: "1", B: "2" },
+      )
+      await run(mgr.appendToEnv({ C: "3" }))
+
+      await run(mgr.removeFromEnv(["B"]))
+
+      const ctx = await Effect.runPromise(mgr.validateToken(token))
+      expect(ctx!.env).toEqual({ A: "1", C: "3" })
+    })
+
+    it("is a no-op for a key that is not set", async () => {
+      const { token } = await run(mgr.createSession("/work"), { A: "1" })
+
+      await run(mgr.removeFromEnv(["NEVER_SET"]))
+
+      const ctx = await Effect.runPromise(mgr.validateToken(token))
+      expect(ctx!.env).toEqual({ A: "1" })
+    })
+
+    it("fails when no session", async () => {
+      await expect(run(mgr.removeFromEnv(["X"]))).rejects.toThrow()
+    })
+  })
+
   describe("getMetadata", () => {
     it("returns session metadata", async () => {
       await run(mgr.createSession("/work"), {})
