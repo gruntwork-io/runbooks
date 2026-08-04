@@ -64,10 +64,15 @@ html {
   --sl-color-white: #fafafa;
   --sl-color-gray-1: #e4e4e7;
   --sl-color-gray-2: #a1a1aa;
-  --sl-color-gray-3: #71717a;
+  --sl-color-gray-3: #909099;  /* Lightened from #71717a — 3.66:1 on --sl-color-bg failed WCAG AA (4.5:1) for footer/edit-link/TOC text; this hits ~4.7:1+ against both --sl-color-bg and --sl-color-gray-7 */
   --sl-color-gray-4: #52525b;
   --sl-color-gray-5: #52525b;  /* Increased from #3f3f46 for better borders */
-  --sl-color-gray-6: #3f3f46;  /* Increased from #27272a for better backgrounds */
+  --sl-color-gray-6: #27272a;  /* Reverted from #3f3f46: that lighter value became the Expressive Code
+                                   editor background, and the built-in Night Owl syntax theme's comment/
+                                   keyword/string colors (tuned for a ~#23262f bg) dropped to ~3.8:1 against
+                                   it — below WCAG AA. #27272a is close to the theme's own reference bg and
+                                   restores ~5.4:1+ for those tokens; all other consumers (borders, hover
+                                   backgrounds) still pass comfortably at this value too. */
   --sl-color-gray-7: #27272a;  /* Adjusted for code blocks */
   --sl-color-black: #09090b;
   
@@ -201,9 +206,12 @@ header.header {
   color: #93c5fd;
 }
 
-/* Code within links - better contrast */
+/* Code within links - better contrast. Inline code's background is
+   Starlight's --sl-color-bg-inline-code (= gray-6); --sl-color-accent text
+   on top of that only hits 4.38:1 in light mode, just under WCAG AA, so use
+   the darker accent-high tone here instead (6.78:1). */
 .sl-markdown-content a code {
-  color: var(--sl-color-accent);
+  color: var(--sl-color-accent-high);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s ease;
@@ -285,6 +293,19 @@ header.header {
 .starlight-aside {
   border-radius: 0.5rem;
   border-left-width: 3px;
+}
+
+/* Our link accent is tuned against a neutral page background, but note/tip/
+   caution/danger asides tint the background per-variant. In some variants
+   (tip, caution in dark mode; note, danger in light mode) that drops link
+   contrast below 4.5:1. Use colors already in the palette that pass against
+   all four variant backgrounds in both themes. */
+.starlight-aside a {
+  color: var(--sl-color-accent-high);
+}
+
+:root[data-theme='dark'] .starlight-aside a {
+  color: #93c5fd;
 }
 
 /* ============================================
@@ -418,6 +439,15 @@ html[data-has-hero] {
   filter: brightness(1.15);
 }
 
+/* Dark-mode accent (#3b82f6) only gives white text 3.68:1 here — fails WCAG
+   AA (4.5:1). Use a darker blue for this button only; --sl-color-accent
+   itself stays untouched since it passes contrast everywhere else it's used
+   as foreground text/link color. */
+:root[data-theme='dark'][data-has-hero] .hero .sl-link-button.primary {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+}
+
 [data-has-hero] .hero .sl-link-button.minimal {
   color: #cbd5e1 !important;
   background: transparent !important;
@@ -520,6 +550,12 @@ html[data-has-hero] {
 [data-has-hero] .source-link:hover {
   color: var(--sl-color-gray-2) !important;
   text-decoration: none !important;
+}
+
+/* Dark-mode gray-4 (#52525b) is tuned for borders, not text — only 2.29:1 on
+   --sl-color-bg. Use gray-3 here instead so the link stays readable. */
+:root[data-theme='dark'][data-has-hero] .source-link {
+  color: var(--sl-color-gray-3) !important;
 }
 
 /* Block list rows on splash page */
