@@ -5,6 +5,14 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://runbooks.gruntwork.io',
+	// Astro 6.4.x regression (withastro/astro#16971): markdown.gfm no longer
+	// defaults to true for .mdx files, so GFM tables silently stop rendering
+	// (they fall back through as raw pipe text instead of <table>). Must be
+	// set explicitly at this top level — setting it via a remark/unified
+	// option does not work around the regression.
+	markdown: {
+		gfm: true,
+	},
 	integrations: [
 		starlight({
 			title: 'Gruntwork Runbooks',
