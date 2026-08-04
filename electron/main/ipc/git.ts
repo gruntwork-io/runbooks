@@ -21,6 +21,7 @@ import {
   parseOwnerRepoFromURL,
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
+import { getRepo } from "../../../src/domain/github/auth.ts"
 import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
@@ -370,18 +371,36 @@ export function registerGitHandlers(): void {
           log.debug("registered worktree, returning result")
 
           // Surface org/repo from the clone URL so downstream templates can
-          // reference {{ .outputs.<id>.repo_owner }} / .repo_name.
-          const parsed = parseOwnerRepoFromURL(effectiveUrl)
+          // reference {{ .outputs.<id>.repo_owner }} / .repo_name. For GitHub
+          // clones with a token, also resolve immutable numeric IDs (stable
+          // across renames/transfers) via the REST API.
+          const parsed = parseOwnerRepoFromURL(params.url)
+          const outputs: Record<string, string> = {
+            clone_path: paths.absolutePath,
+            ...(parsed ? { repo_owner: parsed.owner, repo_name: parsed.repo } : {}),
+          }
+
+          if (parsed && resolvedToken && cloneProvider === "github") {
+            const repoResult = yield* Effect.either(
+              getRepo(resolvedToken, parsed.owner, parsed.repo),
+            )
+            if (repoResult._tag === "Right") {
+              outputs.org_id = String(repoResult.right.ownerId)
+              outputs.repo_id = String(repoResult.right.id)
+            } else {
+              log.debug(
+                "failed to resolve GitHub org/repo IDs (non-fatal):",
+                repoResult.left,
+              )
+            }
+          }
 
           return {
             absolutePath: paths.absolutePath,
             relativePath: paths.relativePath,
             fileCount,
             status: "success" as const,
-            outputs: {
-              clone_path: paths.absolutePath,
-              ...(parsed ? { repo_owner: parsed.owner, repo_name: parsed.repo } : {}),
-            },
+            outputs,
           }
         }),
         ),

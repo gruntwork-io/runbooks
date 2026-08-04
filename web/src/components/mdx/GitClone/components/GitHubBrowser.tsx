@@ -265,7 +265,7 @@ export function GitHubBrowser({
                     <CommandGroup>
                       {orgs.map((org) => (
                         <CommandItem
-                          key={org.login}
+                          key={org.id}
                           value={org.login}
                           onSelect={() => handleOrgSelect(org.login)}
                           className="flex items-center gap-2"
@@ -341,7 +341,7 @@ export function GitHubBrowser({
                     <CommandGroup>
                       {repos.map((repo) => (
                         <CommandItem
-                          key={repo.name}
+                          key={repo.id}
                           value={`${repo.name} ${repo.description || ''}`}
                           onSelect={() => handleRepoSelect(repo.name)}
                           className="flex items-center gap-2"

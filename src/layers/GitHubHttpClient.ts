@@ -205,11 +205,11 @@ const impl: GitHubClientShape = {
   listOrgs: (token: string) =>
     Effect.tryPromise({
       try: async (): Promise<GitHubOrg[]> => {
-        const orgs = await paginateAll<{ login: string; description?: string }>(
+        const orgs = await paginateAll<{ id: number; login: string; description?: string }>(
           `${API_BASE}/user/orgs`,
           token,
         )
-        return orgs.map((o) => ({ login: o.login, name: o.description }))
+        return orgs.map((o) => ({ id: o.id, login: o.login, name: o.description }))
       },
       catch: toGitHubApiError,
     }),
@@ -229,10 +229,12 @@ const impl: GitHubClientShape = {
         }
 
         const repos = await paginateAll<{
+          id: number
           name: string
           full_name: string
           private: boolean
           default_branch: string
+          owner: { id: number }
         }>(url, token)
 
         let filtered = repos
@@ -242,11 +244,36 @@ const impl: GitHubClientShape = {
         }
 
         return filtered.map((r) => ({
+          id: r.id,
+          ownerId: r.owner.id,
           name: r.name,
           fullName: r.full_name,
           private: r.private,
           defaultBranch: r.default_branch,
         }))
+      },
+      catch: toGitHubApiError,
+    }),
+
+  getRepo: (token: string, owner: string, repo: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<GitHubRepo> => {
+        const data = await githubJson<{
+          id: number
+          name: string
+          full_name: string
+          private: boolean
+          default_branch: string
+          owner: { id: number }
+        }>(`${API_BASE}/repos/${owner}/${repo}`, { token })
+        return {
+          id: data.id,
+          ownerId: data.owner.id,
+          name: data.name,
+          fullName: data.full_name,
+          private: data.private,
+          defaultBranch: data.default_branch,
+        }
       },
       catch: toGitHubApiError,
     }),
