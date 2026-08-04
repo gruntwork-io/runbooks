@@ -143,7 +143,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       const body: Record<string, unknown> = { url }
       if (ref) body.ref = ref
       if (repoPath) body.repo_path = repoPath
-      if (localPath) body.local_path = localPath
+      if (localPath) body.localPath = localPath
       if (usePty !== undefined) body.use_pty = usePty
       if (force) body.force = true
       if (authProvider) body.provider = authProvider

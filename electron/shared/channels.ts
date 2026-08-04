@@ -808,7 +808,6 @@ export interface GitHubRef {
 export interface GitCloneRequest {
   url: string
   localPath?: string
-  local_path?: string
   ref?: string
   repo_path?: string
   credentials?: { token: string }
