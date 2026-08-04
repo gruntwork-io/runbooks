@@ -198,11 +198,18 @@ export interface IpcChannelMap {
     result: { available: boolean }
   }
   "google:oauth-start": {
-    // clientId/clientSecret/scopes are optional — MAIN owns the defaults
-    // (DEFAULT_GOOGLE_OAUTH_CLIENT_ID / DEFAULT_GOOGLE_SCOPES). An author
-    // clientId must come with its clientSecret: without one the minted
-    // authorized_user document cannot be refreshed.
-    params: { clientId?: string; clientSecret?: string; scopes?: string[]; loginHint?: string }
+    // clientId/clientSecret/clientFile/scopes are optional — MAIN resolves
+    // the Desktop OAuth client from author props, a client_secret JSON file,
+    // operator env (GOOGLE_OAUTH_CLIENT_*), or build defaults. An author
+    // clientId must come with its clientSecret (and not with clientFile):
+    // without a secret the minted authorized_user document cannot be refreshed.
+    params: {
+      clientId?: string
+      clientSecret?: string
+      clientFile?: string
+      scopes?: string[]
+      loginHint?: string
+    }
     result: { flowId?: string; authUrl?: string; redirectUri?: string; expiresInSeconds?: number; error?: string }
   }
   "google:oauth-poll": {

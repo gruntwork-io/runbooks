@@ -8,6 +8,8 @@ import {
   HelpCircle,
   ChevronDown,
   ChevronUp,
+  Upload,
+  FileJson,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
@@ -23,10 +25,18 @@ interface OAuthFlowProps {
   /** Google's consent-screen URL for the live flow (hook: `oauthAuthUrl`). */
   authUrl: string | null
   /**
-   * True when neither the build default nor an author prop supplies an OAuth
-   * client id (hook: `oauthUnavailable`).
+   * True when neither the build default, author props/file, nor operator env
+   * supplies an OAuth client yet (hook: `oauthUnavailable`).
    */
   oauthUnavailable: boolean
+  /** Base name of an operator-chosen Desktop client JSON, if any. */
+  oauthClientFileName?: string | null
+  /** Absolute path of an operator-chosen Desktop client JSON, if any. */
+  oauthClientFilePath?: string | null
+  /** Opens the native picker for a Console Desktop-app client JSON. */
+  onLoadOAuthClientFile?: () => void
+  /** Clears an operator-chosen client JSON. */
+  onClearOAuthClientFile?: () => void
   /** Scopes the author asked for; falls back to the build defaults. */
   scopes?: string[]
   selectedRegion: string
@@ -43,12 +53,21 @@ interface OAuthFlowProps {
  * type: the browser opens on Google's consent screen and returns to a local
  * 127.0.0.1 callback. The URL is offered as copyable text (not a link) because
  * the browser handoff is main's job — components never touch IPC.
+ *
+ * When no Desktop OAuth client is configured for the build, this panel offers
+ * a file picker for the Console `client_secret_*.json` download (`installed`
+ * shape) — the same path `oauthClientFile` / `GOOGLE_OAUTH_CLIENT_CREDENTIALS`
+ * accept. That file is an OAuth *app* client, not a service-account key.
  */
 export function OAuthFlow({
   authStatus,
   flowId,
   authUrl,
   oauthUnavailable,
+  oauthClientFileName,
+  oauthClientFilePath,
+  onLoadOAuthClientFile,
+  onClearOAuthClientFile,
   scopes,
   selectedRegion,
   setSelectedRegion,
@@ -60,19 +79,47 @@ export function OAuthFlow({
   const isAuthenticating = authStatus === 'authenticating'
   const isWaitingForAuth = isAuthenticating && Boolean(flowId) && Boolean(authUrl)
   const requestedScopes = scopes && scopes.length > 0 ? scopes : [...DEFAULT_GOOGLE_SCOPES]
+  const needsClient = oauthUnavailable && !oauthClientFilePath
 
   const copyAuthUrl = () => {
     if (authUrl) void doCopy(authUrl)
   }
 
-  if (oauthUnavailable) {
+  if (needsClient) {
     return (
-      <div className="text-warning text-sm flex items-start gap-2">
-        <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-        <div>
-          OAuth login is not configured for this build. Use the{' '}
-          <strong>Service Account Key</strong> or <strong>gcloud Config</strong> tab instead.
+      <div className="space-y-4">
+        <div className="bg-warning-muted/50 rounded p-3 text-sm text-foreground space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="size-4 mt-0.5 flex-shrink-0 text-warning" />
+            <div className="space-y-2">
+              <p>
+                Google Sign-In needs a <strong>Desktop app</strong> OAuth client from Google Cloud
+                Console (APIs &amp; Services → Credentials → OAuth client ID → Desktop app). That
+                download is an OAuth <em>app</em> client (
+                <code className="bg-card px-1 rounded">{`{ "installed": { "client_id", "client_secret" } }`}</code>
+                ) — not a service-account key.
+              </p>
+              <p className="text-muted-foreground">
+                Choose the JSON below, set the author prop{' '}
+                <code className="bg-card px-1 rounded">oauthClientFile</code>, or export{' '}
+                <code className="bg-card px-1 rounded">GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> to the
+                same path before launching Runbooks.
+              </p>
+            </div>
+          </div>
         </div>
+
+        {onLoadOAuthClientFile && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onLoadOAuthClientFile}
+            className="border-input text-foreground hover:bg-accent"
+          >
+            <Upload className="size-4" />
+            Choose Desktop OAuth client JSON
+          </Button>
+        )}
       </div>
     )
   }
@@ -119,6 +166,38 @@ export function OAuthFlow({
           </p>
         )}
       </div>
+
+      {oauthClientFileName && oauthClientFilePath && onLoadOAuthClientFile && (
+        <div className="flex items-center gap-2 text-sm bg-muted rounded border border-border px-3 py-2">
+          <FileJson className="size-4 text-muted-foreground flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate">{oauthClientFileName}</div>
+            <div className="text-xs text-muted-foreground truncate" title={oauthClientFilePath}>
+              {oauthClientFilePath}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onLoadOAuthClientFile}
+            disabled={isAuthenticating}
+          >
+            Change
+          </Button>
+          {onClearOAuthClientFile && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onClearOAuthClientFile}
+              disabled={isAuthenticating}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
 
       <RegionPicker
         selectedRegion={selectedRegion}

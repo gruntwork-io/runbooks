@@ -76,8 +76,16 @@ export const DEFAULT_GOOGLE_SCOPES = [
  * Hand-run equivalent of Google Sign-In with the author's scopes. Duplicated
  * from `src/domain/google/scopes.ts` so instruction mode and the insufficient-
  * scopes card can render without importing from `src/domain/`.
+ *
+ * Includes `--client-id-file` so operators can obtain sensitive Admin SDK
+ * scopes that Google's stock gcloud OAuth client refuses. Set
+ * `GOOGLE_OAUTH_CLIENT_CREDENTIALS` to a Desktop-app `client_secret_*.json`
+ * (`installed` shape) first — the same file `oauthClientFile` accepts.
  */
 export function formatGcloudAdcLoginCommand(scopes: readonly string[]): string {
-  if (scopes.length === 0) return 'gcloud auth application-default login'
-  return `gcloud auth application-default login --scopes=${scopes.join(',')}`
+  const clientFile = '--client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"'
+  if (scopes.length === 0) {
+    return `gcloud auth application-default login ${clientFile}`
+  }
+  return `gcloud auth application-default login ${clientFile} --scopes=${scopes.join(',')}`
 }

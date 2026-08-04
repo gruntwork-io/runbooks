@@ -34,6 +34,7 @@ function GoogleAuthInteractive({
   scopes,
   oauthClientId,
   oauthClientSecret,
+  oauthClientFile,
   defaultRegion,
   defaultZone,
   gcloudConfiguration,
@@ -60,6 +61,13 @@ function GoogleAuthInteractive({
     () => gcloudConfiguration ? resolveTemplateReferences(gcloudConfiguration, templateCtx) : gcloudConfiguration,
     [gcloudConfiguration, templateCtx],
   )
+  const resolvedOauthClientFile = useMemo(
+    () => oauthClientFile ? resolveTemplateReferences(oauthClientFile, templateCtx) : oauthClientFile,
+    [oauthClientFile, templateCtx],
+  )
+  const hasOauthClientFileConflict = Boolean(
+    resolvedOauthClientFile && (oauthClientId || oauthClientSecret),
+  )
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GoogleAuth')
@@ -85,6 +93,7 @@ function GoogleAuthInteractive({
     ...(scopes ? { scopes } : {}),
     ...(oauthClientId ? { oauthClientId } : {}),
     ...(oauthClientSecret ? { oauthClientSecret } : {}),
+    ...(resolvedOauthClientFile ? { oauthClientFile: resolvedOauthClientFile } : {}),
     ...(defaultRegion ? { defaultRegion } : {}),
     ...(defaultZone ? { defaultZone } : {}),
     ...(resolvedConfiguration ? { gcloudConfiguration: resolvedConfiguration } : {}),
@@ -121,10 +130,18 @@ function GoogleAuthInteractive({
         severity: 'error',
         message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`
       })
+    } else if (hasOauthClientFileConflict) {
+      reportError({
+        componentId: id,
+        componentType: 'GoogleAuth',
+        severity: 'error',
+        message:
+          'Supply either oauthClientId/oauthClientSecret or oauthClientFile, not both.',
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, hasMultipleBlockSources, reportError, clearError])
+  }, [id, isDuplicate, hasMultipleBlockSources, hasOauthClientFileConflict, reportError, clearError])
 
   if (validationError) {
     return <ErrorDisplay error={validationError} />
@@ -151,6 +168,20 @@ function GoogleAuthInteractive({
             <strong>Invalid Configuration:</strong><br />
             The <code className="bg-destructive-muted px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-destructive-muted px-1 rounded">{`{ block: "..." }`}</code> entries.
             Only one block source is allowed.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (hasOauthClientFileConflict) {
+    return (
+      <div className="runbook-block relative rounded-sm border bg-destructive-muted border-destructive/30 mb-5 p-4">
+        <div className="flex items-center text-destructive">
+          <XCircle className="size-6 mr-4 flex-shrink-0" />
+          <div className="text-md">
+            <strong>Invalid Configuration:</strong><br />
+            Supply either <code className="bg-destructive-muted px-1 rounded">oauthClientId</code>/<code className="bg-destructive-muted px-1 rounded">oauthClientSecret</code> or <code className="bg-destructive-muted px-1 rounded">oauthClientFile</code>, not both.
           </div>
         </div>
       </div>
@@ -305,6 +336,10 @@ function GoogleAuthInteractive({
                   flowId={auth.oauthFlowId}
                   authUrl={auth.oauthAuthUrl}
                   oauthUnavailable={auth.oauthUnavailable}
+                  oauthClientFileName={auth.oauthClientFileName}
+                  oauthClientFilePath={auth.oauthClientFilePath}
+                  onLoadOAuthClientFile={() => { void auth.loadOAuthClientFromFile() }}
+                  onClearOAuthClientFile={auth.clearOAuthClientFile}
                   {...(scopes ? { scopes } : {})}
                   selectedRegion={auth.selectedRegion}
                   setSelectedRegion={auth.setSelectedRegion}

@@ -36,10 +36,10 @@ import {
   listProjects,
   checkProject,
   detectEnvCredentials,
-  DEFAULT_GOOGLE_OAUTH_CLIENT_ID,
-  DEFAULT_GOOGLE_OAUTH_CLIENT_SECRET,
   DEFAULT_GOOGLE_SCOPES,
   ENV_PREFIX_PATTERN,
+  isOAuthClientConfigured,
+  resolveOAuthClient,
 } from "../../../src/domain/google/auth.ts"
 import {
   evaluateRequiredGoogleScopes,
@@ -722,45 +722,47 @@ export function registerGoogleHandlers(): void {
   // -------------------------------------------------------------------------
   // Cheap capability probe so the block can render the Google Sign-In tab
   // disabled on FIRST paint, instead of only after a click that was always
-  // going to fail. The client id itself never crosses IPC.
-  ipcMain.handle("google:oauth-available", () => ({
-    available: DEFAULT_GOOGLE_OAUTH_CLIENT_ID.length > 0,
-  }))
+  // going to fail. Checks build defaults and operator env
+  // (GOOGLE_OAUTH_CLIENT_*); author props/file skip this probe in the
+  // renderer. The client id/secret themselves never cross IPC.
+  ipcMain.handle("google:oauth-available", async () => {
+    try {
+      const available = await runtime.runPromise(isOAuthClientConfigured())
+      return { available }
+    } catch {
+      return { available: false }
+    }
+  })
 
   ipcMain.handle(
     "google:oauth-start",
     async (
       _event,
-      params: { clientId?: string; clientSecret?: string; scopes?: string[]; loginHint?: string },
+      params: {
+        clientId?: string
+        clientSecret?: string
+        clientFile?: string
+        scopes?: string[]
+        loginHint?: string
+      },
     ) => {
-      // MAIN owns the defaults; an author-supplied client id is never paired
-      // with the built-in secret.
-      const clientId = params.clientId || DEFAULT_GOOGLE_OAUTH_CLIENT_ID
-      const clientSecret = params.clientId ? params.clientSecret : DEFAULT_GOOGLE_OAUTH_CLIENT_SECRET
-
-      if (!clientId) {
-        return { error: "OAuth login is not configured for this build" }
-      }
-      // A Desktop client without its secret cannot be refreshed: the exchange
-      // may succeed, but the authorized_user document written from it would
-      // carry client_secret:"" and every later refresh — gcloud, the client
-      // libraries, the OpenTofu provider — would fail. Refuse up front rather
-      // than publish a credential that only looks authenticated.
-      if (!clientSecret) {
-        return {
-          error:
-            "oauthClientId was supplied without oauthClientSecret. Google issues a client secret with every Desktop app client; the credential cannot be refreshed without it.",
-        }
-      }
-      registerSecret(clientSecret)
-
-      const scopes = params.scopes?.length ? params.scopes : [...DEFAULT_GOOGLE_SCOPES]
-
+      // Resolve props / oauthClientFile / operator env / build defaults in MAIN
+      // so a client-secret JSON path never needs its contents in the renderer.
       try {
+        const resolved = await runtime.runPromise(
+          resolveOAuthClient({
+            ...(params.clientId ? { clientId: params.clientId } : {}),
+            ...(params.clientSecret ? { clientSecret: params.clientSecret } : {}),
+            ...(params.clientFile ? { clientFile: params.clientFile } : {}),
+          }),
+        )
+        registerSecret(resolved.clientSecret)
+
+        const scopes = params.scopes?.length ? params.scopes : [...DEFAULT_GOOGLE_SCOPES]
         const flow = await runtime.runPromise(
           startOAuthFlow({
-            clientId,
-            clientSecret,
+            clientId: resolved.clientId,
+            clientSecret: resolved.clientSecret,
             scopes,
             ...(params.loginHint ? { loginHint: params.loginHint } : {}),
           }),

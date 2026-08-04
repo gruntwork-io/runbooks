@@ -113,13 +113,15 @@ describe("evaluateRequiredGoogleScopes", () => {
 })
 
 describe("formatGcloudAdcLoginCommand", () => {
-  it("omits --scopes when none were requested", () => {
-    expect(formatGcloudAdcLoginCommand([])).toBe("gcloud auth application-default login")
+  it("omits --scopes when none were requested but still requires a Desktop client file", () => {
+    expect(formatGcloudAdcLoginCommand([])).toBe(
+      'gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"',
+    )
   })
 
   it("joins scopes for the directory-grants shape", () => {
     expect(formatGcloudAdcLoginCommand([CLOUD_PLATFORM, DIRECTORY, EMAIL, "openid"])).toBe(
-      `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY},${EMAIL},openid`,
+      `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY},${EMAIL},openid`,
     )
   })
 })
@@ -129,7 +131,7 @@ describe("insufficientScopesErrorMessage", () => {
     const message = insufficientScopesErrorMessage([DIRECTORY], [CLOUD_PLATFORM, DIRECTORY])
     expect(message).toContain(DIRECTORY)
     expect(message).toContain(
-      `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
+      `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
     )
   })
 })

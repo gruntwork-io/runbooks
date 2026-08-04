@@ -94,8 +94,11 @@ export function evaluateRequiredGoogleScopes(params: {
 
 /** Hand-run equivalent of Google Sign-In with the author's scopes. */
 export function formatGcloudAdcLoginCommand(scopes: readonly string[]): string {
-  if (scopes.length === 0) return "gcloud auth application-default login"
-  return `gcloud auth application-default login --scopes=${scopes.join(",")}`
+  const clientFile = '--client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"'
+  if (scopes.length === 0) {
+    return `gcloud auth application-default login ${clientFile}`
+  }
+  return `gcloud auth application-default login ${clientFile} --scopes=${scopes.join(",")}`
 }
 
 /** User-facing copy when an ambient / gcloud credential fails the check. */

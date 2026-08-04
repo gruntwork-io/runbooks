@@ -116,6 +116,30 @@ describe("SessionManager", () => {
       const ctx = await Effect.runPromise(mgr.validateToken(token))
       expect(ctx!.workDir).toBe("/my/dir")
     })
+
+    it("tracks the runbook path passed in", async () => {
+      await run(mgr.createSession("/work", "/work/runbook.mdx"), {})
+      expect(mgr.getRunbookPath()).toBe("/work/runbook.mdx")
+    })
+
+    it("clears worktree state from a previous session (switching runbooks)", async () => {
+      await run(mgr.createSession("/repo-a", "/repo-a/runbook.mdx"), {})
+      mgr.registerWorkTreePath("/repo-a/clone")
+      mgr.setActiveWorkTreePath("/repo-a/clone")
+      expect(mgr.getActiveWorkTreePath()).toBe("/repo-a/clone")
+
+      // Opening a different runbook creates a fresh session — the previous
+      // runbook's worktree must not leak into it.
+      await run(mgr.createSession("/repo-b", "/repo-b/runbook.mdx"), {})
+      expect(mgr.getActiveWorkTreePath()).toBe("")
+      expect(mgr.getRunbookPath()).toBe("/repo-b/runbook.mdx")
+    })
+  })
+
+  describe("getRunbookPath", () => {
+    it("returns null when no session exists", () => {
+      expect(mgr.getRunbookPath()).toBeNull()
+    })
   })
 
   describe("joinSession", () => {

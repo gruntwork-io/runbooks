@@ -79,8 +79,18 @@ function App() {
   const hasFiles = hasGeneratedFiles(fileTree)
   
   // Get git worktree state to detect when a repo is cloned
-  const { workTrees } = useGitWorkTree()
+  const { workTrees, resetWorkTrees } = useGitWorkTree()
   const hasWorkTrees = workTrees.length > 0
+
+  // IpcGitWorkTreeProvider is mounted once at the app root, so it otherwise
+  // keeps whatever worktree was registered/active in a previously opened
+  // runbook. Clear it whenever the loaded runbook actually changes (not on
+  // watch-mode content reloads, which keep the same path) so a stale repo
+  // from an unrelated runbook can't be picked as "active" in this one.
+  useEffect(() => {
+    resetWorkTrees()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getRunbookResult.data?.path])
   
   // Show artifacts panel unless user has manually hidden it
   const showArtifacts = !isArtifactsHidden

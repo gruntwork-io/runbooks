@@ -49,8 +49,9 @@ Runbooks never shells out to the `gcloud` binary. Service account keys are valid
 | `defaultZone` | `string` | — | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |
 | `gcloudConfiguration` | `string` | — | Pre-select a named gcloud configuration in the gcloud Config tab (supports template expressions) |
 | `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by Google Sign-In. When set, also **required** of any auto-detected or gcloud user ADC this block will accept (service-account keys are exempt) |
-| `oauthClientId` | `string` | — | Client ID of a Google Cloud "Desktop app" OAuth client. **Required to enable the Google Sign-In tab** — this build ships no default client. Must be paired with `oauthClientSecret` |
+| `oauthClientId` | `string` | — | Client ID of a Google Cloud "Desktop app" OAuth client. Must be paired with `oauthClientSecret`. Mutually exclusive with `oauthClientFile`. See [Using your own OAuth client](#using-your-own-oauth-client) |
 | `oauthClientSecret` | `string` | — | Client secret issued alongside the Desktop OAuth client. Required whenever `oauthClientId` is set. Per RFC 8252 this value is not confidential; Google simply issues one with every Desktop client |
+| `oauthClientFile` | `string` | — | Path to a Google Cloud Console Desktop-app client JSON download (`client_secret_*.json` with an `installed` object). `~` is expanded. Mutually exclusive with `oauthClientId` / `oauthClientSecret`. Read in the main process only |
 | `detectCredentials` | `false \| GoogleCredentialSource[]` | `['env', 'adc']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
 | `inputsId` | `string \| string[]` | — | Reference one or more [Inputs](/authoring/blocks/inputs/) blocks for template expressions in props |
 
@@ -194,7 +195,7 @@ A service account key is long-lived key material. Prefer **Google Sign-In** or t
 ## Google Sign-In
 
 <Aside type="caution">
-**This tab currently requires an author-supplied OAuth client.** Runbooks does not yet ship a registered Google Cloud "Desktop app" client, so in a stock build the **Google Sign-In** tab renders disabled and labeled *(unavailable)*. Set both `oauthClientId` and `oauthClientSecret` (see [Using your own OAuth client](#using-your-own-oauth-client)) to enable it, or use the **Service Account Key** / **gcloud Config** tabs, which work out of the box.
+**This tab currently requires an OAuth client.** Runbooks does not yet ship a registered Google Cloud "Desktop app" client, so in a stock build the **Google Sign-In** tab renders disabled and labeled *(unavailable)* unless you supply a client via props, a client JSON file, or operator environment variables (see [Using your own OAuth client](#using-your-own-oauth-client)). The **Service Account Key** / **gcloud Config** tabs work out of the box.
 </Aside>
 
 The **Google Sign-In** tab performs the same loopback OAuth flow as `gcloud auth application-default login`:
@@ -211,7 +212,7 @@ The requested scopes default to:
 
 Override them with the `scopes` prop. The tab's **What permissions does this grant?** disclosure always lists exactly what will be requested.
 
-When `scopes` is set, it is also a **requirement** for ambient credentials: auto-detected env/ADC credentials and the gcloud Config tab refuse a user credential whose tokeninfo grant is missing any listed scope. The block shows the missing scopes and offers **Sign in with required scopes** (or a copyable `gcloud auth application-default login --scopes=…` command when Sign-In is unavailable). Defaults are Sign-In request scopes only — they are **not** enforced on ambient ADC unless you set the prop.
+When `scopes` is set, it is also a **requirement** for ambient credentials: auto-detected env/ADC credentials and the gcloud Config tab refuse a user credential whose tokeninfo grant is missing any listed scope. The block shows the missing scopes and offers **Sign in with required scopes** (or a copyable `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=…` command when Sign-In still has no Desktop client). Defaults are Sign-In request scopes only — they are **not** enforced on ambient ADC unless you set the prop.
 
 ```mdx
 <GoogleAuth
@@ -230,7 +231,15 @@ Because the flow returns a refresh token — not a bare access token — the cre
 
 ### Using your own OAuth client
 
-Sign-in requires a registered Google Cloud **Desktop app** OAuth client, and today that means one of your own. Set **both** `oauthClientId` and `oauthClientSecret` to use your organization's client and consent screen:
+Sign-in requires a registered Google Cloud **Desktop app** OAuth client. Until Runbooks ships a built-in client, supply one of your own. Resolution order in the main process:
+
+1. Author props `oauthClientId` + `oauthClientSecret`
+2. Author prop `oauthClientFile` (path to the Console download JSON)
+3. Operator env `GOOGLE_OAUTH_CLIENT_CREDENTIALS` (path to the same JSON)
+4. Operator env `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET`
+5. Build defaults (empty today)
+
+**Explicit id and secret:**
 
 ```mdx
 <GoogleAuth
@@ -242,8 +251,31 @@ Sign-in requires a registered Google Cloud **Desktop app** OAuth client, and tod
 
 Both props are required together. `oauthClientId` on its own is refused with an explicit error rather than started: Google issues a client secret with every Desktop client, and without it the resulting user-credentials file cannot be refreshed — every later `gcloud`, client-library, and OpenTofu call would fail at the first token refresh, long after the block reported success.
 
+**Client JSON file** (the Desktop-app download from Google Cloud Console — `{ "installed": { "client_id", "client_secret", … } }`):
+
+```mdx
+<GoogleAuth
+  id="google-auth"
+  oauthClientFile="~/.config/gcloud/client_secret_example.json"
+/>
+```
+
+`oauthClientFile` is mutually exclusive with `oauthClientId` / `oauthClientSecret`. The path is read in the main process only (`~` is expanded); the secret never enters the UI. Web-client downloads (`{ "web": … }`) are rejected — Sign-In uses a loopback redirect registered for Desktop clients.
+
+**Operator environment** (machine-local, no runbook change required):
+
+| Variable | Value |
+|----------|-------|
+| `GOOGLE_OAUTH_CLIENT_CREDENTIALS` | Absolute or `~/…` path to a Desktop-app `client_secret_*.json` |
+| `GOOGLE_OAUTH_CLIENT_ID` | Desktop-app client ID (must be paired with the secret) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Desktop-app client secret |
+
+These are distinct from `GOOGLE_APPLICATION_CREDENTIALS`, which holds *user* or service-account credentials after authentication — not the OAuth app client used to start Sign-In.
+
+**In-session file picker:** when no client is configured yet, the **Google Sign-In** tab stays selectable and labeled *(needs OAuth client)*. The panel offers **Choose Desktop OAuth client JSON** — the same Console download as `oauthClientFile` / `GOOGLE_OAUTH_CLIENT_CREDENTIALS`. The renderer keeps the path only; MAIN reads `installed.client_id` / `installed.client_secret` at sign-in start.
+
 <Aside type="caution">
-If no OAuth client is configured — neither by the build nor by these props — the **Google Sign-In** tab is shown but disabled and labeled *(unavailable)* from the moment the block renders, with the message *"OAuth login is not configured for this build."* Use the **Service Account Key** or **gcloud Config** tab, or supply `oauthClientId` and `oauthClientSecret`.
+If no OAuth client is configured — neither by the build, author props/file, operator env, nor an in-session pick — Sign-In cannot start until the operator supplies a Desktop client. Use the picker, set `GOOGLE_OAUTH_CLIENT_CREDENTIALS`, or fall back to the **Service Account Key** / **gcloud Config** tabs.
 </Aside>
 
 ## gcloud Config
@@ -503,15 +535,17 @@ If a federated configuration you rely on is refused, authenticate with a service
 
 | Symptom | Cause and fix |
 |---------|---------------|
-| **Google Sign-In** tab is greyed out and labeled *(unavailable)* | No OAuth client is configured for this build — the current default. Supply **both** `oauthClientId` and `oauthClientSecret`, or use the Service Account Key or gcloud Config tab |
+| **Google Sign-In** tab labeled *(needs OAuth client)* | No OAuth client is configured yet (build default, author props/file, or `GOOGLE_OAUTH_CLIENT_*` env). Choose a Desktop client JSON in the panel, set env, or use the Service Account Key / gcloud Config tab |
 | *"oauthClientId was supplied without oauthClientSecret"* | A custom Desktop client needs both. Google issues a secret with every Desktop client; without it the credential cannot be refreshed |
+| *"Supply either oauthClientId/oauthClientSecret or oauthClientFile"* | Those props are mutually exclusive — pick one supply path |
+| *"OAuth client credentials file is a Web client"* | Download a **Desktop app** client JSON from Google Cloud Console (`installed`), not a Web client (`web`) |
 | *No gcloud configurations found* | There is no gcloud configuration directory at the reported path. Run `gcloud init`, or set `CLOUDSDK_CONFIG` to the directory you use |
 | A configuration shows **No ADC** and cannot be selected | The configuration has no Application Default Credentials. Run `gcloud auth application-default login` |
 | *Not a service account key (expected type: service_account)* | The pasted JSON is user credentials or an OAuth client file, not a service account key. Use the file that Google Cloud produced from **IAM & Admin → Service Accounts → Keys** |
 | *…which Runbooks does not accept* / *…is not a Google API endpoint* | The credentials document is a workload identity federation config that fetches its subject token from a file, a URL, or a command, or that points at a host outside `*.googleapis.com`. Runbooks does not run those instructions. Use a service account key, **Sign in with Google**, or `gcloud auth application-default login` |
 | *Invalid credentials detected: … are invalid or expired* | The detected credential no longer authenticates. Refresh it (`gcloud auth application-default login`) or authenticate manually |
-| *Credentials missing required scopes* | The block's `scopes` prop lists scopes the detected user ADC does not grant (for example Admin SDK scopes). Use **Sign in with required scopes**, or run the shown `gcloud auth application-default login --scopes=…` command and try auto-detection again |
-| gcloud Config / confirm fails with *missing required OAuth scopes* | Same check as detection: the selected ADC is too narrow for this block. Re-authenticate with the required scopes via Sign-In or `gcloud auth application-default login --scopes=…` |
+| *Credentials missing required scopes* | The block's `scopes` prop lists scopes the detected user ADC does not grant (for example Admin SDK scopes). Use **Sign in with required scopes**, or run the shown `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=…` command and try auto-detection again |
+| gcloud Config / confirm fails with *missing required OAuth scopes* | Same check as detection: the selected ADC is too narrow for this block. Re-authenticate with the required scopes via Sign-In or `gcloud auth application-default login --client-id-file=… --scopes=…` |
 | The project picker is empty | The credential cannot list projects. Grant `resourcemanager.projects.list`, or set the `project` prop / type the project ID directly |
 | *Project … is not accessible with these credentials* | Advisory warning: the credential authenticated, but Google definitively refused (404/permission denied) on that project. Check the project ID and the principal's IAM roles. An inconclusive answer — a disabled Cloud Resource Manager API, a network blip — deliberately produces **no** warning, because it says nothing about whether your commands will work |
 | *Authenticated, but no Google Cloud project is set* | The credential is valid but nothing named a project: no `project` prop, no `core/project` in the gcloud configuration, and no project the principal can enumerate. Commands that need one will fail with *"The project property must be set"*. Set the `project` prop, run `gcloud config set project`, or use **Change project** |

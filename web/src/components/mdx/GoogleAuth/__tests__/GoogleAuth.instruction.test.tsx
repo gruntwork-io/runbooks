@@ -31,7 +31,11 @@ describe('GoogleAuth — instruction mode', () => {
     expect(screen.getByTestId('instruction-gcp')).toBeInTheDocument()
     expect(screen.getByText('Log into Google Cloud')).toBeInTheDocument()
     // The by-hand equivalent of every tab, and the scopes it would request.
-    expect(screen.getByText('gcloud auth application-default login')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS"',
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByText(DEFAULT_SCOPES)).toBeInTheDocument()
 
     // No credential capture UI of any kind.
@@ -68,7 +72,7 @@ describe('GoogleAuth — instruction mode', () => {
     expect(screen.queryByText(DEFAULT_SCOPES)).toBeNull()
     expect(
       screen.getByText(
-        'gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform',
+        'gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=https://www.googleapis.com/auth/cloud-platform',
       ),
     ).toBeInTheDocument()
     expect(useGoogleAuthSpy).not.toHaveBeenCalled()

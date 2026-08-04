@@ -43,8 +43,9 @@ function installApi(impl: InvokeImpl) {
   const invoke = vi.fn(async (channel: string, args?: Record<string, unknown>) => {
     const result = impl(channel, args)
     // The hook probes `google:oauth-available` on mount so the Google Sign-In
-    // tab can render disabled on FIRST paint. Default it to "configured" so
-    // only the tests that care about an unconfigured build have to say so.
+    // tab can label "(needs OAuth client)" on FIRST paint. Default it to
+    // "configured" so only the tests that care about an unconfigured build have
+    // to say so.
     if (channel === 'google:oauth-available' && Object.keys((result ?? {}) as object).length === 0) {
       return { available: true }
     }
@@ -822,6 +823,92 @@ describe('useGoogleAuth — OAuth tab', () => {
     await act(async () => {})
     expect(result.current.oauthUnavailable).toBe(false)
     expect(callsTo(invoke, 'google:oauth-available')).toHaveLength(0)
+  })
+
+  it('treats an author-supplied oauthClientFile as available without a round trip', async () => {
+    const invoke = installApi((channel) =>
+      channel === 'google:oauth-available' ? { available: false } : {},
+    )
+
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      detectCredentials: false,
+      oauthClientFile: '~/.config/gcloud/client_secret_example.json',
+    })
+
+    await act(async () => {})
+    expect(result.current.oauthUnavailable).toBe(false)
+    expect(callsTo(invoke, 'google:oauth-available')).toHaveLength(0)
+  })
+
+  it('sends oauthClientFile to MAIN on sign-in start', async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:oauth-start') {
+        return {
+          flowId: 'flow-file',
+          authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+        }
+      }
+      if (channel === 'google:oauth-poll') {
+        return { status: 'pending' }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      detectCredentials: false,
+      oauthClientFile: '~/.config/gcloud/client_secret_example.json',
+    })
+
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('google:oauth-start', {
+      clientFile: '~/.config/gcloud/client_secret_example.json',
+    })
+  })
+
+  it('lets the operator pick a Desktop OAuth client JSON when none is configured', async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:oauth-available') return { available: false }
+      if (channel === 'native:show-open-dialog') {
+        return { filePaths: ['/tmp/client_secret_example.apps.googleusercontent.com.json'] }
+      }
+      if (channel === 'google:oauth-start') {
+        return {
+          flowId: 'flow-picked',
+          authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+        }
+      }
+      if (channel === 'google:oauth-poll') return { status: 'pending' }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await waitFor(() => expect(result.current.oauthUnavailable).toBe(true))
+
+    await act(async () => {
+      await result.current.loadOAuthClientFromFile()
+    })
+
+    expect(result.current.oauthUnavailable).toBe(false)
+    expect(result.current.oauthClientFileName).toBe(
+      'client_secret_example.apps.googleusercontent.com.json',
+    )
+    expect(result.current.oauthClientFilePath).toBe(
+      '/tmp/client_secret_example.apps.googleusercontent.com.json',
+    )
+
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('google:oauth-start', {
+      clientFile: '/tmp/client_secret_example.apps.googleusercontent.com.json',
+    })
   })
 
   it('releases the loopback listener when the poll loop gives up', async () => {

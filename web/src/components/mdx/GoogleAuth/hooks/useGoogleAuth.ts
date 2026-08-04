@@ -107,6 +107,7 @@ export interface UseGoogleAuthOptions {
   scopes?: string[]
   oauthClientId?: string
   oauthClientSecret?: string
+  oauthClientFile?: string
   defaultRegion?: string
   defaultZone?: string
   gcloudConfiguration?: string
@@ -168,8 +169,22 @@ export interface UseGoogleAuthReturn {
   /** Non-null while a loopback flow is live. Renders the "finish in the browser" card. */
   oauthFlowId: string | null
   oauthAuthUrl: string | null
-  /** True when neither the build default nor an author prop supplies a client id. */
+  /**
+   * True when neither the build default, author props/file, operator env, nor an
+   * operator-picked Desktop client JSON can supply an OAuth client yet.
+   */
   oauthUnavailable: boolean
+  /**
+   * Base name of a Desktop OAuth client JSON the operator chose in-session.
+   * The renderer holds the path only — MAIN reads `installed.client_*`.
+   */
+  oauthClientFileName: string | null
+  /** Absolute path of the operator-chosen Desktop OAuth client JSON. */
+  oauthClientFilePath: string | null
+  /** Opens the native file picker for a Console Desktop-app `client_secret_*.json`. */
+  loadOAuthClientFromFile: () => Promise<void>
+  /** Clears an operator-chosen client JSON so Sign-In falls back to props/env. */
+  clearOAuthClientFile: () => void
 
   // ---- Project selection sub-flow -------------------------------------------
   projects: GoogleProjectInfo[]
@@ -218,6 +233,7 @@ export function useGoogleAuth({
   scopes,
   oauthClientId,
   oauthClientSecret,
+  oauthClientFile,
   defaultRegion,
   defaultZone,
   gcloudConfiguration,
@@ -278,11 +294,17 @@ export function useGoogleAuth({
   // discovered after a failed click: an author who supplies their own client id
   // is available by definition and needs no round trip.
   const [oauthUnavailable, setOauthUnavailable] = useState(false)
+  // Operator-chosen Desktop OAuth client JSON (path only — same custody rule as
+  // the SA key picker). Author `oauthClientFile` wins when both are set.
+  const [oauthClientFilePath, setOauthClientFilePath] = useState<string | null>(null)
+  const [oauthClientFileName, setOauthClientFileName] = useState<string | null>(null)
   const oauthPollCancelledRef = useRef(false)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Mirrors oauthFlowId so the unmount cleanup can cancel MAIN's loopback
   // listener without taking the state value as an effect dependency.
   const oauthFlowIdRef = useRef<string | null>(null)
+
+  const effectiveOauthClientFile = oauthClientFile || oauthClientFilePath || undefined
 
   // ---- Project selection ----------------------------------------------------
   const [projects, setProjects] = useState<GoogleProjectInfo[]>([])
@@ -1300,6 +1322,49 @@ export function useGoogleAuth({
     void poll()
   }, [api, id, finishOAuth, stopOAuthPolling])
 
+  /**
+   * Choose a Desktop-app OAuth client JSON (`{ "installed": { client_id,
+   * client_secret, … } }`). Path only — MAIN parses it at oauth-start, so the
+   * secret never enters the renderer (same custody rule as the SA key picker).
+   */
+  const loadOAuthClientFromFile = useCallback(async () => {
+    try {
+      const result = await api.invoke('native:show-open-dialog', {
+        properties: ['openFile'],
+        filters: [
+          { name: 'Desktop OAuth client JSON', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      })
+
+      const filePath = result.filePaths?.[0]
+      if (!filePath) return // user cancelled
+
+      setOauthClientFilePath(filePath)
+      setOauthClientFileName(filePath.split(/[\\/]/).pop() || filePath)
+      setOauthUnavailable(false)
+      setErrorMessage(null)
+    } catch (error) {
+      setAuthStatus('failed')
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to open the file picker')
+    }
+  }, [api])
+
+  const clearOAuthClientFile = useCallback(() => {
+    setOauthClientFilePath(null)
+    setOauthClientFileName(null)
+    // Re-probe ambient config; without an author prop the tab may need a client
+    // again. Author props keep Sign-In available regardless.
+    if (oauthClientId || oauthClientFile) {
+      setOauthUnavailable(false)
+      return
+    }
+    void api
+      .invoke('google:oauth-available', {})
+      .then((data) => setOauthUnavailable(data?.available !== true))
+      .catch(() => setOauthUnavailable(true))
+  }, [api, oauthClientId, oauthClientFile])
+
   const handleOAuthLogin = useCallback(async () => {
     oauthPollCancelledRef.current = false
     setAuthStatus('authenticating')
@@ -1307,11 +1372,14 @@ export function useGoogleAuth({
     setWarningMessage(null)
 
     try {
-      // MAIN owns the default client id and scopes; only author overrides are
-      // sent, so a build's registered client never round-trips the renderer.
+      // MAIN resolves the Desktop client (props / file / env / build default)
+      // and owns scopes defaults; only author/operator overrides are sent, so a
+      // build's registered client never round-trips the renderer. A clientFile
+      // path is read in MAIN — its secret never enters the renderer.
       const data = await api.invoke('google:oauth-start', {
         ...(oauthClientId ? { clientId: oauthClientId } : {}),
         ...(oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
+        ...(effectiveOauthClientFile ? { clientFile: effectiveOauthClientFile } : {}),
         ...(scopes && scopes.length > 0 ? { scopes } : {}),
       })
 
@@ -1340,7 +1408,7 @@ export function useGoogleAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [api, oauthClientId, oauthClientSecret, scopes, pollOAuthCompletion])
+  }, [api, oauthClientId, oauthClientSecret, effectiveOauthClientFile, scopes, pollOAuthCompletion])
 
   const handleCancelOAuth = useCallback(() => {
     stopOAuthPolling()
@@ -1352,18 +1420,19 @@ export function useGoogleAuth({
 
   /**
    * Decline an insufficient-scopes detection and start Google Sign-In with the
-   * author's required scopes. When Sign-In is unavailable the insufficient-
-   * scopes card shows the gcloud --scopes command instead; this handler is a
-   * no-op for that path beyond clearing the detection card.
+   * author's required scopes. When Sign-In still has no client (and the operator
+   * has not picked a Desktop JSON yet) the insufficient-scopes card shows the
+   * gcloud --scopes command instead; this handler is a no-op for that path
+   * beyond clearing the detection card.
    */
   const handleSignInWithRequiredScopes = useCallback(async () => {
     handleRejectDetected()
-    if (oauthUnavailable && !oauthClientId) {
+    if (oauthUnavailable && !oauthClientId && !effectiveOauthClientFile) {
       return
     }
     setAuthMethod('oauth')
     await handleOAuthLogin()
-  }, [handleRejectDetected, oauthUnavailable, oauthClientId, handleOAuthLogin])
+  }, [handleRejectDetected, oauthUnavailable, oauthClientId, effectiveOauthClientFile, handleOAuthLogin])
 
 
   // Cleanup on unmount: stop polling and release MAIN's loopback listener.
@@ -1374,17 +1443,14 @@ export function useGoogleAuth({
   }, [stopOAuthPolling])
 
   /**
-   * Ask MAIN once, on mount, whether this build has an OAuth client registered,
-   * so the Google Sign-In tab renders disabled and labelled "(unavailable)" on
-   * FIRST paint. Discovering it only after a click — which is all the error-copy
-   * match below can do — means every user of a stock build clicks "Sign in with
-   * Google" and gets a red failure card for a tab that was never going to work.
-   *
-   * An author-supplied `oauthClientId` is available by definition, so it skips
-   * the round trip entirely.
+   * Ask MAIN once, on mount, whether an OAuth client is resolvable (build
+   * default or operator env). Author props/file and an in-session operator
+   * pick skip the probe — those are available by definition. When nothing is
+   * configured the Sign-In tab stays selectable and OAuthFlow offers a Desktop
+   * client JSON picker (plus the GOOGLE_OAUTH_CLIENT_CREDENTIALS env hint).
    */
   useEffect(() => {
-    if (oauthClientId) {
+    if (oauthClientId || oauthClientFile || oauthClientFilePath) {
       setOauthUnavailable(false)
       return
     }
@@ -1396,14 +1462,14 @@ export function useGoogleAuth({
         if (!cancelled) setOauthUnavailable(data?.available !== true)
       })
       .catch(() => {
-        // Probe unavailable: leave the tab enabled and let the post-click
-        // detection in handleOAuthLogin have the last word.
+        // Probe unavailable: leave Sign-In selectable and let oauth-start (or
+        // the Desktop client picker) have the last word.
       })
 
     return () => {
       cancelled = true
     }
-  }, [api, oauthClientId])
+  }, [api, oauthClientId, oauthClientFile, oauthClientFilePath])
 
   // ---------------------------------------------------------------------------
   // Tab 3 — gcloud configuration
@@ -1649,6 +1715,10 @@ export function useGoogleAuth({
     oauthFlowId,
     oauthAuthUrl,
     oauthUnavailable,
+    oauthClientFileName,
+    oauthClientFilePath,
+    loadOAuthClientFromFile,
+    clearOAuthClientFile,
 
     // Project selection
     projects,

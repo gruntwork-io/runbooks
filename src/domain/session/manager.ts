@@ -68,6 +68,10 @@ interface Session {
   lastActivity: Date
   registeredWorkTreePaths: string[]
   activeWorkTreePath: string
+  /** The runbook file this session belongs to. Used to detect "a different
+   *  runbook was opened" so per-runbook state (worktrees, env) doesn't leak
+   *  into an unrelated runbook that happens to reuse the same running app. */
+  runbookPath: string
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +141,7 @@ export class SessionManager {
    * invalidated). The environment is captured from the running process via the
    * Environment service, with protected vars stripped.
    */
-  createSession(initialWorkingDir: string) {
+  createSession(initialWorkingDir: string, runbookPath: string = "") {
     return Effect.gen(this, function* () {
       const envService = yield* Environment
 
@@ -163,6 +167,7 @@ export class SessionManager {
         lastActivity: now,
         registeredWorkTreePaths: [],
         activeWorkTreePath: "",
+        runbookPath,
       }
 
       this.session = session
@@ -213,6 +218,15 @@ export class SessionManager {
   /** Returns whether a session currently exists. */
   hasSession(): boolean {
     return this.session !== null
+  }
+
+  /**
+   * The runbook the current session belongs to, or null if no session exists.
+   * Callers use this to detect when a load targets a different runbook than
+   * the one the session was created for.
+   */
+  getRunbookPath(): string | null {
+    return this.session?.runbookPath ?? null
   }
 
   /**

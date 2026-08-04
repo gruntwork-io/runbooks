@@ -31,6 +31,8 @@ export interface GitWorkTreeContextType {
   registerWorkTree: (workTree: GitWorkTree) => void
   /** Switch the active worktree by id */
   setActiveWorkTree: (id: string) => void
+  /** Clear all registered worktrees and the active selection (a different runbook was loaded) */
+  resetWorkTrees: () => void
   /** Monotonically increasing counter that signals "the worktree contents changed, re-fetch the tree".
    *  Any component can call invalidateGitFileTree() to bump this; useGitFileTree watches it. */
   treeVersion: number

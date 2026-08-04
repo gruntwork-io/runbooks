@@ -148,6 +148,14 @@ export interface GoogleAuthProps {
    * every Desktop client.
    */
   oauthClientSecret?: string
+  /**
+   * Path to a Google Cloud Console Desktop-app OAuth client JSON download
+   * (`client_secret_*.json` with an `installed` object). Mutually exclusive
+   * with `oauthClientId` / `oauthClientSecret`. Read in MAIN only — `~` is
+   * expanded. Operators can also set `GOOGLE_OAUTH_CLIENT_CREDENTIALS` instead
+   * of this prop.
+   */
+  oauthClientFile?: string
   /** SECONDARY, optional: default compute region -> CLOUDSDK_COMPUTE_REGION. */
   defaultRegion?: string
   /** SECONDARY, optional: default compute zone -> CLOUDSDK_COMPUTE_ZONE. */

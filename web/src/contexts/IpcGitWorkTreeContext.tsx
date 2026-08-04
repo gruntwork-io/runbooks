@@ -71,15 +71,27 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
     return workTrees.find(wt => wt.id === activeWorkTreeId) ?? null
   }, [workTrees, activeWorkTreeId])
 
+  // Called when a different runbook is loaded. This provider is mounted once
+  // at the app root (main.tsx), so without this, worktrees registered by a
+  // GitClone block in one runbook (and its "auto-activate the first one"
+  // selection) would silently stick around as "active" after switching to an
+  // unrelated runbook in the same running window.
+  const resetWorkTrees = useCallback(() => {
+    setWorkTrees([])
+    setActiveWorkTreeId(null)
+    invalidateGitFileTree()
+  }, [invalidateGitFileTree])
+
   const value = useMemo<GitWorkTreeContextType>(() => ({
     workTrees,
     activeWorkTreeId,
     activeWorkTree,
     registerWorkTree,
     setActiveWorkTree,
+    resetWorkTrees,
     treeVersion,
     invalidateGitFileTree,
-  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree, treeVersion, invalidateGitFileTree])
+  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree, resetWorkTrees, treeVersion, invalidateGitFileTree])
 
   return (
     <GitWorkTreeContext.Provider value={value}>

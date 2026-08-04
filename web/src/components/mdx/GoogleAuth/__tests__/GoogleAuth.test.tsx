@@ -130,6 +130,22 @@ describe('GoogleAuth — rendering', () => {
     expect(screen.queryByRole('button', { name: 'Service Account Key' })).toBeNull()
   })
 
+  it('shows a configuration error when oauthClientFile is mixed with id/secret', async () => {
+    renderBlock(
+      <GoogleAuth
+        id="gcp"
+        detectCredentials={false}
+        oauthClientFile="~/.config/gcloud/client_secret.json"
+        oauthClientId="custom.apps.googleusercontent.com"
+        oauthClientSecret="not-confidential"
+      />,
+    )
+
+    expect(await screen.findByText('Invalid Configuration:')).toBeInTheDocument()
+    expect(screen.getByText(/oauthClientFile/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Service Account Key' })).toBeNull()
+  })
+
   it('detectCredentials={false} skips detection entirely and shows the tabs immediately', () => {
     installApi(NO_CREDENTIALS)
     renderBlock(<GoogleAuth id="gcp" detectCredentials={false} />)
@@ -137,7 +153,7 @@ describe('GoogleAuth — rendering', () => {
     expect(screen.getByRole('button', { name: 'Service Account Key' })).toBeInTheDocument()
     expect(screen.queryByText('Checking for existing credentials...')).toBeNull()
     // Nothing is probed for credentials. (The OAuth capability probe is not a
-    // credential read — it only asks whether this build has a client id.)
+    // credential read — it only asks whether a Desktop OAuth client resolves.)
     expect(callsTo('google:env-credentials')).toHaveLength(0)
     expect(callsTo('google:validate-credentials')).toHaveLength(0)
   })
@@ -304,7 +320,7 @@ describe('GoogleAuth — Google sign-in tab', () => {
     expect(pollCount).toBeGreaterThan(0)
   })
 
-  it('disables the tab on FIRST PAINT when the build has no OAuth client', async () => {
+  it('offers a Desktop OAuth client picker on FIRST PAINT when the build has no client', async () => {
     installApi((channel) => {
       if (channel === 'google:env-credentials') return { found: false }
       if (channel === 'google:oauth-available') return { available: false }
@@ -313,20 +329,58 @@ describe('GoogleAuth — Google sign-in tab', () => {
 
     renderBlock(<GoogleAuth id="gcp" />)
 
-    // The mount-time capability probe is what makes this reachable: without it
-    // the tab renders fully enabled and the user only learns otherwise after a
-    // click that was always going to fail.
+    // The mount-time capability probe labels the tab; the panel offers a file
+    // picker so Sign-In works without author props or a Runbooks restart.
     const tab = await screen.findByRole('button', { name: /Google Sign-In/ })
-    await waitFor(() => expect(tab).toBeDisabled())
-    expect(screen.getByText('(unavailable)')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('(needs OAuth client)')).toBeInTheDocument())
+    expect(tab).not.toBeDisabled()
 
-    // The tab cannot be entered, so there is no sign-in button to press.
     fireEvent.click(tab)
+    expect(
+      await screen.findByRole('button', { name: /Choose Desktop OAuth client JSON/ }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Sign in with Google/ })).toBeNull()
     expect(callsTo('google:oauth-start')).toHaveLength(0)
   })
 
-  it('falls back to disabling the tab when oauth-start reports it is not configured', async () => {
+  it('starts Sign-In with an operator-chosen Desktop OAuth client JSON', async () => {
+    installApi((channel) => {
+      if (channel === 'google:env-credentials') return { found: false }
+      if (channel === 'google:oauth-available') return { available: false }
+      if (channel === 'native:show-open-dialog') {
+        return { filePaths: ['/tmp/client_secret_example.apps.googleusercontent.com.json'] }
+      }
+      if (channel === 'google:oauth-start') {
+        return {
+          flowId: 'flow-1',
+          authUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=x',
+          redirectUri: 'http://127.0.0.1:9/',
+          expiresInSeconds: 600,
+        }
+      }
+      if (channel === 'google:oauth-poll') return { status: 'pending' }
+      return {}
+    })
+
+    renderBlock(<GoogleAuth id="gcp" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Google Sign-In/ }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Choose Desktop OAuth client JSON/ }),
+    )
+
+    expect(
+      await screen.findByText('client_secret_example.apps.googleusercontent.com.json'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/ }))
+
+    await waitFor(() => expect(callsTo('google:oauth-start')).toHaveLength(1))
+    expect(invoke).toHaveBeenCalledWith('google:oauth-start', {
+      clientFile: '/tmp/client_secret_example.apps.googleusercontent.com.json',
+    })
+  })
+
+  it('falls back to the client picker when oauth-start reports it is not configured', async () => {
     // The probe says the build is fine, but the flow is refused at start time.
     installApi((channel) => {
       if (channel === 'google:env-credentials') return { found: false }
@@ -341,14 +395,15 @@ describe('GoogleAuth — Google sign-in tab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Google Sign-In' }))
     fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/ }))
 
-    // The copy lands twice on purpose: the inline failure line and the panel
-    // that points at the two tabs that still work.
     expect(
-      await screen.findAllByText(/OAuth login is not configured for this build/),
-    ).not.toHaveLength(0)
+      await screen.findByText(/OAuth login is not configured for this build/),
+    ).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Google Sign-In/ })).toBeDisabled(),
+      expect(screen.getByText('(needs OAuth client)')).toBeInTheDocument(),
     )
+    expect(
+      screen.getByRole('button', { name: /Choose Desktop OAuth client JSON/ }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Sign in with Google/ })).toBeNull()
   })
 })
@@ -587,7 +642,7 @@ describe('GoogleAuth — required scopes', () => {
     expect(await screen.findByText('Credentials missing required scopes')).toBeInTheDocument()
     expect(
       screen.getByText(
-        `gcloud auth application-default login --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
+        `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=${CLOUD_PLATFORM},${DIRECTORY}`,
       ),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Sign in with required scopes' })).toBeNull()

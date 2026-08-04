@@ -12,9 +12,11 @@ import {
   runbookConfig,
   executableRegistry,
   sessionManager,
+  vcsSessionMeta,
   setExecutableRegistry,
   setRunbookConfig,
 } from "./runtime.ts"
+import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
@@ -94,8 +96,24 @@ export function registerRunbookHandlers(): void {
       } catch {
         // Path may not exist yet — fall back to the lexical resolution.
       }
-      if (!sessionManager.hasSession()) {
-        await runtime.runPromise(sessionManager.createSession(sessionDir))
+
+      // A different runbook than the one the current session belongs to
+      // (including "no session yet") gets a fully fresh session: env,
+      // working dir, AND registered/active git worktrees. Without this, a
+      // worktree registered by a GitClone block in one runbook stays "active"
+      // (session/manager.ts's getActiveWorkTreePath) after switching to an
+      // unrelated runbook in the same running app, so REPO_FILES / worktree
+      // templates resolve to a stale, possibly already-deleted, checkout.
+      // Reloading the SAME runbook (watch mode, re-opening the same file)
+      // must NOT do this — it would wipe env vars a script exported mid-run.
+      if (sessionManager.getRunbookPath() !== runbookPath) {
+        await runtime.runPromise(sessionManager.createSession(sessionDir, runbookPath))
+        // These mirror the same "most recent wins across the whole process"
+        // pattern as the worktree state above — reset them at the same
+        // boundary so a Google credential or git-host auth banner from the
+        // previous runbook can't leak into this one.
+        resetGoogleCredentialRegistry()
+        vcsSessionMeta.clear()
       } else {
         sessionManager.setWorkingDir(sessionDir)
       }

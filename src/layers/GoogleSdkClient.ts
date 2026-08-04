@@ -729,7 +729,7 @@ export function describeCredentialFailure(
     return "Your Application Default Credentials have expired or been revoked. Run `gcloud auth application-default login` to refresh them."
   }
   if (/invalid_client|unauthorized_client/i.test(text)) {
-    return "The OAuth client is not valid for this credential. Check the `oauthClientId` and `oauthClientSecret` props."
+    return "The OAuth client is not valid for this credential. Check the `oauthClientId`/`oauthClientSecret` props, `oauthClientFile`, or `GOOGLE_OAUTH_CLIENT_*` env."
   }
   if (/invalid_scope/i.test(text)) {
     return "The credential was refused the scopes this block requires (cloud-platform)."

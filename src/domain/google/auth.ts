@@ -11,29 +11,31 @@ import type {
 import { Environment } from "../../services/Environment.ts"
 import type { EnvironmentShape } from "../../services/Environment.ts"
 import { GoogleAuthError, GoogleOAuthError } from "../../errors/index.ts"
+import {
+  OAUTH_MISSING_CLIENT_SECRET,
+  OAUTH_NOT_CONFIGURED,
+} from "./oauth-client.ts"
+
+export {
+  DEFAULT_GOOGLE_OAUTH_CLIENT_ID,
+  DEFAULT_GOOGLE_OAUTH_CLIENT_SECRET,
+  GOOGLE_OAUTH_CLIENT_CREDENTIALS_ENV,
+  GOOGLE_OAUTH_CLIENT_ID_ENV,
+  GOOGLE_OAUTH_CLIENT_SECRET_ENV,
+  expandHomePath,
+  isOAuthClientConfigured,
+  parseOAuthClientCredentialsJson,
+  resolveOAuthClient,
+} from "./oauth-client.ts"
+export type {
+  OAuthClientSource,
+  ResolveOAuthClientInput,
+  ResolvedOAuthClient,
+} from "./oauth-client.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/**
- * Gruntwork's registered Google Cloud "Desktop app" OAuth client. Mirrors
- * DEFAULT_GITHUB_OAUTH_CLIENT_ID (src/domain/github/auth.ts): main owns the
- * default, an author `oauthClientId` prop may override it.
- *
- * TODO(release): populate from the Gruntwork GCP project before shipping. While
- * empty, google:oauth-start returns
- * { error: "OAuth login is not configured for this build" } and the OAuth tab
- * renders disabled with that copy.
- */
-export const DEFAULT_GOOGLE_OAUTH_CLIENT_ID = ""
-
-/**
- * The client "secret" issued alongside the Desktop client. Per RFC 8252 an
- * installed-app secret is not confidential — it ships because Google issues one
- * with every Desktop client, not because it protects anything.
- */
-export const DEFAULT_GOOGLE_OAUTH_CLIENT_SECRET = ""
 
 /** Scopes requested by the user-login tab when the author supplies none. */
 export const DEFAULT_GOOGLE_SCOPES = [
@@ -41,20 +43,6 @@ export const DEFAULT_GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "openid",
 ] as const
-
-/** User-facing copy for a build with no OAuth client id compiled in. */
-const OAUTH_NOT_CONFIGURED = "OAuth login is not configured for this build"
-
-/**
- * A Desktop client without its secret cannot be refreshed. The code exchange
- * may well succeed, but the `authorized_user` document minted from it carries
- * `client_secret: ""` — which this codebase's own ADC loader rejects — so every
- * later refresh (gcloud, the client libraries, the OpenTofu provider) fails.
- * Refusing here is the difference between an honest error and a credential that
- * only looks authenticated.
- */
-const OAUTH_MISSING_CLIENT_SECRET =
-  "oauthClientId was supplied without oauthClientSecret. Google issues a client secret with every Desktop app client; the credential cannot be refreshed without it."
 
 /**
  * Allowlist for the `{env:{prefix}}` detectCredentials variant,
