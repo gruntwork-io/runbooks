@@ -69,6 +69,8 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listOrgs") })),
   listRepos: (_token, _owner, _query) =>
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listRepos") })),
+  getRepo: (_token, _owner, _repo) =>
+    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "getRepo") })),
   listRefs: (_token, _owner, _repo, _query) =>
     Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listRefs") })),
   listLabels: (_token, _owner, _repo) =>

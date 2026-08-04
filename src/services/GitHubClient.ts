@@ -27,11 +27,17 @@ export interface OAuthPollResult {
 }
 
 export interface GitHubOrg {
+  /** GitHub numeric database ID — stable across renames. */
+  readonly id: number
   readonly login: string
   readonly name?: string
 }
 
 export interface GitHubRepo {
+  /** GitHub numeric database ID — stable across renames and transfers. */
+  readonly id: number
+  /** Numeric database ID of the owning user or organization. */
+  readonly ownerId: number
   readonly name: string
   readonly fullName: string
   readonly private: boolean
@@ -67,6 +73,7 @@ export interface GitHubClientShape {
   readonly pollOAuthToken: (clientId: string, deviceCode: string) => Effect.Effect<OAuthPollResult, GitHubApiError>
   readonly listOrgs: (token: string) => Effect.Effect<GitHubOrg[], GitHubApiError>
   readonly listRepos: (token: string, owner: string, query?: string) => Effect.Effect<GitHubRepo[], GitHubApiError>
+  readonly getRepo: (token: string, owner: string, repo: string) => Effect.Effect<GitHubRepo, GitHubApiError>
   readonly listRefs: (token: string, owner: string, repo: string, query?: string) => Effect.Effect<GitHubRef[], GitHubApiError>
   readonly listLabels: (token: string, owner: string, repo: string) => Effect.Effect<string[], GitHubApiError>
   readonly createPullRequest: (token: string, params: CreatePRParams) => Effect.Effect<PullRequestResult, GitHubApiError>

@@ -164,6 +164,8 @@ After a successful clone, the GitClone block produces outputs that can be refere
 | `ref` | The ref (branch/tag) that was cloned, if specified | `v1.2.0` |
 | `repo_owner` | The GitHub organization or user that owns the repo | `acme-corp` |
 | `repo_name` | The repository name | `infrastructure-live` |
+| `org_id` | Immutable GitHub numeric ID of the owning org/user (when a GitHub token is available) | `12345678` |
+| `repo_id` | Immutable GitHub numeric ID of the repository (when a GitHub token is available) | `87654321` |
 | `repo_url` | The full URL of the cloned repository | `https://github.com/acme-corp/infrastructure-live` |
 
 Reference outputs in downstream blocks using template variables:

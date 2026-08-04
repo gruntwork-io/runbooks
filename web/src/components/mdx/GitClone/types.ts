@@ -38,6 +38,8 @@ export interface CloneResult {
 
 /** A GitHub organization or user account */
 export interface GitHubOrg {
+  /** GitHub numeric database ID — stable across renames. */
+  id: number
   login: string
   avatarUrl: string
   type: 'Organization' | 'User'
@@ -45,6 +47,10 @@ export interface GitHubOrg {
 
 /** A GitHub repository */
 export interface GitHubRepo {
+  /** GitHub numeric database ID — stable across renames and transfers. */
+  id: number
+  /** Numeric database ID of the owning user or organization. */
+  ownerId: number
   name: string
   fullName: string
   private: boolean

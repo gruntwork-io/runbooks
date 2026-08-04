@@ -330,6 +330,15 @@ export const listRepos = (token: string, org: string, query?: string) =>
   })
 
 /**
+ * Fetch a single repository by owner/name, including immutable numeric IDs.
+ */
+export const getRepo = (token: string, owner: string, repo: string) =>
+  Effect.gen(function* () {
+    const ghClient = yield* GitHubClient
+    return yield* ghClient.getRepo(token, owner, repo)
+  })
+
+/**
  * List refs (branches and tags) for a repository, with optional filter.
  */
 export const listRefs = (

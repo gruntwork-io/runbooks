@@ -776,11 +776,17 @@ export interface GitHubUser {
 }
 
 export interface GitHubOrg {
+  /** GitHub numeric database ID — stable across renames. */
+  id: number
   login: string
   name?: string
 }
 
 export interface GitHubRepo {
+  /** GitHub numeric database ID — stable across renames and transfers. */
+  id: number
+  /** Numeric database ID of the owning user or organization. */
+  ownerId: number
   name: string
   fullName: string
   private: boolean
