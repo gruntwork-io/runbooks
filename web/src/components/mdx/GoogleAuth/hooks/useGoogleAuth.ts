@@ -386,6 +386,26 @@ export function useGoogleAuth({
    * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
    * what makes multi-project `googleAuthId` routing work.
    */
+  /**
+   * Withdraw this block's authentication contract, and drop the credential path
+   * with it. Called at the START of every flow that can make MAIN materialise a
+   * new credential file.
+   *
+   * MAIN supersedes the previous file during that IPC call, but these outputs
+   * are what a `<Command googleAuthId>` actually injects, and they are not
+   * rewritten until `completeAuthentication` — which on the OAuth tab in a
+   * multi-project org waits for the user to pick a project. Leaving the old
+   * values standing across that window let a step run against a path the app had
+   * already replaced, while the card still read as green.
+   *
+   * `registerOutputs` REPLACES the whole values map, so the stale path goes with
+   * the marker. `'false'` rather than an omitted key keeps the withdrawal
+   * legible in the outputs inspector.
+   */
+  const invalidateBlockOutputs = useCallback(() => {
+    registerOutputs(id, { __AUTHENTICATED: 'false' })
+  }, [id, registerOutputs])
+
   const registerBlockOutputs = useCallback((result: AuthCompletion) => {
     registerOutputs(id, {
       GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? '',
@@ -405,7 +425,20 @@ export function useGoogleAuth({
       GOOGLE_AUTH_TYPE: result.credentialType ?? '',
       __AUTHENTICATED: 'true',
     })
-  }, [id, registerOutputs])
+
+    // The path above is now the one steps will use, so whatever it superseded is
+    // finally safe for MAIN to zero. Fire-and-forget: this is key-material
+    // hygiene, never a precondition for the block being usable, and MAIN's
+    // will-quit sweep is the backstop if it never lands.
+    void api
+      .invoke('google:credential-committed', {
+        blockId: id,
+        ...(result.credentialsPath ? { credentialsPath: result.credentialsPath } : {}),
+      })
+      .catch(() => {
+        /* superseded files fall through to the will-quit sweep */
+      })
+  }, [api, id, registerOutputs])
 
   /**
    * The single success epilogue: every tab and the detection-confirm path end
@@ -870,6 +903,7 @@ export function useGoogleAuth({
 
     setAuthStatus('authenticating')
     setErrorMessage(null)
+    invalidateBlockOutputs()
 
     const source = detectedCredentials.source
     const resolvedProjectId = project || detectedCredentials.projectId || ''
@@ -994,6 +1028,7 @@ export function useGoogleAuth({
     getBlockCredentials,
     completeAuthentication,
     appendWarning,
+    invalidateBlockOutputs,
   ])
 
   /**
@@ -1091,6 +1126,7 @@ export function useGoogleAuth({
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setWarningMessage(null)
+    invalidateBlockOutputs()
 
     // The picker's value wins over the prop; the key's own project_id (resolved
     // in MAIN) is the fallback when neither is set.
@@ -1183,6 +1219,7 @@ export function useGoogleAuth({
     completeAuthentication,
     selectProject,
     appendWarning,
+    invalidateBlockOutputs,
   ])
 
   const handleServiceAccountSubmit = useCallback(() => {
@@ -1374,6 +1411,9 @@ export function useGoogleAuth({
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setWarningMessage(null)
+    // Withdrawn up front, not on completion: consent happens in a browser and the
+    // block sits in this state for as long as the user takes.
+    invalidateBlockOutputs()
 
     try {
       // MAIN resolves the Desktop client (props / file / env / build default)
@@ -1412,7 +1452,7 @@ export function useGoogleAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [api, oauthClientId, oauthClientSecret, effectiveOauthClientFile, scopes, pollOAuthCompletion])
+  }, [api, oauthClientId, oauthClientSecret, effectiveOauthClientFile, scopes, pollOAuthCompletion, invalidateBlockOutputs])
 
   const handleCancelOAuth = useCallback(() => {
     stopOAuthPolling()
@@ -1531,6 +1571,7 @@ export function useGoogleAuth({
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setWarningMessage(null)
+    invalidateBlockOutputs()
 
     // The configuration's own compute defaults apply when the block did not
     // pin a region/zone.
@@ -1629,6 +1670,7 @@ export function useGoogleAuth({
     completeAuthentication,
     selectProject,
     appendWarning,
+    invalidateBlockOutputs,
   ])
 
   // ---------------------------------------------------------------------------
@@ -1652,6 +1694,9 @@ export function useGoogleAuth({
   /** "Re-authenticate": clear everything and land back on the manual tabs. */
   const handleManualAuth = useCallback(() => {
     stopOAuthPolling()
+    // The card going blue has to take the block's outputs with it, or steps keep
+    // injecting the credential this reset exists to replace.
+    invalidateBlockOutputs()
     setAuthStatus('pending')
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1668,7 +1713,7 @@ export function useGoogleAuth({
     remainingSourcesRef.current = []
     pendingCredentialsPathRef.current = null
     pendingComputeRef.current = null
-  }, [stopOAuthPolling])
+  }, [stopOAuthPolling, invalidateBlockOutputs])
 
   return {
     // Core state

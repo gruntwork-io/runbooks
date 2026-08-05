@@ -18,6 +18,10 @@
  *     byte-identical identity, so keying on identity alone would have the
  *     second block zero and delete the file the first already published as its
  *     `GOOGLE_APPLICATION_CREDENTIALS` output.
+ *  3. That release happens when the RENDERER commits the replacement, not when
+ *     main writes it. Main materialises during the IPC call; the renderer keeps
+ *     publishing the old path until `completeAuthentication` runs, which can be
+ *     several user interactions later. See `pendingReleaseByBlock`.
  */
 import type { GoogleCredentialRef, GoogleIdentity } from "../../../src/services/GoogleClient.ts"
 import type { GoogleCredentialTypeIpc } from "../../shared/channels.ts"
@@ -61,6 +65,21 @@ export const credentialKeyFor = (blockId: string | undefined): string => blockId
  */
 const materializedByIdentity = new Map<string, string>()
 
+/**
+ * Superseded files a block materialised that the RENDERER has not yet stopped
+ * publishing, keyed by `credentialKeyFor(blockId)`.
+ *
+ * A file cannot be released the moment its replacement is written. Main and the
+ * renderer learn about a new credential at different times: main materialises
+ * during the IPC call, but the block's `GOOGLE_APPLICATION_CREDENTIALS` output —
+ * the only value a `<Command googleAuthId>` actually injects — is not rewritten
+ * until `completeAuthentication` runs, which on the OAuth tab in a multi-project
+ * org waits for the user to pick a project. Releasing eagerly deleted the file
+ * the renderer was still handing to steps, and gcloud reported it as an opaque
+ * "Failed to load credential file" naming a temp dir the user never created.
+ */
+const pendingReleaseByBlock = new Map<string, Set<string>>()
+
 export const identityKeyFor = (
   blockId: string | undefined,
   identity: Pick<GoogleIdentity, "credentialType" | "email">,
@@ -69,20 +88,68 @@ export const identityKeyFor = (
   `${credentialKeyFor(blockId)}:${identity.credentialType}:${identity.email}:${projectId ?? ""}`
 
 /**
- * Materialise a credentials document for one block's identity, releasing the
- * file THAT block's same identity used before — a rotated service-account key
- * or a re-run OAuth login should not leave stale key material on disk. The new
- * file is written FIRST so a failed write never destroys a credential that is
- * still working.
+ * Materialise a credentials document for one block's identity. The file THAT
+ * block's same identity used before is QUEUED for release — a rotated
+ * service-account key or a re-run OAuth login should not leave stale key
+ * material on disk, but it also must not be deleted while the renderer is still
+ * publishing its path. `commitCredential` is what finally zeroes it.
+ *
+ * The new file is written FIRST so a failed write never destroys a credential
+ * that is still working.
  */
-export function materializeForIdentity(identityKey: string, json: string): string {
+export function materializeForIdentity(
+  blockId: string | undefined,
+  identityKey: string,
+  json: string,
+): string {
   const previous = materializedByIdentity.get(identityKey)
   const filePath = materializeCredentialFile(json)
   materializedByIdentity.set(identityKey, filePath)
   if (previous && previous !== filePath) {
-    releaseCredentialFile(previous)
+    const key = credentialKeyFor(blockId)
+    const pending = pendingReleaseByBlock.get(key) ?? new Set<string>()
+    pending.add(previous)
+    pendingReleaseByBlock.set(key, pending)
   }
   return filePath
+}
+
+/**
+ * The renderer has published `committedPath` as this block's credential, so
+ * every OLDER file the block materialised is now unreachable and can be zeroed.
+ *
+ * Deliberately keyed on the block, not the identity: a single re-authentication
+ * can materialise under several identity keys (the project id is part of the
+ * key, and the project is often resolved only after the credential exists), and
+ * all of them are superseded by whatever the block finally publishes.
+ *
+ * An abandoned flow — user re-authenticates, then closes the app without
+ * finishing the project picker — never commits, so its superseded files survive
+ * until the `will-quit` sweep in `cleanupGoogleCredentialFiles`. Leaking a 0600
+ * file until quit is the right trade against deleting one a running step needs.
+ */
+export function commitCredential(
+  blockId: string | undefined,
+  committedPath?: string,
+): void {
+  const key = credentialKeyFor(blockId)
+  const pending = pendingReleaseByBlock.get(key)
+  if (!pending) return
+
+  for (const filePath of pending) {
+    if (filePath === committedPath) continue
+    releaseCredentialFile(filePath)
+  }
+
+  // A committed path that was itself queued stays queued rather than being
+  // dropped from bookkeeping: the renderer is publishing it right now, and the
+  // NEXT commit naming something else is what makes it releasable. Forgetting
+  // it here would leak it until quit.
+  if (committedPath && pending.has(committedPath)) {
+    pendingReleaseByBlock.set(key, new Set([committedPath]))
+  } else {
+    pendingReleaseByBlock.delete(key)
+  }
 }
 
 /** File a block's credential, and remember it as the newest. */
@@ -111,5 +178,6 @@ export function activeCredentialFor(
 export function resetGoogleCredentialRegistry(): void {
   activeCredentials.clear()
   materializedByIdentity.clear()
+  pendingReleaseByBlock.clear()
   lastActiveKey = null
 }

@@ -61,6 +61,7 @@ import type {
 } from "../../shared/channels.ts"
 import {
   activeCredentialFor,
+  commitCredential,
   identityKeyFor,
   materializeForIdentity,
   setActiveCredential,
@@ -361,6 +362,7 @@ async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise
     input.existingPath ??
     (input.documentJson
       ? materializeForIdentity(
+          input.blockId,
           identityKeyFor(input.blockId, input.identity, projectId),
           input.documentJson,
         )
@@ -1236,6 +1238,19 @@ export function registerGoogleHandlers(): void {
         // worth saying out loud.
         return { enabled: false, warning: toErrorMessage(err) }
       }
+    },
+  )
+
+  // The renderer's half of the deferred-release contract in
+  // google-credential-registry.ts. Best-effort by construction: every path this
+  // can miss (renderer crash, abandoned project picker) merely delays a 0600
+  // file to the will-quit sweep, whereas releasing without it deletes a
+  // credential a running step is about to read.
+  ipcMain.handle(
+    "google:credential-committed",
+    async (_event, params: { blockId?: string; credentialsPath?: string }) => {
+      commitCredential(params.blockId, params.credentialsPath)
+      return { ok: true as const }
     },
   )
 }

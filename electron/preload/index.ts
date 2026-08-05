@@ -13,6 +13,7 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "google:oauth-poll", "google:oauth-cancel",
   "google:gcloud-configurations", "google:gcloud-auth", "google:env-credentials",
   "google:env-credentials-confirm", "google:projects", "google:set-project", "google:check-project",
+  "google:credential-committed",
   "github:validate", "github:oauth-start", "github:oauth-poll", "github:env-credentials",
   "github:cli-credentials", "github:orgs", "github:repos", "github:refs", "github:labels",
   "gitlab:validate", "gitlab:env-credentials", "gitlab:cli-credentials", "gitlab:labels", "gitlab:enumerate-hosts",

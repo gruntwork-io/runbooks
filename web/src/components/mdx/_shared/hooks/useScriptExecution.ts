@@ -53,9 +53,22 @@ export function checkAuthDependency(
   authId: string | undefined,
   envVars: Record<string, string> | undefined,
   allOutputs: Record<string, { values: Record<string, string> }>,
+  /**
+   * Skip the `envVars`-non-empty short-circuit and let ONLY the
+   * `__AUTHENTICATED` marker satisfy the dependency.
+   *
+   * Google needs this. `buildGoogleAuthEnvVars` force-emits
+   * `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` even when blank (see its comment),
+   * so `envVars` is NEVER empty for a `googleAuthId` — the short-circuit below
+   * fires unconditionally and the marker is never read. That made the gate
+   * one-way: once a block had authenticated, no later state could re-close it,
+   * including a re-authentication that replaced the credential file the
+   * previously published outputs still named.
+   */
+  markerOnly = false,
 ): UnmetAuthDependency | null {
   if (!authId) return null
-  if (envVars && Object.keys(envVars).length > 0) return null
+  if (!markerOnly && envVars && Object.keys(envVars).length > 0) return null
 
   const normalizedId = normalizeBlockId(authId)
   const blockOutputs = allOutputs[normalizedId]
@@ -413,7 +426,7 @@ export function useScriptExecution({
   )
 
   const unmetGoogleAuthDependency = useMemo(
-    () => checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs),
+    () => checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs, true),
     [googleAuthId, googleAuthEnvVars, allOutputs]
   )
   const hasGoogleAuthDependency = unmetGoogleAuthDependency === null

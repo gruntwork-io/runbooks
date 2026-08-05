@@ -144,3 +144,73 @@ describe("executeScript", () => {
     expect(doneIdx).toBe(tags.length - 1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// GOOGLE_APPLICATION_CREDENTIALS pre-flight
+// ---------------------------------------------------------------------------
+
+describe("executeScript — missing Google credential file", () => {
+  /** Run with an explicit file table so the credential path can be present or not. */
+  async function runWithCredentials(
+    credentialsPath: string,
+    files: Record<string, string>,
+  ): Promise<ExecEvent[]> {
+    const layer = makeTestLayer({
+      files,
+      env: { PATH: "/usr/bin" },
+      commands: [{ command: "bash", outputLines: ["ran"], exitCode: 0 }],
+    })
+
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          "gcloud iam service-accounts describe sa@p.iam.gserviceaccount.com",
+          "",
+          { envVarsOverride: { GOOGLE_APPLICATION_CREDENTIALS: credentialsPath } },
+          { env: { PATH: "/usr/bin" }, workDir: "/work" },
+          "",
+          "/output",
+        )
+        const logEvents = Array.from(yield* Stream.runCollect(logStream))
+        return [...logEvents, ...(yield* completionEffect)]
+      }),
+    )
+
+    return Effect.runPromise(program.pipe(Effect.provide(layer)))
+  }
+
+  it("fails before spawning, naming the path and what to do about it", async () => {
+    // The failure this replaces: gcloud reported "Failed to load credential
+    // file" against a temp directory the user never created, which reads as a
+    // cloud-side problem rather than a stale auth-block output.
+    const events = await runWithCredentials("/tmp/runbooks-gcp-A7oaHl/adc.json", {})
+
+    const status = events.find((e) => e._tag === "status")
+    expect(status).toEqual({ _tag: "status", event: { status: "fail", exitCode: 1 } })
+
+    const log = events.find((e) => e._tag === "log")
+    expect(log?._tag).toBe("log")
+    expect(log!.event.line).toContain("/tmp/runbooks-gcp-A7oaHl/adc.json")
+    expect(log!.event.line).toContain("Re-authenticate")
+
+    // Never reached the interpreter — no "ran" line from the fake spawner.
+    expect(events.some((e) => e._tag === "log" && e.event.line === "ran")).toBe(false)
+    expect(events[events.length - 1]?._tag).toBe("done")
+  })
+
+  it("runs normally when the credential file is still there", async () => {
+    const events = await runWithCredentials("/tmp/runbooks-gcp-4gUk0g/adc.json", {
+      "/tmp/runbooks-gcp-4gUk0g/adc.json": '{"type":"authorized_user"}',
+    })
+
+    const status = events.find((e) => e._tag === "status")
+    expect(status).toEqual({ _tag: "status", event: { status: "success", exitCode: 0 } })
+    expect(events.some((e) => e._tag === "log" && e.event.line === "ran")).toBe(true)
+  })
+
+  it("ignores a step that references no Google credential at all", async () => {
+    const events = await collectEvents("echo hi", { outputLines: ["hi"], exitCode: 0 })
+    const status = events.find((e) => e._tag === "status")
+    expect(status).toEqual({ _tag: "status", event: { status: "success", exitCode: 0 } })
+  })
+})

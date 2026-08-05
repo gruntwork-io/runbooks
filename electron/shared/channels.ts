@@ -349,6 +349,16 @@ export interface IpcChannelMap {
     params: { blockId?: string; projectId: string }
     result: { enabled: boolean; warning?: string }
   }
+  // The renderer has published `credentialsPath` as this block's
+  // GOOGLE_APPLICATION_CREDENTIALS output, so any file the block superseded on
+  // the way here is finally safe to zero. MAIN cannot infer this moment: it
+  // materialises during the auth call, but the renderer keeps handing the OLD
+  // path to `<Command googleAuthId>` steps until the flow reaches
+  // `completeAuthentication` — potentially several clicks later.
+  "google:credential-committed": {
+    params: { blockId?: string; credentialsPath?: string }
+    result: { ok: true }
+  }
 
   // GitHub Authentication
   "github:validate": {

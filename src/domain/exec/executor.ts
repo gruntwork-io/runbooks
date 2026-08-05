@@ -172,6 +172,32 @@ export const executeScript = (
       execEnv = { ...execEnv, ...request.envVarsOverride }
     }
 
+    // A credential path that no longer exists is worth failing on BEFORE the
+    // spawn. Every Google client library and the gcloud CLI report it as
+    // "Failed to load credential file", naming a temp directory the user never
+    // created and cannot inspect — it reads as a cloud-side outage when the
+    // cause is always local: an auth block published a path that was superseded
+    // before this step ran. Checked here rather than in the auth block because
+    // this is the last point that knows which file the child will actually get.
+    const credentialsPath = execEnv["GOOGLE_APPLICATION_CREDENTIALS"]
+    if (credentialsPath && !(yield* fs.exists(credentialsPath))) {
+      const line =
+        `Google credentials file no longer exists: ${credentialsPath}\n` +
+        `The GoogleAuth block this step references has replaced or released it. ` +
+        `Re-authenticate that block, wait for its success card, then run this step again.`
+      yield* fs.writeFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
+      log.debug("aborting before spawn: missing credential file", credentialsPath)
+      return {
+        logStream: Stream.empty,
+        completionEffect: Effect.succeed<ExecEvent[]>([
+          { _tag: "log", event: { line, timestamp: new Date().toISOString() } },
+          { _tag: "status", event: { status: "fail", exitCode: 1 } },
+          { _tag: "done" },
+        ]),
+        logFilePath,
+      }
+    }
+
     // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES, REPO_FILES)
     execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath)
 

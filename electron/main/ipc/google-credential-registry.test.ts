@@ -4,6 +4,7 @@ import type { GoogleIdentity } from "../../../src/services/GoogleClient.ts"
 import { cleanupGoogleCredentialFiles } from "./google-credentials.ts"
 import {
   activeCredentialFor,
+  commitCredential,
   identityKeyFor,
   materializeForIdentity,
   resetGoogleCredentialRegistry,
@@ -81,8 +82,8 @@ describe("materializeForIdentity", () => {
   it("keeps two blocks' files apart even for an IDENTICAL key and project", () => {
     // Two blocks fed the same service-account key and project — the multi-block
     // pattern where they differ only in, say, defaultRegion.
-    const a = materializeForIdentity(identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
-    const b = materializeForIdentity(identityKeyFor("block-b", SA, "my-proj"), ADC_JSON)
+    const a = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    const b = materializeForIdentity("block-b", identityKeyFor("block-b", SA, "my-proj"), ADC_JSON)
 
     expect(b).not.toBe(a)
     // Block A's published GOOGLE_APPLICATION_CREDENTIALS still resolves.
@@ -91,23 +92,95 @@ describe("materializeForIdentity", () => {
     expect(fs.existsSync(b)).toBe(true)
   })
 
-  it("releases the block's OWN previous file when it re-authenticates", () => {
+  it("KEEPS the block's previous file until the renderer commits the new one", () => {
+    // The regression this pins: main materialises during the auth IPC call, but
+    // the renderer keeps publishing the OLD path as GOOGLE_APPLICATION_CREDENTIALS
+    // until completeAuthentication runs — which on the OAuth tab in a
+    // multi-project org waits for the user to pick a project. Releasing here
+    // deleted the file a <Command googleAuthId> in that window was handed, and
+    // gcloud failed with "Failed to load credential file".
     const key = identityKeyFor("block-a", SA, "my-proj")
-    const first = materializeForIdentity(key, ADC_JSON)
-    const second = materializeForIdentity(key, ADC_JSON)
+    const first = materializeForIdentity("block-a", key, ADC_JSON)
+    const second = materializeForIdentity("block-a", key, ADC_JSON)
 
     expect(second).not.toBe(first)
-    // A rotated key must not leave the old material lying around.
-    expect(fs.existsSync(first)).toBe(false)
+    expect(fs.existsSync(first)).toBe(true)
     expect(fs.existsSync(second)).toBe(true)
   })
 
   it("treats a different project on the same block as a different credential", () => {
-    const a = materializeForIdentity(identityKeyFor("block-a", SA, "proj-one"), ADC_JSON)
-    const b = materializeForIdentity(identityKeyFor("block-a", SA, "proj-two"), ADC_JSON)
+    const a = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-one"), ADC_JSON)
+    const b = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-two"), ADC_JSON)
 
     expect(fs.existsSync(a)).toBe(true)
     expect(fs.existsSync(b)).toBe(true)
+  })
+})
+
+describe("commitCredential", () => {
+  it("releases the superseded file once the renderer publishes the new one", () => {
+    const key = identityKeyFor("block-a", SA, "my-proj")
+    const first = materializeForIdentity("block-a", key, ADC_JSON)
+    const second = materializeForIdentity("block-a", key, ADC_JSON)
+
+    commitCredential("block-a", second)
+
+    // A rotated key must not leave the old material lying around — just not
+    // before the renderer has stopped handing it out.
+    expect(fs.existsSync(first)).toBe(false)
+    expect(fs.existsSync(second)).toBe(true)
+  })
+
+  it("keeps a committed path that was itself queued for release", () => {
+    // The renderer re-published the credential it already had (a re-auth the
+    // user abandoned back to the original identity). Committing it must not
+    // delete the file it is actively naming.
+    const key = identityKeyFor("block-a", SA, "my-proj")
+    const first = materializeForIdentity("block-a", key, ADC_JSON)
+    materializeForIdentity("block-a", key, ADC_JSON)
+
+    commitCredential("block-a", first)
+
+    expect(fs.existsSync(first)).toBe(true)
+  })
+
+  it("never releases another block's file", () => {
+    const a = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    const bKey = identityKeyFor("block-b", SA, "my-proj")
+    materializeForIdentity("block-b", bKey, ADC_JSON)
+    const bSecond = materializeForIdentity("block-b", bKey, ADC_JSON)
+
+    commitCredential("block-b", bSecond)
+
+    expect(fs.existsSync(a)).toBe(true)
+  })
+
+  it("is a no-op for a block that has nothing queued", () => {
+    const only = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+
+    commitCredential("block-a", only)
+    commitCredential("block-never-authenticated", undefined)
+
+    expect(fs.existsSync(only)).toBe(true)
+  })
+
+  it("releases every file superseded across a multi-step flow", () => {
+    // One re-authentication can materialise under several identity keys: the
+    // project id is part of the key and is often resolved only after the
+    // credential exists. All of them are superseded by what the block finally
+    // publishes, which is why the queue is keyed on the block, not the identity.
+    const first = materializeForIdentity("block-a", identityKeyFor("block-a", SA, ""), ADC_JSON)
+    materializeForIdentity("block-a", identityKeyFor("block-a", SA, ""), ADC_JSON)
+    const withProject = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
+
+    commitCredential("block-a", withProject)
+
+    expect(fs.existsSync(first)).toBe(false)
+    expect(fs.existsSync(withProject)).toBe(true)
   })
 })
 

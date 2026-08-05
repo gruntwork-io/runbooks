@@ -89,6 +89,22 @@ function outputs(over: Partial<Record<string, string>> = {}): Record<string, str
   } as Record<string, string>
 }
 
+/**
+ * The block published no authentication contract.
+ *
+ * Not `not.toHaveBeenCalled()`: every flow that can make MAIN materialise a new
+ * credential file WITHDRAWS the previous outputs up front (see
+ * `invalidateBlockOutputs`), so `registerOutputs` legitimately fires before the
+ * flow resolves. What must never happen is a `__AUTHENTICATED: 'true'` while the
+ * credential is unresolved — that is what leaves a `<Command googleAuthId>`
+ * injecting a path MAIN has already superseded.
+ */
+function expectNoAuthenticatedPublish(spy: ReturnType<typeof vi.fn>) {
+  for (const [, values] of spy.mock.calls) {
+    expect((values as Record<string, string>).__AUTHENTICATED).not.toBe('true')
+  }
+}
+
 const SA_KEY = JSON.stringify({
   type: 'service_account',
   project_id: 'key-project',
@@ -171,7 +187,7 @@ describe('useGoogleAuth — detection', () => {
       path: '/home/u/.config/gcloud/application_default_credentials.json',
     })
     // Detection is a probe: nothing is published and nothing is confirmed yet.
-    expect(registerOutputs).not.toHaveBeenCalled()
+    expectNoAuthenticatedPublish(registerOutputs)
     expect(result.current.authStatus).toBe('pending')
   })
 
@@ -249,7 +265,11 @@ describe('useGoogleAuth — detection', () => {
       credentialType: 'authorized_user',
       credentialsPath: '/tmp/runbooks-gcp-1/adc.json',
     })
-    expect(registerOutputs).toHaveBeenCalledTimes(1)
+    // Two calls, in this order: the contract is WITHDRAWN before MAIN can
+    // materialise a replacement credential, then re-published once the flow
+    // resolves. The publish itself is still the single all-keys call (§7.2).
+    expect(registerOutputs).toHaveBeenCalledTimes(2)
+    expect(registerOutputs.mock.calls[0]).toEqual(['gcp', { __AUTHENTICATED: 'false' }])
     expect(registerOutputs).toHaveBeenCalledWith(
       'gcp',
       outputs({
@@ -292,7 +312,7 @@ describe('useGoogleAuth — detection', () => {
 
     expect(result.current.authStatus).toBe('failed')
     expect(result.current.errorMessage).toBe('The credentials expired between detection and use')
-    expect(registerOutputs).not.toHaveBeenCalled()
+    expectNoAuthenticatedPublish(registerOutputs)
   })
 
   it('rejecting the prompt falls through to the manual tabs', async () => {
@@ -515,7 +535,7 @@ describe('useGoogleAuth — service account tab', () => {
     expect(result.current.errorMessage).toBe(
       'Not a service account key (expected type: service_account)',
     )
-    expect(registerOutputs).not.toHaveBeenCalled()
+    expectNoAuthenticatedPublish(registerOutputs)
   })
 
   it('refuses to submit an empty key without an IPC round trip', async () => {
@@ -559,7 +579,7 @@ describe('useGoogleAuth — service account tab', () => {
 
     await waitFor(() => expect(result.current.authStatus).toBe('select_project'))
     expect(result.current.projects).toHaveLength(2)
-    expect(registerOutputs).not.toHaveBeenCalled()
+    expectNoAuthenticatedPublish(registerOutputs)
 
     await act(async () => {
       await result.current.handleProjectSelect({ projectId: 'proj-two', displayName: 'Project Two' })
@@ -770,7 +790,7 @@ describe('useGoogleAuth — OAuth tab', () => {
       scopes: ['https://www.googleapis.com/auth/cloud-platform'],
     })
     expect(result.current.projects).toHaveLength(2)
-    expect(registerOutputs).not.toHaveBeenCalled()
+    expectNoAuthenticatedPublish(registerOutputs)
   })
 
   it('cancelling releases the loopback listener in MAIN', async () => {
@@ -1148,7 +1168,7 @@ describe('useGoogleAuth — gcloud tab', () => {
     // NOT 'authenticated' with a blank project: the user picks one first.
     expect(result.current.authStatus).toBe('select_project')
     expect(result.current.projects).toHaveLength(2)
-    expect(registerOutputs).not.toHaveBeenCalled()
+    expectNoAuthenticatedPublish(registerOutputs)
     expect(callsTo(invoke, 'google:set-project')).toHaveLength(0)
 
     await act(async () => {
@@ -1368,5 +1388,77 @@ describe('useGoogleAuth — post-authentication', () => {
     expect(result.current.projects).toEqual([])
     expect(result.current.detectedCredentials).toBeNull()
     expect(result.current.detectionStatus).toBe('done')
+  })
+
+  it('re-authenticating WITHDRAWS the published credential path, not just the card', async () => {
+    // The regression. The card going blue used to leave the block's outputs
+    // standing, so a `<Command googleAuthId>` kept injecting
+    // GOOGLE_APPLICATION_CREDENTIALS for a file MAIN released the moment the
+    // next sign-in materialised its replacement — and because the Run button
+    // reads `__AUTHENTICATED`, it stayed enabled the whole time. gcloud then
+    // failed with "Failed to load credential file … was not found".
+    installApi((channel) => {
+      if (channel === 'google:validate-credentials') {
+        return {
+          valid: true,
+          account: { principal: 'sa@key-project.iam.gserviceaccount.com', accountType: 'service_account' },
+          projectId: 'proj-x',
+          credentialType: 'service_account',
+          credentialsPath: '/tmp/runbooks-gcp-A7oaHl/adc.json',
+        }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', project: 'proj-x', detectCredentials: false })
+
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      expect.objectContaining({
+        GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-A7oaHl/adc.json',
+        __AUTHENTICATED: 'true',
+      }),
+    )
+
+    act(() => result.current.handleManualAuth())
+
+    // The path is gone from the outputs, and the marker that gates the Run
+    // button went with it.
+    expect(registerOutputs).toHaveBeenLastCalledWith('gcp', { __AUTHENTICATED: 'false' })
+  })
+
+  it('tells MAIN which credential it committed, so the superseded file can be zeroed', async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:validate-credentials') {
+        return {
+          valid: true,
+          account: { principal: 'sa@key-project.iam.gserviceaccount.com', accountType: 'service_account' },
+          projectId: 'proj-x',
+          credentialType: 'service_account',
+          credentialsPath: '/tmp/runbooks-gcp-4gUk0g/adc.json',
+        }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', project: 'proj-x', detectCredentials: false })
+
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+
+    expect(callsTo(invoke, 'google:credential-committed')).toEqual([
+      [
+        'google:credential-committed',
+        { blockId: 'gcp', credentialsPath: '/tmp/runbooks-gcp-4gUk0g/adc.json' },
+      ],
+    ])
   })
 })

@@ -167,4 +167,45 @@ describe('buildGoogleAuthEnvVars — CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE brid
     const envVars = buildGoogleAuthEnvVars('target-project', accessTokenOnlyOutputs)
     expect(envVars).toHaveProperty('CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE', '')
   })
+
+  describe('markerOnly — the gate the forced blank override used to jam open', () => {
+    const withdrawnOutputs = {
+      target_project: { values: { __AUTHENTICATED: 'false' } },
+    }
+
+    it('re-closes the gate when the block withdraws its authentication', () => {
+      // The regression: buildGoogleAuthEnvVars ALWAYS returns a non-empty object
+      // (it force-emits the blank bridge key), so the envVars short-circuit fired
+      // unconditionally and __AUTHENTICATED was never read. A GoogleAuth block
+      // that re-authenticated — deleting the credential file its previously
+      // published outputs still named — could not re-disable the Run button.
+      const envVars = buildGoogleAuthEnvVars('target-project', withdrawnOutputs)
+      expect(envVars).not.toBeUndefined()
+      expect(Object.keys(envVars!).length).toBeGreaterThan(0)
+
+      expect(checkAuthDependency('target-project', envVars, withdrawnOutputs)).toBeNull()
+      expect(checkAuthDependency('target-project', envVars, withdrawnOutputs, true)).toEqual({
+        blockId: 'target-project',
+      })
+    })
+
+    it('still opens the gate for a fully authenticated block', () => {
+      const envVars = buildGoogleAuthEnvVars('target-project', fileBackedOutputs)
+      expect(checkAuthDependency('target-project', envVars, fileBackedOutputs, true)).toBeNull()
+    })
+
+    it('opens the gate for an access-token credential, which has no file to name', () => {
+      // markerOnly must not become "require GOOGLE_APPLICATION_CREDENTIALS":
+      // a bare access-token credential legitimately publishes none.
+      const envVars = buildGoogleAuthEnvVars('target-project', accessTokenOnlyOutputs)
+      expect(checkAuthDependency('target-project', envVars, accessTokenOnlyOutputs, true)).toBeNull()
+    })
+
+    it('leaves the AWS/GitHub short-circuit untouched', () => {
+      // Those blocks publish only real credential values, so an env-vars-present
+      // check is still a truthful signal for them.
+      const awsEnvVars = { AWS_ACCESS_KEY_ID: 'AKIA...', AWS_SECRET_ACCESS_KEY: 'secret' }
+      expect(checkAuthDependency('aws-auth', awsEnvVars, {})).toBeNull()
+    })
+  })
 })
