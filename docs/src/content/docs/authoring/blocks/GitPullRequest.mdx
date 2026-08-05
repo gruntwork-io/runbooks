@@ -1,0 +1,182 @@
+---
+title: <GitPullRequest>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<GitPullRequest>` block provides a streamlined way to open a pull request (GitHub) or merge request (GitLab) directly from a runbook, from a single provider-agnostic block. It integrates with the [`<GitClone>`](/authoring/blocks/gitclone/) block to push changes made during the runbook workflow and open the PR/MR.
+
+This block completes the git workflow loop: authenticate, clone a repository, make changes (via Command, Template, or other blocks), and open a pull/merge request.
+
+### Basic Usage
+
+Pair with `<GitAuth>` and `<GitClone>` to create a complete workflow. The provider is derived automatically from the linked `<GitAuth>` block — no `provider` prop needed:
+
+```mdx
+<GitAuth
+  id="git-auth"
+  title="Connect to Git"
+/>
+
+<GitClone
+  id="clone-repo"
+  gitAuthId="git-auth"
+  title="Clone Repository"
+  prefilledUrl="https://github.com/acme-corp/infrastructure"
+/>
+
+<GitPullRequest
+  id="create-pr"
+  gitAuthId="git-auth"
+  title="Open Pull Request"
+  description="Create a PR with the changes made in this runbook"
+/>
+```
+
+### Provider Detection
+
+`<GitPullRequest>` determines which provider (GitHub or GitLab) to talk to in this order:
+
+1. An explicit `provider` prop, if set.
+2. The `GIT_PROVIDER` output of the block referenced by `gitAuthId` (or `githubAuthId`).
+3. The host of the cloned repository's remote URL.
+4. Otherwise, defaults to `github`.
+
+This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks/gitauth/): the provider comes from the linked auth block, not the remote hostname, so self-hosted instances resolve correctly.
+
+<Aside type="note">
+If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error instead of silently using the wrong credentials.
+</Aside>
+
+### Pre-filled Values
+
+You can pre-populate the PR/MR title, description, labels, branch name, and commit message. Users can still edit these values before creating it.
+
+```mdx
+<GitPullRequest
+  id="create-pr"
+  gitAuthId="git-auth"
+  prefilledPullRequestTitle="Add VPC module configuration"
+  prefilledPullRequestDescription="## Changes\n- Added VPC module\n- Configured NAT gateway"
+  prefilledPullRequestLabels={["enhancement", "terraform"]}
+  prefilledBranchName="feature/add-vpc"
+  prefilledCommitMessage="Add VPC module configuration"
+/>
+```
+
+<Aside type="note">
+The prop names use `PullRequest` for historical reasons, but they apply the same way on GitLab (`prefilledPullRequestTitle` becomes the MR title, and so on) — including `prefilledCommitMessage`.
+</Aside>
+
+### Template Expressions
+
+The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBranchName`, and `prefilledCommitMessage` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line descriptions:
+
+```mdx
+<GitPullRequest
+  id="create-pr"
+  gitAuthId="git-auth"
+  prefilledPullRequestTitle="Add {{ .outputs.config.MODULE_NAME }} module"
+  prefilledBranchName="feature/{{ .outputs.config.MODULE_NAME }}"
+/>
+```
+
+Template expressions are resolved in real-time as upstream blocks produce outputs. If the block references outputs from blocks that haven't run yet, it displays a warning and disables the create button until all dependencies are satisfied.
+
+### Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
+| `title` | `string` | No | Display title for the block header. Supports inline markdown and template expressions. Defaults per provider (`Create Pull Request` / `Create Merge Request`). |
+| `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
+| `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived — see [Provider Detection](#provider-detection). |
+| `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
+| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |
+| `githubAuthId` | `string` | No | Reference to a legacy [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub-specific; kept for back-compat. Prefer `gitAuthId`. |
+| `prefilledPullRequestTitle` | `string` | No | Pre-fills the title field. Supports template expressions. |
+| `prefilledPullRequestDescription` | `string` | No | Pre-fills the description field. Supports template expressions, markdown, and `\n` for newlines. |
+| `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
+| `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
+| `prefilledCommitMessage` | `string` | No | Pre-fills the commit message field. Supports template expressions. |
+
+### Block Outputs
+
+After a successful create, the block produces outputs that can be referenced by downstream blocks:
+
+| Output | Description | Example |
+|--------|-------------|---------|
+| `PR_ID` | The pull request number, or the GitLab merge request **iid** | `42` |
+| `PR_URL` | The full URL of the created pull/merge request | `https://github.com/org/repo/pull/42` |
+
+Reference outputs in downstream blocks using template variables:
+
+```mdx
+<Command
+  id="notify"
+  title="Post PR Link"
+  command="echo 'PR created: {{ .outputs.create_pr.PR_URL }}'"
+/>
+```
+
+<Aside type="note">
+  Block IDs with hyphens are converted to underscores in template variables. For example, `create-pr` becomes `create_pr`.
+</Aside>
+
+### Git Push
+
+After creating a PR/MR, the block displays a "Git Push" button. This allows you to push additional changes made after it was created (for example, by running more Command or Template blocks). Each push stages all changes, commits them with the message "Additional changes", and pushes to the same branch.
+
+### Prerequisites
+
+The block requires two prerequisites:
+
+1. **Git authentication** — a `<GitAuth>` (or `<GitHubAuth>`) block must be completed to provide the token for API access.
+2. **A cloned repository** — a `<GitClone>` block must have successfully cloned a repository. The PR/MR is created against this repository.
+
+Both prerequisites are checked automatically, and the block shows amber warnings when they are not met:
+
+- **Authentication**: the block looks for a token output from the auth block referenced by `gitAuthId`/`githubAuthId`. When that block authenticates via pre-existing credentials (e.g., environment variables or a CLI) rather than its interactive flow, there is no explicit token output — instead it registers an `__AUTHENTICATED` marker to signal success. The prerequisite is satisfied by either. Until one is present, the block displays "Waiting for &lt;provider&gt; authentication" and names the specific block to complete.
+- **Cloned repository**: the block checks whether a `GitClone` block has registered an active worktree. Until a repository has been cloned, the block displays "No repository available". The block remains in a `pending` state and the create button is disabled until both prerequisites are satisfied.
+
+### Labels
+
+The block fetches available labels from the repository and presents them in a searchable multi-select dropdown. Labels can also be pre-selected using the `prefilledPullRequestLabels` prop.
+
+## Provider-locked aliases
+
+Two convenience aliases lock `<GitPullRequest>` to a single provider (no derivation needed):
+
+- [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest/) — equivalent to `<GitPullRequest provider="github" />`.
+- [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest/) — equivalent to `<GitPullRequest provider="gitlab" />`.
+
+### Example: Full Workflow
+
+```mdx
+<GitAuth
+  id="git-auth"
+  title="Authenticate to Git"
+/>
+
+<GitClone
+  id="clone-infra"
+  gitAuthId="git-auth"
+  title="Clone Infrastructure Repo"
+  prefilledUrl="https://github.com/acme-corp/infrastructure-live"
+/>
+
+<Command
+  id="make-changes"
+  title="Apply Configuration"
+  command="echo 'new_setting = true' >> config.hcl"
+/>
+
+<GitPullRequest
+  id="open-pr"
+  gitAuthId="git-auth"
+  title="Open Pull Request"
+  prefilledPullRequestTitle="Update infrastructure configuration"
+  prefilledPullRequestLabels={["infrastructure"]}
+  prefilledCommitMessage="Update infrastructure configuration"
+/>
+```
