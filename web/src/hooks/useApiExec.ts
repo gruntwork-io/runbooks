@@ -110,11 +110,25 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   // still cancel a run whose listeners have already been detached — and so the
   // decision to cancel doesn't depend on listener lifecycle timing.
   const runningExecIdRef = useRef<string | null>(null)
+  // The last execution id this hook started, kept even after `exec:run`
+  // resolves. `runningExecIdRef` is cleared the moment the invoke settles, but
+  // a run aborted by the main process settles while its child may still be
+  // winding down — and while the UI still shows "running". Falling back to this
+  // id keeps Stop working in that window. It always names THIS hook's own run,
+  // never "whatever ran last", so Stop can't reach into another block's script.
+  const lastExecIdRef = useRef<string | null>(null)
+  // Set when this hook asked for the cancellation, so the completion handler
+  // doesn't explain the stop a second time (cancel() already logged it).
+  const selfCancelledRef = useRef(false)
 
   const cancel = useCallback(() => {
-    const execId = runningExecIdRef.current
+    const execId = runningExecIdRef.current ?? lastExecIdRef.current
+    selfCancelledRef.current = true
 
     // Signal the backend to interrupt + kill *this* run's child process group.
+    // Cancelling a run the main process has already finished with is a no-op
+    // there (the id is dropped when the handler returns), so it's safe to send
+    // whenever we have one.
     if (execId !== null) {
       window.api.invoke('exec:cancel', { executionId: execId }).catch(() => {})
       runningExecIdRef.current = null
@@ -126,14 +140,18 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       cleanupRef.current = null
     }
 
-    // Only add cancellation log and update state if there was actually an active execution
-    if (execId !== null) {
-      setState((prev) => ({
-        ...prev,
-        status: 'pending',
-        logs: [...prev.logs, createLogEntry('Execution cancelled by user')],
-      }))
-    }
+    // Log the cancellation only when the block was actually showing a run in
+    // progress. Keyed on the rendered status rather than the id bookkeeping,
+    // so a stuck-looking block reports the stop and an idle one stays quiet.
+    setState((prev) =>
+      prev.status === 'running'
+        ? {
+            ...prev,
+            status: 'pending',
+            logs: [...prev.logs, createLogEntry('Execution cancelled by user')],
+          }
+        : prev,
+    )
   }, [])
 
   const reset = useCallback(() => {
@@ -170,6 +188,8 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     // can target this specific execution. Held in a ref for cancel() to read.
     const executionId = String(execId)
     runningExecIdRef.current = executionId
+    lastExecIdRef.current = executionId
+    selfCancelledRef.current = false
 
     // Reset state for new execution
     setState({
@@ -259,6 +279,32 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           setState((prev) =>
             prev.status === 'running' || prev.status === 'pending'
               ? { ...prev, status: finalStatus.status as ExecState['status'], exitCode: finalStatus.exitCode }
+              : prev,
+          )
+        } else {
+          // No status means the run was interrupted before it could report one:
+          // the main process aborts every in-flight execution when a new one
+          // starts, and an aborted run resolves as { status: null, cancelled:
+          // true }. Its `exec:status` event never arrives either — main stops
+          // sending after the abort, and these listeners are already ignoring
+          // events now that a newer run owns `activeExecId`. Without this the
+          // block spins on "running" forever, over a child process that was
+          // killed. Self-cancellation is already reported by cancel().
+          const explain = !selfCancelledRef.current
+          setState((prev) =>
+            prev.status === 'running' || prev.status === 'pending'
+              ? {
+                  ...prev,
+                  status: 'pending',
+                  logs: explain
+                    ? [
+                        ...prev.logs,
+                        createLogEntry(
+                          'Execution stopped: another block was run before this one finished.',
+                        ),
+                      ]
+                    : prev.logs,
+                }
               : prev,
           )
         }
