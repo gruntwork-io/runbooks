@@ -150,28 +150,33 @@ export const inspectLocalRepo = (
  */
 const firstRemoteUrl = (repoPath: string) =>
   Effect.gen(function* () {
-    const spawner = yield* ProcessSpawner
-    const proc = yield* spawner.spawn("git", ["remote"], {
-      cwd: repoPath,
-      env: gitSpawnEnv(),
-    })
-    const names = Chunk.toArray(yield* Stream.runCollect(proc.output))
-      .filter((l) => l.source === "stdout")
-      .map((l) => l.line.trim())
-      .filter(Boolean)
-    if ((yield* proc.exitCode) !== 0 || names.length === 0) return undefined
-
-    const urlProc = yield* spawner.spawn("git", ["remote", "get-url", names[0]], {
-      cwd: repoPath,
-      env: gitSpawnEnv(),
-    })
-    const urls = Chunk.toArray(yield* Stream.runCollect(urlProc.output))
-      .filter((l) => l.source === "stdout")
-      .map((l) => l.line.trim())
-      .filter(Boolean)
-    if ((yield* urlProc.exitCode) !== 0) return undefined
+    const names = yield* readGitLines(repoPath, ["remote"])
+    if (names.length === 0) return undefined
+    const urls = yield* readGitLines(repoPath, ["remote", "get-url", names[0]])
     return urls[0]
   }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+
+/**
+ * Run a short git query and return its stdout lines, or none if it failed.
+ *
+ * `Effect.ensuring` kills the child if this effect is interrupted mid-flight.
+ * On the normal path the process has already exited and the signal is a no-op,
+ * so this costs nothing and leaves no orphan behind if a caller ever gains a
+ * cancellation path.
+ */
+const readGitLines = (repoPath: string, args: string[]) =>
+  Effect.gen(function* () {
+    const spawner = yield* ProcessSpawner
+    const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env: gitSpawnEnv() })
+
+    return yield* Effect.gen(function* () {
+      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+        .filter((l) => l.source === "stdout")
+        .map((l) => l.line.trim())
+        .filter(Boolean)
+      return (yield* proc.exitCode) === 0 ? lines : []
+    }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))
+  })
 
 /**
  * Display path for a checkout: relative to the working directory when it lives
