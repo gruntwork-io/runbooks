@@ -140,6 +140,31 @@ describe("inspectLocalRepo", () => {
     expect(info.owner).toBeUndefined()
   })
 
+  it("falls back to a non-origin remote when there is no origin", async () => {
+    const info = await inspect("/home/me/fork", {
+      dirs: ["/home/me/fork"],
+      commands: [
+        { command: "git", args: ["remote"], outputLines: ["upstream"], exitCode: 0 },
+        {
+          command: "git",
+          args: ["remote", "get-url", "upstream"],
+          outputLines: ["git@github.com:acme/infra.git"],
+          exitCode: 0,
+        },
+        lsFiles(["main.tf"]),
+      ],
+      git: {
+        getRepoRoot: () => Effect.succeed("/home/me/fork"),
+        // getInfo only looks at origin, which this checkout doesn't have.
+        getInfo: () => Effect.succeed({ branch: "main", refType: "branch" as const }),
+      },
+    })
+
+    expect(info.remoteUrl).toBe("git@github.com:acme/infra.git")
+    expect(info.owner).toBe("acme")
+    expect(info.repo).toBe("infra")
+  })
+
   it("omits owner/repo when the repo has no remote", async () => {
     const info = await inspect("/home/me/local-only", {
       dirs: ["/home/me/local-only"],

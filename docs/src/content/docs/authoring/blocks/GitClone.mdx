@@ -43,7 +43,9 @@ When paired with a `<GitHubAuth>` block, the GitClone block enables a "Browse Gi
 
 Users often already have the repository cloned — a long-lived `infrastructure-live` checkout, a work in progress branch, a monorepo they never want to re-download. The block's source picker lets them choose **Use local checkout** and select that directory instead of cloning.
 
-Selecting a directory reads it only: the block resolves the repository root (so any subdirectory of the checkout works), reads the `origin` remote and current branch, and registers the repo exactly as a clone would. Nothing is fetched, pulled, or modified, and no credentials are needed — the files are already there.
+Selecting a directory reads it only: the block resolves the repository root (so any subdirectory of the checkout works), reads the repository's remote and current branch, and registers the repo exactly as a clone would. Nothing is fetched, pulled, or modified.
+
+Browsing and checking a directory needs no credentials. Confirming one does wait on a linked auth block, exactly as cloning does — the GitHub `org_id` / `repo_id` outputs are resolved from the session token at that moment, so adopting a checkout before authentication finishes would leave the block without them.
 
 ```mdx
 <GitClone
@@ -66,7 +68,7 @@ Setting `prefilledRepoDir` starts the block on the local source. Use `source` to
 Everything downstream behaves the same either way: the same `clone_path`, `repo_owner`, and `repo_name` outputs, the same `$REPO_FILES` variable, the same workspace file tree, and the same [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) integration — a pull request opens against the checkout's `origin` remote and current branch.
 
 <Aside type="caution">
-A checkout with no `origin` remote can still be selected, but blocks that open a pull request need one. The block says so inline when it finds no remote.
+A checkout with no remote at all can still be selected, but it produces no `repo_owner` / `repo_name` (nor the GitHub ids derived from them), and blocks that open a pull request need one. The block says so inline when it finds no remote. `origin` is preferred; if the checkout names its remote something else, that one is used.
 </Aside>
 
 ### Pre-filled Values
@@ -203,7 +205,7 @@ After a successful clone, the GitClone block produces outputs that can be refere
 | `repo_id` | Immutable GitHub numeric ID of the repository (when a GitHub token is available) | `87654321` |
 | `repo_url` | The full URL of the cloned repository | `https://github.com/acme-corp/infrastructure-live` |
 
-For a local checkout, `clone_path` is the repository root the user selected, and `repo_owner` / `repo_name` come from its `origin` remote (omitted when the repo has no remote).
+For a local checkout, `clone_path` is the repository root the user selected, and `repo_owner` / `repo_name` come from its remote — `origin` when present, otherwise whichever remote the checkout has. They are omitted entirely when the repo has no remote, which also means no `org_id` / `repo_id`, since those are looked up from the owner and name.
 
 Reference outputs in downstream blocks using template variables:
 

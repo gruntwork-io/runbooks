@@ -98,10 +98,24 @@ describe("GitClone — repository source picker", () => {
     expect(repoDirInput()).toBeInTheDocument()
   })
 
-  it("does not wait on an auth block to select a local checkout", () => {
+  it("keeps the directory form usable while a linked auth block is pending", () => {
     renderGitClone({ source: "local", gitAuthId: "git-auth" })
-    expect(screen.queryByText(/Waiting for git authentication/i)).not.toBeInTheDocument()
+    // Browsing and checking a directory needs no credentials...
     expect(repoDirInput()).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: /Browse/i })).not.toBeDisabled()
+  })
+
+  it("waits for a linked auth block before a checkout can be confirmed", async () => {
+    renderGitClone({ source: "local", gitAuthId: "git-auth", prefilledRepoDir: "/home/me/infra" })
+
+    // ...but confirming does wait, because the GitHub org/repo ids are resolved
+    // from the session token at confirm time and can't be filled in later.
+    expect(screen.getByText(/Waiting for git authentication/i)).toBeInTheDocument()
+    await waitFor(
+      () => expect(screen.getByText(/Git repository/i)).toBeInTheDocument(),
+      { timeout: 2000 },
+    )
+    expect(screen.getByRole("button", { name: /Use This Repo/i })).toBeDisabled()
   })
 })
 
