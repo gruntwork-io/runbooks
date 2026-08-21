@@ -19,7 +19,7 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "gitlab:validate", "gitlab:env-credentials", "gitlab:cli-credentials", "gitlab:labels", "gitlab:enumerate-hosts",
   "gitlab:host-picked",
   "vcs:cli-status", "vcs:invalidate-cache", "vcs:apply-git-schannel",
-  "git:clone", "git:push", "git:pull-request", "git:merge-request", "git:delete-branch",
+  "git:clone", "git:local-repo", "git:push", "git:pull-request", "git:merge-request", "git:delete-branch",
   "workspace:tree", "workspace:dirs", "workspace:file", "workspace:changes",
   "workspace:register", "workspace:set-active",
   "generated-files:check", "generated-files:delete",

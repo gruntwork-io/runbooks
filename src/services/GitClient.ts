@@ -69,6 +69,8 @@ export interface GitClientShape {
   readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError | SpawnError>
   readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly getCurrentBranch: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
+  /** Absolute path of the repository root containing `repoPath` (`git rev-parse --show-toplevel`). */
+  readonly getRepoRoot: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   readonly getRemoteUrl: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   readonly getInfo: (repoPath: string) => Effect.Effect<GitInfo, GitError | SpawnError>
   readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>

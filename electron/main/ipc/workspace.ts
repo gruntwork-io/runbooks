@@ -21,11 +21,20 @@ import path from "path"
 /**
  * Resolve a renderer-supplied worktree path and fail if it escapes the session
  * working directory (or the runbook directory). Returns the resolved path.
+ *
+ * Paths already registered as worktrees pass regardless of location: a local
+ * checkout the user selected in a <GitClone> block lives wherever they keep
+ * their repos, and that selection is what granted access in the first place
+ * (see the git:local-repo handler). This does not widen the grant — an
+ * unregistered path outside the session still fails.
  */
 const resolveValidatedWorktree = (worktreePath: string) =>
   Effect.gen(function* () {
     const resolved = path.resolve(worktreePath)
     const session = yield* sessionManager.getSession()
+    if (session.registeredWorkTreePaths.includes(resolved)) {
+      return resolved
+    }
     const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
     if (
       !isContainedIn(resolved, session.workingDir) &&

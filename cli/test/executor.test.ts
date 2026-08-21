@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
@@ -72,5 +73,61 @@ describe("TestExecutor — config-error surfacing", () => {
     // init() should succeed; the validator records the error internally so
     // runTest can surface it. We assert init does not throw.
     await executor.init()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GitClone with source="local": adopt a checkout that already exists instead
+// of cloning it.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — GitClone local checkout", () => {
+  let tmp: string
+
+  const runLocalGitClone = async (repoDir: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      `# Local checkout\n\n<GitClone id="repo" source="local" prefilledRepoDir="${repoDir}" />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor.runTest({
+      name: "local",
+      steps: [{ block: "repo", expect: "success" }],
+    })
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-local-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("adopts an existing checkout and emits clone_path", async () => {
+    const repo = path.join(tmp, "checkout")
+    fs.mkdirSync(repo)
+    execFileSync("git", ["init", "-q"], { cwd: repo })
+    fs.writeFileSync(path.join(repo, "main.tf"), "# tf\n")
+    execFileSync("git", ["add", "."], { cwd: repo })
+
+    const result = await runLocalGitClone(repo)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    // git init resolves through symlinks on macOS (/var → /private/var), so
+    // compare against the repo's own resolved path.
+    expect(result.stepResults[0]?.outputs?.clone_path).toBe(fs.realpathSync(repo))
+    expect(result.stepResults[0]?.outputs?.file_count).toBe("1")
+  })
+
+  it("fails when the directory is not a git repository", async () => {
+    const notARepo = path.join(tmp, "notes")
+    fs.mkdirSync(notARepo)
+
+    const result = await runLocalGitClone(notARepo)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("fail")
+    expect(result.stepResults[0]?.error).toMatch(/Not a git repository/)
   })
 })

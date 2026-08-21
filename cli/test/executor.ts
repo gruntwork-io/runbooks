@@ -1271,6 +1271,14 @@ export class TestExecutor {
   private runGitClone(block: ParsedComponent, step: TestStep, start: number): StepResult {
     const result = makeStepResult(`gitClone:${block.id}`, step.expect)
 
+    // A block pointed at an existing checkout clones nothing — it just adopts
+    // the directory, mirroring the app's "Use local checkout" source.
+    const repoDir = extractProp(block.props, "prefilledRepoDir")
+    const source = extractProp(block.props, "source")
+    if (source === "local" || (!source && repoDir)) {
+      return this.runGitCloneLocal(block, step, start, result, repoDir)
+    }
+
     const cloneURL = extractProp(block.props, "prefilledUrl")
     const ref = extractProp(block.props, "prefilledRef")
     const repoPath = extractProp(block.props, "prefilledRepoPath")
@@ -1377,6 +1385,78 @@ export class TestExecutor {
 
     if (this.options.verbose) {
       console.log(`--- Clone complete: ${fileCount} files ---`)
+      console.log("--- Result: ✓ success ---")
+    }
+
+    return result
+  }
+
+  /**
+   * GitClone with `source="local"`: adopt an existing checkout instead of
+   * cloning it. Emits the same `clone_path` output and becomes the active
+   * worktree, so the rest of the runbook behaves identically either way.
+   */
+  private runGitCloneLocal(
+    block: ParsedComponent,
+    step: TestStep,
+    start: number,
+    result: StepResult,
+    repoDir: string | undefined,
+  ): StepResult {
+    if (!repoDir) {
+      this.blockStates.set(block.id, "skipped")
+      result.actualStatus = "skipped"
+      result.passed = this.matchesExpectedStatus(step.expect, "skipped")
+      result.duration = Date.now() - start
+      if (this.options.verbose) console.log("--- No prefilledRepoDir specified ---")
+      return result
+    }
+
+    const resolved = path.isAbsolute(repoDir) ? repoDir : path.join(this.workingDir, repoDir)
+
+    let repoRoot: string
+    try {
+      repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        cwd: resolved,
+        timeout: 30000,
+        stdio: "pipe",
+      })
+        .toString()
+        .trim()
+    } catch (e: unknown) {
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.actualStatus = "fail"
+      result.error = `Not a git repository: ${resolved} (${String(e)})`
+      result.duration = Date.now() - start
+      return result
+    }
+
+    // Count TRACKED files, as the app does for a local checkout: walking the
+    // directory would count .git internals and ignored build output, which say
+    // nothing about the repo the user picked.
+    let fileCount = 0
+    try {
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: repoRoot,
+        timeout: 30000,
+        stdio: "pipe",
+      }).toString()
+      fileCount = tracked.split("\n").filter((line) => line.trim() !== "").length
+    } catch {
+      // Best-effort: a repo with no commits still counts as usable.
+    }
+
+    result.outputs = { clone_path: repoRoot, file_count: String(fileCount) }
+    this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
+
+    this.activeWorkTreePath = repoRoot
+    this.blockStates.set(block.id, "success")
+    result.actualStatus = "success"
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
+    result.duration = Date.now() - start
+
+    if (this.options.verbose) {
+      console.log(`--- Using local checkout ${repoRoot}: ${fileCount} files ---`)
       console.log("--- Result: ✓ success ---")
     }
 

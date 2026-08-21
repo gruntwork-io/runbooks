@@ -27,6 +27,27 @@ describe('GitClone — instruction mode', () => {
     expect(useGitCloneSpy).not.toHaveBeenCalled()
   })
 
+  it('tells the reader to cd into their checkout when the source is local', () => {
+    render(
+      <TestWrapper>
+        <GitClone id="clone" source="local" prefilledRepoDir="/home/me/infra" />
+      </TestWrapper>,
+    )
+    expect(screen.getByText(/Switch to your local checkout/i)).toBeInTheDocument()
+    expect(screen.getByText('cd /home/me/infra')).toBeInTheDocument()
+    expect(screen.queryByText(/git clone/i)).toBeNull()
+    expect(useGitCloneSpy).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a placeholder path when the checkout directory is unset', () => {
+    render(
+      <TestWrapper>
+        <GitClone id="clone" source="local" />
+      </TestWrapper>,
+    )
+    expect(screen.getByText('cd <path-to-your-checkout>')).toBeInTheDocument()
+  })
+
   it('shows a sparse-checkout note when a repo sub-path is set', () => {
     render(
       <TestWrapper>

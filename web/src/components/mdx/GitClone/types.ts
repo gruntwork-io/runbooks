@@ -24,12 +24,37 @@ export interface GitCloneProps {
   usePty?: boolean
   /** Whether to show the file tree in the workspace panel after cloning. Defaults to true. */
   showFileTree?: boolean
+  /**
+   * Which repository source is selected initially: clone a remote repo, or use
+   * a checkout the user already has on disk. Defaults to 'local' when
+   * `prefilledRepoDir` is set, otherwise 'clone'.
+   */
+  source?: GitCloneSource
+  /** When true, the source picker is hidden and the block is locked to `source`. */
+  hideSourceSelect?: boolean
+  /** Pre-fill the local checkout directory (supports template expressions) */
+  prefilledRepoDir?: string
+}
+
+/** Where the repository comes from: a fresh clone, or an existing local checkout. */
+export type GitCloneSource = 'clone' | 'local'
+
+/** Metadata for a local checkout selected by the user (git:local-repo result). */
+export interface LocalRepoInfo {
+  absolutePath: string
+  relativePath: string
+  fileCount: number
+  remoteUrl?: string
+  /** Checked out branch or tag; empty for a repo with no commits. */
+  ref?: string
+  refType?: 'branch' | 'tag' | 'detached'
+  commitSha?: string
 }
 
 /** Status of the clone operation */
 export type GitCloneStatus = 'pending' | 'ready' | 'running' | 'success' | 'fail'
 
-/** Result of a successful clone */
+/** Result of a successful clone, or of selecting a local checkout */
 export interface CloneResult {
   fileCount: number
   absolutePath: string

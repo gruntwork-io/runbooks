@@ -21,6 +21,7 @@ import {
   parseOwnerRepoFromURL,
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
+import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
 import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
@@ -30,6 +31,7 @@ import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
+import type { GitLocalRepoResponse } from "../../shared/channels.ts"
 
 const log = makeLogger("ipc:git:clone")
 
@@ -405,6 +407,92 @@ export function registerGitHandlers(): void {
         }),
         ),
       )
+    },
+  )
+
+  // Select an existing local checkout instead of cloning. The user picks the
+  // directory (native dialog or by typing a path), so registering it as a
+  // worktree here is the grant that lets the workspace/PR handlers touch a
+  // repo outside the session working directory.
+  ipcMain.handle(
+    "git:local-repo",
+    async (
+      _event,
+      params: { path: string; register?: boolean; provider?: "github" | "gitlab" },
+    ): Promise<GitLocalRepoResponse> => {
+      const program = Effect.gen(function* () {
+        const session = yield* sessionManager.getSession()
+        const info = yield* inspectLocalRepo(params.path, session.workingDir)
+
+        if (params.register) {
+          sessionManager.registerWorkTreePath(info.absolutePath)
+          log.debug("registered local checkout as worktree:", info.absolutePath)
+        }
+
+        // Same output contract as a clone, so runbooks referencing
+        // {{ .outputs.<id>.clone_path }} work with either source.
+        const outputs: Record<string, string> = {
+          clone_path: info.absolutePath,
+          ...(info.owner && info.repo
+            ? { repo_owner: info.owner, repo_name: info.repo }
+            : {}),
+        }
+
+        // GitHub numeric IDs, when a token is available — mirrors git:clone.
+        if (params.register && info.owner && info.repo && params.provider !== "gitlab") {
+          const token = yield* Effect.either(
+            getSessionTokenForProvider(
+              "github",
+              () =>
+                new GitError({
+                  command: "resolve git token",
+                  stderr: "no session token",
+                  exitCode: 1,
+                }),
+            ),
+          )
+          if (token._tag === "Right") {
+            const repoResult = yield* Effect.either(
+              getRepo(token.right, info.owner, info.repo),
+            )
+            if (repoResult._tag === "Right") {
+              outputs.org_id = String(repoResult.right.ownerId)
+              outputs.repo_id = String(repoResult.right.id)
+            } else {
+              log.debug(
+                "failed to resolve GitHub org/repo IDs (non-fatal):",
+                repoResult.left,
+              )
+            }
+          }
+        }
+
+        return {
+          status: "success" as const,
+          absolutePath: info.absolutePath,
+          relativePath: info.relativePath,
+          fileCount: info.fileCount,
+          remoteUrl: info.remoteUrl,
+          ref: info.branch,
+          refType: info.refType,
+          commitSha: info.commitSha,
+          outputs,
+        }
+      })
+
+      // A bad directory is user input, not an exception: return the message so
+      // the block renders it inline instead of throwing across IPC.
+      const exit = await runtime.runPromiseExit(program)
+      if (Exit.isSuccess(exit)) return exit.value
+
+      const failure = Cause.failureOption(exit.cause)
+      return {
+        status: "fail" as const,
+        error:
+          failure._tag === "Some"
+            ? errorMessage(failure.value)
+            : Cause.pretty(exit.cause),
+      }
     },
   )
 
