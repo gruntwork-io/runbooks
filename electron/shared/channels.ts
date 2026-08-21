@@ -493,6 +493,10 @@ export interface IpcChannelMap {
     params: GitCloneRequest
     result: { status: string; error?: string; fileCount?: number; absolutePath?: string; relativePath?: string; outputs?: Record<string, string> }
   }
+  "git:local-repo": {
+    params: GitLocalRepoRequest
+    result: GitLocalRepoResponse
+  }
   "git:push": { params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }; result: { ok: true } | { error: string } }
   "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
   "git:merge-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
@@ -813,6 +817,42 @@ export interface GitHubRepo {
 export interface GitHubRef {
   ref: string
   type: "branch" | "tag"
+}
+
+/**
+ * Select an existing local checkout instead of cloning. `path` is the directory
+ * the user picked (absolute, or relative to the session working directory); the
+ * backend resolves it to the repository root before registering it.
+ */
+export interface GitLocalRepoRequest {
+  path: string
+  /**
+   * Register the repo as a session worktree (granting the workspace/PR
+   * handlers access to it). False — the default — only inspects the directory,
+   * which is what the block's live "is this a repo?" preview needs; the user
+   * confirming their selection is what registers it.
+   */
+  register?: boolean
+  /**
+   * Provider of the linked Git Auth block. Only used to decide whether the
+   * numeric GitHub org/repo IDs can be resolved, exactly as in a clone.
+   */
+  provider?: "github" | "gitlab"
+}
+
+/** Result of selecting a local checkout (mirrors the git:clone result shape). */
+export interface GitLocalRepoResponse {
+  status: "success" | "fail"
+  error?: string
+  absolutePath?: string
+  relativePath?: string
+  fileCount?: number
+  remoteUrl?: string
+  /** Checked out branch or tag name; empty for a repo with no commits. */
+  ref?: string
+  refType?: "branch" | "tag" | "detached"
+  commitSha?: string
+  outputs?: Record<string, string>
 }
 
 export interface GitCloneRequest {

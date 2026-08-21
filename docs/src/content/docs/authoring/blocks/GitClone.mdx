@@ -4,7 +4,7 @@ title: <GitClone>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitClone>` block provides a streamlined way to clone git repositories. It works with any git upstream, and includes optional GitHub integration for browsing organizations, repositories, and branches when a GitHub token is available.
+The `<GitClone>` block provides a streamlined way to bring a git repository into a runbook: clone it fresh, or point at a checkout the user already has on disk. It works with any git upstream, and includes optional GitHub integration for browsing organizations, repositories, and branches when a GitHub token is available.
 
 Compared to using the [Command](/authoring/blocks/command/) block to clone a git repository, the GitClone block provides a purpose-built UI for cloning a git repository, the ability to search the GitHub API for orgs, repos, branches, and tags, and automatically shows the [file workspace](/authoring/workspace), where users can see the contents of the cloned repository, along with any changes to it.
 
@@ -39,6 +39,36 @@ When paired with a `<GitHubAuth>` block, the GitClone block enables a "Browse Gi
 />
 ```
 
+### Using a Local Checkout
+
+Users often already have the repository cloned — a long-lived `infrastructure-live` checkout, a work in progress branch, a monorepo they never want to re-download. The block's source picker lets them choose **Use local checkout** and select that directory instead of cloning.
+
+Selecting a directory reads it only: the block resolves the repository root (so any subdirectory of the checkout works), reads the `origin` remote and current branch, and registers the repo exactly as a clone would. Nothing is fetched, pulled, or modified, and no credentials are needed — the files are already there.
+
+```mdx
+<GitClone
+  id="repo"
+  title="Select Your Infrastructure Repo"
+  prefilledRepoDir="~/dev/infrastructure-live"
+/>
+```
+
+Setting `prefilledRepoDir` starts the block on the local source. Use `source` to choose the starting source explicitly, and `hideSourceSelect` to remove the choice altogether:
+
+```mdx
+{/* Local checkouts only — no cloning offered */}
+<GitClone id="repo" source="local" hideSourceSelect />
+
+{/* Cloning only, as before */}
+<GitClone id="repo" source="clone" hideSourceSelect prefilledUrl="https://github.com/acme/infra" />
+```
+
+Everything downstream behaves the same either way: the same `clone_path`, `repo_owner`, and `repo_name` outputs, the same `$REPO_FILES` variable, the same workspace file tree, and the same [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) integration — a pull request opens against the checkout's `origin` remote and current branch.
+
+<Aside type="caution">
+A checkout with no `origin` remote can still be selected, but blocks that open a pull request need one. The block says so inline when it finds no remote.
+</Aside>
+
 ### Pre-filled Values
 
 You can pre-populate the URL, ref, sparse checkout path, and local path fields. Users can still edit these values before cloning. This follows the same pattern as the `prefilledVariables` prop on the [Inputs](/authoring/blocks/inputs) block.
@@ -68,6 +98,9 @@ You can pre-populate the URL, ref, sparse checkout path, and local path fields. 
 | `prefilledLocalPath` | `string` | No | Pre-fills the local path (relative to the current working directory) where files will be cloned. Defaults to the repository name if empty. |
 | `usePty` | `boolean` | No | Whether to use a pseudo-terminal (PTY) for the git clone process. Defaults to `true`. PTY enables rich output like progress bars and colors. Set to `false` if your environment doesn't support PTY. |
 | `showFileTree` | `boolean` | No | Whether to show the cloned repository's file tree in the workspace panel after cloning. Defaults to `true`. When enabled, the "All files" and "Changed" tabs display the cloned files and any subsequent modifications. |
+| `source` | `'clone' \| 'local'` | No | Which source the block starts on: clone a remote repo, or use an existing local checkout. Defaults to `local` when `prefilledRepoDir` is set, otherwise `clone`. |
+| `hideSourceSelect` | `boolean` | No | Hides the source picker and locks the block to `source`. Defaults to `false`. |
+| `prefilledRepoDir` | `string` | No | Pre-fills the local checkout directory. Any directory inside the checkout works — the repository root is resolved from it. |
 
 ### Ref Selection
 
@@ -88,6 +121,8 @@ When `showFileTree` is `true` (the default), the GitClone block registers the cl
 - If multiple `<GitClone>` blocks are used in a single runbook, a dropdown in the workspace header lets the user switch between repositories.
 
 Set `showFileTree={false}` if you don't want the cloned repository to appear in the workspace panel (e.g., for helper repositories that the user doesn't need to browse).
+
+A local checkout registers with the workspace the same way. Note that the **Changed** tab then shows any uncommitted changes the checkout already had, not just the ones the runbook makes.
 
 ### Accepted Git URL Formats
 
@@ -167,6 +202,8 @@ After a successful clone, the GitClone block produces outputs that can be refere
 | `org_id` | Immutable GitHub numeric ID of the owning org/user (when a GitHub token is available) | `12345678` |
 | `repo_id` | Immutable GitHub numeric ID of the repository (when a GitHub token is available) | `87654321` |
 | `repo_url` | The full URL of the cloned repository | `https://github.com/acme-corp/infrastructure-live` |
+
+For a local checkout, `clone_path` is the repository root the user selected, and `repo_owner` / `repo_name` come from its `origin` remote (omitted when the repo has no remote).
 
 Reference outputs in downstream blocks using template variables:
 

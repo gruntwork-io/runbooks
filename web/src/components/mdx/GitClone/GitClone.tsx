@@ -11,6 +11,8 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { SourceSelect } from "./components/SourceSelect"
+import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
@@ -21,7 +23,8 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitCloneInstruction } from "./GitCloneInstruction"
 import type { AppError } from "@/types/error"
-import type { GitCloneProps } from "./types"
+import { resolveInitialSource, defaultDescription } from "./utils"
+import type { GitCloneProps, GitCloneSource } from "./types"
 
 /**
  * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted).
@@ -58,7 +61,7 @@ function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | nul
 function GitCloneInteractive({
   id,
   title = "Clone Repository",
-  description = "Enter a git URL to clone a repository",
+  description,
   inputsId,
   githubAuthId,
   gitAuthId,
@@ -68,6 +71,9 @@ function GitCloneInteractive({
   prefilledLocalPath = '',
   usePty,
   showFileTree = true,
+  source,
+  hideSourceSelect = false,
+  prefilledRepoDir = '',
 }: GitCloneProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
@@ -82,11 +88,11 @@ function GitCloneInteractive({
   // --- Template dependency resolution (resolve inputs/outputs expressions) ---
 
   // 1. EXTRACT — discover dependencies from template-capable props
-  // Blocking dependencies (functional props): prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath
+  // Blocking dependencies (functional props): prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir
   const blockingDeps = useMemo(() => extractTemplateDependenciesFromString(
-    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath]
+    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir]
       .filter(Boolean).join('\n')
-  ), [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath])
+  ), [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir])
 
   // Non-blocking dependencies (display props): title, description
   const nonBlockingDeps = useMemo(() => extractTemplateDependenciesFromString(
@@ -117,8 +123,13 @@ function GitCloneInteractive({
   const resolvedRef = useMemo(() => resolveTemplateReferences(prefilledRef, ctx), [prefilledRef, ctx])
   const resolvedRepoPath = useMemo(() => resolveTemplateReferences(prefilledRepoPath, ctx), [prefilledRepoPath, ctx])
   const resolvedLocalPath = useMemo(() => resolveTemplateReferences(prefilledLocalPath, ctx), [prefilledLocalPath, ctx])
+  const resolvedRepoDir = useMemo(() => resolveTemplateReferences(prefilledRepoDir, ctx), [prefilledRepoDir, ctx])
+  const initialSource = useMemo(() => resolveInitialSource({ source, prefilledRepoDir }), [source, prefilledRepoDir])
   const resolvedTitle = useMemo(() => resolveTemplateReferences(title ?? 'Clone Repository', ctx), [title, ctx])
-  const resolvedDescription = useMemo(() => resolveTemplateReferences(description ?? 'Enter a git URL to clone a repository', ctx), [description, ctx])
+  const resolvedDescription = useMemo(
+    () => resolveTemplateReferences(description ?? defaultDescription(initialSource), ctx),
+    [description, initialSource, ctx],
+  )
 
   // --- End template dependency resolution ---
 
@@ -144,7 +155,14 @@ function GitCloneInteractive({
     tokenChecked,
     gitHubAuthMet,
     workingDir,
+    localPreview,
+    localPreviewStatus,
+    localPreviewError,
     clone,
+    browseForRepoDir,
+    previewLocalRepo,
+    selectLocalRepo,
+    resetLocalPreview,
     cancel,
     reset,
     checkGitHubToken,
@@ -164,6 +182,10 @@ function GitCloneInteractive({
   const [ref, setRef] = useState(resolvedRef)
   const [repoPath, setRepoPath] = useState(resolvedRepoPath)
   const [localPath, setLocalPath] = useState(resolvedLocalPath)
+  const [repoDir, setRepoDir] = useState(resolvedRepoDir)
+  // Which source the block is on. A prefilled checkout directory means the
+  // author expects a local repo, so start there unless told otherwise.
+  const [activeSource, setActiveSource] = useState<GitCloneSource>(initialSource)
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
@@ -176,6 +198,54 @@ function GitCloneInteractive({
   useEffect(() => { setRef(resolvedRef) }, [resolvedRef])
   useEffect(() => { setRepoPath(resolvedRepoPath) }, [resolvedRepoPath])
   useEffect(() => { setLocalPath(resolvedLocalPath) }, [resolvedLocalPath])
+  useEffect(() => { setRepoDir(resolvedRepoDir) }, [resolvedRepoDir])
+
+  // Verify the typed/picked directory as the user edits it. Debounced so a
+  // half-typed path doesn't spawn a git process per keystroke; the check only
+  // inspects the directory — selecting it is the user's explicit confirmation.
+  useEffect(() => {
+    if (activeSource !== 'local' || cloneStatus === 'success') return
+    const trimmed = repoDir.trim()
+    if (!trimmed) {
+      resetLocalPreview()
+      return
+    }
+    const timer = setTimeout(() => { previewLocalRepo(trimmed) }, 400)
+    return () => clearTimeout(timer)
+  }, [repoDir, activeSource, cloneStatus, previewLocalRepo, resetLocalPreview])
+
+  const handleBrowseForRepo = useCallback(async () => {
+    const picked = await browseForRepoDir()
+    // Dialog dismissed — leave the typed path untouched.
+    if (picked) setRepoDir(picked)
+  }, [browseForRepoDir])
+
+  const handleUseLocalRepo = useCallback(async () => {
+    const info = await selectLocalRepo(repoDir)
+    if (!info || !showFileTree) return
+
+    // Register the checkout exactly like a clone, so the workspace file tree
+    // and <GitPullRequest> treat both sources identically.
+    const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : null
+    // Split on both separators: the backend resolves the root with Node's
+    // path module, which yields backslashes on Windows.
+    const dirName = info.absolutePath.split(/[\\/]/).filter(Boolean).pop() ?? info.absolutePath
+    registerWorkTree({
+      id,
+      repoUrl: info.remoteUrl ?? '',
+      localPath: info.absolutePath,
+      gitInfo: {
+        repoUrl: info.remoteUrl ?? '',
+        repoName: parsed?.repo ?? dirName,
+        repoOwner: parsed?.org ?? '',
+        // The checked-out ref is the PR base branch, mirroring the clone path
+        // where the cloned ref plays that role.
+        ref: info.ref || 'main',
+        refType: info.refType === 'detached' ? 'commit' : info.refType,
+        commitSha: info.commitSha,
+      },
+    })
+  }, [selectLocalRepo, repoDir, showFileTree, registerWorkTree, id])
 
   const handleCopyPath = useCallback(async (key: string, value: string) => {
     const ok = await copyTextToClipboard(value)
@@ -234,8 +304,11 @@ function GitCloneInteractive({
     }
   }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
 
-  // Register the cloned repo as a git worktree when clone succeeds
+  // Register the cloned repo as a git worktree when clone succeeds. The local
+  // checkout registers itself in handleUseLocalRepo, which has the repo's real
+  // remote and ref to hand — this path only covers cloning.
   useEffect(() => {
+    if (activeSource === 'local') return
     if (cloneStatus === 'success' && cloneResult && showFileTree) {
       // Parse owner/repoName from the git URL
       const parsed = parseOwnerRepoFromURL(gitUrl)
@@ -268,6 +341,11 @@ function GitCloneInteractive({
   }, [resolvedUrl])
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
+
+  const handleSourceSelect = useCallback((next: GitCloneSource) => {
+    setActiveSource(next)
+    setShowOverwriteConfirm(false)
+  }, [])
 
   const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
@@ -303,8 +381,13 @@ function GitCloneInteractive({
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
 
-  const isFormDisabled = cloneStatus === 'running' || !gitHubAuthMet || !hasAllBlockingDependencies
+  const isLocalSource = activeSource === 'local'
+  // Selecting a checkout that already exists on disk needs no credentials —
+  // only cloning does. Auth still gates the clone form as before.
+  const isFormDisabled =
+    cloneStatus === 'running' || !hasAllBlockingDependencies || (!isLocalSource && !gitHubAuthMet)
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
+  const isUseRepoDisabled = isFormDisabled || localPreviewStatus !== 'valid'
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
@@ -347,8 +430,8 @@ function GitCloneInteractive({
             />
           )}
 
-          {/* Blocked state: waiting for the referenced auth block */}
-          {hasAllBlockingDependencies && !gitHubAuthMet && (
+          {/* Blocked state: waiting for the referenced auth block (cloning only) */}
+          {hasAllBlockingDependencies && !gitHubAuthMet && !isLocalSource && (
             <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
@@ -362,157 +445,189 @@ function GitCloneInteractive({
 
           {/* Success state */}
           {cloneStatus === 'success' && cloneResult ? (
-            <CloneResultDisplay result={cloneResult} onCloneAgain={handleCloneAgain} />
+            <CloneResultDisplay
+              result={cloneResult}
+              source={activeSource}
+              remoteUrl={localPreview?.remoteUrl}
+              onCloneAgain={handleCloneAgain}
+            />
           ) : (
             /* Form state (ready, running, fail) */
             <div className="space-y-3">
-              {/* Separator */}
-              <div className="border-b border-border"></div>
-
-              {/* Git URL input */}
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1 block">
-                  Git URL
-                </label>
-                <input
-                  type="text"
-                  value={gitUrl}
-                  onChange={(e) => setGitUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo.git"
-                  disabled={isFormDisabled}
-                  className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-
-              {/* GitHub Browser (only if token available) */}
-              {tokenChecked && hasGitHubToken && (
-                <GitHubBrowser
-                  onRepoSelected={handleRepoSelected}
-                  onRefSelected={handleRefSelected}
-                  fetchOrgs={fetchOrgs}
-                  fetchRepos={fetchRepos}
-                  fetchRefs={fetchRefs}
-                  disabled={isFormDisabled}
-                  initialOrg={prefilledGitHub?.org}
-                  initialRepo={prefilledGitHub?.repo}
-                  defaultOpen={false}
+              {/* Repository source: clone a remote repo, or use a local checkout */}
+              {hideSourceSelect ? (
+                <div className="border-b border-border"></div>
+              ) : (
+                <SourceSelect
+                  source={activeSource}
+                  onSelect={handleSourceSelect}
+                  disabled={cloneStatus === 'running'}
                 />
               )}
 
-              {/* Additional Settings (Ref, Repo Path, Local Path) */}
-              <CollapsibleToggle
-                expanded={showAdditionalSettings}
-                onToggle={() => setShowAdditionalSettings(prev => !prev)}
-                label="Additional Settings"
-                disabled={isFormDisabled}
-              >
-                <div className="space-y-3 mt-3">
-                  {/* Ref (branch/tag) */}
+              {isLocalSource && (
+                <LocalRepoForm
+                  repoDir={repoDir}
+                  onRepoDirChange={setRepoDir}
+                  onBrowse={handleBrowseForRepo}
+                  previewStatus={localPreviewStatus}
+                  preview={localPreview}
+                  previewError={localPreviewError}
+                  disabled={isFormDisabled}
+                />
+              )}
+
+              {/* Clone form: remote URL, repo browser, and clone options */}
+              {!isLocalSource && (
+                <>
+                  {/* Git URL input */}
                   <div>
-                    <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                      Ref <span className="font-normal text-muted-foreground">(optional)</span>
-                      <InfoTooltip>
-                        The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
-                        {tokenChecked && hasGitHubToken && (
-                          <>
-                            <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
-                          </>
-                        )}
-                      </InfoTooltip>
+                    <label className="text-sm font-medium text-foreground mb-1 block">
+                      Git URL
                     </label>
                     <input
                       type="text"
-                      value={ref}
-                      onChange={(e) => setRef(e.target.value)}
-                      placeholder="Defaults to default branch"
+                      value={gitUrl}
+                      onChange={(e) => setGitUrl(e.target.value)}
+                      placeholder="https://github.com/org/repo.git"
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
                   </div>
 
-                  {/* Repo Path (sparse checkout) */}
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                      Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
-                      <InfoTooltip>
-                        Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
-                      </InfoTooltip>
-                    </label>
-                    <input
-                      type="text"
-                      value={repoPath}
-                      onChange={(e) => setRepoPath(e.target.value)}
-                      placeholder="e.g., modules/vpc"
+                  {/* GitHub Browser (only if token available) */}
+                  {tokenChecked && hasGitHubToken && (
+                    <GitHubBrowser
+                      onRepoSelected={handleRepoSelected}
+                      onRefSelected={handleRefSelected}
+                      fetchOrgs={fetchOrgs}
+                      fetchRepos={fetchRepos}
+                      fetchRefs={fetchRefs}
                       disabled={isFormDisabled}
-                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                      initialOrg={prefilledGitHub?.org}
+                      initialRepo={prefilledGitHub?.repo}
+                      defaultOpen={false}
                     />
-                  </div>
+                  )}
 
-                  {/* Local Path (destination) */}
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                      Local Path <span className="font-normal text-muted-foreground">(optional)</span>
-                      <InfoTooltip>
-                        The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
-                      </InfoTooltip>
-                    </label>
-                    <input
-                      type="text"
-                      value={localPath}
-                      onChange={(e) => setLocalPath(e.target.value)}
-                      placeholder="Defaults to repo name"
-                      disabled={isFormDisabled}
-                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
-                    />
-                    {pathPreview && (
-                      <div className="mt-1.5 text-xs text-muted-foreground space-y-0.5">
-                        <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground">Relative:</span>
-                          <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.relative}</code>
-                          <button
-                            onClick={() => handleCopyPath('relative', pathPreview.relative)}
-                            className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
-                          >
-                            {copiedPathKey === 'relative' ? (
-                              <Check className="size-3 text-success" />
-                            ) : (
-                              <Copy className="size-3" />
+                  {/* Additional Settings (Ref, Repo Path, Local Path) */}
+                  <CollapsibleToggle
+                    expanded={showAdditionalSettings}
+                    onToggle={() => setShowAdditionalSettings(prev => !prev)}
+                    label="Additional Settings"
+                    disabled={isFormDisabled}
+                  >
+                    <div className="space-y-3 mt-3">
+                      {/* Ref (branch/tag) */}
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                          Ref <span className="font-normal text-muted-foreground">(optional)</span>
+                          <InfoTooltip>
+                            The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
+                            {tokenChecked && hasGitHubToken && (
+                              <>
+                                <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
+                              </>
                             )}
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground">Absolute:</span>
-                          <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.absolute}</code>
-                          <button
-                            onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
-                            className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
-                          >
-                            {copiedPathKey === 'absolute' ? (
-                              <Check className="size-3 text-success" />
-                            ) : (
-                              <Copy className="size-3" />
-                            )}
-                          </button>
-                        </div>
+                          </InfoTooltip>
+                        </label>
+                        <input
+                          type="text"
+                          value={ref}
+                          onChange={(e) => setRef(e.target.value)}
+                          placeholder="Defaults to default branch"
+                          disabled={isFormDisabled}
+                          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                        />
                       </div>
-                    )}
-                  </div>
-                </div>
-              </CollapsibleToggle>
+
+                      {/* Repo Path (sparse checkout) */}
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                          Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
+                          <InfoTooltip>
+                            Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                          </InfoTooltip>
+                        </label>
+                        <input
+                          type="text"
+                          value={repoPath}
+                          onChange={(e) => setRepoPath(e.target.value)}
+                          placeholder="e.g., modules/vpc"
+                          disabled={isFormDisabled}
+                          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                        />
+                      </div>
+
+                      {/* Local Path (destination) */}
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
+                          Local Path <span className="font-normal text-muted-foreground">(optional)</span>
+                          <InfoTooltip>
+                            The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
+                          </InfoTooltip>
+                        </label>
+                        <input
+                          type="text"
+                          value={localPath}
+                          onChange={(e) => setLocalPath(e.target.value)}
+                          placeholder="Defaults to repo name"
+                          disabled={isFormDisabled}
+                          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
+                        />
+                        {pathPreview && (
+                          <div className="mt-1.5 text-xs text-muted-foreground space-y-0.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Relative:</span>
+                              <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.relative}</code>
+                              <button
+                                onClick={() => handleCopyPath('relative', pathPreview.relative)}
+                                className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                              >
+                                {copiedPathKey === 'relative' ? (
+                                  <Check className="size-3 text-success" />
+                                ) : (
+                                  <Copy className="size-3" />
+                                )}
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Absolute:</span>
+                              <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.absolute}</code>
+                              <button
+                                onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
+                                className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                              >
+                                {copiedPathKey === 'absolute' ? (
+                                  <Check className="size-3 text-success" />
+                                ) : (
+                                  <Copy className="size-3" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CollapsibleToggle>
+                </>
+              )}
 
               {/* Error message */}
               {errorMessage && cloneStatus === 'fail' && (
                 <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
                   <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-destructive m-0">Clone failed</p>
+                    <p className="text-sm font-medium text-destructive m-0">
+                      {isLocalSource ? "Couldn't use that repository" : 'Clone failed'}
+                    </p>
                     <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
                   </div>
                 </div>
               )}
 
-              {/* Overwrite confirmation */}
-              {showOverwriteConfirm && (
+              {/* Overwrite confirmation (clone only) */}
+              {showOverwriteConfirm && !isLocalSource && (
                 <div className="p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
                   <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                   <div className="flex-1">
@@ -545,29 +660,48 @@ function GitCloneInteractive({
               {/* Action buttons */}
               {!showOverwriteConfirm && (
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    disabled={isCloneDisabled}
-                    onClick={() => handleClone()}
-                  >
-                    {cloneStatus === 'running' ? (
-                      <>
-                        <Loader2 className="size-4 mr-1 animate-spin" />
-                        Cloning...
-                      </>
-                    ) : (
-                      'Clone'
-                    )}
-                  </Button>
-                  {cloneStatus === 'running' && (
+                  {isLocalSource ? (
                     <Button
-                      variant="outline"
                       size="sm"
-                      onClick={cancel}
-                      className="text-destructive hover:text-destructive hover:bg-destructive-muted"
+                      disabled={isUseRepoDisabled}
+                      onClick={handleUseLocalRepo}
                     >
-                      Cancel
+                      {cloneStatus === 'running' ? (
+                        <>
+                          <Loader2 className="size-4 mr-1 animate-spin" />
+                          Selecting...
+                        </>
+                      ) : (
+                        'Use This Repo'
+                      )}
                     </Button>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        disabled={isCloneDisabled}
+                        onClick={() => handleClone()}
+                      >
+                        {cloneStatus === 'running' ? (
+                          <>
+                            <Loader2 className="size-4 mr-1 animate-spin" />
+                            Cloning...
+                          </>
+                        ) : (
+                          'Clone'
+                        )}
+                      </Button>
+                      {cloneStatus === 'running' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={cancel}
+                          className="text-destructive hover:text-destructive hover:bg-destructive-muted"
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               )}

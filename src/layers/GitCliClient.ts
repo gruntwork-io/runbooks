@@ -179,6 +179,15 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         return lines[0] ?? ""
       }),
 
+    getRepoRoot: (repoPath: string) =>
+      Effect.gen(function* () {
+        // `--show-toplevel` resolves the repo root from anywhere inside the
+        // work tree, so a user who picks a subdirectory of their checkout
+        // still ends up registering the repo itself.
+        const lines = yield* runGit(spawner, ["rev-parse", "--show-toplevel"], repoPath)
+        return lines[0]?.trim() ?? ""
+      }),
+
     getRemoteUrl: (repoPath: string) =>
       Effect.gen(function* () {
         const lines = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath)

@@ -102,6 +102,8 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
     Effect.fail(new GitError({ command: "branch -D", stderr: notConfigured("GitClient", "deleteBranch"), exitCode: 1 })),
   getCurrentBranch: (_repoPath) =>
     Effect.fail(new GitError({ command: "branch", stderr: notConfigured("GitClient", "getCurrentBranch"), exitCode: 1 })),
+  getRepoRoot: (_repoPath) =>
+    Effect.fail(new GitError({ command: "rev-parse", stderr: notConfigured("GitClient", "getRepoRoot"), exitCode: 1 })),
   getRemoteUrl: (_repoPath) =>
     Effect.fail(new GitError({ command: "remote", stderr: notConfigured("GitClient", "getRemoteUrl"), exitCode: 1 })),
   getInfo: (_repoPath) =>
