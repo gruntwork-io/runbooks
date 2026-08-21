@@ -382,12 +382,17 @@ function GitCloneInteractive({
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
 
   const isLocalSource = activeSource === 'local'
-  // Selecting a checkout that already exists on disk needs no credentials —
-  // only cloning does. Auth still gates the clone form as before.
+  // Browsing and checking a directory needs no credentials, so the local form
+  // stays usable while a linked auth block is still pending.
   const isFormDisabled =
     cloneStatus === 'running' || !hasAllBlockingDependencies || (!isLocalSource && !gitHubAuthMet)
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
-  const isUseRepoDisabled = isFormDisabled || localPreviewStatus !== 'valid'
+  // Confirming, though, waits for auth exactly like cloning does. The GitHub
+  // org/repo ids are resolved once, at confirm time, from the session token —
+  // adopting a checkout before the auth block finishes would silently produce a
+  // block missing org_id/repo_id, which is precisely the parity with clone that
+  // this source is supposed to keep.
+  const isUseRepoDisabled = isFormDisabled || !gitHubAuthMet || localPreviewStatus !== 'valid'
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
@@ -430,14 +435,15 @@ function GitCloneInteractive({
             />
           )}
 
-          {/* Blocked state: waiting for the referenced auth block (cloning only) */}
-          {hasAllBlockingDependencies && !gitHubAuthMet && !isLocalSource && (
+          {/* Blocked state: waiting for the referenced auth block */}
+          {hasAllBlockingDependencies && !gitHubAuthMet && (
             <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-warning-foreground m-0">Waiting for git authentication</p>
                 <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                  Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above before cloning.
+                  Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above
+                  before {isLocalSource ? 'selecting a repository' : 'cloning'}.
                 </p>
               </div>
             </div>

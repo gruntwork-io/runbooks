@@ -1,4 +1,4 @@
-import { CheckCircle, FolderOpen, Loader2, XCircle } from "lucide-react"
+import { FolderGit2, FolderOpen, Loader2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
 import type { LocalRepoInfo } from "../types"
@@ -76,13 +76,18 @@ export function LocalRepoForm({
         </div>
       )}
 
+      {/* Deliberately NOT success-styled: this only reports what the directory
+          is, and no outputs exist until the user confirms below. Green is
+          reserved for the completed state, or a checked directory reads as a
+          finished block and downstream blocks look broken for want of outputs
+          nobody produced yet. */}
       {previewStatus === 'valid' && preview && (
-        <div className="p-3 bg-success-muted border border-success/30 rounded-md space-y-1">
-          <div className="flex items-center gap-2 text-sm font-medium text-success">
-            <CheckCircle className="size-4 shrink-0" />
-            Git repository
+        <div className="p-3 bg-info-muted border border-info/40 rounded-md space-y-1">
+          <div className="flex items-center gap-2 text-sm font-medium text-info">
+            <FolderGit2 className="size-4 shrink-0" />
+            Git repository found
           </div>
-          <div className="text-xs text-success space-y-0.5">
+          <div className="text-xs text-muted-foreground space-y-0.5">
             <div>
               Root: <code className="font-mono">{preview.absolutePath}</code>
             </div>
@@ -100,9 +105,14 @@ export function LocalRepoForm({
             </div>
             {!preview.remoteUrl && (
               <div className="text-warning-foreground">
-                No <code className="font-mono">origin</code> remote — blocks that open a pull request need one.
+                No remote — this repo produces no <code className="font-mono">repo_owner</code> or{' '}
+                <code className="font-mono">repo_name</code>, and blocks that open a pull request need one.
               </div>
             )}
+            <div className="pt-1 text-foreground">
+              Not in use yet — choose <strong>Use This Repo</strong> to make this repository
+              and its outputs available to later blocks.
+            </div>
           </div>
         </div>
       )}

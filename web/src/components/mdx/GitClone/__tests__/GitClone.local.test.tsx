@@ -98,10 +98,24 @@ describe("GitClone — repository source picker", () => {
     expect(repoDirInput()).toBeInTheDocument()
   })
 
-  it("does not wait on an auth block to select a local checkout", () => {
+  it("keeps the directory form usable while a linked auth block is pending", () => {
     renderGitClone({ source: "local", gitAuthId: "git-auth" })
-    expect(screen.queryByText(/Waiting for git authentication/i)).not.toBeInTheDocument()
+    // Browsing and checking a directory needs no credentials...
     expect(repoDirInput()).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: /Browse/i })).not.toBeDisabled()
+  })
+
+  it("waits for a linked auth block before a checkout can be confirmed", async () => {
+    renderGitClone({ source: "local", gitAuthId: "git-auth", prefilledRepoDir: "/home/me/infra" })
+
+    // ...but confirming does wait, because the GitHub org/repo ids are resolved
+    // from the session token at confirm time and can't be filled in later.
+    expect(screen.getByText(/Waiting for git authentication/i)).toBeInTheDocument()
+    await waitFor(
+      () => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(),
+      { timeout: 2000 },
+    )
+    expect(screen.getByRole("button", { name: /Use This Repo/i })).toBeDisabled()
   })
 })
 
@@ -110,7 +124,7 @@ describe("GitClone — local checkout", () => {
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
 
     await waitFor(
-      () => expect(screen.getByText(/Git repository/i)).toBeInTheDocument(),
+      () => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(),
       { timeout: 2000 },
     )
 
@@ -159,6 +173,22 @@ describe("GitClone — local checkout", () => {
     await user.click(screen.getByRole("button", { name: /Browse/i }))
 
     expect(repoDirInput()).toHaveValue("/home/me/infra")
+  })
+
+  it("tells the user the checked directory is not in use until confirmed", async () => {
+    renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
+
+    await waitFor(
+      () => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(),
+      { timeout: 2000 },
+    )
+
+    // The preview must not read as a finished block: nothing is registered
+    // until "Use This Repo", and a block with no outputs leaves every consumer
+    // waiting on outputs that were never produced.
+    expect(screen.getByText(/Not in use yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Using local checkout/i)).not.toBeInTheDocument()
+    expect(registerWorkTree).not.toHaveBeenCalled()
   })
 
   it("registers the checkout as a worktree and reports success", async () => {
@@ -211,7 +241,7 @@ describe("GitClone — local checkout", () => {
     await waitFor(
       () =>
         expect(
-          screen.getByText(/remote — blocks that open a pull request need one/i),
+          screen.getByText(/blocks that open a pull request need one/i),
         ).toBeInTheDocument(),
       { timeout: 2000 },
     )

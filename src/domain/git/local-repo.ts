@@ -9,12 +9,13 @@
  * `<DirPicker>` — behave identically either way.
  */
 import path from "path"
-import { Effect } from "effect"
+import { Effect, Stream, Chunk } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitInfo } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
+import { gitSpawnEnv } from "./env.ts"
 import { countFiles, parseOwnerRepoFromURL } from "./operations.ts"
 
 /** Metadata describing a local checkout selected by the user. */
@@ -118,20 +119,63 @@ export const inspectLocalRepo = (
       ),
     )
 
+    // getInfo only knows about `origin`. A checkout can legitimately name its
+    // remote something else — a fork whose upstream is the interesting one, or
+    // a repo re-pointed after `git init` — and without a remote there is no
+    // repo_owner/repo_name (nor the GitHub ids derived from them) for
+    // downstream blocks to consume. Fall back to whatever remote does exist.
+    const remoteUrl = info.remoteUrl ?? (yield* firstRemoteUrl(absolutePath))
+
     const fileCount = yield* countFiles(absolutePath)
-    const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : undefined
+    const parsed = remoteUrl ? parseOwnerRepoFromURL(remoteUrl) : undefined
 
     return {
       absolutePath,
       relativePath: relativeToWorkingDir(absolutePath, workingDir),
       fileCount,
-      remoteUrl: info.remoteUrl,
+      remoteUrl,
       branch: info.branch,
       refType: info.refType,
       commitSha: info.commitSha,
       owner: parsed?.owner,
       repo: parsed?.repo,
     } satisfies LocalRepoInfo
+  })
+
+/**
+ * URL of the first remote the repo has, or undefined when it has none. Only
+ * consulted after `origin` comes up empty, so remote order decides nothing in
+ * the common case. Best-effort: a repo we can't read remotes from is still a
+ * usable checkout, it just yields no owner/repo.
+ */
+const firstRemoteUrl = (repoPath: string) =>
+  Effect.gen(function* () {
+    const names = yield* readGitLines(repoPath, ["remote"])
+    if (names.length === 0) return undefined
+    const urls = yield* readGitLines(repoPath, ["remote", "get-url", names[0]])
+    return urls[0]
+  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+
+/**
+ * Run a short git query and return its stdout lines, or none if it failed.
+ *
+ * `Effect.ensuring` kills the child if this effect is interrupted mid-flight.
+ * On the normal path the process has already exited and the signal is a no-op,
+ * so this costs nothing and leaves no orphan behind if a caller ever gains a
+ * cancellation path.
+ */
+const readGitLines = (repoPath: string, args: string[]) =>
+  Effect.gen(function* () {
+    const spawner = yield* ProcessSpawner
+    const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env: gitSpawnEnv() })
+
+    return yield* Effect.gen(function* () {
+      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+        .filter((l) => l.source === "stdout")
+        .map((l) => l.line.trim())
+        .filter(Boolean)
+      return (yield* proc.exitCode) === 0 ? lines : []
+    }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))
   })
 
 /**
