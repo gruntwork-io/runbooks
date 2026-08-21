@@ -25,6 +25,10 @@ function createMockWindowApi() {
   const listeners = new Map<string, Set<EventCallback>>()
   let invokeResolve: ((value?: unknown) => void) | null = null
   let invokeReject: ((err: Error) => void) | null = null
+  // Every pending exec:run resolver, in call order. Interleaved-run tests need
+  // to settle an *earlier* block's invoke after a later one has started, which
+  // the single `invokeResolve` slot above can't express.
+  const invokeResolvers: Array<(value?: unknown) => void> = []
 
   const api = {
     invoke: vi.fn((channel: string, ..._args: unknown[]) => {
@@ -36,6 +40,7 @@ function createMockWindowApi() {
       return new Promise<unknown>((resolve, reject) => {
         invokeResolve = resolve
         invokeReject = reject
+        invokeResolvers.push(resolve)
       })
     }),
     on: vi.fn((channel: string, callback: EventCallback) => {
@@ -66,6 +71,10 @@ function createMockWindowApi() {
     /** Reject the pending invoke('exec:run') call */
     rejectInvoke(err: Error) {
       invokeReject?.(err)
+    },
+    /** Resolve the nth invoke('exec:run') call (0-based, in call order) */
+    resolveInvokeNth(index: number, value?: unknown) {
+      invokeResolvers[index]?.(value)
     },
   }
 }
@@ -224,6 +233,98 @@ describe('useApiExec state machine', () => {
 
     await waitFor(() => expect(result.current.state.status).toBe('success'))
     expect(result.current.state.exitCode).toBe(0)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Interrupted runs (main aborts every in-flight execution when a new one
+  // starts, resolving the aborted invoke as { status: null, cancelled: true }).
+  // ---------------------------------------------------------------------------
+
+  it('an aborted run leaves "running" instead of spinning forever', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('long-running-script')
+    })
+    expect(result.current.state.status).toBe('running')
+
+    await act(async () => {
+      mock.resolveInvoke({ status: null, cancelled: true })
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('pending'))
+    const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
+    expect(lastLog.line).toContain('another block was run')
+  })
+
+  it('a block interrupted by a second block does not stay stuck on running', async () => {
+    const first = renderHook(() => useApiExec())
+    const second = renderHook(() => useApiExec())
+
+    act(() => {
+      first.result.current.execute('slow-script')
+    })
+    expect(first.result.current.state.status).toBe('running')
+
+    // Second block starts before the first finishes. The main process aborts
+    // the first run and kills its process group, then resolves its invoke with
+    // no status — and the first block's listeners are already ignoring events
+    // because the newer run owns activeExecId.
+    act(() => {
+      second.result.current.execute('other-script')
+    })
+    expect(second.result.current.state.status).toBe('running')
+
+    await act(async () => {
+      mock.resolveInvokeNth(0, { status: null, cancelled: true })
+    })
+
+    await waitFor(() => expect(first.result.current.state.status).toBe('pending'))
+    expect(second.result.current.state.status).toBe('running')
+  })
+
+  it('does not explain the stop twice when the user cancelled it', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('long-running-script')
+    })
+    act(() => {
+      result.current.cancel()
+    })
+
+    await act(async () => {
+      mock.resolveInvoke({ status: null, cancelled: true })
+    })
+
+    const lines = result.current.state.logs.map((l) => l.line)
+    expect(lines.filter((l) => l.includes('cancelled by user'))).toHaveLength(1)
+    expect(lines.some((l) => l.includes('another block was run'))).toBe(false)
+  })
+
+  it('cancel still targets this run after its invoke has already resolved', async () => {
+    const { result } = renderHook(() => useApiExec())
+
+    act(() => {
+      result.current.execute('long-running-script')
+    })
+    const runCalls = vi
+      .mocked(mock.api.invoke)
+      .mock.calls.filter(([channel]) => channel === 'exec:run')
+    expect(runCalls).toHaveLength(1)
+    const { executionId } = runCalls[0][1] as { executionId: string }
+
+    // The invoke settles (aborted by a newer run) — which used to clear the id
+    // Stop depends on, leaving the button wired to nothing.
+    await act(async () => {
+      mock.resolveInvoke({ status: null, cancelled: true })
+    })
+
+    act(() => {
+      result.current.cancel()
+    })
+
+    expect(mock.api.invoke).toHaveBeenCalledWith('exec:cancel', { executionId })
   })
 
   it('reset: clears all state back to initial', async () => {
