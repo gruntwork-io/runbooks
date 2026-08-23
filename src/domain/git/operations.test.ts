@@ -7,6 +7,7 @@ import {
   resolveClonePaths,
   countFiles,
   createMergeRequest,
+  seedDefaultBranch,
 } from "./operations.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import { GitLabApiError } from "../../errors/index.ts"
@@ -421,5 +422,119 @@ describe("createMergeRequest", () => {
     expect(stagedExcludes).toEqual(["sub"])
     expect(result.number).toBe(9)
     expect(logs.some((l) => /Skipping 1 embedded git repository/.test(l))).toBe(true)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// seedDefaultBranch
+// ---------------------------------------------------------------------------
+
+describe("seedDefaultBranch", () => {
+  const params = {
+    repoPath: "/repo",
+    branch: "main",
+    provider: "github" as const,
+  }
+
+  it("creates the branch, commits an empty commit, and pushes it", async () => {
+    const steps: string[] = []
+    let commitOptions: { allowEmpty?: boolean } | undefined
+    let pushedBranch: string | undefined
+
+    const layer = makeTestLayer({
+      git: {
+        hasCommits: () => Effect.succeed(false),
+        createBranch: (_repo, branch) =>
+          Effect.sync(() => void steps.push(`createBranch:${branch}`)),
+        commit: (_repo, _message, options) =>
+          Effect.sync(() => {
+            steps.push("commit")
+            commitOptions = options
+          }),
+        push: (_repo, _remote, branch) =>
+          Effect.sync(() => {
+            steps.push("push")
+            pushedBranch = branch
+          }),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      seedDefaultBranch("tok", params).pipe(Effect.provide(layer)),
+    )
+
+    expect(steps).toEqual(["createBranch:main", "commit", "push"])
+    // The commit has to be allowed to be empty — that is the entire point of it.
+    expect(commitOptions?.allowEmpty).toBe(true)
+    expect(pushedBranch).toBe("main")
+    expect(result.branch).toBe("main")
+  })
+
+  it("refuses to touch a repo that already has commits", async () => {
+    const steps: string[] = []
+
+    const layer = makeTestLayer({
+      git: {
+        hasCommits: () => Effect.succeed(true),
+        createBranch: () => Effect.sync(() => void steps.push("createBranch")),
+        commit: () => Effect.sync(() => void steps.push("commit")),
+        push: () => Effect.sync(() => void steps.push("push")),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      seedDefaultBranch("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    // Nothing was written: a repo with history already has a base branch.
+    expect(steps).toEqual([])
+  })
+
+  it("seeds whatever branch name it is given, not just main", async () => {
+    let pushedBranch: string | undefined
+
+    const layer = makeTestLayer({
+      git: {
+        hasCommits: () => Effect.succeed(false),
+        createBranch: () => Effect.void,
+        commit: () => Effect.void,
+        push: (_repo, _remote, branch) =>
+          Effect.sync(() => {
+            pushedBranch = branch
+          }),
+      },
+    })
+
+    await Effect.runPromise(
+      seedDefaultBranch("tok", { ...params, branch: "master" }).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(pushedBranch).toBe("master")
+  })
+
+  it("pushes with the caller's token so a private remote accepts it", async () => {
+    let pushToken: string | undefined
+
+    const layer = makeTestLayer({
+      git: {
+        hasCommits: () => Effect.succeed(false),
+        createBranch: () => Effect.void,
+        commit: () => Effect.void,
+        push: (_repo, _remote, _branch, options) =>
+          Effect.sync(() => {
+            pushToken = options?.token
+          }),
+      },
+    })
+
+    await Effect.runPromise(
+      seedDefaultBranch("ghp_secret", params).pipe(Effect.provide(layer)),
+    )
+
+    expect(pushToken).toBe("ghp_secret")
   })
 })

@@ -122,7 +122,7 @@ describe("inspectLocalRepo", () => {
     expect(info.relativePath).toBe("checkouts/infra")
   })
 
-  it("succeeds for a repo with no commits yet", async () => {
+  it("succeeds for a repo with no commits yet, and says so", async () => {
     const info = await inspect("/home/me/fresh", {
       dirs: ["/home/me/fresh"],
       commands: [lsFiles([])],
@@ -132,12 +132,35 @@ describe("inspectLocalRepo", () => {
           Effect.fail(
             new GitError({ command: "git rev-parse", stderr: "no HEAD", exitCode: 128 }),
           ),
+        hasCommits: () => Effect.succeed(false),
       },
     })
 
     expect(info.branch).toBe("")
     expect(info.fileCount).toBe(0)
     expect(info.owner).toBeUndefined()
+    // The empty branch alone can't be trusted to mean "empty repo" — callers
+    // need this flag to know a base branch has to be seeded before a PR.
+    expect(info.hasCommits).toBe(false)
+  })
+
+  it("treats a repo it can't query as having history, never as empty", async () => {
+    const info = await inspect("/home/me/odd", {
+      dirs: ["/home/me/odd"],
+      commands: [lsFiles([])],
+      git: {
+        getRepoRoot: () => Effect.succeed("/home/me/odd"),
+        getInfo: () => Effect.succeed({ branch: "main", refType: "branch" as const }),
+        hasCommits: () =>
+          Effect.fail(
+            new GitError({ command: "git rev-parse", stderr: "boom", exitCode: 1 }),
+          ),
+      },
+    })
+
+    // Guessing "empty" here would offer to seed a branch over a repo whose
+    // state we simply failed to read.
+    expect(info.hasCommits).toBe(true)
   })
 
   it("falls back to a non-origin remote when there is no origin", async () => {

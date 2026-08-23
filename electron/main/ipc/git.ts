@@ -17,6 +17,8 @@ import {
   deleteBranch,
   createPullRequest,
   createMergeRequest,
+  seedDefaultBranch,
+  unbornBranchName,
   isValidGitURL,
   parseOwnerRepoFromURL,
   type CreatePullRequestParams,
@@ -368,6 +370,22 @@ export function registerGitHandlers(): void {
           // Count tracked files using `git ls-files` (fast, ~10ms)
           const fileCount = yield* countFiles(paths.absolutePath)
 
+          // Report the ref the clone actually landed on rather than letting the
+          // renderer assume one. Cloning without an explicit `ref` follows the
+          // remote's default branch, which is not always "main" — and that ref
+          // becomes the base branch of any pull request opened against this
+          // checkout, so guessing it wrong fails the PR at the very last step.
+          const gitClient = yield* GitClient
+          const hasCommits = yield* gitClient.hasCommits(paths.absolutePath)
+          const clonedRef = hasCommits
+            ? (yield* gitClient
+                .getCurrentBranch(paths.absolutePath)
+                .pipe(Effect.orElseSucceed(() => "")))
+            : // An empty repo has no branch yet; HEAD still names the one the
+              // remote advertised, which is what a seeded first commit should
+              // become.
+              ((yield* unbornBranchName(paths.absolutePath)) ?? "")
+
           // Register the worktree path
           sessionManager.registerWorkTreePath(paths.absolutePath)
           log.debug("registered worktree, returning result")
@@ -401,6 +419,8 @@ export function registerGitHandlers(): void {
             absolutePath: paths.absolutePath,
             relativePath: paths.relativePath,
             fileCount,
+            ref: clonedRef,
+            hasCommits,
             status: "success" as const,
             outputs,
           }
@@ -476,6 +496,7 @@ export function registerGitHandlers(): void {
           ref: info.branch,
           refType: info.refType,
           commitSha: info.commitSha,
+          hasCommits: info.hasCommits,
           outputs,
         }
       })
@@ -540,6 +561,58 @@ export function registerGitHandlers(): void {
       if (Exit.isSuccess(exit)) {
         event.sender.send("git:status", { status: "success", exitCode: 0 })
         return { ok: true as const }
+      }
+
+      const failure = Cause.failureOption(exit.cause)
+      const message =
+        failure._tag === "Some"
+          ? errorMessage(failure.value)
+          : Cause.pretty(exit.cause)
+      event.sender.send("git:error", { message })
+      event.sender.send("git:status", { status: "fail", exitCode: 1 })
+      return { error: message }
+    },
+  )
+
+  // Seed an empty repository with its default branch. Offered by <GitClone>
+  // when it clones (or is pointed at) a repo that has no commits: without a
+  // branch on the remote there is nothing for a later pull request to target,
+  // and the failure would otherwise surface only after the runbook's work had
+  // been committed and pushed.
+  ipcMain.handle(
+    "git:init-default-branch",
+    async (
+      event,
+      params: {
+        worktreePath: string
+        branch: string
+        provider?: "github" | "gitlab"
+      },
+    ) => {
+      const sendLog = makeSendLog(event)
+
+      const program = Effect.gen(function* () {
+        const repoPath = yield* validateSessionPath(params.worktreePath)
+        const provider = params.provider ?? "github"
+        const token = yield* getSessionTokenForProvider(
+          provider,
+          () =>
+            new GitError({
+              command: "resolve git token",
+              stderr: `No ${provider} token available in session. Authenticate with the matching Git Auth block before creating the default branch.`,
+              exitCode: 1,
+            }),
+        )
+
+        const branch = params.branch.trim() || "main"
+        return yield* seedDefaultBranch(token, { repoPath, branch, provider }, sendLog)
+      })
+
+      const exit = await runtime.runPromiseExit(program)
+
+      if (Exit.isSuccess(exit)) {
+        event.sender.send("git:status", { status: "success", exitCode: 0 })
+        return { branch: exit.value.branch }
       }
 
       const failure = Cause.failureOption(exit.cause)

@@ -128,6 +128,24 @@ Set `showFileTree={false}` if you don't want the cloned repository to appear in 
 
 A local checkout registers with the workspace the same way. Note that the **Changed** tab then shows any uncommitted changes the checkout already had, not just the ones the runbook makes.
 
+### Repositories With No Commits
+
+A repository that was created but never pushed to has no branches at all. Nothing downstream can open a pull request against it: the base branch a pull request needs does not exist, and the provider rejects the request as invalid — after the runbook has already committed and pushed its work.
+
+GitClone detects this case for both sources. When the repo has no commits, the block:
+
+- renders in the warning colour rather than reporting a plain success,
+- withholds its outputs (including `clone_path`) and does not register the repository with the workspace, so blocks that depend on it stay blocked,
+- offers a **Create default branch** button that pushes a single empty commit to the branch the remote advertises as its default. The name is editable before you press it.
+
+Once the branch exists, the block releases its outputs and registers the workspace exactly as it would have for a repository that already had commits, and the runbook continues.
+
+The seeded commit is deliberately empty. It gives the default branch something to point at, so the branch the runbook pushes later shares an ancestor with it and opens as a reviewable diff instead of an unrelated root commit. Files already written into the work tree are left untracked, not swept into it.
+
+<Aside type="note">
+  Seeding requires a linked auth block, since it pushes to the remote. The branch is created locally, committed, and pushed to `origin` in one step.
+</Aside>
+
 ### Accepted Git URL Formats
 
 The GitClone block accepts the following URL formats:

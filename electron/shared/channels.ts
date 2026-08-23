@@ -491,13 +491,28 @@ export interface IpcChannelMap {
   // Git Operations
   "git:clone": {
     params: GitCloneRequest
-    result: { status: string; error?: string; fileCount?: number; absolutePath?: string; relativePath?: string; outputs?: Record<string, string> }
+    result: {
+      status: string
+      error?: string
+      fileCount?: number
+      absolutePath?: string
+      relativePath?: string
+      /** Branch the clone landed on — the base branch of any PR opened against it. */
+      ref?: string
+      /** False for a repo with no commits: it has no branch a PR could target. */
+      hasCommits?: boolean
+      outputs?: Record<string, string>
+    }
   }
   "git:local-repo": {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
   }
   "git:push": { params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }; result: { ok: true } | { error: string } }
+  "git:init-default-branch": {
+    params: { worktreePath: string; branch: string; provider?: "github" | "gitlab" }
+    result: { branch: string } | { error: string }
+  }
   "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
   "git:merge-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
@@ -852,6 +867,8 @@ export interface GitLocalRepoResponse {
   ref?: string
   refType?: "branch" | "tag" | "detached"
   commitSha?: string
+  /** False for a repo with no commits: it has no branch a PR could target. */
+  hasCommits?: boolean
   outputs?: Record<string, string>
 }
 
