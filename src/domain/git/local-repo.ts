@@ -32,6 +32,12 @@ export interface LocalRepoInfo {
   readonly branch: string
   readonly refType: GitInfo["refType"]
   readonly commitSha?: string
+  /**
+   * False when the repo has no commits yet (unborn HEAD). Such a repo has no
+   * branch to open a pull request against, so blocks that need a base ref have
+   * to seed one before they can do anything useful.
+   */
+  readonly hasCommits: boolean
   /** Owner/repo parsed from the remote URL, when parseable. */
   readonly owner?: string
   readonly repo?: string
@@ -128,6 +134,15 @@ export const inspectLocalRepo = (
 
     const fileCount = yield* countFiles(absolutePath)
     const parsed = remoteUrl ? parseOwnerRepoFromURL(remoteUrl) : undefined
+    // Distinguishes "empty repo" from "getInfo failed for some other reason":
+    // both leave `branch` empty above, but only the former is recoverable by
+    // seeding a first commit.
+    // orElseSucceed keeps this best-effort, like the getInfo lookup above: a
+    // repo we can't query is treated as having history, so an unreadable git
+    // never gets mistaken for an empty one and offered a seeded branch.
+    const hasCommits = yield* git
+      .hasCommits(absolutePath)
+      .pipe(Effect.orElseSucceed(() => true))
 
     return {
       absolutePath,
@@ -137,6 +152,7 @@ export const inspectLocalRepo = (
       branch: info.branch,
       refType: info.refType,
       commitSha: info.commitSha,
+      hasCommits,
       owner: parsed?.owner,
       repo: parsed?.repo,
     } satisfies LocalRepoInfo

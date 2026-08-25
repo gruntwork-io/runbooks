@@ -14,6 +14,7 @@ import { GitHubBrowser } from "./components/GitHubBrowser"
 import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
+import { EmptyRepoWarning } from "./components/EmptyRepoWarning"
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
@@ -24,7 +25,7 @@ import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitCloneInstruction } from "./GitCloneInstruction"
 import type { AppError } from "@/types/error"
 import { resolveInitialSource, defaultDescription } from "./utils"
-import type { GitCloneProps, GitCloneSource } from "./types"
+import type { GitCloneProps, GitCloneSource, LocalRepoInfo } from "./types"
 
 /**
  * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted).
@@ -158,7 +159,10 @@ function GitCloneInteractive({
     localPreview,
     localPreviewStatus,
     localPreviewError,
+    seedStatus,
+    seedError,
     clone,
+    initDefaultBranch,
     browseForRepoDir,
     previewLocalRepo,
     selectLocalRepo,
@@ -186,6 +190,10 @@ function GitCloneInteractive({
   // Which source the block is on. A prefilled checkout directory means the
   // author expects a local repo, so start there unless told otherwise.
   const [activeSource, setActiveSource] = useState<GitCloneSource>(initialSource)
+  // Metadata of the checkout the user confirmed, kept so the shared worktree
+  // registration effect can read it — including on a later pass, once an empty
+  // repo has been given its default branch.
+  const [selectedLocalInfo, setSelectedLocalInfo] = useState<LocalRepoInfo | null>(null)
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
@@ -222,30 +230,11 @@ function GitCloneInteractive({
 
   const handleUseLocalRepo = useCallback(async () => {
     const info = await selectLocalRepo(repoDir)
-    if (!info || !showFileTree) return
-
-    // Register the checkout exactly like a clone, so the workspace file tree
-    // and <GitPullRequest> treat both sources identically.
-    const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : null
-    // Split on both separators: the backend resolves the root with Node's
-    // path module, which yields backslashes on Windows.
-    const dirName = info.absolutePath.split(/[\\/]/).filter(Boolean).pop() ?? info.absolutePath
-    registerWorkTree({
-      id,
-      repoUrl: info.remoteUrl ?? '',
-      localPath: info.absolutePath,
-      gitInfo: {
-        repoUrl: info.remoteUrl ?? '',
-        repoName: parsed?.repo ?? dirName,
-        repoOwner: parsed?.org ?? '',
-        // The checked-out ref is the PR base branch, mirroring the clone path
-        // where the cloned ref plays that role.
-        ref: info.ref || 'main',
-        refType: info.refType === 'detached' ? 'commit' : info.refType,
-        commitSha: info.commitSha,
-      },
-    })
-  }, [selectLocalRepo, repoDir, showFileTree, registerWorkTree, id])
+    if (!info) return
+    // Registration itself happens in the effect below, which serves both
+    // sources and holds off while the repo has no commits.
+    setSelectedLocalInfo(info)
+  }, [selectLocalRepo, repoDir])
 
   const handleCopyPath = useCallback(async (key: string, value: string) => {
     const ok = await copyTextToClipboard(value)
@@ -304,32 +293,65 @@ function GitCloneInteractive({
     }
   }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
 
-  // Register the cloned repo as a git worktree when clone succeeds. The local
-  // checkout registers itself in handleUseLocalRepo, which has the repo's real
-  // remote and ref to hand — this path only covers cloning.
+  // Register the repo as a git worktree once it is usable, from either source:
+  // a clone, or a checkout the user already had. Held back while the repo has
+  // no commits — <GitPullRequest> takes the registered ref as its base branch,
+  // and an empty repo has no branch that could serve as one. Registration
+  // resumes on its own once the default branch is seeded, because that updates
+  // cloneResult.
   useEffect(() => {
-    if (activeSource === 'local') return
-    if (cloneStatus === 'success' && cloneResult && showFileTree) {
-      // Parse owner/repoName from the git URL
-      const parsed = parseOwnerRepoFromURL(gitUrl)
+    if (cloneStatus !== 'success' || !cloneResult || !showFileTree) return
+    if (cloneResult.hasCommits === false) return
+
+    if (activeSource === 'local') {
+      const info = selectedLocalInfo
+      if (!info) return
+      const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : null
+      // Split on both separators: the backend resolves the root with Node's
+      // path module, which yields backslashes on Windows.
+      const dirName = info.absolutePath.split(/[\\/]/).filter(Boolean).pop() ?? info.absolutePath
       registerWorkTree({
         id,
-        repoUrl: gitUrl.trim(),
-        repoPath: repoPath.trim() || undefined,
-        localPath: cloneResult.absolutePath,
+        repoUrl: info.remoteUrl ?? '',
+        localPath: info.absolutePath,
         gitInfo: {
-          repoUrl: gitUrl.trim(),
-          repoName: parsed?.repo ?? cloneResult.relativePath,
+          repoUrl: info.remoteUrl ?? '',
+          repoName: parsed?.repo ?? dirName,
           repoOwner: parsed?.org ?? '',
-          ref: ref.trim() || 'main',
-          refType: undefined, // Determined by the backend when the workspace tree is fetched
-          commitSha: undefined,
+          // The checked-out ref is the PR base branch, mirroring the clone path
+          // where the cloned ref plays that role. cloneResult.ref leads because
+          // seeding a default branch updates it and info.ref stays stale.
+          ref: cloneResult.ref || info.ref || 'main',
+          refType: info.refType === 'detached' ? 'commit' : info.refType,
+          commitSha: info.commitSha,
         },
       })
+      return
     }
+
+    // Parse owner/repoName from the git URL
+    const parsed = parseOwnerRepoFromURL(gitUrl)
+    registerWorkTree({
+      id,
+      repoUrl: gitUrl.trim(),
+      repoPath: repoPath.trim() || undefined,
+      localPath: cloneResult.absolutePath,
+      gitInfo: {
+        repoUrl: gitUrl.trim(),
+        repoName: parsed?.repo ?? cloneResult.relativePath,
+        repoOwner: parsed?.org ?? '',
+        // The ref the backend reports the clone actually landed on. The typed
+        // ref is only a fallback: leaving it blank clones the remote's default
+        // branch, which is not always 'main', and assuming otherwise put an
+        // invalid base branch on every PR opened against such a repo.
+        ref: cloneResult.ref || ref.trim() || 'main',
+        refType: undefined, // Determined by the backend when the workspace tree is fetched
+        commitSha: undefined,
+      },
+    })
     // Only run when clone status changes to success
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloneStatus, cloneResult])
+  }, [cloneStatus, cloneResult, selectedLocalInfo])
 
   // Seed the GitHub browser's org/repo, but only from GitHub URLs — feeding a
   // GitLab owner/repo into the GitHub browser would be meaningless.
@@ -451,12 +473,26 @@ function GitCloneInteractive({
 
           {/* Success state */}
           {cloneStatus === 'success' && cloneResult ? (
-            <CloneResultDisplay
-              result={cloneResult}
-              source={activeSource}
-              remoteUrl={localPreview?.remoteUrl}
-              onCloneAgain={handleCloneAgain}
-            />
+            <div className="space-y-3">
+              {/* An empty repo is a success as far as the clone goes, but it
+                  can't take a pull request yet — say so here rather than
+                  letting later blocks discover it the hard way. */}
+              {cloneResult.hasCommits === false && (
+                <EmptyRepoWarning
+                  suggestedBranch={cloneResult.ref || 'main'}
+                  status={seedStatus}
+                  error={seedError}
+                  onCreateDefaultBranch={initDefaultBranch}
+                />
+              )}
+              <CloneResultDisplay
+                result={cloneResult}
+                source={activeSource}
+                remoteUrl={localPreview?.remoteUrl}
+                warn={cloneResult.hasCommits === false}
+                onCloneAgain={handleCloneAgain}
+              />
+            </div>
           ) : (
             /* Form state (ready, running, fail) */
             <div className="space-y-3">

@@ -47,6 +47,13 @@ export interface CreatePullRequestParams {
   readonly repoPath: string
 }
 
+export interface SeedDefaultBranchParams {
+  readonly repoPath: string
+  /** Branch to create and push as the repo's first ref. */
+  readonly branch: string
+  readonly provider: "github" | "gitlab"
+}
+
 export interface ResolvedClonePaths {
   readonly absolutePath: string
   readonly relativePath: string
@@ -296,6 +303,105 @@ export const createMergeRequest = (
 
     return yield* glClient.createMergeRequest(token, mrParams)
   })
+
+/**
+ * Message for the commit that seeds an empty repository. Matches what GitHub
+ * and GitLab call the equivalent commit when they initialize a repo for you.
+ */
+const INITIAL_COMMIT_MESSAGE = "Initial commit"
+
+/**
+ * Give a repository that has no commits its first branch.
+ *
+ * A freshly created remote has no refs at all, so there is nothing for a pull
+ * request to target: the API rejects the base branch as `invalid`, and it does
+ * so at the very end, after the work has already been committed and pushed.
+ * Seeding the default branch up front creates that target.
+ *
+ * The commit is deliberately empty. It exists so the default branch has
+ * something to point at, which means the branch a runbook pushes later shares
+ * an ancestor with it and opens as a reviewable diff instead of an unrelated
+ * root commit.
+ */
+export const seedDefaultBranch = (
+  token: string,
+  params: SeedDefaultBranchParams,
+  onProgress?: (line: string) => void,
+) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    const report = makeReport(onProgress)
+
+    // This exists purely to rescue the empty case. A repo with history already
+    // has a branch to target, and manufacturing commits in one is never right.
+    if (yield* gitClient.hasCommits(params.repoPath)) {
+      return yield* Effect.fail(
+        new GitError({
+          command: "git commit --allow-empty",
+          stderr: "Repository already has commits, so it needs no initial branch.",
+          exitCode: 1,
+        }),
+      )
+    }
+
+    // Same fallback-author treatment as the PR/MR flows: only used when the
+    // machine has no git identity of its own configured.
+    const author = yield* (params.provider === "gitlab"
+      ? Effect.gen(function* () {
+          const remoteUrl = yield* gitClient
+            .getRemoteUrl(params.repoPath)
+            .pipe(Effect.orElseSucceed(() => ""))
+          return yield* resolveGitLabAuthor(token, gitlabBaseUrlFromRemoteUrl(remoteUrl))
+        })
+      : resolveGitHubAuthor(token))
+
+    yield* report(`Creating branch ${params.branch}…`)
+    yield* gitClient.createBranch(params.repoPath, params.branch)
+
+    // `git commit` without `-a` only commits the index, and an empty clone's
+    // index is empty — so files a runbook may already have written into the
+    // work tree stay untracked rather than landing in this commit.
+    yield* report("Creating an empty initial commit…")
+    yield* gitClient.commit(params.repoPath, INITIAL_COMMIT_MESSAGE, {
+      allowEmpty: true,
+      author,
+    })
+
+    yield* report(`Pushing ${params.branch} to origin…`)
+    yield* gitClient.push(params.repoPath, "origin", params.branch, {
+      token,
+      setUpstream: true,
+    })
+
+    return { branch: params.branch }
+  })
+
+/**
+ * Name of the branch an empty repository's HEAD points at before its first
+ * commit, or undefined when the repo has one (or git can't say).
+ *
+ * `rev-parse --abbrev-ref HEAD`, which getInfo and getCurrentBranch use, fails
+ * on an unborn HEAD, so ask git for the symbolic name instead. A clone inherits
+ * that name from the remote's advertised default branch, which is exactly the
+ * branch a pull request will later want to target — better than guessing
+ * "main" at a repo whose default is "master".
+ */
+export const unbornBranchName = (repoPath: string) =>
+  Effect.gen(function* () {
+    const spawner = yield* ProcessSpawner
+    const proc = yield* spawner.spawn("git", ["branch", "--show-current"], {
+      cwd: repoPath,
+      env: gitSpawnEnv(),
+    })
+
+    return yield* Effect.gen(function* () {
+      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+        .filter((l) => l.source === "stdout")
+        .map((l) => l.line.trim())
+        .filter(Boolean)
+      return (yield* proc.exitCode) === 0 ? lines[0] : undefined
+    }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))
+  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
 
 // ---------------------------------------------------------------------------
 // Path Resolution

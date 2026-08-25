@@ -49,6 +49,8 @@ export interface LocalRepoInfo {
   ref?: string
   refType?: 'branch' | 'tag' | 'detached'
   commitSha?: string
+  /** False for a repo with no commits: no branch exists for a PR to target. */
+  hasCommits?: boolean
 }
 
 /** Status of the clone operation */
@@ -59,6 +61,18 @@ export interface CloneResult {
   fileCount: number
   absolutePath: string
   relativePath: string
+  /**
+   * Ref the repo is checked out at — the base branch of any pull request
+   * opened against it. Reported by the backend rather than assumed, since a
+   * clone with no explicit ref follows the remote's default branch.
+   */
+  ref?: string
+  /**
+   * False when the repo has no commits yet. Such a repo has no branch for a
+   * pull request to target, so the block holds downstream work until one is
+   * seeded. Undefined from callers that predate the check.
+   */
+  hasCommits?: boolean
 }
 
 /** A GitHub organization or user account */
