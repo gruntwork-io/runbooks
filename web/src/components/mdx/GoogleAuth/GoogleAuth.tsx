@@ -39,6 +39,7 @@ function GoogleAuthInteractive({
   defaultZone,
   gcloudConfiguration,
   detectCredentials = ['env', 'adc'],  // Default: env vars, then the well-known ADC file
+  defaultTab,
   inputsId,
 }: GoogleAuthProps) {
   const validationError = useMemo((): AppError | null => {
@@ -98,6 +99,7 @@ function GoogleAuthInteractive({
     ...(defaultZone ? { defaultZone } : {}),
     ...(resolvedConfiguration ? { gcloudConfiguration: resolvedConfiguration } : {}),
     detectCredentials,
+    defaultTab,
   })
 
   // Track block render on mount

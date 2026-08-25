@@ -31,6 +31,18 @@ The AwsAuth block provides three ways to authenticate:
 | **AWS SSO** | Use AWS IAM Identity Center (formerly AWS SSO) | 
 | **Local Profile** | Use a profile from `~/.aws/credentials` | 
 
+Static Credentials is the tab users land on. Set `defaultTab` to open on a different one:
+
+```mdx
+<AwsAuth
+  id="aws-auth"
+  defaultTab="sso"
+  ssoStartUrl="https://my-company.awsapps.com/start"
+/>
+```
+
+The user can still switch tabs — `defaultTab` only chooses the starting one.
+
 ## Props
 
 | Prop | Type | Default | Description |
@@ -39,6 +51,7 @@ The AwsAuth block provides three ways to authenticate:
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
 | `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable |
+| `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
 | `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
 | `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured |

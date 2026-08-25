@@ -116,3 +116,45 @@ describe('GitAuth — provider switch (real hook)', () => {
     })
   })
 })
+
+describe('GitAuth — defaultTab (real hook)', () => {
+  it('opens on the PAT form when the author asks for it', () => {
+    render(
+      <TestWrapper>
+        <GitAuth id="git" defaultTab="pat" detectCredentials={false} />
+      </TestWrapper>,
+    )
+
+    expect(screen.getByPlaceholderText(/github_pat_/i)).toBeInTheDocument()
+    expect(screen.queryByText(/redirected to authorize/i)).toBeNull()
+  })
+
+  it('re-applies defaultTab after a provider switch', async () => {
+    render(
+      <TestWrapper>
+        <GitAuth id="git" provider="gitlab" defaultTab="pat" detectCredentials={false} />
+      </TestWrapper>,
+    )
+
+    expect(screen.getByPlaceholderText(/GitLab access token/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /GitHub/ }))
+
+    // GitHub defaults to OAuth, but the author pinned the PAT tab.
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/github_pat_/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/redirected to authorize/i)).toBeNull()
+  })
+
+  it('ignores a tab the provider does not offer', () => {
+    // GitLab has no OAuth device flow — the PAT form must still render.
+    render(
+      <TestWrapper>
+        <GitAuth id="git" provider="gitlab" defaultTab="oauth" detectCredentials={false} />
+      </TestWrapper>,
+    )
+
+    expect(screen.getByPlaceholderText(/GitLab access token/i)).toBeInTheDocument()
+  })
+})

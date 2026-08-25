@@ -52,6 +52,22 @@ The simplest form of GoogleAuth. With no `detectCredentials` prop, it defaults t
   failMessage="No usable Google Cloud credentials in the session environment."
 />
 
+### 1a. Choosing the Default Tab
+
+The block opens on the Service Account Key tab. `defaultTab` picks a different starting tab -- `"service_account"`, `"oauth"`, or `"gcloud"`. The user can still switch tabs; this only chooses which one is selected first.
+
+```mdx
+<GoogleAuth id="google-auth-gcloud-first" defaultTab="gcloud" />
+```
+
+<GoogleAuth
+  id="google-auth-gcloud-first"
+  title="gcloud Config First"
+  description="Opens on the gcloud Config tab instead of Service Account Key."
+  defaultTab="gcloud"
+  detectCredentials={false}
+/>
+
 ---
 
 ## 2. Credential Detection Options

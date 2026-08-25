@@ -87,6 +87,13 @@ export interface GitAuthProps {
   /** Credential detection configuration (default: ['env', 'cli']). */
   detectCredentials?: false | GitCredentialSource[]
   /**
+   * Which authentication tab the block opens on: 'oauth' (Sign in with
+   * GitHub) or 'pat' (Personal Access Token). Default: 'oauth' for GitHub,
+   * 'pat' for GitLab, which has no OAuth flow. A value the selected provider
+   * does not offer — or an unrecognized one — falls back to that default.
+   */
+  defaultTab?: GitAuthMethod
+  /**
    * GitLab only: pin the GitLab instance to authenticate against (e.g.
    * "gitlab.gruntwork.io"). When set, the host picker is hidden and detection
    * targets this host. When omitted, the block enumerates the hosts the user is

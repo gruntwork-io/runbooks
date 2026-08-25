@@ -1,5 +1,5 @@
 import { CheckCircle, XCircle, Loader2, KeyRound, User } from "lucide-react"
-import type { AuthStatus, AwsDetectionSource } from "./types"
+import type { AuthMethod, AuthStatus, AwsDetectionSource } from "./types"
 import { makeStatusStyles } from "../_shared/lib/statusStyles"
 
 // Status-based styling for the container, icon, and icon color. Maps are
@@ -44,4 +44,21 @@ export function getSourceLabel(source: AwsDetectionSource): string | null {
     default:
       return null
   }
+}
+
+// The tab the block opens on when the author sets no `defaultTab`.
+const FALLBACK_AUTH_METHOD: AuthMethod = 'credentials'
+
+const AUTH_METHODS: readonly AuthMethod[] = ['credentials', 'sso', 'profile']
+
+/**
+ * Resolve the `defaultTab` prop to the tab the block opens on. Runbook authors
+ * write raw MDX with no type checking, so the value is validated here: an
+ * unrecognized tab name falls back to Static Credentials rather than leaving
+ * the block with no form showing at all.
+ */
+export function resolveDefaultAuthMethod(defaultTab: string | undefined): AuthMethod {
+  return AUTH_METHODS.includes(defaultTab as AuthMethod)
+    ? (defaultTab as AuthMethod)
+    : FALLBACK_AUTH_METHOD
 }

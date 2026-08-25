@@ -1,5 +1,6 @@
 import { CheckCircle, XCircle, Loader2, KeyRound } from "lucide-react"
-import type { GitAuthStatus } from "./types"
+import type { GitAuthMethod, GitAuthStatus } from "./types"
+import type { ProviderConfig } from "./providers"
 import { makeStatusStyles } from "../_shared/lib/statusStyles"
 
 /**
@@ -48,3 +49,20 @@ export const { getStatusClasses, getStatusIcon, getStatusIconClasses } = makeSta
     pending: 'text-info',
   },
 })
+
+/**
+ * Resolve the `defaultTab` prop to the tab the block opens on for a given
+ * provider. Unlike AwsAuth/GoogleAuth the valid set is provider-dependent —
+ * GitLab has no OAuth flow — so a tab the provider does not offer falls back
+ * to that provider's default (OAuth where supported, otherwise PAT), as does
+ * an unrecognized value from untyped MDX.
+ */
+export function resolveDefaultAuthMethod(
+  provider: ProviderConfig,
+  defaultTab: string | undefined,
+): GitAuthMethod {
+  if (defaultTab && provider.manualMethods.includes(defaultTab as GitAuthMethod)) {
+    return defaultTab as GitAuthMethod
+  }
+  return provider.supportsOAuth ? 'oauth' : 'pat'
+}

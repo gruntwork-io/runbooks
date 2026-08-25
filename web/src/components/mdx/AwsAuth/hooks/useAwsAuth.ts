@@ -14,6 +14,7 @@ import type {
   AwsCredentialSource,
   DetectedAwsCredentials,
 } from "../types"
+import { resolveDefaultAuthMethod } from "../utils"
 
 interface UseAwsAuthOptions {
   id: string
@@ -23,6 +24,8 @@ interface UseAwsAuthOptions {
   ssoRoleName?: string
   defaultRegion: string
   detectCredentials?: false | AwsCredentialSource[]
+  /** Tab to open on; validated by resolveDefaultAuthMethod. */
+  defaultTab?: string
 }
 
 export function useAwsAuth({
@@ -33,12 +36,16 @@ export function useAwsAuth({
   ssoRoleName,
   defaultRegion,
   detectCredentials = ['env'],  // Default: auto-detect from env vars
+  defaultTab,
 }: UseAwsAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
   // Core auth state
-  const [authMethod, setAuthMethod] = useState<AuthMethod>('credentials')
+  // The starting tab is the author's `defaultTab` (validated), not a constant.
+  // Only the initial value is taken from the prop — the user's tab clicks own
+  // it from then on.
+  const [authMethod, setAuthMethod] = useState<AuthMethod>(() => resolveDefaultAuthMethod(defaultTab))
   const [authStatus, setAuthStatus] = useState<AuthStatus>('pending')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)

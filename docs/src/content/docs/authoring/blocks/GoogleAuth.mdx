@@ -33,6 +33,14 @@ The GoogleAuth block provides three ways to authenticate:
 
 All three tabs also offer an optional **Default Region** picker, which seeds the region environment variables for subsequent commands.
 
+Service Account Key is the tab users land on. Set `defaultTab` to open on a different one:
+
+```mdx
+<GoogleAuth id="gcp-auth" defaultTab="gcloud" />
+```
+
+The user can still switch tabs — `defaultTab` only chooses the starting one.
+
 <Aside type="note">
 Runbooks never shells out to the `gcloud` binary. Service account keys are validated by minting a real access token, sign-in uses a loopback OAuth redirect, and the gcloud tab reads gcloud's own configuration files directly. You do not need the Google Cloud CLI installed for any of the three tabs — though the gcloud tab is only useful if you have used it before to create credentials.
 </Aside>
@@ -48,6 +56,7 @@ Runbooks never shells out to the `gcloud` binary. Service account keys are valid
 | `defaultRegion` | `string` | — | Default compute region for subsequent commands. Sets `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, and `GOOGLE_REGION` |
 | `defaultZone` | `string` | — | Default compute zone for subsequent commands. Sets `CLOUDSDK_COMPUTE_ZONE` and `GOOGLE_ZONE` |
 | `gcloudConfiguration` | `string` | — | Pre-select a named gcloud configuration in the gcloud Config tab (supports template expressions) |
+| `defaultTab` | `'service_account'`, `'oauth'`, or `'gcloud'` | `'service_account'` | Which authentication tab the block opens on. An unrecognized value falls back to `'service_account'` |
 | `scopes` | `string[]` | `cloud-platform`, `userinfo.email`, `openid` | OAuth scopes requested by Google Sign-In. When set, also **required** of any auto-detected or gcloud user ADC this block will accept (service-account keys are exempt) |
 | `oauthClientId` | `string` | — | Client ID of a Google Cloud "Desktop app" OAuth client. Must be paired with `oauthClientSecret`. Mutually exclusive with `oauthClientFile`. See [Using your own OAuth client](#using-your-own-oauth-client) |
 | `oauthClientSecret` | `string` | — | Client secret issued alongside the Desktop OAuth client. Required whenever `oauthClientId` is set. Per RFC 8252 this value is not confidential; Google simply issues one with every Desktop client |
