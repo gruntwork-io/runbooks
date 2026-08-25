@@ -376,7 +376,14 @@ export function registerGitHandlers(): void {
           // becomes the base branch of any pull request opened against this
           // checkout, so guessing it wrong fails the PR at the very last step.
           const gitClient = yield* GitClient
-          const hasCommits = yield* gitClient.hasCommits(paths.absolutePath)
+          // Best-effort, like every other caller: a failed query must not fail
+          // the whole clone after it already landed on disk, which would lose
+          // the outputs and skip worktree registration. A repo we cannot read
+          // counts as having history, so nobody is offered a seeded branch by
+          // mistake.
+          const hasCommits = yield* gitClient
+            .hasCommits(paths.absolutePath)
+            .pipe(Effect.orElseSucceed(() => true))
           const clonedRef = hasCommits
             ? (yield* gitClient
                 .getCurrentBranch(paths.absolutePath)

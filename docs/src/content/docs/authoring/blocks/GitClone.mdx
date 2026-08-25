@@ -134,7 +134,7 @@ A repository that was created but never pushed to has no branches at all. Nothin
 
 GitClone detects this case for both sources. When the repo has no commits, the block:
 
-- renders in the warning colour rather than reporting a plain success,
+- renders in the warning color rather than reporting a plain success,
 - withholds its outputs (including `clone_path`) and does not register the repository with the workspace, so blocks that depend on it stay blocked,
 - offers a **Create default branch** button that pushes a single empty commit to the branch the remote advertises as its default. The name is editable before you press it.
 

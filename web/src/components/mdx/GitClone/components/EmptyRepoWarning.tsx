@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { AlertTriangle, GitBranch, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -26,6 +26,9 @@ export function EmptyRepoWarning({
   onCreateDefaultBranch,
 }: EmptyRepoWarningProps) {
   const [branch, setBranch] = useState(suggestedBranch)
+  // A runbook can hold several GitClone blocks; a shared literal id would point
+  // every label at the first input.
+  const inputId = useId()
   const isRunning = status === 'running'
   const trimmed = branch.trim()
 
@@ -49,13 +52,13 @@ export function EmptyRepoWarning({
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="empty-repo-branch" className="sr-only">
+            <label htmlFor={inputId} className="sr-only">
               Default branch name
             </label>
             <div className="flex items-center gap-1.5">
               <GitBranch className="size-4 text-warning-foreground flex-shrink-0" />
               <input
-                id="empty-repo-branch"
+                id={inputId}
                 type="text"
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
