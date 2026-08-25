@@ -46,6 +46,15 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const [localPreviewStatus, setLocalPreviewStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const [localPreviewError, setLocalPreviewError] = useState<string | null>(null)
 
+  // Seeding an empty repo's default branch: status of that one action, plus
+  // the outputs held back until it succeeds. A repo with no commits has no
+  // branch for a pull request to target, so the block withholds its outputs
+  // (and its worktree registration) rather than letting downstream blocks run
+  // toward a failure that only surfaces after their work is already pushed.
+  const [seedStatus, setSeedStatus] = useState<'idle' | 'running' | 'fail'>('idle')
+  const [seedError, setSeedError] = useState<string | null>(null)
+  const pendingOutputsRef = useRef<Record<string, string> | null>(null)
+
   // Guards against a slow preview for an earlier path landing after a newer one.
   const previewSeqRef = useRef(0)
 
@@ -182,7 +191,14 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
       if (result.status === 'success') {
         if (result.outputs) {
-          registerOutputs(id, result.outputs)
+          // Hold the outputs back for an empty repo — publishing clone_path
+          // would let downstream blocks start work this repo can't yet accept
+          // a pull request for.
+          if (result.hasCommits === false) {
+            pendingOutputsRef.current = result.outputs
+          } else {
+            registerOutputs(id, result.outputs)
+          }
         }
         setCloneResult(result as unknown as typeof cloneResult)
         setCloneStatus('success')
@@ -275,12 +291,18 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       }
 
       if (result.outputs) {
-        registerOutputs(id, result.outputs)
+        if (result.hasCommits === false) {
+          pendingOutputsRef.current = result.outputs
+        } else {
+          registerOutputs(id, result.outputs)
+        }
       }
       setCloneResult({
         fileCount: result.fileCount ?? 0,
         absolutePath: result.absolutePath ?? '',
         relativePath: result.relativePath ?? '',
+        ref: result.ref,
+        hasCommits: result.hasCommits,
       })
       setCloneStatus('success')
       return result as LocalRepoInfo
@@ -291,6 +313,43 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       return null
     }
   }, [api, id, registerOutputs, authProvider])
+
+  // Seed an empty repo's default branch with an empty initial commit, then
+  // release everything that was held back so the block behaves exactly as it
+  // would have if the repo had arrived with commits.
+  const initDefaultBranch = useCallback(async (branch: string) => {
+    if (!cloneResult?.absolutePath) return
+    setSeedStatus('running')
+    setSeedError(null)
+
+    try {
+      const result = await api.invoke('git:init-default-branch', {
+        worktreePath: cloneResult.absolutePath,
+        branch,
+        ...(authProvider ? { provider: authProvider } : {}),
+      })
+
+      if ('error' in result) {
+        setSeedError(result.error)
+        setSeedStatus('fail')
+        return
+      }
+
+      if (pendingOutputsRef.current) {
+        registerOutputs(id, pendingOutputsRef.current)
+        pendingOutputsRef.current = null
+      }
+      // The seeded branch is now the repo's only ref, so it is what a pull
+      // request should target.
+      setCloneResult(prev =>
+        prev ? { ...prev, hasCommits: true, ref: result.branch } : prev,
+      )
+      setSeedStatus('idle')
+    } catch (error) {
+      setSeedError(error instanceof Error ? error.message : 'Failed to create the default branch')
+      setSeedStatus('fail')
+    }
+  }, [api, id, cloneResult, registerOutputs, authProvider])
 
   // Cancel an in-progress clone by unsubscribing from progress events
   const cancel = useCallback(() => {
@@ -307,6 +366,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     setLogs([])
     setCloneResult(null)
     setErrorMessage(null)
+    pendingOutputsRef.current = null
+    setSeedStatus('idle')
+    setSeedError(null)
   }, [])
 
   // The local checkout's own metadata survives a reset — the preview is
@@ -331,9 +393,12 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     localPreview,
     localPreviewStatus,
     localPreviewError,
+    seedStatus,
+    seedError,
 
     // Actions
     clone,
+    initDefaultBranch,
     browseForRepoDir,
     previewLocalRepo,
     selectLocalRepo,
