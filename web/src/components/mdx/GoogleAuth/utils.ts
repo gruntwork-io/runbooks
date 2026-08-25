@@ -1,5 +1,5 @@
 import { CheckCircle, XCircle, Loader2, KeyRound, FolderOpen } from "lucide-react"
-import type { GoogleAuthStatus, GoogleDetectionSource } from "./types"
+import type { GoogleAuthMethod, GoogleAuthStatus, GoogleDetectionSource } from "./types"
 import { makeStatusStyles } from "../_shared/lib/statusStyles"
 
 // Status-based styling for the container, icon, and icon color. Maps are
@@ -47,4 +47,21 @@ export function getSourceLabel(source: GoogleDetectionSource): string | null {
     default:
       return null
   }
+}
+
+// The tab the block opens on when the author sets no `defaultTab`.
+const FALLBACK_AUTH_METHOD: GoogleAuthMethod = 'service_account'
+
+const AUTH_METHODS: readonly GoogleAuthMethod[] = ['service_account', 'oauth', 'gcloud']
+
+/**
+ * Resolve the `defaultTab` prop to the tab the block opens on. Runbook authors
+ * write raw MDX with no type checking, so the value is validated here: an
+ * unrecognized tab name falls back to the Service Account Key tab rather than
+ * leaving the block with no form showing at all.
+ */
+export function resolveDefaultAuthMethod(defaultTab: string | undefined): GoogleAuthMethod {
+  return AUTH_METHODS.includes(defaultTab as GoogleAuthMethod)
+    ? (defaultTab as GoogleAuthMethod)
+    : FALLBACK_AUTH_METHOD
 }

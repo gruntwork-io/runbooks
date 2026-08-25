@@ -66,6 +66,7 @@ Only `gitlab.com` and `github.com` are supported today. Self-managed GitLab and 
 | `oauthClientId` | `string` | No | Gruntwork's app | Custom GitHub OAuth App client ID. GitHub only. |
 | `oauthScopes` | `string[]` | No | `['repo']` (GitHub) | OAuth scopes to request. |
 | `detectCredentials` | `false \| GitCredentialSource[]` | No | `['env', 'cli']` | Credential auto-detection sources, applied to the selected provider. Set to `false` to disable. |
+| `defaultTab` | `'oauth' \| 'pat'` | No | `'oauth'` (GitHub), `'pat'` (GitLab) | Which authentication tab the block opens on. GitLab has no OAuth flow, so `'oauth'` falls back to `'pat'` there. Re-applied when the user switches providers. |
 | `inputsId` | `string \| string[]` | No | — | Reference one or more `<Inputs>` blocks for template expressions in props. |
 
 ## Usage

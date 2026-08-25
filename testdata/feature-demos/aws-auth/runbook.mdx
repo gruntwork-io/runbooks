@@ -40,6 +40,25 @@ The simplest form of AwsAuth. With no `detectCredentials` prop, it defaults to `
   usePty={false}
 />
 
+### 1a. Choosing the Default Tab
+
+The block opens on the Static Credentials tab. `defaultTab` picks a different starting tab -- `"credentials"`, `"sso"`, or `"profile"`. The user can still switch tabs; this only chooses which one is selected first.
+
+```mdx
+<AwsAuth id="aws-auth-sso-first" defaultTab="sso" ssoStartUrl="..." />
+```
+
+<AwsAuth
+  id="aws-auth-sso-first"
+  title="SSO First"
+  description="Opens on the AWS SSO tab instead of Static Credentials."
+  defaultTab="sso"
+  defaultRegion="us-west-2"
+  ssoRegion="us-west-2"
+  ssoStartUrl="https://d-9267d384ee.awsapps.com/start"
+  detectCredentials={false}
+/>
+
 ---
 
 ## 2. Credential Detection Options

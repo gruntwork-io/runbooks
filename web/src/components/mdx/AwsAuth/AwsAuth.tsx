@@ -36,6 +36,7 @@ function AwsAuthInteractive({
   ssoRoleName,
   defaultRegion = "us-east-1",
   detectCredentials = ['env'],  // Default: auto-detect from env vars
+  defaultTab,
   inputsId,
 }: AwsAuthProps) {
   const validationError = useMemo((): AppError | null => {
@@ -78,6 +79,7 @@ function AwsAuthInteractive({
     ssoRoleName,
     defaultRegion,
     detectCredentials,
+    defaultTab,
   })
 
   // Track block render on mount

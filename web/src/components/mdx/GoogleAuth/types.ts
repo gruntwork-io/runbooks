@@ -163,6 +163,12 @@ export interface GoogleAuthProps {
   /** Pin the named gcloud configuration used by the third tab. */
   gcloudConfiguration?: string
   /**
+   * Which authentication tab the block opens on: 'service_account' (Service
+   * Account Key), 'oauth' (Google Sign-In), or 'gcloud' (gcloud Config).
+   * Default: 'service_account'. An unrecognized value falls back to the default.
+   */
+  defaultTab?: GoogleAuthMethod
+  /**
    * Credential detection configuration.
    * - `false`: disable auto-detection, show manual auth only
    * - Array of sources: try each source in order until one succeeds

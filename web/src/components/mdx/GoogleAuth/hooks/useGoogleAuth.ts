@@ -15,6 +15,7 @@ import type {
   GoogleDetectionStatus,
   GoogleProjectInfo,
 } from "../types"
+import { resolveDefaultAuthMethod } from "../utils"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -112,6 +113,8 @@ export interface UseGoogleAuthOptions {
   defaultZone?: string
   gcloudConfiguration?: string
   detectCredentials?: false | GoogleCredentialSource[]
+  /** Tab to open on; validated by resolveDefaultAuthMethod. */
+  defaultTab?: string
 }
 
 export interface UseGoogleAuthReturn {
@@ -238,13 +241,17 @@ export function useGoogleAuth({
   defaultZone,
   gcloudConfiguration,
   detectCredentials = ['env', 'adc'],
+  defaultTab,
 }: UseGoogleAuthOptions): UseGoogleAuthReturn {
   const api = useApi()
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
   // ---- Core auth state ------------------------------------------------------
-  const [authMethod, setAuthMethod] = useState<GoogleAuthMethod>('service_account')
+  // The starting tab is the author's `defaultTab` (validated), not a constant.
+  // Only the initial value comes from the prop — the user's tab clicks own it
+  // from then on.
+  const [authMethod, setAuthMethod] = useState<GoogleAuthMethod>(() => resolveDefaultAuthMethod(defaultTab))
   const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>('pending')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)

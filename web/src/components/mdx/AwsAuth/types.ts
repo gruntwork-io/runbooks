@@ -75,6 +75,12 @@ export interface AwsAuthProps {
   /** Default AWS region for CLI commands that don't specify a region */
   defaultRegion?: string
   /**
+   * Which authentication tab the block opens on: 'credentials' (Static
+   * Credentials), 'sso' (AWS SSO), or 'profile' (Local Profile).
+   * Default: 'credentials'. An unrecognized value falls back to the default.
+   */
+  defaultTab?: AuthMethod
+  /**
    * Credential detection configuration.
    * - `false`: Disable auto-detection, show manual auth only
    * - Array of sources: Try each source in order until one succeeds

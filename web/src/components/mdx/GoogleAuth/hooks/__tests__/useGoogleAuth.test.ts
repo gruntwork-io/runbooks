@@ -1462,3 +1462,26 @@ describe('useGoogleAuth — post-authentication', () => {
     ])
   })
 })
+
+// Which tab the block opens on. Decided once, at mount, from the author's
+// `defaultTab`; the user's tab clicks own it from then on.
+describe('useGoogleAuth — defaultTab', () => {
+  const renderWithTab = (defaultTab?: string) => {
+    installApi(() => ({}))
+    return renderGoogleAuth({ id: 'gcp', detectCredentials: false, defaultTab })
+  }
+
+  it('opens on the Service Account Key tab when no defaultTab is set', () => {
+    expect(renderWithTab().result.current.authMethod).toBe('service_account')
+  })
+
+  it('opens on the tab the author asked for', () => {
+    expect(renderWithTab('oauth').result.current.authMethod).toBe('oauth')
+    expect(renderWithTab('gcloud').result.current.authMethod).toBe('gcloud')
+  })
+
+  it('falls back to the Service Account Key tab for an unrecognized tab name', () => {
+    // MDX props are untyped, so a typo must not leave the block formless.
+    expect(renderWithTab('sign-in').result.current.authMethod).toBe('service_account')
+  })
+})

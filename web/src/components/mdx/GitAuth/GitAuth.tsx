@@ -17,7 +17,7 @@ import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
 import { PROVIDERS } from "./providers"
 import { useGitAuth } from "./hooks/useGitAuth"
-import { getStatusClasses, getStatusIcon, getStatusIconClasses } from "./utils"
+import { getStatusClasses, getStatusIcon, getStatusIconClasses, resolveDefaultAuthMethod } from "./utils"
 import { ProviderSelect } from "./components/ProviderSelect"
 import { HostSelect } from "./components/HostSelect"
 import { AuthTabs } from "./components/AuthTabs"
@@ -41,6 +41,7 @@ function GitAuthInteractive({
   oauthScopes,
   detectCredentials,
   host,
+  defaultTab,
   inputsId,
   __registryType = 'GitAuth',
 }: GitAuthInternalProps) {
@@ -87,19 +88,21 @@ function GitAuthInteractive({
     oauthScopes: effectiveOAuthScopes,
     detectCredentials,
     host,
+    defaultTab,
   })
 
   // Switch providers: cancel any in-flight OAuth poll, drop the prior
   // provider's outputs, reset transient + detection state so detection re-runs,
   // and reset the auth method to the new provider's default (GitLab has no
-  // OAuth, so a leftover 'oauth' method would render no form at all).
+  // OAuth, so a leftover 'oauth' method would render no form at all). The
+  // author's `defaultTab` applies again here when the new provider offers it.
   const handleSelectProvider = (next: GitProvider) => {
     if (next === provider) return
     auth.cancelOAuth()
     auth.clearRegisteredOutputs(next)
     auth.resetAuth()
     auth.resetDetectionState()
-    auth.setAuthMethod(PROVIDERS[next].supportsOAuth ? 'oauth' : 'pat')
+    auth.setAuthMethod(resolveDefaultAuthMethod(PROVIDERS[next], defaultTab))
     setCustomOAuthDismissed(false)
     setUseDefaultOAuth(false)
     setProvider(next)

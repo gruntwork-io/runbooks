@@ -19,6 +19,7 @@ import type {
 } from "../types"
 import { isCliAuthFound, OTHER_INSTANCE_SENTINEL } from "../types"
 import type { ProviderConfig } from "../providers"
+import { resolveDefaultAuthMethod } from "../utils"
 
 interface UseGitAuthOptions {
   id: string
@@ -28,6 +29,8 @@ interface UseGitAuthOptions {
   oauthClientId?: string
   oauthScopes?: string[]
   detectCredentials?: false | GitCredentialSource[]
+  /** Tab to open on; validated against the provider by resolveDefaultAuthMethod. */
+  defaultTab?: string
   /** GitLab only: an authored host that pins the instance and hides the picker. */
   host?: string
 }
@@ -60,14 +63,17 @@ export function useGitAuth({
   oauthScopes = ['repo'],
   detectCredentials = ['env', 'cli'],
   host,
+  defaultTab,
 }: UseGitAuthOptions) {
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
-  // Core auth state. The default manual method depends on the provider: GitHub
-  // defaults to OAuth, GitLab (no OAuth) to PAT.
+  // Core auth state. The starting tab is the author's `defaultTab` when the
+  // provider offers it; otherwise the provider's own default (GitHub → OAuth,
+  // GitLab → PAT, as it has no OAuth). Only the initial value comes from the
+  // prop — the user's tab clicks own it from then on.
   const [authMethod, setAuthMethod] = useState<GitAuthMethod>(
-    provider.supportsOAuth ? 'oauth' : 'pat'
+    () => resolveDefaultAuthMethod(provider, defaultTab)
   )
   const [authStatus, setAuthStatus] = useState<GitAuthStatus>('pending')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
