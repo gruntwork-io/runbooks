@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import DirPicker from '../DirPicker'
 import { TestWrapper } from '@/test/test-utils'
@@ -10,12 +10,27 @@ vi.mock('@/contexts/useSession', () => ({
   }),
 }))
 
+// The real useDirPicker hook calls `window.api.invoke('workspace:dirs', ...)` when
+// a `rootDir` is provided, so stub it to resolve deterministically instead of
+// throwing in jsdom (where `window.api` is undefined).
+const originalApi = window.api
+
+beforeEach(() => {
+  window.api = {
+    invoke: vi.fn(async () => ({ dirs: [] })),
+  } as unknown as typeof window.api
+})
+
+afterEach(() => {
+  window.api = originalApi
+})
+
 describe('DirPicker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('renders without crashing when dirLabels is omitted', () => {
+  it('renders without crashing when dirLabels is omitted', async () => {
     // Regression guard: dirLabels was a required prop dereferenced via
     // `dirLabels.length`, so omitting it crashed the block at render.
     render(
@@ -23,6 +38,10 @@ describe('DirPicker', () => {
         <DirPicker id="test-picker" rootDir="/tmp/test-dir" />
       </TestWrapper>
     )
+
+    // Await the async directory fetch so the resulting state update is wrapped
+    // in act(...) rather than firing after the test's render scope has closed.
+    await screen.findByPlaceholderText(/production\/us-east-1/)
 
     expect(screen.getByTestId('test-picker')).toBeDefined()
     expect(screen.queryByText(/requires either a/)).toBeNull()
@@ -73,12 +92,16 @@ describe('DirPicker', () => {
     expect(screen.queryByText('Complete the GitClone block above to browse directories.')).toBeNull()
   })
 
-  it('renders without waiting state when rootDir is provided', () => {
+  it('renders without waiting state when rootDir is provided', async () => {
     render(
       <TestWrapper>
         <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} rootDir="/tmp/test-dir" />
       </TestWrapper>
     )
+
+    // Await the async directory fetch so the resulting state update is wrapped
+    // in act(...) rather than firing after the test's render scope has closed.
+    await screen.findByPlaceholderText(/production\/us-east-1/)
 
     // Should not show waiting message or missing-config error
     expect(screen.queryByText('Complete the GitClone block above to browse directories.')).toBeNull()
