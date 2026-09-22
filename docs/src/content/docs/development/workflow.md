@@ -24,6 +24,8 @@ just dev
 
 This runs `electron-vite` in dev mode with hot module replacement (HMR) for the renderer process.
 
+It first runs `just fetch-boilerplate`, which downloads the pinned [Boilerplate](https://github.com/gruntwork-io/boilerplate) release (CLI + WASM build) into `resources/`. The app always renders templates with this vendored copy — it never uses a `boilerplate` installed on your `PATH` — so the version you develop against is the same one that ships in the packaged app. To bump it, change `boilerplate_version` in the `justfile` and re-run `just fetch-boilerplate`.
+
 ## Making Changes
 
 **Frontend (web/src/):**

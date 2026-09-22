@@ -2,7 +2,8 @@
  * Node-side live implementation of {@link WasmRuntime}.
  *
  * Loads the boilerplate-full WASM module from the directory pointed to by
- * BOILERPLATE_WASM_DIR. The directory must contain:
+ * BOILERPLATE_WASM_DIR, which the main process sets to the vendored copy
+ * under resources/wasm (`just fetch-boilerplate`). The directory must contain:
  *   - wasm_exec.js                (Go's WASM runtime glue, sets globalThis.Go)
  *   - boilerplate-full.wasm.br    (brotli-compressed full build, ~3.7 MB)
  *
@@ -74,8 +75,7 @@ async function loadWasm(): Promise<BoilerplateExports> {
   if (!wasmDir || wasmDir.length === 0) {
     throw new Error(
       `${BOILERPLATE_WASM_DIR_ENV} is not set; WASM renderer is disabled. ` +
-        "Either set it to a directory containing boilerplate-full.wasm.br + wasm_exec.js, " +
-        "or run with the subprocess renderer.",
+        "The main process must point it at the vendored boilerplate WASM dir (resources/wasm).",
     )
   }
 
@@ -137,8 +137,8 @@ async function loadWasm(): Promise<BoilerplateExports> {
 function ensureLoading(): Promise<BoilerplateExports> {
   if (!loadPromise) {
     loadPromise = loadWasm().catch((err) => {
-      // Reset on failure so a subsequent call can retry (e.g., after the
-      // user sets BOILERPLATE_WASM_DIR). Without the reset, every future
+      // Reset on failure so a subsequent call can retry (e.g., a transient
+      // read error on the vendored blob). Without the reset, every future
       // call would receive the cached rejection.
       loadPromise = null
       throw err

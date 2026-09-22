@@ -23,7 +23,7 @@ import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
-import { eagerLoadInBackground as eagerLoadBoilerplateWasm, isWasmConfigured } from "../../src/layers/NodeWasmRuntime.ts"
+import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { Effect } from "effect"
 import { coldReadSystemPems, installSystemTrust, refreshSystemPems } from "../../src/domain/tls/system-ca.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
@@ -141,11 +141,16 @@ export function registerExtraCaPems(pems: string[]): void {
   installAndLog(lastKnownSystemPems, "glab ca_cert harvest")
 }
 
-// Point the boilerplate renderer at the bundled CLI + WASM artifacts the
+// Point the boilerplate renderer at the vendored CLI + WASM artifacts the
 // `just fetch-boilerplate` recipe drops under resources/. In packaged
 // builds, electron-builder.extraResources puts them next to app.asar; in
-// dev (`electron-vite dev`), app.getAppPath() is the repo root. User-set
-// env vars win so devs can still override with a custom build.
+// dev (`electron-vite dev`), resources/ sits at the repo root.
+//
+// Always the vendored copy, unconditionally: a `boilerplate` on the user's
+// PATH or a stale BOILERPLATE_BIN exported from their shell rc (which
+// populateShellEnv() has already merged in above) must never be picked up.
+// The CLI and WASM blob are pinned to the same release in the justfile, and
+// a version skew between them silently changes how templates render.
 {
   // Packaged: extraResources lands files under process.resourcesPath
   // (e.g. .app/Contents/Resources/bin, .../wasm). Dev (electron <main.js>
@@ -154,19 +159,26 @@ export function registerExtraCaPems(pems: string[]): void {
   const resourcesDir = app.isPackaged
     ? process.resourcesPath
     : path.resolve(__dirname, "..", "..", "resources")
-  if (!process.env.BOILERPLATE_BIN) {
-    const bundled = path.join(
-      resourcesDir,
-      "bin",
-      process.platform === "win32" ? "boilerplate.exe" : "boilerplate",
+  const vendoredBin = path.join(
+    resourcesDir,
+    "bin",
+    process.platform === "win32" ? "boilerplate.exe" : "boilerplate",
+  )
+  const vendoredWasmDir = path.join(resourcesDir, "wasm")
+  process.env.BOILERPLATE_BIN = vendoredBin
+  process.env.BOILERPLATE_WASM_DIR = vendoredWasmDir
+
+  // Missing artifacts mean a broken checkout or package, not a reason to go
+  // hunting on PATH. Say so loudly; the render layers will fail with the
+  // vendored path in their error so the cause is obvious.
+  const missing = [vendoredBin, path.join(vendoredWasmDir, "boilerplate-full.wasm.br")].filter(
+    (f) => !fs.existsSync(f),
+  )
+  if (missing.length > 0) {
+    log.error(
+      `Vendored boilerplate artifacts missing (${missing.join(", ")}); ` +
+        "template rendering will fail. Run `just fetch-boilerplate`.",
     )
-    if (fs.existsSync(bundled)) process.env.BOILERPLATE_BIN = bundled
-  }
-  if (!process.env.BOILERPLATE_WASM_DIR) {
-    const bundledWasmDir = path.join(resourcesDir, "wasm")
-    if (fs.existsSync(path.join(bundledWasmDir, "boilerplate-full.wasm.br"))) {
-      process.env.BOILERPLATE_WASM_DIR = bundledWasmDir
-    }
   }
 }
 
@@ -410,12 +422,9 @@ app.whenReady().then(() => {
 
   // Kick off the boilerplate WASM load as a background task. The full build
   // is ~600-900ms to instantiate; running it now overlaps the cost with the
-  // user reading the runbook before their first edit. Gated on
-  // BOILERPLATE_WASM_DIR — without it, the cold subprocess renderer is used.
-  if (isWasmConfigured()) {
-    log.info("Boilerplate WASM dir configured, starting eager background load")
-    eagerLoadBoilerplateWasm()
-  }
+  // user reading the runbook before their first edit.
+  log.info("Starting eager background load of vendored boilerplate WASM")
+  eagerLoadBoilerplateWasm()
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
   if (cliConfig.remoteUrl) {

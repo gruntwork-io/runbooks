@@ -36,7 +36,7 @@ export const NodeBundleProducerLive = Layer.effect(
           if (cached) return cached
 
           const t0 = Date.now()
-          const binary = resolveBoilerplateBinary()
+          const binary = yield* resolveBoilerplateBinary()
           const args = [
             "inputs",
             "map",
@@ -49,7 +49,7 @@ export const NodeBundleProducerLive = Layer.effect(
             Effect.mapError(
               (err) =>
                 new RenderError({
-                  message: `Failed to spawn boilerplate binary "${binary}" for bundle producer. Ensure it is installed and on PATH, or set BOILERPLATE_BIN.`,
+                  message: `Failed to spawn vendored boilerplate binary "${binary}" for bundle producer. The bundled copy is missing or not executable; run \`just fetch-boilerplate\`.`,
                   cause: err,
                 }),
             ),
@@ -94,11 +94,12 @@ export const NodeBundleProducerLive = Layer.effect(
 
           if (!parsed.bundle || typeof parsed.bundle !== "object") {
             // --include-bundle is supposed to set this; if it's missing the
-            // CLI is likely an older version that pre-dates the flag.
+            // vendored CLI pre-dates the flag (boilerplate_version in the
+            // justfile was rolled back too far).
             return yield* Effect.fail(
               new RenderError({
                 message:
-                  "boilerplate inputs map produced no `bundle` field. Confirm BOILERPLATE_BIN points at a binary built from feat/input-file-mapping or later.",
+                  "boilerplate inputs map produced no `bundle` field. The vendored boilerplate release is too old for `inputs map --include-bundle`; check boilerplate_version in the justfile.",
               }),
             )
           }
