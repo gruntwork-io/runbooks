@@ -151,6 +151,11 @@ export function registerExtraCaPems(pems: string[]): void {
 // populateShellEnv() has already merged in above) must never be picked up.
 // The CLI and WASM blob are pinned to the same release in the justfile, and
 // a version skew between them silently changes how templates render.
+//
+// The one escape hatch is RUNBOOKS_BOILERPLATE_BIN / RUNBOOKS_BOILERPLATE_WASM_DIR
+// for testing a custom boilerplate build. The names are deliberately
+// different from the BOILERPLATE_* vars the render layers read: nobody has
+// RUNBOOKS_BOILERPLATE_BIN set by accident, so it stays an explicit choice.
 {
   // Packaged: extraResources lands files under process.resourcesPath
   // (e.g. .app/Contents/Resources/bin, .../wasm). Dev (electron <main.js>
@@ -165,19 +170,31 @@ export function registerExtraCaPems(pems: string[]): void {
     process.platform === "win32" ? "boilerplate.exe" : "boilerplate",
   )
   const vendoredWasmDir = path.join(resourcesDir, "wasm")
-  process.env.BOILERPLATE_BIN = vendoredBin
-  process.env.BOILERPLATE_WASM_DIR = vendoredWasmDir
 
-  // Missing artifacts mean a broken checkout or package, not a reason to go
-  // hunting on PATH. Say so loudly; the render layers will fail with the
-  // vendored path in their error so the cause is obvious.
-  const missing = [vendoredBin, path.join(vendoredWasmDir, "boilerplate-full.wasm.br")].filter(
+  const overrideBin = process.env.RUNBOOKS_BOILERPLATE_BIN
+  const overrideWasmDir = process.env.RUNBOOKS_BOILERPLATE_WASM_DIR
+  const bin = overrideBin || vendoredBin
+  const wasmDir = overrideWasmDir || vendoredWasmDir
+  process.env.BOILERPLATE_BIN = bin
+  process.env.BOILERPLATE_WASM_DIR = wasmDir
+
+  // Never silent: an override changes what every template renders with.
+  if (overrideBin) log.warn(`RUNBOOKS_BOILERPLATE_BIN override active: ${overrideBin}`)
+  if (overrideWasmDir) log.warn(`RUNBOOKS_BOILERPLATE_WASM_DIR override active: ${overrideWasmDir}`)
+
+  // Missing artifacts mean a broken checkout, package, or override — not a
+  // reason to go hunting on PATH. Say so loudly; the render layers will fail
+  // with the same path in their error so the cause is obvious.
+  const missing = [bin, path.join(wasmDir, "boilerplate-full.wasm.br")].filter(
     (f) => !fs.existsSync(f),
   )
   if (missing.length > 0) {
+    const hint =
+      overrideBin || overrideWasmDir
+        ? "Check the RUNBOOKS_BOILERPLATE_* override paths."
+        : "Run `just fetch-boilerplate`."
     log.error(
-      `Vendored boilerplate artifacts missing (${missing.join(", ")}); ` +
-        "template rendering will fail. Run `just fetch-boilerplate`.",
+      `Boilerplate artifacts missing (${missing.join(", ")}); template rendering will fail. ${hint}`,
     )
   }
 }

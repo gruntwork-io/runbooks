@@ -26,6 +26,8 @@ This runs `electron-vite` in dev mode with hot module replacement (HMR) for the 
 
 It first runs `just fetch-boilerplate`, which downloads the pinned [Boilerplate](https://github.com/gruntwork-io/boilerplate) release (CLI + WASM build) into `resources/`. The app always renders templates with this vendored copy — it never uses a `boilerplate` installed on your `PATH` — so the version you develop against is the same one that ships in the packaged app. To bump it, change `boilerplate_version` in the `justfile` and re-run `just fetch-boilerplate`.
 
+To test a custom Boilerplate build, set `RUNBOOKS_BOILERPLATE_BIN` (path to the CLI) and/or `RUNBOOKS_BOILERPLATE_WASM_DIR` (directory containing `boilerplate-full.wasm.br` and `wasm_exec.js`) before launching. The main process logs a warning at startup whenever an override is active. The CLI and WASM build must come from the same Boilerplate source, or renders will differ between the warm (WASM) and cold (CLI) paths.
+
 ## Making Changes
 
 **Frontend (web/src/):**
