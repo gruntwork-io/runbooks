@@ -100,6 +100,39 @@ describe('useAwsAuth — env credential detection', () => {
     expect(result.current.detectedCredentials).toBeNull()
     expect(result.current.detectionWarning).toBe('AWS credentials in environment are invalid or expired')
   })
+
+  it("'Try auto-detection again' re-runs detection and says when it found nothing", async () => {
+    const invoke = installApi({ detect: { found: false } })
+
+    const { result } = renderAwsAuth()
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    // The first, automatic attempt is silent.
+    expect(result.current.retryFoundNothing).toBe(false)
+
+    act(() => result.current.handleRetryDetection())
+
+    await waitFor(() => expect(result.current.retryFoundNothing).toBe(true))
+    expect(result.current.detectionStatus).toBe('done')
+    expect(invoke.mock.calls.filter(([channel]) => channel === 'aws:env-credentials')).toHaveLength(2)
+  })
+
+  it("'Try auto-detection again' after rejecting the prompt brings it back", async () => {
+    installApi({
+      detect: { found: true, valid: true, ...IDENTITY, region: 'us-west-2', hasSessionToken: false },
+    })
+
+    const { result } = renderAwsAuth()
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+    act(() => result.current.handleRejectDetected())
+    expect(result.current.detectionStatus).toBe('done')
+    expect(result.current.detectedCredentials).toBeNull()
+
+    act(() => result.current.handleRetryDetection())
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+    expect(result.current.detectedCredentials?.accountId).toBe(IDENTITY.accountId)
+    expect(registerOutputs).not.toHaveBeenCalled()
+  })
 })
 
 describe('useAwsAuth — env credential confirm', () => {

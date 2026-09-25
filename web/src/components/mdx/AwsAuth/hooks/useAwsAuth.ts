@@ -127,7 +127,7 @@ export function useAwsAuth({
   }, [stopSsoPolling])
 
   // Helper to check for credentials from block outputs
-  const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: Partial<AwsCredentials>; error?: string } => {
+  const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: AwsCredentials; error?: string } => {
     const normalizedId = normalizeBlockId(blockId)
     const outputs = blockOutputs[normalizedId]?.values
     
@@ -234,9 +234,11 @@ export function useAwsAuth({
     }
   }, [api, defaultRegion])
 
-  // Try to detect credentials from block outputs
+  // Try to detect credentials from block outputs. On success, `creds` are the
+  // exact credentials that were validated, so confirm can register those.
   const tryBlockCredentials = useCallback(async (blockId: string): Promise<{
     success: boolean
+    creds?: AwsCredentials
     accountId?: string
     accountName?: string
     arn?: string
@@ -249,15 +251,11 @@ export function useAwsAuth({
     if (!result.found || !result.creds) {
       return { success: false, error: result.error || 'Could not read credentials from block' }
     }
+    const creds = result.creds
 
     // Validate the credentials via backend (but don't register them yet)
     try {
-      const data = await api.invoke('aws:validate', {
-        accessKeyId: result.creds.accessKeyId,
-        secretAccessKey: result.creds.secretAccessKey,
-        sessionToken: result.creds.sessionToken,
-        region: result.creds.region || defaultRegion,
-      })
+      const data = await api.invoke('aws:validate', creds)
 
       if (!data.valid) {
         return { success: false, error: data.error || 'Block credentials are invalid' }
@@ -265,16 +263,17 @@ export function useAwsAuth({
 
       return {
         success: true,
+        creds,
         accountId: data.accountId,
         accountName: data.accountName,
         arn: data.arn,
-        region: result.creds.region || defaultRegion,
-        hasSessionToken: !!result.creds.sessionToken,
+        region: creds.region,
+        hasSessionToken: !!creds.sessionToken,
       }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to validate credentials' }
     }
-  }, [api, getBlockCredentials, defaultRegion])
+  }, [api, getBlockCredentials])
 
   // Try credential sources in priority order. Stops at the first success or
   // at an unexecuted block source (waiting for it before trying lower-priority
@@ -502,37 +501,56 @@ export function useAwsAuth({
 
     // For block-detected credentials, we need to register them
     if (detectedCredentials.source === 'block') {
-      // Find the block source in detectCredentials
+      // Find the block source in detectCredentials. Only one { block } source
+      // is allowed (AwsAuth reports a configuration error otherwise), so this
+      // `find` is unambiguous.
       const blockSource = Array.isArray(detectCredentials) 
         ? detectCredentials.find(s => typeof s === 'object' && 'block' in s) as { block: string } | undefined
         : undefined
       
       if (blockSource) {
-        const blockResult = getBlockCredentials(blockSource.block)
-        if (blockResult.found && blockResult.creds) {
-          const creds: AwsCredentials = {
-            accessKeyId: blockResult.creds.accessKeyId!,
-            secretAccessKey: blockResult.creds.secretAccessKey!,
-            sessionToken: blockResult.creds.sessionToken,
-            region: blockResult.creds.region || defaultRegion,
-          }
-          await registerCredentials(creds)
-          setAuthStatus('authenticated')
-          setAccountInfo({
-            accountId: detectedCredentials.accountId,
-            accountName: detectedCredentials.accountName,
-            arn: detectedCredentials.arn,
-          })
-          setDetectionStatus('done')
+        // Re-validate the block's current outputs (not detectedCredentials) to
+        // avoid TOCTOU: the block may have re-run, or its temporary credentials
+        // expired, between detection and confirmation.
+        const result = await tryBlockCredentials(blockSource.block)
+
+        if (!result.success || !result.creds) {
+          setAuthStatus('failed')
+          setErrorMessage(result.error || 'Failed to validate block credentials')
           return
         }
+
+        // The block now yields a different account than the prompt showed:
+        // show that account and ask again instead of registering it.
+        if (result.accountId !== detectedCredentials.accountId) {
+          setDetectedCredentials({
+            accountId: result.accountId!,
+            accountName: result.accountName,
+            arn: result.arn!,
+            region: result.region || defaultRegion,
+            source: 'block',
+            hasSessionToken: result.hasSessionToken || false,
+          })
+          setAuthStatus('pending')
+          return
+        }
+
+        await registerCredentials(result.creds)
+        setAuthStatus('authenticated')
+        setAccountInfo({
+          accountId: result.accountId,
+          accountName: result.accountName,
+          arn: result.arn,
+        })
+        setDetectionStatus('done')
+        return
       }
     }
 
     // Fallback - shouldn't reach here normally
     setAuthStatus('failed')
     setErrorMessage('Failed to confirm detected credentials')
-  }, [api, detectedCredentials, detectionWarning, detectCredentials, getBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id])
+  }, [api, detectedCredentials, detectionWarning, detectCredentials, tryBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id])
 
   // User rejects detected credentials - show manual auth
   // Note: credentials are not in session until confirmed, so no need to clear them

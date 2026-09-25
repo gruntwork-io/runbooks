@@ -305,6 +305,8 @@ echo "AWS_REGION=us-west-2" >> "$RUNBOOK_OUTPUT"  # Optional: override region
 
 The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defaultRegion` prop is used.
 
+When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers those, not the ones it checked when the prompt appeared. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate (for example, temporary credentials that have expired), the block shows the error and registers nothing.
+
 ### When Users Reject Auto-Detected Credentials
 
 Auto-detected credentials are **never available to scripts until the user confirms them**. Auto-detection is read-only. It validates the credentials and shows the user which account they belong to, but does not register them to the session.
