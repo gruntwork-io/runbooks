@@ -1,7 +1,7 @@
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { DetectedGoogleCredentials, GoogleCredentialType } from "../types"
-import { getSourceLabel } from "../utils"
+import type { DetectedGoogleCredentials } from "../types"
+import { getCredentialTypeLabel, getSourceLabel } from "../utils"
 
 interface DetectedCredentialsPromptProps {
   credentials: DetectedGoogleCredentials
@@ -9,31 +9,6 @@ interface DetectedCredentialsPromptProps {
   confirming?: boolean
   onConfirm: () => void
   onReject: () => void
-}
-
-/**
- * Human label for a credentials-JSON `type`. Deliberately duplicated in
- * AuthSuccess rather than shared: the block's own tests mock every
- * `../components/*` module, so a helper imported across sibling components would
- * come back undefined under those mocks.
- */
-function credentialTypeLabel(credentialType: GoogleCredentialType | undefined): string {
-  switch (credentialType) {
-    case 'service_account':
-      return 'Service account key'
-    case 'authorized_user':
-      return 'User credentials (ADC)'
-    case 'external_account':
-      return 'Workload identity federation'
-    case 'impersonated_service_account':
-      return 'Impersonated service account'
-    case 'access_token':
-      return 'Access token'
-    case 'gce_metadata':
-      return 'Compute Engine metadata'
-    default:
-      return 'Unknown'
-  }
 }
 
 /**
@@ -96,7 +71,7 @@ export function DetectedCredentialsPrompt({
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground min-w-[80px]">Type:</span>
               <span className="text-foreground">
-                {credentialTypeLabel(credentials.credentialType)}
+                {getCredentialTypeLabel(credentials.credentialType) ?? 'Unknown'}
               </span>
             </div>
             {credentials.quotaProjectId && (
