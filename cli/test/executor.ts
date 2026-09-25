@@ -128,6 +128,14 @@ function makeStepResult(
   }
 }
 
+/** Whether the repository at `repoDir` has any commits (its HEAD resolves). */
+function hasCommits(repoDir: string): boolean {
+  const proc = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "-q", "HEAD"], {
+    stdio: "ignore",
+  })
+  return proc.status === 0
+}
+
 // ---------------------------------------------------------------------------
 // Go template renderer (simple subset for runbook scripts/templates)
 // ---------------------------------------------------------------------------
@@ -1342,8 +1350,10 @@ export class TestExecutor {
     }
 
     try {
-      for (const cloneArgs of cloneSteps.right) {
-        execFileSync("git", cloneArgs, {
+      for (const step of cloneSteps.right) {
+        // A repository with no commits has nothing to check out, as in the app.
+        if (step.skipIfNoCommits && !hasCommits(destPath)) continue
+        execFileSync("git", step.args, {
           timeout: this.options.timeout,
           stdio: "pipe",
         })

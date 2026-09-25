@@ -18,6 +18,19 @@ export interface CloneStepOptions {
   readonly repoPath?: string
 }
 
+/** One git command of a clone. */
+export interface CloneStep {
+  /** The arguments to `git`. */
+  readonly args: string[]
+  /**
+   * Skip this step when the clone has no commits (HEAD names a branch that
+   * does not exist yet). There is nothing to check out, and `git checkout`
+   * would fail with "You are on a branch yet to be born" instead of letting
+   * the caller report the repository as empty.
+   */
+  readonly skipIfNoCommits?: boolean
+}
+
 /**
  * Normalize a repo path for sparse checkout: trim it, turn `\` into `/` (git
  * paths are always `/`-separated, so a Windows-style `modules\vpc` would
@@ -45,9 +58,10 @@ export function normalizeRepoPath(
 }
 
 /**
- * The argument lists of the git commands that clone `url` into `dest`, to run
- * in order, stopping at the first failure. Every command addresses `dest`
- * itself (`-C`), so none needs a working directory.
+ * The git commands that clone `url` into `dest`, to run in order, stopping at
+ * the first failure and skipping a `skipIfNoCommits` step when the clone turned
+ * out empty. Every command addresses `dest` itself (`-C`), so none needs a
+ * working directory.
  *
  * In a sparse clone the final `checkout` downloads file contents from the
  * remote (the clone is blobless), so every step, not only `clone`, needs
@@ -57,17 +71,19 @@ export function buildCloneSteps(
   url: string,
   dest: string,
   options: CloneStepOptions = {},
-): Either.Either<string[][], GitError> {
+): Either.Either<CloneStep[], GitError> {
   return Either.map(normalizeRepoPath(options.repoPath), (repoPath) => {
     const branch = options.ref ? ["--branch", options.ref] : []
-    if (!repoPath) return [["clone", "--progress", ...branch, "--", url, dest]]
+    if (!repoPath) return [{ args: ["clone", "--progress", ...branch, "--", url, dest] }]
     return [
-      ["clone", "--filter=blob:none", "--no-checkout", "--progress", ...branch, "--", url, dest],
+      { args: ["clone", "--filter=blob:none", "--no-checkout", "--progress", ...branch, "--", url, dest] },
       // `init --cone` first: before git 2.37, `set` on its own uses
       // non-cone patterns.
-      ["-C", dest, "sparse-checkout", "init", "--cone"],
-      ["-C", dest, "sparse-checkout", "set", "--", repoPath],
-      ["-C", dest, "checkout"],
+      { args: ["-C", dest, "sparse-checkout", "init", "--cone"] },
+      { args: ["-C", dest, "sparse-checkout", "set", "--", repoPath] },
+      // A repository with no commits yet has nothing to check out. Its
+      // sparse-checkout rules still apply once it has some.
+      { args: ["-C", dest, "checkout"], skipIfNoCommits: true },
     ]
   })
 }

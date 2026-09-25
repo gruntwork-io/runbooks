@@ -10,33 +10,34 @@ const steps = (options?: { ref?: string; repoPath?: string }) =>
 
 describe("buildCloneSteps", () => {
   it("clones the whole repository in one step without a repo path", () => {
-    expect(steps()).toEqual([["clone", "--progress", "--", URL, DEST]])
+    expect(steps()).toEqual([{ args: ["clone", "--progress", "--", URL, DEST] }])
   })
 
   it("passes the ref to --branch", () => {
     expect(steps({ ref: "v1.2.0" })).toEqual([
-      ["clone", "--progress", "--branch", "v1.2.0", "--", URL, DEST],
+      { args: ["clone", "--progress", "--branch", "v1.2.0", "--", URL, DEST] },
     ])
   })
 
   it("makes a blobless, cone-mode sparse clone of a repo path", () => {
     expect(steps({ repoPath: "modules/vpc" })).toEqual([
-      ["clone", "--filter=blob:none", "--no-checkout", "--progress", "--", URL, DEST],
-      ["-C", DEST, "sparse-checkout", "init", "--cone"],
-      ["-C", DEST, "sparse-checkout", "set", "--", "modules/vpc"],
-      ["-C", DEST, "checkout"],
+      { args: ["clone", "--filter=blob:none", "--no-checkout", "--progress", "--", URL, DEST] },
+      { args: ["-C", DEST, "sparse-checkout", "init", "--cone"] },
+      { args: ["-C", DEST, "sparse-checkout", "set", "--", "modules/vpc"] },
+      // An empty repository has nothing to check out.
+      { args: ["-C", DEST, "checkout"], skipIfNoCommits: true },
     ])
   })
 
   it("keeps the ref on a sparse clone", () => {
-    expect(steps({ ref: "release", repoPath: "modules/vpc" })[0]).toEqual([
+    expect(steps({ ref: "release", repoPath: "modules/vpc" })[0]?.args).toEqual([
       "clone", "--filter=blob:none", "--no-checkout", "--progress", "--branch", "release", "--", URL, DEST,
     ])
   })
 
   it('treats "." and an empty path as the whole repository', () => {
     for (const repoPath of [".", "./", "", "  "]) {
-      expect(steps({ repoPath })).toEqual([["clone", "--progress", "--", URL, DEST]])
+      expect(steps({ repoPath })).toEqual([{ args: ["clone", "--progress", "--", URL, DEST] }])
     }
   })
 

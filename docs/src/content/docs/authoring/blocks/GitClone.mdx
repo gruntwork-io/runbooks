@@ -186,6 +186,8 @@ Cone mode checks out more than the directory itself: it also includes the files 
 
 The path is relative to the repository root. An absolute path or one containing `..` fails the clone, and an empty path or `.` clones the whole repository.
 
+Files that later blocks write for [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) to commit must be inside the sparse checkout: under the repo path, or directly inside a directory above it. Git refuses to stage anything else, and the pull request fails.
+
 ### Custom Local Path
 
 The `prefilledLocalPath` prop (or the "Local Path" input field) controls where files are cloned, relative to the current working directory. If not set, the repository name is used.
@@ -246,7 +248,7 @@ Reference outputs in downstream blocks using template variables:
 
 ### Cancelling and Starting Over
 
-**Cancel** stops the running `git` process, and a cancelled clone produces no outputs. `git clone` removes its partially cloned directory when stopped. A [sparse checkout](#sparse-checkout) is the exception: it runs several `git` commands, and one cancelled after the first of them (the clone itself) leaves the directory in place. Cloning to the same path again then offers **Delete & Clone** to replace it.
+**Cancel** stops the running `git` process, and a cancelled clone produces no outputs. On macOS and Linux, `git clone` removes its partially cloned directory when stopped. On Windows it may not, and a [sparse checkout](#sparse-checkout) cancelled after its first `git` command (the clone itself) leaves the directory in place on every platform. Cloning to the same path again then offers **Delete & Clone** to replace it.
 
 **Clone again** (or **Choose a different repo** for a local checkout) withdraws the block's outputs and takes the repository out of the workspace panel until the next clone or checkout completes. Blocks that read this block's outputs wait for that next clone rather than using the previous repository's values. [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) stops targeting the previous repository too: it waits, or uses the repository of another `<GitClone>` block in the runbook until this one completes again. A repository with no commits chosen next is held back as described in [Repositories With No Commits](#repositories-with-no-commits).
 

@@ -194,6 +194,17 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     expect(fs.existsSync(path.join(clone, "README.md"))).toBe(true)
   })
 
+  it("clones a repository with no commits, skipping the checkout", async () => {
+    // A repository that was created but never pushed to.
+    origin = path.join(tmp, "empty.git")
+    git(tmp, "init", "-q", "--bare", "-b", "main", origin)
+
+    const result = await runGitClone(`prefilledRepoPath="modules/vpc" prefilledLocalPath="empty"`)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    expect(fs.existsSync(path.join(tmp, "empty", ".git"))).toBe(true)
+  })
+
   it("fails a repo path outside the repository without cloning", async () => {
     const result = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`)
 

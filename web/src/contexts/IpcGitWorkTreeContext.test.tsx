@@ -132,6 +132,23 @@ describe('IpcGitWorkTreeProvider', () => {
       expect(result.current.activeWorkTreeId).toBe('second')
     })
 
+    it("keeps another block's registration from the same tick, and hands it the role", () => {
+      const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first')))
+
+      // The second block's clone lands and the first block clicks "Clone
+      // again" before React renders in between.
+      act(() => {
+        const { registerWorkTree, unregisterWorkTree } = result.current
+        registerWorkTree(workTree('second', '/work/second'))
+        unregisterWorkTree('first')
+      })
+
+      expect(result.current.workTrees.map(wt => wt.id)).toEqual(['second'])
+      expect(result.current.activeWorkTreeId).toBe('second')
+      expect(activeSyncs().at(-1)).toBe('/work/second')
+    })
+
     it('keeps the active worktree when a different one is removed', () => {
       const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
       act(() => result.current.registerWorkTree(workTree('first', '/work/first')))

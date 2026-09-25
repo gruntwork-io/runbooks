@@ -348,7 +348,18 @@ export function registerGitHandlers(): void {
             repoPath,
           })
 
-          for (const cloneArgs of cloneSteps) {
+          for (const step of cloneSteps) {
+            // A repository with no commits has nothing to check out: skip the
+            // sparse clone's checkout, so the clone is reported as empty below
+            // (hasCommits: false) just as it is without a repo path.
+            if (step.skipIfNoCommits) {
+              const client = yield* GitClient
+              const cloned = yield* client
+                .hasCommits(paths.absolutePath)
+                .pipe(Effect.orElseSucceed(() => true))
+              if (!cloned) continue
+            }
+
             // Each step gets its own scope, so the kill below is tied to the
             // step that is running: a step that already exited is not signalled.
             yield* Effect.scoped(Effect.gen(function* () {
@@ -359,12 +370,12 @@ export function registerGitHandlers(): void {
               //
               // git:clone-cancel interrupts this fiber. Kill git when that happens,
               // or it keeps writing into the destination after the renderer has
-              // moved on (and races a "Delete & Clone" of the same directory). A
-              // terminated git clone cleans up its partial clone itself; a sparse
-              // clone stopped in a later step leaves the directory for "Delete &
-              // Clone".
+              // moved on (and races a "Delete & Clone" of the same directory). On
+              // POSIX a terminated git clone cleans up its partial clone itself; on
+              // Windows, or for a sparse clone stopped in a later step, the
+              // directory is left for "Delete & Clone".
               const proc = yield* Effect.acquireRelease(
-                spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() }),
+                spawner.spawn("git", step.args, { env: gitSpawnEnv() }),
                 (spawned, exit) => (Exit.isInterrupted(exit) ? spawned.kill : Effect.void),
               )
 

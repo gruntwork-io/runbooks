@@ -27,11 +27,18 @@ mock.module("electron", () => ({
 const { registerGitHandlers } = await import("./git.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
 
-// git:clone only accepts http(s) and SSH URLs, so the test clones this one and
+// git:clone only accepts http(s) and SSH URLs, so the test clones these and
 // git's url.<base>.insteadOf (set through GIT_CONFIG_* in the environment the
-// handler spawns git with) redirects it to a local repository.
+// handler spawns git with) redirects them to local repositories.
 const REMOTE_URL = "https://git.example.com/acme/mono.git"
-const GIT_CONFIG_VARS = ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"] as const
+const EMPTY_REMOTE_URL = "https://git.example.com/acme/empty.git"
+const GIT_CONFIG_VARS = [
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_KEY_0",
+  "GIT_CONFIG_VALUE_0",
+  "GIT_CONFIG_KEY_1",
+  "GIT_CONFIG_VALUE_1",
+] as const
 
 let tmpDir = ""
 let workDir = ""
@@ -66,10 +73,16 @@ beforeAll(async () => {
   git(origin, "commit", "-q", "-m", "release")
   git(origin, "checkout", "-q", "main")
 
+  // A repository that was created but never pushed to.
+  const emptyOrigin = path.join(tmpDir, "empty.git")
+  git(tmpDir, "init", "-q", "--bare", "-b", "main", emptyOrigin)
+
   for (const name of GIT_CONFIG_VARS) originalEnv[name] = process.env[name]
-  process.env.GIT_CONFIG_COUNT = "1"
+  process.env.GIT_CONFIG_COUNT = "2"
   process.env.GIT_CONFIG_KEY_0 = `url.file://${origin}.insteadOf`
   process.env.GIT_CONFIG_VALUE_0 = REMOTE_URL
+  process.env.GIT_CONFIG_KEY_1 = `url.file://${emptyOrigin}.insteadOf`
+  process.env.GIT_CONFIG_VALUE_1 = EMPTY_REMOTE_URL
 
   await runtime.runPromise(sessionManager.createSession(workDir))
   registerGitHandlers()
@@ -105,6 +118,15 @@ describe("git:clone repo_path", () => {
 
     expect(result).toMatchObject({ status: "success", ref: "main" })
     expect(fs.existsSync(path.join(workDir, "whole", "modules", "eks", "main.tf"))).toBe(true)
+  })
+
+  it("reports a repository with no commits as empty instead of failing the checkout", async () => {
+    const result = await clone({ url: EMPTY_REMOTE_URL, localPath: "empty", repo_path: "modules/vpc" })
+
+    // The same result as without a repo path, so the block offers to seed the
+    // default branch rather than showing an error.
+    expect(result).toMatchObject({ status: "success", hasCommits: false, ref: "main" })
+    expect(fs.existsSync(path.join(workDir, "empty", ".git"))).toBe(true)
   })
 
   it("rejects a repo path outside the repository before deleting the destination", async () => {
