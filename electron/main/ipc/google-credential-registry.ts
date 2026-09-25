@@ -14,14 +14,16 @@
  *     `<GoogleAuth id="target"/>`; a single global "most recent" credential
  *     means "Change project" on one lists the projects of the other.
  *  2. A block's materialised credentials file is released only by that block
- *     re-authenticating, whatever the replacement is: a different project,
- *     principal or credential type — or a credential with no file of ours at
- *     all (the user's own ADC file, a detected `GOOGLE_APPLICATION_CREDENTIALS`
- *     path, a bare access token) — leaves the old file as unreachable as a
- *     rotated key does. Two blocks handed the SAME key and project produce a
- *     byte-identical identity, so keying on identity alone would have the
- *     second block zero and delete the file the first already published as its
- *     `GOOGLE_APPLICATION_CREDENTIALS` output.
+ *     re-authenticating with another credentials FILE, whatever identity it is
+ *     for: a different project, principal or credential type — or a file that
+ *     is not ours at all (the user's own ADC file, a detected
+ *     `GOOGLE_APPLICATION_CREDENTIALS` path) — leaves the old file as
+ *     unreachable as a rotated key does. A bare access token does not: it
+ *     leaves the session env's `GOOGLE_APPLICATION_CREDENTIALS` naming the old
+ *     file (see `setActiveCredential`). Two blocks handed the SAME key and
+ *     project produce a byte-identical identity, so keying on identity alone
+ *     would have the second block zero and delete the file the first already
+ *     published as its `GOOGLE_APPLICATION_CREDENTIALS` output.
  *  3. That release happens when the RENDERER commits the replacement, not when
  *     main writes it. Main materialises during the IPC call; the renderer keeps
  *     publishing the old path until `completeAuthentication` runs, which can be
@@ -179,13 +181,20 @@ function isActiveForAnotherBlock(ownKey: string, filePath: string): boolean {
  * File a block's credential, and remember it as the newest.
  *
  * Every successful authentication lands here, including the ones that
- * materialise nothing: the gcloud Config tab or a detected
- * `GOOGLE_APPLICATION_CREDENTIALS` path (an existing file, reused as-is) and a
- * bare access token (no file at all). Those supersede the block's newest
- * materialised file just as a new materialisation would, so it is queued for
- * release here and forgotten as the block's newest. `commitCredential` still
- * does the releasing, so it survives until the renderer publishes the
- * replacement.
+ * materialise nothing. The gcloud Config tab or a detected
+ * `GOOGLE_APPLICATION_CREDENTIALS` path (an existing file, reused as-is)
+ * supersedes the block's newest materialised file just as a new
+ * materialisation would, so that file is queued for release here and forgotten
+ * as the block's newest. `commitCredential` still does the releasing, so it
+ * survives until the renderer publishes the replacement.
+ *
+ * A bare access token (no file at all) queues nothing. google.ts overwrites the
+ * session env's `GOOGLE_APPLICATION_CREDENTIALS` only when the new credential
+ * is a file, so after a token re-auth the session still names the block's old
+ * file, and every later `<Command>` would fail the executor's missing-file
+ * check if it were released. It stays the block's newest, so the next
+ * file-backed re-authentication queues it; otherwise the will-quit sweep
+ * removes it.
  *
  * A path this block itself materialised (its newest, or one already queued) is
  * left alone. A materialising flow normally arrives with its own file as the
@@ -203,7 +212,7 @@ export function setActiveCredential(
   const path = credential.credentialsPath
   const pending = pendingReleaseByBlock.get(key)
   const isOwnFile = path !== undefined && (path === latest || pending?.has(path) === true)
-  if (latest && !isOwnFile) {
+  if (latest && path !== undefined && !isOwnFile) {
     const queue = pending ?? new Set<string>()
     queue.add(latest)
     pendingReleaseByBlock.set(key, queue)

@@ -313,7 +313,10 @@ describe("a re-authentication that materialises nothing", () => {
     }
   })
 
-  it("releases the block's service-account file once it publishes a bare access token", () => {
+  it("keeps the block's service-account file when it publishes a bare access token", () => {
+    // A token re-auth writes no GOOGLE_APPLICATION_CREDENTIALS, so the session
+    // env still names the SA file. Releasing it would make every later
+    // <Command> fail the executor's missing-credentials-file check.
     const saFile = committedServiceAccountFile("block-a")
 
     setActiveCredential("block-a", {
@@ -321,11 +324,22 @@ describe("a re-authentication that materialises nothing", () => {
       principal: USER.email,
       credentialType: "access_token",
     })
-    expect(fs.existsSync(saFile)).toBe(true)
-
     commitCredential("block-a", undefined)
 
+    expect(fs.existsSync(saFile)).toBe(true)
+
+    // The next file-backed re-authentication overwrites the session's
+    // GOOGLE_APPLICATION_CREDENTIALS, and that is what releases it.
+    const replacement = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
+    setActiveCredential("block-a", credential(replacement))
+    commitCredential("block-a", replacement)
+
     expect(fs.existsSync(saFile)).toBe(false)
+    expect(fs.existsSync(replacement)).toBe(true)
   })
 
   it("does not queue an overlapping flow's newer file when an earlier flow registers", () => {
