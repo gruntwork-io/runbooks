@@ -82,7 +82,13 @@ export interface Logger {
 
 /** How many nested errors (cause links and FiberFailure unwraps) are printed. */
 const MAX_ERROR_DEPTH = 4
-const INSPECT_OPTIONS = { depth: 4 } as const
+/**
+ * Redaction runs on the inspected text, so nothing may be cut before it:
+ * util.inspect's default maxStringLength (10000) would end a long field such
+ * as a clone's stderr mid-string, and a token cut in half matches neither the
+ * exact-value nor the shape patterns.
+ */
+const INSPECT_OPTIONS = { depth: 4, maxStringLength: Infinity } as const
 /** Own properties already covered by the stack line or the cause chain. */
 const HEAD_KEYS = new Set(["name", "message", "stack", "cause"])
 

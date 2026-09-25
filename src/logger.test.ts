@@ -112,10 +112,12 @@ describe("makeLogger error formatting", () => {
   async function rejectionOf(effect: Effect.Effect<unknown, unknown>): Promise<unknown> {
     const runtime = ManagedRuntime.make(Layer.empty)
     try {
-      await runtime.runPromise(effect)
-      throw new Error("expected the effect to fail")
-    } catch (err) {
-      return err
+      return await runtime.runPromise(effect).then(
+        () => {
+          throw new Error("expected the effect to fail")
+        },
+        (err: unknown) => err,
+      )
     } finally {
       await runtime.dispose()
     }
@@ -130,6 +132,20 @@ describe("makeLogger error formatting", () => {
     expect(out).toContain("128")
     expect(out).toContain("[REDACTED]")
     expect(out).not.toContain(SECRET)
+  })
+
+  it("does not truncate a long field before redacting it", () => {
+    // Unprefixed 64-hex, like a GitLab OAuth token: only exact-match redaction catches it.
+    const token = "0123456789abcdef".repeat(4)
+    registerSecret(token)
+    const prefix = "fatal: unable to access 'https://oauth2:"
+    const tail = "@gitlab.example.com/o/r.git/': The requested URL returned error: 403"
+    // The token straddles position 10000, util.inspect's default maxStringLength.
+    const stderr = "x".repeat(10_000 - 32 - prefix.length) + prefix + token + tail
+    const out = logged(new GitError({ command: "clone", stderr, exitCode: 128 }))
+    expect(out).toContain(tail)
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(token.slice(0, 16))
   })
 
   it("unwraps a FiberFailure from runPromise to the error it failed with", async () => {
