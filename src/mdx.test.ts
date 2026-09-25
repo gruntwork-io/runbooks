@@ -33,6 +33,97 @@ describe("findFencedCodeBlockRanges", () => {
     const ranges = findFencedCodeBlockRanges(content)
     expect(ranges).toHaveLength(1)
   })
+
+  it("keeps a nested ```mdx example inside a longer ```` fence", () => {
+    const content = [
+      "````mdx",
+      "```mdx",
+      '<Command id="deploy" command="echo example" />',
+      "```",
+      "````",
+      "",
+      '<Command id="deploy" command="tofu apply" />',
+    ].join("\n")
+    const ranges = findFencedCodeBlockRanges(content)
+    expect(ranges).toEqual([[0, content.indexOf("````\n\n") + 4]])
+    expect(isInsideFencedCodeBlock(content.indexOf("echo example"), ranges)).toBe(true)
+    expect(isInsideFencedCodeBlock(content.indexOf("tofu apply"), ranges)).toBe(false)
+  })
+
+  it("does not close a ~~~ fence on a ``` line", () => {
+    const content = [
+      "~~~",
+      "```",
+      '<Command id="example" />',
+      "~~~",
+      '<Command id="real" />',
+    ].join("\n")
+    const ranges = findFencedCodeBlockRanges(content)
+    expect(ranges).toHaveLength(1)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="example"'), ranges)).toBe(true)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+  })
+
+  it("does not close a fence on a line with an info string", () => {
+    // Shape of the Check/Command docs: an indented ```yaml (and an escaped
+    // closer) inside a ```mdx example, followed by more examples
+    const content = [
+      "```mdx",
+      '<Check id="example-1" command="echo">',
+      "    ```yaml",
+      "    variables: []",
+      "    \\```",
+      "</Check>",
+      "```",
+      "",
+      '<Check id="real" command="echo" />',
+      "",
+      "```mdx",
+      '<Check id="example-2" command="echo" />',
+      "```",
+    ].join("\n")
+    const ranges = findFencedCodeBlockRanges(content)
+    expect(ranges).toHaveLength(2)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="example-1"'), ranges)).toBe(true)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="example-2"'), ranges)).toBe(true)
+  })
+
+  it("does not treat a line of inline code as a backtick opener", () => {
+    const content = '```x```\n<Command id="real" />\n'
+    expect(findFencedCodeBlockRanges(content)).toEqual([])
+  })
+
+  it("opens a fence on a list-item line and closes it on the indented run", () => {
+    for (const marker of ["-", "*", "1.", "2)"]) {
+      const content = `${marker} \`\`\`bash\n   echo hi\n   \`\`\`\n\n<Command id="real" />\n`
+      const ranges = findFencedCodeBlockRanges(content)
+      expect(ranges).toHaveLength(1)
+      expect(isInsideFencedCodeBlock(content.indexOf("echo hi"), ranges)).toBe(true)
+      expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+    }
+  })
+
+  it("does not close a fence on a list-item line", () => {
+    const content = [
+      "```",
+      "- ```",
+      '<Command id="example" />',
+      "```",
+      '<Command id="real" />',
+    ].join("\n")
+    const ranges = findFencedCodeBlockRanges(content)
+    expect(ranges).toHaveLength(1)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="example"'), ranges)).toBe(true)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+  })
+
+  it("runs an unclosed fence to the end of the content", () => {
+    const content = 'intro\n\n```\n<Command id="example" />\n'
+    expect(findFencedCodeBlockRanges(content)).toEqual([
+      [content.indexOf("```"), content.length],
+    ])
+  })
 })
 
 describe("isInsideFencedCodeBlock", () => {

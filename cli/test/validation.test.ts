@@ -63,6 +63,33 @@ hello
     const p = writeRunbook(`<TemplateInline outputPath="x">content</TemplateInline>`)
     expect(parseTemplateInlineBlocks(p).size).toBe(0)
   })
+
+  it("keeps the real block when a later fenced example reuses its id", () => {
+    const p = writeRunbook(`
+<TemplateInline id="cfg" outputPath="real.txt">
+\`\`\`
+real content
+\`\`\`
+</TemplateInline>
+
+\`\`\`\`mdx
+<TemplateInline id="cfg" outputPath="example.txt">
+\`\`\`
+example content
+\`\`\`
+</TemplateInline>
+\`\`\`\`
+`)
+    const b = parseTemplateInlineBlocks(p).get("cfg")
+    expect(b?.content).toBe("real content\n")
+    expect(b?.outputPath).toBe("real.txt")
+    // The executor looks this map up by the id of the block the validator lists
+    const v = new InputValidator(p)
+    v.init()
+    const comps = v.getComponents()
+    expect(comps).toHaveLength(1)
+    expect(comps[0]!.props).toContain('outputPath="real.txt"')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -95,6 +122,17 @@ describe("parseTemplateBlocks", () => {
 <Template id="without-path" />
 `)
     expect(parseTemplateBlocks(p).size).toBe(0)
+  })
+
+  it("keeps the real block when a later fenced example reuses its id", () => {
+    const p = writeRunbook(`
+<Template id="vpc" path="./tpls/real" />
+
+\`\`\`mdx
+<Template id="vpc" path="./tpls/example" />
+\`\`\`
+`)
+    expect(parseTemplateBlocks(p).get("vpc")?.templatePath).toBe("./tpls/real")
   })
 })
 
@@ -246,5 +284,38 @@ variables:
 
     const ok = v.validateInputValues({ "i1.env": "dev" })
     expect(ok).toHaveLength(0)
+  })
+
+  it("lists components in document order, not grouped by type", () => {
+    const p = writeRunbook(`
+# Order
+
+\`\`\`mdx
+<Command id="example" command="echo example" />
+\`\`\`
+
+<Check id="check-first" command="echo first" />
+
+<TemplateInline id="inline-tpl" outputPath="out.txt">
+\`\`\`
+hello
+\`\`\`
+</TemplateInline>
+
+<Command id="setup" command="echo setup" />
+
+<Template id="tpl" path="templates/tpl" />
+
+<Check id="verify-setup" command="echo verify" />
+`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.getComponents().map((c) => c.id)).toEqual([
+      "check-first",
+      "inline-tpl",
+      "setup",
+      "tpl",
+      "verify-setup",
+    ])
   })
 })

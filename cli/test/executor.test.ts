@@ -77,6 +77,49 @@ describe("TestExecutor — config-error surfacing", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Blocks run in document order, even when block types are interleaved.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — block order", () => {
+  let tmp: string
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-order-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("runs an interleaved Check/Command/Check runbook top to bottom", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Ordered",
+        "",
+        '<Check id="check-first" command="echo first" />',
+        "",
+        '<Command id="setup" command="touch setup-done" />',
+        "",
+        '<Check id="verify-setup" command="test -f setup-done" />',
+        "",
+      ].join("\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    // No explicit steps: every block runs, in the order the validator lists them
+    const result = await executor.runTest({ name: "ordered" })
+
+    expect(result.stepResults.map((r) => r.block)).toEqual([
+      "check:check-first",
+      "command:setup",
+      "check:verify-setup",
+    ])
+    expect(result.status).toBe("passed")
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GitClone with source="local": adopt a checkout that already exists instead
 // of cloning it.
 // ---------------------------------------------------------------------------
