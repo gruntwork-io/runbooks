@@ -87,7 +87,9 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
  * Split the output of a `-z` git command into its NUL-terminated fields. With
  * -z git prints paths verbatim instead of C-quoting spaces and non-ASCII. runGit
  * hands back readline lines, so a field that contains a newline arrives split;
- * joining on "\n" restores it before splitting on NUL.
+ * joining on "\n" restores it before splitting on NUL. readline also ends a
+ * line at a lone "\r" or at "\r\n", so a CR inside a path comes back as "\n"
+ * (a limit of the line-based runGit; such paths won't match on disk).
  */
 function nulFields(lines: string[]): string[] {
   return lines.join("\n").split("\0").filter((f) => f.length > 0)
