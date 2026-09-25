@@ -245,7 +245,11 @@ Welcome to {{ .inputs.ProjectName }}!
 Use `generateFile={true}` when you want users to both see the output inline _and_ have the file saved to their workspace.
 </Aside>
 
-If `outputPath` changes between renders, for example because it uses a [`<DirPicker>`](/authoring/blocks/dirpicker/) output, the block saves the file at the new path and removes the one it saved at the old path, along with any directories that removal leaves empty. The old file is kept if it no longer holds what the block wrote, for example because you edited it.
+If `outputPath` changes between renders, for example because it uses a [`<DirPicker>`](/authoring/blocks/dirpicker/) output, the block saves the file at the new path and cleans up the one it saved at the old path:
+
+- If the block created the old file, it is removed, along with any directories that removal leaves empty.
+- If a file was already at the old path before the block wrote to it, the block puts back its earlier content. The block never deletes a file it did not create.
+- If the old file no longer holds what the block wrote, for example because you edited it, it is left as it is.
 
 ## Block IDs
 

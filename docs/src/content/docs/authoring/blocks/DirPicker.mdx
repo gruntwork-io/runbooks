@@ -122,7 +122,7 @@ The DirPicker outputs `PATH`, which can be referenced in a `<TemplateInline>` bl
 >
 ```
 
-The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected. When the user picks or types a different directory, the file written for the earlier selection is removed, so only one `terragrunt.hcl` is left (unless the earlier one was edited in the meantime).
+The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected. When the user picks or types a different directory, the block cleans up the file it wrote for the earlier selection. If the block created that file, it is removed. If the earlier directory already had a `terragrunt.hcl`, for example because it is an existing unit, that file is put back the way it was, not removed. A file edited since the block wrote it is left as it is.
 
 ### How It Works
 

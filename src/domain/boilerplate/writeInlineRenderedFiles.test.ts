@@ -122,6 +122,65 @@ describe("writeInlineRenderedFiles", () => {
       expect(nodeFs.readFileSync(at("a/terragrunt.hcl"), "utf-8")).toBe("a = 1 # edited by hand")
     })
 
+    // Typing a new unit name into a DirPicker next to an existing unit: one
+    // of the intermediate paths is that unit's own terragrunt.hcl.
+    it("puts back a file that was already there instead of removing it", async () => {
+      nodeFs.mkdirSync(at("env/vpc"), { recursive: true })
+      nodeFs.writeFileSync(at("env/vpc/terragrunt.hcl"), "ORIGINAL")
+
+      const first = await write({ "env/vpc/terragrunt.hcl": "rendered" })
+      expect(nodeFs.readFileSync(at("env/vpc/terragrunt.hcl"), "utf-8")).toBe("rendered")
+      const second = await write({ "env/vpc-/terragrunt.hcl": "rendered" }, first)
+      await write({ "env/vpc-peering/terragrunt.hcl": "rendered" }, second)
+
+      expect(nodeFs.readFileSync(at("env/vpc/terragrunt.hcl"), "utf-8")).toBe("ORIGINAL")
+      expect(nodeFs.readdirSync(at("env")).sort()).toEqual(["vpc", "vpc-peering"])
+      expect(nodeFs.readFileSync(at("env/vpc-peering/terragrunt.hcl"), "utf-8")).toBe("rendered")
+    })
+
+    it("records the original content only for a file that was already there", async () => {
+      nodeFs.mkdirSync(baseDir, { recursive: true })
+      nodeFs.writeFileSync(at("existing.txt"), "before")
+
+      const record = await write({ "existing.txt": "after", "new.txt": "fresh" })
+
+      const byPath = new Map(record.files.map((f) => [f.path, f]))
+      expect(byPath.get("existing.txt")?.original?.toString("utf-8")).toBe("before")
+      expect(byPath.get("new.txt")?.original).toBeUndefined()
+    })
+
+    it("keeps the first original while the block rewrites the same path", async () => {
+      nodeFs.mkdirSync(baseDir, { recursive: true })
+      nodeFs.writeFileSync(at("config.yaml"), "ORIGINAL")
+
+      const first = await write({ "config.yaml": "v: 1" })
+      const second = await write({ "config.yaml": "v: 2" }, first)
+      await write({ "other.yaml": "v: 2" }, second)
+
+      expect(nodeFs.readFileSync(at("config.yaml"), "utf-8")).toBe("ORIGINAL")
+    })
+
+    it("keeps a file that was already there when the render matched its content", async () => {
+      nodeFs.mkdirSync(at("unit"), { recursive: true })
+      nodeFs.writeFileSync(at("unit/terragrunt.hcl"), "a = 1")
+
+      const first = await write({ "unit/terragrunt.hcl": "a = 1" })
+      await write({ "elsewhere/terragrunt.hcl": "a = 1" }, first)
+
+      expect(nodeFs.readFileSync(at("unit/terragrunt.hcl"), "utf-8")).toBe("a = 1")
+    })
+
+    it("puts back a binary original byte for byte", async () => {
+      const bytes = Buffer.from([0xff, 0x00, 0xfe, 0x80, 0x0a])
+      nodeFs.mkdirSync(baseDir, { recursive: true })
+      nodeFs.writeFileSync(at("blob.bin"), bytes)
+
+      const first = await write({ "blob.bin": "text" })
+      await write({ "other.txt": "text" }, first)
+
+      expect(nodeFs.readFileSync(at("blob.bin")).equals(bytes)).toBe(true)
+    })
+
     it("rewrites in place when the path did not change", async () => {
       const first = await write({ "config.yaml": "v: 1" })
 

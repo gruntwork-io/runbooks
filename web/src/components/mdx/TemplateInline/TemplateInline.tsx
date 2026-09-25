@@ -198,8 +198,9 @@ function TemplateInline({
 
     const payload = buildTemplatePayload({ inputs: inputValues, outputs: flattenedOutputs });
 
-    // blockId lets main remove the file this block wrote at its previous
-    // outputPath when the path changes (e.g. it follows a DirPicker output).
+    // blockId lets main clean up the file this block wrote at its previous
+    // outputPath when the path changes (e.g. it follows a DirPicker output):
+    // removed if the block created it, put back if it was already there.
     debouncedRequest?.({
       templateFiles,
       inputs: payload,

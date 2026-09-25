@@ -81,11 +81,16 @@ interface SupersessionStats {
 const supersessionStats = new Map<string, SupersessionStats>()
 
 /**
- * What each `<TemplateInline generateFile>` block last wrote, by block id, so
- * a render that writes a different path (e.g. an outputPath that follows a
- * DirPicker selection) removes the file the block left at the old one.
+ * What each `<TemplateInline generateFile>` block last wrote, so a render that
+ * writes a different path (e.g. an outputPath that follows a DirPicker
+ * selection) cleans up the file the block left at the old one. Keyed by
+ * {@link inlineWriteKey}, so a block never picks up the record of a block
+ * with the same id in another runbook.
  */
 const inlineWrites = new Map<string, InlineWriteRecord>()
+
+const inlineWriteKey = (blockId: string) =>
+  `${sessionManager.getRunbookPath() ?? ""}\u0000${blockId}`
 
 /**
  * Inline writes run one at a time, so two overlapping renders of a block
@@ -633,13 +638,13 @@ export function registerBoilerplateHandlers(): void {
           // paths relative to that dir.
           const outputDir = yield* resolveRenderOutputDir(params.target)
           yield* validateSessionPath(outputDir)
-          const { blockId } = params
+          const key = params.blockId ? inlineWriteKey(params.blockId) : undefined
           yield* inlineWriteLock.withPermits(1)(
             Effect.gen(function* () {
               // Clean up after the block's previous render only inside a
               // directory this session may still write to: the worktree it
-              // wrote into may have been replaced, or the runbook switched.
-              const previous = blockId ? inlineWrites.get(blockId) : undefined
+              // wrote into may have been replaced.
+              const previous = key ? inlineWrites.get(key) : undefined
               const cleanUp =
                 previous &&
                 Either.isRight(yield* Effect.either(validateSessionPath(previous.outputDir)))
@@ -648,7 +653,7 @@ export function registerBoilerplateHandlers(): void {
                 outputDir,
                 cleanUp ? previous : undefined,
               )
-              if (blockId) inlineWrites.set(blockId, written)
+              if (key) inlineWrites.set(key, written)
             }),
           )
 
