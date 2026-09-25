@@ -186,6 +186,8 @@ This text will be red.
 </div>
 ```
 
+Because Runbooks never runs JavaScript from your `runbook.mdx`, elements and props that load scripts, embed other documents or inject raw HTML are rejected with an error. These include `<script>`, `<iframe>`, `<object>`, `<embed>`, custom elements such as `<my-widget>`, `dangerouslySetInnerHTML` and `srcDoc`. See [Execution Security Model](/security/execution-model/) for the full list.
+
 ### Escaping Special Characters
 
 If you need to display special characters literally, escape them with a backslash:

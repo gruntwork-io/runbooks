@@ -23,6 +23,8 @@ describe('remarkLiteralOnly', () => {
       ['empty expressions', 'Before\n\n{}\n\nAfter'],
       ['literal text and flow expressions', `Price: {'$5'}\n\n{"A literal paragraph"}`],
       ['nested blocks', '<Admonition title="Outer">\n  <Command args={["x"]} />\n</Admonition>'],
+      ['plain HTML elements', '<div style="color: red;">\nRed text\n</div>\n\nInline <img src="./x.png" alt="x" /> image'],
+      ['object keys that only resemble __proto__', `<X a={{ proto: 1, '__proto': 2, constructor: 3 }} />`],
     ])('%s', async (_name, source) => {
       await expect(compileRunbook(source)).resolves.toBeDefined()
     })
@@ -55,6 +57,20 @@ describe('remarkLiteralOnly', () => {
       ['a call nested in a literal', '<X a={[{ b: f() }]} />'],
       ['a call in nested block children', '<Admonition>\n  {f()}\n</Admonition>'],
       ['a script element', '<script async src="file:///tmp/x.js" />'],
+      ['an iframe element', '<iframe src="./page.html" />'],
+      ['a frame element', '<frame src="./page.html" />'],
+      ['an object element', '<object data="./page.html" />'],
+      ['an embed element', '<embed src="./page.svg" />'],
+      ['an uppercase blocked element', '<IFRAME src="./page.html" />'],
+      ['dangerouslySetInnerHTML', `<div dangerouslySetInnerHTML={{ __html: '<img src=x onerror="alert(1)">' }} />`],
+      ['a srcDoc prop', `<div srcDoc="<script>alert(1)</script>" />`],
+      ['a lowercase srcdoc prop', `Inline <span srcdoc="<script>alert(1)</script>" /> text`],
+      ['a custom element', '<x-widget style={{ animationName: "spin" }} ONANIMATIONSTART="alert(1)" />'],
+      ['a custom element in text', 'Hello <x-widget oNfocus="alert(1)" /> there'],
+      ['a dotted element name', '<Admonition.constructor />'],
+      ['a __proto__ prop', '<Admonition __proto__={["a=1"]} />'],
+      ['a __proto__ object key', '<X a={{ __proto__: ["a=1"] }} />'],
+      ['a quoted __proto__ object key', `<X a={[{ '__proto__': { b: 1 } }]} />`],
     ])('%s', async (_name, source) => {
       await expect(compileRunbook(source)).rejects.toThrow(/not allowed in runbooks|must be a literal value/)
     })
@@ -66,6 +82,9 @@ describe('remarkLiteralOnly', () => {
     )
     await expect(compileRunbook('# Title\n\nexport const x = 1')).rejects.toThrow(
       /^Line 3: `import` and `export` statements are not allowed in runbooks\. Remove "export const x = 1"\./,
+    )
+    await expect(compileRunbook('# Title\n\n<div srcDoc="x" />')).rejects.toThrow(
+      /^Line 3: the `srcDoc` prop of <div> is not allowed in runbooks\./,
     )
   })
 })

@@ -26,14 +26,21 @@ const LITERALS_HINT =
  * `export const _ = window.api.invoke('exec:run', ...)`, `{fetch(...)}`,
  * `command={run()}` and so on.
  *
- * This plugin rejects every construct that evaluates JavaScript:
+ * This plugin rejects every construct that runs JavaScript or hands the browser
+ * raw HTML or another document to load. It does not rely on the CSP, which dev
+ * builds don't set:
  * - `import` / `export` statements (`mdxjsEsm`);
  * - spread props such as `<Command {...props} />` (`mdxJsxExpressionAttribute`);
  * - `{...}` in text or between blocks, unless it is empty, a comment, or a
  *   literal value;
  * - `prop={...}` values that are not literal values;
- * - `<script>` elements, because React 19 loads `<script async src>` wherever
- *   it is rendered.
+ * - elements that load scripts or embed documents (see BLOCKED_ELEMENTS);
+ * - custom elements (`<x-widget>`), because React passes their props through
+ *   as DOM attributes, so `ONANIMATIONSTART="..."` becomes an inline handler;
+ * - dotted element names, which reach properties of a block instead of the
+ *   block itself (`<Admonition.constructor>` renders `Function`);
+ * - props and object keys that inject raw HTML or replace a prototype (see
+ *   BLOCKED_PROPS).
  *
  * A literal value is a string, number, boolean, null or regex literal; a
  * template string without `${...}`; a number with a leading `-` or `+`; or an
@@ -67,11 +74,30 @@ export function remarkLiteralOnly() {
   }
 }
 
-function checkElement(element: MdxNode) {
-  const tag = `<${element.name ?? ''}>`
+// Elements that load and run scripts or embed other documents. React 19 loads
+// `<script async src>` wherever it is rendered, and a frame's document (e.g.
+// `<iframe srcDoc>`) shares the app's origin and CSP, so it could rebuild the
+// same script load and reach `parent.api`. Compared lowercased.
+const BLOCKED_ELEMENTS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed'])
 
-  if (element.name === 'script') {
+// Prop names (compared lowercased) that are never literal content:
+// `dangerouslySetInnerHTML` and `srcDoc` inject raw HTML, whose inline event
+// handlers (`<img onerror>`) run as soon as it is parsed; `__proto__` replaces
+// the prototype of the props (or object) it appears in.
+const BLOCKED_PROPS = new Set(['dangerouslysetinnerhtml', 'srcdoc', '__proto__'])
+
+function checkElement(element: MdxNode) {
+  const name = element.name ?? ''
+  const tag = `<${name}>`
+
+  if (BLOCKED_ELEMENTS.has(name.toLowerCase())) {
     throw notAllowed(element, `${tag} elements are not allowed in runbooks.`)
+  }
+  if (name.includes('.')) {
+    throw notAllowed(element, `dotted element names like ${tag} are not allowed in runbooks. Use the block name on its own.`)
+  }
+  if (name.includes('-')) {
+    throw notAllowed(element, `custom elements like ${tag} are not allowed in runbooks.`)
   }
 
   for (const attribute of element.attributes ?? []) {
@@ -80,6 +106,10 @@ function checkElement(element: MdxNode) {
         attribute,
         `spread props like {${excerpt(attribute.value)}} on ${tag} are not allowed in runbooks. Pass each prop separately. ${LITERALS_HINT}`,
       )
+    }
+
+    if (BLOCKED_PROPS.has(attribute.name?.toLowerCase() ?? '')) {
+      throw notAllowed(attribute, `the \`${attribute.name}\` prop of ${tag} is not allowed in runbooks.`)
     }
 
     // `prop="text"` and bare `prop` are plain strings/booleans; only
@@ -127,11 +157,21 @@ function isLiteralValue(node: EstreeNode | null): boolean {
           property.kind === 'init' &&
           !property.computed &&
           !property.method &&
+          !isProtoKey(property.key) &&
           isLiteralValue(property.value),
       )
     default:
       return false
   }
+}
+
+// `{ __proto__: x }` and `{ '__proto__': x }` set the object's prototype
+// rather than a property.
+function isProtoKey(key: EstreeNode): boolean {
+  return (
+    (key.type === 'Identifier' && key.name === '__proto__') ||
+    (key.type === 'Literal' && key.value === '__proto__')
+  )
 }
 
 function notAllowed(node: MdxNode, reason: string): Error {
