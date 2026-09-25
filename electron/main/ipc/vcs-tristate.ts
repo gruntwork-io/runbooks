@@ -5,8 +5,8 @@
  * is eligible, run the validation-only probe; degrade to the error card
  * otherwise. server-cert and network failures get NO refresh and NO probe —
  * they cannot help. This lives Electron-side because the refresh needs the
- * cold-read child wired in electron/main/index.ts; the VcsCredentials service
- * stays Bun-test-safe.
+ * cold-read child wired in electron/main/system-trust.ts; the VcsCredentials
+ * service stays Bun-test-safe.
  */
 import { Effect, Exit } from "effect"
 import { runtime, sessionManager, vcsSessionMeta } from "./runtime.ts"
@@ -18,7 +18,7 @@ import type {
   VcsProvider,
 } from "../../../src/services/VcsCredentials.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
-import { refreshSystemTrust } from "../index.ts"
+import { refreshSystemTrust } from "../system-trust.ts"
 import { getMainWindow } from "../window.ts"
 
 /**

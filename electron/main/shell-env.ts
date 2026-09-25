@@ -12,8 +12,8 @@
  * Any session we later create via SessionManager will capture this richer
  * environment and pass it to user scripts.
  *
- * No-op on Windows and when we already appear to be launched from a
- * terminal (the user's env is already inherited in that case).
+ * No-op on Windows and when we were launched from a terminal (the user's
+ * env is already inherited in that case).
  */
 
 import { spawnSync } from "node:child_process"
@@ -32,12 +32,46 @@ const PROTECTED_KEYS = new Set<string>([
 /** Marker used to locate the start of the env dump amid any rc-file noise. */
 const MARKER = "__RUNBOOKS_SHELL_ENV_MARKER__"
 
+/**
+ * Whether the app was launched from a terminal, whose env it has inherited.
+ * Every terminal emulator (and ssh session) sets TERM; GUI launches via
+ * launchd (macOS) or a .desktop entry (Linux) do not. TERM_PROGRAM stays in
+ * the check: the e2e suite sets it (electron/e2e/vcs-auth.spec.ts) to skip
+ * this capture.
+ */
+export function isTerminalLaunch(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.TERM || env.TERM_PROGRAM || env.ITERM_SESSION_ID)
+}
+
+/**
+ * Parse the login shell's output: rc-file noise, then the marker, then the
+ * NUL-delimited `env -0` dump. Returns [] when the marker is missing. Values
+ * may contain '=' and newlines; entries without '=' are skipped.
+ */
+export function parseEnvDump(stdout: string): Array<[string, string]> {
+  const markerIdx = stdout.indexOf(MARKER)
+  if (markerIdx === -1) return []
+
+  // Skip the marker and the NUL separator that printf emitted after it.
+  const envText = stdout.slice(markerIdx + MARKER.length + 1)
+
+  const entries: Array<[string, string]> = []
+  for (const entry of envText.split("\0")) {
+    if (entry === "") continue
+    const eq = entry.indexOf("=")
+    if (eq === -1) continue
+    entries.push([entry.slice(0, eq), entry.slice(eq + 1)])
+  }
+  return entries
+}
+
 export function populateShellEnv(): void {
   if (process.platform === "win32") return
 
   // If the app was launched from a terminal, the user's env is already
-  // inherited and spawning a login shell would be wasted work.
-  if (process.env.TERM_PROGRAM || process.env.ITERM_SESSION_ID) {
+  // inherited: spawning a login shell would be wasted work, and merging its
+  // output would clobber values set for this launch (GITLAB_HOST=… runbooks).
+  if (isTerminalLaunch(process.env)) {
     log.debug("Already running from a terminal; skipping shell env capture")
     return
   }
@@ -71,24 +105,15 @@ export function populateShellEnv(): void {
     return
   }
 
-  const stdout = result.stdout ?? ""
-  const markerIdx = stdout.indexOf(MARKER)
-  if (markerIdx === -1) {
+  const entries = parseEnvDump(result.stdout ?? "")
+  if (entries.length === 0) {
     log.warn("Could not locate marker in shell env output")
     return
   }
 
-  // Skip the marker and the NUL separator that printf emitted after it.
-  const envText = stdout.slice(markerIdx + MARKER.length + 1)
-
   let count = 0
-  for (const entry of envText.split("\0")) {
-    if (entry === "") continue
-    const eq = entry.indexOf("=")
-    if (eq === -1) continue
-    const key = entry.slice(0, eq)
+  for (const [key, value] of entries) {
     if (PROTECTED_KEYS.has(key)) continue
-    const value = entry.slice(eq + 1)
     process.env[key] = value
     count++
   }
