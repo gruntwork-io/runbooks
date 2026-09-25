@@ -10,6 +10,7 @@ import { GitError, RemoteSourceError } from "./errors/index.ts"
 import { gitSpawnEnv } from "./domain/git/env.ts"
 import { redactSecrets } from "./domain/vcs/redact.ts"
 import { isGitLabHost } from "./domain/git/gitlab-host.ts"
+import { containsPathTraversal } from "./path-validation.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,17 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
     if (url.protocol !== "https:" && url.protocol !== "http:") {
       return yield* Effect.fail(unsupported)
     }
+    // Only the host is kept below, so credentials in the URL
+    // (`https://oauth2:<token>@host/...`) would be dropped silently and the
+    // clone would fail with an auth hint. Say why instead.
+    if (url.username || url.password) {
+      return yield* Effect.fail(
+        new RemoteSourceError({
+          url: raw,
+          message: "credentials in the URL are not supported: remove them and set GITHUB_TOKEN or GITLAB_TOKEN",
+        }),
+      )
+    }
     // `host` keeps a non-default port (a self-hosted instance on :8443).
     const host = url.host
     // `new URL` percent-encodes the path (spaces, non-ASCII); decode it back
@@ -128,7 +140,7 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
     // `..%5C..%5Cetc` would climb out of the clone there. No repo, ref or
     // path legitimately has a `..` segment, so reject one under either
     // separator (on every platform, so the check is tested everywhere).
-    if (pathname.split(/[\\/]/).includes("..")) {
+    if (containsPathTraversal(pathname)) {
       return yield* Effect.fail(unsupported)
     }
 
@@ -157,7 +169,10 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
         host,
         owner,
         repo,
-        ref: url.searchParams.get("ref") || undefined,
+        // URLSearchParams reads `+` as a space, which no git ref can contain,
+        // while a tag can contain `+` (semver build metadata:
+        // `v1.0.0+build.1`). Keep it literal; `%2B` still decodes to `+`.
+        ref: new URLSearchParams(url.search.replace(/\+/g, "%2B")).get("ref") || undefined,
         path,
         cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: false,

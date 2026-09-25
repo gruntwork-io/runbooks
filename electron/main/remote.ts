@@ -21,6 +21,7 @@ import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
 import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
+import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("remote")
@@ -269,8 +270,7 @@ export const selectCloneToken = (
 export function runbookDirInClone(dest: string, subpath: string | undefined): string | undefined {
   if (!subpath) return dest
   const dir = path.join(dest, subpath)
-  const rel = path.relative(dest, dir)
-  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) ? undefined : dir
+  return isContainedIn(dir, dest) ? dir : undefined
 }
 
 /**

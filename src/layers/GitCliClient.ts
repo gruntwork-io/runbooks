@@ -93,7 +93,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
         // `--branch` takes only branch and tag names, so a commit SHA (a
         // GitHub/GitLab permalink, or OpenTofu `?ref=<sha>`) is cloned without
-        // it and checked out afterwards.
+        // it and checked out afterwards. The trailing `--` makes an unknown
+        // SHA fail as "invalid reference", not as an unmatched pathspec.
         const commitRef =
           options?.ref !== undefined && COMMIT_SHA_REGEX.test(options.ref) ? options.ref : undefined
 
@@ -108,7 +109,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
           yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
           yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
-          yield* runGit(spawner, commitRef ? ["checkout", commitRef] : ["checkout"], dest)
+          yield* runGit(spawner, commitRef ? ["checkout", commitRef, "--"] : ["checkout"], dest)
         } else {
           // Standard full clone
           const args = ["clone", "--progress"]
@@ -137,7 +138,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
             )
           }
           if (commitRef) {
-            yield* runGit(spawner, ["checkout", commitRef], dest)
+            yield* runGit(spawner, ["checkout", commitRef, "--"], dest)
           }
         }
 

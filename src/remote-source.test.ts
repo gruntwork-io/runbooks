@@ -77,6 +77,13 @@ describe("parseRemoteSource", () => {
     })
 
     it.each([
+      "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0+build.1",
+      "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0%2Bbuild.1",
+    ])("keeps a `+` in the ref (semver build metadata): %s", (url) => {
+      expect(parse(url).ref).toBe("v1.0.0+build.1")
+    })
+
+    it.each([
       "git::https://github.com/repo.git//modules/vpc", // no owner
       "git::https://github.com/group/subgroup/repo.git//modules/vpc", // GitHub has no nested groups
       "git::ssh://git@github.com/owner/repo.git//modules/vpc",
@@ -307,6 +314,18 @@ describe("parseRemoteSource", () => {
 
     it("rejects unsupported format", () => {
       expect(() => parse("https://bitbucket.org/owner/repo")).toThrow()
+    })
+
+    it.each([
+      "git::https://oauth2:glpat-secret@gitlab.example.com/group/project.git//x?ref=v1",
+      "https://user:pass@github.com/owner/repo/tree/main/x",
+      "https://user@gitlab.com/group/project",
+    ])("rejects credentials in the URL with a clear message: %s", (url) => {
+      const result = Effect.runSync(Effect.either(parseRemoteSource(url)))
+      expect(result._tag).toBe("Left")
+      if (result._tag === "Left") {
+        expect(result.left.message).toContain("credentials in the URL are not supported")
+      }
     })
   })
 })

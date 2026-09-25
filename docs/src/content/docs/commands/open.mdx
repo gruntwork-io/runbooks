@@ -54,7 +54,7 @@ runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main
 | OpenTofu git::https | `git::https://github.com/org/repo.git//path?ref=main` |
 | OpenTofu pinned to a commit | `github.com/org/repo//path?ref=<commit-sha>` |
 
-A ref can be a branch, a tag, or a commit SHA (full or abbreviated). In the OpenTofu formats, `//path` is optional (without it the runbook is at the repo root), and without `?ref` the default branch is used.
+A ref can be a branch, a tag, or a commit SHA. An abbreviated SHA needs at least 7 characters, and the commit must be reachable from a branch or tag (a commit that only exists on a pull request head cannot be opened). In the OpenTofu formats, `//path` is optional (without it the runbook is at the repo root), and without `?ref` the default branch is used. Credentials in the URL (`https://user:token@...`) are not supported; see [Authentication for private repos](#authentication-for-private-repos) instead.
 
 <Aside type="note">
 When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir=::tmp`). You can override this with `--working-dir` if needed.

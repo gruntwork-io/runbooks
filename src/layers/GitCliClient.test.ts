@@ -352,6 +352,23 @@ describe("GitCliClientLive.cloneSimple commit-SHA refs (real repo)", () => {
     expect(read(dest, "other", "file.txt")).toBe("other\n")
   })
 
+  it("reports an unknown commit SHA as an invalid reference", async () => {
+    const dest = path.join(tmp, "unknown")
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        return yield* git.cloneSimple(srcURL, dest, { ref: "deadbeef1", sparse: "runbooks/x" })
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      const err = result.left as GitError
+      expect(err.stderr).toContain("invalid reference: deadbeef1")
+      expect(err.stderr).not.toContain("pathspec")
+    }
+  })
+
   it("still clones a branch ref (control)", async () => {
     const dest = path.join(tmp, "branch")
     await runClone(dest, { ref: "main", sparse: "runbooks/x" })
@@ -391,6 +408,6 @@ describe("GitCliClientLive.cloneSimple ref arguments", () => {
     const calls = await cloneArgs({ ref: sha, sparse })
     expect(calls[0]).not.toContain("--branch")
     expect(calls[0]).toContain("--no-checkout")
-    expect(calls[calls.length - 1]).toEqual(["checkout", sha])
+    expect(calls[calls.length - 1]).toEqual(["checkout", sha, "--"])
   })
 })
