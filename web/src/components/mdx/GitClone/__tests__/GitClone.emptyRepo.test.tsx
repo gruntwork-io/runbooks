@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
@@ -15,9 +15,11 @@ vi.mock("@/contexts/ApiContext", async (importOriginal) => {
 })
 
 const registerWorkTree = vi.fn()
+const unregisterWorkTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({
     registerWorkTree,
+    unregisterWorkTree,
     activeWorkTree: null,
     workTrees: [],
     setActiveWorkTree: vi.fn(),
@@ -67,22 +69,10 @@ function renderGitClone(props: Record<string, unknown> = {}) {
   )
 }
 
-// The clone path calls window.api directly, while the local path goes through
-// useApi() — point both at the same spy so one mockImplementation covers both.
-const originalApi = window.api
-
 beforeEach(() => {
   invoke.mockReset()
   registerWorkTree.mockReset()
-  window.api = {
-    invoke,
-    on: vi.fn(() => () => {}),
-    once: vi.fn(),
-  } as unknown as typeof window.api
-})
-
-afterEach(() => {
-  window.api = originalApi
+  unregisterWorkTree.mockReset()
 })
 
 describe("GitClone — a repository with no commits", () => {
@@ -278,5 +268,51 @@ describe("GitClone — the base branch a clone records", () => {
     )
     expect(publishedOutputs()).toEqual({})
     expect(registerWorkTree).not.toHaveBeenCalled()
+  })
+
+  it("withdraws the previous repo on 'Clone again', so an empty repo cloned next still holds", async () => {
+    const REPO_A = {
+      status: "success",
+      absolutePath: "/work/a",
+      relativePath: "a",
+      fileCount: 12,
+      ref: "main",
+      hasCommits: true,
+      outputs: { clone_path: "/work/a", repo_owner: "acme", repo_name: "a" },
+    }
+    const EMPTY_B = {
+      status: "success",
+      absolutePath: "/work/b",
+      relativePath: "b",
+      fileCount: 0,
+      ref: "main",
+      hasCommits: false,
+      outputs: { clone_path: "/work/b", repo_owner: "acme", repo_name: "b" },
+    }
+    const clones = [REPO_A, EMPTY_B]
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === "git:clone") return clones.shift()
+      if (channel === "session:get") return { workingDir: "/work" }
+      if (channel === "github:orgs") return []
+      return {}
+    })
+    renderGitClone({ prefilledUrl: "https://github.com/acme/a.git" })
+    const user = await runClone()
+
+    await waitFor(() => expect(registerWorkTree).toHaveBeenCalledTimes(1))
+    expect(publishedOutputs()).toEqual(REPO_A.outputs)
+
+    await user.click(screen.getByRole("button", { name: /Clone again/i }))
+    // While the block is back on its form, nothing of repo A stays live.
+    expect(publishedOutputs()).toEqual({})
+    expect(unregisterWorkTree).toHaveBeenCalledWith("test-clone")
+
+    await runClone()
+    await waitFor(() =>
+      expect(screen.getByText(/This repository has no commits yet/i)).toBeInTheDocument(),
+    )
+    // The empty repo is held back as usual, and nothing replaced it with A.
+    expect(publishedOutputs()).toEqual({})
+    expect(registerWorkTree).toHaveBeenCalledTimes(1)
   })
 })

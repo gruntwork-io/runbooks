@@ -97,8 +97,9 @@ function errorMessage(err: unknown): string {
  */
 async function runAndUnwrap<A, E extends { _tag: string }>(
   program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
+  signal?: AbortSignal,
 ): Promise<A> {
-  const exit = await runtime.runPromiseExit(program)
+  const exit = await runtime.runPromiseExit(program, { signal })
   if (Exit.isSuccess(exit)) return exit.value
 
   const failure = Cause.failureOption(exit.cause)
@@ -109,6 +110,33 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
     throw new Error(errorMessage(failure.value))
   }
   throw new Error(Cause.pretty(exit.cause))
+}
+
+// Clones in flight, keyed by the renderer-supplied cloneId so git:clone-cancel
+// can stop a specific one. Aborting a controller interrupts that clone's fiber
+// (the signal is passed to runAndUnwrap), and interruption kills git — see the
+// release registered where the git process is spawned.
+const activeClones = new Map<string, AbortController>()
+
+/**
+ * Run a clone so that git:clone-cancel can stop it. A cancelled clone resolves
+ * to `{ status: "cancelled" }` rather than rejecting with the interruption:
+ * the user asked for it, so it is not an error.
+ */
+async function runCancellableClone<A>(
+  cloneId: string | undefined,
+  run: (signal: AbortSignal) => Promise<A>,
+): Promise<A | { status: "cancelled" }> {
+  const controller = new AbortController()
+  if (cloneId) activeClones.set(cloneId, controller)
+  try {
+    return await run(controller.signal)
+  } catch (err) {
+    if (controller.signal.aborted) return { status: "cancelled" }
+    throw err
+  } finally {
+    if (cloneId && activeClones.get(cloneId) === controller) activeClones.delete(cloneId)
+  }
 }
 
 /** Renderer payload shared by the git:pull-request and git:merge-request handlers. */
@@ -195,6 +223,7 @@ export function registerGitHandlers(): void {
       event,
       params: {
         url: string
+        cloneId?: string
         localPath?: string
         ref?: string
         credentials?: { token: string }
@@ -202,7 +231,7 @@ export function registerGitHandlers(): void {
         provider?: "github" | "gitlab"
       },
     ) => {
-      return runAndUnwrap(
+      return runCancellableClone(params.cloneId, (signal) => runAndUnwrap(
         Effect.scoped(
         Effect.gen(function* () {
           // Validate the clone URL before any other processing
@@ -319,7 +348,15 @@ export function registerGitHandlers(): void {
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
           // host-key verification prompt.
-          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
+          //
+          // git:clone-cancel interrupts this fiber. Kill git when that happens,
+          // or it keeps writing into the destination after the renderer has
+          // moved on (and races a "Delete & Clone" of the same directory). A
+          // terminated git clone cleans up its partial clone itself.
+          const proc = yield* Effect.acquireRelease(
+            spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() }),
+            (spawned, exit) => (Exit.isInterrupted(exit) ? spawned.kill : Effect.void),
+          )
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
@@ -329,6 +366,7 @@ export function registerGitHandlers(): void {
               event.sender.send("git:clone-progress", {
                 line: line.line,
                 timestamp: new Date().toISOString(),
+                cloneId: params.cloneId,
               })
             }),
           )
@@ -365,6 +403,7 @@ export function registerGitHandlers(): void {
           event.sender.send("git:clone-progress", {
             line: "Clone complete. Counting files...",
             timestamp: new Date().toISOString(),
+            cloneId: params.cloneId,
           })
 
           // Count tracked files using `git ls-files` (fast, ~10ms)
@@ -433,9 +472,16 @@ export function registerGitHandlers(): void {
           }
         }),
         ),
-      )
+        signal,
+      ))
     },
   )
+
+  ipcMain.handle("git:clone-cancel", async (_event, params: { cloneId: string }) => {
+    // A clone that already finished (or never started) has nothing to stop.
+    activeClones.get(params.cloneId)?.abort()
+    return { ok: true as const }
+  })
 
   // Select an existing local checkout instead of cloning. The user picks the
   // directory (native dialog or by typing a path), so registering it as a

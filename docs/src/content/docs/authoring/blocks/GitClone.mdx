@@ -241,6 +241,12 @@ Reference outputs in downstream blocks using template variables:
   Block IDs with hyphens are converted to underscores in template variables. For example, `clone-repo` becomes `clone_repo`.
 </Aside>
 
+### Cancelling and Starting Over
+
+**Cancel** stops the running `git clone` process, which removes the partially cloned directory. A cancelled clone produces no outputs.
+
+**Clone again** (or **Choose a different repo** for a local checkout) withdraws the block's outputs and removes the repository from the workspace until the next clone or checkout completes. Later blocks wait for it rather than carrying on against the previous repository, and a repository with no commits chosen next is held back as described in [Repositories With No Commits](#repositories-with-no-commits).
+
 ### View Logs
 
 The GitClone block includes a collapsible "View Logs" section (identical to the [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks) that shows the full `git clone` output, including real-time streaming during the clone operation. This includes progress indicators, transfer statistics, and any error details.

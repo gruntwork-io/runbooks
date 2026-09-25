@@ -141,7 +141,7 @@ function GitCloneInteractive({
   const { trackBlockRender } = useTelemetry()
 
   // Git worktree context for registering cloned repos with the workspace
-  const { registerWorkTree } = useGitWorkTree()
+  const { registerWorkTree, unregisterWorkTree } = useGitWorkTree()
 
   useEffect(() => {
     trackBlockRender('GitClone')
@@ -387,10 +387,14 @@ function GitCloneInteractive({
     setRef(selectedRef)
   }, [])
 
+  // Starting over withdraws the repo from downstream blocks: reset() clears
+  // the outputs, and the worktree goes too. An empty repo cloned next is held
+  // back as usual, rather than leaving the previous repo live behind it.
   const handleCloneAgain = useCallback(() => {
     reset()
+    unregisterWorkTree(id)
     setShowOverwriteConfirm(false)
-  }, [reset])
+  }, [reset, unregisterWorkTree, id])
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
   const statusConfig: Record<string, { bg: string; icon: typeof GitBranch; iconColor: string }> = {

@@ -40,8 +40,10 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
 
     // Auto-activate the first registered worktree
     setActiveWorkTreeId(prev => {
-      if (prev === null) {
-        // First worktree: set it as active on the backend too
+      // First worktree: set it as active on the backend too. Re-registering
+      // the active one (its block cloned again, maybe to another path) syncs
+      // it again, or the backend would stay on the old path.
+      if (prev === null || prev === workTree.id) {
         syncActiveToBackend(workTree.localPath)
         return workTree.id
       }
@@ -54,6 +56,21 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
     // Always invalidate the tree so re-clones refresh the file tree and reset changed files
     invalidateGitFileTree()
   }, [api, syncActiveToBackend, invalidateGitFileTree])
+
+  // Called when a GitClone block starts over. Its worktree must not stay
+  // registered (or active) while the block shows no repo: <GitPullRequest>
+  // would keep targeting the repository the user moved away from.
+  const unregisterWorkTree = useCallback((id: string) => {
+    const remaining = workTrees.filter(wt => wt.id !== id)
+    if (remaining.length === workTrees.length) return
+    setWorkTrees(remaining)
+    if (activeWorkTreeId === id) {
+      const next = remaining[0] ?? null
+      setActiveWorkTreeId(next?.id ?? null)
+      if (next) syncActiveToBackend(next.localPath)
+    }
+    invalidateGitFileTree()
+  }, [workTrees, activeWorkTreeId, syncActiveToBackend, invalidateGitFileTree])
 
   const setActiveWorkTree = useCallback((id: string) => {
     setActiveWorkTreeId(id)
@@ -87,11 +104,12 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
     activeWorkTreeId,
     activeWorkTree,
     registerWorkTree,
+    unregisterWorkTree,
     setActiveWorkTree,
     resetWorkTrees,
     treeVersion,
     invalidateGitFileTree,
-  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, setActiveWorkTree, resetWorkTrees, treeVersion, invalidateGitFileTree])
+  }), [workTrees, activeWorkTreeId, activeWorkTree, registerWorkTree, unregisterWorkTree, setActiveWorkTree, resetWorkTrees, treeVersion, invalidateGitFileTree])
 
   return (
     <GitWorkTreeContext.Provider value={value}>

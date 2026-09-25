@@ -6,11 +6,13 @@ import { normalizeBlockId } from '@/lib/utils'
 import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef, LocalRepoInfo } from '../types'
+import type { GitCloneRequest } from '../../../../../../electron/shared/channels.ts'
 
 const CloneLogEventSchema = z.object({
   line: z.string(),
   timestamp: z.string().optional(),
   replace: z.boolean().optional(),
+  cloneId: z.string().optional(),
 })
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
@@ -60,6 +62,12 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
   // Ref to the progress listener unsubscriber so cancel() can clean up
   const unsubLogRef = useRef<(() => void) | null>(null)
+
+  // The current clone run. clone() and cancel() both bump it, so a run that
+  // was cancelled (or superseded) can't apply its late result or clean-up.
+  const cloneRunRef = useRef(0)
+  // Backend id of the clone in flight, so cancel() can stop git itself.
+  const cloneIdRef = useRef<string | null>(null)
 
   // Check if the auth dependency is met. Supports githubAuthId (GitHub) and the
   // provider-agnostic gitAuthId (GitHub or GitLab); a referenced block is met
@@ -111,7 +119,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       setHasGitHubToken(false)
     } finally {
       setTokenChecked(true)
-      setCloneStatus('ready')
+      // Only leave the initial state: the check can finish after the user has
+      // already started a clone, which must stay running (or done).
+      setCloneStatus(prev => (prev === 'pending' ? 'ready' : prev))
     }
   }, [api, fetchWorkingDir])
 
@@ -150,6 +160,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
   const clone = useCallback(async (url: string, ref: string, repoPath: string, localPath: string, usePty?: boolean, force?: boolean): Promise<'directory_exists' | void> => {
+    const runId = ++cloneRunRef.current
+    const cloneId = crypto.randomUUID()
+    cloneIdRef.current = cloneId
     setCloneStatus('running')
     setLogs([])
     setCloneResult(null)
@@ -158,7 +171,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     let unsubLog: (() => void) | null = null
 
     try {
-      const body: Record<string, unknown> = { url }
+      const body: GitCloneRequest = { url, cloneId }
       if (ref) body.ref = ref
       if (repoPath) body.repo_path = repoPath
       if (localPath) body.localPath = localPath
@@ -168,9 +181,10 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
       // Subscribe to streaming events before starting the clone.
       // Store in ref so cancel() can unsubscribe.
-      unsubLog = window.api.on('git:clone-progress', (data: { line: string; timestamp?: string; replace?: boolean }) => {
+      unsubLog = api.on('git:clone-progress', (data) => {
         const parsed = CloneLogEventSchema.safeParse(data)
-        if (parsed.success) {
+        // The channel is shared, so skip another clone's lines.
+        if (parsed.success && (!parsed.data.cloneId || parsed.data.cloneId === cloneId)) {
           const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
           setLogs(prev => {
             if (parsed.data.replace && prev.length > 0) {
@@ -182,7 +196,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       })
       unsubLogRef.current = unsubLog
 
-      const result = await window.api.invoke('git:clone', body as any)
+      const result = await api.invoke('git:clone', body)
+      // Cancelled while git ran: the block has moved on without this result.
+      if (runId !== cloneRunRef.current) return
 
       if (result.error === 'directory_exists') {
         setCloneStatus('ready')
@@ -207,6 +223,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         setCloneStatus('fail')
       }
     } catch (error) {
+      if (runId !== cloneRunRef.current) return
       const msg = error instanceof Error ? error.message : 'An unexpected error occurred'
       setErrorMessage(msg)
       setCloneStatus('fail')
@@ -218,7 +235,10 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         const unsub = unsubLog
         setTimeout(() => unsub(), 200)
       }
-      unsubLogRef.current = null
+      // A cancelled run must not clear the refs of the retry that replaced it,
+      // or a second Cancel could no longer reach that retry.
+      if (unsubLogRef.current === unsubLog) unsubLogRef.current = null
+      if (cloneIdRef.current === cloneId) cloneIdRef.current = null
     }
   }, [api, id, registerOutputs, authProvider])
 
@@ -351,25 +371,38 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     }
   }, [api, id, cloneResult, registerOutputs, authProvider])
 
-  // Cancel an in-progress clone by unsubscribing from progress events
+  // Cancel an in-progress clone: stop git in the main process, and detach
+  // this run so its late result can't land on the block afterwards.
   const cancel = useCallback(() => {
+    cloneRunRef.current++
     if (unsubLogRef.current) {
       unsubLogRef.current()
       unsubLogRef.current = null
     }
+    const cloneId = cloneIdRef.current
+    cloneIdRef.current = null
+    if (cloneId) {
+      api.invoke('git:clone-cancel', { cloneId }).catch(() => {
+        // Main has already finished with this clone — nothing left to stop.
+      })
+    }
     setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
     setCloneStatus('ready')
-  }, [])
+  }, [api])
 
+  // Start over ('Clone again' / 'Choose a different repo'). The previous
+  // repo's outputs are withdrawn, so downstream blocks wait for the next one
+  // instead of carrying on against a repo the user moved away from.
   const reset = useCallback(() => {
     setCloneStatus('ready')
     setLogs([])
     setCloneResult(null)
     setErrorMessage(null)
     pendingOutputsRef.current = null
+    registerOutputs(id, {})
     setSeedStatus('idle')
     setSeedError(null)
-  }, [])
+  }, [id, registerOutputs])
 
   // The local checkout's own metadata survives a reset — the preview is
   // re-run from the form's current path when the user returns to it.

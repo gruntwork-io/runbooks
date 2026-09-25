@@ -492,6 +492,7 @@ export interface IpcChannelMap {
   "git:clone": {
     params: GitCloneRequest
     result: {
+      /** "success", or "cancelled" when git:clone-cancel stopped the clone. */
       status: string
       error?: string
       fileCount?: number
@@ -504,6 +505,9 @@ export interface IpcChannelMap {
       outputs?: Record<string, string>
     }
   }
+  // Stops the clone started with this `cloneId`: git is killed, not just
+  // detached from the UI, so it can't keep writing into the destination.
+  "git:clone-cancel": { params: { cloneId: string }; result: { ok: true } }
   "git:local-repo": {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
@@ -615,7 +619,8 @@ export interface IpcEventMap {
   "exec:outputs": { outputs: Record<string, string> }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
   "watch:file-change": { type: "reload" }
-  "git:clone-progress": { line: string; timestamp: string }
+  /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
+  "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }
   "git:status": { status: string; exitCode: number }
   "git:pr-result": { prUrl: string; prNumber: number; branchName: string }
@@ -874,6 +879,11 @@ export interface GitLocalRepoResponse {
 
 export interface GitCloneRequest {
   url: string
+  /**
+   * Renderer-chosen id for this clone. git:clone-cancel uses it to stop the
+   * clone, and git:clone-progress events carry it back.
+   */
+  cloneId?: string
   localPath?: string
   ref?: string
   repo_path?: string

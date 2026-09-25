@@ -17,6 +17,7 @@ const registerWorkTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({
     registerWorkTree,
+    unregisterWorkTree: vi.fn(),
     activeWorkTree: null,
     workTrees: [],
     setActiveWorkTree: vi.fn(),
