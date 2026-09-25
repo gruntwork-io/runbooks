@@ -10,7 +10,8 @@ interface AuthSuccessProps {
   detectionSource?: GitDetectionSource
   detectedScopes?: string[] | null
   detectedTokenType?: GitTokenType | null
-  scopeWarning?: string | null
+  /** The token lacks the provider's required scope (copy from provider.success). */
+  missingScope?: boolean
   sessionEnvWarning?: string | null
   /** The host authenticated against (GitLab); shown so multi-host users see which instance. */
   host?: string
@@ -57,7 +58,7 @@ export function AuthSuccess({
   detectionSource,
   detectedScopes,
   detectedTokenType,
-  scopeWarning,
+  missingScope,
   sessionEnvWarning,
   host,
   successMeta,
@@ -335,13 +336,17 @@ export function AuthSuccess({
             {' '}to find this token's permissions.
           </div>
         )}
-        {scopeWarning && (
+        {missingScope && (
           <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
             <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
             <div>
               <strong>Missing "{provider.success.requiredScope}" scope</strong>
-              <br />
-              Operations on private repos, issues, and PRs may fail.
+              {provider.success.scopeWarningDetail && (
+                <>
+                  <br />
+                  {provider.success.scopeWarningDetail}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -360,7 +365,7 @@ export function AuthSuccess({
             size="sm"
             onClick={onReAuthenticate}
           >
-            {scopeWarning ? 'Re-authenticate with full permissions' : 'Re-authenticate'}
+            {missingScope ? 'Re-authenticate with full permissions' : 'Re-authenticate'}
           </Button>
         </div>
       )}

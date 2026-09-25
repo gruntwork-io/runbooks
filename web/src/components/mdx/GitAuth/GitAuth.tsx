@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useRef, useState, useMemo } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
@@ -15,7 +15,7 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
-import { PROVIDERS } from "./providers"
+import { PROVIDERS, isGitProvider } from "./providers"
 import { useGitAuth } from "./hooks/useGitAuth"
 import { getStatusClasses, getStatusIcon, getStatusIconClasses, resolveDefaultAuthMethod } from "./utils"
 import { ProviderSelect } from "./components/ProviderSelect"
@@ -52,8 +52,14 @@ function GitAuthInteractive({
         details: "Please provide a unique 'id' for this component instance."
       }
     }
+    if (!isGitProvider(initialProvider)) {
+      return {
+        message: `The <${__registryType}> component has an invalid 'provider' prop: "${initialProvider}".`,
+        details: "Valid values are 'github' and 'gitlab' (lowercase)."
+      }
+    }
     return null
-  }, [id, __registryType])
+  }, [id, initialProvider, __registryType])
 
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
@@ -70,7 +76,9 @@ function GitAuthInteractive({
 
   // Selected provider (GitHub | GitLab)
   const [provider, setProvider] = useState<GitProvider>(initialProvider)
-  const providerConfig = PROVIDERS[provider]
+  // An invalid `provider` prop renders the validation error below, but the
+  // hooks still run first — give them a real config instead of undefined.
+  const providerConfig = isGitProvider(provider) ? PROVIDERS[provider] : PROVIDERS.github
 
   // State for custom OAuth warning
   const [customOAuthDismissed, setCustomOAuthDismissed] = useState(false)
@@ -86,7 +94,9 @@ function GitAuthInteractive({
     instanceUrl,
     oauthClientId: useDefaultOAuth ? undefined : oauthClientId,
     oauthScopes: effectiveOAuthScopes,
-    detectCredentials,
+    // No detection behind a configuration error: it would authenticate (and
+    // publish outputs for) a block the user can't see.
+    detectCredentials: validationError ? false : detectCredentials,
     host,
     defaultTab,
   })
@@ -113,6 +123,16 @@ function GitAuthInteractive({
     trackBlockRender(__registryType)
   }, [trackBlockRender, __registryType])
 
+  // "Other instance…" in the host picker asks for the instance-URL field.
+  // Focused from here rather than from PatForm: the form remounts whenever
+  // detection re-runs, and a remount must not re-take focus for an old pick.
+  const instanceFieldRef = useRef<HTMLInputElement>(null)
+  const instanceFieldFocusNonce = auth.instanceFieldFocusNonce
+  useEffect(() => {
+    if (!instanceFieldFocusNonce) return
+    instanceFieldRef.current?.focus()
+  }, [instanceFieldFocusNonce])
+
   // When the OAuth tab is disabled (unreachable), make sure the PAT form
   // is the one showing rather than a dead OAuth pane.
   const oauthDisabled = auth.oauthUnavailableReason !== null
@@ -132,10 +152,17 @@ function GitAuthInteractive({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
+    } else if (validationError) {
+      reportError({
+        componentId: id,
+        componentType: __registryType,
+        severity: 'error',
+        message: validationError.message
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, reportError, clearError, __registryType])
+  }, [id, isDuplicate, validationError, reportError, clearError, __registryType])
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
@@ -236,17 +263,15 @@ function GitAuthInteractive({
               detectionSource={auth.detectionSource}
               detectedScopes={auth.detectedScopes}
               detectedTokenType={auth.detectedTokenType}
-              scopeWarning={auth.scopeWarning}
+              missingScope={auth.missingScope}
               sessionEnvWarning={auth.sessionEnvWarning}
               host={auth.selectedHost}
               successMeta={auth.successMeta}
               divergenceHint={auth.divergenceHint}
               sessionStale={auth.sessionStale}
               gitSslBackend={auth.cliStatus?.git?.sslBackend}
-              onApplySchannel={() => {
-                void window.api.invoke('vcs:apply-git-schannel').catch(() => {})
-              }}
-              onReAuthenticate={auth.resetAuth}
+              onApplySchannel={auth.applySchannel}
+              onReAuthenticate={auth.reAuthenticate}
             />
           )}
 
@@ -286,14 +311,17 @@ function GitAuthInteractive({
           {/* Authentication form (only show when not authenticated and detection is done) */}
           {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
-              {/* CLI-status-driven hint + the "Check again" control */}
+              {/* CLI-status-driven hint + the "Check again" control. The GitLab
+                  host picker carries Reload instead; without the picker (GitHub,
+                  or a `host`-pinned GitLab block) this is the only way to re-run
+                  detection after Re-authenticate turns focus re-detection off. */}
               {auth.manualHint && (
                 <div
                   data-testid="vcs-cli-hint"
                   className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
                 >
                   <span>{auth.manualHint}</span>
-                  {provider === 'github' && (
+                  {!auth.hostSelectable && (
                     <button
                       type="button"
                       onClick={auth.retryUnreachable}
@@ -348,6 +376,7 @@ function GitAuthInteractive({
                     provider={providerConfig}
                     instanceUrl={auth.gitlabInstanceUrl}
                     setInstanceUrl={auth.setGitlabInstanceUrl}
+                    instanceInputRef={instanceFieldRef}
                   />
                   {/* Providers without OAuth (GitLab) surface the auto-detect
                       FAQ here, since there is no OAuth tab to carry it. */}

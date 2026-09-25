@@ -51,6 +51,7 @@ export const gitlabProviderConfig: ProviderConfig = {
     showScopeWarning: true,
     requiredScope: 'write_repository',
     acceptableScopes: ['api', 'write_repository'],
+    scopeWarningDetail: 'Pushing branches and opening merge requests may fail.',
     showAppInstallBranch: false,
     showFineGrainedNote: false,
     unknownTokenLabel: 'Access Token',

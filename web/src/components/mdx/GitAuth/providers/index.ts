@@ -64,6 +64,9 @@ export interface ProviderConfig {
      * `write_repository`. Defaults to `[requiredScope]` when omitted.
      */
     acceptableScopes?: string[]
+    /** What a token without an acceptable scope breaks, shown under the
+     *  missing-scope warning on the success card. */
+    scopeWarningDetail?: string
     showAppInstallBranch: boolean
     showFineGrainedNote: boolean
     /** Label shown for an unrecognized token type. */
@@ -79,4 +82,13 @@ export interface ProviderConfig {
 export const PROVIDERS: Record<GitProvider, ProviderConfig> = {
   github: githubProviderConfig,
   gitlab: gitlabProviderConfig,
+}
+
+/**
+ * Whether `value` names a known provider. The `provider` prop arrives from MDX
+ * unchecked, so a typo like "GitLab" must be caught before PROVIDERS is
+ * indexed with it (own keys only — "toString" is not a provider).
+ */
+export function isGitProvider(value: unknown): value is GitProvider {
+  return typeof value === 'string' && Object.hasOwn(PROVIDERS, value)
 }

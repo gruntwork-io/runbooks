@@ -78,7 +78,7 @@ export function OAuthFlow({
               </Button>
             </div>
             <p className="text-muted-foreground text-xs">
-              We check for authorization every 5 seconds. If you cancelled on GitHub, click Cancel below.
+              We check for authorization every few seconds. If you cancelled on GitHub, click Cancel below.
             </p>
           </>
         ) : (

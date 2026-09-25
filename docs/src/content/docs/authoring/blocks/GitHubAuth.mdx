@@ -50,7 +50,7 @@ The GitHubAuth block supports multiple authentication sources:
 
 ### GitHub Enterprise Support
 
-The GitHubAuth block supports GitHub.com, GitHub Enterprise Cloud and GitHub Enterprise Server. However, OAuth is only supported for GitHub.com and GitHub Enterprise Cloud. For GitHub Enterprise Server, you can use PAT authentication or contact Gruntwork for enterprise support options.
+The GitHubAuth block works with `github.com`, including GitHub Enterprise Cloud organizations hosted there. GitHub Enterprise Server is not supported: tokens are always validated against `github.com`. Contact Gruntwork for enterprise support options.
 
 ## Props
 
@@ -229,6 +229,8 @@ TOKEN=$(vault read -field=token secret/github)
 echo "GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
+If the referenced block has not run yet, GitHubAuth shows *Waiting for "fetch-token" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order. If the block ran without writing a usable `GITHUB_TOKEN` (for example, the script failed), detection moves on to the next source, and the manual sign-in form appears if none of them finds a credential.
+
 ## Permissions
 
 Once authenticated to GitHub, Runbooks will update the environment variables `GITHUB_TOKEN` and `GITHUB_USER` with the authenticated user's token and username. GitHub tokens have permissions that control what actions they can perform. The way permissions are configured depends on the authentication method:
@@ -309,7 +311,7 @@ Each authentication method keeps your credentials on your machine:
 When you authenticate via OAuth:
 
 1. Runbooks (running on your machine) requests a device code from GitHub
-2. You open github.com/login/device and enter the code
+2. You open github.com/login/device and enter the code. GitHub keeps the code valid for 15 minutes by default, and Runbooks keeps checking for your approval until it expires. If it expires before you approve, start the sign-in again.
 3. You see "Gruntwork Runbooks wants to access your account" and approve
 4. GitHub sends the token directly to your local Runbooks instance
 

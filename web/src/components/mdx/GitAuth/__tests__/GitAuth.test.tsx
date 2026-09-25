@@ -7,6 +7,7 @@ const hookCalls: Array<Record<string, unknown>> = []
 const cancelOAuth = vi.fn()
 const clearRegisteredOutputs = vi.fn()
 const resetAuth = vi.fn()
+const reAuthenticate = vi.fn()
 
 vi.mock("../hooks/useGitAuth", () => ({
   useGitAuth: (opts: Record<string, unknown>) => {
@@ -26,8 +27,10 @@ vi.mock("../hooks/useGitAuth", () => ({
       startOAuth: vi.fn(),
       cancelOAuth,
       resetAuth,
+      reAuthenticate,
       resetDetectionState: vi.fn(),
       clearRegisteredOutputs,
+      applySchannel: vi.fn(),
       effectiveClientId: "client-id",
       isCustomClientId: false,
     }
@@ -56,6 +59,7 @@ beforeEach(() => {
   cancelOAuth.mockClear()
   clearRegisteredOutputs.mockClear()
   resetAuth.mockClear()
+  reAuthenticate.mockClear()
 })
 
 describe("GitAuth", () => {
@@ -96,6 +100,8 @@ describe("GitAuth", () => {
     // before authentication completes — lets downstream blocks derive the provider.
     expect(clearRegisteredOutputs).toHaveBeenCalledWith('gitlab')
     expect(resetAuth).toHaveBeenCalled()
+    // Not the Re-authenticate path: that would re-register the old provider.
+    expect(reAuthenticate).not.toHaveBeenCalled()
     // After switching, the hook is re-invoked with the gitlab provider.
     expect((hookCalls.at(-1)!.provider as { id: string }).id).toBe("gitlab")
   })

@@ -19,11 +19,17 @@ export interface DeviceFlowStart {
   readonly userCode: string
   readonly verificationUri: string
   readonly interval: number
+  /** Seconds until the device code expires (GitHub's default is 900). */
+  readonly expiresIn: number
 }
 
 export interface OAuthPollResult {
   readonly token?: string
   readonly pending?: boolean
+  /** GitHub answered slow_down: poll less often (RFC 8628 §3.5). */
+  readonly slowDown?: boolean
+  /** The minimum poll interval in seconds GitHub sent with slow_down. */
+  readonly interval?: number
 }
 
 export interface GitHubOrg {

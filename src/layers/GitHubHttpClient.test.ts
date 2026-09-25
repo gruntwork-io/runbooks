@@ -119,3 +119,62 @@ describe("GitHubHttpClient immutable IDs", () => {
     })
   })
 })
+
+describe("GitHubHttpClient OAuth device flow", () => {
+  const startFlow = () =>
+    Effect.runPromise(
+      withClient(
+        Effect.gen(function* () {
+          const client = yield* GitHubClient
+          return yield* client.startOAuthDeviceFlow("client-id", ["repo"])
+        }),
+      ),
+    )
+
+  const poll = () =>
+    Effect.runPromise(
+      withClient(
+        Effect.gen(function* () {
+          const client = yield* GitHubClient
+          return yield* client.pollOAuthToken("client-id", "dev123")
+        }),
+      ),
+    )
+
+  const deviceCode = {
+    device_code: "dev123",
+    user_code: "ABCD-1234",
+    verification_uri: "https://github.com/login/device",
+    interval: 5,
+  }
+
+  it("passes the device code's expires_in through", async () => {
+    mockFetch(() => json({ ...deviceCode, expires_in: 600 }))
+
+    expect(await startFlow()).toEqual({
+      deviceCode: "dev123",
+      userCode: "ABCD-1234",
+      verificationUri: "https://github.com/login/device",
+      interval: 5,
+      expiresIn: 600,
+    })
+  })
+
+  it("defaults expiresIn to GitHub's 15 minutes when expires_in is missing", async () => {
+    mockFetch(() => json(deviceCode))
+
+    expect((await startFlow()).expiresIn).toBe(900)
+  })
+
+  it("reports slow_down with GitHub's new interval instead of plain pending", async () => {
+    mockFetch(() => json({ error: "slow_down", interval: 10 }))
+
+    expect(await poll()).toEqual({ pending: true, slowDown: true, interval: 10 })
+  })
+
+  it("reports authorization_pending as plain pending", async () => {
+    mockFetch(() => json({ error: "authorization_pending" }))
+
+    expect(await poll()).toEqual({ pending: true })
+  })
+})

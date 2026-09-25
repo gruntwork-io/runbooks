@@ -160,12 +160,14 @@ const impl: GitHubClientShape = {
           user_code: string
           verification_uri: string
           interval: number
+          expires_in?: number
         }
         return {
           deviceCode: data.device_code,
           userCode: data.user_code,
           verificationUri: data.verification_uri,
           interval: data.interval,
+          expiresIn: data.expires_in ?? 900,
         }
       },
       catch: toGitHubApiError,
@@ -190,9 +192,15 @@ const impl: GitHubClientShape = {
         const data = (await resp.json()) as {
           access_token?: string
           error?: string
+          interval?: number
         }
-        if (data.error === "authorization_pending" || data.error === "slow_down") {
+        if (data.error === "authorization_pending") {
           return { pending: true }
+        }
+        // Still pending, but the client must back off; GitHub sends the new
+        // minimum interval with it.
+        if (data.error === "slow_down") {
+          return { pending: true, slowDown: true, interval: data.interval }
         }
         if (data.error) {
           throw new GitHubApiError({ status: 400, message: data.error })

@@ -119,7 +119,10 @@ export function registerGitHubHandlers(): void {
         )
 
         if (result.pending) {
-          return { status: "pending" as const }
+          return {
+            status: "pending" as const,
+            ...(result.slowDown ? { slowDown: true, interval: result.interval } : {}),
+          }
         }
 
         if (!result.token) {
@@ -154,9 +157,6 @@ export function registerGitHubHandlers(): void {
         if (message.includes("access_denied")) {
           return { status: "failed" as const, error: "Authorization was denied" }
         }
-        if (message.includes("slow_down")) {
-          return { status: "pending" as const, slowDown: true }
-        }
         return { status: "failed" as const, error: message }
       }
     },
@@ -164,7 +164,7 @@ export function registerGitHubHandlers(): void {
 
   ipcMain.handle(
     "github:env-credentials",
-    async (_event, params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string } = {}) => {
+    async (_event, params: { prefix?: string; host?: string } = {}) => {
       // The {env:{prefix}} variant: the renderer-supplied prefix is
       // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
       const prefix = params.prefix || undefined

@@ -67,6 +67,7 @@ export const githubProviderConfig: ProviderConfig = {
     scopeDescriptions: GITHUB_SCOPE_DESCRIPTIONS,
     showScopeWarning: true,
     requiredScope: 'repo',
+    scopeWarningDetail: 'Operations on private repos, issues, and PRs may fail.',
     showAppInstallBranch: true,
     showFineGrainedNote: true,
     unknownTokenLabel: 'Token',
